@@ -13,10 +13,7 @@ services:
     # then build the Express backend TypeScript, then generate Prisma client.
     buildCommand: >
       npm install --include=dev &&
-      npm run build &&
-      cd server &&
-      npm install --include=dev &&
-      npx prisma generate &&
+      npm run prisma:generate --workspace=server &&
       npm run build
     # Start: run DB migrations (safe to run on every deploy),
     # seed if the DB is empty (idempotent), then start Express which
@@ -26,7 +23,7 @@ services:
       npx prisma migrate deploy &&
       npx tsx prisma/seed.ts &&
       cd .. &&
-      node server/dist/src/index.js
+      npm start
     envVars:
       - key: NODE_ENV
         value: production

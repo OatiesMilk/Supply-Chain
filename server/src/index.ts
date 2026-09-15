@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
+import morgan from 'morgan';
 import path from 'path';
 import fs from 'fs';
 import { prisma } from './db';
@@ -48,6 +49,7 @@ if (!IS_PROD) {
   app.use(cors({ origin: CLIENT_ORIGIN, credentials: true }));
 }
 
+app.use(morgan('dev'));
 app.use(express.json());
 app.use(cookieParser());
 
@@ -74,7 +76,8 @@ app.use('/api/drivers', driversRoutes);
 // In production, serve the built Vite frontend and handle client-side routing
 // by falling back to index.html for any non-API route.
 if (IS_PROD) {
-  const FRONTEND_DIST = process.env.FRONTEND_DIST || path.join(process.cwd(), 'dist');
+  // Point to the client workspace dist folder
+  const FRONTEND_DIST = process.env.FRONTEND_DIST || path.join(process.cwd(), '..', 'client', 'dist');
   if (fs.existsSync(FRONTEND_DIST)) {
     app.use(express.static(FRONTEND_DIST));
     app.get('*', (_req, res) => {
