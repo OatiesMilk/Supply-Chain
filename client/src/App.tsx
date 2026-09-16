@@ -1214,15 +1214,17 @@ export default function App() {
             </button>
             <NotificationBell onNavigate={handleNavigate} deliveryRecords={deliveryRecords} />
 
-            <button
-              onClick={handleResetDemoData}
-              disabled={resetting}
-              className="p-1.5 bg-slate-100 hover:bg-red-50 border border-slate-200 hover:border-red-200 text-slate-500 hover:text-red-600 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-              id="reset-demo-data-button"
-              title="Reset all data back to the original demo seed data (dev only)"
-            >
-              {resetting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCw className="w-3.5 h-3.5" />}
-            </button>
+            {currentUserRole === 'Admin' && (
+              <button
+                onClick={handleResetDemoData}
+                disabled={resetting}
+                className="p-1.5 bg-slate-100 hover:bg-red-50 border border-slate-200 hover:border-red-200 text-slate-500 hover:text-red-600 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                id="reset-demo-data-button"
+                title="Reset all data back to the original demo seed data (Admin only, disabled in production)"
+              >
+                {resetting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCw className="w-3.5 h-3.5" />}
+              </button>
+            )}
 
             <button
               onClick={handleLogout}

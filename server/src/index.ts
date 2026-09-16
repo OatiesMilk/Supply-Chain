@@ -66,8 +66,8 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/skus', skusRoutes);
 app.use('/api/transactions', transactionsRoutes);
 app.use('/api/notifications', notificationsRoutes);
-// Demo reset endpoint — available in all environments since this is a demo app.
-// The route itself requires confirmation before wiping data.
+// Demo reset endpoint — mounted in all environments, but the route itself
+// requires an authenticated Admin and refuses to run when NODE_ENV=production.
 app.use('/api/dev', devRoutes);
 app.use('/api/data-sampler', dataSamplerRoutes);
 app.use('/api/reports', reportsRoutes);
