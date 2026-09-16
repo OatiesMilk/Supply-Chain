@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: mg_portal_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mg_portal_user
+      POSTGRES_PASSWORD: mg_portal_password
+      POSTGRES_DB: mg_portal
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mg_portal_user -d mg_portal"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
