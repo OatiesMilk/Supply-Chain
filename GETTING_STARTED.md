@@ -17,7 +17,13 @@ There's also a **database** — this app needs a real PostgreSQL database to sto
 
 ## Step 0 — Get a database
 
-The simplest option: create a free Postgres database at [Render](https://render.com) or [Supabase](https://supabase.com) (or install Postgres locally if you're comfortable with that). Either way, you end up with a connection string that looks like:
+The simplest option: create a free Postgres database at [Render](https://render.com) or [Supabase](https://supabase.com).
+
+Alternatively, to run Postgres locally:
+- **Windows**: Download the installer from [postgresql.org](https://www.postgresql.org/download/windows/) or run via Docker (`docker run --name pg -e POSTGRES_PASSWORD=secret -p 5432:5432 -d postgres`).
+- **Linux**: Install via your package manager (e.g., `sudo apt install postgresql postgresql-contrib` on Ubuntu/Debian) or run via Docker.
+
+Either way, you end up with a connection string that looks like:
 
 ```
 postgresql://username:password@host:5432/databasename
@@ -43,11 +49,18 @@ cd ..
 
 ## Step 2 — Set up environment variables
 
-The backend needs a config file that isn't checked into git (because it has secrets in it). Copy the example and fill it in:
+The backend needs a config file that isn't checked into git (because it has secrets in it). Copy the example and fill it in.
 
+**For Linux / macOS:**
 ```bash
 cd server
 cp .env.example .env
+```
+
+**For Windows (Command Prompt / PowerShell):**
+```cmd
+cd server
+copy .env.example .env
 ```
 
 Open `server/.env` and edit these two lines:
