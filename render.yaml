@@ -15,15 +15,21 @@ services:
       npm install --include=dev &&
       npm run prisma:generate --workspace=server &&
       npm run build
-    # Start: run DB migrations (safe to run on every deploy),
-    # seed if the DB is empty (idempotent), then start Express which
-    # serves both the API and the built Vite frontend.
+    # Start: run DB migrations (idempotent — safe on every deploy/restart),
+    # then start Express, which serves both the API and the built Vite
+    # frontend. Seeding is intentionally NOT run here — it truncates and
+    # repopulates demo data, which would wipe live production data on every
+    # deploy or container restart. Run `npm run seed --workspace=server`
+    # manually (e.g. from the Render shell) only for initial environment setup.
     startCommand: >
       cd server &&
       npx prisma migrate deploy &&
-      npx tsx prisma/seed.ts &&
       cd .. &&
       npm start
+    # Render polls this path after a new instance starts and only routes
+    # live traffic to it once the check passes, so a bad deploy (e.g. one
+    # that can't reach the database) never takes over from a healthy one.
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
