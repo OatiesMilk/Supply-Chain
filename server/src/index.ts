@@ -53,7 +53,35 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(cookieParser());
 
-app.get('/api/health', (_req, res) => res.json({ ok: true }));
+// Render polls this before routing live traffic to a new instance (see
+// `healthCheckPath` in render.yaml), so it must actually verify the service
+// can do its job, not just that the process is alive.
+app.get('/api/health', async (_req, res) => {
+  const checks: Record<string, string> = {};
+  let healthy = true;
+
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    checks.database = 'ok';
+  } catch (err) {
+    console.error('[health] database check failed', err);
+    checks.database = 'unreachable';
+    healthy = false;
+  }
+
+  checks.mailer =
+    process.env.AZURE_CLIENT_ID && process.env.AZURE_CLIENT_SECRET && process.env.AZURE_TENANT_ID
+      ? 'graph'
+      : process.env.SMTP_HOST
+        ? 'smtp'
+        : 'mock';
+
+  const missingEnv = ['DATABASE_URL', 'JWT_SECRET'].filter((key) => !process.env[key]);
+  checks.environment = missingEnv.length === 0 ? 'ok' : `missing: ${missingEnv.join(', ')}`;
+  if (IS_PROD && missingEnv.length > 0) healthy = false;
+
+  res.status(healthy ? 200 : 503).json({ ok: healthy, checks });
+});
 
 app.use('/api/auth', authRoutes);
 app.use('/api/records', recordsRoutes);
