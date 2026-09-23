@@ -24,15 +24,19 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  createdRecords  DeliveryRecord[] @relation("CreatedByUser")
-  modifiedRecords DeliveryRecord[] @relation("ModifiedByUser")
-  auditEntries    AuditLog[]
-  productCreated  Product[]        @relation("ProductCreatedBy")
-  productModified Product[]        @relation("ProductModifiedBy")
-  notifications   Notification[]
-  comments        Comment[]
-  permissions     UserPermission[]
-  remarkLogs      RemarkLog[]
+  createdRecords   DeliveryRecord[] @relation("CreatedByUser")
+  modifiedRecords  DeliveryRecord[] @relation("ModifiedByUser")
+  auditEntries     AuditLog[]
+  productCreated   Product[]        @relation("ProductCreatedBy")
+  productModified  Product[]        @relation("ProductModifiedBy")
+  customerCreated  Customer[]       @relation("CustomerCreatedBy")
+  customerModified Customer[]       @relation("CustomerModifiedBy")
+  supplierCreated  Supplier[]       @relation("SupplierCreatedBy")
+  supplierModified Supplier[]       @relation("SupplierModifiedBy")
+  notifications    Notification[]
+  comments         Comment[]
+  permissions      UserPermission[]
+  remarkLogs       RemarkLog[]
 }
 
 model UserPermission {
@@ -69,9 +73,11 @@ model Customer {
   phone         String
   address       String
   city          String
-  createdBy     String
+  createdById   String
+  createdBy     User     @relation("CustomerCreatedBy", fields: [createdById], references: [id])
   createdAt     DateTime @default(now())
-  modifiedBy    String
+  modifiedById  String
+  modifiedBy    User     @relation("CustomerModifiedBy", fields: [modifiedById], references: [id])
   modifiedAt    DateTime @updatedAt
 }
 
@@ -86,9 +92,11 @@ model Supplier {
   address       String
   city          String
   category      String // Hardware | Consumables | Electronics | Packaging | Services
-  createdBy     String
+  createdById   String
+  createdBy     User     @relation("SupplierCreatedBy", fields: [createdById], references: [id])
   createdAt     DateTime @default(now())
-  modifiedBy    String
+  modifiedById  String
+  modifiedBy    User     @relation("SupplierModifiedBy", fields: [modifiedById], references: [id])
   modifiedAt    DateTime @updatedAt
 }
 
@@ -117,19 +125,19 @@ model DeliveryRecord {
   documentAttachment String?
   address            String  @default("")
 
-  collectionVerified    Boolean   @default(false)
-  collectionVerifiedBy  String?
-  collectionVerifiedAt  DateTime?
-  amount                Float?
+  collectionVerified   Boolean   @default(false)
+  collectionVerifiedBy String?
+  collectionVerifiedAt DateTime?
+  amount               Float?
 
   createdById  String
   createdBy    User   @relation("CreatedByUser", fields: [createdById], references: [id])
   modifiedById String
   modifiedBy   User   @relation("ModifiedByUser", fields: [modifiedById], references: [id])
 
-  linkedCollectionId  String?
-  linkedCollection    DeliveryRecord?  @relation("CollectionLink", fields: [linkedCollectionId], references: [id])
-  linkedDeliveries    DeliveryRecord[] @relation("CollectionLink")
+  linkedCollectionId String?
+  linkedCollection   DeliveryRecord?  @relation("CollectionLink", fields: [linkedCollectionId], references: [id])
+  linkedDeliveries   DeliveryRecord[] @relation("CollectionLink")
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -138,13 +146,13 @@ model DeliveryRecord {
 
 model AuditLog {
   id            String   @id @default(cuid())
-  recordId      String   // ID of the affected entity (DeliveryRecord, Product, etc.)
-  recordType    String   // 'DeliveryRecord' | 'SKU' | etc.
-  action        String   // CREATE | UPDATE | DELETE
+  recordId      String // ID of the affected entity (DeliveryRecord, Product, etc.)
+  recordType    String // 'DeliveryRecord' | 'SKU' | etc.
+  action        String // CREATE | UPDATE | DELETE
   changedById   String
   changedBy     User     @relation(fields: [changedById], references: [id])
-  previousValue String?  // JSON
-  newValue      String?  // JSON
+  previousValue String? // JSON
+  newValue      String? // JSON
   timestamp     DateTime @default(now())
 }
 
@@ -152,7 +160,7 @@ model Product {
   id           String    @id @default(cuid())
   skuCode      String    @unique
   name         String
-  category     String    // A | B | C
+  category     String // A | B | C
   unitCost     Float
   unitPrice    Float
   reorderPoint Int
@@ -184,7 +192,7 @@ model InventoryTransaction {
   productId        String
   product          Product  @relation(fields: [productId], references: [id])
   date             DateTime @default(now())
-  type             String   // Goods Receipt | Sale | Adjustment | Transfer
+  type             String // Goods Receipt | Sale | Adjustment | Transfer
   qtyChange        Int
   resultingBalance Int
   reference        String
@@ -237,7 +245,7 @@ model RemarkLog {
   id        String   @id @default(cuid())
   recordId  String
   body      String
-  context   String   // CREATION | GENERAL_EDIT | DRIVER_UPDATE | STATUS_CHANGE
+  context   String // CREATION | GENERAL_EDIT | DRIVER_UPDATE | STATUS_CHANGE
   authorId  String
   author    User     @relation(fields: [authorId], references: [id])
   createdAt DateTime @default(now())
@@ -249,7 +257,7 @@ model RemarkLog {
 model Driver {
   id            String   @id @default(cuid())
   name          String
-  type          String   // DRIVER | ASSISTANT
+  type          String // DRIVER | ASSISTANT
   coverageAreas String   @default("[]") // JSON string[] of area keywords
   isActive      Boolean  @default(true)
   createdBy     String
@@ -260,9 +268,9 @@ model Driver {
 
 model DailyStatusSnapshot {
   id        String   @id @default(cuid())
-  date      String   // YYYY-MM-DD — the day this snapshot represents
-  category  String   // DELIVERY | RMA | ACCOUNTING_COLLECTION | PROCUREMENT_PICKUP | SALES_ORDERS | ALL
-  status    String   // SCHEDULED | ACCOMPLISHED | ON_HOLD | RESCHEDULED | PENDING
+  date      String // YYYY-MM-DD — the day this snapshot represents
+  category  String // DELIVERY | RMA | ACCOUNTING_COLLECTION | PROCUREMENT_PICKUP | SALES_ORDERS | ALL
+  status    String // SCHEDULED | ACCOMPLISHED | ON_HOLD | RESCHEDULED | PENDING
   count     Int
   createdAt DateTime @default(now())
 

@@ -5,7 +5,10 @@ import { requireAuth, requireRole } from '../middleware/auth';
 const router = Router();
 
 router.get('/', requireAuth, async (_req, res) => {
-  const suppliers = await prisma.supplier.findMany({ orderBy: { name: 'asc' } });
+  const suppliers = await prisma.supplier.findMany({ 
+    orderBy: { name: 'asc' },
+    include: { createdBy: true, modifiedBy: true }
+  });
   res.json(
     suppliers.map(s => ({
       id: s.id,
@@ -16,23 +19,17 @@ router.get('/', requireAuth, async (_req, res) => {
       address: s.address,
       city: s.city,
       category: s.category,
-      created_by: s.createdBy,
+      created_by: s.createdBy.name,
       created_at: s.createdAt,
-      modified_by: s.modifiedBy,
+      modified_by: s.modifiedBy.name,
       modified_at: s.modifiedAt
     }))
   );
 });
 
-// Every role may create a Supplier except TASS.
 router.post('/', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER'), async (req, res) => {
   const { name, contact_person, email, phone, address, city, category } = req.body ?? {};
-  if (!name) return res.status(400).json({ error: 'name is required' });
-
-  const validCategories = ['Hardware', 'Consumables', 'Electronics', 'Packaging', 'Services'];
-  if (category && !validCategories.includes(category)) {
-    return res.status(400).json({ error: `category must be one of: ${validCategories.join(', ')}` });
-  }
+  if (!name || !category) return res.status(400).json({ error: 'name and category are required' });
 
   const created = await prisma.supplier.create({
     data: {
@@ -42,11 +39,12 @@ router.post('/', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADM
       phone: phone ?? '',
       address: address ?? '',
       city: city ?? '',
-      category: category ?? 'Services',
-      createdBy: req.user!.name,
-      modifiedBy: req.user!.name,
+      category,
+      createdById: req.user!.id,
+      modifiedById: req.user!.id,
       modifiedAt: new Date()
-    }
+    },
+    include: { createdBy: true, modifiedBy: true }
   });
   res.status(201).json({
     id: created.id,
@@ -57,9 +55,9 @@ router.post('/', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADM
     address: created.address,
     city: created.city,
     category: created.category,
-    created_by: created.createdBy,
+    created_by: created.createdBy.name,
     created_at: created.createdAt,
-    modified_by: created.modifiedBy,
+    modified_by: created.modifiedBy.name,
     modified_at: created.modifiedAt
   });
 });

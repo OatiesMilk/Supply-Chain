@@ -10,7 +10,9 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
     "seed": "tsx prisma/seed.ts",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "db:reset": "prisma migrate reset --force",
+    "seed:accounts": "tsx prisma/seed-accounts-only.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
@@ -45,5 +47,8 @@
     "autocannon": "^8.0.0",
     "prisma": "^5.22.0",
     "typescript": "~5.8.2"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   }
 }
