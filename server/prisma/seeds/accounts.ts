@@ -1,7 +1,5 @@
 
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../src/db';
 
 const COMPANIES = [
   { key: 'jollibee',     name: 'Jollibee Foods Corp. - Quezon City Cluster',          sapNumber: 'SAP-CO-0001', address: '12 E. Rodriguez Jr. Ave, Quezon City',              contactPerson: 'Theresa Alajar' },

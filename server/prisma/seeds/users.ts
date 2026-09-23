@@ -1,8 +1,6 @@
 
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../src/db';
 import bcrypt from 'bcryptjs';
-
-const prisma = new PrismaClient();
 
 const USERS = [
   { name: 'Maria Reyes',  email: 'sales@microgenesis.com',     password: 'password123', role: 'SALES_COORDINATOR' as const, isActive: true },

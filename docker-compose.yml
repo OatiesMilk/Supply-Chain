@@ -2,19 +2,22 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: mg_portal_db
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: mg_portal_user
-      POSTGRES_PASSWORD: mg_portal_password
-      POSTGRES_DB: mg_portal
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set in .env}
     ports:
-      - "5433:5432"
+      # Bound to localhost (127.0.0.1) by default to prevent external exposure
+      - "${POSTGRES_BIND_IP:-127.0.0.1}:${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mg_portal_user -d mg_portal"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 5

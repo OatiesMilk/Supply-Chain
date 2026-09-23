@@ -13,13 +13,15 @@
     "db:reset": "npm run db:reset --workspace=mg-portal-server",
     "db:clean": "npm run db:clean --workspace=mg-portal-server",
     "seed": "npm run seed --workspace=mg-portal-server",
-    "seed:accounts": "npm run seed:accounts --workspace=mg-portal-server"
+    "seed:accounts": "npm run seed:accounts --workspace=mg-portal-server",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down"
   },
   "devDependencies": {
     "concurrently": "^10.0.5",
-    "prisma": "^5.22.0"
+    "prisma": "^7.10.0"
   },
   "dependencies": {
-    "@prisma/client": "^5.22.0"
+    "@prisma/client": "^7.10.0"
   }
 }

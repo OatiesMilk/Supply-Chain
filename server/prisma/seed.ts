@@ -1,7 +1,5 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../src/db';
 import bcrypt from 'bcryptjs';
-
-const prisma = new PrismaClient();
 
 import { seedAccounts, COMPANIES, CUSTOMERS, SUPPLIERS } from './seeds/accounts';
 import { seedDrivers } from './seeds/drivers';

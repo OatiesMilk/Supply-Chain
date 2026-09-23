@@ -1,7 +1,5 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../src/db';
 import { seedAccounts } from './seeds/accounts';
-
-const prisma = new PrismaClient();
 
 async function main() {
   const adminUser = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
