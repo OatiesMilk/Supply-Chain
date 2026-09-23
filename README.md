@@ -41,23 +41,27 @@ This document is written for two audiences at once: engineers who need to run, e
 
 ## Full-Stack Setup
 
-This app is two separate processes in local dev:
+This project uses npm workspaces to manage the **Backend** (`server/`) and **Frontend** (`client/`) together.
 
-1. **Backend** (`server/`) — Express + Prisma + PostgreSQL, JWT auth in an httpOnly cookie, runs on port 4000.
-2. **Frontend** (this directory) — Vite + React, runs on port 3000 and proxies `/api/*` to the backend (see `vite.config.ts`), so the session cookie stays same-origin.
+1. **Backend** — Express + Prisma + PostgreSQL, JWT auth in an httpOnly cookie, runs on port 4000.
+2. **Frontend** — Vite + React, runs on port 3000 and proxies `/api/*` to the backend (see `client/vite.config.ts`).
+
+From the **root directory**:
 
 ```bash
-# Terminal 1 - backend (start this first)
-cd server
+# 1. Install dependencies for all workspaces
 npm install
-cp .env.example .env          # fill in a PostgreSQL DATABASE_URL + JWT_SECRET (see Environment Variables)
-npx prisma migrate dev        # applies the schema to your Postgres database
-npm run seed                  # loads demo users, companies, customers, and delivery records
-npm run dev                   # http://localhost:4000
 
-# Terminal 2 - frontend
-npm install
-npm run dev                   # http://localhost:3000
+# 2. Configure the backend environment
+cp server/.env.example server/.env   # fill in PostgreSQL DATABASE_URL + JWT_SECRET
+
+# 3. Setup the Database (from the root)
+npm run db:reset             # applies schema migrations and runs the full data seed
+npm run seed:accounts        # exclusively seeds companies, customers, and suppliers
+npm run db:clean             # wipes the database clean (leaves an empty schema without data)
+
+# 4. Start the application (runs both frontend and backend concurrently)
+npm run dev                  # Frontend at http://localhost:3000, API at :4000
 ```
 
 Open `http://localhost:3000` and log in with one of the seeded accounts (also shown on the login screen):
