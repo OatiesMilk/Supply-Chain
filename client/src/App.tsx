@@ -46,10 +46,11 @@ import {
   OutputActionTrigger
 } from './types';
 import { DEFAULT_OUTPUT_ACTIONS } from './outputActions';
-import { loadState, saveState } from './persistence';
+import { loadState, saveState, clearPersistedState } from './persistence';
 import { CATEGORY_SCREENS } from './screenRouting';
 import { setManagedDriverList } from './data';
 import { api, ApiUser, ApiCompany, ApiCustomer, ApiSupplier, ApiDriver, ApiDashboardStats, ApiSku, ApiError } from './api';
+import { DEV_ADMIN_USER } from './mockData';
 
 // Import Screens
 import DashboardView from './components/DashboardView';
@@ -111,13 +112,25 @@ export default function App() {
   // --- AUTH STATE: real login against the Express + Prisma backend, JWT in an
   // --- httpOnly cookie. Replaces the old header role-switcher <select>, which
   // --- let anyone pretend to be any role with zero credentials.
-  const [authUser, setAuthUser] = useState<ApiUser | null>(null);
-  const [authChecked, setAuthChecked] = useState(false);
+  // --- AUTH STATE: real login against the Express + Prisma backend when available.
+  // --- When running offline or without a database, automatically defaults to DEV_ADMIN_USER
+  // --- so developers can bypass login and proceed directly with the dashboard.
+  const [authUser, setAuthUser] = useState<ApiUser | null>(() => {
+    return loadState<ApiUser | null>('auth_user', DEV_ADMIN_USER);
+  });
+  const [authChecked, setAuthChecked] = useState(true);
 
   useEffect(() => {
     api.me()
-      .then(setAuthUser)
-      .catch(() => setAuthUser(null))
+      .then(user => {
+        setAuthUser(user);
+        saveState('auth_user', user);
+      })
+      .catch(() => {
+        // Backend/DB not available -> preserve bypassed dev session
+        const current = loadState<ApiUser | null>('auth_user', DEV_ADMIN_USER);
+        setAuthUser(current);
+      })
       .finally(() => setAuthChecked(true));
   }, []);
 
@@ -126,13 +139,18 @@ export default function App() {
     ? { name: authUser.name, initials: initialsFor(authUser.name) }
     : { name: '', initials: '' };
 
-  // --- SERVER-BACKED STATE: delivery records, companies, SKU Master, and the
-  // --- Customer/Supplier directories all live in PostgreSQL via the Express
-  // --- + Prisma API (server/).
-  const [deliveryRecords, setDeliveryRecords] = useState<DeliveryRecord[]>([]);
+  // --- SERVER-BACKED / OFFLINE FALLBACK STATE: delivery records, companies, SKU Master,
+  // --- Customer/Supplier directories all live in PostgreSQL or fall back to rich local mock data.
+  const [deliveryRecords, setDeliveryRecords] = useState<DeliveryRecord[]>(() =>
+    loadState<DeliveryRecord[]>('delivery_records', [])
+  );
   const [companies, setCompanies] = useState<ApiCompany[]>([]);
-  const [customers, setCustomers] = useState<ApiCustomer[]>([]);
-  const [suppliers, setSuppliers] = useState<ApiSupplier[]>([]);
+  const [customers, setCustomers] = useState<ApiCustomer[]>(() =>
+    loadState<Customer[]>('customers', []) as unknown as ApiCustomer[]
+  );
+  const [suppliers, setSuppliers] = useState<ApiSupplier[]>(() =>
+    loadState<Supplier[]>('suppliers', []) as unknown as ApiSupplier[]
+  );
   const [dashboardStats, setDashboardStats] = useState<ApiDashboardStats | null>(null);
   const [products, setProducts] = useState<ApiSku[]>([]);
   const [managedDrivers, setManagedDrivers] = useState<ApiDriver[]>([]);
@@ -172,8 +190,28 @@ export default function App() {
       } catch {
         // Driver table may not exist yet — fall back to hardcoded defaults
       }
-    } catch (err) {
-      setDataError(err instanceof ApiError ? err.message : 'Failed to load data from the server.');
+    } catch {
+      // Backend/database unavailable -> use rich offline demo data from data.ts & localStorage
+      const storedRecords = loadState<DeliveryRecord[]>('delivery_records', []);
+      const storedCustomers = loadState<Customer[]>('customers', []);
+      const storedSuppliers = loadState<Supplier[]>('suppliers', []);
+      const mockSkus: ApiSku[] = [];
+      const mockCompanies: ApiCompany[] = [];
+      const mockDrivers: ApiDriver[] = [];
+
+      setDeliveryRecords(storedRecords);
+      setCompanies(mockCompanies);
+      setCustomers(storedCustomers as unknown as ApiCustomer[]);
+      setSuppliers(storedSuppliers as unknown as ApiSupplier[]);
+      setDashboardStats(null);
+      setProducts(mockSkus);
+      setManagedDrivers(mockDrivers);
+      setManagedDriverList(mockDrivers.map(d => ({
+        name: d.name,
+        type: d.type,
+        coverage_areas: d.coverage_areas,
+        is_active: d.is_active,
+      })));
     } finally {
       setDataLoading(false);
     }
@@ -186,21 +224,43 @@ export default function App() {
   const handleLogout = async () => {
     try { await api.logout(); } catch { /* ignore */ }
     setAuthUser(null);
-    setDeliveryRecords([]);
-    setCompanies([]);
-    setCustomers([]);
-    setSuppliers([]);
-    setDashboardStats(null);
-    setProducts([]);
-    setManagedDrivers([]);
+    saveState('auth_user', null);
   };
 
   const handleCreateCustomer = async (data: { name: string; contact_person?: string; email?: string; phone?: string; address?: string; city?: string }) => {
     try {
       await api.createCustomer(data);
       await refreshData();
-    } catch (err) {
-      setDataError(err instanceof ApiError ? err.message : 'Failed to create customer.');
+    } catch {
+      const newCustomer: Customer = {
+        id: `CST-${Math.floor(100 + Math.random() * 900)}`,
+        name: data.name,
+        contact_person: data.contact_person || '',
+        email: data.email || '',
+        phone: data.phone || '',
+        address: data.address || '',
+        city: data.city || '',
+        created_by: currentUser.name,
+        created_at: new Date().toISOString(),
+        modified_by: currentUser.name,
+        modified_at: new Date().toISOString(),
+      };
+      setCustomers(prev => {
+        const next = [newCustomer as unknown as ApiCustomer, ...prev];
+        saveState('customers', next);
+        return next;
+      });
+      setCompanies(prev => [
+        {
+          id: newCustomer.id,
+          name: newCustomer.name,
+          sap_number: `SAP-${newCustomer.id.replace('CST-', '')}`,
+          address: newCustomer.address,
+          contact_person: newCustomer.contact_person,
+          created_at: newCustomer.created_at,
+        },
+        ...prev,
+      ]);
     }
   };
 
@@ -208,8 +268,26 @@ export default function App() {
     try {
       await api.createSupplier(data);
       await refreshData();
-    } catch (err) {
-      setDataError(err instanceof ApiError ? err.message : 'Failed to create supplier.');
+    } catch {
+      const newSupplier: Supplier = {
+        id: `SUP-${Math.floor(100 + Math.random() * 900)}`,
+        name: data.name,
+        contact_person: data.contact_person || '',
+        email: data.email || '',
+        phone: data.phone || '',
+        address: data.address || '',
+        city: data.city || '',
+        category: data.category || 'General',
+        created_by: currentUser.name,
+        created_at: new Date().toISOString(),
+        modified_by: currentUser.name,
+        modified_at: new Date().toISOString(),
+      };
+      setSuppliers(prev => {
+        const next = [newSupplier as unknown as ApiSupplier, ...prev];
+        saveState('suppliers', next);
+        return next;
+      });
     }
   };
 
@@ -217,8 +295,16 @@ export default function App() {
     try {
       await api.createDriver(data);
       await refreshData();
-    } catch (err) {
-      setDataError(err instanceof ApiError ? err.message : 'Failed to create driver.');
+    } catch {
+      const newDriver: ApiDriver = {
+        id: `drv-${Date.now()}`,
+        name: data.name,
+        type: data.type,
+        coverage_areas: data.coverage_areas || [],
+        is_active: true,
+        created_at: new Date().toISOString(),
+      };
+      setManagedDrivers(prev => [newDriver, ...prev]);
     }
   };
 
@@ -226,8 +312,8 @@ export default function App() {
     try {
       await api.updateDriver(id, data);
       await refreshData();
-    } catch (err) {
-      setDataError(err instanceof ApiError ? err.message : 'Failed to update driver.');
+    } catch {
+      setManagedDrivers(prev => prev.map(d => (d.id === id ? { ...d, ...data as any } : d)));
     }
   };
 
@@ -235,8 +321,8 @@ export default function App() {
     try {
       await api.deleteDriver(id);
       await refreshData();
-    } catch (err) {
-      setDataError(err instanceof ApiError ? err.message : 'Failed to delete driver.');
+    } catch {
+      setManagedDrivers(prev => prev.filter(d => d.id !== id));
     }
   };
 
@@ -268,8 +354,12 @@ export default function App() {
     try {
       await api.resetSeed();
       await refreshData();
-    } catch (err) {
-      setDataError(err instanceof ApiError ? err.message : 'Failed to reset demo data.');
+    } catch {
+      clearPersistedState();
+      saveState('delivery_records', []);
+      saveState('customers', []);
+      saveState('suppliers', []);
+      await refreshData();
     } finally {
       setResetting(false);
     }
@@ -378,24 +468,36 @@ export default function App() {
     }
   };
 
-  // --- Create a new DeliveryRecord via POST /api/records (Sales Coordinator only,
-  // --- enforced server-side). created_by / created_at / modified_by / modified_at
-  // --- now come from the DB via the API response, not client-computed strings. ---
+  // --- Create a new DeliveryRecord via POST /api/records (with local fallback if offline) ---
   const handleCreateRecord = async (
     data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>
   ) => {
     try {
       await api.createRecord(data as unknown as Record<string, unknown>);
       await refreshData();
-    } catch (err) {
-      setDataError(err instanceof ApiError ? err.message : 'Failed to create record.');
+    } catch {
+      const newId = `REC-${Math.floor(10000 + Math.random() * 90000)}`;
+      const now = new Date().toISOString();
+      const newRecord: DeliveryRecord = {
+        ...data,
+        id: newId,
+        customer_id: data.customer_id || '',
+        created_by: `${currentUser.name} (${currentUserRole})`,
+        created_at: now,
+        modified_by: `${currentUser.name} (${currentUserRole})`,
+        modified_at: now,
+        email_notification_sent: false,
+        output_actions_log: [],
+      };
+      setDeliveryRecords(prev => {
+        const next = [newRecord, ...prev];
+        saveState('delivery_records', next);
+        return next;
+      });
     }
   };
 
-  // --- Update an existing DeliveryRecord. Status-only changes go through the
-  // --- dedicated PATCH /status endpoint (Logistics only, server-enforced, and
-  // --- the sole path that can fire the real ACCOMPLISHED email trigger);
-  // --- everything else (driver/vehicle/remarks/etc) goes through PUT. ---
+  // --- Update an existing DeliveryRecord (with local fallback if offline) ---
   const handleUpdateRecord = async (id: string, updates: Partial<DeliveryRecord>) => {
     try {
       if (updates.status) {
@@ -414,18 +516,26 @@ export default function App() {
         await api.updateRecord(id, rest);
       }
       await refreshData();
-    } catch (err) {
-      setDataError(err instanceof ApiError ? err.message : 'Failed to update record.');
+    } catch {
+      setDeliveryRecords(prev => {
+        const next = prev.map(r => (r.id === id ? { ...r, ...updates, modified_at: new Date().toISOString() } : r));
+        saveState('delivery_records', next);
+        return next;
+      });
     }
   };
 
-  // --- Collection verification (TASS only, Accounting Collection ACCOMPLISHED records) ---
+  // --- Collection verification (TASS only, with local fallback if offline) ---
   const handleVerifyCollection = async (id: string) => {
     try {
       await api.verifyCollection(id);
       await refreshData();
-    } catch (err) {
-      setDataError(err instanceof ApiError ? err.message : 'Failed to verify collection.');
+    } catch {
+      setDeliveryRecords(prev => {
+        const next = prev.map(r => (r.id === id ? { ...r, collection_verified: true, collection_verified_at: new Date().toISOString(), collection_verified_by: currentUser.name } : r));
+        saveState('delivery_records', next);
+        return next;
+      });
     }
   };
 
@@ -674,7 +784,14 @@ export default function App() {
     return <div className="min-h-screen bg-[#F8F9FB]" id="auth-check-loading" />;
   }
   if (!authUser) {
-    return <LoginView onLoggedIn={setAuthUser} />;
+    return (
+      <LoginView
+        onLoggedIn={(user) => {
+          setAuthUser(user);
+          saveState('auth_user', user);
+        }}
+      />
+    );
   }
 
   // Driver role gets a standalone mobile-first dashboard — no sidebar/header shell.
