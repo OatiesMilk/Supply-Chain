@@ -1,13 +1,16 @@
 import { Router } from 'express';
 import { runSeed } from '../../prisma/seed';
+import { requireAuth, requireRole } from '../middleware/auth';
 
 const router = Router();
 
-// Dev-only convenience endpoint backing the frontend's "Reset Demo Data"
-// button now that persistence is server-side. Truncates and re-runs the seed
-// script. Intentionally has no RBAC guard beyond requiring the app to be
-// running - this endpoint is for local demo resets, not production use.
-router.post('/reset-seed', async (_req, res) => {
+// Dev-only convenience endpoint backing the frontend's "Reset Demo Data" button.
+// Guarded with Admin role check and strictly disabled in production environments.
+router.post('/reset-seed', requireAuth, requireRole('ADMIN'), async (_req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ error: 'Endpoint disabled in production environment' });
+  }
+
   try {
     await runSeed(true);
     res.json({ ok: true });

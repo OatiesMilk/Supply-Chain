@@ -89,10 +89,9 @@ router.get('/', requireAuth, async (req, res) => {
         modifiedBy: 'system',
       })),
     });
+    // Import any driver/assistant names from delivery records once on initialization
+    await syncDriversFromRecords();
   }
-  // Always sync: import any driver/assistant names from delivery records
-  // that aren't in the Driver table yet.
-  await syncDriversFromRecords();
 
   const where = req.query.all === '1' ? {} : { isActive: true };
   const drivers = await prisma.driver.findMany({ where, orderBy: { name: 'asc' } });
@@ -140,7 +139,26 @@ router.put('/:id', requireAuth, requireRole('LOGISTICS', 'ADMIN'), async (req, r
 router.delete('/:id', requireAuth, requireRole('LOGISTICS', 'ADMIN'), async (req, res) => {
   const existing = await prisma.driver.findUnique({ where: { id: req.params.id } });
   if (!existing) return res.status(404).json({ error: 'Driver not found' });
-  await prisma.driver.delete({ where: { id: req.params.id } });
+
+  const inUse = await prisma.deliveryRecord.count({
+    where: {
+      OR: [
+        { driver: existing.name },
+        { driverAssistants: { contains: existing.name } }
+      ],
+      deletedAt: null
+    }
+  });
+
+  if (inUse > 0) {
+    // Soft-delete to preserve historical delivery record audit integrity
+    await prisma.driver.update({
+      where: { id: req.params.id },
+      data: { isActive: false, modifiedBy: req.user!.name }
+    });
+  } else {
+    await prisma.driver.delete({ where: { id: req.params.id } });
+  }
   res.status(204).end();
 });
 

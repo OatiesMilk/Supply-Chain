@@ -21,6 +21,10 @@ declare global {
 }
 
 const COOKIE_NAME = 'mg_session';
+
+if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
+  throw new Error('FATAL: JWT_SECRET environment variable is missing in production environment.');
+}
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-only-insecure-secret';
 
 export function signToken(user: AuthUser): string {
@@ -31,14 +35,19 @@ export function setSessionCookie(res: Response, token: string) {
   const isProd = process.env.NODE_ENV === 'production';
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
-    sameSite: isProd ? 'none' : 'lax',
+    sameSite: 'lax',
     secure: isProd,
     maxAge: 8 * 60 * 60 * 1000
   });
 }
 
 export function clearSessionCookie(res: Response) {
-  res.clearCookie(COOKIE_NAME);
+  const isProd = process.env.NODE_ENV === 'production';
+  res.clearCookie(COOKIE_NAME, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: isProd
+  });
 }
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {

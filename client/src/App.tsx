@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
-import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { useEffect } from 'react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from '@/api/queryClient';
+import { useAuth, useUIStore } from '@/store';
 import { useAppData, useDeliveryActions, usePermissions } from '@/hooks';
 import { MainLayout } from '@/layouts';
-import { AppRouter, CATEGORY_SCREENS } from '@/routes';
+import { AppRouter } from '@/routes';
 import LoginView from '@/features/auth/LoginView';
 import DriverDashboard from '@/features/dashboard/DriverDashboard';
 import { DeliveryCategory } from '@/types';
@@ -16,17 +18,22 @@ function AppContent() {
     currentUserInitials,
     login,
     logout,
+    checkAuth,
   } = useAuth();
+
+  // Validate session on app initialization
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
   const currentUser = {
     name: currentUserName,
     initials: currentUserInitials,
   };
 
-  // Application data & server synchronization hook
+  // TanStack Query synchronized application data hook
   const {
     deliveryRecords,
-    setDeliveryRecords,
     companies,
     customers,
     suppliers,
@@ -45,7 +52,7 @@ function AppContent() {
     handleResetDemoData,
   } = useAppData(authUser, currentUser, currentUserRole);
 
-  // Delivery & status action workflows hook
+  // TanStack Query mutation action workflows hook
   const {
     outputActionConfigs,
     handleUpdateOutputActionConfig,
@@ -56,29 +63,32 @@ function AppContent() {
     currentUser,
     currentUserRole,
     refreshData,
-    setDeliveryRecords,
   });
 
   // Role permissions & screen access hook
   const { effectiveScreens, canAccess } = usePermissions(authUser);
 
-  // Navigation & cross-screen selection state
-  const [currentScreen, setCurrentScreen] = useState<string>('dashboard');
-  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
-  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
-  const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
+  // Zustand UI Store state and actions
+  const currentScreen = useUIStore(s => s.currentScreen);
+  const isSidebarOpen = useUIStore(s => s.isSidebarOpen);
+  const setIsSidebarOpen = useUIStore(s => s.setIsSidebarOpen);
+  const isSidebarCollapsed = useUIStore(s => s.isSidebarCollapsed);
+  const setIsSidebarCollapsed = useUIStore(s => s.setIsSidebarCollapsed);
+  const zoomFactor = useUIStore(s => s.zoomFactor);
+  const setZoomFactor = useUIStore(s => s.setZoomFactor);
+  const searchOpen = useUIStore(s => s.searchOpen);
+  const setSearchOpen = useUIStore(s => s.setSearchOpen);
+  const accessRequestOpen = useUIStore(s => s.accessRequestOpen);
+  const accessRequestScreen = useUIStore(s => s.accessRequestScreen);
+  const openAccessRequest = useUIStore(s => s.openAccessRequest);
+  const closeAccessRequest = useUIStore(s => s.closeAccessRequest);
+  const selectedProductId = useUIStore(s => s.selectedProductId);
+  const setSelectedProductId = useUIStore(s => s.setSelectedProductId);
+  const selectedRecordId = useUIStore(s => s.selectedRecordId);
+  const setSelectedRecordId = useUIStore(s => s.setSelectedRecordId);
+  const handleNavigate = useUIStore(s => s.handleNavigate);
 
-  // Global search modal state
-  const [searchOpen, setSearchOpen] = useState(false);
-
-  // Access request modal state
-  const [accessRequestOpen, setAccessRequestOpen] = useState(false);
-  const [accessRequestScreen, setAccessRequestScreen] = useState('');
-
-  // Accessibility zoom state
-  const [zoomFactor, setZoomFactor] = useState<number>(100);
-
+  // Synchronize accessibility root font-size with zoomFactor
   useEffect(() => {
     document.documentElement.style.fontSize = `${zoomFactor}%`;
     return () => {
@@ -86,27 +96,17 @@ function AppContent() {
     };
   }, [zoomFactor]);
 
-  // Global Ctrl+K / Cmd+K search shortcut
+  // Global Ctrl+K / Cmd+K search modal shortcut
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
-        setSearchOpen(open => !open);
+        setSearchOpen(!searchOpen);
       }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, []);
-
-  const handleNavigate = (screen: string, item_id?: string) => {
-    setCurrentScreen(screen);
-    setIsSidebarOpen(false);
-    if (screen === 'inventory' && item_id) {
-      setSelectedProductId(item_id);
-    } else if (CATEGORY_SCREENS[screen] && item_id) {
-      setSelectedRecordId(item_id);
-    }
-  };
+  }, [searchOpen, setSearchOpen]);
 
   // Dynamic counts for sidebar badges
   const countByCategory = (cat: DeliveryCategory, statuses: string[]) =>
@@ -116,12 +116,12 @@ function AppContent() {
   const rmaActiveCount = countByCategory('RMA', ['Scheduled', 'Pending', 'On-Hold']);
   const salesOrdersActiveCount = countByCategory('Sales Orders', ['Scheduled', 'Pending']);
 
-  // Auth loading gate
+  // Authentication loading gate
   if (!authChecked) {
     return <div className="min-h-screen bg-[#F8F9FB]" id="auth-check-loading" />;
   }
 
-  // Unauthenticated -> Login view
+  // Unauthenticated -> Render Login view
   if (!authUser) {
     return <LoginView onLoggedIn={login} />;
   }
@@ -148,10 +148,7 @@ function AppContent() {
       dataError={dataError}
       accessRequestModalProps={{
         isOpen: accessRequestOpen,
-        onClose: () => {
-          setAccessRequestOpen(false);
-          setAccessRequestScreen('');
-        },
+        onClose: closeAccessRequest,
         screenName: accessRequestScreen,
         currentUserRole,
       }}
@@ -168,10 +165,7 @@ function AppContent() {
         deliveriesActiveCount,
         rmaActiveCount,
         salesOrdersActiveCount,
-        onRequestAccess: () => {
-          setAccessRequestScreen('');
-          setAccessRequestOpen(true);
-        },
+        onRequestAccess: () => openAccessRequest(''),
       }}
       navbarProps={{
         currentScreen,
@@ -224,8 +218,8 @@ function AppContent() {
 
 export default function App() {
   return (
-    <AuthProvider>
+    <QueryClientProvider client={queryClient}>
       <AppContent />
-    </AuthProvider>
+    </QueryClientProvider>
   );
 }

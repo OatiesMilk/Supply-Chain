@@ -360,9 +360,9 @@ router.put('/:id', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'A
   res.json(serializeRecord(updated));
 });
 
-// Status change — Logistics, Sales Coordinator, Admin, and Driver (own records).
+// Status change — Logistics, Admin, Driver (own records), and TASS (RMA only).
 // This is also the sole path that fires the ACCOMPLISHED automated trigger.
-router.patch('/:id/status', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), async (req, res) => {
+router.patch('/:id/status', requireAuth, requireRole('LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), async (req, res) => {
   const { status, remarks, time_out, received_by } = req.body ?? {};
   if (!status || !STATUS_TO_DB[status]) {
     return res.status(400).json({ error: 'Valid status is required' });

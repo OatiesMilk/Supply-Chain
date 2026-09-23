@@ -70,9 +70,17 @@ async function resolveRecipients(recipients: string[], record: any): Promise<{ n
     if (r === 'AM') {
       const am = record.accountManager;
       if (am) {
-        const user = await prisma.user.findFirst({
+        let user = await prisma.user.findFirst({
           where: { name: { equals: am, mode: 'insensitive' }, isActive: true },
         });
+        if (!user && am.includes(' ')) {
+          const lastName = am.split(' ').pop();
+          if (lastName) {
+            user = await prisma.user.findFirst({
+              where: { name: { contains: lastName, mode: 'insensitive' }, isActive: true },
+            });
+          }
+        }
         if (user) resolved.push({ name: user.name, email: user.email });
       }
     } else if (r === 'LOGISTICS') {

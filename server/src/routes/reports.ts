@@ -35,19 +35,9 @@ router.get('/daily-status-history', requireAuth, requireRole('LOGISTICS', 'ADMIN
     orderBy: [{ date: 'asc' }, { status: 'asc' }]
   });
 
-  if (snapshots.length > 0) {
-    return res.json({
-      source: 'snapshot',
-      rows: snapshots.map(s => ({
-        date: s.date,
-        category: CATEGORY_FROM_DB[s.category] ?? s.category,
-        status: STATUS_FROM_DB[s.status] ?? s.status,
-        count: s.count
-      }))
-    });
-  }
+  const snapshotDates = new Set(snapshots.map(s => s.date));
 
-  // Fallback: live aggregation from DeliveryRecord when no snapshot exists
+  // Query live records for any dates within range not covered by pre-computed snapshots
   const dbStatus   = status   ? (STATUS_TO_DB[status]     ?? status)   : undefined;
   const dbCategory = category ? (CATEGORY_TO_DB[category] ?? category) : undefined;
 
@@ -61,18 +51,24 @@ router.get('/daily-status-history', requireAuth, requireRole('LOGISTICS', 'ADMIN
     select: { category: true, status: true, deliveryDate: true }
   });
 
-  // Group by date + category + status (mirror the snapshot schema)
+  // Group live records by date + category + status for dates not in snapshots
   const grouped: Record<string, number> = {};
   for (const r of liveRecords) {
     const date = r.deliveryDate ?? '';
+    if (snapshotDates.has(date)) continue;
     const cat  = dbCategory ? r.category : 'ALL';
     const key  = `${date}::${cat}::${r.status}`;
     grouped[key] = (grouped[key] ?? 0) + 1;
   }
 
-  const liveRows = Object.entries(grouped)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, count]) => {
+  const combinedRows = [
+    ...snapshots.map(s => ({
+      date:     s.date,
+      category: CATEGORY_FROM_DB[s.category] ?? s.category,
+      status:   STATUS_FROM_DB[s.status] ?? s.status,
+      count:    s.count,
+    })),
+    ...Object.entries(grouped).map(([key, count]) => {
       const [date, cat, st] = key.split('::');
       return {
         date,
@@ -80,9 +76,13 @@ router.get('/daily-status-history', requireAuth, requireRole('LOGISTICS', 'ADMIN
         status:   STATUS_FROM_DB[st]    ?? st,
         count,
       };
-    });
+    }),
+  ].sort((a, b) => a.date.localeCompare(b.date) || a.status.localeCompare(b.status));
 
-  res.json({ source: 'live', rows: liveRows });
+  res.json({
+    source: snapshots.length > 0 ? (Object.keys(grouped).length > 0 ? 'hybrid' : 'snapshot') : 'live',
+    rows: combinedRows,
+  });
 });
 
 // GET /reports/summary — on-demand statistical summary with optional filters.
