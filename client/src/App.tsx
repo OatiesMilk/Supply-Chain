@@ -161,13 +161,14 @@ export default function App() {
     setDataLoading(true);
     setDataError(null);
     try {
-      const [records, companyList, customerList, supplierList, stats, skuList] = await Promise.all([
+      const [records, companyList, customerList, supplierList, stats, skuList, driverList] = await Promise.all([
         api.getRecords(),
         api.getCompanies(),
         api.getCustomers(),
         api.getSuppliers(),
-        api.getDashboardStats(),
+        api.getDashboardStats().catch(() => null),
         api.getSkus(),
+        api.getDrivers(true).catch(() => []),
       ]);
       setDeliveryRecords(records.map(normalizeApiRecord));
       setCompanies(companyList);
@@ -176,10 +177,7 @@ export default function App() {
       setDashboardStats(stats);
       setProducts(skuList);
 
-      // Driver manager fetch is non-blocking — if the Driver table doesn't
-      // exist yet (migration not run), core data still loads.
-      try {
-        const driverList = await api.getDrivers(true);
+      if (driverList && driverList.length > 0) {
         setManagedDrivers(driverList);
         setManagedDriverList(driverList.map(d => ({
           name: d.name,
@@ -187,8 +185,6 @@ export default function App() {
           coverage_areas: d.coverage_areas,
           is_active: d.is_active,
         })));
-      } catch {
-        // Driver table may not exist yet — fall back to hardcoded defaults
       }
     } catch {
       // Backend/database unavailable -> use rich offline demo data from data.ts & localStorage
@@ -197,7 +193,74 @@ export default function App() {
       const storedSuppliers = loadState<Supplier[]>('suppliers', []);
       const mockSkus: ApiSku[] = [];
       const mockCompanies: ApiCompany[] = [];
-      const mockDrivers: ApiDriver[] = [];
+      const mockDrivers: ApiDriver[] = [
+        {
+          id: 'drv-1',
+          name: 'Lando Navarro',
+          type: 'DRIVER',
+          coverage_areas: ['Makati', 'BGC', 'Taguig', 'Mandaluyong', 'San Juan', 'Pasig', 'Ortigas', 'Ortigas Corridor', 'Ortigas Center (Pasig)'],
+          is_active: true,
+          created_by: 'system',
+          created_at: new Date().toISOString(),
+          modified_by: 'system',
+          modified_at: new Date().toISOString(),
+        },
+        {
+          id: 'drv-2',
+          name: 'Manny Santos',
+          type: 'DRIVER',
+          coverage_areas: ['Quezon City', 'Marikina', 'Caloocan', 'Valenzuela', 'Malabon', 'Bulacan', 'Cainta', 'Antipolo'],
+          is_active: true,
+          created_by: 'system',
+          created_at: new Date().toISOString(),
+          modified_by: 'system',
+          modified_at: new Date().toISOString(),
+        },
+        {
+          id: 'drv-3',
+          name: 'Ronald de la Cruz',
+          type: 'DRIVER',
+          coverage_areas: ['Manila', 'Parañaque', 'Pasay', 'Las Piñas', 'Muntinlupa', 'Cavite', 'Laguna', 'Batangas'],
+          is_active: true,
+          created_by: 'system',
+          created_at: new Date().toISOString(),
+          modified_by: 'system',
+          modified_at: new Date().toISOString(),
+        },
+        {
+          id: 'drv-4',
+          name: 'Jayson Reyes',
+          type: 'ASSISTANT',
+          coverage_areas: [],
+          is_active: true,
+          created_by: 'system',
+          created_at: new Date().toISOString(),
+          modified_by: 'system',
+          modified_at: new Date().toISOString(),
+        },
+        {
+          id: 'drv-5',
+          name: 'Bong Alvarez',
+          type: 'ASSISTANT',
+          coverage_areas: [],
+          is_active: true,
+          created_by: 'system',
+          created_at: new Date().toISOString(),
+          modified_by: 'system',
+          modified_at: new Date().toISOString(),
+        },
+        {
+          id: 'drv-6',
+          name: 'Ricky Mendoza',
+          type: 'ASSISTANT',
+          coverage_areas: [],
+          is_active: true,
+          created_by: 'system',
+          created_at: new Date().toISOString(),
+          modified_by: 'system',
+          modified_at: new Date().toISOString(),
+        },
+      ];
 
       setDeliveryRecords(storedRecords);
       setCompanies(mockCompanies);
@@ -216,6 +279,17 @@ export default function App() {
       setDataLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (managedDrivers && managedDrivers.length > 0) {
+      setManagedDriverList(managedDrivers.map(d => ({
+        name: d.name,
+        type: d.type,
+        coverage_areas: d.coverage_areas,
+        is_active: d.is_active,
+      })));
+    }
+  }, [managedDrivers]);
 
   useEffect(() => {
     if (authUser) refreshData();

@@ -848,9 +848,18 @@ function ActionsTab({
               const recordSubregion = getSubregion(record.area);
               const nearbyAreas = getNearbyAreas(record.area);
 
-              const coveringDrivers = DRIVERS.filter(d =>
-                recordSubregion !== null && (DRIVER_COVERAGE_AREAS[d] ?? []).includes(recordSubregion)
-              );
+              const coveringDrivers = DRIVERS.filter(d => {
+                const coverage = DRIVER_COVERAGE_AREAS[d] ?? [];
+                if (coverage.length === 0) return false;
+                const matchesSubregion = recordSubregion ? coverage.includes(recordSubregion) : false;
+                const matchesArea = record.area
+                  ? coverage.some(a =>
+                      record.area.toLowerCase().includes(a.toLowerCase()) ||
+                      a.toLowerCase().includes(record.area.toLowerCase())
+                    )
+                  : false;
+                return matchesSubregion || matchesArea;
+              });
               const otherDrivers = DRIVERS.filter(d => !coveringDrivers.includes(d));
 
               // Same-day driver hint: other records in the same subregion, assigned today

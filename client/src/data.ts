@@ -109,10 +109,22 @@ export const ACCOUNT_MANAGERS = ['P. Soriano', 'D. Macaraeg', 'F. Valenzuela', '
 // DRIVER_ASSISTANTS, and DRIVER_COVERAGE get the live managed list.
 // Hardcoded defaults serve as fallback only when the API hasn't responded yet.
 
-const _DEFAULT_DRIVERS = [];
-const _DEFAULT_ASSISTANTS = [];
-const _DEFAULT_COVERAGE: Record<string, string[]> = {};
-const _DEFAULT_COVERAGE_AREAS: Record<string, string[]> = {};
+const _DEFAULT_DRIVERS = [
+  'Lando Navarro',
+  'Manny Santos',
+  'Ronald de la Cruz',
+];
+const _DEFAULT_ASSISTANTS = [
+  'Jayson Reyes',
+  'Bong Alvarez',
+  'Ricky Mendoza',
+];
+const _DEFAULT_COVERAGE: Record<string, string[]> = {
+  'Lando Navarro': ['Makati', 'BGC', 'Taguig', 'Mandaluyong', 'San Juan', 'Pasig', 'Ortigas', 'Ortigas Corridor', 'Ortigas Center (Pasig)'],
+  'Manny Santos': ['Quezon City', 'Marikina', 'Caloocan', 'Valenzuela', 'Malabon', 'Bulacan', 'Cainta', 'Antipolo'],
+  'Ronald de la Cruz': ['Manila', 'Parañaque', 'Pasay', 'Las Piñas', 'Muntinlupa', 'Cavite', 'Laguna', 'Batangas'],
+};
+const _DEFAULT_COVERAGE_AREAS: Record<string, string[]> = _DEFAULT_COVERAGE;
 
 let _managedDrivers: string[] | null = null;
 let _managedAssistants: string[] | null = null;
@@ -136,19 +148,30 @@ export function setManagedDriverList(list: ManagedDriver[]) {
   _managedCoverage = cov;
 }
 
-export const DRIVERS: string[] = new Proxy([] as string[], {
-  get(_, prop) {
-    const src = _managedDrivers ?? _DEFAULT_DRIVERS;
-    return Reflect.get(src, prop);
-  },
-});
+function createArrayProxy(getSrc: () => string[]): string[] {
+  return new Proxy([] as string[], {
+    get(_, prop, receiver) {
+      const src = getSrc();
+      const val = Reflect.get(src, prop, receiver === _ ? src : receiver);
+      if (typeof val === 'function') {
+        return val.bind(src);
+      }
+      return val;
+    },
+    has(_, prop) {
+      return Reflect.has(getSrc(), prop);
+    },
+    ownKeys(_) {
+      return Reflect.ownKeys(getSrc());
+    },
+    getOwnPropertyDescriptor(_, prop) {
+      return Object.getOwnPropertyDescriptor(getSrc(), prop);
+    },
+  });
+}
 
-export const DRIVER_ASSISTANTS: string[] = new Proxy([] as string[], {
-  get(_, prop) {
-    const src = _managedAssistants ?? _DEFAULT_ASSISTANTS;
-    return Reflect.get(src, prop);
-  },
-});
+export const DRIVERS: string[] = createArrayProxy(() => _managedDrivers ?? _DEFAULT_DRIVERS);
+export const DRIVER_ASSISTANTS: string[] = createArrayProxy(() => _managedAssistants ?? _DEFAULT_ASSISTANTS);
 
 export const DRIVER_COVERAGE: Record<string, string[]> = new Proxy({} as Record<string, string[]>, {
   get(_, prop) {

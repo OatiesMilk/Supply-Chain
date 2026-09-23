@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 import { seedAccounts, COMPANIES, CUSTOMERS, SUPPLIERS } from './seeds/accounts';
+import { seedDrivers } from './seeds/drivers';
 
 
 
@@ -186,7 +187,8 @@ export async function runSeed(force = false) {
   const { companies } = await seedAccounts(users['ADMIN'].id);
   console.log(`Customer/Supplier seed: ${CUSTOMERS.length} customers, ${SUPPLIERS.length} suppliers.`);
 
-  
+  // ── Drivers ────────────────────────────────────────────────────────────────
+  await seedDrivers(prisma, users['ADMIN'].name);
 
   const sales     = users['SALES_COORDINATOR'];
   const logistics = users['LOGISTICS'];
