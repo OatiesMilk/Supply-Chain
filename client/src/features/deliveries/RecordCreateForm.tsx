@@ -182,6 +182,7 @@ export default function RecordCreateForm({
     setForm({
       company_name: company.name,
       company_id: company.id,
+      address: company.address ?? '',
       priority: afPick(PRIORITIES),
       reference: `${AF_REF_PREFIX[cat] ?? 'SAP'}-${afRandInt(10000, 99999)}`,
       remarks: afPick(AF_REMARKS[cat] ?? ['']),
@@ -238,6 +239,7 @@ export default function RecordCreateForm({
 
     onSubmit({
       ...form,
+      customer_id: form.company_id || '',
       driver: '',
       driver_assistants: [],
       category: form.category,

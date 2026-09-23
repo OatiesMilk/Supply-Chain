@@ -1,0 +1,33 @@
+/**
+ * Reports and Audit types
+ */
+
+export interface ApiReportSummary {
+  total: number;
+  accomplished: number;
+  on_hold: number;
+  pending: number;
+  completion_rate: number;
+  by_status:   { status: string;   count: number }[];
+  by_category: { category: string; count: number }[];
+  by_area:     { area: string;     count: number }[];
+  by_driver:   { driver: string;   count: number }[];
+}
+
+export interface ApiAdminAuditEntry {
+  id: string;
+  record_id: string;
+  record_type: string;
+  action: 'CREATE' | 'UPDATE' | 'DELETE';
+  changed_by: string;
+  changed_by_id: string;
+  timestamp: string;
+}
+
+export interface ApiAdminAuditLog {
+  page: number;
+  limit: number;
+  total: number;
+  pages: number;
+  entries: ApiAdminAuditEntry[];
+}

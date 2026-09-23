@@ -7,7 +7,7 @@ import {
   RotateCcw, PackageSearch, ShoppingCart, ListChecks, Download,
   ScrollText, Link2, X as XCircle
 } from 'lucide-react';
-import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger } from '@/types';
+import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel, ItemType } from '@/types';
 import { api, ApiAuditEntry, ApiComment, ApiCompany, ApiRemarkLog } from '@/api';
 import { printSingleManifest, ManifestDocumentationData } from '@/features/deliveries/DeliveryManifest';
 import { DRIVERS, DRIVER_ASSISTANTS, DELIVERY_STATUSES, AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, ACCOUNT_MANAGERS, DRIVER_COVERAGE_AREAS, getSubregion, getNearbyAreas } from '@/data';
@@ -104,9 +104,9 @@ function ScaffoldTab({ icon: Icon, label, detail }: { icon: typeof FileText; lab
 // ─── General Tab ─────────────────────────────────────────────────────────────
 
 type EditDraft = {
-  priority: string; reference: string; area: string; vehicle: string;
+  priority: PriorityLevel; reference: string; area: string; vehicle: string;
   account_manager: string; delivery_date: string; date_time: string;
-  item_type: string; is_draft: string; remarks: string; item_description: string;
+  item_type: ItemType; is_draft: 'Yes' | 'No'; remarks: string; item_description: string;
   address: string;
 };
 
@@ -165,7 +165,7 @@ function GeneralTab({
     });
   }, [record.id]);
 
-  const set = (k: keyof EditDraft, v: string) => setDraft(p => ({ ...p, [k]: v }));
+  const set = <K extends keyof EditDraft>(k: K, v: EditDraft[K]) => setDraft(p => ({ ...p, [k]: v }));
 
   const handleStartEdit = () => {
     // Logistics enters a fresh change note rather than seeing/overwriting existing remarks
@@ -321,7 +321,7 @@ function GeneralTab({
                 <>
                   <div className="space-y-1">
                     <label className={labelCls}>Priority</label>
-                    <select value={draft.priority} onChange={e => set('priority', e.target.value)} className={inputCls}>
+                    <select value={draft.priority} onChange={e => set('priority', e.target.value as PriorityLevel)} className={inputCls}>
                       {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
                     </select>
                   </div>
@@ -365,7 +365,7 @@ function GeneralTab({
                   </div>
                   <div className="space-y-1">
                     <label className={labelCls}>Item Type</label>
-                    <select value={draft.item_type} onChange={e => set('item_type', e.target.value)} className={inputCls}>
+                    <select value={draft.item_type} onChange={e => set('item_type', e.target.value as ItemType)} className={inputCls}>
                       {ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
@@ -379,7 +379,7 @@ function GeneralTab({
                   </div>
                   <div className="space-y-1">
                     <label className={labelCls}>Draft</label>
-                    <select value={draft.is_draft} onChange={e => set('is_draft', e.target.value)} className={inputCls}>
+                    <select value={draft.is_draft} onChange={e => set('is_draft', e.target.value as 'Yes' | 'No')} className={inputCls}>
                       <option value="No">No</option>
                       <option value="Yes">Yes</option>
                     </select>
