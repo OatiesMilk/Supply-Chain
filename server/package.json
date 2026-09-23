@@ -12,7 +12,8 @@
     "seed": "tsx prisma/seed.ts",
     "lint": "tsc --noEmit",
     "db:reset": "prisma migrate reset --force",
-    "seed:accounts": "tsx prisma/seed-accounts-only.ts"
+    "seed:accounts": "tsx prisma/seed-accounts-only.ts",
+    "db:clean": "prisma migrate reset --force --skip-seed"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
