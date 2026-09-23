@@ -8,7 +8,11 @@
   "scripts": {
     "dev": "concurrently -n \"CLIENT,SERVER\" -c \"cyan,magenta\" \"npm run dev --workspace=client\" \"npm run dev --workspace=server\"",
     "build": "npm run build --workspaces --if-present",
-    "start": "npm start --workspace=server"
+    "start": "npm start --workspace=server",
+    "db:reset": "npm run db:reset --workspace=mg-portal-server",
+    "db:clean": "npm run db:clean --workspace=mg-portal-server",
+    "seed": "npm run seed --workspace=mg-portal-server",
+    "seed:accounts": "npm run seed:accounts --workspace=mg-portal-server"
   },
   "devDependencies": {
     "concurrently": "^10.0.5"
