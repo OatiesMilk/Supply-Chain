@@ -1,0 +1,66 @@
+name: CI Pipeline
+
+# Trigger CI on push and pull requests to main, refactor, or feature branches
+on:
+  push:
+    branches:
+      - main
+      - 'refactor/**'
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+
+# Cancel redundant in-progress runs when a newer commit is pushed
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Global environment variables for CI steps
+env:
+  DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/mg_portal_ci"
+
+jobs:
+  quality-gate:
+    name: Lint, Validate & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Check out repository source code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Set up Node.js with automated npm dependency caching
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      # Step 3: Clean install of all root, client, and server dependencies
+      - name: Install dependencies
+        run: npm ci
+
+      # Step 4: Validate Prisma schema syntax and model integrity
+      - name: Validate Prisma Schema
+        run: npx prisma validate --schema=server/prisma/schema.prisma
+
+      # Step 5: Generate Prisma Client (required for backend TypeScript types)
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema=server/prisma/schema.prisma
+
+      # Step 6: Backend static type checking (tsc --noEmit)
+      - name: Typecheck Backend (Server)
+        run: npm run lint --workspace=server
+
+      # Step 7: Compile Backend TypeScript to dist/
+      - name: Build Backend (Server)
+        run: npm run build --workspace=server
+
+      # Step 8: Frontend static type checking (tsc --noEmit)
+      - name: Typecheck Frontend (Client)
+        run: npm run lint --workspace=client
+
+      # Step 9: Build Frontend Vite production bundle
+      - name: Build Frontend (Client)
+        run: npm run build --workspace=client

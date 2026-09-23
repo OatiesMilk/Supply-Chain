@@ -743,12 +743,12 @@ Addressing both technical vulnerabilities, business domain completeness, and CI/
 ### Implementation Progress & System Health Scorecard
 
 * **Core Functional Portal (MVP / Operational Feature Completeness):** **~85%**
-* **Technical Health & Remediation Checklist (Phases 1, 2 & 4):** **~74%**
-* **Full Enterprise Scope (including Phase 3 Strategic Expansions):** **~59%** (17 of 29 roadmap items completed)
+* **Technical Health & Remediation Checklist (Phases 1, 2 & 4):** **~78%**
+* **Full Enterprise Scope (including Phase 3 Strategic Expansions):** **~62%** (18 of 29 roadmap items completed)
 
 ```mermaid
 pie title Roadmap Completion Breakdown
-    "Phase 1: Security & Guardrails (P0)" : 88
+    "Phase 1: Security & Guardrails (P0)" : 100
     "Phase 2: Integrity & Indexing (P1)" : 70
     "Phase 3: Domain Expansion (P2)" : 0
     "Phase 4: Architecture & Caching (P3)" : 60
@@ -756,7 +756,7 @@ pie title Roadmap Completion Breakdown
 
 | Phase | Priority | Status | Progress | Key Completed Deliverables |
 | :--- | :--- | :---: | :---: | :--- |
-| **Phase 1: Critical Security & Guardrails** | **P0 (Immediate)** | **88%** | **7 / 8** | Auto-seed deploy wipe neutralized, dev reset locked with admin auth, CSRF `sameSite: 'lax'` + JWT secret fail-fast, foreign key deletion order fixed, static imports, status RBAC strictly enforced, admin self-lockout prevented. |
+| **Phase 1: Critical Security & Guardrails** | **P0 (Immediate)** | **100%** | **8 / 8** | Auto-seed deploy wipe neutralized, dev reset locked with admin auth, CI pipeline established (`.github/workflows/ci.yml`), CSRF `sameSite: 'lax'` + JWT secret fail-fast, foreign key deletion order fixed, static imports, status RBAC strictly enforced, admin self-lockout prevented. |
 | **Phase 2: Functional Integrity & Indexing** | **P1 (Near-Term)** | **70%** | **7 / 10** | Database secondary composite indexes added across all core tables, driver resurrection bug fixed, driver assistant JSON array serialization fixed, atomic SKU stock adjustments wrapped in `prisma.$transaction`, Admin company creation enabled, AM fuzzy email lookup, daily reports hybrid aggregation. |
 | **Phase 3: Core Domain Expansion** | **P2 (Strategic)** | **0%** | **0 / 6** | *Upcoming enterprise features:* Multi-line item schema (`DeliveryItem`), automatic warehouse stock deduction on delivery, real cloud POD file uploads (S3/Azure Blob), unified company/customer directory, driver offline PWA queue. |
 | **Phase 4: Architectural Modernization** | **P3 (Modernization)**| **60%** | **3 / 5** | Monorepo decoupling, modular component and layout decomposition, modern **TanStack Query** server state and **Zustand** client stores. |
@@ -772,6 +772,7 @@ pie title Roadmap Completion Breakdown
 5. **Inventory & SKU Master:** SKU catalog, category classification, and atomic stock adjustments with ledger audit logging.
 6. **Reporting & Exports:** Real-time KPI dashboard, status history with live aggregation fallback, and export engines (Excel, PDF route slips, and Word documents).
 7. **Frontend State & Caching:** Clean separation into TanStack Query and Zustand with 0 type errors on lint and build.
+8. **Automated CI Quality Gate:** Continuous integration via GitHub Actions (`.github/workflows/ci.yml`) validating Prisma schema, client/server TypeScript linting, and production builds on every commit and PR.
 
 ---
 
@@ -779,8 +780,8 @@ pie title Roadmap Completion Breakdown
 
 1. **Near-Term (to reach ~90%):**
    * Server-side pagination query parameters (`take`/`skip`) for `GET /api/records`.
-   * Automated CI pipeline (`.github/workflows/ci.yml`) running lint and build checks.
    * Unit and integration test suite (Vitest + Supertest).
+   * Reconcile TASS vs. Finance role responsibilities.
 2. **Strategic Enterprise Features (to reach 100% Enterprise Maturity):**
    * Multi-line item delivery schema (supporting multiple SKUs and serial numbers per delivery).
    * Real file storage (AWS S3 / Azure Blob) for customer signatures and Delivery Receipt photos.
@@ -792,7 +793,7 @@ pie title Roadmap Completion Breakdown
 
 - [x] **1. Neutralize Auto-Seed on Deploy:** Decoupled `npx tsx prisma/seed.ts` from `render.yaml` `startCommand` to prevent production data wiping on restart.
 - [x] **2. Lock Down Dev Reset Endpoints:** Restricted `POST /api/dev/reset-seed` in [`server/src/routes/dev.ts`](file:///home/marc/Supply-Chain/server/src/routes/dev.ts) with strict `NODE_ENV !== 'production'` guard and `requireAuth` + `requireRole('ADMIN')`.
-- [ ] **3. Establish CI Pipeline:** Create `.github/workflows/ci.yml` running lint, `tsc --noEmit`, and `prisma validate` on every pull request.
+- [x] **3. Establish CI Pipeline:** Created [`.github/workflows/ci.yml`](file:///home/marc/Supply-Chain/.github/workflows/ci.yml) validating Prisma schema, Prisma client generation, backend typecheck/build, and frontend typecheck/build.
 - [x] **4. Mitigate CSRF Vulnerability:** Configured `sameSite: 'lax'` for session cookies and protected production JWT secret in [`server/src/middleware/auth.ts`](file:///home/marc/Supply-Chain/server/src/middleware/auth.ts).
 - [x] **5. Fix Seed Foreign Key Violation:** Deleted dependent relational tables (`UserPermission`, `RemarkLog`, `Comment`, `Notification`) before deleting users in [`server/prisma/seed.ts`](file:///home/marc/Supply-Chain/server/prisma/seed.ts).
 - [x] **6. Fix Dev Module Resolution:** Statically imported `runSeed` in [`server/src/routes/data-sampler.ts`](file:///home/marc/Supply-Chain/server/src/routes/data-sampler.ts) to eliminate `.js` runtime crash under `tsx`.
