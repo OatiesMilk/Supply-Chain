@@ -5,7 +5,10 @@ import { requireAuth, requireRole } from '../middleware/auth';
 const router = Router();
 
 router.get('/', requireAuth, async (_req, res) => {
-  const customers = await prisma.customer.findMany({ orderBy: { name: 'asc' } });
+  const customers = await prisma.customer.findMany({ 
+    orderBy: { name: 'asc' },
+    include: { createdBy: true, modifiedBy: true }
+  });
   res.json(
     customers.map(c => ({
       id: c.id,
@@ -15,9 +18,9 @@ router.get('/', requireAuth, async (_req, res) => {
       phone: c.phone,
       address: c.address,
       city: c.city,
-      created_by: c.createdBy,
+      created_by: c.createdBy.name,
       created_at: c.createdAt,
-      modified_by: c.modifiedBy,
+      modified_by: c.modifiedBy.name,
       modified_at: c.modifiedAt
     }))
   );
@@ -36,10 +39,11 @@ router.post('/', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADM
       phone: phone ?? '',
       address: address ?? '',
       city: city ?? '',
-      createdBy: req.user!.name,
-      modifiedBy: req.user!.name,
+      createdById: req.user!.id,
+      modifiedById: req.user!.id,
       modifiedAt: new Date()
-    }
+    },
+    include: { createdBy: true, modifiedBy: true }
   });
   res.status(201).json({
     id: created.id,
@@ -49,9 +53,9 @@ router.post('/', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADM
     phone: created.phone,
     address: created.address,
     city: created.city,
-    created_by: created.createdBy,
+    created_by: created.createdBy.name,
     created_at: created.createdAt,
-    modified_by: created.modifiedBy,
+    modified_by: created.modifiedBy.name,
     modified_at: created.modifiedAt
   });
 });
