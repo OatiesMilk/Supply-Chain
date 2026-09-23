@@ -198,42 +198,59 @@ router.post('/:id/adjust', requireAuth, requireRole('ADMIN', 'LOGISTICS'), async
     return res.status(400).json({ error: 'qty_change must be a non-zero number' });
   }
 
-  const currentQty = product.inventory?.onHandQty ?? 0;
-  const newQty = Math.max(0, currentQty + change);
-  const resultingBalance = newQty;
+  let prevOnHand = 0;
+  let newOnHand = 0;
 
-  // Update inventory quantity
-  if (product.inventory) {
-    await prisma.inventoryItem.update({
-      where: { productId: product.id },
-      data: { onHandQty: newQty }
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const inv = await tx.inventoryItem.findUnique({ where: { productId: product.id } });
+      const currentQty = inv?.onHandQty ?? 0;
+      if (currentQty + change < 0) {
+        throw new Error(`Insufficient stock. Current on-hand quantity is ${currentQty}, cannot deduct ${Math.abs(change)}.`);
+      }
+      const resultingBalance = currentQty + change;
+
+      if (inv) {
+        await tx.inventoryItem.update({
+          where: { productId: product.id },
+          data: { onHandQty: resultingBalance }
+        });
+      }
+
+      await tx.inventoryTransaction.create({
+        data: {
+          productId:        product.id,
+          type:             String(type),
+          qtyChange:        change,
+          resultingBalance,
+          reference:        String(reference)
+        }
+      });
+
+      await tx.product.update({
+        where: { id: product.id },
+        data: { modifiedById: req.user!.id }
+      });
+
+      return { currentQty, resultingBalance };
     });
-  }
 
-  // Create transaction record
-  await prisma.inventoryTransaction.create({
-    data: {
-      productId:        product.id,
-      type:             String(type),
-      qtyChange:        change,
-      resultingBalance,
-      reference:        String(reference)
+    prevOnHand = result.currentQty;
+    newOnHand = result.resultingBalance;
+  } catch (err: any) {
+    if (err.message?.includes('Insufficient stock')) {
+      return res.status(400).json({ error: err.message });
     }
-  });
-
-  // Update modifiedById on the product
-  await prisma.product.update({
-    where: { id: product.id },
-    data: { modifiedById: req.user!.id }
-  });
+    throw err;
+  }
 
   await writeAuditLog({
     recordId: product.id,
     recordType: 'SKU',
     action: 'UPDATE',
     changedById: req.user!.id,
-    previousValue: { on_hand_qty: currentQty },
-    newValue: { on_hand_qty: newQty, adjustment_type: type, qty_change: change, reference }
+    previousValue: { on_hand_qty: prevOnHand },
+    newValue: { on_hand_qty: newOnHand, adjustment_type: type, qty_change: change, reference }
   });
 
   // Return the full updated product

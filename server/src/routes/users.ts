@@ -63,6 +63,9 @@ router.patch('/:id', requireAuth, requireRole('ADMIN'), async (req: Request, res
   if (role && !validRoles.includes(role)) {
     return res.status(400).json({ error: `role must be one of: ${validRoles.join(', ')}` });
   }
+  if (role && role !== 'ADMIN' && req.user!.id === id) {
+    return res.status(400).json({ error: 'You cannot change your own admin role. Another admin must perform this action to prevent self-lockout.' });
+  }
 
   const data: Record<string, unknown> = {};
   if (name) data.name = name;

@@ -737,78 +737,53 @@ Addressing both technical vulnerabilities, business domain completeness, and CI/
 
 ---
 
-## 11. Comprehensive Remediation Roadmap
+## 11. Comprehensive Remediation Roadmap & Status Checklist
 
 ### Phase 1: Critical Security, Production Guardrails & CI Gate (P0 — Immediate)
 
-1. **Neutralize Auto-Seed on Deploy:** Remove `npx tsx prisma/seed.ts` from [`render.yaml:31`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/render.yaml#L31) to prevent catastrophic live data loss on deployment or restart.
-2. **Lock Down Dev Reset Endpoints:** Restrict or remove `POST /api/dev/reset-seed` in [`server/src/routes/dev.ts`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/dev.ts#L10) with strict `NODE_ENV !== 'production'` and admin authentication.
-3. **Establish CI Pipeline:** Create `.github/workflows/ci.yml` running lint, `tsc --noEmit`, and `prisma validate` on every pull request.
-4. **Mitigate CSRF Vulnerability:** Configure `sameSite: 'lax'` for standard browser sessions in [`server/src/middleware/auth.ts`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/middleware/auth.ts#L34).
-5. **Fix Seed Foreign Key Violation:** Delete child tables (`UserPermission`, `RemarkLog`, `Comment`, `Notification`) before deleting users in [`server/prisma/seed.ts`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/prisma/seed.ts#L247).
-6. **Fix Dev Module Resolution:** Replace `.js` with extensionless import in [`server/src/routes/data-sampler.ts`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/data-sampler.ts#L240).
-7. **Enforce Status RBAC Boundaries:** Remove `SALES_COORDINATOR` from `PATCH /api/records/:id/status` in [`server/src/routes/records.ts`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/records.ts#L365).
+- [x] **1. Neutralize Auto-Seed on Deploy:** Decoupled `npx tsx prisma/seed.ts` from `render.yaml` `startCommand` to prevent production data wiping on restart.
+- [x] **2. Lock Down Dev Reset Endpoints:** Restricted `POST /api/dev/reset-seed` in [`server/src/routes/dev.ts`](file:///home/marc/Supply-Chain/server/src/routes/dev.ts) with strict `NODE_ENV !== 'production'` guard and `requireAuth` + `requireRole('ADMIN')`.
+- [ ] **3. Establish CI Pipeline:** Create `.github/workflows/ci.yml` running lint, `tsc --noEmit`, and `prisma validate` on every pull request.
+- [x] **4. Mitigate CSRF Vulnerability:** Configured `sameSite: 'lax'` for session cookies and protected production JWT secret in [`server/src/middleware/auth.ts`](file:///home/marc/Supply-Chain/server/src/middleware/auth.ts).
+- [x] **5. Fix Seed Foreign Key Violation:** Deleted dependent relational tables (`UserPermission`, `RemarkLog`, `Comment`, `Notification`) before deleting users in [`server/prisma/seed.ts`](file:///home/marc/Supply-Chain/server/prisma/seed.ts).
+- [x] **6. Fix Dev Module Resolution:** Statically imported `runSeed` in [`server/src/routes/data-sampler.ts`](file:///home/marc/Supply-Chain/server/src/routes/data-sampler.ts) to eliminate `.js` runtime crash under `tsx`.
+- [x] **7. Enforce Status RBAC Boundaries:** Removed `SALES_COORDINATOR` from `PATCH /api/records/:id/status` in [`server/src/routes/records.ts`](file:///home/marc/Supply-Chain/server/src/routes/records.ts); status progression is restricted to Logistics, Admin, Driver, and TASS.
+- [x] **8. Admin Self-Lockout Prevention:** Guarded `PATCH /api/users/:id` in [`server/src/routes/users.ts`](file:///home/marc/Supply-Chain/server/src/routes/users.ts) to prevent an admin from removing their own admin role.
 
 ### Phase 2: Functional Integrity, Data Indexing & Testing Base (P1 — Near-Term)
 
-1. **Apply Database Indexes:** Define `@@index` annotations across `DeliveryRecord`, `AuditLog`, `RemarkLog`, `Notification`, and `InventoryTransaction` in [`server/prisma/schema.prisma`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/prisma/schema.prisma) and run `npx prisma migrate dev --name add_performance_indexes`.
-2. **Implement Unit & Integration Test Suites:** Install Vitest and Supertest; author unit tests for state transitions/mappings and integration tests for RBAC endpoints and atomic inventory transactions.
-3. **Server-Side Record Pagination:** Update `GET /api/records` in [`server/src/routes/records.ts`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/records.ts) with `take`/`skip` query parameters to prevent browser freeze at 5,000 items.
-4. **Prevent Driver Resurrection:** Ensure deleted drivers stay soft-deleted in [`server/src/routes/drivers.ts`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/drivers.ts#L32).
-5. **Fix Driver Assistant Serialization:** Store assistants as JSON arrays in [`server/src/routes/data-sampler.ts`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/data-sampler.ts#L194).
-6. **Enable Atomic Stock Adjustments:** Wrap inventory adjustments in `prisma.$transaction` in [`server/src/routes/skus.ts`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/skus.ts#L201).
-7. **Allow Admin Company Creation:** Update permission requirements in [`server/src/routes/companies.ts`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/companies.ts#L21).
-8. **Fix AM Email Recipient Matching:** Update initial-to-name matching in [`server/src/routes/notifications.ts`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/notifications.ts#L74).
-9. **Reconcile TASS vs. Finance Role:** Finalize stakeholder requirements to confirm whether Collection Verification belongs to `ACCOUNTING` or `TASS`.
+- [x] **1. Apply Database Indexes:** Defined `@@index` annotations across `DeliveryRecord`, `AuditLog`, `RemarkLog`, `Notification`, `InventoryTransaction`, and `Comment` in [`server/prisma/schema.prisma`](file:///home/marc/Supply-Chain/server/prisma/schema.prisma).
+- [ ] **2. Implement Unit & Integration Test Suites:** Install Vitest and Supertest; author unit tests for state transitions/mappings and integration tests for RBAC endpoints and atomic inventory transactions.
+- [ ] **3. Server-Side Record Pagination:** Update `GET /api/records` in [`server/src/routes/records.ts`](file:///home/marc/Supply-Chain/server/src/routes/records.ts) with `take`/`skip` query parameters to prevent browser freeze at 5,000 items.
+- [x] **4. Prevent Driver Resurrection:** Restricted `syncDriversFromRecords` in [`server/src/routes/drivers.ts`](file:///home/marc/Supply-Chain/server/src/routes/drivers.ts) to initial empty-table initialization and implemented soft-delete for drivers with historical records.
+- [x] **5. Fix Driver Assistant Serialization:** Ensured `driverAssistants` is saved as a JSON array string in [`server/src/routes/data-sampler.ts`](file:///home/marc/Supply-Chain/server/src/routes/data-sampler.ts).
+- [x] **6. Enable Atomic Stock Adjustments:** Wrapped stock updates in `prisma.$transaction` and enforced non-negative inventory balance validation in [`server/src/routes/skus.ts`](file:///home/marc/Supply-Chain/server/src/routes/skus.ts).
+- [x] **7. Allow Admin Company Creation:** Added `ADMIN` to `requireRole` on `POST /api/companies` in [`server/src/routes/companies.ts`](file:///home/marc/Supply-Chain/server/src/routes/companies.ts).
+- [x] **8. Fix AM Email Recipient Matching:** Supported surname and initial substring matching for Account Managers in [`server/src/routes/notifications.ts`](file:///home/marc/Supply-Chain/server/src/routes/notifications.ts).
+- [x] **9. Fix Date Range Truncation in Reports:** Merged daily snapshots with live record aggregation in [`server/src/routes/reports.ts`](file:///home/marc/Supply-Chain/server/src/routes/reports.ts) so multi-day query ranges are never truncated.
+- [ ] **10. Reconcile TASS vs. Finance Role:** Finalize stakeholder requirements to confirm whether Collection Verification belongs to `ACCOUNTING` or `TASS`.
 
 ### Phase 3: Core Domain Expansion & Operational Completeness (P2 — Strategic)
 
-1. **Multi-Line Item Support:** Create a `DeliveryItem` line-item model in `schema.prisma` linking records to `Product`, quantities, and serial numbers.
-2. **Automated Inventory Movement on Fulfillment:** Deduct warehouse inventory automatically when deliveries are accomplished, and quarantine items upon RMA returns.
-3. **Real Proof of Delivery (POD) Storage:** Implement cloud file storage (S3 / Azure Blob) for signed Delivery Receipts, PDC photos, and digital customer signatures.
-4. **Consolidate Master Directories:** Merge `Company` and `Customer` into a unified client directory linked to SAP numbers.
-5. **Driver Offline PWA Support:** Add IndexedDB queue and Service Worker to enable offline delivery completion in low-connectivity areas.
-6. **End-to-End (E2E) Test Automation:** Implement Playwright test suites in CI covering the complete fulfillment and collection journeys.
+- [ ] **1. Multi-Line Item Support:** Create a `DeliveryItem` line-item model in `schema.prisma` linking records to `Product`, quantities, and serial numbers.
+- [ ] **2. Automated Inventory Movement on Fulfillment:** Deduct warehouse inventory automatically when deliveries are accomplished, and quarantine items upon RMA returns.
+- [ ] **3. Real Proof of Delivery (POD) Storage:** Implement cloud file storage (S3 / Azure Blob) for signed Delivery Receipts, PDC photos, and digital customer signatures.
+- [ ] **4. Consolidate Master Directories:** Merge `Company` and `Customer` into a unified client directory linked to SAP numbers.
+- [ ] **5. Driver Offline PWA Support:** Add IndexedDB queue and Service Worker to enable offline delivery completion in low-connectivity areas.
+- [ ] **6. End-to-End (E2E) Test Automation:** Implement Playwright test suites in CI covering the complete fulfillment and collection journeys.
 
 ### Phase 4: Architectural Modernization & UI/UX Overhaul (P3 — Modernization)
 
-1. **Restructure Repository into a Standard Monorepo:** Separate into `client/` and `server/` managed by npm workspaces.
-2. **Decompose Monolithic Components & Implement Role-Isolated Dashboards:** 
-   - Refactor `App.tsx` and `DeliveryRecordWorkspace.tsx` into modular, role-specific screens.
-   - **Sales Coordinators:** Simplified "My Requests" list.
-   - **Logistics:** Kanban-style Dispatch Board for outgoing tasks.
-   - **Drivers:** Mobile-first interface with massive buttons for field updates.
-3. **Enhance UI/UX for Non-Technical Staff:** 
-   - **Progressive Disclosure:** Simplify `RecordCreateForm.tsx` by hiding optional fields behind an "Advanced" toggle.
-   - **Global Search:** Elevate `GlobalSearch.tsx` to the top navigation for instant jump-to-record workflows.
-   - **Visual Workflows:** Ensure `StatusStepper.tsx` is consistently used to display clear record progress.
-4. **Implement Multi-Tier Caching Architecture:** Deploy in-memory LRU/Redis caching for user session checks and dashboard KPIs; adopt TanStack Query on the frontend.
-5. **Standardize Server Timezones:** Configure explicit `Asia/Manila` timezones for scheduled dispatch jobs in `server/src/index.ts`.
-
----
-
-### 1.8 Frontend TypeScript Build Failure in `App.tsx`
-
-- **File & Line:** `client/src/App.tsx` (Supplier category mapping and Driver creation)
-- **Description:** The `npm run build` or `npm run lint` (`tsc --noEmit`) step fails with `TS2322` and `TS2739`. The supplier payload falls back to `category: data.category || 'General'`, which violates the strict literal type `'Hardware' | 'Consumables' | 'Electronics' | 'Packaging' | 'Services'`. Additionally, the optimistic driver insertion omits required audit fields defined in `ApiDriver`.
-- **Impact:** Frontend deployment pipelines (CI/CD) and local builds will fail strictly on TypeScript checks, preventing code from being shipped.
-- **Remediation:** Cast or validate `data.category` to the correct union type, and include placeholder or valid audit fields when optimistically appending to `ApiDriver` arrays.
-
----
-
-### 2.10 Admin Self-Lockout Vulnerability
-
-- **File & Line:** `server/src/routes/users.ts` (PATCH `/:id`)
-- **Vulnerability:** While an Admin is explicitly prevented from deactivating their own account via `/:id/deactivate`, the main update route (`PATCH /:id`) lacks this protection. An Admin can change their own role to `SALES_COORDINATOR` or `LOGISTICS`.
-- **Impact:** If a system has only one Administrator and they accidentally or maliciously demote themselves, the entire system is locked out of administrative functions (user management, permissions).
-- **Remediation:** Add a check in `PATCH /:id` preventing the current user from modifying their own role, or ensure at least one active Admin remains in the system before allowing the role change.
-
----
-
-### 2.11 Unhandled Promise Rejections in Express Routes (Request Hanging)
-
-- **File & Line:** Across all `server/src/routes/*.ts`
-- **Vulnerability:** Express 4 does not automatically catch rejected promises in `async` route handlers. The codebase uses `async (req, res) => { ... }` extensively without wrapping them in `try/catch` blocks or using a library like `express-async-errors`.
-- **Impact:** If a database query fails (e.g., due to a temporary connection drop, a unique constraint violation, or bad data), the promise rejects. Express fails to catch this, meaning `res.status(500)` is never called. The client's HTTP request hangs indefinitely until a timeout, leading to degraded UX and potential connection pool exhaustion on the server.
-- **Remediation:** Install and import `express-async-errors` at the top of `index.ts`, or wrap every async route in a higher-order `catchAsync` function.
+- [x] **1. Restructure Repository into a Standard Monorepo:** Separated frontend (`client/`) and backend (`server/`) with clear dependency boundaries.
+- [x] **2. Decompose Monolithic Components & Implement Modular Architecture:**
+  - Decomposed `App.tsx` into dedicated layouts ([`MainLayout.tsx`](file:///home/marc/Supply-Chain/client/src/layouts/MainLayout.tsx)), routes ([`AppRouter.tsx`](file:///home/marc/Supply-Chain/client/src/routes/AppRouter.tsx)), and domain feature modules.
+  - Eliminated proxy one-liner index files and structured features into clean modular directories.
+- [x] **3. Modern State Management & Caching (TanStack Query + Zustand):**
+  - Integrated `@tanstack/react-query` with domain queries and mutations ([`client/src/api/queries/`](file:///home/marc/Supply-Chain/client/src/api/queries/)).
+  - Implemented Zustand stores ([`authStore.ts`](file:///home/marc/Supply-Chain/client/src/store/authStore.ts), [`uiStore.ts`](file:///home/marc/Supply-Chain/client/src/store/uiStore.ts)) with `persist` and `subscribeWithSelector`.
+- [ ] **4. Progressive Disclosure & Advanced UI/UX:**
+  - Simplify `RecordCreateForm.tsx` by hiding optional fields behind an "Advanced" toggle.
+  - Elevate `GlobalSearch.tsx` to the top navigation for instant jump-to-record workflows.
+  - Ensure `StatusStepper.tsx` is consistently used to display clear record progress.
+- [ ] **5. Standardize Server Timezones:** Configure explicit `Asia/Manila` timezones for scheduled dispatch jobs in `server/src/index.ts`.
 

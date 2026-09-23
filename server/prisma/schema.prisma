@@ -142,6 +142,13 @@ model DeliveryRecord {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
+
+  @@index([deletedAt, category, status])
+  @@index([driver])
+  @@index([deliveryDate])
+  @@index([companyId])
+  @@index([accountManager])
+  @@index([linkedCollectionId])
 }
 
 model AuditLog {
@@ -154,6 +161,9 @@ model AuditLog {
   previousValue String? // JSON
   newValue      String? // JSON
   timestamp     DateTime @default(now())
+
+  @@index([recordId, recordType, timestamp(sort: Desc)])
+  @@index([changedById])
 }
 
 model Product {
@@ -197,6 +207,8 @@ model InventoryTransaction {
   resultingBalance Int
   reference        String
   createdAt        DateTime @default(now())
+
+  @@index([productId, date(sort: Desc)])
 }
 
 // In-app notification bell entries — one row per user per event.
@@ -211,6 +223,8 @@ model Notification {
   recordType String?
   isRead     Boolean  @default(false)
   createdAt  DateTime @default(now())
+
+  @@index([userId, isRead, createdAt(sort: Desc)])
 }
 
 // Per-record comments/notes — visible in the audit timeline for all roles.
@@ -223,6 +237,8 @@ model Comment {
   author     User     @relation(fields: [authorId], references: [id])
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+
+  @@index([recordId, recordType])
 }
 
 model NotificationLog {
@@ -249,6 +265,8 @@ model RemarkLog {
   authorId  String
   author    User     @relation(fields: [authorId], references: [id])
   createdAt DateTime @default(now())
+
+  @@index([recordId, createdAt(sort: Desc)])
 }
 
 // Managed driver directory — replaces the hardcoded DRIVERS / DRIVER_ASSISTANTS

@@ -3,6 +3,7 @@ import { prisma } from '../db';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { writeAuditLog } from '../services/audit';
 import { serializeRecord } from '../mappings';
+import { runSeed } from '../../prisma/seed';
 
 const router = Router();
 
@@ -180,6 +181,19 @@ router.post('/generate', requireAuth, requireRole('ADMIN'), async (req, res) => 
       // Use the 50000–99999 range to stay clear of seed records (4001–4999).
       const recordId = `REC-${randInt(50000, 99999)}`;
 
+      let formattedAssistants = '[]';
+      if (overrides.driver_assistants) {
+        if (Array.isArray(overrides.driver_assistants)) {
+          formattedAssistants = JSON.stringify(overrides.driver_assistants);
+        } else if (typeof overrides.driver_assistants === 'string') {
+          formattedAssistants = overrides.driver_assistants.startsWith('[')
+            ? overrides.driver_assistants
+            : JSON.stringify([overrides.driver_assistants]);
+        }
+      } else if (driverAssistants) {
+        formattedAssistants = JSON.stringify([driverAssistants]);
+      }
+
       const record = await prisma.deliveryRecord.create({
         data: {
           id:              recordId,
@@ -191,7 +205,7 @@ router.post('/generate', requireAuth, requireRole('ADMIN'), async (req, res) => 
           vehicle:         overrides.vehicle        ?? vehicle,
           area:            overrides.area           ?? area,
           driver:          overrides.driver         ?? driver,
-          driverAssistants: overrides.driver_assistants ?? driverAssistants,
+          driverAssistants: formattedAssistants,
           accountManager:  overrides.account_manager ?? accountManager,
           deliveryDate:    overrides.delivery_date  ?? deliveryDate,
           category:        mod.dbCategory as any,
@@ -237,7 +251,6 @@ router.post('/reset', requireAuth, requireRole('ADMIN'), async (req, res) => {
 
   if (mode === 'seed') {
     // Full wipe + re-seed restores the complete demo state (users, companies, records).
-    const { runSeed } = await import('../../prisma/seed.js');
     await runSeed(true);
   } else {
     // Delete only transactional records. AuditLog has a DB-level FK to DeliveryRecord
