@@ -298,10 +298,10 @@ export default function App() {
   // Role scope: which screens each role can access (default baseline)
   const DEFAULT_ROLE_SCOPE: Record<string, string[]> = {
     'Sales Coordinator': ['main', 'dashboard', 'deliveries', 'rma', 'accounting_collection', 'procurement_pickup', 'sales_orders', 'customers', 'suppliers', 'am_directory', 'transactions', 'inventory'],
-    'Logistics':         ['main', 'dashboard', 'deliveries', 'rma', 'accounting_collection', 'procurement_pickup', 'sales_orders', 'customers', 'suppliers', 'driver', 'driver_manager', 'calendar', 'driver_board', 'transactions', 'inventory', 'status_history', 'statistical_reports'],
-    'TASS':              ['main', 'dashboard', 'rma', 'procurement_pickup', 'accounting_collection', 'transactions', 'inventory', 'suppliers'],
-    'Admin':             ['main', 'dashboard', 'deliveries', 'rma', 'accounting_collection', 'procurement_pickup', 'sales_orders', 'customers', 'suppliers', 'driver', 'driver_manager', 'admin', 'calendar', 'driver_board', 'am_directory', 'transactions', 'inventory', 'data_sampler', 'status_history', 'statistical_reports'],
-    'Driver':            ['driver_dashboard'],
+    'Logistics': ['main', 'dashboard', 'deliveries', 'rma', 'accounting_collection', 'procurement_pickup', 'sales_orders', 'customers', 'suppliers', 'driver', 'driver_manager', 'calendar', 'driver_board', 'transactions', 'inventory', 'status_history', 'statistical_reports'],
+    'TASS': ['main', 'dashboard', 'rma', 'procurement_pickup', 'accounting_collection', 'transactions', 'inventory', 'suppliers'],
+    'Admin': ['main', 'dashboard', 'deliveries', 'rma', 'accounting_collection', 'procurement_pickup', 'sales_orders', 'customers', 'suppliers', 'driver', 'driver_manager', 'admin', 'calendar', 'driver_board', 'am_directory', 'transactions', 'inventory', 'data_sampler', 'status_history', 'statistical_reports'],
+    'Driver': ['driver_dashboard'],
   };
 
   const [effectiveScreens, setEffectiveScreens] = useState<Set<string>>(new Set());
@@ -661,12 +661,10 @@ export default function App() {
   };
 
   const navItemClass = (screen: string) =>
-    `w-full px-4 py-2 flex items-center transition-all cursor-pointer ${
-      isSidebarCollapsed ? 'justify-center' : 'justify-between'
-    } ${
-      currentScreen === screen
-        ? 'text-white bg-white/10 border-r-4 border-[#0078C1]'
-        : 'text-white/70 hover:text-white hover:bg-white/5'
+    `w-full px-4 py-2 flex items-center transition-all cursor-pointer ${isSidebarCollapsed ? 'justify-center' : 'justify-between'
+    } ${currentScreen === screen
+      ? 'text-white bg-white/10 border-r-4 border-[#0078C1]'
+      : 'text-white/70 hover:text-white hover:bg-white/5'
     }`;
 
   // --- LOGIN GATE: while the initial /api/auth/me check is in flight, render
@@ -712,11 +710,9 @@ export default function App() {
 
       {/* 1. LEFT SIDEBAR */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 bg-[#1F3864] text-white flex flex-col justify-between transition-all duration-300 lg:static lg:translate-x-0 lg:z-auto shrink-0 ${
-          isSidebarCollapsed ? 'lg:w-28' : 'lg:w-56'
-        } ${
-          isSidebarOpen ? 'w-64 translate-x-0' : 'w-64 -translate-x-full lg:translate-x-0'
-        }`}
+        className={`fixed inset-y-0 left-0 z-50 bg-[#1F3864] text-white flex flex-col justify-between transition-all duration-300 lg:static lg:translate-x-0 lg:z-auto shrink-0 ${isSidebarCollapsed ? 'lg:w-28' : 'lg:w-56'
+          } ${isSidebarOpen ? 'w-64 translate-x-0' : 'w-64 -translate-x-full lg:translate-x-0'
+          }`}
         id="sidebar-panel"
       >
         {/* Brand Header */}
@@ -773,7 +769,7 @@ export default function App() {
         </div>
 
         {/* Navigation Items - exactly the 9 confirmed sidebar categories, in order */}
-        <nav className="flex-1 py-3 space-y-4 overflow-y-auto" id="sidebar-nav">
+        <nav className="flex-1 py-3 space-y-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]" id="sidebar-nav">
 
           {/* 0. Main */}
           <div className="space-y-1">
@@ -804,77 +800,77 @@ export default function App() {
 
             {/* 2. Deliveries */}
             {canAccess('deliveries') && (
-            <button onClick={() => handleNavigate('deliveries')} title={isSidebarCollapsed ? 'Deliveries' : ''} className={navItemClass('deliveries')}>
-              <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                <Truck className="w-5 h-5 shrink-0" />
-                {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Deliveries</span>}
-              </span>
-              {deliveriesActiveCount > 0 && (
-                isSidebarCollapsed
-                  ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-[#0078C1] rounded-full animate-pulse" />
-                  : <span className="bg-[#0078C1] text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{deliveriesActiveCount}</span>
-              )}
-            </button>
+              <button onClick={() => handleNavigate('deliveries')} title={isSidebarCollapsed ? 'Deliveries' : ''} className={navItemClass('deliveries')}>
+                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
+                  <Truck className="w-5 h-5 shrink-0" />
+                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Deliveries</span>}
+                </span>
+                {deliveriesActiveCount > 0 && (
+                  isSidebarCollapsed
+                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                    : <span className="bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{deliveriesActiveCount}</span>
+                )}
+              </button>
             )}
 
             {/* 3. RMA */}
             {canAccess('rma') && (
-            <button onClick={() => handleNavigate('rma')} title={isSidebarCollapsed ? (currentUserRole === 'Logistics' ? 'TASS' : 'RMA') : ''} className={navItemClass('rma')}>
-              <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                <RotateCcw className="w-5 h-5 shrink-0" />
-                {!isSidebarCollapsed && <span className="text-xs font-medium truncate">{currentUserRole === 'Logistics' ? 'TASS' : 'RMA'}</span>}
-              </span>
-              {rmaActiveCount > 0 && (
-                isSidebarCollapsed
-                  ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
-                  : <span className="bg-amber-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{rmaActiveCount}</span>
-              )}
-            </button>
+              <button onClick={() => handleNavigate('rma')} title={isSidebarCollapsed ? (currentUserRole === 'Logistics' ? 'TASS' : 'RMA') : ''} className={navItemClass('rma')}>
+                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
+                  <RotateCcw className="w-5 h-5 shrink-0" />
+                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">{currentUserRole === 'Logistics' ? 'TASS' : 'RMA'}</span>}
+                </span>
+                {rmaActiveCount > 0 && (
+                  isSidebarCollapsed
+                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                    : <span className="bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{rmaActiveCount}</span>
+                )}
+              </button>
             )}
 
             {/* 4. Accounting Collection */}
             {canAccess('accounting_collection') && (
-            <button onClick={() => handleNavigate('accounting_collection')} title={isSidebarCollapsed ? 'Accounting Collection' : ''} className={navItemClass('accounting_collection')}>
-              <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                <Banknote className="w-5 h-5 shrink-0" />
-                {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Accounting Collection</span>}
-              </span>
-              {accountingActiveCount > 0 && (
-                isSidebarCollapsed
-                  ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                  : <span className="bg-green-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{accountingActiveCount}</span>
-              )}
-            </button>
+              <button onClick={() => handleNavigate('accounting_collection')} title={isSidebarCollapsed ? 'Accounting Collection' : ''} className={navItemClass('accounting_collection')}>
+                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
+                  <Banknote className="w-5 h-5 shrink-0" />
+                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Accounting Collection</span>}
+                </span>
+                {accountingActiveCount > 0 && (
+                  isSidebarCollapsed
+                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                    : <span className="bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{accountingActiveCount}</span>
+                )}
+              </button>
             )}
 
             {/* 5. Procurement Pick-up */}
             {canAccess('procurement_pickup') && (
-            <button onClick={() => handleNavigate('procurement_pickup')} title={isSidebarCollapsed ? 'Procurement Pick-up' : ''} className={navItemClass('procurement_pickup')}>
-              <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                <PackageSearch className="w-5 h-5 shrink-0" />
-                {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Procurement Pick-up</span>}
-              </span>
-              {procurementActiveCount > 0 && (
-                isSidebarCollapsed
-                  ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
-                  : <span className="bg-blue-400 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{procurementActiveCount}</span>
-              )}
-            </button>
+              <button onClick={() => handleNavigate('procurement_pickup')} title={isSidebarCollapsed ? 'Procurement Pick-up' : ''} className={navItemClass('procurement_pickup')}>
+                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
+                  <PackageSearch className="w-5 h-5 shrink-0" />
+                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Procurement Pick-up</span>}
+                </span>
+                {procurementActiveCount > 0 && (
+                  isSidebarCollapsed
+                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                    : <span className="bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{procurementActiveCount}</span>
+                )}
+              </button>
             )}
 
             {/* 6. Sales Orders */}
             {canAccess('sales_orders') && (
-            <button onClick={() => handleNavigate('sales_orders')} title={isSidebarCollapsed ? 'Sales Orders' : ''} className={navItemClass('sales_orders')}>
-              <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                <ShoppingCart className="w-5 h-5 shrink-0" />
-                {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Sales Orders</span>}
-              </span>
-              {salesOrdersActiveCount > 0 && (
-                isSidebarCollapsed
-                  ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-                  : <span className="bg-emerald-400 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{salesOrdersActiveCount}</span>
-              )}
-            </button>
+              <button onClick={() => handleNavigate('sales_orders')} title={isSidebarCollapsed ? 'Sales Orders' : ''} className={navItemClass('sales_orders')}>
+                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
+                  <ShoppingCart className="w-5 h-5 shrink-0" />
+                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Sales Orders</span>}
+                </span>
+                {salesOrdersActiveCount > 0 && (
+                  isSidebarCollapsed
+                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                    : <span className="bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{salesOrdersActiveCount}</span>
+                )}
+              </button>
             )}
           </div>
 
@@ -973,12 +969,12 @@ export default function App() {
 
             {/* Account Manager Directory — Sales Coordinator + Admin only */}
             {canAccess('am_directory') && (
-            <button onClick={() => handleNavigate('am_directory')} title={isSidebarCollapsed ? 'AM Directory' : ''} className={navItemClass('am_directory')}>
-              <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                <UsersRound className="w-5 h-5 shrink-0" />
-                {!isSidebarCollapsed && <span className="text-xs font-medium truncate">AM Directory</span>}
-              </span>
-            </button>
+              <button onClick={() => handleNavigate('am_directory')} title={isSidebarCollapsed ? 'AM Directory' : ''} className={navItemClass('am_directory')}>
+                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
+                  <UsersRound className="w-5 h-5 shrink-0" />
+                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">AM Directory</span>}
+                </span>
+              </button>
             )}
 
             {/* Transaction Center */}
@@ -1014,13 +1010,11 @@ export default function App() {
               <button
                 onClick={() => handleNavigate('data_sampler')}
                 title={isSidebarCollapsed ? 'Data Sampler' : ''}
-                className={`w-full px-4 py-2 flex items-center transition-all cursor-pointer ${
-                  isSidebarCollapsed ? 'justify-center' : 'space-x-3'
-                } ${
-                  currentScreen === 'data_sampler'
+                className={`w-full px-4 py-2 flex items-center transition-all cursor-pointer ${isSidebarCollapsed ? 'justify-center' : 'space-x-3'
+                  } ${currentScreen === 'data_sampler'
                     ? 'text-white bg-white/20 border-r-4 border-violet-400 font-bold'
                     : 'text-violet-300 hover:text-white hover:bg-white/5 border-r-4 border-violet-500/20'
-                }`}
+                  }`}
               >
                 <Shuffle className="w-5 h-5 shrink-0 text-violet-400" />
                 {!isSidebarCollapsed && <span className="text-xs truncate font-medium">Data Sampler</span>}
