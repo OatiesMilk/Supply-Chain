@@ -1,13 +1,15 @@
 import React, { ReactNode } from 'react';
 import { Sidebar, SidebarProps } from './Sidebar';
 import { Navbar, NavbarProps } from './Navbar';
-import { GlobalSearch } from '@/components';
+import { GlobalSearch, AccessRequestModal, AccessRequestModalProps } from '@/components';
 import { DeliveryRecord } from '@/types';
 import { ApiSku } from '@/api';
+import { AlertTriangle } from 'lucide-react';
 
 export interface MainLayoutProps {
   sidebarProps: SidebarProps;
   navbarProps: NavbarProps;
+  accessRequestModalProps?: AccessRequestModalProps;
   searchOpen: boolean;
   setSearchOpen: (open: boolean) => void;
   deliveryRecords: DeliveryRecord[];
@@ -19,6 +21,7 @@ export interface MainLayoutProps {
 export const MainLayout: React.FC<MainLayoutProps> = ({
   sidebarProps,
   navbarProps,
+  accessRequestModalProps,
   searchOpen,
   setSearchOpen,
   deliveryRecords,
@@ -36,6 +39,10 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         onNavigate={sidebarProps.handleNavigate}
       />
 
+      {accessRequestModalProps && (
+        <AccessRequestModal {...accessRequestModalProps} />
+      )}
+
       <Sidebar {...sidebarProps} />
 
       <div className="flex-1 flex flex-col min-w-0" id="main-content-area">
@@ -43,7 +50,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 
         {dataError && (
           <div className="bg-red-50 border-b border-red-200 text-red-700 text-[11px] font-semibold px-6 py-1.5 flex items-center gap-2" id="data-error-banner">
-            <span>⚠️</span> {dataError}
+            <AlertTriangle className="w-3.5 h-3.5" />
+            <span>{dataError}</span>
           </div>
         )}
 

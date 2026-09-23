@@ -17,6 +17,7 @@ import {
   Database,
   Menu,
   X,
+  Lock,
 } from 'lucide-react';
 import { UserRole } from '@/types';
 
@@ -33,6 +34,7 @@ export interface SidebarProps {
   deliveriesActiveCount: number;
   rmaActiveCount: number;
   salesOrdersActiveCount: number;
+  onRequestAccess?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -48,6 +50,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   deliveriesActiveCount,
   rmaActiveCount,
   salesOrdersActiveCount,
+  onRequestAccess,
 }) => {
   const navItemClass = (screen: any) => {
     const active = currentScreen === screen;
@@ -324,9 +327,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* User Info Footer */}
         <div className="p-3 border-t border-white/10 bg-black/10">
-          <div className="flex items-center justify-between">
+          {!isSidebarCollapsed && (
+            <div className="mb-2 px-1">
+              <p className="text-[9px] uppercase tracking-wider text-white/40 font-bold mb-0.5">Role Permission Scope</p>
+              <p className="text-[10px] text-white/60 leading-tight">
+                {currentUserRole === 'Sales Coordinator' && 'Deliveries, Sales Orders, RMA, and Customers only.'}
+                {currentUserRole === 'Logistics' && 'Assign drivers, update statuses, manage dispatch board and delivery calendar.'}
+                {currentUserRole === 'TASS' && 'View and verify Accounting Collection records; view RMA records only.'}
+                {currentUserRole === 'Admin' && 'Full access to all modules, users, and audit logs.'}
+              </p>
+              {currentUserRole !== 'Admin' && onRequestAccess && (
+                <button
+                  onClick={onRequestAccess}
+                  className="text-[9px] text-[#0078C1] hover:text-white font-bold uppercase tracking-wider mt-1 flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <Lock className="w-2.5 h-2.5" /> Request temporary access
+                </button>
+              )}
+            </div>
+          )}
+          <div className="bg-white/5 rounded-lg p-2">
             <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'space-x-3'}`}>
-              <div className="w-8 h-8 rounded-full bg-[#0078C1] flex items-center justify-center font-bold text-white text-xs shrink-0">
+              <div className="w-8 h-8 rounded bg-[#0078C1] flex items-center justify-center font-bold text-white text-xs shrink-0" title={`${currentUser.name} (${currentUserRole})`}>
                 {currentUser.initials}
               </div>
               {!isSidebarCollapsed && (
