@@ -43,11 +43,11 @@ jobs:
 
       # Step 4: Validate Prisma schema syntax and model integrity
       - name: Validate Prisma Schema
-        run: npx prisma validate --schema=server/prisma/schema.prisma
+        run: npm run prisma:validate --workspace=server
 
       # Step 5: Generate Prisma Client (required for backend TypeScript types)
       - name: Generate Prisma Client
-        run: npx prisma generate --schema=server/prisma/schema.prisma
+        run: npm run prisma:generate --workspace=server
 
       # Step 6: Backend static type checking (tsc --noEmit)
       - name: Typecheck Backend (Server)
