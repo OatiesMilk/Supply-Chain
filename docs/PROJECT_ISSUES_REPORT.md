@@ -784,3 +784,31 @@ Addressing both technical vulnerabilities, business domain completeness, and CI/
    - **Visual Workflows:** Ensure `StatusStepper.tsx` is consistently used to display clear record progress.
 4. **Implement Multi-Tier Caching Architecture:** Deploy in-memory LRU/Redis caching for user session checks and dashboard KPIs; adopt TanStack Query on the frontend.
 5. **Standardize Server Timezones:** Configure explicit `Asia/Manila` timezones for scheduled dispatch jobs in `server/src/index.ts`.
+
+---
+
+### 1.8 Frontend TypeScript Build Failure in `App.tsx`
+
+- **File & Line:** `client/src/App.tsx` (Supplier category mapping and Driver creation)
+- **Description:** The `npm run build` or `npm run lint` (`tsc --noEmit`) step fails with `TS2322` and `TS2739`. The supplier payload falls back to `category: data.category || 'General'`, which violates the strict literal type `'Hardware' | 'Consumables' | 'Electronics' | 'Packaging' | 'Services'`. Additionally, the optimistic driver insertion omits required audit fields defined in `ApiDriver`.
+- **Impact:** Frontend deployment pipelines (CI/CD) and local builds will fail strictly on TypeScript checks, preventing code from being shipped.
+- **Remediation:** Cast or validate `data.category` to the correct union type, and include placeholder or valid audit fields when optimistically appending to `ApiDriver` arrays.
+
+---
+
+### 2.10 Admin Self-Lockout Vulnerability
+
+- **File & Line:** `server/src/routes/users.ts` (PATCH `/:id`)
+- **Vulnerability:** While an Admin is explicitly prevented from deactivating their own account via `/:id/deactivate`, the main update route (`PATCH /:id`) lacks this protection. An Admin can change their own role to `SALES_COORDINATOR` or `LOGISTICS`.
+- **Impact:** If a system has only one Administrator and they accidentally or maliciously demote themselves, the entire system is locked out of administrative functions (user management, permissions).
+- **Remediation:** Add a check in `PATCH /:id` preventing the current user from modifying their own role, or ensure at least one active Admin remains in the system before allowing the role change.
+
+---
+
+### 2.11 Unhandled Promise Rejections in Express Routes (Request Hanging)
+
+- **File & Line:** Across all `server/src/routes/*.ts`
+- **Vulnerability:** Express 4 does not automatically catch rejected promises in `async` route handlers. The codebase uses `async (req, res) => { ... }` extensively without wrapping them in `try/catch` blocks or using a library like `express-async-errors`.
+- **Impact:** If a database query fails (e.g., due to a temporary connection drop, a unique constraint violation, or bad data), the promise rejects. Express fails to catch this, meaning `res.status(500)` is never called. The client's HTTP request hangs indefinitely until a timeout, leading to degraded UX and potential connection pool exhaustion on the server.
+- **Remediation:** Install and import `express-async-errors` at the top of `index.ts`, or wrap every async route in a higher-order `catchAsync` function.
+
