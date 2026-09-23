@@ -244,6 +244,10 @@ export async function runSeed(force = false) {
   }
 
   // Full clear (always on force=true, or when DB is empty)
+  await prisma.remarkLog.deleteMany();
+  await prisma.comment.deleteMany();
+  await prisma.notification.deleteMany();
+  await prisma.userPermission.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.notificationLog.deleteMany();
   await prisma.dailyStatusSnapshot.deleteMany();
@@ -254,6 +258,7 @@ export async function runSeed(force = false) {
   await prisma.company.deleteMany();
   await prisma.customer.deleteMany();
   await prisma.supplier.deleteMany();
+  await prisma.driver.deleteMany();
   await prisma.user.deleteMany();
 
   // ── Users ──────────────────────────────────────────────────────────────────
