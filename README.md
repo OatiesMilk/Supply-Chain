@@ -147,6 +147,34 @@ RBAC exists because different departments have different responsibilities and di
 
 **For the full permissions table (who can do what, screen by screen) and the TASS status tracker, see [`docs/ROLES.md`](./docs/ROLES.md).**
 
+## Getting Started (Usage)
+
+Once the application is running via `npm run dev` and you've seeded the database (`npm run db:reset`), you can access the portal locally.
+
+### 1. First-time access and login
+
+1. Open your browser and navigate to `http://localhost:3000`.
+2. Instead of a corporate SSO (which requires Azure AD configuration), you can log in using one of the pre-seeded local demo accounts (passwords are `password123`):
+   - **Admin:** `admin@microgenesis.com`
+   - **Sales Coordinator:** `sales@microgenesis.com`
+   - **Logistics:** `logistics@microgenesis.com`
+   - **TASS / Accounting:** `tass@microgenesis.com`
+   > *Note: By default, there is no seeded Driver account. An Admin can create Driver logins via the **Admin Panel → Users** menu.*
+
+### 2. Navigating the Dashboard
+
+Upon logging in, you will land on the **Command Center Dashboard**. The layout is divided into three main areas:
+*   **Left Sidebar:** Your main navigation menu containing modules like Deliveries, Inventory, Accounts, and Admin.
+*   **Top Bar:** Contains global context, notification alerts, and your profile dropdown.
+*   **Main Content Area:** Displays key metrics, widgets, and actionable tasks tailored to your role.
+
+### 3. Inventory Management
+
+The Inventory module allows you to monitor stock levels:
+1. Click on **Inventory** in the left sidebar.
+2. Search by SKU (e.g., `UTK-TAB08`) or Category (e.g., `Consumables`).
+3. Click a product row to open the **Item Detail View** to see on-hand quantity, historical usage, and transaction ledgers.
+
 ## Authentication & Microsoft 365 Integration
 
 ### Overview
