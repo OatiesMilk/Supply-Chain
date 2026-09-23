@@ -161,13 +161,14 @@ export default function App() {
     setDataLoading(true);
     setDataError(null);
     try {
-      const [records, companyList, customerList, supplierList, stats, skuList] = await Promise.all([
+      const [records, companyList, customerList, supplierList, stats, skuList, driverList] = await Promise.all([
         api.getRecords(),
         api.getCompanies(),
         api.getCustomers(),
         api.getSuppliers(),
-        api.getDashboardStats(),
+        api.getDashboardStats().catch(() => null),
         api.getSkus(),
+        api.getDrivers(true).catch(() => []),
       ]);
       setDeliveryRecords(records.map(normalizeApiRecord));
       setCompanies(companyList);
@@ -176,10 +177,7 @@ export default function App() {
       setDashboardStats(stats);
       setProducts(skuList);
 
-      // Driver manager fetch is non-blocking — if the Driver table doesn't
-      // exist yet (migration not run), core data still loads.
-      try {
-        const driverList = await api.getDrivers(true);
+      if (driverList && driverList.length > 0) {
         setManagedDrivers(driverList);
         setManagedDriverList(driverList.map(d => ({
           name: d.name,
@@ -187,8 +185,6 @@ export default function App() {
           coverage_areas: d.coverage_areas,
           is_active: d.is_active,
         })));
-      } catch {
-        // Driver table may not exist yet — fall back to hardcoded defaults
       }
     } catch {
       // Backend/database unavailable -> use rich offline demo data from data.ts & localStorage
@@ -197,7 +193,74 @@ export default function App() {
       const storedSuppliers = loadState<Supplier[]>('suppliers', []);
       const mockSkus: ApiSku[] = [];
       const mockCompanies: ApiCompany[] = [];
-      const mockDrivers: ApiDriver[] = [];
+      const mockDrivers: ApiDriver[] = [
+        {
+          id: 'drv-1',
+          name: 'Lando Navarro',
+          type: 'DRIVER',
+          coverage_areas: ['Makati', 'BGC', 'Taguig', 'Mandaluyong', 'San Juan', 'Pasig', 'Ortigas', 'Ortigas Corridor', 'Ortigas Center (Pasig)'],
+          is_active: true,
+          created_by: 'system',
+          created_at: new Date().toISOString(),
+          modified_by: 'system',
+          modified_at: new Date().toISOString(),
+        },
+        {
+          id: 'drv-2',
+          name: 'Manny Santos',
+          type: 'DRIVER',
+          coverage_areas: ['Quezon City', 'Marikina', 'Caloocan', 'Valenzuela', 'Malabon', 'Bulacan', 'Cainta', 'Antipolo'],
+          is_active: true,
+          created_by: 'system',
+          created_at: new Date().toISOString(),
+          modified_by: 'system',
+          modified_at: new Date().toISOString(),
+        },
+        {
+          id: 'drv-3',
+          name: 'Ronald de la Cruz',
+          type: 'DRIVER',
+          coverage_areas: ['Manila', 'Parañaque', 'Pasay', 'Las Piñas', 'Muntinlupa', 'Cavite', 'Laguna', 'Batangas'],
+          is_active: true,
+          created_by: 'system',
+          created_at: new Date().toISOString(),
+          modified_by: 'system',
+          modified_at: new Date().toISOString(),
+        },
+        {
+          id: 'drv-4',
+          name: 'Jayson Reyes',
+          type: 'ASSISTANT',
+          coverage_areas: [],
+          is_active: true,
+          created_by: 'system',
+          created_at: new Date().toISOString(),
+          modified_by: 'system',
+          modified_at: new Date().toISOString(),
+        },
+        {
+          id: 'drv-5',
+          name: 'Bong Alvarez',
+          type: 'ASSISTANT',
+          coverage_areas: [],
+          is_active: true,
+          created_by: 'system',
+          created_at: new Date().toISOString(),
+          modified_by: 'system',
+          modified_at: new Date().toISOString(),
+        },
+        {
+          id: 'drv-6',
+          name: 'Ricky Mendoza',
+          type: 'ASSISTANT',
+          coverage_areas: [],
+          is_active: true,
+          created_by: 'system',
+          created_at: new Date().toISOString(),
+          modified_by: 'system',
+          modified_at: new Date().toISOString(),
+        },
+      ];
 
       setDeliveryRecords(storedRecords);
       setCompanies(mockCompanies);
@@ -216,6 +279,17 @@ export default function App() {
       setDataLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (managedDrivers && managedDrivers.length > 0) {
+      setManagedDriverList(managedDrivers.map(d => ({
+        name: d.name,
+        type: d.type,
+        coverage_areas: d.coverage_areas,
+        is_active: d.is_active,
+      })));
+    }
+  }, [managedDrivers]);
 
   useEffect(() => {
     if (authUser) refreshData();
@@ -277,7 +351,7 @@ export default function App() {
         phone: data.phone || '',
         address: data.address || '',
         city: data.city || '',
-        category: data.category || 'General',
+        category: (data.category as 'Hardware' | 'Consumables' | 'Electronics' | 'Packaging' | 'Services') || 'Hardware',
         created_by: currentUser.name,
         created_at: new Date().toISOString(),
         modified_by: currentUser.name,
@@ -302,7 +376,10 @@ export default function App() {
         type: data.type,
         coverage_areas: data.coverage_areas || [],
         is_active: true,
+        created_by: currentUser.name || 'system',
         created_at: new Date().toISOString(),
+        modified_by: currentUser.name || 'system',
+        modified_at: new Date().toISOString(),
       };
       setManagedDrivers(prev => [newDriver, ...prev]);
     }
@@ -945,36 +1022,8 @@ export default function App() {
               </button>
             )}
 
-            {/* 4. Accounting Collection */}
-            {canAccess('accounting_collection') && (
-              <button onClick={() => handleNavigate('accounting_collection')} title={isSidebarCollapsed ? 'Accounting Collection' : ''} className={navItemClass('accounting_collection')}>
-                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                  <Banknote className="w-5 h-5 shrink-0" />
-                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Accounting Collection</span>}
-                </span>
-                {accountingActiveCount > 0 && (
-                  isSidebarCollapsed
-                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                    : <span className="bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{accountingActiveCount}</span>
-                )}
-              </button>
-            )}
-
-            {/* 5. Procurement Pick-up */}
-            {canAccess('procurement_pickup') && (
-              <button onClick={() => handleNavigate('procurement_pickup')} title={isSidebarCollapsed ? 'Procurement Pick-up' : ''} className={navItemClass('procurement_pickup')}>
-                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                  <PackageSearch className="w-5 h-5 shrink-0" />
-                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Procurement Pick-up</span>}
-                </span>
-                {procurementActiveCount > 0 && (
-                  isSidebarCollapsed
-                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                    : <span className="bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{procurementActiveCount}</span>
-                )}
-              </button>
-            )}
-
+            
+            
             {/* 6. Sales Orders */}
             {canAccess('sales_orders') && (
               <button onClick={() => handleNavigate('sales_orders')} title={isSidebarCollapsed ? 'Sales Orders' : ''} className={navItemClass('sales_orders')}>
