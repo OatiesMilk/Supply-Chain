@@ -157,7 +157,9 @@ export default function DeliveryRecordsView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRecordIdFromDashboard]);
 
-  // Reset area + date + AM + driver filters when switching category tabs
+  // Reset category-scoped UI state when switching module tabs. The same
+  // component instance is reused, so bulk selections would otherwise carry
+  // over and keep the action bar visible for records from the previous module.
   useEffect(() => {
     setRegionFilter('All Regions');
     setSubregionFilter('All Subregions');
@@ -167,6 +169,7 @@ export default function DeliveryRecordsView({
     setDateSort('default');
     setAmFilter('');
     setDriverFilter('');
+    setSelectedBulkIds(new Set());
   }, [category]);
 
   const [statusHistoryCounts, setStatusHistoryCounts] = useState<StatusHistoryCounts | undefined>(undefined);
@@ -846,11 +849,12 @@ export default function DeliveryRecordsView({
                       <tr key={rec.id} onClick={() => { setSelectedId(rec.id); setShowForm(false); }}
                         className={`hover:bg-slate-50 cursor-pointer transition-all ${isSelected ? 'bg-blue-50/80 font-medium border-l-4 border-l-[#0078C1]' : ''}`}>
                         {showCheckbox && (
-                          <td className="px-4 py-3.5" onClick={e => { e.stopPropagation(); toggleBulkId(rec.id); }}>
+                          <td className="px-4 py-3.5">
                             <input
                               type="checkbox"
                               className="rounded cursor-pointer"
                               checked={selectedBulkIds.has(rec.id)}
+                              onClick={e => e.stopPropagation()}
                               onChange={() => toggleBulkId(rec.id)}
                             />
                           </td>
