@@ -9,6 +9,7 @@
     "dev": "concurrently -n \"CLIENT,SERVER\" -c \"cyan,magenta\" \"npm run dev --workspace=client\" \"npm run dev --workspace=server\"",
     "build": "npm run build --workspaces --if-present",
     "start": "npm start --workspace=server",
+    "lint": "npm run lint --workspace=client",
     "db:reset": "npm run db:reset --workspace=mg-portal-server",
     "db:clean": "npm run db:clean --workspace=mg-portal-server",
     "seed": "npm run seed --workspace=mg-portal-server",

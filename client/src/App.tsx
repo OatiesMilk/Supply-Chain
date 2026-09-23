@@ -351,7 +351,7 @@ export default function App() {
         phone: data.phone || '',
         address: data.address || '',
         city: data.city || '',
-        category: data.category || 'General',
+        category: (data.category as 'Hardware' | 'Consumables' | 'Electronics' | 'Packaging' | 'Services') || 'Hardware',
         created_by: currentUser.name,
         created_at: new Date().toISOString(),
         modified_by: currentUser.name,
@@ -376,7 +376,10 @@ export default function App() {
         type: data.type,
         coverage_areas: data.coverage_areas || [],
         is_active: true,
+        created_by: currentUser.name || 'system',
         created_at: new Date().toISOString(),
+        modified_by: currentUser.name || 'system',
+        modified_at: new Date().toISOString(),
       };
       setManagedDrivers(prev => [newDriver, ...prev]);
     }
