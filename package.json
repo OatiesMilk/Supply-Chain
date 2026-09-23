@@ -16,6 +16,10 @@
     "seed:accounts": "npm run seed:accounts --workspace=mg-portal-server"
   },
   "devDependencies": {
-    "concurrently": "^10.0.5"
+    "concurrently": "^10.0.5",
+    "prisma": "^5.22.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0"
   }
 }

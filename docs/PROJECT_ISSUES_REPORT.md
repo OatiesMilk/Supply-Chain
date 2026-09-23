@@ -837,3 +837,57 @@ pie title Roadmap Completion Breakdown
   - Ensure `StatusStepper.tsx` is consistently used to display clear record progress.
 - [ ] **5. Standardize Server Timezones:** Configure explicit `Asia/Manila` timezones for scheduled dispatch jobs in `server/src/index.ts`.
 
+---
+
+## 12. Additional Audit Findings — September 23, 2026
+
+The following issues were identified during a follow-up audit of frontend, backend, and database behavior. These are not duplicates of the previously documented remediation items above.
+
+### 12.1 Driver/Role Record Detail IDOR Across Nested Endpoints
+
+- **File & Line:** [`server/src/routes/records.ts:111`](file:///home/marc/Supply-Chain/server/src/routes/records.ts#L111), [`server/src/routes/records.ts:125`](file:///home/marc/Supply-Chain/server/src/routes/records.ts#L125), [`server/src/routes/records.ts:144`](file:///home/marc/Supply-Chain/server/src/routes/records.ts#L144), [`server/src/routes/records.ts:515`](file:///home/marc/Supply-Chain/server/src/routes/records.ts#L515), [`server/src/routes/records.ts:532`](file:///home/marc/Supply-Chain/server/src/routes/records.ts#L532)
+- **Issue:** `GET /api/records` correctly scopes drivers to their own assignments through `categoryFilterForRole()`, but direct record endpoints do not reuse that access policy. `GET /api/records/:id` only blocks TASS from unsupported categories; it does not block a Driver from loading another driver's record. The audit, remarks, and comments endpoints fetch by `recordId` directly and do not verify that the caller may view the parent delivery record.
+- **Impact:** Any authenticated driver or non-admin user who learns or guesses a record id can read operational details, audit history, remarks, and comments outside their assigned work queue. Comment creation also permits posting on any existing delivery record after only checking that the record exists.
+- **Remediation:** Centralize record visibility in a helper such as `canAccessRecord(user, record)` and require it for `/:id`, `/:id/audit`, `/:id/remarks`, `/:id/comments`, and comment creation. For drivers, require `record.driver === req.user.name`; for TASS and Logistics, enforce the same category boundaries used by list endpoints.
+
+### 12.2 Transaction Center Leaks Delivery and Inventory Data to Driver Role
+
+- **File & Line:** [`server/src/routes/transactions.ts:11-23`](file:///home/marc/Supply-Chain/server/src/routes/transactions.ts#L11), [`server/src/routes/transactions.ts:26-29`](file:///home/marc/Supply-Chain/server/src/routes/transactions.ts#L26), [`server/src/routes/transactions.ts:45-79`](file:///home/marc/Supply-Chain/server/src/routes/transactions.ts#L45), [`server/src/routes/transactions.ts:161-238`](file:///home/marc/Supply-Chain/server/src/routes/transactions.ts#L161)
+- **Issue:** `allowedCategoriesForRole()` returns `null` for unhandled roles, which means unrestricted access. Because `DRIVER` is not handled, drivers receive all delivery transactions in `GET /api/transactions`. `canAccessInventory()` only excludes TASS, so drivers can also list and open inventory transactions.
+- **Impact:** A driver account can inspect cross-company delivery references, account manager names, item descriptions, stock adjustment references, product names, and full delivery timelines beyond assigned routes.
+- **Remediation:** Treat unknown roles as deny-by-default. Add explicit `DRIVER` handling that scopes delivery records by assigned driver and blocks inventory transaction access unless a validated business requirement grants it.
+
+### 12.3 Frontend Offline Fallback Silently Converts Failed Mutations Into Local-Only Success
+
+- **File & Line:** [`client/src/api/queries/useRecordsQuery.ts:48-69`](file:///home/marc/Supply-Chain/client/src/api/queries/useRecordsQuery.ts#L48), [`client/src/api/queries/useRecordsQuery.ts:81-113`](file:///home/marc/Supply-Chain/client/src/api/queries/useRecordsQuery.ts#L81), [`client/src/api/queries/useRecordsQuery.ts:124-141`](file:///home/marc/Supply-Chain/client/src/api/queries/useRecordsQuery.ts#L124)
+- **Issue:** Create, update, status, and collection-verification mutations catch every API error and write a fallback result into `localStorage`. The catch block does not distinguish network outage from HTTP 400/403/500 responses.
+- **Impact:** Authorization failures, missing required remarks, validation errors, and server exceptions can look successful in the UI until the next refetch. For example, a bulk status update without remarks can be rejected by the backend while the local cache still shows the status as changed. This creates false operational confidence for dispatchers and drivers.
+- **Remediation:** Only enter offline fallback for actual network failures (`TypeError`, timeout, or `navigator.onLine === false`). Re-throw `ApiError` responses so the UI can show the backend error and avoid writing unauthorized or invalid local state.
+
+### 12.4 Status History Export Counts Use `createdAt` While UI Filters Use `deliveryDate`
+
+- **File & Line:** [`server/src/routes/records.ts:50-63`](file:///home/marc/Supply-Chain/server/src/routes/records.ts#L50), [`client/src/features/deliveries/DeliveryRecordsView.tsx:183-194`](file:///home/marc/Supply-Chain/client/src/features/deliveries/DeliveryRecordsView.tsx#L183), [`client/src/pages/MainView.tsx:96-107`](file:///home/marc/Supply-Chain/client/src/pages/MainView.tsx#L96)
+- **Issue:** The frontend sends `dateFrom` and `dateTo` from delivery-date filters, but `/api/records/status-history-counts` applies those parameters to `createdAt`. Main View also computes displayed rows using `delivery_date` while requesting status counts without sending the same date range at all.
+- **Impact:** Export summaries and on-screen status-history counts can disagree with the table the user is exporting. Backdated deliveries, future scheduled deliveries, and records created today for a later delivery date are counted in the wrong bucket.
+- **Remediation:** Align the endpoint with UI semantics by filtering on `deliveryDate` for delivery-date reports, or rename the query parameters to `createdFrom` / `createdTo` and add separate delivery-date parameters. Ensure Main View passes the same active date filters used for `displayRecords`.
+
+### 12.5 Bulk Status Update Cannot Satisfy Backend Remarks Requirement
+
+- **File & Line:** [`client/src/features/deliveries/DeliveryRecordsView.tsx:283-290`](file:///home/marc/Supply-Chain/client/src/features/deliveries/DeliveryRecordsView.tsx#L283), [`client/src/api/queries/useRecordsQuery.ts:83-93`](file:///home/marc/Supply-Chain/client/src/api/queries/useRecordsQuery.ts#L83), [`server/src/routes/records.ts:382-384`](file:///home/marc/Supply-Chain/server/src/routes/records.ts#L382)
+- **Issue:** `handleBulkStatusUpdate()` calls `onUpdateRecord(id, { status })` with no remarks. The mutation maps any `updates.status` to `PATCH /api/records/:id/status` and sends an empty string when neither `status_remarks` nor `remarks` is present. The backend correctly rejects status changes without remarks.
+- **Impact:** Logistics users can select records and press **Apply**, but the server rejects each status update. Because the mutation catches errors and falls back to local storage, the UI can still clear the selection and appear to have completed the bulk operation.
+- **Remediation:** Require a bulk remarks field before enabling **Apply**, pass it as `status_remarks`, and surface per-record failures. Pair this with the mutation error-handling fix in 12.3.
+
+### 12.6 Master Data Tables Permit Duplicate Business Identities
+
+- **File & Line:** [`server/prisma/schema.prisma:54-63`](file:///home/marc/Supply-Chain/server/prisma/schema.prisma#L54), [`server/prisma/schema.prisma:68-82`](file:///home/marc/Supply-Chain/server/prisma/schema.prisma#L68), [`server/prisma/schema.prisma:86-101`](file:///home/marc/Supply-Chain/server/prisma/schema.prisma#L86), [`server/prisma/schema.prisma:275-285`](file:///home/marc/Supply-Chain/server/prisma/schema.prisma#L275)
+- **Issue:** `Company.sapNumber`, `Company.name`, `Customer.email`, `Supplier.email`, and `Driver.name` have no uniqueness constraints or normalized lookup fields. The API create routes also do not check for existing rows before insertion.
+- **Impact:** The system can contain multiple active companies with the same SAP number, duplicate customer/supplier identities, and duplicate driver names. Since delivery assignments and driver authorization rely on free-text names, duplicate driver names can break audit attribution and assigned-record scoping.
+- **Remediation:** Add database-level unique constraints for canonical identifiers (`Company.sapNumber`, normalized company name if needed, customer/supplier email where available, and active driver identity), plus application-level duplicate handling with clear 409 Conflict responses.
+
+### 12.7 Delivery Scheduling Uses String Dates Instead of Typed Database Dates
+
+- **File & Line:** [`server/prisma/schema.prisma:115-123`](file:///home/marc/Supply-Chain/server/prisma/schema.prisma#L115), [`server/prisma/schema.prisma:287-295`](file:///home/marc/Supply-Chain/server/prisma/schema.prisma#L287)
+- **Issue:** `DeliveryRecord.deliveryDate`, `DeliveryRecord.dateAndTime`, `timeIn`, `timeOut`, and `DailyStatusSnapshot.date` are stored as `String` values. Query correctness depends on every caller always sending perfectly zero-padded ISO-like strings.
+- **Impact:** Any malformed, localized, or non-padded date string sorts lexicographically rather than chronologically. This can corrupt dashboard counts, date-range filters, route slips, and status-history reports without triggering a database error.
+- **Remediation:** Migrate schedule fields to `DateTime` or `Date`-equivalent columns where supported, validate incoming payloads at the API boundary, and keep display formatting strictly in the frontend/export layer.
