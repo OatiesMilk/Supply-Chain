@@ -45,20 +45,12 @@ export default function LogisticsDashboard({ stats, deliveryRecords, onNavigate,
   return (
     <div className="space-y-6" id="logistics-dashboard">
       {/* Welcome Banner */}
-      <div className="bg-gradient-to-r from-[#1F3864] to-[#122B4F] text-white p-6 rounded-xl shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4 border-l-8 border-l-[#0078C1]">
+      <div className="bg-gradient-to-r from-[#1F3864] to-[#122B4F] text-white p-6 rounded-xl shadow-md flex items-center justify-between gap-4 border-l-8 border-l-[#0078C1]">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] bg-[#0078C1] text-white font-extrabold px-2 py-0.5 rounded tracking-widest uppercase">LOGISTICS</span>
-            <span className="text-sm text-slate-200 font-bold tracking-wider uppercase">Dispatch Operations</span>
-          </div>
-          <h1 className="text-2xl md:text-3xl font-black tracking-tight mt-1">Logistics Command Center</h1>
+          <h1 className="text-2xl md:text-3xl font-black tracking-tight">Logistics Command Center</h1>
           <p className="text-slate-300 text-sm mt-1 font-medium">
             Driver assignments, delivery status, and daily dispatch overview.
           </p>
-        </div>
-        <div className="flex items-center gap-2 bg-black/20 px-4 py-2.5 rounded-lg border border-white/10 text-xs font-bold">
-          <Truck className="w-4 h-4 text-[#0078C1]" />
-          <span>Today: <span className="text-[#0078C1] font-extrabold">{today}</span></span>
         </div>
         {onRefresh && (
           <button onClick={onRefresh} className="flex items-center gap-1.5 bg-black/20 hover:bg-black/30 px-3 py-2 rounded-lg border border-white/10 text-xs font-bold text-white transition-colors cursor-pointer">
