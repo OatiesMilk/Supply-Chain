@@ -3,6 +3,7 @@
 A reference guide for developers on the Microgenesis Supply Chain team. Use this cheat sheet for daily branch management, rebasing, and troubleshooting.
 
 > [!IMPORTANT] Core rules for the team
+> - **All features must be tested in `dev`:** Before any branch goes to `main`, it should first be merged into the `dev` branch for testing.
 > - **`git pull` is only for updating `main`:** Run `git pull --ff-only` exclusively while on `main` with clean files.
 > - **Never run `git pull` on a feature branch:** When syncing your feature branch with `main`, always use `git fetch origin && git rebase origin/main` to keep commit history linear.
 > - **If you have uncommitted edits:** Always stash first (`git stash`), fetch and rebase, then restore (`git stash pop`).
