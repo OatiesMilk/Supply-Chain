@@ -57,23 +57,15 @@ export default function TassDashboard({ stats, deliveryRecords, onNavigate, onRe
   return (
     <div className="space-y-6" id="tass-dashboard">
       {/* Welcome Banner */}
-      <div className="bg-gradient-to-r from-[#1F3864] to-[#122B4F] text-white p-6 rounded-xl shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4 border-l-8 border-l-blue-400">
+      <div className="bg-gradient-to-r from-[#1F3864] to-[#122B4F] text-white p-6 rounded-xl shadow-md flex items-center justify-between gap-4 border-l-8 border-l-[#0078C1]">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] bg-blue-600 text-white font-extrabold px-2 py-0.5 rounded tracking-widest uppercase">TASS</span>
-            <span className="text-sm text-slate-200 font-bold tracking-wider uppercase">Technical Admin Shared Services</span>
-          </div>
-          <h1 className="text-2xl md:text-3xl font-black tracking-tight mt-1">Technical Operations</h1>
+          <h1 className="text-2xl md:text-3xl font-black tracking-tight">Technical Operations</h1>
           <p className="text-slate-300 text-sm mt-1 font-medium">
             Manage returns, warranty processing, and supplier coordination.
           </p>
         </div>
-        <div className="flex items-center gap-2 bg-white/10 border border-white/20 rounded-md px-3 py-1.5 text-white text-sm">
-          <RotateCcw className="w-4 h-4 text-blue-400" />
-          <span>Role: <span className="text-blue-400 font-extrabold uppercase">TASS</span></span>
-        </div>
         {onRefresh && (
-          <button onClick={onRefresh} className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-md px-3 py-1.5 text-white text-sm transition-colors cursor-pointer">
+          <button onClick={onRefresh} className="flex items-center gap-1.5 bg-black/20 hover:bg-black/30 px-3 py-2 rounded-lg border border-white/10 text-xs font-bold text-white transition-colors cursor-pointer">
             <RotateCw className="w-3.5 h-3.5" /> Refresh
           </button>
         )}

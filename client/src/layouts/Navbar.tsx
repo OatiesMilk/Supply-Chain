@@ -89,10 +89,6 @@ export const Navbar: React.FC<NavbarProps> = ({
         <span className="hidden md:flex items-center gap-1.5 font-bold text-slate-500 text-[10.5px] uppercase tracking-wide">
           <Clock className="w-3.5 h-3.5 text-slate-400" /> {new Date().toISOString().split('T')[0]}
         </span>
-        <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-1" id="header-current-user" title="Signed in as">
-          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider hidden sm:inline">Signed in</span>
-          <span className="text-slate-700 font-bold text-[10px] uppercase">{currentUser.name} &middot; {currentUserRole}</span>
-        </div>
 
         <button
           onClick={() => setSearchOpen(true)}
