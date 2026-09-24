@@ -162,31 +162,6 @@ export default function DashboardView({
 
   return (
     <div className="space-y-6" id="dashboard-view-container">
-      {/* Welcome Banner */}
-      <div
-        className="bg-gradient-to-r from-[#1F3864] to-[#122B4F] text-white p-6 rounded-xl shadow-md flex items-center justify-between gap-4 border-l-8 border-l-[#0078C1]"
-        id="welcome-banner"
-      >
-        <div>
-          <h1 className="text-2xl md:text-3xl font-black tracking-tight">
-            Supply Chain Operations Console
-          </h1>
-          <p className="text-slate-300 text-sm mt-1 font-medium">
-            Microgenesis Business Systems — replacing the legacy SharePoint List
-            tracker with a unified delivery record system.
-          </p>
-        </div>
-        {onRefresh && (
-          <button
-            onClick={onRefresh}
-            className="flex items-center gap-1.5 bg-black/20 hover:bg-black/30 px-3 py-2 rounded-lg border border-white/10 text-xs font-bold text-white transition-colors cursor-pointer"
-            title="Refresh dashboard data"
-          >
-            <RotateCw className="w-3.5 h-3.5" /> Refresh
-          </button>
-        )}
-      </div>
-
       {/* KPI Cards */}
       <div className="space-y-4">
         <div
