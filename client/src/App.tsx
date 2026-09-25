@@ -10,21 +10,34 @@ import DriverDashboard from '@/features/dashboard/DriverDashboard';
 import { DeliveryCategory } from '@/types';
 
 function AppContent() {
+  const { authUser, authChecked, login, checkAuth } = useAuth();
+
+  useEffect(() => {
+    void checkAuth();
+  }, [checkAuth]);
+
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-[#F8F9FB] flex items-center justify-center" id="auth-check-loading" role="status">
+        Checking your session…
+      </div>
+    );
+  }
+
+  if (!authUser) return <LoginView onLoggedIn={login} />;
+
+  return <AuthenticatedApp key={authUser.id} />;
+}
+
+// Keep protected data hooks and application effects behind the session gate.
+function AuthenticatedApp() {
   const {
     authUser,
-    authChecked,
     currentUserRole,
     currentUserName,
     currentUserInitials,
-    login,
     logout,
-    checkAuth,
   } = useAuth();
-
-  // Validate session on app initialization
-  useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
 
   const currentUser = {
     name: currentUserName,
@@ -115,16 +128,6 @@ function AppContent() {
   const deliveriesActiveCount = countByCategory('Deliveries', ['Scheduled', 'Pending']);
   const rmaActiveCount = countByCategory('RMA', ['Scheduled', 'Pending', 'On-Hold']);
   const salesOrdersActiveCount = countByCategory('Sales Orders', ['Scheduled', 'Pending']);
-
-  // Authentication loading gate
-  if (!authChecked) {
-    return <div className="min-h-screen bg-[#F8F9FB]" id="auth-check-loading" />;
-  }
-
-  // Unauthenticated -> Render Login view
-  if (!authUser) {
-    return <LoginView onLoggedIn={login} />;
-  }
 
   // Driver role gets standalone mobile-first dashboard
   if (authUser.role === 'DRIVER') {
