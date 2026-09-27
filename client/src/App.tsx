@@ -115,6 +115,8 @@ function AppContent() {
   const deliveriesActiveCount = countByCategory('Deliveries', ['Scheduled', 'Pending']);
   const rmaActiveCount = countByCategory('RMA', ['Scheduled', 'Pending', 'On-Hold']);
   const salesOrdersActiveCount = countByCategory('Sales Orders', ['Scheduled', 'Pending']);
+  const accountingActiveCount = countByCategory('Accounting Collection', ['Scheduled', 'Pending']);
+  const procurementActiveCount = countByCategory('Procurement Pick-up', ['Scheduled', 'Pending']);
 
   // Authentication loading gate
   if (!authChecked) {
@@ -165,6 +167,8 @@ function AppContent() {
         deliveriesActiveCount,
         rmaActiveCount,
         salesOrdersActiveCount,
+        accountingActiveCount,
+        procurementActiveCount,
         onRequestAccess: () => openAccessRequest(''),
       }}
       navbarProps={{

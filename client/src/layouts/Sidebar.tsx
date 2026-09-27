@@ -18,6 +18,8 @@ import {
   Menu,
   X,
   Lock,
+  Banknote,
+  PackageSearch,
 } from 'lucide-react';
 import { UserRole } from '@/types';
 
@@ -34,6 +36,8 @@ export interface SidebarProps {
   deliveriesActiveCount: number;
   rmaActiveCount: number;
   salesOrdersActiveCount: number;
+  accountingActiveCount: number;
+  procurementActiveCount: number;
   onRequestAccess?: () => void;
 }
 
@@ -50,6 +54,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   deliveriesActiveCount,
   rmaActiveCount,
   salesOrdersActiveCount,
+  accountingActiveCount,
+  procurementActiveCount,
   onRequestAccess,
 }) => {
   const navItemClass = (screen: any) => {
@@ -178,6 +184,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   isSidebarCollapsed
                     ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
                     : <span className="bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{rmaActiveCount}</span>
+                )}
+              </button>
+            )}
+
+            {/* 4. Accounting Collection */}
+            {canAccess('accounting_collection') && (
+              <button onClick={() => handleNavigate('accounting_collection')} title={isSidebarCollapsed ? 'Accounting Collection' : ''} className={navItemClass('accounting_collection')}>
+                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
+                  <Banknote className="w-5 h-5 shrink-0" />
+                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Accounting Collection</span>}
+                </span>
+                {accountingActiveCount > 0 && (
+                  isSidebarCollapsed
+                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                    : <span className="bg-green-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{accountingActiveCount}</span>
+                )}
+              </button>
+            )}
+
+            {/* 5. Procurement Pick-up */}
+            {canAccess('procurement_pickup') && (
+              <button onClick={() => handleNavigate('procurement_pickup')} title={isSidebarCollapsed ? 'Procurement Pick-up' : ''} className={navItemClass('procurement_pickup')}>
+                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
+                  <PackageSearch className="w-5 h-5 shrink-0" />
+                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Procurement Pick-up</span>}
+                </span>
+                {procurementActiveCount > 0 && (
+                  isSidebarCollapsed
+                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
+                    : <span className="bg-blue-400 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{procurementActiveCount}</span>
                 )}
               </button>
             )}
