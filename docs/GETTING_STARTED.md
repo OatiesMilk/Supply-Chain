@@ -9,7 +9,13 @@ Welcome to the Supply Chain Portal development environment. The project uses **n
 
 ---
 
-## 1. Local Setup
+## 1. Development Workflow
+
+> **CRITICAL RULE:** All code changes must be tested in the `dev` branch. Before any feature branch is merged into `main`, it **must** first be merged into `dev` for testing and validation.
+
+---
+
+## 2. Local Setup
 
 From the root directory of the repository:
 
@@ -47,7 +53,7 @@ npm run dev
 
 ---
 
-## 2. Access and Login
+## 3. Access and Login
 
 Once the application is running, open your browser and navigate to \`http://localhost:3000\`.
 
@@ -62,7 +68,7 @@ For local development, you do not need to use the corporate SSO. You can log in 
 
 ---
 
-## 3. Navigating the Dashboard
+## 4. Navigating the Dashboard
 
 Upon logging in, you will land on the **Command Center Dashboard**. The layout is divided into three main areas:
 

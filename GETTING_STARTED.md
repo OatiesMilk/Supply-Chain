@@ -15,21 +15,21 @@ Both need to be running for the app to work. Neither one works alone.
 
 There's also a **database** — this app needs a real PostgreSQL database to store its data (delivery records, users, etc.). You can't skip this step; the app does not work with no database at all.
 
-## Step 0 — Get a database
+## Step 0 — Setup Environment & Database (Docker)
 
-The simplest option: create a free Postgres database at [Render](https://render.com) or [Supabase](https://supabase.com).
+The project includes a `docker-compose.yml` and an `.env.example` in the root folder to easily spin up a local PostgreSQL database.
 
-Alternatively, to run Postgres locally:
-- **Windows**: Download the installer from [postgresql.org](https://www.postgresql.org/download/windows/) or run via Docker (`docker run --name pg -e POSTGRES_PASSWORD=secret -p 5432:5432 -d postgres`).
-- **Linux**: Install via your package manager (e.g., `sudo apt install postgresql postgresql-contrib` on Ubuntu/Debian) or run via Docker.
+1. **Copy the root environment file**:
+   ```bash
+   cp .env.example .env
+   ```
+   *(Edit `.env` if you need to change the default database passwords, though the defaults are fine for local development).*
 
-Either way, you end up with a connection string that looks like:
-
-```
-postgresql://username:password@host:5432/databasename
-```
-
-Keep that string handy — you'll paste it into a file in Step 2.
+2. **Start the database via Docker**:
+   ```bash
+   docker-compose up -d
+   ```
+   This will spin up a local PostgreSQL instance on port `5433`.
 
 ## Step 1 — Install dependencies
 
@@ -47,28 +47,21 @@ npm install
 cd ..
 ```
 
-## Step 2 — Set up environment variables
+## Step 2 — Setup Server Environment Variables
 
-The backend needs a config file that isn't checked into git (because it has secrets in it). Copy the example and fill it in.
+The backend needs its own `.env` file (which gets created in the `server/` folder). 
+Because we use a unified root `.env` for Docker, you just need to copy the root `.env` into the server folder:
 
-**For Linux / macOS:**
 ```bash
-cd server
-cp .env.example .env
+cp .env server/.env
 ```
 
-**For Windows (Command Prompt / PowerShell):**
-```cmd
-cd server
-copy .env.example .env
+Now, open `server/.env` and make sure `DATABASE_URL` is defined properly. (If you copied it from the root, you might need to manually resolve the string interpolation so it reads exactly like this):
+
+```bash
+DATABASE_URL="postgresql://mg_portal_user:replace_with_a_secure_database_password@127.0.0.1:5433/mg_portal?schema=public"
+JWT_SECRET="make-up-some-random-password-here"
 ```
-
-Open `server/.env` and edit these two lines:
-
-- `DATABASE_URL` — paste the Postgres connection string from Step 0 here.
-- `JWT_SECRET` — replace `change-me-to-a-long-random-string` with literally any long random string (this signs login sessions — it just needs to be unpredictable).
-
-Leave everything else as-is for now (`PORT`, `CLIENT_ORIGIN`, the `SMTP_*` lines).
 
 ## Step 3 — Set up the database tables
 

@@ -56,8 +56,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           <Menu className="w-5 h-5" />
         </button>
 
-        <span className="text-slate-400 hidden sm:inline">Main System</span>
-        <span className="text-slate-300 hidden sm:inline">/</span>
         <span className="font-semibold text-slate-800 uppercase tracking-tight text-xs">
           {currentScreen === "dashboard"
             ? "Command Dashboard"
@@ -65,10 +63,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               ? "Main"
               : currentScreen.replace(/_/g, " ")}
         </span>
-        <div className="hidden md:flex items-center gap-1.5 bg-green-50 border border-green-100 text-green-700 px-2 py-0.5 rounded-full text-[10px] font-medium">
-          <span className="w-1 h-1 rounded-full bg-green-500" />
-          <span>Manila Hub-01</span>
-        </div>
+
       </div>
 
       <div className="flex items-center gap-4 text-xs text-slate-500">
