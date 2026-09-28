@@ -36,6 +36,15 @@ export const STATUS_FROM_DB: Record<string, string> = {
   PENDING: 'Pending'
 };
 
+export function parseDriverAssistants(value: unknown): string[] {
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    return Array.isArray(parsed) ? parsed.filter((name): name is string => typeof name === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 export function serializeRecord(r: any) {
   return {
     id: r.id,
@@ -48,7 +57,7 @@ export function serializeRecord(r: any) {
     vehicle: r.vehicle,
     area: r.area,
     driver: r.driver,
-    driver_assistants: (() => { try { return JSON.parse(r.driverAssistants || '[]'); } catch { return []; } })(),
+    driver_assistants: parseDriverAssistants(r.driverAssistants),
     time_in: r.timeIn ?? null,
     time_out: r.timeOut ?? null,
     received_by: r.receivedBy ?? null,

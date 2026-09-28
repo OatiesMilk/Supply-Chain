@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db';
 import { requireAuth } from '../middleware/auth';
-import { CATEGORY_FROM_DB, STATUS_FROM_DB } from '../mappings';
+import { CATEGORY_FROM_DB, STATUS_FROM_DB, parseDriverAssistants } from '../mappings';
 
 const router = Router();
 
@@ -224,7 +224,7 @@ router.get('/:source/:id', requireAuth, async (req, res) => {
       vehicle:          record.vehicle,
       area:             record.area,
       driver:           record.driver,
-      driver_assistants: record.driverAssistants,
+      driver_assistants: parseDriverAssistants(record.driverAssistants),
       account_manager:  record.accountManager,
       delivery_date:    record.deliveryDate,
       date_time:        record.dateAndTime,
