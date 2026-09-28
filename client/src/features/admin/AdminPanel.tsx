@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, ClipboardList, UserX, Plus, ChevronLeft, ChevronRight, Loader2, Check, ShieldCheck, RotateCcw, X, Settings2, Send, Pencil, Link2 } from 'lucide-react';
+import { Users, ClipboardList, UserX, Plus, ChevronLeft, ChevronRight, Loader2, Check, ShieldCheck, RotateCcw, X, Settings2, Send, Pencil, Link2, Trash2 } from 'lucide-react';
 import { api, ApiUserAdmin, ApiAdminAuditEntry, ApiIntegrationStatus, ApiError } from '@/api';
 
 type Tab = 'users' | 'audit' | 'integrations';
@@ -216,6 +216,7 @@ export default function AdminPanel() {
   const [createLoading, setCreateLoading] = useState(false);
   const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
   const [activatingId, setActivatingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [openPermissionsUserId, setOpenPermissionsUserId] = useState<string | null>(null);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: '', email: '', role: '' });
@@ -279,6 +280,19 @@ export default function AdminPanel() {
       alert(err instanceof ApiError ? err.message : 'Failed to activate user');
     } finally {
       setActivatingId(null);
+    }
+  };
+
+  const handleDelete = async (user: ApiUserAdmin) => {
+    if (!window.confirm(`Permanently delete ${user.name} (${user.email})?\n\nThis action is irreversible. The user and all their associated permissions will be removed from the system.`)) return;
+    setDeletingId(user.id);
+    try {
+      await api.deleteUser(user.id);
+      setUsers(prev => prev.filter(u => u.id !== user.id));
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : 'Failed to delete user');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -601,6 +615,17 @@ export default function AdminPanel() {
                                     Activate
                                   </button>
                                 )}
+                                <button
+                                  onClick={() => handleDelete(u)}
+                                  disabled={deletingId === u.id}
+                                  className="flex items-center gap-1 text-red-500 hover:text-red-700 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer"
+                                >
+                                  {deletingId === u.id
+                                    ? <Loader2 className="w-3 h-3 animate-spin" />
+                                    : <Trash2 className="w-3 h-3" />
+                                  }
+                                  Delete
+                                </button>
                               </>
                             )}
                           </div>
