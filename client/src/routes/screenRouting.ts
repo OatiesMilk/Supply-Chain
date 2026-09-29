@@ -22,7 +22,7 @@ export function syncAuthenticatedRoute(screens: Set<string>, navigate: (screen: 
     navigate(requested, new URLSearchParams(window.location.search).get('item') || undefined);
     return;
   }
-  const fallback = screens.has('dashboard') ? 'dashboard' : screens.values().next().value;
+  const fallback = screens.has('dashboard') ? 'dashboard' : screens.values().next().value ?? 'no-access';
   if (fallback) {
     window.history.replaceState({ screen: fallback }, '', `/${fallback}`);
     navigate(fallback);

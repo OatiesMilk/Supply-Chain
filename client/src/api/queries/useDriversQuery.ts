@@ -11,8 +11,8 @@ export const driverQueryOptions = {
   },
 };
 
-export function useDriversQuery() {
-  return useQuery<ApiDriver[], Error>(driverQueryOptions);
+export function useDriversQuery(enabled = true) {
+  return useQuery<ApiDriver[], Error>({ ...driverQueryOptions, enabled });
 }
 
 export const createDriver = (data: { name: string; type: 'DRIVER' | 'ASSISTANT'; coverage_areas?: string[] }) => api.createDriver(data);

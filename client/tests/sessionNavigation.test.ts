@@ -70,7 +70,8 @@ test('login and history routes honor role defaults, grants, revocations, and val
   browser.location = new URL('http://localhost/admin');
   syncAuthenticatedRoute(new Set(['admin']), useUIStore.getState().handleNavigate);
   assert.equal(useUIStore.getState().currentScreen, 'admin');
-  syncAuthenticatedRoute(new Set(), () => assert.fail('No screen may be mounted without permission'));
+  syncAuthenticatedRoute(new Set(), useUIStore.getState().handleNavigate);
+  assert.equal(browser.location.pathname, '/no-access');
 });
 
 test('logout stays pending until its response finishes; session checks cannot restore the old account meanwhile', async () => {
@@ -123,6 +124,8 @@ test('a failed logout is retried on reconnect before the old cookie can restore 
 
 const user = (role: ApiUser['role']): ApiUser => ({
   id: role, name: role, email: `${role}@example.com`, role, permissions: [],
+  effectiveScreens: role === 'DRIVER' ? ['driver_dashboard'] : role === 'ADMIN' ? ['dashboard', 'admin'] : ['dashboard'],
+  resources: [], permissionVersion: `version-${role}`,
 });
 
 test('logout from Admin clears the route and open details before another role logs in, even offline', async () => {
@@ -155,8 +158,8 @@ test('permissions are available on first render and respect grants and revocatio
   }
   assert.match(renderToString(React.createElement(Probe, { account: user('ADMIN') })), /true:true/);
   assert.match(renderToString(React.createElement(Probe, { account: user('SALES_COORDINATOR') })), /false:true/);
-  const account = { ...user('LOGISTICS'), permissions: [{ screen: 'admin', granted: true }, { screen: 'dashboard', granted: false }] };
-  assert.match(renderToString(React.createElement(Probe, { account })), /true:false/);
+  const account = { ...user('LOGISTICS'), permissions: [{ screen: 'calendar', granted: true }, { screen: 'dashboard', granted: false }], effectiveScreens: ['calendar'] };
+  assert.match(renderToString(React.createElement(Probe, { account })), /false:false/);
 });
 
 test('inaccessible routes never mount protected pages', () => {
@@ -167,4 +170,35 @@ test('inaccessible routes never mount protected pages', () => {
     assert.match(html, /This page is not available for your account/);
     assert.doesNotMatch(html, /User Management|Create User/);
   }
+});
+
+
+test('a login without an authoritative permission snapshot is rejected', () => {
+  const { effectiveScreens, ...incomplete } = user('SALES_COORDINATOR');
+  assert.throws(() => useAuthStore.getState().login(incomplete as ApiUser), /Unable to load account permissions/);
+  assert.equal(useAuthStore.getState().authUser, null);
+});
+
+test('revocation refresh updates the active session without logout and stale refreshes cannot replace another login', async () => {
+  browserAt('/dashboard');
+  useAuthStore.getState().login(user('SALES_COORDINATOR'));
+  mock.method(api, 'me', async () => ({ ...user('SALES_COORDINATOR'), effectiveScreens: [], permissionVersion: 'revoked' }));
+  await useAuthStore.getState().refreshPermissions();
+  assert.deepEqual(useAuthStore.getState().authUser?.effectiveScreens, []);
+  let finish!: (value: ApiUser) => void;
+  mock.method(api, 'me', () => new Promise<ApiUser>(resolve => { finish = resolve; }));
+  const refresh = useAuthStore.getState().refreshPermissions();
+  useAuthStore.getState().login(user('ADMIN'));
+  finish(user('SALES_COORDINATOR'));
+  await refresh;
+  assert.equal(useAuthStore.getState().authUser?.role, 'ADMIN');
+});
+
+test('permission refresh errors revoke unverifiable local access', async () => {
+  browserAt('/dashboard');
+  useAuthStore.getState().login(user('SALES_COORDINATOR'));
+  mock.method(api, 'me', async () => { throw new Error('Offline'); });
+  await useAuthStore.getState().refreshPermissions();
+  assert.equal(useAuthStore.getState().authUser, null);
+  assert.equal(window.location.pathname, '/login');
 });

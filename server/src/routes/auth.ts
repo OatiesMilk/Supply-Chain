@@ -4,17 +4,20 @@ import crypto from 'crypto';
 import { prisma } from '../db';
 import { clearSessionCookie, requireAuth, setSessionCookie, signToken, Role } from '../middleware/auth';
 
+import { asyncRoute } from '../middleware/asyncRoute';
+import { sessionUser } from '../services/permissions';
+
 const router = Router();
 
 // ─── Email + password login ──────────────────────────────────────────────────
 
-router.post('/login', async (req, res) => {
+router.post('/login', asyncRoute(async (req, res) => {
   const { email, password } = req.body ?? {};
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' });
   }
 
-  const user = await prisma.user.findUnique({ where: { email: String(email).toLowerCase() } });
+  const user = await prisma.user.findUnique({ where: { email: String(email).toLowerCase() }, include: { permissions: true } });
   if (!user) {
     return res.status(401).json({ error: 'Invalid email or password' });
   }
@@ -30,20 +33,17 @@ router.post('/login', async (req, res) => {
 
   const token = signToken({ id: user.id, name: user.name, email: user.email, role: user.role as Role });
   setSessionCookie(res, token);
-  res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
-});
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(sessionUser(user));
+}));
 
 router.post('/logout', (_req, res) => {
   clearSessionCookie(res);
   res.json({ ok: true });
 });
 
-router.get('/me', requireAuth, async (req: Request, res: Response) => {
-  const perms = await prisma.userPermission.findMany({ where: { userId: req.user!.id } });
-  res.json({
-    ...req.user,
-    permissions: perms.map(p => ({ screen: p.screen, granted: p.granted }))
-  });
+router.get('/me', requireAuth, (req: Request, res: Response) => {
+  res.json(req.user);
 });
 
 // ─── Microsoft Azure AD SSO ─────────────────────────────────────────────────

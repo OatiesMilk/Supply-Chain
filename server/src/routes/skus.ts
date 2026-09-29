@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../db';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireResource, requireAuth, requireRole } from '../middleware/auth';
 import { writeAuditLog } from '../services/audit';
 
 const router = Router();
@@ -47,7 +47,7 @@ function serializeProduct(p: any, includeTransactions = false): object {
 }
 
 // GET /api/skus — All roles, returns all products with inventory
-router.get('/', requireAuth, async (_req, res) => {
+router.get('/', requireAuth, requireResource('skus'), async (_req, res) => {
   const products = await prisma.product.findMany({
     where: { deletedAt: null },
     include: productInclude,
@@ -57,7 +57,7 @@ router.get('/', requireAuth, async (_req, res) => {
 });
 
 // GET /api/skus/:id — All roles, returns single product + inventory + last 20 transactions
-router.get('/:id', requireAuth, async (req, res) => {
+router.get('/:id', requireAuth, requireResource('skus'), async (req, res) => {
   const product = await prisma.product.findFirst({
     where: { id: req.params.id, deletedAt: null },
     include: {
@@ -73,7 +73,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 });
 
 // GET /api/skus/:id/audit — Admin only
-router.get('/:id/audit', requireAuth, requireRole('ADMIN'), async (req, res) => {
+router.get('/:id/audit', requireAuth, requireResource('skus'), requireRole('ADMIN'), async (req, res) => {
   const entries = await prisma.auditLog.findMany({
     where: { recordId: req.params.id, recordType: 'SKU' },
     include: { changedBy: true },
@@ -92,7 +92,7 @@ router.get('/:id/audit', requireAuth, requireRole('ADMIN'), async (req, res) => 
 });
 
 // PUT /api/skus/:id — Admin only, update product fields
-router.put('/:id', requireAuth, requireRole('ADMIN'), async (req, res) => {
+router.put('/:id', requireAuth, requireResource('skus'), requireRole('ADMIN'), async (req, res) => {
   const existing = await prisma.product.findFirst({
     where: { id: req.params.id, deletedAt: null },
     include: productInclude
@@ -129,7 +129,7 @@ router.put('/:id', requireAuth, requireRole('ADMIN'), async (req, res) => {
 });
 
 // POST /api/skus — Admin only, create product + inventory row
-router.post('/', requireAuth, requireRole('ADMIN'), async (req, res) => {
+router.post('/', requireAuth, requireResource('skus'), requireRole('ADMIN'), async (req, res) => {
   const b = req.body ?? {};
   const required = ['sku_code', 'name', 'category', 'unit_cost', 'unit_price', 'reorder_point'];
   const missing = required.filter(k => b[k] === undefined || b[k] === null || b[k] === '');
@@ -181,7 +181,7 @@ router.post('/', requireAuth, requireRole('ADMIN'), async (req, res) => {
 });
 
 // POST /api/skus/:id/adjust — Admin + Logistics, stock adjustment
-router.post('/:id/adjust', requireAuth, requireRole('ADMIN', 'LOGISTICS'), async (req, res) => {
+router.post('/:id/adjust', requireAuth, requireResource('skus'), requireRole('ADMIN', 'LOGISTICS'), async (req, res) => {
   const product = await prisma.product.findFirst({
     where: { id: req.params.id, deletedAt: null },
     include: productInclude

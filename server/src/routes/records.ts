@@ -2,13 +2,31 @@ import { Router } from 'express';
 import { prisma } from '../db';
 import { asyncRoute } from '../middleware/asyncRoute';
 import { assignmentError, withDriverDirectoryLock } from '../services/driverDirectory';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requireRole, requireResource } from '../middleware/auth';
 import { writeAuditLog } from '../services/audit';
 import { notifyAccomplished } from '../services/notify';
 import { notifyRole, notifyUser } from '../services/inAppNotify';
 import { CATEGORY_TO_DB, STATUS_TO_DB, STATUS_FROM_DB, serializeRecord } from '../mappings';
 
+import { canWriteCategory, recordScope } from '../services/recordAccess';
+
 const router = Router();
+const requireRecordAccess = asyncRoute(async (req, res, next) => {
+  if (req.params.id) {
+    const record = await prisma.deliveryRecord.findFirst({
+      where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] },
+      select: { category: true },
+    });
+    if (!record) return res.status(403).json({ error: 'Record access denied' });
+    if (req.method !== 'GET' && !canWriteCategory(req.user!, record.category)) {
+      return res.status(403).json({ error: 'Module access denied' });
+    }
+  } else if (req.method === 'POST' && req.body?.category) {
+    const category = CATEGORY_TO_DB[req.body.category] ?? req.body.category;
+    if (!canWriteCategory(req.user!, category)) return res.status(403).json({ error: 'Module access denied' });
+  }
+  next();
+});
 
 const recordInclude = {
   company: true,
@@ -33,15 +51,9 @@ function generateRecordId(): string {
 }
 
 const TASS_CATEGORIES: string[] = ['ACCOUNTING_COLLECTION', 'RMA'];
-function categoryFilterForRole(role: string, userName?: string) {
-  if (role === 'TASS') return { category: { in: TASS_CATEGORIES } };
-  if (role === 'DRIVER') return { driver: userName ?? '' };
-  return {};
-}
-
-router.get('/', requireAuth, async (req, res) => {
+router.get('/', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
   const records = await prisma.deliveryRecord.findMany({
-    where: { deletedAt: null, ...categoryFilterForRole(req.user!.role, req.user!.name) },
+    where: { deletedAt: null, AND: [recordScope(req.user!)] },
     include: recordInclude,
     orderBy: { createdAt: 'desc' }
   });
@@ -49,12 +61,12 @@ router.get('/', requireAuth, async (req, res) => {
 });
 
 // Must be before /:id to avoid "status-history-counts" matching as an ID
-router.get('/status-history-counts', requireAuth, async (req, res) => {
+router.get('/status-history-counts', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
   const { category, dateFrom, dateTo, area, driver, status } = req.query as Record<string, string>;
 
   const where: any = {
     deletedAt: null,
-    ...categoryFilterForRole(req.user!.role, req.user!.name)
+    AND: [recordScope(req.user!)]
   };
 
   if (category) where.category = CATEGORY_TO_DB[category] ?? category;
@@ -110,7 +122,7 @@ router.get('/status-history-counts', requireAuth, async (req, res) => {
   res.json({ ever_held, current, total_records: records.length });
 });
 
-router.get('/:id', requireAuth, async (req, res) => {
+router.get('/:id', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
   const record = await prisma.deliveryRecord.findFirst({
     where: { id: req.params.id, deletedAt: null },
     include: recordInclude
@@ -124,7 +136,7 @@ router.get('/:id', requireAuth, async (req, res) => {
   res.json(serializeRecord(record));
 });
 
-router.get('/:id/audit', requireAuth, async (req, res) => {
+router.get('/:id/audit', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
   const entries = await prisma.auditLog.findMany({
     where: { recordId: req.params.id, recordType: 'DeliveryRecord' },
     include: { changedBy: true },
@@ -143,7 +155,7 @@ router.get('/:id/audit', requireAuth, async (req, res) => {
 });
 
 // Append-only remarks history
-router.get('/:id/remarks', requireAuth, async (req, res) => {
+router.get('/:id/remarks', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
   const remarks = await prisma.remarkLog.findMany({
     where: { recordId: req.params.id },
     include: { author: { select: { name: true, role: true } } },
@@ -163,7 +175,7 @@ router.get('/:id/remarks', requireAuth, async (req, res) => {
 
 // Create - Sales Coordinator only.
 // SoD: Sales Coordinator cannot assign drivers; driver assignment is Logistics-only.
-router.post('/', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS'), async (req, res) => {
+router.post('/', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS'), async (req, res) => {
   const b = req.body ?? {};
   const isDraft = b.is_draft === 'Yes';
   const required = isDraft
@@ -244,7 +256,7 @@ router.post('/', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS'), asy
 
 // Full update - ADMIN added alongside LOGISTICS for linked collection management.
 // SoD: only LOGISTICS/ADMIN may set driver/vehicle/driverAssistant/linkedCollectionId.
-router.put('/:id', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), asyncRoute(async (req, res) => {
+router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), asyncRoute(async (req, res) => {
   const existing = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null }, include: recordInclude });
   if (!existing) return res.status(404).json({ error: 'Record not found' });
 
@@ -378,7 +390,7 @@ router.put('/:id', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'A
 
 // Status change — Logistics, Admin, Driver (own records), and TASS (RMA only).
 // This is also the sole path that fires the ACCOMPLISHED automated trigger.
-router.patch('/:id/status', requireAuth, requireRole('LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), async (req, res) => {
+router.patch('/:id/status', requireAuth, requireResource('records'), requireRecordAccess, requireRole('LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), async (req, res) => {
   const { status, remarks, time_out, received_by } = req.body ?? {};
   if (!status || !STATUS_TO_DB[status]) {
     return res.status(400).json({ error: 'Valid status is required' });
@@ -454,7 +466,7 @@ router.patch('/:id/status', requireAuth, requireRole('LOGISTICS', 'ADMIN', 'DRIV
 });
 
 // Collection verification - TASS only, for ACCOUNTING_COLLECTION records that are ACCOMPLISHED.
-router.patch('/:id/verify-collection', requireAuth, requireRole('TASS'), async (req, res) => {
+router.patch('/:id/verify-collection', requireAuth, requireResource('records'), requireRecordAccess, requireRole('TASS'), async (req, res) => {
   const existing = await prisma.deliveryRecord.findFirst({
     where: { id: req.params.id, deletedAt: null },
     include: recordInclude
@@ -505,7 +517,7 @@ router.patch('/:id/verify-collection', requireAuth, requireRole('TASS'), async (
 });
 
 // Soft delete only - never hard-delete, per spec.
-router.delete('/:id', requireAuth, requireRole('SALES_COORDINATOR'), async (req, res) => {
+router.delete('/:id', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR'), async (req, res) => {
   const existing = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null } });
   if (!existing) return res.status(404).json({ error: 'Record not found' });
 
@@ -528,7 +540,7 @@ router.delete('/:id', requireAuth, requireRole('SALES_COORDINATOR'), async (req,
 });
 
 // ── Comments ──────────────────────────────────────────────────────────────────
-router.get('/:id/comments', requireAuth, async (req, res) => {
+router.get('/:id/comments', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
   const comments = await prisma.comment.findMany({
     where: { recordId: req.params.id, recordType: 'DeliveryRecord' },
     include: { author: { select: { name: true } } },
@@ -545,7 +557,7 @@ router.get('/:id/comments', requireAuth, async (req, res) => {
   );
 });
 
-router.post('/:id/comments', requireAuth, async (req, res) => {
+router.post('/:id/comments', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
   const { body } = req.body ?? {};
   if (!body || !String(body).trim()) {
     return res.status(400).json({ error: 'Comment body is required' });
