@@ -95,6 +95,11 @@ export const AppRouter: React.FC<AppRouterProps> = ({
   handleDeleteDriver,
   refreshData,
 }) => {
+  // Check access before mounting a page or running its protected data requests.
+  if (!canAccess(currentScreen)) {
+    return <div role="status" className="text-center py-12 text-slate-500">This page is not available for your account.</div>;
+  }
+
   // Special case: Accounting Collection has custom verification workflow
   if (currentScreen === 'accounting_collection') {
     return (

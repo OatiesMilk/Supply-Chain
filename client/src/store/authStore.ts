@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { api, ApiUser } from '@/api';
 import { UserRole } from '@/types';
+import { useUIStore } from './uiStore';
 
 export const roleFromApi = (role: ApiUser['role']): UserRole => {
   switch (role) {
@@ -65,6 +66,7 @@ export const useAuthStore = create<AuthStore>()(
     logout: async () => {
       authRevision++;
       set({ authUser: null, authChecked: true });
+      useUIStore.getState().resetSession();
       try {
         await api.logout();
       } catch {

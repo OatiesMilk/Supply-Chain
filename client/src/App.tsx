@@ -118,28 +118,27 @@ function AuthenticatedApp() {
 
   // Client-side routing
   useEffect(() => {
-    // On mount, read the URL
-    const params = new URLSearchParams(window.location.search);
-    const item_id = params.get('item') || undefined;
-    const path = window.location.pathname.substring(1);
-    const screen = path || 'dashboard';
-    
-    // Initial route handling
-    if (path && path !== currentScreen) {
-      handleNavigate(screen, item_id);
-    }
-
-    const handlePopState = () => {
-      const p = window.location.pathname.substring(1);
+    const syncRoute = () => {
+      const requestedScreen = window.location.pathname.substring(1) || 'dashboard';
       const params = new URLSearchParams(window.location.search);
       const itemId = params.get('item') || undefined;
-      const s = p || 'dashboard';
-      handleNavigate(s, itemId);
+      if (effectiveScreens.has(requestedScreen)) {
+        handleNavigate(requestedScreen, itemId);
+        return;
+      }
+      const fallback = effectiveScreens.has('dashboard')
+        ? 'dashboard'
+        : effectiveScreens.values().next().value;
+      if (fallback) {
+        // Replace inaccessible history entries so Back cannot restore them.
+        window.history.replaceState({ screen: fallback }, '', `/${fallback}`);
+        handleNavigate(fallback);
+      }
     };
-    
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, [handleNavigate]);
+    syncRoute();
+    window.addEventListener('popstate', syncRoute);
+    return () => window.removeEventListener('popstate', syncRoute);
+  }, [handleNavigate, effectiveScreens]);
 
   useEffect(() => {
     document.documentElement.style.fontSize = `${zoomFactor}%`;
