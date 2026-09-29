@@ -5,6 +5,8 @@
  * sent automatically via `credentials: 'include'`.
  */
 
+import { requestServerCheck } from './availability';
+
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -14,14 +16,22 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {})
-    },
-    ...options
-  });
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+      },
+      ...options
+    });
+  } catch (error) {
+    if (!(error instanceof DOMException && error.name === 'AbortError')) requestServerCheck();
+    throw error;
+  }
+
+  if (res.status >= 500) requestServerCheck();
 
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
