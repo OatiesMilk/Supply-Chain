@@ -1,7 +1,6 @@
 import { create } from 'zustand';
-import { subscribeWithSelector, persist } from 'zustand/middleware';
+import { subscribeWithSelector } from 'zustand/middleware';
 import { api, ApiUser } from '@/api';
-import { DEV_ADMIN_USER } from '@/mockData';
 import { UserRole } from '@/types';
 
 export const roleFromApi = (role: ApiUser['role']): UserRole => {
@@ -45,41 +44,46 @@ export interface AuthActions {
 
 export type AuthStore = AuthState & AuthActions;
 
+// Ignore session checks that complete after a newer login, logout, or check.
+let authRevision = 0;
+
 export const useAuthStore = create<AuthStore>()(
-  persist(
-    subscribeWithSelector((set, get) => ({
-      authUser: DEV_ADMIN_USER,
-      authChecked: false,
+  subscribeWithSelector((set) => ({
+    authUser: null,
+    authChecked: false,
 
-      setAuthUser: (user: ApiUser | null) => set({ authUser: user }),
+    setAuthUser: (user: ApiUser | null) => {
+      authRevision++;
+      set({ authUser: user });
+    },
 
-      login: (user: ApiUser) => set({ authUser: user, authChecked: true }),
+    login: (user: ApiUser) => {
+      authRevision++;
+      set({ authUser: user, authChecked: true });
+    },
 
-      logout: async () => {
-        try {
-          await api.logout();
-        } catch {
-          // ignore network failure
-        }
-        set({ authUser: null, authChecked: true });
-      },
+    logout: async () => {
+      authRevision++;
+      set({ authUser: null, authChecked: true });
+      try {
+        await api.logout();
+      } catch {
+        // Local access stays revoked even if the server cannot be reached.
+      }
+    },
 
-      checkAuth: async () => {
-        try {
-          const user = await api.me();
-          set({ authUser: user, authChecked: true });
-        } catch {
-          // Keep offline bypassed session if available, otherwise fallback
-          const current = get().authUser ?? DEV_ADMIN_USER;
-          set({ authUser: current, authChecked: true });
-        }
-      },
-    })),
-    {
-      name: 'auth_user_store',
-      partialize: state => ({ authUser: state.authUser }),
-    }
-  )
+    checkAuth: async () => {
+      const revision = ++authRevision;
+      set({ authUser: null, authChecked: false });
+      try {
+        const user = await api.me();
+        if (revision === authRevision) set({ authUser: user, authChecked: true });
+      } catch {
+        // Missing, expired, and unverifiable sessions all fail closed.
+        if (revision === authRevision) set({ authUser: null, authChecked: true });
+      }
+    },
+  }))
 );
 
 // Backward-compatible hook matching previous useAuth() API
