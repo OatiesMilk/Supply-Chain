@@ -128,6 +128,8 @@ function AuthenticatedApp() {
   const deliveriesActiveCount = countByCategory('Deliveries', ['Scheduled', 'Pending']);
   const rmaActiveCount = countByCategory('RMA', ['Scheduled', 'Pending', 'On-Hold']);
   const salesOrdersActiveCount = countByCategory('Sales Orders', ['Scheduled', 'Pending']);
+  const accountingActiveCount = countByCategory('Accounting Collection', ['Scheduled', 'Pending']);
+  const procurementActiveCount = countByCategory('Procurement Pick-up', ['Scheduled', 'Pending']);
 
   // Driver role gets standalone mobile-first dashboard
   if (authUser.role === 'DRIVER') {
@@ -168,6 +170,8 @@ function AuthenticatedApp() {
         deliveriesActiveCount,
         rmaActiveCount,
         salesOrdersActiveCount,
+        accountingActiveCount,
+        procurementActiveCount,
         onRequestAccess: () => openAccessRequest(''),
       }}
       navbarProps={{
