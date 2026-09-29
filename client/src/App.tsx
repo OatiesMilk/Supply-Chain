@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { queryClient } from '@/api/queryClient';
+import { createQueryClient } from '@/api/queryClient';
 import { useAuth, useUIStore } from '@/store';
 import { useAppData, useDeliveryActions, usePermissions } from '@/hooks';
 import { MainLayout } from '@/layouts';
 import { AppRouter } from '@/routes';
+import { syncAuthenticatedRoute } from '@/routes/screenRouting';
 import LoginView from '@/features/auth/LoginView';
 import ServerUnavailableView from '@/features/auth/ServerUnavailableView';
 import { useServerAvailability } from '@/hooks/useServerAvailability';
@@ -12,7 +13,7 @@ import DriverDashboard from '@/features/dashboard/DriverDashboard';
 import { DeliveryCategory } from '@/types';
 
 function AppContent() {
-  const { authUser, authChecked, login, checkAuth } = useAuth();
+  const { authUser, authChecked, logoutPending, login, checkAuth } = useAuth();
   const { status, retrying, retry } = useServerAvailability();
   const [sessionReady, setSessionReady] = useState(false);
 
@@ -39,9 +40,16 @@ function AppContent() {
     );
   }
 
+  if (logoutPending) return <div role="status" className="min-h-screen flex items-center justify-center">Signing out...</div>;
   if (!authUser) return <LoginView onLoggedIn={login} />;
 
-  return <AuthenticatedApp key={authUser.id} />;
+  return <SessionApp key={authUser.id} />;
+}
+
+function SessionApp() {
+  // A new cache for every login also isolates late requests from the old session.
+  const [client] = useState(createQueryClient);
+  return <QueryClientProvider client={client}><AuthenticatedApp /></QueryClientProvider>;
 }
 
 // Keep protected data hooks and application effects behind the session gate.
@@ -118,28 +126,13 @@ function AuthenticatedApp() {
 
   // Client-side routing
   useEffect(() => {
-    // On mount, read the URL
-    const params = new URLSearchParams(window.location.search);
-    const item_id = params.get('item') || undefined;
-    const path = window.location.pathname.substring(1);
-    const screen = path || 'dashboard';
-    
-    // Initial route handling
-    if (path && path !== currentScreen) {
-      handleNavigate(screen, item_id);
-    }
-
-    const handlePopState = () => {
-      const p = window.location.pathname.substring(1);
-      const params = new URLSearchParams(window.location.search);
-      const itemId = params.get('item') || undefined;
-      const s = p || 'dashboard';
-      handleNavigate(s, itemId);
+    const syncRoute = () => {
+      syncAuthenticatedRoute(effectiveScreens, handleNavigate);
     };
-    
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, [handleNavigate]);
+    syncRoute();
+    window.addEventListener('popstate', syncRoute);
+    return () => window.removeEventListener('popstate', syncRoute);
+  }, [handleNavigate, effectiveScreens]);
 
   useEffect(() => {
     document.documentElement.style.fontSize = `${zoomFactor}%`;
@@ -263,9 +256,5 @@ function AuthenticatedApp() {
 }
 
 export default function App() {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <AppContent />
-    </QueryClientProvider>
-  );
+  return <AppContent />;
 }

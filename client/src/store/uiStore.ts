@@ -29,6 +29,7 @@ export interface UIActions {
   setSelectedProductId: (id: string | null) => void;
   setSelectedRecordId: (id: string | null) => void;
   handleNavigate: (screen: string, item_id?: string) => void;
+  resetSession: () => void;
   updateOutputActionConfig: (trigger: OutputActionTrigger, patch: Partial<OutputActionConfig>) => void;
 }
 
@@ -73,6 +74,19 @@ export const useUIStore = create<UIStore>()(
       setSelectedProductId: (id: string | null) => set({ selectedProductId: id }),
 
       setSelectedRecordId: (id: string | null) => set({ selectedRecordId: id }),
+
+      resetSession: () => {
+        window.history.replaceState({ screen: 'login' }, '', '/login');
+        set({
+          currentScreen: 'dashboard',
+          isSidebarOpen: false,
+          searchOpen: false,
+          accessRequestOpen: false,
+          accessRequestScreen: '',
+          selectedProductId: null,
+          selectedRecordId: null,
+        });
+      },
 
       handleNavigate: (screen: string, item_id?: string) => {
         const targetPath = `/${screen}${item_id ? `?item=${item_id}` : ''}`;

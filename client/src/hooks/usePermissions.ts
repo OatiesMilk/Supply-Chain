@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useMemo } from 'react';
 import { ApiUser } from '@/api';
 import { UserRole } from '@/types';
 import { roleFromApi } from '@/context/AuthContext';
@@ -74,13 +74,8 @@ export const DEFAULT_ROLE_SCOPE: Record<string, string[]> = {
 };
 
 export function usePermissions(authUser: ApiUser | null) {
-  const [effectiveScreens, setEffectiveScreens] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    if (!authUser) {
-      setEffectiveScreens(new Set());
-      return;
-    }
+  const effectiveScreens = useMemo(() => {
+    if (!authUser) return new Set<string>();
     const role: UserRole = roleFromApi(authUser.role);
     const screens = new Set(DEFAULT_ROLE_SCOPE[role] ?? []);
     for (const perm of authUser.permissions ?? []) {
@@ -91,7 +86,7 @@ export function usePermissions(authUser: ApiUser | null) {
     if (authUser.role === 'ADMIN') screens.add('admin');
     // Warehouse module is retired — force-excluded
     screens.delete('warehouses');
-    setEffectiveScreens(screens);
+    return screens;
   }, [authUser]);
 
   const canAccess = (screen: string) => effectiveScreens.has(screen);
