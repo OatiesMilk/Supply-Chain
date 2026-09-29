@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Plus,
   Search,
@@ -239,8 +239,16 @@ export default function DeliveryRecordsView({
     if (statusFilter !== 'All' && r.status !== statusFilter) return false;
     if (amFilter && !r.account_manager.toLowerCase().includes(amFilter.toLowerCase())) return false;
     if (driverFilter && r.driver.toLowerCase() !== driverFilter.toLowerCase()) return false;
-    if (dateFrom && r.delivery_date < dateFrom) return false;
-    if (dateTo   && r.delivery_date > dateTo)   return false;
+    if (dateFrom && r.delivery_date) {
+      const rd = new Date(r.delivery_date);
+      const df = new Date(dateFrom);
+      if (rd < df) return false;
+    }
+    if (dateTo && r.delivery_date) {
+      const rd = new Date(r.delivery_date);
+      const dt = new Date(dateTo);
+      if (rd > dt) return false;
+    }
     const q = searchQuery.toLowerCase();
     if (!q) return true;
     return (
@@ -256,8 +264,16 @@ export default function DeliveryRecordsView({
   // TASS-specific extra filters (client-side, no extra API call)
   const filtered = currentUserRole === 'TASS'
     ? baseFiltered.filter(r => {
-        if (tassDateFrom && r.delivery_date < tassDateFrom) return false;
-        if (tassDateTo   && r.delivery_date > tassDateTo)   return false;
+        if (tassDateFrom && r.delivery_date) {
+          const rd = new Date(r.delivery_date);
+          const df = new Date(tassDateFrom);
+          if (rd < df) return false;
+        }
+        if (tassDateTo && r.delivery_date) {
+          const rd = new Date(r.delivery_date);
+          const dt = new Date(tassDateTo);
+          if (rd > dt) return false;
+        }
         if (tassAccountManager && !r.account_manager.toLowerCase().includes(tassAccountManager.toLowerCase())) return false;
         if (tassStatusFilter) {
           if (tassStatusFilter === 'Collection Verified') return r.collection_verified === true;
