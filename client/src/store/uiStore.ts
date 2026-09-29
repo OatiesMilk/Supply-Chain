@@ -78,8 +78,8 @@ export const useUIStore = create<UIStore>()(
         set({
           currentScreen: screen,
           isSidebarOpen: false,
-          ...(screen === 'inventory' && item_id ? { selectedProductId: item_id } : {}),
-          ...(CATEGORY_SCREENS[screen] && item_id ? { selectedRecordId: item_id } : {}),
+          selectedProductId: screen === 'inventory' && item_id ? item_id : null,
+          selectedRecordId: CATEGORY_SCREENS[screen] && item_id ? item_id : null,
         });
       },
 
