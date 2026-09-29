@@ -241,8 +241,16 @@ export default function DeliveryRecordsView({
     if (statusFilter !== 'All' && r.status !== statusFilter) return false;
     if (amFilter && !r.account_manager.toLowerCase().includes(amFilter.toLowerCase())) return false;
     if (driverFilter && r.driver.toLowerCase() !== driverFilter.toLowerCase()) return false;
-    if (dateFrom && r.delivery_date < dateFrom) return false;
-    if (dateTo   && r.delivery_date > dateTo)   return false;
+    if (dateFrom && r.delivery_date) {
+      const rd = new Date(r.delivery_date);
+      const df = new Date(dateFrom);
+      if (rd < df) return false;
+    }
+    if (dateTo && r.delivery_date) {
+      const rd = new Date(r.delivery_date);
+      const dt = new Date(dateTo);
+      if (rd > dt) return false;
+    }
     const q = searchQuery.toLowerCase();
     if (!q) return true;
     return (
@@ -258,8 +266,16 @@ export default function DeliveryRecordsView({
   // TASS-specific extra filters (client-side, no extra API call)
   const filtered = currentUserRole === 'TASS'
     ? baseFiltered.filter(r => {
-        if (tassDateFrom && r.delivery_date < tassDateFrom) return false;
-        if (tassDateTo   && r.delivery_date > tassDateTo)   return false;
+        if (tassDateFrom && r.delivery_date) {
+          const rd = new Date(r.delivery_date);
+          const df = new Date(tassDateFrom);
+          if (rd < df) return false;
+        }
+        if (tassDateTo && r.delivery_date) {
+          const rd = new Date(r.delivery_date);
+          const dt = new Date(tassDateTo);
+          if (rd > dt) return false;
+        }
         if (tassAccountManager && !r.account_manager.toLowerCase().includes(tassAccountManager.toLowerCase())) return false;
         if (tassStatusFilter) {
           if (tassStatusFilter === 'Collection Verified') return r.collection_verified === true;
@@ -397,7 +413,7 @@ export default function DeliveryRecordsView({
 
   const showTassFilters = currentUserRole === 'TASS';
 
-  const hasAdvancedFilters = regionFilter !== 'All Regions' || subregionFilter !== 'All Subregions' || areaFilter !== 'All Areas' || !!amFilter || !!driverFilter || !!dateFrom || !!dateTo || dateSort !== 'default';
+  const hasAdvancedFilters = regionFilter !== 'All Regions' || subregionFilter !== 'All Subregions' || areaFilter !== 'All Areas' || !!amFilter || !!driverFilter || false;
 
   const showCheckbox = canAssignDriver || canEdit;
   const showCollectionCol = currentUserRole === 'TASS' && category === 'Accounting Collection';
@@ -715,6 +731,48 @@ export default function DeliveryRecordsView({
 
                 {/* RIGHT: search + filter toggle + record count */}
                 <div className="flex items-center gap-2 shrink-0">
+
+                  {/* Date range + sort */}
+                  <div className="flex items-center gap-1.5 border-r border-slate-200 pr-3">
+                    <input
+                      ref={dateFromRef}
+                      type="date"
+                      value={dateFrom}
+                      onChange={e => setDateFrom(e.target.value)}
+                      title="Date from"
+                      className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+                    />
+                    <span className="text-[11px] text-slate-400 font-semibold">—</span>
+                    <input
+                      type="date"
+                      value={dateTo}
+                      onChange={e => setDateTo(e.target.value)}
+                      title="Date to"
+                      className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+                    />
+                    {(dateFrom || dateTo) && (
+                      <button
+                        onClick={() => { setDateFrom(''); setDateTo(''); }}
+                        title="Clear date filter"
+                        className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <select
+                      value={dateSort}
+                      onChange={e => setDateSort(e.target.value as typeof dateSort)}
+                      disabled={!!(dateFrom || dateTo)}
+                      title={(dateFrom || dateTo) ? 'Sort order is N/A while a date range filter is active' : undefined}
+                      className={`text-[11px] font-semibold border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#0078C1] ${(dateFrom || dateTo) ? 'border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-700 cursor-pointer'}`}
+                    >
+                      {(dateFrom || dateTo) && <option value={dateSort}>Sort: N/A</option>}
+                      <option value="default">Date: Default</option>
+                      <option value="nearest">Nearest to Present</option>
+                      <option value="oldest">Oldest First</option>
+                      <option value="furthest">Furthest Future First</option>
+                    </select>
+                  </div>
                   <div className="relative w-56">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search records..."
@@ -785,50 +843,8 @@ export default function DeliveryRecordsView({
                     />
                   </div>
 
-                  {/* Date range + sort */}
-                  <div className="flex items-center gap-1.5 border-l border-slate-200 pl-3">
-                    <input
-                      ref={dateFromRef}
-                      type="date"
-                      value={dateFrom}
-                      onChange={e => setDateFrom(e.target.value)}
-                      title="Date from"
-                      className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-                    />
-                    <span className="text-[11px] text-slate-400 font-semibold">—</span>
-                    <input
-                      type="date"
-                      value={dateTo}
-                      onChange={e => setDateTo(e.target.value)}
-                      title="Date to"
-                      className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-                    />
-                    {(dateFrom || dateTo) && (
-                      <button
-                        onClick={() => { setDateFrom(''); setDateTo(''); }}
-                        title="Clear date filter"
-                        className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                    <select
-                      value={dateSort}
-                      onChange={e => setDateSort(e.target.value as typeof dateSort)}
-                      disabled={!!(dateFrom || dateTo)}
-                      title={(dateFrom || dateTo) ? 'Sort order is N/A while a date range filter is active' : undefined}
-                      className={`text-[11px] font-semibold border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#0078C1] ${(dateFrom || dateTo) ? 'border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-700 cursor-pointer'}`}
-                    >
-                      {(dateFrom || dateTo) && <option value={dateSort}>Sort: N/A</option>}
-                      <option value="default">Date: Default</option>
-                      <option value="nearest">Nearest to Present</option>
-                      <option value="oldest">Oldest First</option>
-                      <option value="furthest">Furthest Future First</option>
-                    </select>
-                  </div>
-
                   {/* Clear all */}
-                  {(searchQuery || statusFilter !== 'All' || hasAdvancedFilters) && (
+                  {(searchQuery || statusFilter !== 'All' || hasAdvancedFilters || !!dateFrom || !!dateTo || dateSort !== 'default') && (
                     <button
                       onClick={() => { setSearchQuery(''); setStatusFilter('All'); setRegionFilter('All Regions'); setSubregionFilter('All Subregions'); setAreaFilter('All Areas'); setAmFilter(''); setDriverFilter(''); setDateFrom(''); setDateTo(''); setDateSort('default'); }}
                       className="px-3 py-1.5 text-[#1F3864] hover:underline font-bold text-[10px] uppercase cursor-pointer"
