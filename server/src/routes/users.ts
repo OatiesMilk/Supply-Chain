@@ -140,6 +140,67 @@ router.patch('/:id/activate', requireAuth, requireRole('ADMIN'), async (req: Req
   });
 });
 
+// Hard-delete a user — ADMIN only. Only allowed if the user has no associated
+// business records (deliveries, audit entries, products, customers, suppliers,
+// comments, or remark logs). If the user has any of these, the admin should
+// deactivate instead to preserve data integrity and audit trails.
+router.delete('/:id', requireAuth, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  // Prevent an admin from deleting themselves
+  if (req.user!.id === id) {
+    return res.status(400).json({ error: 'You cannot delete your own account' });
+  }
+
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  // Check for associated business records that would make deletion unsafe
+  const [
+    createdRecords,
+    modifiedRecords,
+    auditEntries,
+    createdProducts,
+    modifiedProducts,
+    createdCustomers,
+    modifiedCustomers,
+    createdSuppliers,
+    modifiedSuppliers,
+    comments,
+    remarkLogs,
+  ] = await Promise.all([
+    prisma.deliveryRecord.count({ where: { createdById: id } }),
+    prisma.deliveryRecord.count({ where: { modifiedById: id } }),
+    prisma.auditLog.count({ where: { changedById: id } }),
+    prisma.product.count({ where: { createdById: id } }),
+    prisma.product.count({ where: { modifiedById: id } }),
+    prisma.customer.count({ where: { createdById: id } }),
+    prisma.customer.count({ where: { modifiedById: id } }),
+    prisma.supplier.count({ where: { createdById: id } }),
+    prisma.supplier.count({ where: { modifiedById: id } }),
+    prisma.comment.count({ where: { authorId: id } }),
+    prisma.remarkLog.count({ where: { authorId: id } }),
+  ]);
+
+  const totalLinked = createdRecords + modifiedRecords + auditEntries
+    + createdProducts + modifiedProducts + createdCustomers + modifiedCustomers
+    + createdSuppliers + modifiedSuppliers + comments + remarkLogs;
+
+  if (totalLinked > 0) {
+    return res.status(409).json({
+      error: `Cannot delete this user because they have ${totalLinked} associated record(s) in the system (delivery records, audit logs, products, etc.). Deactivate the account instead to preserve data integrity.`,
+      linked_records: totalLinked,
+    });
+  }
+
+  // Safe to delete — clean up owned non-business data first, then remove the user
+  await prisma.userPermission.deleteMany({ where: { userId: id } });
+  await prisma.notification.deleteMany({ where: { userId: id } });
+  await prisma.user.delete({ where: { id } });
+
+  res.json({ ok: true, deleted_id: id });
+});
+
 // GET /users/:id/permissions — ADMIN only
 router.get('/:id/permissions', requireAuth, requireRole('ADMIN'), async (req: Request, res: Response) => {
   const { id } = req.params;

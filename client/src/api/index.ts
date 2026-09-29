@@ -380,6 +380,8 @@ export const api = {
     request<ApiUserAdmin>(`/users/${id}/deactivate`, { method: 'PATCH' }),
   activateUser: (id: string) =>
     request<ApiUserAdmin>(`/users/${id}/activate`, { method: 'PATCH' }),
+  deleteUser: (id: string) =>
+    request<{ ok: boolean; deleted_id: string }>(`/users/${id}`, { method: 'DELETE' }),
   getUserPermissions: (userId: string) =>
     request<{ userId: string; permissions: { screen: string; granted: boolean }[] }>(`/users/${userId}/permissions`),
   setUserPermissions: (userId: string, permissions: { screen: string; granted: boolean }[]) =>
