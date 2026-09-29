@@ -131,6 +131,7 @@ function GeneralTab({
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [remarksError, setRemarksError] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [draft, setDraft] = useState<EditDraft>({
     priority: record.priority,
     reference: record.reference,
@@ -168,6 +169,9 @@ function GeneralTab({
   const set = <K extends keyof EditDraft>(k: K, v: EditDraft[K]) => setDraft(p => ({ ...p, [k]: v }));
 
   const handleStartEdit = () => {
+    setSaveError(null);
+    // A bulk priority change can update this record while the workspace stays open.
+    setDraft(d => ({ ...d, priority: record.priority }));
     // Logistics enters a fresh change note rather than seeing/overwriting existing remarks
     if (canEditAreaAddress && !canEditFull) {
       setDraft(d => ({ ...d, remarks: '' }));
@@ -181,17 +185,23 @@ function GeneralTab({
       return;
     }
     setRemarksError(false);
+    setSaveError(null);
     setSaving(true);
     const updates = canEditFull
       ? { ...draft }
       : { area: draft.area, address: draft.address, remarks: draft.remarks };
-    await onUpdateRecord(record.id, {
-      ...updates,
-      modified_by: `${currentUserName} (${currentUserRole})`,
-      modified_at: new Date().toISOString(),
-    });
-    setSaving(false);
-    setEditing(false);
+    try {
+      await onUpdateRecord(record.id, {
+        ...updates,
+        modified_by: `${currentUserName} (${currentUserRole})`,
+        modified_at: new Date().toISOString(),
+      });
+      setEditing(false);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not save the record. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleCancel = () => {
@@ -399,6 +409,7 @@ function GeneralTab({
                 className={`w-full px-2.5 py-1.5 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${remarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
               />
               {remarksError && <p className="text-[11px] text-red-600 font-semibold">Remarks are required to save changes.</p>}
+              {saveError && <p role="alert" className="text-[11px] text-red-600 font-semibold">{saveError}</p>}
             </div>
             {canEditFull && (
               <div className="space-y-1">

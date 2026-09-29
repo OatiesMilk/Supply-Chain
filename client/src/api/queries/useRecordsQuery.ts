@@ -74,10 +74,8 @@ export function useCreateRecordMutation(currentUser: { name: string; role: strin
   });
 }
 
-export function useUpdateRecordMutation() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
+export function createUpdateRecordMutationOptions(queryClient: ReturnType<typeof useQueryClient>) {
+  return {
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<DeliveryRecord> }) => {
       try {
         if (updates.status) {
@@ -85,12 +83,12 @@ export function useUpdateRecordMutation() {
           const extra: { time_out?: string; received_by?: string } = {};
           if (u.time_out) extra.time_out = u.time_out;
           if (u.received_by) extra.received_by = u.received_by;
-          await api.patchStatus(
+          return normalizeApiRecord(await api.patchStatus(
             id,
             updates.status,
             u.status_remarks ?? u.remarks ?? '',
             Object.keys(extra).length > 0 ? extra : undefined
-          );
+          ));
         } else {
           const {
             modified_by,
@@ -101,9 +99,16 @@ export function useUpdateRecordMutation() {
             customer_id,
             ...rest
           } = updates as any;
-          await api.updateRecord(id, rest);
+          const saved = normalizeApiRecord(await api.updateRecord(id, rest));
+          if (updates.priority !== undefined && saved.priority !== updates.priority) {
+            throw new Error('The server did not save the selected priority. Please try again.');
+          }
+          return saved;
         }
-      } catch {
+      } catch (error) {
+        // Priority changes must be confirmed by the server, never reported as
+        // saved based only on a local offline copy.
+        if (updates.priority !== undefined) throw error;
         // Offline fallback
         const prev = loadState<DeliveryRecord[]>('delivery_records', []);
         const updated = prev.map(r =>
@@ -112,10 +117,23 @@ export function useUpdateRecordMutation() {
         saveState('delivery_records', updated);
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: RECORDS_QUERY_KEY });
+    onSuccess: async (saved: DeliveryRecord | undefined) => {
+      if (saved) {
+        await queryClient.cancelQueries({ queryKey: RECORDS_QUERY_KEY });
+        queryClient.setQueryData<DeliveryRecord[]>(RECORDS_QUERY_KEY, previous => {
+          const records = (previous ?? []).map(record => record.id === saved.id ? saved : record);
+          saveState('delivery_records', records);
+          return records;
+        });
+      }
+      await queryClient.invalidateQueries({ queryKey: RECORDS_QUERY_KEY });
     },
-  });
+  };
+}
+
+export function useUpdateRecordMutation() {
+  const queryClient = useQueryClient();
+  return useMutation(createUpdateRecordMutationOptions(queryClient));
 }
 
 export function useVerifyCollectionMutation(currentUser: { name: string }) {

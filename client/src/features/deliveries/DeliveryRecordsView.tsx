@@ -21,7 +21,7 @@ import RouteSlipMenu from '@/components/RouteSlipMenu';
 import AccountManagerCombobox from '@/components/AccountManagerCombobox';
 import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, PDF_DELIVERY_COLUMNS, PDF_AC_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
-import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger } from '@/types';
+import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel } from '@/types';
 import { ApiCompany, api, ApiError } from '@/api';
 import { DELIVERY_STATUSES, AREA_HIERARCHY, getRegion, getSubregion } from '@/data';
 import { MapPin, SlidersHorizontal } from 'lucide-react';
@@ -37,7 +37,7 @@ interface DeliveryRecordsViewProps {
   currentUserRole: UserRole;
   currentUserName: string;
   onCreateRecord: (data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>) => void;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   onVerifyCollection: (id: string) => Promise<void>;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;
   onUpdateOutputActionConfig: (trigger: OutputActionTrigger, patch: Partial<OutputActionConfig>) => void;
@@ -104,6 +104,8 @@ export default function DeliveryRecordsView({
   const [selectedBulkIds, setSelectedBulkIds] = useState<Set<string>>(new Set());
   const [bulkStatus, setBulkStatus] = useState<string>('Delivered');
   const [bulkApplying, setBulkApplying] = useState(false);
+  const [bulkPriority, setBulkPriority] = useState<PriorityLevel | ''>('');
+  const [priorityResult, setPriorityResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   // Monthly Driver Report modal
   const [showDriverReportModal, setShowDriverReportModal] = useState(false);
@@ -170,6 +172,8 @@ export default function DeliveryRecordsView({
     setAmFilter('');
     setDriverFilter('');
     setSelectedBulkIds(new Set());
+    setBulkPriority('');
+    setPriorityResult(null);
   }, [category]);
 
   const [statusHistoryCounts, setStatusHistoryCounts] = useState<StatusHistoryCounts | undefined>(undefined);
@@ -280,6 +284,32 @@ export default function DeliveryRecordsView({
 
   const activeRecord = records.find(r => r.id === selectedId);
 
+  const handleBulkPriorityUpdate = async () => {
+    if (!bulkPriority || selectedBulkIds.size === 0 || bulkApplying) return;
+    setBulkApplying(true);
+    setPriorityResult(null);
+    const failedIds = new Set<string>();
+    let firstError = '';
+    const ids = [...selectedBulkIds];
+    try {
+      for (const id of ids) {
+        try {
+          await onUpdateRecord(id, { priority: bulkPriority, remarks: `Priority set to ${bulkPriority}` });
+        } catch (error) {
+          failedIds.add(id);
+          if (!firstError) firstError = error instanceof Error ? error.message : 'Please try again.';
+        }
+      }
+      setSelectedBulkIds(failedIds);
+      const savedCount = ids.length - failedIds.size;
+      setPriorityResult(failedIds.size > 0
+        ? { ok: false, message: `${savedCount} saved; priority update failed for ${[...failedIds].join(', ')}. ${firstError}` }
+        : { ok: true, message: `Priority saved as ${bulkPriority} for ${savedCount} record${savedCount === 1 ? '' : 's'}.` });
+    } finally {
+      setBulkApplying(false);
+    }
+  };
+
   const handleBulkStatusUpdate = async () => {
     if (selectedBulkIds.size === 0 || bulkApplying) return;
     setBulkApplying(true);
@@ -387,6 +417,11 @@ export default function DeliveryRecordsView({
 
   return (
     <div className="space-y-6 print:space-y-2" id={`records-view-${category.toLowerCase().replace(/\s+/g, '-')}`}>
+      {priorityResult && (
+        <div role={priorityResult.ok ? 'status' : 'alert'} className={`rounded-lg border px-4 py-3 text-sm ${priorityResult.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+          {priorityResult.message}
+        </div>
+      )}
       {/* View Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4 print:hidden">
         <div>
@@ -577,8 +612,10 @@ export default function DeliveryRecordsView({
               <span className="text-xs text-white/60">Set priority:</span>
               <select
                 id="bulk-priority-select"
+                value={bulkPriority}
+                onChange={e => setBulkPriority(e.target.value as PriorityLevel | '')}
+                disabled={bulkApplying}
                 className="text-[11px] font-bold bg-white/10 border border-white/20 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
-                defaultValue=""
               >
                 <option value="" disabled className="text-slate-400 bg-white">— pick —</option>
                 {(['1 - Low','2 - Moderate','3 - High'] as const).map(p => (
@@ -586,15 +623,11 @@ export default function DeliveryRecordsView({
                 ))}
               </select>
               <button
-                onClick={() => {
-                  const sel = (document.getElementById('bulk-priority-select') as HTMLSelectElement).value;
-                  if (!sel) return;
-                  [...selectedBulkIds].forEach(id => onUpdateRecord(id, { priority: sel as any, remarks: `Priority set to ${sel}` } as any));
-                  setSelectedBulkIds(new Set());
-                }}
-                className="px-4 py-1.5 bg-[#0078C1] hover:bg-blue-500 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5"
+                onClick={handleBulkPriorityUpdate}
+                disabled={!bulkPriority || bulkApplying}
+                className="px-4 py-1.5 bg-[#0078C1] hover:bg-blue-500 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
               >
-                <Check className="w-3.5 h-3.5" /> Apply
+                {bulkApplying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Apply
               </button>
             </div>
           )}

@@ -257,7 +257,16 @@ router.put('/:id', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'A
 
   const b = req.body ?? {};
 
-  const LOGISTICS_SUBSTANTIVE_FIELDS = ['driver', 'vehicle', 'driver_assistants', 'time_in', 'time_out', 'received_by', 'linked_collection_id', 'area', 'address'];
+  if (b.priority !== undefined) {
+    if (!['SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'].includes(req.user!.role)) {
+      return res.status(403).json({ error: 'Your role cannot change record priority.' });
+    }
+    if (!['1 - Low', '2 - Moderate', '3 - High'].includes(b.priority)) {
+      return res.status(400).json({ error: 'Invalid record priority.' });
+    }
+  }
+
+  const LOGISTICS_SUBSTANTIVE_FIELDS = ['driver', 'vehicle', 'driver_assistants', 'time_in', 'time_out', 'received_by', 'linked_collection_id', 'area', 'address', 'priority'];
   const SC_SUBSTANTIVE_FIELDS = ['company_id', 'priority', 'reference', 'area', 'address', 'account_manager', 'delivery_date', 'item_type', 'is_draft', 'date_time', 'item_description', 'attachments', 'amount'];
   const substantiveFields = (req.user!.role === 'LOGISTICS' || req.user!.role === 'ADMIN' || req.user!.role === 'TASS')
     ? LOGISTICS_SUBSTANTIVE_FIELDS
@@ -278,6 +287,7 @@ router.put('/:id', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'A
     if (b.time_out !== undefined) data.timeOut = b.time_out ?? null;
     if (b.received_by !== undefined) data.receivedBy = b.received_by ?? null;
   } else if (req.user!.role === 'LOGISTICS' || req.user!.role === 'ADMIN' || req.user!.role === 'TASS') {
+    if (b.priority !== undefined) data.priority = b.priority;
     if (b.driver !== undefined) data.driver = b.driver;
     if (b.vehicle !== undefined) data.vehicle = b.vehicle;
     if (b.driver_assistants !== undefined) data.driverAssistants = JSON.stringify(Array.isArray(b.driver_assistants) ? b.driver_assistants : []);
