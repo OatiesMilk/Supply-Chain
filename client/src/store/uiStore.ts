@@ -75,6 +75,13 @@ export const useUIStore = create<UIStore>()(
       setSelectedRecordId: (id: string | null) => set({ selectedRecordId: id }),
 
       handleNavigate: (screen: string, item_id?: string) => {
+        const targetPath = `/${screen}${item_id ? `?item=${item_id}` : ''}`;
+        const currentPathWithSearch = window.location.pathname + window.location.search;
+        
+        if (targetPath !== currentPathWithSearch) {
+          window.history.pushState({ screen, item_id }, '', targetPath);
+        }
+
         set({
           currentScreen: screen,
           isSidebarOpen: false,
