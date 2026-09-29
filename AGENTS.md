@@ -8,9 +8,29 @@ Any AI tool or developer working in this codebase should read this file first.
 
 ## Agent: `supply-chain-dev`
 
-**Plugin:** `supply-chain-dev-plugin`
-**Location:** `~/.gemini/config/plugins/supply-chain-dev-plugin/agents/supply-chain-dev.md`
+**Location (in-repo):** `.gemini/agents/supply-chain-dev.md`
+**Companion skill:** `.gemini/skills/use-supply-chain-dev/SKILL.md`
 **Model:** Claude Sonnet
+
+### Setup for teammates
+
+The agent definition lives inside this repository under `.gemini/` so it is
+available to every developer who clones the project. To activate it locally,
+copy the files into your Antigravity CLI config directory once:
+
+```bash
+# Run from the project root
+mkdir -p ~/.gemini/config/plugins/supply-chain-dev-plugin/agents
+mkdir -p ~/.gemini/config/plugins/supply-chain-dev-plugin/skills/use-supply-chain-dev
+
+cp .gemini/agents/supply-chain-dev.md \
+   ~/.gemini/config/plugins/supply-chain-dev-plugin/agents/supply-chain-dev.md
+
+cp .gemini/skills/use-supply-chain-dev/SKILL.md \
+   ~/.gemini/config/plugins/supply-chain-dev-plugin/skills/use-supply-chain-dev/SKILL.md
+```
+
+Re-run the copy whenever the agent definition is updated in the repo.
 
 ### Purpose
 
