@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Plus,
   Search,
@@ -163,6 +163,8 @@ export default function DeliveryRecordsView({
   // component instance is reused, so bulk selections would otherwise carry
   // over and keep the action bar visible for records from the previous module.
   useEffect(() => {
+    setSelectedId(null);
+    setShowForm(false);
     setRegionFilter('All Regions');
     setSubregionFilter('All Subregions');
     setAreaFilter('All Areas');
