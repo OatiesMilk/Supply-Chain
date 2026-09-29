@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from '@/api/queryClient';
 import { useAuth, useUIStore } from '@/store';
@@ -6,17 +6,32 @@ import { useAppData, useDeliveryActions, usePermissions } from '@/hooks';
 import { MainLayout } from '@/layouts';
 import { AppRouter } from '@/routes';
 import LoginView from '@/features/auth/LoginView';
+import ServerUnavailableView from '@/features/auth/ServerUnavailableView';
+import { useServerAvailability } from '@/hooks/useServerAvailability';
 import DriverDashboard from '@/features/dashboard/DriverDashboard';
 import { DeliveryCategory } from '@/types';
 
 function AppContent() {
   const { authUser, authChecked, login, checkAuth } = useAuth();
+  const { status, retrying, retry } = useServerAvailability();
+  const [sessionReady, setSessionReady] = useState(false);
 
   useEffect(() => {
-    void checkAuth();
-  }, [checkAuth]);
+    let cancelled = false;
+    setSessionReady(false);
+    if (status === 'available') {
+      void checkAuth().then(() => {
+        if (!cancelled) setSessionReady(true);
+      });
+    }
+    return () => { cancelled = true; };
+  }, [checkAuth, status]);
 
-  if (!authChecked) {
+  if (status === 'unavailable') {
+    return <ServerUnavailableView retrying={retrying} onRetry={retry} />;
+  }
+
+  if (status === 'checking' || !sessionReady || !authChecked) {
     return (
       <div className="min-h-screen bg-[#F8F9FB] flex items-center justify-center" id="auth-check-loading" role="status">
         Checking your session…
