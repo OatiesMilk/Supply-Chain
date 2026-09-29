@@ -76,7 +76,7 @@ export const useUIStore = create<UIStore>()(
       setSelectedRecordId: (id: string | null) => set({ selectedRecordId: id }),
 
       resetSession: () => {
-        window.history.replaceState({ screen: 'dashboard' }, '', '/dashboard');
+        window.history.replaceState({ screen: 'login' }, '', '/login');
         set({
           currentScreen: 'dashboard',
           isSidebarOpen: false,
