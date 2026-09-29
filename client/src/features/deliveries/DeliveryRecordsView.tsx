@@ -427,6 +427,7 @@ export default function DeliveryRecordsView({
   // start shifts right (more gap from Delivery Date) without shrinking
   // Driver's own width — Status (a short pill badge) absorbs the change
   // instead, since it tolerates a narrower column better than Driver names do.
+  const colMinWidth = { id: '110px', company: '200px', area: '130px', date: '180px', driver: '130px', status: '130px' };
   const colPct = showCheckbox
     ? { id: 12, company: 24, area: 13, date: 22, driver: 12, status: 13 }
     : showCollectionCol
@@ -857,21 +858,21 @@ export default function DeliveryRecordsView({
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full table-fixed text-left border-collapse text-sm">
+              <table className="w-full min-w-[900px] table-fixed text-left border-collapse text-sm">
                 <colgroup>
-                  {showCheckbox && <col style={{ width: '4%' }} />}
-                  <col style={{ width: `${colPct.id}%` }} />
-                  <col style={{ width: `${colPct.company}%` }} />
-                  <col style={{ width: `${colPct.area}%` }} />
-                  <col style={{ width: `${colPct.date}%` }} />
-                  <col style={{ width: `${colPct.driver}%` }} />
-                  <col style={{ width: `${colPct.status}%` }} />
-                  {showCollectionCol && <col style={{ width: '8%' }} />}
+                  {showCheckbox && <col style={{ width: '4%', minWidth: '40px' }} />}
+                  <col style={{ width: `${colPct.id}%`, minWidth: colMinWidth.id }} />
+                  <col style={{ width: `${colPct.company}%`, minWidth: colMinWidth.company }} />
+                  <col style={{ width: `${colPct.area}%`, minWidth: colMinWidth.area }} />
+                  <col style={{ width: `${colPct.date}%`, minWidth: colMinWidth.date }} />
+                  <col style={{ width: `${colPct.driver}%`, minWidth: colMinWidth.driver }} />
+                  <col style={{ width: `${colPct.status}%`, minWidth: colMinWidth.status }} />
+                  {showCollectionCol && <col style={{ width: '8%', minWidth: '90px' }} />}
                 </colgroup>
                 <thead>
                   <tr className="bg-slate-100 border-b border-slate-200 text-xs font-black text-slate-500 uppercase tracking-wider">
                     {showCheckbox && (
-                      <th className="px-4 py-3">
+                      <th className="px-4 py-3" style={{ minWidth: '40px' }}>
                         <input
                           type="checkbox"
                           className="rounded cursor-pointer"
@@ -880,14 +881,14 @@ export default function DeliveryRecordsView({
                         />
                       </th>
                     )}
-                    <th className="px-4 py-3">Record ID</th>
-                    <th className="px-4 py-3">Company</th>
-                    <th className="px-4 py-3">Area</th>
-                    <th className="px-4 py-3 text-center">Delivery Date</th>
-                    <th className="px-4 py-3">Driver</th>
-                    <th className="px-4 py-3 text-center">Status</th>
+                    <th className="px-4 py-3" style={{ minWidth: colMinWidth.id }}>Record ID</th>
+                    <th className="px-4 py-3" style={{ minWidth: colMinWidth.company }}>Company</th>
+                    <th className="px-4 py-3" style={{ minWidth: colMinWidth.area }}>Area</th>
+                    <th className="px-4 py-3 text-center" style={{ minWidth: colMinWidth.date }}>Delivery Date</th>
+                    <th className="px-4 py-3" style={{ minWidth: colMinWidth.driver }}>Driver</th>
+                    <th className="px-4 py-3 text-center" style={{ minWidth: colMinWidth.status }}>Status</th>
                     {currentUserRole === 'TASS' && category === 'Accounting Collection' && (
-                      <th className="px-4 py-3 text-center">Collection</th>
+                      <th className="px-4 py-3 text-center" style={{ minWidth: '90px' }}>Collection</th>
                     )}
                   </tr>
                 </thead>
