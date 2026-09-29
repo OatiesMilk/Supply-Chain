@@ -107,28 +107,18 @@ export const ACCOUNT_MANAGERS = ['P. Soriano', 'D. Macaraeg', 'F. Valenzuela', '
 // These mutable arrays are populated from the /api/drivers endpoint at startup
 // (see App.tsx → setManagedDriverList). Components that import DRIVERS,
 // DRIVER_ASSISTANTS, and DRIVER_COVERAGE get the live managed list.
-// Hardcoded defaults serve as fallback only when the API hasn't responded yet.
+// Assignment options remain empty until the API provides the roster.
 
-const _DEFAULT_DRIVERS = [
-  'Lando Navarro',
-  'Manny Santos',
-  'Ronald de la Cruz',
-];
-const _DEFAULT_ASSISTANTS = [
-  'Jayson Reyes',
-  'Bong Alvarez',
-  'Ricky Mendoza',
-];
-const _DEFAULT_COVERAGE: Record<string, string[]> = {
-  'Lando Navarro': ['Makati', 'BGC', 'Taguig', 'Mandaluyong', 'San Juan', 'Pasig', 'Ortigas', 'Ortigas Corridor', 'Ortigas Center (Pasig)'],
-  'Manny Santos': ['Quezon City', 'Marikina', 'Caloocan', 'Valenzuela', 'Malabon', 'Bulacan', 'Cainta', 'Antipolo'],
-  'Ronald de la Cruz': ['Manila', 'Parañaque', 'Pasay', 'Las Piñas', 'Muntinlupa', 'Cavite', 'Laguna', 'Batangas'],
-};
-const _DEFAULT_COVERAGE_AREAS: Record<string, string[]> = _DEFAULT_COVERAGE;
-
-let _managedDrivers: string[] | null = null;
-let _managedAssistants: string[] | null = null;
-let _managedCoverage: Record<string, string[]> | null = null;
+let _managedDrivers: string[] = [];
+let _managedAssistants: string[] = [];
+let _managedCoverage: Record<string, string[]> = {};
+let managedDriverVersion = 0;
+const managedDriverListeners = new Set<() => void>();
+export const getManagedDriverVersion = () => managedDriverVersion;
+export function subscribeManagedDrivers(listener: () => void) {
+  managedDriverListeners.add(listener);
+  return () => { managedDriverListeners.delete(listener); };
+}
 
 export interface ManagedDriver {
   name: string;
@@ -146,6 +136,8 @@ export function setManagedDriverList(list: ManagedDriver[]) {
     if (d.coverage_areas.length > 0) cov[d.name] = d.coverage_areas;
   }
   _managedCoverage = cov;
+  managedDriverVersion++;
+  managedDriverListeners.forEach(listener => listener());
 }
 
 function createArrayProxy(getSrc: () => string[]): string[] {
@@ -170,24 +162,24 @@ function createArrayProxy(getSrc: () => string[]): string[] {
   });
 }
 
-export const DRIVERS: string[] = createArrayProxy(() => _managedDrivers ?? _DEFAULT_DRIVERS);
-export const DRIVER_ASSISTANTS: string[] = createArrayProxy(() => _managedAssistants ?? _DEFAULT_ASSISTANTS);
+export const DRIVERS: string[] = createArrayProxy(() => _managedDrivers);
+export const DRIVER_ASSISTANTS: string[] = createArrayProxy(() => _managedAssistants);
 
 export const DRIVER_COVERAGE: Record<string, string[]> = new Proxy({} as Record<string, string[]>, {
   get(_, prop) {
-    const src = _managedCoverage ?? _DEFAULT_COVERAGE;
+    const src = _managedCoverage;
     return Reflect.get(src, prop);
   },
   ownKeys() {
-    return Reflect.ownKeys(_managedCoverage ?? _DEFAULT_COVERAGE);
+    return Reflect.ownKeys(_managedCoverage);
   },
   getOwnPropertyDescriptor(_, prop) {
-    const src = _managedCoverage ?? _DEFAULT_COVERAGE;
+    const src = _managedCoverage;
     if (prop in src) return { configurable: true, enumerable: true, value: (src as any)[prop] };
     return undefined;
   },
   has(_, prop) {
-    return prop in (_managedCoverage ?? _DEFAULT_COVERAGE);
+    return prop in (_managedCoverage);
   },
 });
 
@@ -198,19 +190,19 @@ export const AREA_CLUSTERS: Record<string, string[]> = Object.fromEntries(
 
 export const DRIVER_COVERAGE_AREAS: Record<string, string[]> = new Proxy({} as Record<string, string[]>, {
   get(_, prop) {
-    const src = _managedCoverage ?? _DEFAULT_COVERAGE_AREAS;
+    const src = _managedCoverage;
     return Reflect.get(src, prop);
   },
   ownKeys() {
-    return Reflect.ownKeys(_managedCoverage ?? _DEFAULT_COVERAGE_AREAS);
+    return Reflect.ownKeys(_managedCoverage);
   },
   getOwnPropertyDescriptor(_, prop) {
-    const src = _managedCoverage ?? _DEFAULT_COVERAGE_AREAS;
+    const src = _managedCoverage;
     if (prop in src) return { configurable: true, enumerable: true, value: (src as any)[prop] };
     return undefined;
   },
   has(_, prop) {
-    return prop in (_managedCoverage ?? _DEFAULT_COVERAGE_AREAS);
+    return prop in (_managedCoverage);
   },
 });
 
