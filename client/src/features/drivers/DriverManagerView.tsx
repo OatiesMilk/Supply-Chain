@@ -1,5 +1,5 @@
-import { useState, FormEvent } from 'react';
-import { Plus, X, Truck, UserCheck, Search, ToggleLeft, ToggleRight, Trash2, Edit3, Check, MapPin } from 'lucide-react';
+import { useState, useRef, FormEvent } from 'react';
+import { Plus, X, Truck, UserCheck, Search, ToggleLeft, ToggleRight, Edit3, Check, MapPin } from 'lucide-react';
 import { ApiDriver } from '@/api';
 
 interface DriverManagerViewProps {
@@ -32,6 +32,19 @@ export default function DriverManagerView({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: '', coverage_areas: '' });
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const actionPending = useRef(false);
+
+  const runAction = async (action: () => Promise<void>) => {
+    if (actionPending.current) return false;
+    actionPending.current = true;
+    setSaving(true);
+    setActionError('');
+    try { await action(); return true; }
+    catch (error) { setActionError(error instanceof Error ? error.message : 'Could not save changes. Please try again.'); return false; }
+    finally { actionPending.current = false; setSaving(false); }
+  };
 
   const canManage = currentUserRole === 'Logistics' || currentUserRole === 'Admin';
   const typeFilter = tab === 'drivers' ? 'DRIVER' : 'ASSISTANT';
@@ -55,7 +68,7 @@ export default function DriverManagerView({
       .split(',')
       .map(a => a.trim())
       .filter(Boolean);
-    await onCreateDriver({ name, type: form.type, coverage_areas: areas });
+    if (!await runAction(() => onCreateDriver({ name, type: form.type, coverage_areas: areas }))) return;
     setForm(EMPTY_FORM);
     setShowCreate(false);
   };
@@ -69,21 +82,23 @@ export default function DriverManagerView({
     const name = editForm.name.trim();
     if (!name) return;
     const areas = editForm.coverage_areas.split(',').map(a => a.trim()).filter(Boolean);
-    await onUpdateDriver(d.id, { name, coverage_areas: areas });
+    if (!await runAction(() => onUpdateDriver(d.id, { name, coverage_areas: areas }))) return;
     setEditingId(null);
   };
 
   const toggleActive = async (d: ApiDriver) => {
-    await onUpdateDriver(d.id, { is_active: !d.is_active });
+    await runAction(() => onUpdateDriver(d.id, { is_active: !d.is_active }));
   };
 
   const handleDelete = async (id: string) => {
-    await onDeleteDriver(id);
+    if (!await runAction(() => onDeleteDriver(id))) return;
     setConfirmDeleteId(null);
   };
 
   return (
     <div className="space-y-5">
+      {actionError && <div role="alert" className="p-3 bg-red-50 text-red-700 rounded">{actionError}</div>}
+      {saving && <div role="status">Saving changes...</div>}
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -265,7 +280,7 @@ export default function DriverManagerView({
                               >
                                 <Edit3 className="w-3.5 h-3.5" />
                               </button>
-                              <button
+                              {!d.is_active && <button
                                 onClick={() => toggleActive(d)}
                                 className={`p-1.5 rounded-lg transition-colors ${
                                   d.is_active
@@ -275,14 +290,14 @@ export default function DriverManagerView({
                                 title={d.is_active ? 'Deactivate' : 'Activate'}
                               >
                                 {d.is_active ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
-                              </button>
-                              {confirmDeleteId === d.id ? (
+                              </button>}
+                              {d.is_active && (confirmDeleteId === d.id ? (
                                 <div className="flex items-center gap-1">
                                   <button
                                     onClick={() => handleDelete(d.id)}
                                     className="px-2 py-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-200 rounded hover:bg-red-100 transition-colors"
                                   >
-                                    Confirm
+                                    Deactivate
                                   </button>
                                   <button
                                     onClick={() => setConfirmDeleteId(null)}
@@ -295,11 +310,11 @@ export default function DriverManagerView({
                                 <button
                                   onClick={() => setConfirmDeleteId(d.id)}
                                   className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors"
-                                  title="Delete"
+                                  title="Deactivate (history is preserved)"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <ToggleLeft className="w-3.5 h-3.5" />
                                 </button>
-                              )}
+                              ))}
                             </>
                           )}
                         </div>
@@ -370,6 +385,7 @@ export default function DriverManagerView({
                 </p>
               </div>
 
+              {actionError && <p role="alert" className="text-xs text-red-600">{actionError}</p>}
               {formError && (
                 <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{formError}</p>
               )}
@@ -384,6 +400,7 @@ export default function DriverManagerView({
                 </button>
                 <button
                   type="submit"
+                  disabled={saving}
                   className="px-4 py-2 bg-[#1F3864] hover:bg-[#162952] text-white text-sm font-bold rounded-lg transition-colors"
                 >
                   Add {form.type === 'DRIVER' ? 'Driver' : 'Assistant'}

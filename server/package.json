@@ -14,6 +14,7 @@
     "lint": "tsc --noEmit",
     "db:reset": "prisma migrate reset --force",
     "seed:accounts": "tsx prisma/seed-accounts-only.ts",
+    "drivers:import": "tsx prisma/import-historical-drivers.ts",
     "db:clean": "prisma migrate reset --force --skip-seed"
   },
   "dependencies": {

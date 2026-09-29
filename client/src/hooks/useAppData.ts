@@ -1,6 +1,7 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { setManagedDriverList, subscribeManagedDrivers, getManagedDriverVersion } from '@/data';
 import { useQueryClient } from '@tanstack/react-query';
-import { ApiUser } from '@/api';
+import { ApiUser, ApiDriver } from '@/api';
 import { UserRole } from '@/types';
 import {
   useRecordsQuery,
@@ -17,6 +18,8 @@ import {
   useDashboardStatsQuery,
   useResetDemoDataMutation,
 } from '@/api/queries';
+
+const EMPTY_DRIVERS: ApiDriver[] = [];
 
 export function useAppData(
   authUser: ApiUser | null,
@@ -35,7 +38,13 @@ export function useAppData(
   const { data: customers = [] } = useCustomersQuery();
   const { data: suppliers = [] } = useSuppliersQuery();
   const { data: products = [] } = useSkusQuery();
-  const { data: managedDrivers = [] } = useDriversQuery();
+  const { data: managedDrivers = EMPTY_DRIVERS, isError: driversError } = useDriversQuery();
+  // Legacy assignment dropdowns read the shared proxies; notify them after updates.
+  useSyncExternalStore(subscribeManagedDrivers, getManagedDriverVersion, getManagedDriverVersion);
+  useEffect(() => {
+    setManagedDriverList(driversError ? [] : managedDrivers);
+    return () => setManagedDriverList([]);
+  }, [managedDrivers, driversError]);
   const { data: dashboardStats = null } = useDashboardStatsQuery(!!authUser);
 
   const createCustomerMutation = useCreateCustomerMutation(currentUser);

@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db';
+import { asyncRoute } from '../middleware/asyncRoute';
+import { assignmentError, withDriverDirectoryLock } from '../services/driverDirectory';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { writeAuditLog } from '../services/audit';
 import { notifyAccomplished } from '../services/notify';
@@ -242,7 +244,7 @@ router.post('/', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS'), asy
 
 // Full update - ADMIN added alongside LOGISTICS for linked collection management.
 // SoD: only LOGISTICS/ADMIN may set driver/vehicle/driverAssistant/linkedCollectionId.
-router.put('/:id', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), async (req, res) => {
+router.put('/:id', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), asyncRoute(async (req, res) => {
   const existing = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null }, include: recordInclude });
   if (!existing) return res.status(404).json({ error: 'Record not found' });
 
@@ -290,7 +292,10 @@ router.put('/:id', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'A
     if (b.priority !== undefined) data.priority = b.priority;
     if (b.driver !== undefined) data.driver = b.driver;
     if (b.vehicle !== undefined) data.vehicle = b.vehicle;
-    if (b.driver_assistants !== undefined) data.driverAssistants = JSON.stringify(Array.isArray(b.driver_assistants) ? b.driver_assistants : []);
+    if (b.driver_assistants !== undefined) {
+      if (!Array.isArray(b.driver_assistants)) return res.status(400).json({ error: 'Assistants must be an array of names.' });
+      data.driverAssistants = JSON.stringify(b.driver_assistants);
+    }
     if (b.time_in !== undefined) data.timeIn = b.time_in ?? null;
     if (b.time_out !== undefined) data.timeOut = b.time_out ?? null;
     if (b.received_by !== undefined) data.receivedBy = b.received_by ?? null;
@@ -330,20 +335,21 @@ router.put('/:id', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'A
     if (b.address !== undefined) data.address = b.address;
   }
 
-  const updated = await prisma.deliveryRecord.update({
-    where: { id: existing.id },
-    data,
-    include: recordInclude
+  const result = await withDriverDirectoryLock(prisma, async tx => {
+    const current = await tx.deliveryRecord.findUnique({ where: { id: existing.id } });
+    if (!current || current.deletedAt) return { error: 'Record not found', updated: null };
+    const invalidAssignment = await assignmentError(tx, current, data);
+    if (invalidAssignment) return { error: invalidAssignment, updated: null };
+    const updated = await tx.deliveryRecord.update({ where: { id: existing.id }, data, include: recordInclude });
+    await tx.auditLog.create({ data: {
+      recordId: updated.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id,
+      previousValue: JSON.stringify(serializeRecord({ ...existing, ...current })),
+      newValue: JSON.stringify(serializeRecord(updated)),
+    } });
+    return { error: null, updated };
   });
-
-  await writeAuditLog({
-    recordId: updated.id,
-    recordType: 'DeliveryRecord',
-    action: 'UPDATE',
-    changedById: req.user!.id,
-    previousValue: serializeRecord(existing),
-    newValue: serializeRecord(updated)
-  });
+  if (result.error) return res.status(result.error === 'Record not found' ? 404 : 400).json({ error: result.error });
+  const updated = result.updated!;
 
   // Write remark log for every non-DRIVER edit that has remarks
   if (req.user!.role !== 'DRIVER' && b.remarks && String(b.remarks).trim()) {
@@ -368,7 +374,7 @@ router.put('/:id', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'A
   }
 
   res.json(serializeRecord(updated));
-});
+}));
 
 // Status change — Logistics, Admin, Driver (own records), and TASS (RMA only).
 // This is also the sole path that fires the ACCOMPLISHED automated trigger.
