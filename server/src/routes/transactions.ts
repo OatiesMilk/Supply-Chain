@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../db';
-import { requireAuth } from '../middleware/auth';
+import { requireResource, requireAuth } from '../middleware/auth';
 import { CATEGORY_FROM_DB, STATUS_FROM_DB, parseDriverAssistants } from '../mappings';
 
 const router = Router();
@@ -30,7 +30,7 @@ function canAccessInventory(role: string): boolean {
 
 // ─── GET /api/transactions ────────────────────────────────────────────────────
 
-router.get('/', requireAuth, async (req, res) => {
+router.get('/', requireAuth, requireResource('transactions'), async (req, res) => {
   const role = req.user!.role;
 
   // Parse query params
@@ -158,7 +158,7 @@ router.get('/', requireAuth, async (req, res) => {
 
 // ─── GET /api/transactions/:source/:id ───────────────────────────────────────
 
-router.get('/:source/:id', requireAuth, async (req, res) => {
+router.get('/:source/:id', requireAuth, requireResource('transactions'), async (req, res) => {
   const role   = req.user!.role;
   const source = req.params.source;
   const id     = req.params.id;

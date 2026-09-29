@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { prisma } from '../db';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requireResource } from '../middleware/auth';
 import { sendEmail } from '../services/mailer';
+
+import { recordScope } from '../services/recordAccess';
 
 const router = Router();
 
@@ -95,14 +97,14 @@ async function resolveRecipients(recipients: string[], record: any): Promise<{ n
   return resolved;
 }
 
-router.post('/send-email', requireAuth, async (req, res) => {
+router.post('/send-email', requireAuth, requireResource('records'), async (req, res) => {
   const { recordId, trigger, recipients } = req.body ?? {};
   if (!recordId || !trigger || !Array.isArray(recipients) || recipients.length === 0) {
     return res.status(400).json({ error: 'recordId, trigger, and recipients[] are required' });
   }
 
-  const record = await prisma.deliveryRecord.findUnique({
-    where: { id: recordId },
+  const record = await prisma.deliveryRecord.findFirst({
+    where: { id: recordId, deletedAt: null, AND: [recordScope(req.user!)] },
     include: { company: true },
   });
 

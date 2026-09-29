@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../db';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireScreen, requireResource, requireAuth, requireRole } from '../middleware/auth';
 import { createDriverDirectory, DriverConflictError, driverInputError, parseCoverageAreas, readDriverDirectory, updateDriverDirectory } from '../services/driverDirectory';
 
 import { asyncRoute } from '../middleware/asyncRoute';
@@ -30,13 +30,13 @@ function serialize(d: any) {
 }
 
 // Reads never seed or import the roster.
-router.get('/', requireAuth, driverRoute(async (req, res) => {
+router.get('/', requireAuth, requireResource('drivers'), driverRoute(async (req, res) => {
   const drivers = await readDriverDirectory(prisma, req.query.all === '1');
   res.json(drivers.map(serialize));
 }));
 
 // Create a driver — Logistics + Admin only
-router.post('/', requireAuth, requireRole('LOGISTICS', 'ADMIN'), driverRoute(async (req, res) => {
+router.post('/', requireAuth, requireResource('drivers'), requireScreen('driver_manager'), requireRole('LOGISTICS', 'ADMIN'), driverRoute(async (req, res) => {
   const { name, type, coverage_areas } = req.body ?? {};
   const invalid = driverInputError(req.body ?? {}, true);
   if (invalid) return res.status(400).json({ error: invalid });
@@ -49,7 +49,7 @@ router.post('/', requireAuth, requireRole('LOGISTICS', 'ADMIN'), driverRoute(asy
 }));
 
 // Update a driver — Logistics + Admin only
-router.put('/:id', requireAuth, requireRole('LOGISTICS', 'ADMIN'), driverRoute(async (req, res) => {
+router.put('/:id', requireAuth, requireResource('drivers'), requireScreen('driver_manager'), requireRole('LOGISTICS', 'ADMIN'), driverRoute(async (req, res) => {
   const { name, type, coverage_areas, is_active } = req.body ?? {};
   const invalid = driverInputError(req.body ?? {});
   if (invalid) return res.status(400).json({ error: invalid });
@@ -64,7 +64,7 @@ router.put('/:id', requireAuth, requireRole('LOGISTICS', 'ADMIN'), driverRoute(a
 }));
 
 // Deactivate a driver — Logistics + Admin only
-router.delete('/:id', requireAuth, requireRole('LOGISTICS', 'ADMIN'), driverRoute(async (req, res) => {
+router.delete('/:id', requireAuth, requireResource('drivers'), requireScreen('driver_manager'), requireRole('LOGISTICS', 'ADMIN'), driverRoute(async (req, res) => {
   const updated = await updateDriverDirectory(prisma, req.params.id, { isActive: false }, req.user!, true);
   if (!updated) return res.status(404).json({ error: 'Driver not found' });
   res.status(204).end();

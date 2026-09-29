@@ -42,12 +42,14 @@ export interface AuthActions {
   login: (user: ApiUser) => void;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
+  refreshPermissions: () => Promise<void>;
 }
 
 export type AuthStore = AuthState & AuthActions;
 
 // Ignore session checks that complete after a newer login, logout, or check.
 let authRevision = 0;
+let permissionRefresh: Promise<void> | null = null;
 let pendingLogout: Promise<void> | null = null;
 let logoutUnconfirmed = false;
 const LOGOUT_MARKER = 'portal_logout_unconfirmed';
@@ -65,8 +67,16 @@ function needsLogout() {
   catch { return logoutUnconfirmed; }
 }
 
+export function requireCompleteSession(user: ApiUser): ApiUser {
+  if (!user || !Array.isArray(user.permissions) || !Array.isArray(user.effectiveScreens)
+    || !Array.isArray(user.resources) || typeof user.permissionVersion !== 'string') {
+    throw new Error('Unable to load account permissions. Please try signing in again.');
+  }
+  return user;
+}
+
 export const useAuthStore = create<AuthStore>()(
-  subscribeWithSelector((set) => ({
+  subscribeWithSelector((set, get) => ({
     authUser: null,
     authChecked: false,
     logoutPending: false,
@@ -77,6 +87,7 @@ export const useAuthStore = create<AuthStore>()(
     },
 
     login: (user: ApiUser) => {
+      requireCompleteSession(user);
       authRevision++;
       rememberLogout(false);
       set({ authUser: user, authChecked: true });
@@ -101,6 +112,38 @@ export const useAuthStore = create<AuthStore>()(
       set({ logoutPending: false });
     },
 
+    refreshPermissions: async () => {
+      if (permissionRefresh) return permissionRefresh;
+      const account = get().authUser;
+      if (!account || get().logoutPending) return;
+      const revision = authRevision;
+      const task = (async () => {
+        try {
+          const user = requireCompleteSession(await api.me());
+          if (revision !== authRevision || get().authUser?.id !== account.id) return;
+          if (user.id !== account.id) {
+            authRevision++;
+            useUIStore.getState().resetSession();
+            set({ authUser: null, authChecked: true });
+            return;
+          }
+          if (JSON.stringify(user) !== JSON.stringify(get().authUser)) {
+            useUIStore.setState({ searchOpen: false, selectedRecordId: null, selectedProductId: null, accessRequestOpen: false });
+            set({ authUser: user });
+          }
+        } catch {
+          // Unverifiable access is cleared rather than kept indefinitely offline.
+          if (revision === authRevision) {
+            authRevision++;
+            useUIStore.getState().resetSession();
+            set({ authUser: null, authChecked: true });
+          }
+        }
+      })();
+      permissionRefresh = task;
+      try { await task; } finally { if (permissionRefresh === task) permissionRefresh = null; }
+    },
+
     checkAuth: async () => {
       const revision = ++authRevision;
       if (pendingLogout) await pendingLogout;
@@ -115,7 +158,7 @@ export const useAuthStore = create<AuthStore>()(
           set({ authUser: null, authChecked: true });
           return;
         }
-        const user = await api.me();
+        const user = requireCompleteSession(await api.me());
         if (revision === authRevision) set({ authUser: user, authChecked: true });
       } catch {
         // Missing, expired, and unverifiable sessions all fail closed.

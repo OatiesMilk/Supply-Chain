@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { createQueryClient } from '@/api/queryClient';
 import { useAuth, useUIStore } from '@/store';
+import { useAuthStore } from '@/store/authStore';
 import { useAppData, useDeliveryActions, usePermissions } from '@/hooks';
 import { MainLayout } from '@/layouts';
 import { AppRouter } from '@/routes';
@@ -28,6 +29,21 @@ function AppContent() {
     return () => { cancelled = true; };
   }, [checkAuth, status]);
 
+  useEffect(() => {
+    if (!authUser) return;
+    const refresh = () => { void useAuthStore.getState().refreshPermissions(); };
+    const interval = window.setInterval(refresh, 30_000);
+    window.addEventListener('focus', refresh);
+    window.addEventListener('online', refresh);
+    window.addEventListener('session-permissions-changed', refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('online', refresh);
+      window.removeEventListener('session-permissions-changed', refresh);
+    };
+  }, [authUser?.id]);
+
   if (status === 'unavailable') {
     return <ServerUnavailableView retrying={retrying} onRetry={retry} />;
   }
@@ -43,12 +59,13 @@ function AppContent() {
   if (logoutPending) return <div role="status" className="min-h-screen flex items-center justify-center">Signing out...</div>;
   if (!authUser) return <LoginView onLoggedIn={login} />;
 
-  return <SessionApp key={authUser.id} />;
+  return <SessionApp key={`${authUser.id}:${authUser.name}:${authUser.permissionVersion}`} />;
 }
 
 function SessionApp() {
   // A new cache for every login also isolates late requests from the old session.
   const [client] = useState(createQueryClient);
+  useEffect(() => () => { client.clear(); }, [client]);
   return <QueryClientProvider client={client}><AuthenticatedApp /></QueryClientProvider>;
 }
 
@@ -122,7 +139,14 @@ function AuthenticatedApp() {
   const setSelectedProductId = useUIStore(s => s.setSelectedProductId);
   const selectedRecordId = useUIStore(s => s.selectedRecordId);
   const setSelectedRecordId = useUIStore(s => s.setSelectedRecordId);
-  const handleNavigate = useUIStore(s => s.handleNavigate);
+  const navigate = useUIStore(s => s.handleNavigate);
+  const handleNavigate = useCallback((screen: string, itemId?: string) => {
+    if (screen !== 'no-access' && !effectiveScreens.has(screen)) {
+      openAccessRequest(screen);
+      return;
+    }
+    navigate(screen, itemId);
+  }, [navigate, effectiveScreens, openAccessRequest]);
 
   // Client-side routing
   useEffect(() => {
@@ -164,7 +188,15 @@ function AuthenticatedApp() {
   const procurementActiveCount = countByCategory('Procurement Pick-up', ['Scheduled', 'Pending']);
 
   // Driver role gets standalone mobile-first dashboard
-  if (authUser.role === 'DRIVER') {
+  if (effectiveScreens.size === 0) {
+    return <div className="min-h-screen flex flex-col items-center justify-center gap-4">
+      <h1 className="text-xl font-bold">No modules assigned</h1>
+      <p>Contact your administrator to request access.</p>
+      <button onClick={() => void logout()} className="rounded bg-blue-800 px-4 py-2 text-white">Sign out</button>
+    </div>;
+  }
+
+  if (authUser.role === 'DRIVER' && canAccess('driver_dashboard')) {
     return (
       <DriverDashboard
         records={deliveryRecords}

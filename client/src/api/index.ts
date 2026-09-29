@@ -31,6 +31,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw error;
   }
 
+  if ((res.status === 401 || res.status === 403) && !path.startsWith('/auth/') && typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('session-permissions-changed'));
+  }
+
   if (res.status >= 500) requestServerCheck();
 
   if (!res.ok) {
@@ -54,6 +58,20 @@ export interface ApiUser {
   email: string;
   role: 'SALES_COORDINATOR' | 'LOGISTICS' | 'TASS' | 'ADMIN' | 'DRIVER';
   permissions: { screen: string; granted: boolean }[];
+  effectiveScreens: string[];
+  resources: string[];
+  permissionVersion: string;
+}
+
+export interface ApiPermissionEditor {
+  userId: string;
+  permissions: { screen: string; granted: boolean }[];
+  effectiveScreens: string[];
+  resources: string[];
+  permissionVersion: string;
+  roleDefaults: string[];
+  catalog: { screen: string; label: string }[];
+  editableScreens: string[];
 }
 
 // Extended user record returned by the admin user-management endpoint
@@ -393,11 +411,11 @@ export const api = {
   deleteUser: (id: string) =>
     request<{ ok: boolean; deleted_id: string }>(`/users/${id}`, { method: 'DELETE' }),
   getUserPermissions: (userId: string) =>
-    request<{ userId: string; permissions: { screen: string; granted: boolean }[] }>(`/users/${userId}/permissions`),
-  setUserPermissions: (userId: string, permissions: { screen: string; granted: boolean }[]) =>
-    request<{ userId: string; permissions: { screen: string; granted: boolean }[] }>(`/users/${userId}/permissions`, {
+    request<ApiPermissionEditor>(`/users/${userId}/permissions`),
+  setUserPermissions: (userId: string, permissions: { screen: string; granted: boolean }[], expectedVersion: string) =>
+    request<ApiPermissionEditor>(`/users/${userId}/permissions`, {
       method: 'PUT',
-      body: JSON.stringify({ permissions })
+      body: JSON.stringify({ permissions, expectedVersion })
     }),
 
   // Admin integration diagnostics

@@ -1,19 +1,15 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../db';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireResource, requireAuth, requireRole } from '../middleware/auth';
 
-const ALL_SCREENS = [
-  'main', 'dashboard', 'deliveries', 'rma', 'accounting_collection',
-  'procurement_pickup', 'sales_orders', 'customers', 'suppliers',
-  'driver', 'calendar', 'driver_board', 'am_directory',
-  'transactions', 'inventory', 'data_sampler', 'admin', 'status_history'
-];
+import { asyncRoute } from '../middleware/asyncRoute';
+import { permissionEditor, permissionInputError, PermissionSaveError, replacePermissions } from '../services/permissions';
 
 const router = Router();
 
 // User management — ADMIN only.
-router.get('/', requireAuth, requireRole('ADMIN'), async (_req: Request, res: Response) => {
+router.get('/', requireAuth, requireResource('users'), requireRole('ADMIN'), async (_req: Request, res: Response) => {
   const users = await prisma.user.findMany({ orderBy: { name: 'asc' } });
   res.json(users.map(u => ({
     id: u.id,
@@ -27,7 +23,7 @@ router.get('/', requireAuth, requireRole('ADMIN'), async (_req: Request, res: Re
 });
 
 // Create user — ADMIN only.
-router.post('/', requireAuth, requireRole('ADMIN'), async (req: Request, res: Response) => {
+router.post('/', requireAuth, requireResource('users'), requireRole('ADMIN'), async (req: Request, res: Response) => {
   const { name, email, password, role } = req.body ?? {};
   if (!name || !email || !password || !role) {
     return res.status(400).json({ error: 'name, email, password, and role are required' });
@@ -52,7 +48,7 @@ router.post('/', requireAuth, requireRole('ADMIN'), async (req: Request, res: Re
 });
 
 // Update user details — ADMIN only.
-router.patch('/:id', requireAuth, requireRole('ADMIN'), async (req: Request, res: Response) => {
+router.patch('/:id', requireAuth, requireResource('users'), requireRole('ADMIN'), async (req: Request, res: Response) => {
   const { id } = req.params;
   const { name, email, role } = req.body ?? {};
 
@@ -89,7 +85,7 @@ router.patch('/:id', requireAuth, requireRole('ADMIN'), async (req: Request, res
 });
 
 // Soft-deactivate a user — ADMIN only. Deactivated users cannot log in.
-router.patch('/:id/deactivate', requireAuth, requireRole('ADMIN'), async (req: Request, res: Response) => {
+router.patch('/:id/deactivate', requireAuth, requireResource('users'), requireRole('ADMIN'), async (req: Request, res: Response) => {
   const { id } = req.params;
 
   // Prevent an admin from deactivating themselves
@@ -118,7 +114,7 @@ router.patch('/:id/deactivate', requireAuth, requireRole('ADMIN'), async (req: R
 });
 
 // Reactivate a user — ADMIN only.
-router.patch('/:id/activate', requireAuth, requireRole('ADMIN'), async (req: Request, res: Response) => {
+router.patch('/:id/activate', requireAuth, requireResource('users'), requireRole('ADMIN'), async (req: Request, res: Response) => {
   const { id } = req.params;
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) return res.status(404).json({ error: 'User not found' });
@@ -144,7 +140,7 @@ router.patch('/:id/activate', requireAuth, requireRole('ADMIN'), async (req: Req
 // business records (deliveries, audit entries, products, customers, suppliers,
 // comments, or remark logs). If the user has any of these, the admin should
 // deactivate instead to preserve data integrity and audit trails.
-router.delete('/:id', requireAuth, requireRole('ADMIN'), async (req: Request, res: Response) => {
+router.delete('/:id', requireAuth, requireResource('users'), requireRole('ADMIN'), async (req: Request, res: Response) => {
   const { id } = req.params;
 
   // Prevent an admin from deleting themselves
@@ -201,64 +197,24 @@ router.delete('/:id', requireAuth, requireRole('ADMIN'), async (req: Request, re
   res.json({ ok: true, deleted_id: id });
 });
 
-// GET /users/:id/permissions — ADMIN only
-router.get('/:id/permissions', requireAuth, requireRole('ADMIN'), async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const user = await prisma.user.findUnique({ where: { id } });
+// The editor and login consume the same policy, including locked modules.
+router.get('/:id/permissions', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (req, res) => {
+  const user = await prisma.user.findUnique({ where: { id: req.params.id }, include: { permissions: true } });
   if (!user) return res.status(404).json({ error: 'User not found' });
+  res.json(permissionEditor(user));
+}));
 
-  const perms = await prisma.userPermission.findMany({ where: { userId: id } });
-  res.json({
-    userId: id,
-    permissions: perms.map(p => ({ screen: p.screen, granted: p.granted }))
-  });
-});
-
-// PUT /users/:id/permissions — ADMIN only. Full replacement.
-router.put('/:id/permissions', requireAuth, requireRole('ADMIN'), async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { permissions } = req.body ?? {};
-
-  if (!Array.isArray(permissions)) {
-    return res.status(400).json({ error: 'permissions must be an array' });
+router.put('/:id/permissions', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (req, res) => {
+  const { permissions, expectedVersion } = req.body ?? {};
+  const error = permissionInputError(permissions);
+  if (error) return res.status(400).json({ error });
+  if (typeof expectedVersion !== 'string') return res.status(400).json({ error: 'expectedVersion is required' });
+  try {
+    res.json(await replacePermissions(prisma, req.params.id, req.user!.id, permissions, expectedVersion));
+  } catch (error) {
+    if (error instanceof PermissionSaveError) return res.status(error.status).json({ error: error.message });
+    throw error;
   }
-
-  const user = await prisma.user.findUnique({ where: { id } });
-  if (!user) return res.status(404).json({ error: 'User not found' });
-
-  // Validate all screen values
-  const unknownScreens = (permissions as any[]).filter(p => !ALL_SCREENS.includes(p.screen));
-  if (unknownScreens.length > 0) {
-    return res.status(400).json({ error: `Unknown screen(s): ${unknownScreens.map((p: any) => p.screen).join(', ')}` });
-  }
-
-  // Admin role: ignore any attempt to revoke the 'admin' screen
-  const filtered = (permissions as { screen: string; granted: boolean }[]).filter(p => {
-    if (user.role === 'ADMIN' && p.screen === 'admin' && !p.granted) return false;
-    return true;
-  });
-
-  const submittedScreens = filtered.map(p => p.screen);
-
-  // Delete all existing permissions not in the submitted list
-  await prisma.userPermission.deleteMany({
-    where: { userId: id, screen: { notIn: submittedScreens } }
-  });
-
-  // Upsert each submitted permission
-  for (const p of filtered) {
-    await prisma.userPermission.upsert({
-      where: { userId_screen: { userId: id, screen: p.screen } },
-      update: { granted: p.granted },
-      create: { userId: id, screen: p.screen, granted: p.granted }
-    });
-  }
-
-  const updated = await prisma.userPermission.findMany({ where: { userId: id } });
-  res.json({
-    userId: id,
-    permissions: updated.map(p => ({ screen: p.screen, granted: p.granted }))
-  });
-});
+}));
 
 export default router;
