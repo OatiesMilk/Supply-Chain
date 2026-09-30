@@ -1,20 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  Truck,
-  CheckCircle,
-  MapPin,
-  Package,
-  RefreshCw,
-  Navigation,
-  Mail,
-  Bell,
-  FileDown,
-  Send,
-  X,
-  Clock,
-  UserCheck
+  ArrowLeft, CheckCircle2, ChevronRight, Clock3, MapPin, Package,
+  Search, Truck, UserRound, X,
 } from 'lucide-react';
-import { DeliveryRecord, DeliveryStatus, OutputActionConfig, OutputActionTrigger } from '@/types';
+import type { DeliveryRecord, DeliveryStatus, OutputActionConfig, OutputActionTrigger } from '@/types';
 import { api } from '@/api';
 import { DRIVERS, VEHICLES, DRIVER_ASSISTANTS } from '@/data';
 import { getOutputTrigger, runOutputActions } from '@/outputActions';
@@ -22,422 +11,408 @@ import { screenKeyForCategory } from '@/routes/screenRouting';
 
 interface DriverViewProps {
   records: DeliveryRecord[];
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   currentUserName: string;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;
   onNavigate: (screen: string, item_id?: string) => void;
 }
 
-const outputLineIcon = (message: string) => {
-  if (message.startsWith('Notified Account Manager')) return <Mail className="w-3 h-3 shrink-0" />;
-  if (message.startsWith('Exported')) return <FileDown className="w-3 h-3 shrink-0" />;
-  if (message.startsWith('Notified')) return <Bell className="w-3 h-3 shrink-0" />;
-  return <Send className="w-3 h-3 shrink-0" />;
-};
+type RunTab = 'active' | 'completed';
+const isActive = (record: DeliveryRecord) => record.status !== 'Delivered';
+const matches = (record: DeliveryRecord, term: string) =>
+  [record.reference, record.company_name, record.area, record.category, record.driver]
+    .some(value => value.toLocaleLowerCase().includes(term));
 
-// Logistics-operated dispatch board: simulates/manages what each driver sees and
-// does in the field. There is no driver login here — every action taken is a
-// named Logistics user acting on behalf of a driver, which is what makes the
-// resulting Modified By audit trail traceable to a real account.
-const STATUS_VERB: Record<string, string> = {
-  Delivered:   'Accomplished',
-  Pending:     'Pending',
-  Rescheduled: 'Rescheduled',
+const statusTone: Record<DeliveryStatus, string> = {
+  Scheduled: 'bg-blue-50 text-blue-700',
+  Pending: 'bg-amber-50 text-amber-800',
+  'On-Hold': 'bg-rose-50 text-rose-700',
+  Rescheduled: 'bg-violet-50 text-violet-700',
+  Delivered: 'bg-emerald-50 text-emerald-700',
 };
 
 export default function DriverView({
-  records,
-  onUpdateRecord,
-  currentUserName,
-  outputActionConfigs,
-  onNavigate
+  records, onUpdateRecord, outputActionConfigs, onNavigate,
 }: DriverViewProps) {
-  const [pendingAction, setPendingAction] = useState<{ rec: DeliveryRecord; status: DeliveryStatus } | null>(null);
-  const [remarksInput, setRemarksInput] = useState('');
-  const [receivedByInputs, setReceivedByInputs] = useState<Record<string, string>>({});
+  const [search, setSearch] = useState('');
+  const [selectedDriver, setSelectedDriver] = useState<string | null>(null);
+  const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
+  const [tab, setTab] = useState<RunTab>('active');
+  const [showUnassigned, setShowUnassigned] = useState(false);
+  const [pendingStatus, setPendingStatus] = useState<DeliveryStatus | null>(null);
+  const [remarks, setRemarks] = useState('');
+  const [receiverInputs, setReceiverInputs] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const lastTrigger = useRef<HTMLButtonElement | null>(null);
 
-  const actorLabel = (driver: string) => `${currentUserName} (Logistics) on behalf of ${driver}`;
+  const activeRecords = records.filter(isActive);
+  const unassignedRecords = activeRecords.filter(record => !record.driver);
+  const driverNames = Array.from(new Set([
+    ...DRIVERS,
+    ...records.map(record => record.driver).filter(Boolean),
+  ])).sort((a, b) => {
+    const countA = activeRecords.filter(record => record.driver === a).length;
+    const countB = activeRecords.filter(record => record.driver === b).length;
+    return countB - countA || a.localeCompare(b);
+  });
+  const term = search.trim().toLocaleLowerCase();
+  const visibleDrivers = driverNames.filter(driver =>
+    !term || driver.toLocaleLowerCase().includes(term) || records.some(record => record.driver === driver && matches(record, term))
+  );
+  const driver = selectedDriver && visibleDrivers.includes(selectedDriver) ? selectedDriver : visibleDrivers[0];
+  const driverRecords = records.filter(record => record.driver === driver);
+  const filteredRuns = driverRecords
+    .filter(record => (tab === 'active' ? isActive(record) : !isActive(record)))
+    .filter(record => !term || driver.toLocaleLowerCase().includes(term) || matches(record, term))
+    .sort((a, b) => tab === 'active'
+      ? a.delivery_date.localeCompare(b.delivery_date) || a.reference.localeCompare(b.reference)
+      : b.delivery_date.localeCompare(a.delivery_date) || a.reference.localeCompare(b.reference));
+  const selectedRecord = records.find(record => record.id === selectedRecordId && record.driver === driver) ?? null;
+  const activeForDriver = driverRecords.filter(isActive).length;
 
-  const applyStatus = async (
-    rec: DeliveryRecord,
-    status: DeliveryStatus,
-    remarks: string,
-    extra?: { time_out?: string; received_by?: string }
-  ) => {
-    const now = new Date().toISOString();
-    const updates: any = {
-      status,
-      status_remarks: remarks,
-      modified_by: actorLabel(rec.driver),
-      modified_at: now,
-      ...(extra ?? {})
-    };
+  useEffect(() => {
+    if (!pendingStatus) lastTrigger.current?.focus();
+  }, [pendingStatus]);
 
-    const trigger = getOutputTrigger(rec.category, status);
-    if (trigger) {
-      const result = await runOutputActions(trigger, outputActionConfigs[trigger], {
-        amName: rec.account_manager, at: now, recordId: rec.id, api,
-      });
-      updates.output_actions_log = [...result.newEntries, ...rec.output_actions_log];
-      updates.email_notification_sent = result.emailSent;
+  const chooseDriver = (name: string) => {
+    setSelectedDriver(name);
+    setSelectedRecordId(null);
+    setTab('active');
+    setError('');
+  };
+  const chooseTab = (next: RunTab) => {
+    setTab(next);
+    setSelectedRecordId(null);
+    setError('');
+  };
+  const closeStatus = () => {
+    setPendingStatus(null);
+    setRemarks('');
+  };
+
+  const save = async (record: DeliveryRecord, updates: Partial<DeliveryRecord>, failureMessage: string) => {
+    setSaving(true);
+    setError('');
+    try {
+      await onUpdateRecord(record.id, updates);
+      return true;
+    } catch {
+      setError(failureMessage);
+      return false;
+    } finally {
+      setSaving(false);
     }
-
-    onUpdateRecord(rec.id, updates);
   };
 
-  const assignVehicle = (rec: DeliveryRecord, vehicle: string) => {
-    onUpdateRecord(rec.id, {
-      vehicle,
-      remarks: `Vehicle set to ${vehicle || '(None)'}`,
-      modified_by: actorLabel(rec.driver),
-      modified_at: new Date().toISOString()
-    } as any);
-  };
-
-  const addAssistant = (rec: DeliveryRecord, assistant: string) => {
-    if (!assistant || rec.driver_assistants.includes(assistant)) return;
-    onUpdateRecord(rec.id, {
-      driver_assistants: [...rec.driver_assistants, assistant],
+  const changeVehicle = (record: DeliveryRecord, vehicle: string) =>
+    void save(record, { vehicle, remarks: `Vehicle set to ${vehicle || '(None)'}` }, 'Could not update the vehicle. Please try again.');
+  const addAssistant = (record: DeliveryRecord, assistant: string) => {
+    if (!assistant || record.driver_assistants.includes(assistant)) return;
+    void save(record, {
+      driver_assistants: [...record.driver_assistants, assistant],
       remarks: `Added assistant: ${assistant}`,
-      modified_by: actorLabel(rec.driver),
-      modified_at: new Date().toISOString()
-    } as any);
+    }, 'Could not add the assistant. Please try again.');
   };
-
-  const removeAssistant = (rec: DeliveryRecord, assistant: string) => {
-    onUpdateRecord(rec.id, {
-      driver_assistants: rec.driver_assistants.filter(a => a !== assistant),
+  const removeAssistant = (record: DeliveryRecord, assistant: string) =>
+    void save(record, {
+      driver_assistants: record.driver_assistants.filter(name => name !== assistant),
       remarks: `Removed assistant: ${assistant}`,
-      modified_by: actorLabel(rec.driver),
-      modified_at: new Date().toISOString()
-    } as any);
-  };
+    }, 'Could not remove the assistant. Please try again.');
 
-  const allAssigned = records.filter(r => r.driver);
-  const unassignedRecords = records.filter(r => !r.driver && r.status !== 'Delivered');
+  const confirmStatus = async () => {
+    if (!selectedRecord || !pendingStatus || !remarks.trim()) return;
+    const status = pendingStatus;
+    const receivedBy = receiverInputs[selectedRecord.id]?.trim() || selectedRecord.received_by?.trim() || '';
+    const updates = {
+      status,
+      status_remarks: remarks.trim(),
+      ...(status === 'Delivered' ? { time_out: new Date().toISOString(), received_by: receivedBy } : {}),
+    } as Partial<DeliveryRecord>;
+    const saved = await save(selectedRecord, updates, 'Could not update the run. Please try again.');
+    if (!saved) return;
+    closeStatus();
+    if (status === 'Delivered' && tab === 'active') setSelectedRecordId(null);
+    const trigger = getOutputTrigger(selectedRecord.category, status);
+    if (trigger) {
+      try {
+        await runOutputActions(trigger, outputActionConfigs[trigger], {
+          amName: selectedRecord.account_manager,
+          at: new Date().toISOString(),
+          recordId: selectedRecord.id,
+          api,
+        });
+      } catch {
+        setError('The status was saved, but an output action could not finish. Check notifications before retrying.');
+      }
+    }
+  };
 
   return (
-    <div className="space-y-6" id="driver-view-container">
-      <div className="max-w-2xl">
-        <h2 className="text-sm font-bold text-slate-800 uppercase tracking-widest">Logistics Dispatch Board</h2>
-        <p className="text-xs text-slate-400 mt-1">
-          Manage what each driver sees and does in the field. Actions taken here are logged as your account acting on behalf of the driver — not a driver login.
+    <div className="space-y-5" id="driver-view-container">
+      <header className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Logistics</p>
+          <h1 className="text-2xl font-bold text-slate-900">Driver View</h1>
+        </div>
+        <p className="text-sm text-slate-600">
+          <strong className="text-slate-900">{activeRecords.length}</strong> active runs
+          <span aria-hidden="true"> · </span>
+          <button type="button" onClick={() => setShowUnassigned(open => !open)}
+            aria-expanded={showUnassigned} aria-controls="unassigned-runs"
+            className="font-semibold text-amber-800 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">
+            {unassignedRecords.length} need a driver
+          </button>
         </p>
-        {unassignedRecords.length > 0 && (
-          <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg p-2.5" id="unassigned-records-list">
-            <p className="text-xs text-amber-700 font-bold mb-2">
-              {unassignedRecords.length} record{unassignedRecords.length === 1 ? '' : 's'} still need a driver assigned — select one to open it:
-            </p>
-            <select
-              defaultValue=""
-              onChange={e => {
-                const id = e.target.value;
-                if (!id) return;
-                const rec = unassignedRecords.find(r => r.id === id);
-                if (rec) onNavigate(screenKeyForCategory(rec.category), rec.id);
-              }}
-              className="w-full bg-white border border-amber-300 text-amber-900 text-xs font-semibold rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-400/40 cursor-pointer"
-            >
-              <option value="">— select a record to open —</option>
-              {(['Sales Orders', 'Procurement Pick-up', 'Deliveries', 'RMA', 'Accounting Collection'] as const).map(cat => {
-                const catRecords = unassignedRecords.filter(r => r.category === cat);
-                if (catRecords.length === 0) return null;
-                return (
-                  <optgroup key={cat} label={cat}>
-                    {catRecords.map(rec => (
-                      <option key={rec.id} value={rec.id}>
-                        {rec.reference} — {rec.company_name}
-                      </option>
-                    ))}
-                  </optgroup>
-                );
-              })}
+      </header>
+
+      {showUnassigned && (
+        <section id="unassigned-runs" aria-label="Unassigned runs" className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <h2 className="text-sm font-bold text-amber-950">Runs needing a driver</h2>
+          {unassignedRecords.length === 0 ? (
+            <p className="mt-2 text-sm text-slate-600">All active runs have a driver.</p>
+          ) : (
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {unassignedRecords.map(record => (
+                <button key={record.id} type="button" onClick={() => onNavigate(screenKeyForCategory(record.category), record.id)}
+                  className="min-h-11 rounded-lg border border-amber-200 bg-white px-3 py-2 text-left text-sm hover:border-amber-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-600">
+                  <span className="block font-semibold text-slate-900">{record.reference} · {record.company_name}</span>
+                  <span className="text-xs text-slate-600">{record.category} · {record.delivery_date}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {error && !selectedRecord && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+
+      <div className="relative">
+        <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+        <label className="sr-only" htmlFor="driver-view-search">Search drivers and runs</label>
+        <input id="driver-view-search" type="search" value={search} onChange={event => { setSearch(event.target.value); setSelectedRecordId(null); }}
+          placeholder="Search driver, customer, reference, or area"
+          className="min-h-11 w-full rounded-xl border border-slate-300 bg-white pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </div>
+
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
+        <aside className="hidden self-start rounded-xl border border-slate-200 bg-white p-2 lg:block" aria-label="Drivers">
+          <h2 className="px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-500">Drivers</h2>
+          {visibleDrivers.length === 0 && <p className="px-3 py-4 text-sm text-slate-600">No drivers match.</p>}
+          {visibleDrivers.map(name => {
+            const count = activeRecords.filter(record => record.driver === name).length;
+            return (
+              <button key={name} type="button" onClick={() => chooseDriver(name)} aria-current={driver === name ? 'true' : undefined}
+                className={`flex min-h-12 w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 ${driver === name ? 'bg-blue-50 font-semibold text-blue-900' : 'text-slate-700 hover:bg-slate-50'}`}>
+                <span className="min-w-0 truncate">{name}</span>
+                <span className="shrink-0 tabular-nums text-xs text-slate-500">{count}</span>
+              </button>
+            );
+          })}
+        </aside>
+
+        <div className="min-w-0 space-y-4">
+          <div className="lg:hidden">
+            <label htmlFor="driver-view-driver" className="mb-1 block text-sm font-semibold text-slate-700">Driver</label>
+            <select id="driver-view-driver" value={driver ?? ''} onChange={event => chooseDriver(event.target.value)}
+              className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-base">
+              {visibleDrivers.length === 0 && <option value="">No drivers found</option>}
+              {visibleDrivers.map(name => <option key={name} value={name}>{name}</option>)}
             </select>
           </div>
-        )}
-      </div>
 
-      <div className="bg-white rounded-xl p-3 shadow-sm border border-slate-200 flex items-center justify-between text-xs max-w-2xl">
-        <div className="text-center flex-1 border-r border-slate-100">
-          <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Assigned</span>
-          <span className="text-sm font-bold text-slate-800">{allAssigned.length}</span>
-        </div>
-        <div className="text-center flex-1 border-r border-slate-100">
-          <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Pending</span>
-          <span className="text-sm font-bold text-amber-600">
-            {allAssigned.filter(d => d.status === 'Pending' || d.status === 'Scheduled').length}
-          </span>
-        </div>
-        <div className="text-center flex-1">
-          <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Accomplished</span>
-          <span className="text-sm font-bold text-emerald-600">
-            {allAssigned.filter(d => d.status === 'Delivered').length}
-          </span>
-        </div>
-      </div>
-
-      {/* One phone-mockup "field view" per driver, so Logistics can simulate/manage each driver's day individually */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6" id="driver-board">
-        {DRIVERS.map(driver => {
-          const driverRecords = records.filter(r => r.driver === driver);
-
-          return (
-            <div key={driver} className="relative border-[10px] border-slate-800 rounded-[36px] w-full max-w-[360px] h-[640px] bg-slate-50 shadow-2xl flex flex-col overflow-hidden mx-auto" id={`phone-frame-${driver.replace(/[^a-z0-9]/gi, '-')}`}>
-              <div className="absolute top-0 left-1/2 transform -translate-x-1/2 h-4 w-32 bg-slate-800 rounded-b-xl z-30 flex items-center justify-center">
-                <span className="w-1.5 h-1.5 rounded-full bg-slate-600 mr-2" />
-                <span className="w-12 h-1 bg-slate-700 rounded-full" />
-              </div>
-
-              <div className="bg-[#1F3864] text-white pt-6 pb-4 px-4 shrink-0 shadow-sm z-20">
-                <div className="flex items-center justify-between text-xs mt-1.5">
-                  <span className="font-bold tracking-tight">Microgenesis Field Mobile</span>
-                  <div className="flex items-center gap-1.5 bg-blue-900/60 border border-blue-500/20 px-2 py-0.5 rounded-full text-[9px]">
-                    <Truck className="w-3 h-3 text-amber-400" />
-                    <span>GPS Active</span>
+          {driver ? (
+            <section aria-label={`${driver} runs`} className="min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-200 px-4 py-4 sm:px-5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Truck aria-hidden="true" className="h-5 w-5 shrink-0 text-blue-700" />
+                    <h2 className="min-w-0 truncate text-lg font-bold text-slate-900">{driver}</h2>
                   </div>
+                  <span className="text-sm text-slate-500">{activeForDriver} active</span>
                 </div>
-                <div className="mt-3">
-                  <span className="text-[9px] text-blue-200 font-semibold uppercase tracking-wider block">Field View For</span>
-                  <span className="text-sm font-bold block truncate">{driver}</span>
+                <div role="tablist" aria-label="Run status" className="mt-4 flex gap-5 border-b border-slate-200">
+                  {(['active', 'completed'] as const).map(next => (
+                    <button key={next} type="button" role="tab" aria-selected={tab === next} onClick={() => chooseTab(next)}
+                      className={`min-h-10 border-b-2 pb-2 text-sm font-semibold capitalize focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 ${tab === next ? 'border-blue-700 text-blue-800' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+                      {next} <span className="tabular-nums">{driverRecords.filter(record => next === 'active' ? isActive(record) : !isActive(record)).length}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-3 space-y-3 pb-8">
-                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest px-1">
-                  Assigned Runs ({driverRecords.length})
+              <div className="grid min-w-0 xl:grid-cols-[minmax(0,1fr)_minmax(21rem,0.9fr)]">
+                <div className={`min-w-0 divide-y divide-slate-100 ${selectedRecord ? 'hidden xl:block' : ''}`}>
+                  {filteredRuns.length === 0 ? (
+                    <p className="p-8 text-center text-sm text-slate-600">{term ? 'No matching runs for this driver.' : `No ${tab} runs for this driver.`}</p>
+                  ) : filteredRuns.map(record => (
+                    <button key={record.id} type="button" onClick={() => { setSelectedRecordId(record.id); setError(''); }}
+                      aria-current={selectedRecord?.id === record.id ? 'true' : undefined}
+                      className={`flex min-h-20 w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 sm:px-5 ${selectedRecord?.id === record.id ? 'bg-blue-50/70' : ''}`}>
+                      <span className="min-w-0 space-y-1">
+                        <span className="block truncate text-sm font-semibold text-slate-900">{record.company_name}</span>
+                        <span className="block truncate text-xs text-slate-600">{record.reference} · {record.area}</span>
+                        <span className="block text-xs text-slate-500">{record.delivery_date}</span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusTone[record.status]}`}>{record.status}</span>
+                        <ChevronRight aria-hidden="true" className="h-4 w-4 text-slate-400" />
+                      </span>
+                    </button>
+                  ))}
                 </div>
 
-                {driverRecords.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-center bg-white rounded-xl p-4 border border-slate-200 text-xs">
-                    <CheckCircle className="w-8 h-8 text-emerald-500 mb-2" />
-                    <p className="font-bold text-slate-700">All runs done!</p>
-                    <p className="text-slate-400 text-[10px]">No assigned records remaining for {driver} today.</p>
-                  </div>
-                ) : (
-                  driverRecords.map(rec => {
-                    let bgClass = 'bg-slate-100 border-slate-200 text-slate-700';
-                    if (rec.status === 'Delivered') bgClass = 'bg-emerald-50 border-emerald-200 text-emerald-700';
-                    else if (rec.status === 'On-Hold') bgClass = 'bg-red-50 border-red-200 text-red-700';
-                    else if (rec.status === 'Rescheduled') bgClass = 'bg-purple-50 border-purple-200 text-purple-700';
-                    else if (rec.status === 'Pending' || rec.status === 'Scheduled') bgClass = 'bg-amber-50 border-amber-200 text-amber-700';
+                <div className={`${selectedRecord ? '' : 'hidden xl:block'} min-w-0 border-slate-200 xl:border-l`}>
+                  {selectedRecord ? (
+                    <div className="space-y-5 p-4 sm:p-5">
+                      <button type="button" onClick={() => setSelectedRecordId(null)}
+                        className="inline-flex min-h-10 items-center gap-1 text-sm font-semibold text-blue-700 xl:hidden">
+                        <ArrowLeft aria-hidden="true" className="h-4 w-4" /> Back to runs
+                      </button>
 
-                    return (
-                      <div key={rec.id} className="bg-white rounded-xl shadow-sm border border-slate-200 p-3 space-y-2.5 text-xs relative overflow-hidden">
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-slate-900 font-mono text-[10px]">{rec.reference}</span>
-                          <span className="text-[8px] font-bold uppercase tracking-wide text-slate-400">{rec.category}</span>
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-mono text-sm font-semibold text-slate-600">{selectedRecord.reference}</span>
+                          <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusTone[selectedRecord.status]}`}>{selectedRecord.status}</span>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <span className={`px-2 py-0.5 rounded-full border text-[9px] font-bold uppercase tracking-wider ${bgClass}`}>{rec.status}</span>
-                          <span className="text-[9px] text-slate-400 font-mono">{rec.delivery_date}</span>
+                        <h3 className="break-words text-lg font-bold text-slate-900">{selectedRecord.company_name}</h3>
+                        <p className="text-sm text-slate-600">{selectedRecord.category} · {selectedRecord.delivery_date}</p>
+                        <p className="flex items-start gap-2 text-sm text-slate-700"><MapPin aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />{selectedRecord.area}</p>
+                      </div>
+
+                      {selectedRecord.item_description && (
+                        <div className="rounded-lg bg-slate-50 p-3">
+                          <p className="flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-slate-500"><Package aria-hidden="true" className="h-4 w-4" />Item summary</p>
+                          <p className="mt-1 break-words text-sm text-slate-700">{selectedRecord.item_description}</p>
+                        </div>
+                      )}
+
+                      {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+
+                      {selectedRecord.category === 'RMA' && (
+                        <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">RMA runs are view only for Logistics.</p>
+                      )}
+
+                      {selectedRecord.category !== 'RMA' && <div className="space-y-4 border-t border-slate-200 pt-4">
+                        <div>
+                          <label htmlFor="driver-run-vehicle" className="mb-1 block text-sm font-semibold text-slate-700">Vehicle</label>
+                          <select id="driver-run-vehicle" value={selectedRecord.vehicle} disabled={saving}
+                            onChange={event => changeVehicle(selectedRecord, event.target.value)}
+                            className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-base">
+                            {VEHICLES.map(vehicle => <option key={vehicle} value={vehicle}>{vehicle}</option>)}
+                          </select>
                         </div>
 
-                        <div className="space-y-1">
-                          <h4 className="font-bold text-slate-800 text-[11px] leading-tight">{rec.company_name}</h4>
-                          <p className="text-[10px] text-slate-500 flex items-start gap-1">
-                            <MapPin className="w-3 h-3 text-red-500 shrink-0 mt-0.5" />
-                            <span className="leading-tight">{rec.area}</span>
-                          </p>
-                        </div>
-
-                        {rec.item_description && (
-                          <div className="bg-slate-50 p-2 rounded-lg border border-slate-150 text-[10px] space-y-1 text-slate-600">
-                            <p className="font-bold text-slate-400 flex items-center gap-1 uppercase text-[9px] tracking-wider">
-                              <Package className="w-3.5 h-3.5 text-slate-400" /> Item Summary:
-                            </p>
-                            <p className="leading-tight font-mono text-[9px]">{rec.item_description}</p>
-                          </div>
-                        )}
-
-                        {/* Vehicle assignment - set by Logistics on behalf of the driver */}
-                        <select value={rec.vehicle} onChange={(e) => assignVehicle(rec, e.target.value)} className="w-full text-[9px] border border-slate-200 rounded p-1 bg-white">
-                          {VEHICLES.map(v => <option key={v} value={v}>{v}</option>)}
-                        </select>
-
-                        {/* Driver Assistant assignment - supports multiple assistants */}
-                        <div className="space-y-1">
-                          <div className="flex flex-wrap items-center gap-1">
-                            {rec.driver_assistants.length === 0 && (
-                              <span className="text-[9px] text-slate-400 italic">No assistants assigned</span>
-                            )}
-                            {rec.driver_assistants.map(a => (
-                              <span key={a} className="flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-full pl-2 pr-1 py-0.5 text-[9px] font-semibold text-slate-600">
-                                {a}
-                                <button
-                                  onClick={() => removeAssistant(rec, a)}
-                                  className="text-slate-400 hover:text-red-500 transition-colors"
-                                  title="Remove"
-                                >
-                                  <X className="w-2.5 h-2.5" />
+                        <div className="space-y-2">
+                          <p className="text-sm font-semibold text-slate-700">Assistants</p>
+                          {selectedRecord.driver_assistants.length === 0 && <p className="text-sm text-slate-500">None assigned</p>}
+                          <div className="flex flex-wrap gap-2">
+                            {selectedRecord.driver_assistants.map(name => (
+                              <span key={name} className="inline-flex items-center gap-1 rounded-full bg-slate-100 pl-3 pr-1 text-sm text-slate-700">
+                                {name}
+                                <button type="button" disabled={saving} onClick={() => removeAssistant(selectedRecord, name)}
+                                  aria-label={`Remove ${name}`} className="flex min-h-9 min-w-9 items-center justify-center rounded-full hover:bg-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">
+                                  <X aria-hidden="true" className="h-4 w-4" />
                                 </button>
                               </span>
                             ))}
                           </div>
-                          <select
-                            value=""
-                            onChange={(e) => { addAssistant(rec, e.target.value); e.target.value = ''; }}
-                            className="w-full text-[9px] border border-slate-200 rounded p-1 bg-white"
-                          >
-                            <option value="">-- Add Assistant --</option>
-                            {DRIVER_ASSISTANTS.filter(a => !rec.driver_assistants.includes(a)).map(a => (
-                              <option key={a} value={a}>{a}</option>
-                            ))}
+                          <label htmlFor="driver-run-assistant" className="sr-only">Add assistant</label>
+                          <select id="driver-run-assistant" value="" disabled={saving} onChange={event => addAssistant(selectedRecord, event.target.value)}
+                            className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-base">
+                            <option value="">Add assistant…</option>
+                            {DRIVER_ASSISTANTS.filter(name => !selectedRecord.driver_assistants.includes(name)).map(name =>
+                              <option key={name} value={name}>{name}</option>)}
                           </select>
                         </div>
+                      </div>}
 
-                        {(() => {
-                          const lastActionEntries = rec.output_actions_log.filter(e => e.at === rec.modified_at);
-                          if (lastActionEntries.length > 0) {
-                            return (
-                              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-md p-1.5 space-y-0.5 text-[9px] font-semibold">
-                                {lastActionEntries.map((entry, i) => (
-                                  <span key={i} className="flex items-center gap-1.5">{outputLineIcon(entry.message)} {entry.message}</span>
-                                ))}
-                              </div>
-                            );
-                          }
-                          if (rec.status === 'Delivered' && rec.email_notification_sent) {
-                            return (
-                              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-md p-1.5 flex items-center gap-1.5 text-[9px] font-semibold">
-                                <Mail className="w-3 h-3 shrink-0" /> Email sent to: {rec.account_manager}
-                              </div>
-                            );
-                          }
-                          return null;
-                        })()}
+                      {selectedRecord.category !== 'RMA' && selectedRecord.status !== 'Delivered' && (
+                        <div className="space-y-4 border-t border-slate-200 pt-4">
+                          {!selectedRecord.time_in ? (
+                            <button type="button" disabled={saving}
+                              onClick={() => void save(selectedRecord, { time_in: new Date().toISOString(), remarks: 'Time In recorded' }, 'Could not record time in. Please try again.')}
+                              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white disabled:opacity-50">
+                              <Clock3 aria-hidden="true" className="h-4 w-4" /> Record time in
+                            </button>
+                          ) : (
+                            <p className="flex items-center gap-2 text-sm text-blue-800"><Clock3 aria-hidden="true" className="h-4 w-4" />Time in: {new Date(selectedRecord.time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                          )}
 
-                        {/* ePOD gated flow */}
-                        {rec.status !== 'Delivered' && (
-                          <div className="space-y-2 pt-1 border-t border-slate-100">
-                            {/* Step 1: Time In */}
-                            {!rec.time_in ? (
-                              <button
-                                onClick={() => onUpdateRecord(rec.id, { time_in: new Date().toISOString(), remarks: 'Time In recorded' } as any)}
-                                className="w-full py-2 rounded-lg font-bold text-[9px] tracking-wide uppercase bg-blue-600 hover:bg-blue-700 text-white transition-all flex items-center justify-center gap-1.5"
-                              >
-                                <Clock className="w-3.5 h-3.5" /> Time In
-                              </button>
-                            ) : (
-                              <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 text-[9px] text-blue-700 font-bold">
-                                <Clock className="w-3 h-3 text-blue-500 shrink-0" />
-                                Time In: {new Date(rec.time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </div>
-                            )}
-
-                            {/* Step 2: Received By (appears after Time In) */}
-                            {rec.time_in && (
-                              <div className="space-y-1">
-                                <label className="text-[8px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                                  <UserCheck className="w-3 h-3" /> Receiver Name <span className="text-red-500">*</span>
-                                </label>
-                                <input
-                                  type="text"
-                                  value={receivedByInputs[rec.id] ?? ''}
-                                  onChange={e => setReceivedByInputs(prev => ({ ...prev, [rec.id]: e.target.value }))}
-                                  placeholder="Name of person who received..."
-                                  className="w-full border border-slate-200 rounded px-2 py-1 text-[9px] focus:outline-none focus:ring-1 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
-                                />
-                              </div>
-                            )}
-
-                            {/* Step 3: Status buttons */}
-                            <div className="grid grid-cols-3 gap-1.5">
-                              <button
-                                disabled={!rec.time_in || !receivedByInputs[rec.id]?.trim()}
-                                onClick={() => { setPendingAction({ rec, status: 'Delivered' }); setRemarksInput(''); }}
-                                className="py-2 rounded-lg font-bold text-[9px] tracking-wide uppercase bg-emerald-600 hover:bg-emerald-700 text-white transition-all flex flex-col items-center gap-0.5 disabled:opacity-40 disabled:cursor-not-allowed"
-                              >
-                                <CheckCircle className="w-3.5 h-3.5" /> Accomplished
-                              </button>
-                              <button
-                                onClick={() => { setPendingAction({ rec, status: 'Pending' }); setRemarksInput(''); }}
-                                className="py-2 rounded-lg font-bold text-[9px] tracking-wide uppercase bg-amber-500 hover:bg-amber-600 text-white transition-all flex flex-col items-center gap-0.5"
-                              >
-                                <Navigation className="w-3.5 h-3.5" /> Pending
-                              </button>
-                              <button
-                                onClick={() => { setPendingAction({ rec, status: 'Rescheduled' }); setRemarksInput(''); }}
-                                className="py-2 rounded-lg font-bold text-[9px] tracking-wide uppercase bg-purple-500 hover:bg-purple-600 text-white transition-all flex flex-col items-center gap-0.5"
-                              >
-                                <RefreshCw className="w-3.5 h-3.5" /> Reschedule
-                              </button>
+                          {selectedRecord.time_in && (
+                            <div>
+                              <label htmlFor="driver-run-receiver" className="mb-1 block text-sm font-semibold text-slate-700">Received by</label>
+                              <input id="driver-run-receiver" type="text" value={receiverInputs[selectedRecord.id] ?? selectedRecord.received_by ?? ''}
+                                onChange={event => setReceiverInputs(previous => ({ ...previous, [selectedRecord.id]: event.target.value }))}
+                                placeholder="Receiver name" className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-base" />
                             </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
+                          )}
 
-              <div className="h-10 bg-white border-t border-slate-200 shrink-0 flex items-center justify-around text-slate-400 text-[10px] font-bold px-4 z-20">
-                <span className="text-[#1F3864]">● active runs</span>
-                <span>● Logistics-managed</span>
+                          <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
+                            {(['Delivered', 'Pending', 'Rescheduled'] as const).map(status => (
+                              <button key={status} type="button" disabled={saving || (status === 'Delivered' && (!selectedRecord.time_in || !(receiverInputs[selectedRecord.id]?.trim() || selectedRecord.received_by?.trim())))}
+                                onClick={event => { lastTrigger.current = event.currentTarget; setPendingStatus(status); setRemarks(''); setError(''); }}
+                                className={`min-h-11 rounded-lg px-2 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${status === 'Delivered' ? 'bg-emerald-700 text-white' : status === 'Pending' ? 'bg-amber-100 text-amber-900' : 'bg-violet-100 text-violet-900'}`}>
+                                {status === 'Delivered' ? 'Accomplish' : status === 'Rescheduled' ? 'Reschedule' : status}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedRecord.status === 'Delivered' && (
+                        <div className="space-y-2 border-t border-slate-200 pt-4 text-sm text-slate-600">
+                          <p className="flex items-center gap-2 font-semibold text-emerald-700"><CheckCircle2 aria-hidden="true" className="h-4 w-4" />Completed run</p>
+                          {selectedRecord.time_in && <p>Time in: {new Date(selectedRecord.time_in).toLocaleString()}</p>}
+                          {selectedRecord.time_out && <p>Time out: {new Date(selectedRecord.time_out).toLocaleString()}</p>}
+                          {selectedRecord.received_by && <p className="flex items-center gap-2"><UserRound aria-hidden="true" className="h-4 w-4" />Received by {selectedRecord.received_by}</p>}
+                          {selectedRecord.email_notification_sent && <p>Account manager notified</p>}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex min-h-72 flex-col items-center justify-center p-8 text-center text-slate-500">
+                      <Truck aria-hidden="true" className="h-7 w-7" />
+                      <p className="mt-3 text-sm">Select a run to view details and actions.</p>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          );
-        })}
+            </section>
+          ) : (
+            <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-600">No drivers match your search.</div>
+          )}
+        </div>
       </div>
 
-      {/* Status confirmation modal */}
-      {pendingAction && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm space-y-4 p-6">
+      {pendingStatus && selectedRecord && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3 sm:items-center sm:p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="driver-status-title" onKeyDown={event => {
+            if (event.key === 'Escape' && !saving) closeStatus();
+            if (event.key !== 'Tab') return;
+            const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), textarea:not(:disabled)'));
+            const first = controls[0], last = controls[controls.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+          }} className="max-h-[90dvh] w-full max-w-sm space-y-4 overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl sm:p-6">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-sm font-black text-slate-900">Confirm Status Change</h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Mark{' '}
-                  <span className="font-bold text-slate-800">{pendingAction.rec.reference}</span>
-                  {' '}as{' '}
-                  <span className="font-bold text-slate-800">
-                    {STATUS_VERB[pendingAction.status] ?? pendingAction.status}
-                  </span>
-                </p>
+                <h2 id="driver-status-title" className="text-lg font-bold text-slate-900">Confirm status</h2>
+                <p className="mt-1 text-sm text-slate-600">Mark {selectedRecord.reference} as {pendingStatus === 'Delivered' ? 'Accomplished' : pendingStatus}.</p>
               </div>
-              <button
-                onClick={() => setPendingAction(null)}
-                className="text-slate-400 hover:text-slate-600 transition-colors mt-0.5 shrink-0"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <button type="button" onClick={closeStatus} disabled={saving} aria-label="Close status confirmation"
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"><X aria-hidden="true" className="h-5 w-5" /></button>
             </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-600 uppercase tracking-wider block">
-                Remarks <span className="text-red-500">*</span>
-              </label>
-              <textarea
-                value={remarksInput}
-                onChange={e => setRemarksInput(e.target.value)}
-                rows={3}
-                placeholder="Enter remarks..."
-                autoFocus
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] resize-none"
-              />
+            {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+            <div>
+              <label htmlFor="driver-status-remarks" className="mb-1 block text-sm font-semibold text-slate-700">Remarks <span aria-hidden="true">*</span></label>
+              <textarea id="driver-status-remarks" required autoFocus rows={3} value={remarks} onChange={event => setRemarks(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
-
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => { setPendingAction(null); setRemarksInput(''); }}
-                className="px-4 py-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-xs font-bold rounded-lg transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                disabled={!remarksInput.trim()}
-                onClick={() => {
-                  const extra = pendingAction.status === 'Delivered'
-                    ? { time_out: new Date().toISOString(), received_by: receivedByInputs[pendingAction.rec.id] ?? '' }
-                    : undefined;
-                  applyStatus(pendingAction.rec, pendingAction.status, remarksInput.trim(), extra);
-                  setPendingAction(null);
-                  setRemarksInput('');
-                }}
-                className="px-4 py-2 bg-[#1F3864] hover:bg-[#0078C1] text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-              >
-                Confirm
-              </button>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={closeStatus} disabled={saving} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700">Cancel</button>
+              <button type="button" onClick={() => void confirmStatus()} disabled={saving || !remarks.trim()}
+                className="min-h-11 rounded-lg bg-blue-800 px-4 text-sm font-semibold text-white disabled:opacity-40">{saving ? 'Saving…' : 'Confirm'}</button>
             </div>
           </div>
         </div>
