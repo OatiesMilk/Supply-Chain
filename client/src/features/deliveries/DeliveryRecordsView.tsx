@@ -19,6 +19,7 @@ import ExportMenu from '@/components/ExportMenu';
 import DriverReportModal from '@/features/drivers/DriverReportModal';
 import RouteSlipMenu from '@/components/RouteSlipMenu';
 import AccountManagerCombobox from '@/components/AccountManagerCombobox';
+import Pagination from '@/components/Pagination';
 import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, PDF_DELIVERY_COLUMNS, PDF_AC_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel } from '@/types';
@@ -299,6 +300,38 @@ export default function DeliveryRecordsView({
     if (activeDateSort === 'furthest') return db - da;
     return 0;
   });
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  // Automatically reset to page 1 whenever any filter or search query changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    category,
+    searchQuery,
+    statusFilter,
+    regionFilter,
+    subregionFilter,
+    areaFilter,
+    dateFrom,
+    dateTo,
+    dateSort,
+    amFilter,
+    driverFilter,
+    tassDateFrom,
+    tassDateTo,
+    tassStatusFilter,
+    tassAccountManager,
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedFiltered.length / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const paginatedRecords = useMemo(() => {
+    const startIndex = (safeCurrentPage - 1) * pageSize;
+    return sortedFiltered.slice(startIndex, startIndex + pageSize);
+  }, [sortedFiltered, safeCurrentPage, pageSize]);
 
   const activeRecord = records.find(r => r.id === selectedId);
 
@@ -893,9 +926,9 @@ export default function DeliveryRecordsView({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {sortedFiltered.length === 0 ? (
-                    <tr><td colSpan={7} className="px-4 py-3.5 text-center text-gray-400">No matching records found.</td></tr>
-                  ) : sortedFiltered.map(rec => {
+                  {paginatedRecords.length === 0 ? (
+                    <tr><td colSpan={10} className="px-4 py-3.5 text-center text-gray-400">No matching records found.</td></tr>
+                  ) : paginatedRecords.map(rec => {
                     const isSelected = selectedId === rec.id;
                     return (
                       <tr key={rec.id} onClick={() => { setSelectedId(rec.id); setShowForm(false); }}
@@ -936,8 +969,19 @@ export default function DeliveryRecordsView({
                 </tbody>
               </table>
             </div>
-            <div className="p-3 bg-slate-50 border-t border-slate-100 text-[11px] text-slate-400 print:hidden">
-              Total {category} records: {records.filter(r => r.category === category).length}
+            <div className="border-t border-slate-200 print:hidden">
+              <Pagination
+                currentPage={safeCurrentPage}
+                totalPages={totalPages}
+                totalItems={sortedFiltered.length}
+                pageSize={pageSize}
+                onPageChange={setCurrentPage}
+                onPageSizeChange={(newSize) => {
+                  setPageSize(newSize);
+                  setCurrentPage(1);
+                }}
+                pageSizeOptions={[10, 25, 50, 100]}
+              />
             </div>
           </div>
         </div>
