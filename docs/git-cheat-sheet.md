@@ -92,9 +92,47 @@ git add -A
 ```
 
 ### Commit changes
-Follow the team convention (`<type>(<scope>): <subject> (SC-XX)`):
+
+#### Message format
+```text
+<type>(<subsystem>): <imperative description> (TSK-XX)
+```
+*(Use `TSK-XX` for Notion tickets or `SC-XX` for legacy tickets. Ticket ID can be omitted for repo-wide chores or docs).*
+
+#### Allowed types
+| Type | Description |
+| :--- | :--- |
+| `feat` | New feature or capability |
+| `fix` | Routine bug fix |
+| `hotfix` | Critical urgent production bug fix |
+| `refactor` | Code modification without altering behavior or fixing bugs |
+| `docs` | Documentation only changes |
+| `chore` | Build processes, dependencies, tooling updates |
+| `test` | Adding or correcting tests |
+
+#### Allowed subsystems (scopes)
+- `client`: Frontend React application (`client/`)
+- `server`: Backend Express service (`server/`)
+- `api`: API routes, endpoints, and request contracts
+- `db`: Database schema, Prisma migrations, seed files
+- `admin`: Admin panel, RBAC permissions
+
+#### Examples
 ```bash
-git commit -m "feat(client): add offline support to delivery form (SC-14)"
+# Feature commit
+git commit -m "feat(client): add offline support to delivery form (TSK-14)"
+
+# Critical production hotfix
+git commit -m "hotfix(server): fix null check on auth token verification (TSK-42)"
+
+# Routine bug fix
+git commit -m "fix(db): correct foreign key cascade on delivery deletion (TSK-29)"
+
+# Documentation update
+git commit -m "docs: update git cheat sheet with hotfix and commit conventions"
+
+# Chore
+git commit -m "chore(server): update dependencies"
 ```
 
 ### Stash work in progress
