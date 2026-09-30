@@ -30,6 +30,7 @@ const requireRecordAccess = asyncRoute(async (req, res, next) => {
 
 const recordInclude = {
   company: true,
+  lineItems: true,
   createdBy: true,
   modifiedBy: true,
   linkedCollection: {
@@ -223,6 +224,12 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
       draft: b.is_draft === 'Yes',
       dateAndTime: b.date_time ?? new Date().toISOString(),
       itemDescription: b.item_description ?? '',
+      lineItems: Array.isArray(b.line_items) ? {
+        create: b.line_items.map((li: any) => ({
+          sku: li.sku || li.description || '',
+          quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1
+        }))
+      } : undefined,
       address: b.address ?? '',
       documentAttachment: Array.isArray(b.attachments) && b.attachments.length > 0 ? b.attachments[0] : null,
       amount: b.amount != null ? parseFloat(String(b.amount)) : null,
@@ -281,7 +288,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
   }
 
   const LOGISTICS_SUBSTANTIVE_FIELDS = ['driver', 'vehicle', 'driver_assistants', 'time_in', 'time_out', 'received_by', 'linked_collection_id', 'area', 'address', 'priority'];
-  const SC_SUBSTANTIVE_FIELDS = ['company_id', 'priority', 'reference', 'area', 'address', 'account_manager', 'delivery_date', 'item_type', 'is_draft', 'date_time', 'item_description', 'attachments', 'amount'];
+  const SC_SUBSTANTIVE_FIELDS = ['company_id', 'priority', 'reference', 'area', 'address', 'account_manager', 'delivery_date', 'item_type', 'is_draft', 'date_time', 'item_description', 'line_items', 'attachments', 'amount'];
   const substantiveFields = (req.user!.role === 'LOGISTICS' || req.user!.role === 'ADMIN' || req.user!.role === 'TASS')
     ? LOGISTICS_SUBSTANTIVE_FIELDS
     : SC_SUBSTANTIVE_FIELDS;
@@ -342,6 +349,15 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (b.is_draft !== undefined) data.draft = b.is_draft === 'Yes';
     if (b.date_time !== undefined) data.dateAndTime = b.date_time;
     if (b.item_description !== undefined) data.itemDescription = b.item_description;
+    if (b.line_items !== undefined && Array.isArray(b.line_items)) {
+      data.lineItems = {
+        deleteMany: {},
+        create: b.line_items.map((li: any) => ({
+          sku: li.sku || li.description || '',
+          quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1
+        }))
+      };
+    }
     if (Array.isArray(b.attachments) && b.attachments.length > 0) data.documentAttachment = b.attachments[0];
     if (b.amount !== undefined) data.amount = b.amount != null ? parseFloat(String(b.amount)) : null;
     if (b.address !== undefined) data.address = b.address;
