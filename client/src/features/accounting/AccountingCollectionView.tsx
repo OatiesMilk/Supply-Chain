@@ -19,7 +19,7 @@ interface AccountingCollectionViewProps {
   currentUserName: string;
   onCreateRecord: (
     data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>
-  ) => void;
+  ) => Promise<void>;
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
   onVerifyCollection: (id: string) => Promise<void>;
   selectedRecordIdFromDashboard?: string | null;

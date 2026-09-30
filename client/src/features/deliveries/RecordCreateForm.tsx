@@ -138,7 +138,7 @@ export interface RecordCreateFormProps {
   availableCategories?: DeliveryCategory[];
   onCategoryChange?: (cat: DeliveryCategory) => void;
   companies: ApiCompany[];
-  onSubmit: (data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>) => void;
+  onSubmit: (data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>) => Promise<void>;
   onCancel: () => void;
   // Optional: output action integration — only provided by DeliveryRecordsView
   outputActionConfigs?: Record<OutputActionTrigger, OutputActionConfig>;
@@ -216,6 +216,7 @@ export default function RecordCreateForm({
     e.preventDefault();
     const errors: Record<string, string> = {};
     if (!form.company_name.trim()) errors.company_name = 'Company Name is required';
+    else if (!form.company_id) errors.company_name = 'Select a company from the list';
     if (form.is_draft !== 'Yes' && !form.reference.trim()) {
       errors.reference = 'Reference (SAP number) is required';
     }
@@ -237,19 +238,26 @@ export default function RecordCreateForm({
         : creationOutput.newEntries.map((e: any) => e.message);
     }
 
-    onSubmit({
-      ...form,
-      customer_id: form.company_id || '',
-      driver: '',
-      driver_assistants: [],
-      category: form.category,
-      priority: form.priority as DeliveryRecord['priority'],
-      status: form.status as DeliveryStatus,
-      item_type: form.item_type as DeliveryRecord['item_type'],
-      is_draft: form.is_draft as DeliveryRecord['is_draft'],
-      attachments: attachmentNames,
-      output_actions_log: outputActionLog
-    });
+    try {
+      await onSubmit({
+        ...form,
+        customer_id: form.company_id || '',
+        driver: '',
+        driver_assistants: [],
+        category: form.category,
+        priority: form.priority as DeliveryRecord['priority'],
+        status: form.status as DeliveryStatus,
+        item_type: form.item_type as DeliveryRecord['item_type'],
+        is_draft: form.is_draft as DeliveryRecord['is_draft'],
+        attachments: attachmentNames,
+        output_actions_log: outputActionLog
+      });
+    } catch (error) {
+      setFormErrors({
+        submit: error instanceof Error ? error.message : 'Could not create the record. Please try again.',
+      });
+      return;
+    }
 
     if (onAfterSubmit) {
       onAfterSubmit({ referenceLabel: form.reference || form.company_name, lines: bannerLines });
@@ -288,6 +296,11 @@ export default function RecordCreateForm({
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5 text-xs">
+        {formErrors.submit && (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+            {formErrors.submit}
+          </p>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
 
           {/* ── REQUIRED FIELDS ─────────────────────────────────────── */}
