@@ -145,77 +145,6 @@ router.get('/:id/audit', requireAuth, requireResource('records'), requireRecordA
     orderBy: { timestamp: 'desc' }
   });
 
-  router.get('/:id/attachments', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
-    const attachments = await prisma.podAttachment.findMany({
-      where: { recordId: req.params.id },
-      orderBy: { createdAt: 'desc' }
-    });
-    res.json(attachments.map(attachment => ({
-      id: attachment.id,
-      name: attachment.originalName,
-      mime_type: attachment.mimeType,
-      size: attachment.size,
-      uploaded_at: attachment.createdAt,
-      download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`
-    })));
-  });
-
-  router.post(
-    '/:id/attachments',
-    requireAuth,
-    requireResource('records'),
-    requireRecordAccess,
-    requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'),
-    podUpload.single('file'),
-    asyncRoute(async (req, res) => {
-      if (!req.file) return res.status(400).json({ error: 'A file is required.' });
-      const record = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null } });
-      if (!record) {
-        await podStorage.remove(req.file.filename);
-        return res.status(404).json({ error: 'Record not found' });
-      }
-
-      const attachment = await prisma.podAttachment.create({
-        data: {
-          recordId: record.id,
-          originalName: req.file.originalname,
-          storageKey: req.file.filename,
-          mimeType: req.file.mimetype,
-          size: req.file.size,
-          uploadedById: req.user!.id
-        }
-      });
-      res.status(201).json({
-        id: attachment.id,
-        name: attachment.originalName,
-        mime_type: attachment.mimeType,
-        size: attachment.size,
-        uploaded_at: attachment.createdAt,
-        download_url: `/api/records/${record.id}/attachments/${attachment.id}/download`
-      });
-    })
-  );
-
-  router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
-    const attachment = await prisma.podAttachment.findFirst({
-      where: { id: req.params.attachmentId, recordId: req.params.id }
-    });
-    if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
-    const path = podStorage.pathFor(attachment.storageKey);
-    res.download(path, attachment.originalName, { headers: { 'Content-Type': attachment.mimeType } }, err => {
-      if (err && !res.headersSent) res.status(404).json({ error: 'Attachment file not found' });
-    });
-  }));
-
-  router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'), asyncRoute(async (req, res) => {
-    const attachment = await prisma.podAttachment.findFirst({
-      where: { id: req.params.attachmentId, recordId: req.params.id }
-    });
-    if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
-    await prisma.podAttachment.delete({ where: { id: attachment.id } });
-    await podStorage.remove(attachment.storageKey);
-    res.status(204).send();
-  }));
   res.json(
     entries.map(e => ({
       id: e.id,
@@ -227,6 +156,78 @@ router.get('/:id/audit', requireAuth, requireResource('records'), requireRecordA
     }))
   );
 });
+
+router.get('/:id/attachments', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
+  const attachments = await prisma.podAttachment.findMany({
+    where: { recordId: req.params.id },
+    orderBy: { createdAt: 'desc' }
+  });
+  res.json(attachments.map(attachment => ({
+    id: attachment.id,
+    name: attachment.originalName,
+    mime_type: attachment.mimeType,
+    size: attachment.size,
+    uploaded_at: attachment.createdAt,
+    download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`
+  })));
+});
+
+router.post(
+  '/:id/attachments',
+  requireAuth,
+  requireResource('records'),
+  requireRecordAccess,
+  requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'),
+  podUpload.single('file'),
+  asyncRoute(async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'A file is required.' });
+    const record = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null } });
+    if (!record) {
+      await podStorage.remove(req.file.filename);
+      return res.status(404).json({ error: 'Record not found' });
+    }
+
+    const attachment = await prisma.podAttachment.create({
+      data: {
+        recordId: record.id,
+        originalName: req.file.originalname,
+        storageKey: req.file.filename,
+        mimeType: req.file.mimetype,
+        size: req.file.size,
+        uploadedById: req.user!.id
+      }
+    });
+    res.status(201).json({
+      id: attachment.id,
+      name: attachment.originalName,
+      mime_type: attachment.mimeType,
+      size: attachment.size,
+      uploaded_at: attachment.createdAt,
+      download_url: `/api/records/${record.id}/attachments/${attachment.id}/download`
+    });
+  })
+);
+
+router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
+  const attachment = await prisma.podAttachment.findFirst({
+    where: { id: req.params.attachmentId, recordId: req.params.id }
+  });
+  if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
+  const path = podStorage.pathFor(attachment.storageKey);
+  res.download(path, attachment.originalName, { headers: { 'Content-Type': attachment.mimeType } }, err => {
+    if (err && !res.headersSent) res.status(404).json({ error: 'Attachment file not found' });
+  });
+}));
+
+router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'), asyncRoute(async (req, res) => {
+  const attachment = await prisma.podAttachment.findFirst({
+    where: { id: req.params.attachmentId, recordId: req.params.id }
+  });
+  if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
+  await prisma.podAttachment.delete({ where: { id: attachment.id } });
+  await podStorage.remove(attachment.storageKey);
+  res.status(204).send();
+}));
 
 // Append-only remarks history
 router.get('/:id/remarks', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
