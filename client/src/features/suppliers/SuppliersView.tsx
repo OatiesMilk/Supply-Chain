@@ -28,6 +28,8 @@ const EMPTY_FORM = { name: '', contact_person: '', email: '', phone: '', address
 export default function SuppliersView({ suppliers, deliveryRecords, currentUserRole = '', currentUserName = '', onCreateSupplier }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [form, setForm] = useState(EMPTY_FORM);
   const [formError, setFormError] = useState('');
 
@@ -131,7 +133,7 @@ export default function SuppliersView({ suppliers, deliveryRecords, currentUserR
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {suppliers.map(s => {
+              {suppliers.slice((page - 1) * pageSize, page * pageSize).map(s => {
                 const pickupCount = deliveryRecords.filter(r =>
                   r.category === 'Procurement Pick-up' &&
                   (r.item_description.toLowerCase().includes(s.name.toLowerCase()) ||

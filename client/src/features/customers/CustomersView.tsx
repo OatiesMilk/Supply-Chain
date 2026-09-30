@@ -26,6 +26,8 @@ export default function CustomersView({
 }: CustomersViewProps) {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [form, setForm] = useState(EMPTY_FORM);
   const [formError, setFormError] = useState('');
 
@@ -129,7 +131,7 @@ export default function CustomersView({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {customers.map(c => {
+              {customers.slice((page - 1) * pageSize, page * pageSize).map(c => {
                 const totalRecords = deliveryRecords.filter(r => r.customer_id === c.id).length;
                 return (
                   <tr

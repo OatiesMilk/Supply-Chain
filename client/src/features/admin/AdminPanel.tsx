@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Users, ClipboardList, UserX, Plus, ChevronLeft, ChevronRight, Loader2, Check, ShieldCheck, RotateCcw, X, Settings2, Send, Pencil, Link2, Trash2 } from 'lucide-react';
 import { api, ApiPermissionEditor, ApiUserAdmin, ApiAdminAuditEntry, ApiIntegrationStatus, ApiError } from '@/api';
+import Pagination from '@/components/Pagination';
 
 import { useAuthStore } from '@/store/authStore';
 
@@ -338,16 +339,17 @@ export default function AdminPanel() {
   const [auditEntries, setAuditEntries] = useState<ApiAdminAuditEntry[]>([]);
   const [auditTotal, setAuditTotal] = useState(0);
   const [auditPages, setAuditPages] = useState(1);
+  const [auditPageSize, setAuditPageSize] = useState(50);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
 
-  const loadAudit = async (page: number) => {
+  const loadAudit = async (page: number, size = auditPageSize) => {
     setAuditLoading(true);
     setAuditError(null);
     try {
       const result = await api.getAuditLog({
         page,
-        limit: 50,
+        limit: size,
         action: auditAction || undefined,
         from: auditFrom || undefined,
         to: auditTo || undefined
@@ -817,25 +819,23 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* Pagination */}
-            <div className="p-3 border-t border-slate-100 flex items-center justify-between">
-              <button
-                onClick={() => { const p = Math.max(1, auditPage - 1); setAuditPage(p); loadAudit(p); }}
-                disabled={auditPage <= 1 || auditLoading}
-                className="flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] rounded-lg disabled:opacity-40 cursor-pointer"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" /> Previous
-              </button>
-              <span className="text-[11px] text-slate-400 font-semibold">
-                {auditTotal === 0 ? '0 entries' : `${(auditPage - 1) * 50 + 1}–${Math.min(auditPage * 50, auditTotal)} of ${auditTotal}`}
-              </span>
-              <button
-                onClick={() => { const p = Math.min(auditPages, auditPage + 1); setAuditPage(p); loadAudit(p); }}
-                disabled={auditPage >= auditPages || auditLoading}
-                className="flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] rounded-lg disabled:opacity-40 cursor-pointer"
-              >
-                Next <ChevronRight className="w-3.5 h-3.5" />
-              </button>
+            <div className="border-t border-slate-100">
+              <Pagination
+                currentPage={auditPage}
+                totalPages={auditPages}
+                totalItems={auditTotal}
+                pageSize={auditPageSize}
+                onPageChange={(p) => {
+                  setAuditPage(p);
+                  loadAudit(p, auditPageSize);
+                }}
+                onPageSizeChange={(newSize) => {
+                  setAuditPageSize(newSize);
+                  setAuditPage(1);
+                  loadAudit(1, newSize);
+                }}
+                pageSizeOptions={[10, 25, 50, 100]}
+              />
             </div>
           </div>
         </div>
