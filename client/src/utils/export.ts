@@ -173,7 +173,9 @@ export async function downloadExcel(
   wb.creator = meta.generatedByName;
   wb.created = new Date();
 
-  const ws = wb.addWorksheet(sheetName);
+  const ws = wb.addWorksheet(sheetName, {
+    pageSetup: { paperSize: 5, orientation: 'landscape' }
+  });
 
   const now = new Date();
   const dateStr = fmtDate(now.toISOString());
@@ -387,9 +389,9 @@ export async function downloadPDF(
   const { default: autoTable } = await import('jspdf-autotable');
 
   const doc = new jsPDF({
-    orientation: landscape ? 'landscape' : 'portrait',
+    orientation: 'landscape',
     unit: 'mm',
-    format: 'a4'
+    format: 'legal'
   });
 
   const now = new Date();

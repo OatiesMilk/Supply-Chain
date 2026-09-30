@@ -954,7 +954,7 @@ async function exportPDF(
   const { jsPDF } = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
 
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'legal' });
   const NAVY_RGB: [number, number, number]   = [31, 56, 100];
   const DARKER_RGB: [number, number, number] = [13, 27, 42];
   const GOLD_RGB: [number, number, number]   = [255, 192, 0];
@@ -1495,7 +1495,7 @@ async function exportDOCX(
     sections: [{
       properties: {
         page: {
-          size: { orientation: PageOrientation.LANDSCAPE, width: 16838, height: 11906 },
+          size: { orientation: PageOrientation.LANDSCAPE, width: 12240, height: 20160 },
           margin: { top: 720, right: 720, bottom: 720, left: 720 },
         },
       },
@@ -1684,8 +1684,8 @@ export async function downloadDriverReport(
   wb.creator = generatedByName;
   wb.created = new Date();
 
-  await buildSheet1(wb.addWorksheet('Monthly Report'), deliveries, assigned, drivers, stats, mo, year, generatedByName, generatedByRole);
-  buildSheet2(wb.addWorksheet('Summary'),        deliveries, assigned, drivers, stats, mo, year, generatedByName, generatedByRole);
+  await buildSheet1(wb.addWorksheet('Monthly Report', { pageSetup: { paperSize: 5, orientation: 'landscape' } }), deliveries, assigned, drivers, stats, mo, year, generatedByName, generatedByRole);
+  buildSheet2(wb.addWorksheet('Summary', { pageSetup: { paperSize: 5, orientation: 'landscape' } }), deliveries, assigned, drivers, stats, mo, year, generatedByName, generatedByRole);
 
   const buf  = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
