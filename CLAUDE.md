@@ -118,6 +118,7 @@ requireRole('ADMIN', 'SALES_COORDINATOR')
 | :--- | :--- |
 | Feature | `feature/<subsystem>-TSK-XX-<description>` |
 | Bug fix | `fix/<subsystem>-TSK-XX-<description>` |
+| Hotfix | `hotfix/<subsystem>-TSK-XX-<description>` |
 | Refactor | `refactor/<subsystem>-TSK-XX-<description>` |
 | Docs | `docs/<description>` |
 | Chore | `chore/<description>` |
