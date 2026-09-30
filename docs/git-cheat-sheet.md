@@ -14,7 +14,7 @@ A reference guide for developers on the Microgenesis Supply Chain team. Use this
 
 ```text
 1. Update main:    git switch main && git pull --ff-only
-2. Start task:     git switch -c feat/<subsystem>-SC-XX-<topic>
+2. Start task:     git switch -c feat/<subsystem>-SC-XX-<topic>  (or hotfix/<subsystem>-SC-XX-<topic>)
 3. Inspect edits:  git status && git diff
 4. Save progress:  git add <file> && git commit -m "<type>(<subsystem>): <message> (SC-XX)"
 5. Sync upstream:  git fetch origin && git rebase origin/main
@@ -162,7 +162,69 @@ git push --force-with-lease origin <your-branch-name>
 
 ---
 
-## 6. Fixing mistakes
+## 6. Hotfix workflow
+
+Use a `hotfix/` branch when a **critical bug in production** must be patched immediately — without waiting for the normal feature cycle.
+
+> [!IMPORTANT] Hotfix rules
+> - Always branch **from `main`**, not from `dev` or a feature branch.
+> - Merge back into **both `main` and `dev`** once the fix is verified.
+> - Tag `main` after merging so the release is traceable.
+
+### Branch naming
+```text
+hotfix/<subsystem>-SC-XX-<short-description>
+```
+*Example:*
+```bash
+hotfix/server-SC-42-fix-auth-token-expiry
+```
+
+### Step-by-step hotfix process
+
+```bash
+# 1. Make sure main is up to date
+git switch main
+git pull --ff-only
+
+# 2. Cut a hotfix branch directly from main
+git switch -c hotfix/<subsystem>-SC-XX-<description>
+
+# 3. Make the minimal fix, commit with hotfix type
+git add <file>
+git commit -m "hotfix(<subsystem>): <what was broken and how it's fixed> (SC-XX)"
+
+# 4. Push and open a PR targeting main
+git push -u origin hotfix/<subsystem>-SC-XX-<description>
+```
+
+### After the PR is merged to main
+
+```bash
+# 1. Pull the merged fix
+git switch main
+git pull --ff-only
+
+# 2. Tag the release so it's traceable
+git tag -a v<X.Y.Z>-hotfix -m "Hotfix SC-XX: <short description>"
+git push origin v<X.Y.Z>-hotfix
+
+# 3. Merge the fix forward into dev to avoid regression
+git switch dev
+git merge --no-ff main -m "chore: merge hotfix SC-XX into dev"
+git push origin dev
+
+# 4. Clean up the hotfix branch
+git branch -d hotfix/<subsystem>-SC-XX-<description>
+git fetch --prune
+```
+
+> [!TIP] Keep hotfixes small
+> A hotfix should touch the **minimum number of files** necessary. If you need to refactor while in there, open a separate feature branch after the hotfix lands.
+
+---
+
+## 7. Fixing mistakes
 
 ### Discard uncommitted changes in a file
 Reverts a modified file back to the last commit:
@@ -197,7 +259,7 @@ git reset --hard HEAD~1
 
 ---
 
-## 7. Common troubleshooting scenarios
+## 8. Common troubleshooting scenarios
 
 ### Scenario A: Your push is rejected because main moved ahead
 ```text
