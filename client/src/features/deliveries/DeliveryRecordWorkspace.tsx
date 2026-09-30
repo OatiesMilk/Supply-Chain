@@ -8,7 +8,7 @@ import {
   ScrollText, Link2, X as XCircle
 } from 'lucide-react';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel, ItemType } from '@/types';
-import { api, ApiAuditEntry, ApiComment, ApiCompany, ApiRemarkLog } from '@/api';
+import { api, ApiAuditEntry, ApiComment, ApiCompany, ApiPodAttachment, ApiRemarkLog } from '@/api';
 import { printSingleManifest, ManifestDocumentationData } from '@/features/deliveries/DeliveryManifest';
 import { DRIVERS, DRIVER_ASSISTANTS, DELIVERY_STATUSES, AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, ACCOUNT_MANAGERS, DRIVER_COVERAGE_AREAS, getSubregion, getNearbyAreas } from '@/data';
 import ComboboxField from '@/components/ComboboxField';
@@ -1330,54 +1330,42 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
 
 // ─── Documents Tab ────────────────────────────────────────────────────────────
 
-type UploadedFile = {
-  name: string;
-  size: number;
-  type: string;
-  url: string; // object URL for preview
-  uploadedAt: string;
-};
-
 function DocumentsTab({ record }: { record: DeliveryRecord }) {
-  const [files, setFiles] = useState<UploadedFile[]>(() =>
-    // Pre-populate from record.attachments (string filenames from existing data)
-    record.attachments.map(name => ({
-      name,
-      size: 0,
-      type: '',
-      url: '',
-      uploadedAt: record.created_at,
-    }))
-  );
+  const [files, setFiles] = useState<ApiPodAttachment[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Sync when record changes (e.g. prev/next navigation)
   useEffect(() => {
-    setFiles(record.attachments.map(name => ({
-      name, size: 0, type: '', url: '', uploadedAt: record.created_at,
-    })));
-  }, [record.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    setError(null);
+    api.getRecordAttachments(record.id).then(setFiles).catch(err => setError(err instanceof Error ? err.message : 'Could not load attachments.'));
+  }, [record.id]);
 
-  const addFiles = (incoming: FileList | null) => {
+  const addFiles = async (incoming: FileList | null) => {
     if (!incoming) return;
-    const newFiles: UploadedFile[] = Array.from(incoming).map(f => ({
-      name: f.name,
-      size: f.size,
-      type: f.type,
-      url: URL.createObjectURL(f),
-      uploadedAt: new Date().toISOString(),
-    }));
-    setFiles(prev => [...prev, ...newFiles]);
+    setUploading(true);
+    setError(null);
+    try {
+      for (const file of Array.from(incoming)) {
+        const uploaded = await api.uploadRecordAttachment(record.id, file);
+        setFiles(prev => [uploaded, ...prev]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed.');
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
   };
 
-  const removeFile = (idx: number) => {
-    setFiles(prev => {
-      const next = [...prev];
-      if (next[idx].url) URL.revokeObjectURL(next[idx].url);
-      next.splice(idx, 1);
-      return next;
-    });
+  const removeFile = async (id: string) => {
+    try {
+      await api.deleteRecordAttachment(record.id, id);
+      setFiles(prev => prev.filter(file => file.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove attachment.');
+    }
   };
 
   const formatSize = (bytes: number) => {
@@ -1412,8 +1400,8 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
       >
         <Paperclip className={`w-8 h-8 transition-colors ${dragging ? 'text-[#0078C1]' : 'text-slate-300'}`} />
         <div className="text-center">
-          <p className="text-sm font-bold text-slate-700">Drop files here or click to upload</p>
-          <p className="text-xs text-slate-400 mt-0.5">PDF, Word, Excel, images — any format</p>
+          <p className="text-sm font-bold text-slate-700">{uploading ? 'Uploading…' : 'Drop files here or click to upload'}</p>
+            <p className="text-xs text-slate-400 mt-0.5">PDF, Word, Excel, images — up to 10 MB each</p>
         </div>
         <input
           ref={inputRef}
@@ -1433,19 +1421,18 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
             </p>
           </div>
           <div className="divide-y divide-slate-100">
-            {files.map((f, i) => (
-              <div key={i} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 group">
-                <span className="text-xl shrink-0">{fileIcon(f.type, f.name)}</span>
+            {files.map(f => (
+              <div key={f.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 group">
+                <span className="text-xl shrink-0">{fileIcon(f.mime_type, f.name)}</span>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-semibold text-slate-800 truncate">{f.name}</p>
                   <p className="text-[10px] text-slate-400 font-mono mt-0.5">
-                    {f.size ? formatSize(f.size) + ' · ' : ''}{formatTs(f.uploadedAt)}
+                    {f.size ? formatSize(f.size) + ' · ' : ''}{formatTs(f.uploaded_at)}
                   </p>
                 </div>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {f.url && (
-                    <a
-                      href={f.url}
+                  <a
+                      href={f.download_url}
                       download={f.name}
                       className="p-1.5 hover:bg-slate-100 rounded text-slate-400 hover:text-[#0078C1] transition-colors"
                       title="Download"
@@ -1453,9 +1440,8 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
                     >
                       <FileText className="w-3.5 h-3.5" />
                     </a>
-                  )}
                   <button
-                    onClick={() => removeFile(i)}
+                    onClick={() => removeFile(f.id)}
                     className="p-1.5 hover:bg-red-50 rounded text-slate-300 hover:text-red-500 transition-colors"
                     title="Remove"
                   >
@@ -1472,9 +1458,8 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
         </div>
       )}
 
-      <p className="text-[10px] text-slate-400 text-center">
-        Files are stored locally in this session. Backend file storage integration pending.
-      </p>
+      {error && <p className="text-xs text-red-600 text-center">{error}</p>}
+      <p className="text-[10px] text-slate-400 text-center">Files are stored in the local Docker volume and protected by record access permissions.</p>
     </div>
   );
 }
