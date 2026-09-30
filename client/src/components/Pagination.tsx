@@ -48,7 +48,7 @@ export function getPaginationItems(currentPage: number, totalPages: number): Pag
   return [1, '...', safeCurrent - 1, safeCurrent, safeCurrent + 1, '...', safeTotal];
 }
 
-export default function Pagination({
+export function Pagination({
   currentPage,
   totalPages,
   onPageChange,
@@ -176,3 +176,6 @@ export default function Pagination({
     </div>
   );
 }
+
+export default Pagination;
+
