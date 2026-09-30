@@ -5,7 +5,7 @@ async function main() {
   const podTable = await prisma.$queryRaw<Array<{ exists: boolean }>>`
     SELECT to_regclass('public."PodAttachment"') IS NOT NULL AS exists
   `;
-  if (podTable[0]?.exists) await prisma.podAttachment.deleteMany();
+  if (podTable[0]?.exists) await prisma.$executeRaw`DELETE FROM "PodAttachment"`;
   await prisma.remarkLog.deleteMany();
   await prisma.comment.deleteMany();
   await prisma.notification.deleteMany();
