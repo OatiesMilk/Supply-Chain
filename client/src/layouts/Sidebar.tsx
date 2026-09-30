@@ -197,8 +197,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </span>
                 {accountingActiveCount > 0 && (
                   isSidebarCollapsed
-                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                    : <span className="bg-green-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{accountingActiveCount}</span>
+                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                    : <span className="bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{accountingActiveCount}</span>
                 )}
               </button>
             )}
@@ -212,8 +212,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </span>
                 {procurementActiveCount > 0 && (
                   isSidebarCollapsed
-                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
-                    : <span className="bg-blue-400 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{procurementActiveCount}</span>
+                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                    : <span className="bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{procurementActiveCount}</span>
                 )}
               </button>
             )}
