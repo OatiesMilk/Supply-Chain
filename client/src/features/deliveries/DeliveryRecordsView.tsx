@@ -1,8 +1,4 @@
-<<<<<<< Updated upstream
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-=======
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
->>>>>>> Stashed changes
 import {
   Plus,
   Search,
@@ -250,7 +246,6 @@ export default function DeliveryRecordsView({
     if (statusFilter !== 'All' && r.status !== statusFilter) return false;
     if (amFilter && !r.account_manager.toLowerCase().includes(amFilter.toLowerCase())) return false;
     if (driverFilter && r.driver.toLowerCase() !== driverFilter.toLowerCase()) return false;
-<<<<<<< Updated upstream
     if (dateFrom && r.delivery_date) {
       const rd = new Date(r.delivery_date);
       const df = new Date(dateFrom);
@@ -261,10 +256,6 @@ export default function DeliveryRecordsView({
       const dt = new Date(dateTo);
       if (rd > dt) return false;
     }
-=======
-    if (dateFrom && r.delivery_date < dateFrom) return false;
-    if (dateTo && r.delivery_date > dateTo) return false;
->>>>>>> Stashed changes
     const q = searchQuery.toLowerCase();
     if (!q) return true;
     return (
@@ -280,7 +271,6 @@ export default function DeliveryRecordsView({
   // TASS-specific extra filters (client-side, no extra API call)
   const filtered = currentUserRole === 'TASS'
     ? baseFiltered.filter(r => {
-<<<<<<< Updated upstream
       if (tassDateFrom && r.delivery_date) {
         const rd = new Date(r.delivery_date);
         const df = new Date(tassDateFrom);
@@ -299,18 +289,6 @@ export default function DeliveryRecordsView({
       }
       return true;
     })
-=======
-      if (tassDateFrom && r.delivery_date < tassDateFrom) return false;
-      if (tassDateTo && r.delivery_date > tassDateTo) return false;
-      if (tassAccountManager && !r.account_manager.toLowerCase().includes(tassAccountManager.toLowerCase())) return false;
-      if (tassStatusFilter) {
-        if (tassStatusFilter === 'Collection Verified') return r.collection_verified === true;
-        if (tassStatusFilter === 'Accomplished') return r.status === 'Delivered';
-        return r.status === tassStatusFilter;
-      }
-      return true;
-    })
->>>>>>> Stashed changes
     : baseFiltered;
 
   const now = Date.now();
@@ -854,55 +832,8 @@ export default function DeliveryRecordsView({
                 </div>
 
                 {/* RIGHT: search + filter toggle + record count */}
-<<<<<<< Updated upstream
-  <div className="flex items-center gap-2 shrink-0">
-
-    {/* Date range + sort */}
-    <div className="flex items-center gap-1.5 border-r border-slate-200 pr-3">
-      <input
-        ref={dateFromRef}
-        type="date"
-        value={dateFrom}
-        onChange={e => setDateFrom(e.target.value)}
-        title="Date from"
-        className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-      />
-      <span className="text-[11px] text-slate-400 font-semibold">—</span>
-      <input
-        type="date"
-        value={dateTo}
-        onChange={e => setDateTo(e.target.value)}
-        title="Date to"
-        className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-      />
-      {(dateFrom || dateTo) && (
-        <button
-          onClick={() => { setDateFrom(''); setDateTo(''); }}
-          title="Clear date filter"
-          className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
-      )}
-      <select
-        value={dateSort}
-        onChange={e => setDateSort(e.target.value as typeof dateSort)}
-        disabled={!!(dateFrom || dateTo)}
-        title={(dateFrom || dateTo) ? 'Sort order is N/A while a date range filter is active' : undefined}
-        className={`text-[11px] font-semibold border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#0078C1] ${(dateFrom || dateTo) ? 'border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-700 cursor-pointer'}`}
-      >
-        {(dateFrom || dateTo) && <option value={dateSort}>Sort: N/A</option>}
-        <option value="default">Date: Default</option>
-        <option value="nearest">Nearest to Present</option>
-        <option value="oldest">Oldest First</option>
-        <option value="furthest">Furthest Future First</option>
-      </select>
-    </div>
-    <div className="relative w-56">
-=======
                 <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end shrink-0">
         <div className="relative flex-1 sm:w-56 sm:flex-initial">
->>>>>>> Stashed changes
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search records..."
             className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-hidden focus:ring-1 focus:ring-[#0078C1]" />
@@ -1086,82 +1017,10 @@ export default function DeliveryRecordsView({
         <span className="text-[11px] font-bold text-slate-400 tabular-nums shrink-0">{sortedFiltered.length}</span>
       </div>
     </div>
-<<<<<<< Updated upstream
-
-  {/* ── Collapsible Advanced Filters ── */ }
-  {
-    showAdvancedFilters && (
-      <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-end gap-3">
-        {/* Geo filters */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-          <select
-            value={regionFilter}
-            onChange={e => { setRegionFilter(e.target.value); setSubregionFilter('All Subregions'); setAreaFilter('All Areas'); }}
-            className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 w-40 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-          >
-            <option value="All Regions">All Regions</option>
-            {AREA_HIERARCHY.map(r => <option key={r.region} value={r.region}>{r.region}</option>)}
-          </select>
-          <select
-            value={subregionFilter}
-            onChange={e => { setSubregionFilter(e.target.value); setAreaFilter('All Areas'); }}
-            className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 w-40 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-          >
-            <option value="All Subregions">All Subregions</option>
-            {(regionFilter === 'All Regions' ? AREA_HIERARCHY : AREA_HIERARCHY.filter(r => r.region === regionFilter))
-              .flatMap(r => r.subregions)
-              .map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
-          </select>
-          <select
-            value={areaFilter}
-            onChange={e => setAreaFilter(e.target.value)}
-            className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 w-40 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-          >
-            {distinctAreasForFilter.map(a => <option key={a} value={a}>{a}</option>)}
-          </select>
-        </div>
-
-        {/* AM + Driver comboboxes */}
-        <div className="flex items-center gap-2 border-l border-slate-200 pl-3">
-          <AccountManagerCombobox
-            value={amFilter}
-            onChange={setAmFilter}
-            options={amOptions}
-            placeholder="Account Manager"
-            inputClassName="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 w-40 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] placeholder:text-slate-400"
-          />
-          <AccountManagerCombobox
-            value={driverFilter}
-            onChange={setDriverFilter}
-            options={driverOptions}
-            placeholder="Driver"
-            inputClassName="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 w-40 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] placeholder:text-slate-400"
-          />
-        </div>
-
-        {/* Clear all */}
-        {(searchQuery || statusFilter !== 'All' || hasAdvancedFilters || !!dateFrom || !!dateTo || dateSort !== 'default') && (
-          <button
-            onClick={() => { setSearchQuery(''); setStatusFilter('All'); setRegionFilter('All Regions'); setSubregionFilter('All Subregions'); setAreaFilter('All Areas'); setAmFilter(''); setDriverFilter(''); setDateFrom(''); setDateTo(''); setDateSort('default'); }}
-            className="px-3 py-1.5 text-[#1F3864] hover:underline font-bold text-[10px] uppercase cursor-pointer"
-          >
-            Clear All
-          </button>
-        )}
-      </div>
-    )
-  }
-            </div >
-
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] table-fixed text-left border-collapse text-sm">
-=======
             </div>
 
     <div className="overflow-x-auto">
       <table className="w-full min-w-[700px] table-fixed text-left border-collapse text-sm">
->>>>>>> Stashed changes
         <colgroup>
           {showCheckbox && <col style={{ width: '4%', minWidth: '40px' }} />}
           <col style={{ width: `${colPct.id}%`, minWidth: colMinWidth.id }} />
