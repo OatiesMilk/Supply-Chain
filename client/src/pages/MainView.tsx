@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { LayoutGrid, Plus } from "lucide-react";
+import { Layers, Plus } from "lucide-react";
 import { DeliveryRecord, DeliveryCategory, UserRole } from "@/types";
 import { ApiCompany } from "@/api";
 import RecordCreateForm from "@/features/deliveries/RecordCreateForm";
@@ -284,7 +284,7 @@ export default function MainView({
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
         {displayRecords.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <LayoutGrid className="w-10 h-10 text-slate-200" />
+            <Layers className="w-10 h-10 text-slate-200" />
             <p className="text-sm text-slate-400">
               No records match this filter.
             </p>

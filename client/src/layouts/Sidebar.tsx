@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  LayoutGrid,
+  Layers,
   LayoutDashboard,
   Truck,
   RotateCcw,
@@ -135,7 +135,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="space-y-1">
             {canAccess('main') && (<button onClick={() => handleNavigate('main')} title={isSidebarCollapsed ? 'Main' : ''} className={navItemClass('main')}>
               <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                <LayoutGrid className="w-5 h-5 shrink-0" />
+                <Layers className="w-5 h-5 shrink-0" />
                 {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Main</span>}
               </span>
             </button>)}
