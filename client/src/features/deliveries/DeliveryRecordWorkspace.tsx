@@ -106,7 +106,7 @@ function ScaffoldTab({ icon: Icon, label, detail }: { icon: typeof FileText; lab
 type EditDraft = {
   priority: PriorityLevel; reference: string; area: string; vehicle: string;
   account_manager: string; delivery_date: string; date_time: string;
-  item_type: ItemType; is_draft: 'Yes' | 'No'; remarks: string; item_description: string;
+  item_type: ItemType; is_draft: 'Yes' | 'No'; remarks: string; item_description: string; line_items: { sku: string, quantity: number }[];
   address: string;
 };
 
@@ -145,6 +145,7 @@ function GeneralTab({
     remarks: record.remarks || '',
     item_description: record.item_description || '',
     address: record.address ?? '',
+    line_items: record.line_items || [],
   });
 
   // Re-sync draft when a different record is opened
@@ -163,6 +164,7 @@ function GeneralTab({
       remarks: record.remarks || '',
       item_description: record.item_description || '',
       address: record.address ?? '',
+    line_items: record.line_items || [],
     });
   }, [record.id]);
 
@@ -218,6 +220,7 @@ function GeneralTab({
       remarks: record.remarks || '',
       item_description: record.item_description || '',
       address: record.address ?? '',
+    line_items: record.line_items || [],
     });
     setRemarksError(false);
     setEditing(false);

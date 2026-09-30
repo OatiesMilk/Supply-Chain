@@ -68,6 +68,7 @@ export function serializeRecord(r: any) {
     is_draft: r.draft ? 'Yes' : 'No',
     date_time: r.dateAndTime,
     item_description: r.itemDescription,
+    line_items: r.lineItems?.map((li: any) => ({ id: li.id, sku: li.sku, quantity: li.quantity })) || [],
     address: r.address ?? '',
     document_attachment: r.documentAttachment,
     attachments: r.documentAttachment ? [r.documentAttachment] : [],
