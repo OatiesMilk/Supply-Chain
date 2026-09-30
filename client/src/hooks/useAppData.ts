@@ -102,12 +102,6 @@ export function useAppData(
   };
 
   const handleResetDemoData = async () => {
-    if (
-      !window.confirm(
-        'Reset all Supply Chain Portal data back to the original demo seed data? This clears every change made on the server and cannot be undone.'
-      )
-    )
-      return;
     await resetDemoDataMutation.mutateAsync();
   };
 

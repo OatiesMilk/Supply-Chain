@@ -58,7 +58,7 @@ interface DeliveryRecordWorkspaceProps {
   companies: ApiCompany[];
   onBack: () => void;
   onNavigateToRecord: (id: string) => void;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;
   forceReadOnly?: boolean;
 }
@@ -119,7 +119,7 @@ function GeneralTab({
   record: DeliveryRecord;
   currentUserRole: UserRole;
   currentUserName: string;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
 }) {
   const CategoryIcon = CATEGORY_ICON[record.category] ?? FileText;
 
@@ -494,7 +494,7 @@ function LinkedCollectionCard({
 }: {
   record: DeliveryRecord;
   currentUserRole: UserRole;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
 }) {
   const canLink = (currentUserRole === 'Logistics' || currentUserRole === 'Admin');
   const [linkInput, setLinkInput]   = useState('');
@@ -720,12 +720,14 @@ function ActionsTab({
   allRecords: DeliveryRecord[];
   currentUserRole: UserRole;
   currentUserName: string;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;
 }) {
   const [applying, setApplying] = useState(false);
+  const [selectedStatus, setSelectedStatus] = useState<DeliveryStatus>(record.status);
   const [statusRemarks, setStatusRemarks] = useState('');
   const [remarksError, setRemarksError] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
 
   const [selectedDriver, setSelectedDriver] = useState(record.driver);
   const [assistants, setAssistants] = useState<string[]>(record.driver_assistants ?? []);
@@ -747,33 +749,44 @@ function ActionsTab({
     setDriverFieldsRemarksError(false);
   }, [record.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleStatusChange = async (newStatus: DeliveryStatus) => {
+  useEffect(() => {
+    setSelectedStatus(record.status);
+    setStatusRemarks('');
+    setStatusError(null);
+    setRemarksError(false);
+  }, [record.id, record.status]);
+
+  const handleStatusChange = async () => {
+    if (applying || selectedStatus === record.status) return;
     if (!statusRemarks.trim()) {
       setRemarksError(true);
       return;
     }
     setRemarksError(false);
+    setStatusError(null);
     setApplying(true);
     const now = new Date().toISOString();
     const updates: Partial<DeliveryRecord> & { status_remarks?: string } = {
-      status: newStatus,
+      status: selectedStatus,
       status_remarks: statusRemarks.trim(),
       modified_by: `${currentUserName} (${currentUserRole})`,
       modified_at: now,
     };
 
-    const trigger = getOutputTrigger(record.category, newStatus);
-    if (trigger) {
-      const result = await runOutputActions(trigger, outputActionConfigs[trigger], {
-        amName: record.account_manager, at: now, recordId: record.id, api,
-      });
-      updates.output_actions_log = [...result.newEntries, ...(record.output_actions_log ?? [])];
-      updates.email_notification_sent = result.emailSent;
+    try {
+      await onUpdateRecord(record.id, updates);
+      setStatusRemarks('');
+      const trigger = getOutputTrigger(record.category, selectedStatus);
+      if (trigger) {
+        await runOutputActions(trigger, outputActionConfigs[trigger], {
+          amName: record.account_manager, at: now, recordId: record.id, api,
+        });
+      }
+    } catch (error) {
+      setStatusError(error instanceof Error ? error.message : 'Could not save the status change. Please try again.');
+    } finally {
+      setApplying(false);
     }
-
-    onUpdateRecord(record.id, updates);
-    setStatusRemarks('');
-    setApplying(false);
   };
 
   const addAssistant = () => setAssistants(prev => [...prev, '']);
@@ -827,29 +840,42 @@ function ActionsTab({
             placeholder="Reason for this status change (required)…"
             className={`w-full px-3 py-2 border rounded-lg text-xs resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${remarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
           />
-          {remarksError && <p className="text-[11px] text-red-600 font-semibold">Status change remarks are required before applying a new status.</p>}
+          {remarksError && <p role="alert" className="text-[11px] text-red-600 font-semibold">Add a reason before saving the status change.</p>}
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {([...DELIVERY_STATUSES] as DeliveryStatus[]).map(s => (
             <button
+              type="button"
               key={s}
-              onClick={() => handleStatusChange(s)}
-              disabled={applying || record.status === s}
-              className={`py-2.5 px-3 rounded-lg border text-xs font-bold transition-all ${
-                record.status === s
-                  ? 'bg-[#1F3864] text-white border-[#1F3864] cursor-default'
-                  : 'bg-white text-slate-700 border-slate-200 hover:border-[#0078C1] hover:text-[#0078C1] cursor-pointer disabled:opacity-50'
+              onClick={() => { setSelectedStatus(s); setStatusError(null); }}
+              disabled={applying}
+              aria-pressed={selectedStatus === s}
+              className={`min-h-10 rounded-lg border px-3 py-2.5 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] disabled:opacity-50 ${
+                selectedStatus === s
+                  ? 'border-[#1F3864] bg-[#1F3864] text-white'
+                  : 'border-slate-200 bg-white text-slate-700 hover:border-[#0078C1] hover:text-[#0078C1]'
               }`}
             >
-              {applying && record.status !== s ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin mx-auto" />
-              ) : s}
+              {s}
             </button>
           ))}
         </div>
-        <p className="text-[10px] text-slate-400">
-          Current status: <span className="font-bold text-slate-600">{record.status}</span>
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+          <p className="text-xs text-slate-600">
+            Current status: <span className="font-semibold text-slate-800">{record.status}</span>
+            {selectedStatus !== record.status && <span className="ml-2 text-[#1F3864]">→ {selectedStatus} (unsaved)</span>}
+          </p>
+          <button
+            type="button"
+            onClick={handleStatusChange}
+            disabled={applying || selectedStatus === record.status}
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#0078C1] px-4 text-xs font-semibold text-white hover:bg-[#1F3864] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {applying ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Check aria-hidden="true" className="h-4 w-4" />}
+            {applying ? 'Saving...' : 'Save Status Change'}
+          </button>
+        </div>
+        {statusError && <p role="alert" className="text-xs font-semibold text-red-700">{statusError}</p>}
       </div>
 
       {/* Driver assignment + completion fields */}
