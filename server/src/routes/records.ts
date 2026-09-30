@@ -414,6 +414,9 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   }
 
   const dbStatus = STATUS_TO_DB[status];
+  if (existing.status === dbStatus) {
+    return res.status(409).json({ error: 'Choose a different status before saving.' });
+  }
 
   const statusData: any = {
     status: dbStatus as any,
@@ -423,22 +426,31 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   if (time_out !== undefined) statusData.timeOut = time_out ?? null;
   if (received_by !== undefined) statusData.receivedBy = received_by ?? null;
 
-  const updated = await prisma.deliveryRecord.update({
-    where: { id: existing.id },
-    data: statusData,
-    include: recordInclude
+  const updated = await prisma.$transaction(async tx => {
+    // A second save using the status we loaded cannot create another audit event.
+    const changed = await tx.deliveryRecord.updateMany({
+      where: { id: existing.id, status: existing.status, deletedAt: null },
+      data: statusData,
+    });
+    if (changed.count === 0) return null;
+    const saved = await tx.deliveryRecord.findUniqueOrThrow({ where: { id: existing.id }, include: recordInclude });
+    await tx.auditLog.create({ data: {
+      recordId: saved.id,
+      recordType: 'DeliveryRecord',
+      action: 'UPDATE',
+      changedById: req.user!.id,
+      previousValue: JSON.stringify(serializeRecord(existing)),
+      newValue: JSON.stringify(serializeRecord(saved)),
+    } });
+    await tx.remarkLog.create({ data: {
+      recordId: saved.id,
+      body: String(remarks).trim(),
+      context: 'STATUS_CHANGE',
+      authorId: req.user!.id,
+    } });
+    return saved;
   });
-
-  await writeAuditLog({
-    recordId: updated.id,
-    recordType: 'DeliveryRecord',
-    action: 'UPDATE',
-    changedById: req.user!.id,
-    previousValue: serializeRecord(existing),
-    newValue: serializeRecord(updated)
-  });
-
-  await createRemarkLog(updated.id, String(remarks).trim(), 'STATUS_CHANGE', req.user!.id);
+  if (!updated) return res.status(409).json({ error: 'The status changed while you were editing. Refresh the record and try again.' });
 
   if (dbStatus === 'ACCOMPLISHED' && existing.status !== 'ACCOMPLISHED') {
     await notifyAccomplished({
