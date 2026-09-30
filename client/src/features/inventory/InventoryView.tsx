@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import Pagination from '@/components/Pagination';
 import { Search, Filter } from 'lucide-react';
 import { ApiSku } from '@/api';
 import SkuWorkspace from '@/features/inventory/SkuWorkspace';
@@ -22,6 +23,8 @@ export default function InventoryView({
   selectedProductIdFromDashboard,
   clearSelectedProductId
 }: InventoryViewProps) {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [warehouseFilter, setWarehouseFilter] = useState<string>('ALL');
@@ -232,7 +235,7 @@ export default function InventoryView({
                   </td>
                 </tr>
               ) : (
-                filteredSkus.map(sku => {
+                filteredSkus.slice((page - 1) * pageSize, page * pageSize).map(sku => {
                   const inv = sku.inventory;
                   const atp = inv?.atp ?? 0;
                   const onHand = inv?.on_hand_qty ?? 0;
@@ -274,9 +277,19 @@ export default function InventoryView({
           </table>
         </div>
 
-        <div className="p-3 bg-slate-50 border-t border-slate-100 text-[11px] text-slate-400 flex items-center justify-between">
-          <span>Showing {filteredSkus.length} of {skus.length} entries</span>
-          <span>Available to Promise (ATP) = On-Hand − Allocated</span>
+        <div className="border-t border-slate-100">
+          <Pagination
+            currentPage={page}
+            totalPages={Math.ceil(filteredSkus.length / pageSize) || 1}
+            totalItems={filteredSkus.length}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
+            pageSizeOptions={[10, 25, 50, 100]}
+          />
+          <div className="p-3 bg-slate-50 border-t border-slate-100 text-[11px] text-slate-400 flex justify-end">
+            <span>Available to Promise (ATP) = On-Hand − Allocated</span>
+          </div>
         </div>
       </div>
     </div>
