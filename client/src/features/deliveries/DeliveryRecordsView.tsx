@@ -833,294 +833,294 @@ export default function DeliveryRecordsView({
 
                 {/* RIGHT: search + filter toggle + record count */}
                 <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end shrink-0">
-        <div className="relative flex-1 sm:w-56 sm:flex-initial">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search records..."
-            className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-hidden focus:ring-1 focus:ring-[#0078C1]" />
-        </div>
-        <div className="relative">
-          <button
-            ref={advFilterBtnRef}
-            onClick={() => {
-              setShowAdvancedFilters(v => {
-                const next = !v;
-                if (next) {
-                  requestAnimationFrame(updatePopoverPosition);
-                }
-                return next;
-              });
-            }}
-            className={`relative flex items-center gap-1.5 px-2.5 py-2 rounded-lg border transition-all cursor-pointer ${showAdvancedFilters ? 'bg-blue-50 border-blue-300 text-blue-700' : hasAdvancedFilters ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-400'}`}
-            title="Toggle advanced filters"
-          >
-            <SlidersHorizontal className="w-4 h-4" />
-            {activeFilterCount > 0 && (
-              <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-blue-600 text-white text-[10px] font-black rounded-full leading-none">
-                {activeFilterCount}
-              </span>
-            )}
-          </button>
-
-          {/* ── Advanced Filters Popover ── */}
-          {showAdvancedFilters && (
-            <div
-              ref={advFilterPanelRef}
-              className={`absolute ${popoverAlign === 'left' ? 'left-0' : 'right-0'} top-full mt-2 z-40 bg-white border border-slate-200 rounded-xl shadow-2xl p-4 space-y-4`}
-              style={{
-                width: `${popoverMaxWidth}px`,
-                maxWidth: 'calc(100vw - 2rem)',
-                maxHeight: 'calc(100vh - 180px)',
-                overflowY: 'auto',
-              }}
-            >
-              {/* Popover header */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <SlidersHorizontal className="w-4 h-4 text-slate-500" />
-                  <span className="text-xs font-black text-slate-800 uppercase tracking-wider">Advanced Filters</span>
-                  {activeFilterCount > 0 && (
-                    <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-blue-600 text-white text-[10px] font-black rounded-full leading-none">
-                      {activeFilterCount}
-                    </span>
-                  )}
-                </div>
-                <button onClick={() => setShowAdvancedFilters(false)} className="p-1 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors">
-                  <X className="w-4 h-4 text-slate-400" />
-                </button>
-              </div>
-
-              {/* Geo filters */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Location</span>
-                </div>
-                <div className="grid grid-cols-1 gap-2">
-                  <select
-                    value={regionFilter}
-                    onChange={e => { setRegionFilter(e.target.value); setSubregionFilter('All Subregions'); setAreaFilter('All Areas'); }}
-                    className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-                  >
-                    <option value="All Regions">All Regions</option>
-                    {AREA_HIERARCHY.map(r => <option key={r.region} value={r.region}>{r.region}</option>)}
-                  </select>
-                  <div className="grid grid-cols-2 gap-2">
-                    <select
-                      value={subregionFilter}
-                      onChange={e => { setSubregionFilter(e.target.value); setAreaFilter('All Areas'); }}
-                      className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-                    >
-                      <option value="All Subregions">All Subregions</option>
-                      {(regionFilter === 'All Regions' ? AREA_HIERARCHY : AREA_HIERARCHY.filter(r => r.region === regionFilter))
-                        .flatMap(r => r.subregions)
-                        .map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
-                    </select>
-                    <select
-                      value={areaFilter}
-                      onChange={e => setAreaFilter(e.target.value)}
-                      className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-                    >
-                      {distinctAreasForFilter.map(a => <option key={a} value={a}>{a}</option>)}
-                    </select>
+                  <div className="relative flex-1 sm:w-56 sm:flex-initial">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search records..."
+                      className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-hidden focus:ring-1 focus:ring-[#0078C1]" />
                   </div>
-                </div>
-              </div>
-
-              {/* AM + Driver */}
-              <div className="space-y-2">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Personnel</span>
-                <div className="grid grid-cols-2 gap-2">
-                  <AccountManagerCombobox
-                    value={amFilter}
-                    onChange={setAmFilter}
-                    options={amOptions}
-                    placeholder="Account Manager"
-                    inputClassName="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] placeholder:text-slate-400"
-                  />
-                  <AccountManagerCombobox
-                    value={driverFilter}
-                    onChange={setDriverFilter}
-                    options={driverOptions}
-                    placeholder="Driver"
-                    inputClassName="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] placeholder:text-slate-400"
-                  />
-                </div>
-              </div>
-
-              {/* Date range + sort */}
-              <div className="space-y-2">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date Range</span>
-                <div className="flex items-center gap-2">
-                  <input
-                    ref={dateFromRef}
-                    type="date"
-                    value={dateFrom}
-                    onChange={e => setDateFrom(e.target.value)}
-                    title="Date from"
-                    className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer flex-1 min-w-0"
-                  />
-                  <span className="text-[11px] text-slate-400 font-semibold shrink-0">—</span>
-                  <input
-                    type="date"
-                    value={dateTo}
-                    onChange={e => setDateTo(e.target.value)}
-                    title="Date to"
-                    className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer flex-1 min-w-0"
-                  />
-                  {(dateFrom || dateTo) && (
+                  <div className="relative">
                     <button
-                      onClick={() => { setDateFrom(''); setDateTo(''); }}
-                      title="Clear date filter"
-                      className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                      ref={advFilterBtnRef}
+                      onClick={() => {
+                        setShowAdvancedFilters(v => {
+                          const next = !v;
+                          if (next) {
+                            requestAnimationFrame(updatePopoverPosition);
+                          }
+                          return next;
+                        });
+                      }}
+                      className={`relative flex items-center gap-1.5 px-2.5 py-2 rounded-lg border transition-all cursor-pointer ${showAdvancedFilters ? 'bg-blue-50 border-blue-300 text-blue-700' : hasAdvancedFilters ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-400'}`}
+                      title="Toggle advanced filters"
                     >
-                      <X className="w-3.5 h-3.5" />
+                      <SlidersHorizontal className="w-4 h-4" />
+                      {activeFilterCount > 0 && (
+                        <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-blue-600 text-white text-[10px] font-black rounded-full leading-none">
+                          {activeFilterCount}
+                        </span>
+                      )}
                     </button>
-                  )}
+
+                    {/* ── Advanced Filters Popover ── */}
+                    {showAdvancedFilters && (
+                      <div
+                        ref={advFilterPanelRef}
+                        className={`absolute ${popoverAlign === 'left' ? 'left-0' : 'right-0'} top-full mt-2 z-40 bg-white border border-slate-200 rounded-xl shadow-2xl p-4 space-y-4`}
+                        style={{
+                          width: `${popoverMaxWidth}px`,
+                          maxWidth: 'calc(100vw - 2rem)',
+                          maxHeight: 'calc(100vh - 180px)',
+                          overflowY: 'auto',
+                        }}
+                      >
+                        {/* Popover header */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <SlidersHorizontal className="w-4 h-4 text-slate-500" />
+                            <span className="text-xs font-black text-slate-800 uppercase tracking-wider">Advanced Filters</span>
+                            {activeFilterCount > 0 && (
+                              <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-blue-600 text-white text-[10px] font-black rounded-full leading-none">
+                                {activeFilterCount}
+                              </span>
+                            )}
+                          </div>
+                          <button onClick={() => setShowAdvancedFilters(false)} className="p-1 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors">
+                            <X className="w-4 h-4 text-slate-400" />
+                          </button>
+                        </div>
+
+                        {/* Geo filters */}
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-1.5">
+                            <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Location</span>
+                          </div>
+                          <div className="grid grid-cols-1 gap-2">
+                            <select
+                              value={regionFilter}
+                              onChange={e => { setRegionFilter(e.target.value); setSubregionFilter('All Subregions'); setAreaFilter('All Areas'); }}
+                              className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+                            >
+                              <option value="All Regions">All Regions</option>
+                              {AREA_HIERARCHY.map(r => <option key={r.region} value={r.region}>{r.region}</option>)}
+                            </select>
+                            <div className="grid grid-cols-2 gap-2">
+                              <select
+                                value={subregionFilter}
+                                onChange={e => { setSubregionFilter(e.target.value); setAreaFilter('All Areas'); }}
+                                className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+                              >
+                                <option value="All Subregions">All Subregions</option>
+                                {(regionFilter === 'All Regions' ? AREA_HIERARCHY : AREA_HIERARCHY.filter(r => r.region === regionFilter))
+                                  .flatMap(r => r.subregions)
+                                  .map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+                              </select>
+                              <select
+                                value={areaFilter}
+                                onChange={e => setAreaFilter(e.target.value)}
+                                className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+                              >
+                                {distinctAreasForFilter.map(a => <option key={a} value={a}>{a}</option>)}
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* AM + Driver */}
+                        <div className="space-y-2">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Personnel</span>
+                          <div className="grid grid-cols-2 gap-2">
+                            <AccountManagerCombobox
+                              value={amFilter}
+                              onChange={setAmFilter}
+                              options={amOptions}
+                              placeholder="Account Manager"
+                              inputClassName="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] placeholder:text-slate-400"
+                            />
+                            <AccountManagerCombobox
+                              value={driverFilter}
+                              onChange={setDriverFilter}
+                              options={driverOptions}
+                              placeholder="Driver"
+                              inputClassName="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] placeholder:text-slate-400"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Date range + sort */}
+                        <div className="space-y-2">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date Range</span>
+                          <div className="flex items-center gap-2">
+                            <input
+                              ref={dateFromRef}
+                              type="date"
+                              value={dateFrom}
+                              onChange={e => setDateFrom(e.target.value)}
+                              title="Date from"
+                              className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer flex-1 min-w-0"
+                            />
+                            <span className="text-[11px] text-slate-400 font-semibold shrink-0">—</span>
+                            <input
+                              type="date"
+                              value={dateTo}
+                              onChange={e => setDateTo(e.target.value)}
+                              title="Date to"
+                              className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer flex-1 min-w-0"
+                            />
+                            {(dateFrom || dateTo) && (
+                              <button
+                                onClick={() => { setDateFrom(''); setDateTo(''); }}
+                                title="Clear date filter"
+                                className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                          <select
+                            value={dateSort}
+                            onChange={e => setDateSort(e.target.value as typeof dateSort)}
+                            disabled={!!(dateFrom || dateTo)}
+                            title={(dateFrom || dateTo) ? 'Sort order is N/A while a date range filter is active' : undefined}
+                            className={`text-[11px] font-semibold border rounded-lg px-2.5 py-2 w-full focus:outline-none focus:ring-1 focus:ring-[#0078C1] ${(dateFrom || dateTo) ? 'border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-700 cursor-pointer'}`}
+                          >
+                            {(dateFrom || dateTo) && <option value={dateSort}>Sort: N/A</option>}
+                            <option value="default">Date: Default</option>
+                            <option value="nearest">Nearest to Present</option>
+                            <option value="oldest">Oldest First</option>
+                            <option value="furthest">Furthest Future First</option>
+                          </select>
+                        </div>
+
+                        {/* Footer: Clear all + Apply/Close */}
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                          {hasAdvancedFilters ? (
+                            <button
+                              onClick={() => { setRegionFilter('All Regions'); setSubregionFilter('All Subregions'); setAreaFilter('All Areas'); setAmFilter(''); setDriverFilter(''); setDateFrom(''); setDateTo(''); setDateSort('default'); }}
+                              className="px-3 py-1.5 text-red-600 hover:bg-red-50 font-bold text-[10px] uppercase cursor-pointer rounded-lg transition-colors"
+                            >
+                              Clear All Filters
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-slate-400">No filters active</span>
+                          )}
+                          <button
+                            onClick={() => setShowAdvancedFilters(false)}
+                            className="px-4 py-1.5 bg-[#1F3864] hover:bg-blue-900 text-white text-[11px] font-bold rounded-lg transition-colors cursor-pointer"
+                          >
+                            Done
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-[11px] font-bold text-slate-400 tabular-nums shrink-0">{sortedFiltered.length}</span>
                 </div>
-                <select
-                  value={dateSort}
-                  onChange={e => setDateSort(e.target.value as typeof dateSort)}
-                  disabled={!!(dateFrom || dateTo)}
-                  title={(dateFrom || dateTo) ? 'Sort order is N/A while a date range filter is active' : undefined}
-                  className={`text-[11px] font-semibold border rounded-lg px-2.5 py-2 w-full focus:outline-none focus:ring-1 focus:ring-[#0078C1] ${(dateFrom || dateTo) ? 'border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-700 cursor-pointer'}`}
-                >
-                  {(dateFrom || dateTo) && <option value={dateSort}>Sort: N/A</option>}
-                  <option value="default">Date: Default</option>
-                  <option value="nearest">Nearest to Present</option>
-                  <option value="oldest">Oldest First</option>
-                  <option value="furthest">Furthest Future First</option>
-                </select>
-              </div>
-
-              {/* Footer: Clear all + Apply/Close */}
-              <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                {hasAdvancedFilters ? (
-                  <button
-                    onClick={() => { setRegionFilter('All Regions'); setSubregionFilter('All Subregions'); setAreaFilter('All Areas'); setAmFilter(''); setDriverFilter(''); setDateFrom(''); setDateTo(''); setDateSort('default'); }}
-                    className="px-3 py-1.5 text-red-600 hover:bg-red-50 font-bold text-[10px] uppercase cursor-pointer rounded-lg transition-colors"
-                  >
-                    Clear All Filters
-                  </button>
-                ) : (
-                  <span className="text-[10px] text-slate-400">No filters active</span>
-                )}
-                <button
-                  onClick={() => setShowAdvancedFilters(false)}
-                  className="px-4 py-1.5 bg-[#1F3864] hover:bg-blue-900 text-white text-[11px] font-bold rounded-lg transition-colors cursor-pointer"
-                >
-                  Done
-                </button>
               </div>
             </div>
-          )}
-        </div>
-        <span className="text-[11px] font-bold text-slate-400 tabular-nums shrink-0">{sortedFiltered.length}</span>
-      </div>
-    </div>
-            </div>
 
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[700px] table-fixed text-left border-collapse text-sm">
-        <colgroup>
-          {showCheckbox && <col style={{ width: '4%', minWidth: '40px' }} />}
-          <col style={{ width: `${colPct.id}%`, minWidth: colMinWidth.id }} />
-          <col style={{ width: `${colPct.company}%`, minWidth: colMinWidth.company }} />
-          <col style={{ width: `${colPct.area}%`, minWidth: colMinWidth.area }} />
-          <col style={{ width: `${colPct.date}%`, minWidth: colMinWidth.date }} />
-          <col style={{ width: `${colPct.driver}%`, minWidth: colMinWidth.driver }} />
-          <col style={{ width: `${colPct.status}%`, minWidth: colMinWidth.status }} />
-          {showCollectionCol && <col style={{ width: '8%', minWidth: '90px' }} />}
-        </colgroup>
-        <thead>
-          <tr className="bg-slate-100 border-b border-slate-200 text-xs font-black text-slate-500 uppercase tracking-wider">
-            {showCheckbox && (
-              <th className="px-4 py-3" style={{ minWidth: '40px' }}>
-                <input
-                  type="checkbox"
-                  className="rounded cursor-pointer"
-                  checked={sortedFiltered.length > 0 && selectedBulkIds.size === sortedFiltered.length}
-                  onChange={toggleAllBulk}
-                />
-              </th>
-            )}
-            <th className="px-4 py-3" style={{ minWidth: colMinWidth.id }}>Record ID</th>
-            <th className="px-4 py-3" style={{ minWidth: colMinWidth.company }}>Company</th>
-            <th className="px-4 py-3" style={{ minWidth: colMinWidth.area }}>Area</th>
-            <th className="px-4 py-3 text-center" style={{ minWidth: colMinWidth.date }}>Delivery Date</th>
-            <th className="px-4 py-3" style={{ minWidth: colMinWidth.driver }}>Driver</th>
-            <th className="px-4 py-3 text-center" style={{ minWidth: colMinWidth.status }}>Status</th>
-            {currentUserRole === 'TASS' && category === 'Accounting Collection' && (
-              <th className="px-4 py-3 text-center" style={{ minWidth: '90px' }}>Collection</th>
-            )}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {paginatedRecords.length === 0 ? (
-            <tr><td colSpan={10} className="px-4 py-3.5 text-center text-gray-400">No matching records found.</td></tr>
-          ) : paginatedRecords.map(rec => {
-            const isSelected = selectedId === rec.id;
-            return (
-              <tr key={rec.id} onClick={() => { setSelectedId(rec.id); setShowForm(false); }}
-                className={`hover:bg-slate-50 cursor-pointer transition-all ${isSelected ? 'bg-blue-50/80 font-medium border-l-4 border-l-[#0078C1]' : ''}`}>
-                {showCheckbox && (
-                  <td className="px-4 py-3.5">
-                    <input
-                      type="checkbox"
-                      className="rounded cursor-pointer"
-                      checked={selectedBulkIds.has(rec.id)}
-                      onClick={e => e.stopPropagation()}
-                      onChange={() => toggleBulkId(rec.id)}
-                    />
-                  </td>
-                )}
-                <td className="px-4 py-3.5 font-bold text-slate-400 truncate">{rec.id}</td>
-                <td className="px-4 py-3.5">
-                  <div className="font-medium text-sm text-slate-900 truncate" title={rec.company_name}>{rec.company_name}</div>
-                  <div className="text-xs text-gray-400 mt-0.5 truncate" title={rec.area}>{rec.area}</div>
-                </td>
-                <td className="px-4 py-3.5 truncate text-slate-600" title={rec.area}>{rec.area}</td>
-                <td className="px-4 py-3.5 text-center text-slate-600 tabular-nums">{rec.delivery_date}</td>
-                <td className="px-4 py-3.5 truncate text-slate-600" title={rec.driver}>{rec.driver || <span className="text-xs text-slate-400 italic">Unassigned</span>}</td>
-                <td className="px-4 py-3.5 text-center">
-                  <span className={`px-2.5 py-0.5 rounded-full border text-[10.5px] font-semibold inline-block ${statusColor(rec.status)}`}>{rec.status}</span>
-                </td>
-                {currentUserRole === 'TASS' && category === 'Accounting Collection' && (
-                  <td className="px-4 py-3.5 text-center">
-                    {rec.collection_verified
-                      ? <span className="text-emerald-600 font-bold text-[10px] flex items-center justify-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Verified</span>
-                      : <span className="text-slate-300 text-[10px] italic">—</span>
-                    }
-                  </td>
-                )}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-    <div className="border-t border-slate-200 print:hidden">
-      <Pagination
-        currentPage={safeCurrentPage}
-        totalPages={totalPages}
-        totalItems={sortedFiltered.length}
-        pageSize={pageSize}
-        onPageChange={setCurrentPage}
-        onPageSizeChange={(newSize) => {
-          setPageSize(newSize);
-          setCurrentPage(1);
-        }}
-        pageSizeOptions={[10, 25, 50, 100]}
-      />
-    </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[700px] table-fixed text-left border-collapse text-sm">
+                <colgroup>
+                  {showCheckbox && <col style={{ width: '4%', minWidth: '40px' }} />}
+                  <col style={{ width: `${colPct.id}%`, minWidth: colMinWidth.id }} />
+                  <col style={{ width: `${colPct.company}%`, minWidth: colMinWidth.company }} />
+                  <col style={{ width: `${colPct.area}%`, minWidth: colMinWidth.area }} />
+                  <col style={{ width: `${colPct.date}%`, minWidth: colMinWidth.date }} />
+                  <col style={{ width: `${colPct.driver}%`, minWidth: colMinWidth.driver }} />
+                  <col style={{ width: `${colPct.status}%`, minWidth: colMinWidth.status }} />
+                  {showCollectionCol && <col style={{ width: '8%', minWidth: '90px' }} />}
+                </colgroup>
+                <thead>
+                  <tr className="bg-slate-100 border-b border-slate-200 text-xs font-black text-slate-500 uppercase tracking-wider">
+                    {showCheckbox && (
+                      <th className="px-4 py-3" style={{ minWidth: '40px' }}>
+                        <input
+                          type="checkbox"
+                          className="rounded cursor-pointer"
+                          checked={sortedFiltered.length > 0 && selectedBulkIds.size === sortedFiltered.length}
+                          onChange={toggleAllBulk}
+                        />
+                      </th>
+                    )}
+                    <th className="px-4 py-3" style={{ minWidth: colMinWidth.id }}>Record ID</th>
+                    <th className="px-4 py-3" style={{ minWidth: colMinWidth.company }}>Company</th>
+                    <th className="px-4 py-3" style={{ minWidth: colMinWidth.area }}>Area</th>
+                    <th className="px-4 py-3 text-center" style={{ minWidth: colMinWidth.date }}>Delivery Date</th>
+                    <th className="px-4 py-3" style={{ minWidth: colMinWidth.driver }}>Driver</th>
+                    <th className="px-4 py-3 text-center" style={{ minWidth: colMinWidth.status }}>Status</th>
+                    {currentUserRole === 'TASS' && category === 'Accounting Collection' && (
+                      <th className="px-4 py-3 text-center" style={{ minWidth: '90px' }}>Collection</th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {paginatedRecords.length === 0 ? (
+                    <tr><td colSpan={10} className="px-4 py-3.5 text-center text-gray-400">No matching records found.</td></tr>
+                  ) : paginatedRecords.map(rec => {
+                    const isSelected = selectedId === rec.id;
+                    return (
+                      <tr key={rec.id} onClick={() => { setSelectedId(rec.id); setShowForm(false); }}
+                        className={`hover:bg-slate-50 cursor-pointer transition-all ${isSelected ? 'bg-blue-50/80 font-medium border-l-4 border-l-[#0078C1]' : ''}`}>
+                        {showCheckbox && (
+                          <td className="px-4 py-3.5">
+                            <input
+                              type="checkbox"
+                              className="rounded cursor-pointer"
+                              checked={selectedBulkIds.has(rec.id)}
+                              onClick={e => e.stopPropagation()}
+                              onChange={() => toggleBulkId(rec.id)}
+                            />
+                          </td>
+                        )}
+                        <td className="px-4 py-3.5 font-bold text-slate-400 truncate">{rec.id}</td>
+                        <td className="px-4 py-3.5">
+                          <div className="font-medium text-sm text-slate-900 truncate" title={rec.company_name}>{rec.company_name}</div>
+                          <div className="text-xs text-gray-400 mt-0.5 truncate" title={rec.area}>{rec.area}</div>
+                        </td>
+                        <td className="px-4 py-3.5 truncate text-slate-600" title={rec.area}>{rec.area}</td>
+                        <td className="px-4 py-3.5 text-center text-slate-600 tabular-nums">{rec.delivery_date}</td>
+                        <td className="px-4 py-3.5 truncate text-slate-600" title={rec.driver}>{rec.driver || <span className="text-xs text-slate-400 italic">Unassigned</span>}</td>
+                        <td className="px-4 py-3.5 text-center">
+                          <span className={`px-2.5 py-0.5 rounded-full border text-[10.5px] font-semibold inline-block ${statusColor(rec.status)}`}>{rec.status}</span>
+                        </td>
+                        {currentUserRole === 'TASS' && category === 'Accounting Collection' && (
+                          <td className="px-4 py-3.5 text-center">
+                            {rec.collection_verified
+                              ? <span className="text-emerald-600 font-bold text-[10px] flex items-center justify-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Verified</span>
+                              : <span className="text-slate-300 text-[10px] italic">—</span>
+                            }
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="border-t border-slate-200 print:hidden">
+              <Pagination
+                currentPage={safeCurrentPage}
+                totalPages={totalPages}
+                totalItems={sortedFiltered.length}
+                pageSize={pageSize}
+                onPageChange={setCurrentPage}
+                onPageSizeChange={(newSize) => {
+                  setPageSize(newSize);
+                  setCurrentPage(1);
+                }}
+                pageSizeOptions={[10, 25, 50, 100]}
+              />
+            </div>
           </div >
         </div >
       )
-}
+      }
 
-{/* Print-only header for PDF export */ }
-<div className="hidden print:block mb-4">
-  <h1 className="text-lg font-bold">Accounting Collection Records — {new Date().toLocaleDateString()}</h1>
-</div>
+      {/* Print-only header for PDF export */}
+      <div className="hidden print:block mb-4">
+        <h1 className="text-lg font-bold">Accounting Collection Records — {new Date().toLocaleDateString()}</h1>
+      </div>
     </div >
   );
 }
