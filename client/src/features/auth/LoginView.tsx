@@ -72,7 +72,7 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
     setIsSeeding(true);
     setError(null);
     try {
-      const res = await api.post('/dev/public-seed', {});
+      const res = await fetch(apiUrl('/dev/public-seed'), { method: 'POST' });
       if (res.ok) {
         alert('Database has been successfully seeded with demo data!');
       } else {
