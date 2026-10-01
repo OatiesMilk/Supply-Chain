@@ -20,10 +20,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   try {
     res = await fetch(`/api${path}`, {
       credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options.headers || {})
-      },
+      headers: options.body instanceof FormData
+        ? { ...(options.headers || {}) }
+        : { 'Content-Type': 'application/json', ...(options.headers || {}) },
       ...options
     });
   } catch (error) {
@@ -227,6 +226,15 @@ export interface ApiRemarkLog {
   created_at: string;
 }
 
+export interface ApiPodAttachment {
+  id: string;
+  name: string;
+  mime_type: string;
+  size: number;
+  uploaded_at: string;
+  download_url: string;
+}
+
 export interface ApiReportSummary {
   total: number;
   accomplished: number;
@@ -385,6 +393,14 @@ export const api = {
     request<any>(`/records/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, remarks: remarks ?? '', ...extra }) }),
   verifyCollection: (id: string) =>
     request<any>(`/records/${id}/verify-collection`, { method: 'PATCH' }),
+  getRecordAttachments: (id: string) => request<ApiPodAttachment[]>(`/records/${id}/attachments`),
+  uploadRecordAttachment: (id: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<ApiPodAttachment>(`/records/${id}/attachments`, { method: 'POST', body: form });
+  },
+  deleteRecordAttachment: (id: string, attachmentId: string) =>
+    request<void>(`/records/${id}/attachments/${attachmentId}`, { method: 'DELETE' }),
 
   getCompanies: () => request<ApiCompany[]>('/companies'),
 
