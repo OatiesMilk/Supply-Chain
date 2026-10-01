@@ -183,21 +183,33 @@ router.post(
   asyncRoute(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'A file is required.' });
     const record = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null } });
-    if (!record) {
-      await podStorage.remove(req.file.filename);
-      return res.status(404).json({ error: 'Record not found' });
-    }
+    if (!record) return res.status(404).json({ error: 'Record not found' });
 
-    const attachment = await prisma.podAttachment.create({
-      data: {
-        recordId: record.id,
-        originalName: req.file.originalname,
-        storageKey: req.file.filename,
-        mimeType: req.file.mimetype,
-        size: req.file.size,
-        uploadedById: req.user!.id
-      }
+    const storageKey = await podStorage.save({
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      size: req.file.size,
+      buffer: req.file.buffer
     });
+
+    let attachment;
+    try {
+      attachment = await prisma.podAttachment.create({
+        data: {
+          recordId: record.id,
+          originalName: req.file.originalname,
+storageKey,
+          mimeType: req.file.mimetype,
+          size: req.file.size,
+          uploadedById: req.user!.id
+        }
+      });
+    } catch (error) {
+await podStorage.remove(storageKey).catch(cleanupError => {
+        console.error('[POD] Failed to clean up storage after metadata failure', cleanupError);
+      });
+      throw error;
+    }
     res.status(201).json({
       id: attachment.id,
       name: attachment.originalName,
@@ -214,10 +226,15 @@ router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResour
     where: { id: req.params.attachmentId, recordId: req.params.id }
   });
   if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
-  const path = podStorage.pathFor(attachment.storageKey);
-  res.download(path, attachment.originalName, { headers: { 'Content-Type': attachment.mimeType } }, err => {
-    if (err && !res.headersSent) res.status(404).json({ error: 'Attachment file not found' });
-  });
+  try {
+    const content = await podStorage.read(attachment.storageKey);
+    res.setHeader('Content-Type', attachment.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(attachment.originalName)}"`);
+    res.send(content);
+  } catch (error) {
+    if (!res.headersSent) res.status(404).json({ error: 'Attachment file not found' });
+    else console.error('[POD] Failed to read attachment', error);
+  }
 }));
 
 router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'), asyncRoute(async (req, res) => {
@@ -225,8 +242,12 @@ router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('re
     where: { id: req.params.attachmentId, recordId: req.params.id }
   });
   if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
+  try {
+    await podStorage.remove(attachment.storageKey);
+  } catch (error) {
+    return res.status(500).json({ error: 'Attachment could not be removed from storage. The database record was preserved for retry.' });
+  }
   await prisma.podAttachment.delete({ where: { id: attachment.id } });
-  await podStorage.remove(attachment.storageKey);
   res.status(204).send();
 }));
 

@@ -60,6 +60,10 @@ JWT_SECRET="replace-with-a-long-random-development-secret"
 PORT=4000
 CLIENT_ORIGIN="http://localhost:3000"
 POD_UPLOAD_DIR="./uploads/pod"
+POD_STORAGE_PROVIDER="local"
+SUPABASE_URL=""
+SUPABASE_SERVICE_ROLE_KEY=""
+SUPABASE_STORAGE_BUCKET="pod"
 ```
 
 `DATABASE_URL` in `server/.env` is intentionally a literal value because
@@ -67,6 +71,12 @@ Prisma and plain dotenv do not expand `${...}` references. If you change the
 PostgreSQL username, password, database, host, or port in the root `.env`,
 update this URL manually as well. `POD_UPLOAD_DIR` is relative to the
 `server/` directory and is ignored by Git.
+`DATABASE_URL` must use the same username, password, database, host, and port
+as the Docker settings in the root `.env`. `POD_UPLOAD_DIR` is relative to
+the `server/` directory and is ignored by Git. Local development uses
+`POD_STORAGE_PROVIDER="local"`. Staging/production should use
+`POD_STORAGE_PROVIDER="supabase"` with a private bucket and the server-only
+`SUPABASE_SERVICE_ROLE_KEY`; never expose that key to the client.
 
 Never commit `.env`, `server/.env`, or credentials to source control.
 
@@ -263,6 +273,15 @@ npm run seed:users-only
 
 It leaves companies, customers, suppliers, deliveries, inventory, drivers,
 notifications, audit history, and POD metadata empty.
+
+**You want to reconcile local POD files**
+If an upload or delete operation is interrupted, run the maintenance command
+from the repository root to remove untracked POD files and report metadata
+whose physical file is missing:
+
+```bash
+npm run pod:reconcile
+```
 
 ## Where to go next
 
