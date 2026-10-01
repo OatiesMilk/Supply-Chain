@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import multer from 'multer';
+import { UnsupportedUploadTypeError } from '../middleware/uploadErrors';
 
 export interface PodFile {
   originalName: string;
@@ -92,9 +93,19 @@ export const podUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, callback) => {
-    if (!file.mimetype || file.mimetype === 'application/octet-stream' || file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf' || file.mimetype.startsWith('text/') || file.mimetype.includes('word') || file.mimetype.includes('excel') || file.mimetype.includes('spreadsheet')) {
+    const type = file.mimetype.toLowerCase();
+    const extension = path.extname(file.originalname).toLowerCase();
+    const expectedMimeType: Record<string, string> = {
+      '.pdf': 'application/pdf',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.doc': 'application/msword'
+    };
+
+    if (expectedMimeType[extension] === type) {
       return callback(null, true);
     }
-    callback(new Error('Unsupported file type. Upload a PDF, document, spreadsheet, image, or text file.'));
+    callback(new UnsupportedUploadTypeError());
   }
 });
