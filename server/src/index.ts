@@ -121,9 +121,24 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   res.status(500).json({ error: 'Internal server error' });
 });
 
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ ok: true, timestamp: new Date().toISOString() });
+});
+
 app.listen(PORT, () => {
   console.log(`Microgenesis Supply Chain Portal API listening on http://localhost:${PORT}`);
   saveDailyStatusSnapshot(); // seed today's snapshot immediately on boot
+
+  // Self-ping to prevent Render free tier from sleeping
+  const externalUrl = process.env.RENDER_EXTERNAL_URL;
+  if (externalUrl) {
+    setInterval(() => {
+      fetch(`${externalUrl}/api/health`)
+        .then(res => res.json())
+        .then(data => console.log('[Self-Ping]', data))
+        .catch(err => console.error('[Self-Ping Error]', err.message));
+    }, 10 * 60 * 1000); // 10 minutes
+  }
 });
 
 // ── Daily scheduled notifications ────────────────────────────────────────────
