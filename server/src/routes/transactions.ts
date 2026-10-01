@@ -1,37 +1,36 @@
 import { Router } from 'express';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../db';
-import { requireResource, requireAuth } from '../middleware/auth';
+import { requireAuth } from '../middleware/auth';
+import { asyncRoute } from '../middleware/asyncRoute';
+import { canAccessTransactions, canAccessInventoryTransactions, transactionRecordScope } from '../services/transactionAccess';
 import { CATEGORY_FROM_DB, STATUS_FROM_DB, parseDriverAssistants } from '../mappings';
 
 const router = Router();
 
 // ─── Role-based access helpers ───────────────────────────────────────────────
 
-/** Returns the allowed DB category strings for a role, or null for "all". */
-function allowedCategoriesForRole(role: string): string[] | null {
-  switch (role) {
-    case 'ADMIN':
-      return null; // no restriction
-    case 'SALES_COORDINATOR':
-      return ['DELIVERY', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'];
-    case 'LOGISTICS':
-      return ['DELIVERY', 'RMA', 'PROCUREMENT_PICKUP'];
-    case 'TASS':
-      return ['ACCOUNTING_COLLECTION'];
-    default:
-      return null;
+// Preserve staff module grants while allowing only scoped driver API reads.
+const requireTransactionAccess = asyncRoute(async (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  if (!canAccessTransactions(req.user)) return res.status(403).json({ error: 'Module access denied' });
+  if (req.user.role === 'DRIVER') {
+    // Legacy assignments store names rather than account IDs. Never treat an
+    // ambiguous name as proof of ownership, including inactive driver accounts.
+    const identities = await prisma.user.findMany({
+      where: { role: 'DRIVER', name: req.user.name }, select: { id: true }, take: 2,
+    });
+    if (identities.length !== 1 || identities[0].id !== req.user.id) {
+      return res.status(403).json({ error: 'Driver identity cannot be verified' });
+    }
   }
-}
-
-/** TASS cannot view inventory transactions. */
-function canAccessInventory(role: string): boolean {
-  return role !== 'TASS';
-}
+  next();
+});
 
 // ─── GET /api/transactions ────────────────────────────────────────────────────
 
-router.get('/', requireAuth, requireResource('transactions'), async (req, res) => {
-  const role = req.user!.role;
+router.get('/', requireAuth, requireTransactionAccess, asyncRoute(async (req, res) => {
+  const user = req.user!;
 
   // Parse query params
   const page  = Math.max(1, parseInt(String(req.query.page  ?? '1'),  10) || 1);
@@ -42,26 +41,20 @@ router.get('/', requireAuth, requireResource('transactions'), async (req, res) =
   const toParam       = req.query.to       ? String(req.query.to)       : null;
   const statusParam   = req.query.status   ? String(req.query.status)   : null;
 
-  const allowedCategories = allowedCategoriesForRole(role);
+  if (!['all', 'delivery', 'inventory'].includes(sourceParam)) {
+    return res.status(400).json({ error: 'Invalid source. Must be "all", "delivery" or "inventory".' });
+  }
+  if (sourceParam === 'inventory' && !canAccessInventoryTransactions(user)) {
+    return res.status(403).json({ error: 'Inventory access denied' });
+  }
   const merged: any[] = [];
 
   // ── Delivery records ───────────────────────────────────────────────────────
   const includeDelivery = sourceParam === 'all' || sourceParam === 'delivery';
   if (includeDelivery) {
-    const where: any = { deletedAt: null };
-
-    // Enforce role-based category restriction
-    if (allowedCategories) {
-      where.category = { in: allowedCategories };
-    }
-
-    // Apply optional category filter (only if it's within the role's allowed set)
-    if (categoryParam) {
-      const allowed = allowedCategories ? allowedCategories.includes(categoryParam) : true;
-      if (allowed) {
-        where.category = categoryParam;
-      }
-    }
+    const where: Prisma.DeliveryRecordWhereInput = {
+      AND: [transactionRecordScope(user), ...(categoryParam ? [{ category: categoryParam }] : [])],
+    };
 
     if (statusParam) {
       where.status = statusParam;
@@ -98,7 +91,7 @@ router.get('/', requireAuth, requireResource('transactions'), async (req, res) =
 
   // ── Inventory transactions ─────────────────────────────────────────────────
   const includeInventory =
-    canAccessInventory(role) && (sourceParam === 'all' || sourceParam === 'inventory');
+    canAccessInventoryTransactions(user) && (sourceParam === 'all' || sourceParam === 'inventory');
 
   if (includeInventory) {
     const where: any = {};
@@ -154,27 +147,21 @@ router.get('/', requireAuth, requireResource('transactions'), async (req, res) =
   const transactions = merged.slice(start, start + limit);
 
   res.json({ page, limit, total, pages, transactions });
-});
+}));
 
 // ─── GET /api/transactions/:source/:id ───────────────────────────────────────
 
-router.get('/:source/:id', requireAuth, requireResource('transactions'), async (req, res) => {
-  const role   = req.user!.role;
+router.get('/:source/:id', requireAuth, requireTransactionAccess, asyncRoute(async (req, res) => {
+  const user   = req.user!;
   const source = req.params.source;
   const id     = req.params.id;
 
   if (source === 'delivery') {
     const record = await prisma.deliveryRecord.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, AND: [transactionRecordScope(user)] },
       include: { company: true, createdBy: true, modifiedBy: true }
     });
     if (!record) return res.status(404).json({ error: 'Delivery record not found' });
-
-    // Role gate
-    const allowedCategories = allowedCategoriesForRole(role);
-    if (allowedCategories && !allowedCategories.includes(record.category)) {
-      return res.status(403).json({ error: 'Access denied for this record category' });
-    }
 
     // Audit log for timeline (oldest → newest)
     const auditEntries = await prisma.auditLog.findMany({
@@ -239,7 +226,7 @@ router.get('/:source/:id', requireAuth, requireResource('transactions'), async (
   }
 
   if (source === 'inventory') {
-    if (!canAccessInventory(role)) {
+    if (!canAccessInventoryTransactions(user)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -287,6 +274,6 @@ router.get('/:source/:id', requireAuth, requireResource('transactions'), async (
   }
 
   return res.status(400).json({ error: 'Invalid source. Must be "delivery" or "inventory".' });
-});
+}));
 
 export default router;
