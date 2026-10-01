@@ -4,6 +4,13 @@ import crypto from 'node:crypto';
 import multer from 'multer';
 
 const uploadDir = path.resolve(process.env.POD_UPLOAD_DIR || path.join(process.cwd(), 'uploads', 'pod'));
+
+export function podStorageKeys(): Promise<string[]> {
+  return fs.promises.readdir(uploadDir).catch(error => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
+  });
+}
 fs.mkdirSync(uploadDir, { recursive: true });
 
 export const podStorage = {

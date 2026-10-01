@@ -262,6 +262,15 @@ npm run seed:users-only
 It leaves companies, customers, suppliers, deliveries, inventory, drivers,
 notifications, audit history, and POD metadata empty.
 
+**You want to reconcile local POD files**
+If an upload or delete operation is interrupted, run the maintenance command
+from the repository root to remove untracked POD files and report metadata
+whose physical file is missing:
+
+```bash
+npm run pod:reconcile
+```
+
 ## Where to go next
 
 - [`DONT_BREAK_THIS.md`](./DONT_BREAK_THIS.md)
