@@ -6,6 +6,7 @@ import { runOutputActions } from '@/outputActions';
 import { ApiCompany } from '@/api';
 import OutputActionsPanel from '@/features/deliveries/OutputActionsPanel';
 import ComboboxField from '@/components/ComboboxField';
+import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
 
 // ── Sample-data tables (moved here from DeliveryRecordsView) ──────────────────
 
@@ -166,6 +167,7 @@ export default function RecordCreateForm({
   const [form, setForm] = useState<RecordFormState>(() => buildEmptyForm(category));
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [attachmentNames, setAttachmentNames] = useState<string[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const updateField = <K extends keyof RecordFormState>(key: K, value: RecordFormState[K]) =>
@@ -206,9 +208,19 @@ export default function RecordCreateForm({
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setAttachmentNames(prev => [...prev, ...Array.from(e.target.files!).map((f: File) => f.name)]);
+    const input = e.currentTarget;
+    const selectedFiles = Array.from(input.files ?? []);
+    input.value = '';
+    if (selectedFiles.length === 0) return;
+
+    const validationError = validatePodAttachments(selectedFiles);
+    if (validationError) {
+      setAttachmentError(validationError);
+      return;
     }
+
+    setAttachmentError(null);
+    setAttachmentNames(prev => [...prev, ...selectedFiles.map(file => file.name)]);
   };
 
   const handleCompanySelect = (name: string) => {
@@ -496,9 +508,10 @@ export default function RecordCreateForm({
             >
               <UploadCloud className="w-8 h-8 text-slate-400" />
               <p className="font-bold text-slate-600">Click to upload (mock, no file is actually stored)</p>
-              <p className="text-[10px] text-slate-400">PDF, JPG, PNG, DOC up to 10MB</p>
-              <input type="file" ref={fileInputRef} onChange={handleFileSelect} multiple className="hidden" />
+              <p className="text-[10px] text-slate-400">PDF, JPG/JPEG, PNG, or DOC up to 10 MB each</p>
+              <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept={POD_ATTACHMENT_ACCEPT} multiple className="hidden" />
             </div>
+            {attachmentError && <p role="alert" className="text-xs text-red-600">{attachmentError}</p>}
             {attachmentNames.length > 0 && (
               <div className="mt-2 space-y-1">
                 {attachmentNames.map((name, idx) => (

@@ -15,6 +15,7 @@ import ComboboxField from '@/components/ComboboxField';
 import { Pencil, X as XIcon, Save, Plus } from 'lucide-react';
 import { getOutputTrigger, runOutputActions } from '@/outputActions';
 import StatusStepper from '@/components/StatusStepper';
+import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1432,16 +1433,31 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
   }, [record.id]);
 
   const addFiles = async (incoming: FileList | null) => {
-    if (!incoming) return;
+    if (!incoming || incoming.length === 0 || uploading) return;
+    const selectedFiles = Array.from(incoming);
+    const validationError = validatePodAttachments(selectedFiles);
+    if (validationError) {
+      setError(validationError);
+      if (inputRef.current) inputRef.current.value = '';
+      return;
+    }
+
     setUploading(true);
     setError(null);
     try {
-      for (const file of Array.from(incoming)) {
+      for (const file of selectedFiles) {
         const uploaded = await api.uploadRecordAttachment(record.id, file);
         setFiles(prev => [uploaded, ...prev]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed.');
+      // A network failure can happen after the server stored the file. Refresh
+      // from the server so the list cannot stay out of sync with persisted files.
+      try {
+        setFiles(await api.getRecordAttachments(record.id));
+      } catch {
+        // Keep the upload error visible; the next view refresh can reload the list.
+      }
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = '';
@@ -1479,24 +1495,29 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
       <div
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
-        onDrop={e => { e.preventDefault(); setDragging(false); addFiles(e.dataTransfer.files); }}
-        onClick={() => inputRef.current?.click()}
+        onDrop={e => { e.preventDefault(); setDragging(false); if (!uploading) addFiles(e.dataTransfer.files); }}
+        onClick={() => { if (!uploading) inputRef.current?.click(); }}
+        aria-busy={uploading}
         className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all ${
           dragging
             ? 'border-[#0078C1] bg-blue-50'
-            : 'border-slate-300 hover:border-[#0078C1] hover:bg-slate-50'
+            : uploading
+              ? 'border-slate-200 bg-slate-50 cursor-wait'
+              : 'border-slate-300 hover:border-[#0078C1] hover:bg-slate-50'
         }`}
       >
         <Paperclip className={`w-8 h-8 transition-colors ${dragging ? 'text-[#0078C1]' : 'text-slate-300'}`} />
         <div className="text-center">
           <p className="text-sm font-bold text-slate-700">{uploading ? 'Uploading…' : 'Drop files here or click to upload'}</p>
-            <p className="text-xs text-slate-400 mt-0.5">PDF, Word, Excel, images — up to 10 MB each</p>
+            <p className="text-xs text-slate-400 mt-0.5">PDF, JPG, PNG, or DOC — up to 10 MB each</p>
         </div>
         <input
           ref={inputRef}
           type="file"
           multiple
+          accept={POD_ATTACHMENT_ACCEPT}
           className="hidden"
+          disabled={uploading}
           onChange={e => addFiles(e.target.files)}
         />
       </div>
@@ -1547,7 +1568,7 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
         </div>
       )}
 
-      {error && <p className="text-xs text-red-600 text-center">{error}</p>}
+      {error && <p role="alert" className="text-xs text-red-600 text-center">{error}</p>}
       <p className="text-[10px] text-slate-400 text-center">Files are stored in the local Docker volume and protected by record access permissions.</p>
     </div>
   );

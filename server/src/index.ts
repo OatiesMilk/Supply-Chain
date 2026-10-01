@@ -24,6 +24,7 @@ import devRoutes from './routes/dev';
 import dataSamplerRoutes from './routes/data-sampler';
 import reportsRoutes from './routes/reports';
 import driversRoutes from './routes/drivers';
+import { uploadErrorHandler } from './middleware/uploadErrors';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -114,6 +115,7 @@ if (IS_PROD) {
   }
 }
 
+app.use(uploadErrorHandler);
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);
   res.status(500).json({ error: 'Internal server error' });
