@@ -11,7 +11,7 @@ interface CustomersViewProps {
   currentUserRole: string;
   currentUserName: string;
   onNavigate: (screen: string, item_id?: string) => void;
-  onCreateCustomer: (data: { name: string; contact_person?: string; email?: string; phone?: string; address?: string; city?: string }) => void;
+  onCreateCustomer: (data: { name: string; contact_person?: string; email?: string; phone?: string; address?: string; city?: string }) => Promise<void>;
 }
 
 const EMPTY_FORM = { name: '', contact_person: '', email: '', phone: '', address: '', city: '' };
@@ -30,19 +30,30 @@ export default function CustomersView({
   const [pageSize, setPageSize] = useState(25);
   const [form, setForm] = useState(EMPTY_FORM);
   const [formError, setFormError] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const canCreate = currentUserRole !== 'TASS';
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (isSaving) return;
     if (!form.name.trim()) {
       setFormError('Customer Name is required');
       return;
     }
     setFormError('');
-    onCreateCustomer(form);
-    setForm(EMPTY_FORM);
-    setShowCreateForm(false);
+    setSaveError('');
+    setIsSaving(true);
+    try {
+      await onCreateCustomer(form);
+      setForm(EMPTY_FORM);
+      setShowCreateForm(false);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not save customer. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleBackToList = () => setSelectedCustomerId(null);
@@ -88,7 +99,7 @@ export default function CustomersView({
         <div className="flex items-center gap-2 shrink-0">
           {canCreate && (
             <button
-              onClick={() => { setForm(EMPTY_FORM); setFormError(''); setShowCreateForm(true); }}
+              onClick={() => { setForm(EMPTY_FORM); setFormError(''); setSaveError(''); setShowCreateForm(true); }}
               className="flex items-center gap-1.5 bg-[#1F3864] hover:bg-blue-900 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition-all shadow-xs cursor-pointer"
             >
               <Plus className="w-4 h-4" /> New Customer
@@ -162,13 +173,14 @@ export default function CustomersView({
       {showCreateForm && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowCreateForm(false); }}
+          onClick={(e) => { if (e.target === e.currentTarget && !isSaving) setShowCreateForm(false); }}
         >
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg m-4">
             <div className="px-6 pt-5 pb-4 flex items-center justify-between border-b border-slate-100">
               <h2 className="text-sm font-black text-slate-900">New Customer</h2>
               <button
                 onClick={() => setShowCreateForm(false)}
+                disabled={isSaving}
                 className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 <X className="w-4 h-4" />
@@ -212,19 +224,22 @@ export default function CustomersView({
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]" />
                 </div>
               </div>
+              {saveError && <p role="alert" className="text-red-600 font-semibold">{saveError}</p>}
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setShowCreateForm(false)}
+                  disabled={isSaving}
                   className="px-4 py-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-xs font-bold rounded-lg transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
+                  disabled={isSaving}
                   className="px-4 py-2 bg-[#1F3864] hover:bg-[#0078C1] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
                 >
-                  Create Customer
+                  {isSaving ? 'Saving...' : 'Create Customer'}
                 </button>
               </div>
             </form>
