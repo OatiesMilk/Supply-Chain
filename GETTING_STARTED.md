@@ -60,11 +60,18 @@ JWT_SECRET="replace-with-a-long-random-development-secret"
 PORT=4000
 CLIENT_ORIGIN="http://localhost:3000"
 POD_UPLOAD_DIR="./uploads/pod"
+POD_STORAGE_PROVIDER="local"
+SUPABASE_URL=""
+SUPABASE_SERVICE_ROLE_KEY=""
+SUPABASE_STORAGE_BUCKET="pod"
 ```
 
 `DATABASE_URL` must use the same username, password, database, host, and port
 as the Docker settings in the root `.env`. `POD_UPLOAD_DIR` is relative to
-the `server/` directory and is ignored by Git.
+the `server/` directory and is ignored by Git. Local development uses
+`POD_STORAGE_PROVIDER="local"`. Staging/production should use
+`POD_STORAGE_PROVIDER="supabase"` with a private bucket and the server-only
+`SUPABASE_SERVICE_ROLE_KEY`; never expose that key to the client.
 
 Never commit `.env`, `server/.env`, or credentials to source control.
 
