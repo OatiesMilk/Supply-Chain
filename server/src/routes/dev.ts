@@ -20,4 +20,16 @@ router.post('/reset-seed', requireAuth, requireResource('admin'), requireRole('A
   }
 });
 
+// Public endpoint for demo seeding directly from the login page.
+// Be careful: this allows unauthenticated database resets!
+router.post('/public-seed', async (_req, res) => {
+  try {
+    await runSeed(true);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Public seed failed:', err);
+    res.status(500).json({ error: 'Failed to reset seed data' });
+  }
+});
+
 export default router;
