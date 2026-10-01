@@ -1,6 +1,6 @@
 import { FormEvent, useState, useEffect } from 'react';
 import { LogIn, Loader2, Mail, ChevronDown } from 'lucide-react';
-import { api, ApiUser } from '@/api';
+import { api, apiUrl, ApiUser } from '@/api';
 import { keepLoginRoute } from '@/routes/screenRouting';
 
 interface LoginViewProps {
@@ -102,7 +102,7 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
     setError(null);
     setSsoLoading(true);
     try {
-      const res = await fetch('/api/auth/microsoft', {
+      const res = await fetch(apiUrl('/auth/microsoft'), {
         method: 'POST',
         credentials: 'include',
       });

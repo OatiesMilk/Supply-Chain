@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { Layers, Plus } from "lucide-react";
 import { DeliveryRecord, DeliveryCategory, UserRole } from "@/types";
-import { ApiCompany } from "@/api";
+import { ApiCompany, apiUrl } from "@/api";
 import RecordCreateForm from "@/features/deliveries/RecordCreateForm";
 import AllOpsExportMenu from "@/components/AllOpsExportMenu";
 import { StatusHistoryCounts } from "@/utils/export";
@@ -99,7 +99,7 @@ export default function MainView({
     if (activeFilter !== "all" && activeFilter !== "draft")
       params.set("status", activeFilter);
 
-    fetch(`/api/records/status-history-counts?${params}`, {
+    fetch(`${apiUrl('/records/status-history-counts')}?${params}`, {
       credentials: "include",
     })
       .then((r) => (r.ok ? r.json() : null))
