@@ -42,14 +42,14 @@ inside `server/`.
 
 ```bash
 cp .env.example .env
-cp .env server/.env
+cp server/.env.example server/.env
 ```
 
 ### Windows PowerShell
 
 ```powershell
 Copy-Item .env.example .env
-Copy-Item .env server/.env
+Copy-Item server/.env.example server/.env
 ```
 
 Edit `server/.env` and confirm these local values:
@@ -62,9 +62,11 @@ CLIENT_ORIGIN="http://localhost:3000"
 POD_UPLOAD_DIR="./uploads/pod"
 ```
 
-`DATABASE_URL` must use the same username, password, database, host, and port
-as the Docker settings in the root `.env`. `POD_UPLOAD_DIR` is relative to
-the `server/` directory and is ignored by Git.
+`DATABASE_URL` in `server/.env` is intentionally a literal value because
+Prisma and plain dotenv do not expand `${...}` references. If you change the
+PostgreSQL username, password, database, host, or port in the root `.env`,
+update this URL manually as well. `POD_UPLOAD_DIR` is relative to the
+`server/` directory and is ignored by Git.
 
 Never commit `.env`, `server/.env`, or credentials to source control.
 
