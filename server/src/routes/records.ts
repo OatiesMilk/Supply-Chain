@@ -183,10 +183,14 @@ router.post(
   asyncRoute(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'A file is required.' });
     const record = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null } });
-    if (!record) {
-      await podStorage.remove(req.file.filename);
-      return res.status(404).json({ error: 'Record not found' });
-    }
+    if (!record) return res.status(404).json({ error: 'Record not found' });
+
+    const storageKey = await podStorage.save({
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      size: req.file.size,
+      buffer: req.file.buffer
+    });
 
     let attachment;
     try {
@@ -194,14 +198,14 @@ router.post(
         data: {
           recordId: record.id,
           originalName: req.file.originalname,
-          storageKey: req.file.filename,
+storageKey,
           mimeType: req.file.mimetype,
           size: req.file.size,
           uploadedById: req.user!.id
         }
       });
     } catch (error) {
-      await podStorage.remove(req.file.filename).catch(cleanupError => {
+await podStorage.remove(storageKey).catch(cleanupError => {
         console.error('[POD] Failed to clean up storage after metadata failure', cleanupError);
       });
       throw error;
@@ -222,10 +226,15 @@ router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResour
     where: { id: req.params.attachmentId, recordId: req.params.id }
   });
   if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
-  const path = podStorage.pathFor(attachment.storageKey);
-  res.download(path, attachment.originalName, { headers: { 'Content-Type': attachment.mimeType } }, err => {
-    if (err && !res.headersSent) res.status(404).json({ error: 'Attachment file not found' });
-  });
+  try {
+    const content = await podStorage.read(attachment.storageKey);
+    res.setHeader('Content-Type', attachment.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(attachment.originalName)}"`);
+    res.send(content);
+  } catch (error) {
+    if (!res.headersSent) res.status(404).json({ error: 'Attachment file not found' });
+    else console.error('[POD] Failed to read attachment', error);
+  }
 }));
 
 router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'), asyncRoute(async (req, res) => {
