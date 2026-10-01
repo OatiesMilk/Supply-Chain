@@ -1,134 +1,291 @@
 # Getting Started
 
-This is the "start here" doc. It assumes you've never touched this codebase, and maybe haven't used Express, Prisma, or Postgres before. Follow the steps in order — don't skip around.
+This guide sets up the Supply Chain Portal locally on **Linux** or
+**Windows**. The frontend runs on port `3000`, the backend runs on port
+`4000`, and PostgreSQL runs in Docker on port `5433`.
 
-If you get stuck, also read [`DONT_BREAK_THIS.md`](./DONT_BREAK_THIS.md) before you start changing things, and [`docs/GLOSSARY.md`](./docs/GLOSSARY.md) if a term doesn't make sense.
+## Prerequisites
 
-## What this project actually is
+- Git
+- Node.js 18 or newer
+- npm
+- Docker Desktop (Windows) or Docker Engine with the Compose plugin (Linux)
 
-Two programs that run at the same time and talk to each other:
-
-1. **The backend** (`server/` folder) — handles logins, and reads/writes everything to a database. Lives on port `4000`.
-2. **The frontend** (everything else, mostly `src/`) — the actual website you click around in. Lives on port `3000` and asks the backend for data.
-
-Both need to be running for the app to work. Neither one works alone.
-
-There's also a **database** — this app needs a real PostgreSQL database to store its data (delivery records, users, etc.). You can't skip this step; the app does not work with no database at all.
-
-## Step 0 — Setup Environment & Database (Docker)
-
-The project includes a `docker-compose.yml` and an `.env.example` in the root folder to easily spin up a local PostgreSQL database.
-
-1. **Copy the root environment file**:
-   ```bash
-   cp .env.example .env
-   ```
-   *(Edit `.env` if you need to change the default database passwords, though the defaults are fine for local development).*
-
-2. **Start the database via Docker**:
-   ```bash
-   docker-compose up -d
-   ```
-   This will spin up a local PostgreSQL instance on port `5433`.
-
-## Step 1 — Install dependencies
-
-From the project root:
+Check the installed tools:
 
 ```bash
+node --version
+npm --version
+docker --version
+docker compose version
+```
+
+On Windows, run the commands below in **PowerShell**. On Linux, run them in
+your terminal. Docker Desktop must be running on Windows before starting the
+database.
+
+## 1. Clone and install
+
+```bash
+git clone https://github.com/MarcZxc1/Supply-Chain.git
+cd Supply-Chain
 npm install
 ```
 
-Then also install the backend's own dependencies (it has a separate `package.json`):
+The repository uses npm workspaces, so installing from the root installs both
+the `client` and `server` dependencies. Do not run a second `npm install`
+inside `server/`.
+
+## 2. Configure environment files
+
+### Linux
+
+```bash
+cp .env.example .env
+cp server/.env.example server/.env
+```
+
+### Windows PowerShell
+
+```powershell
+Copy-Item .env.example .env
+Copy-Item server/.env.example server/.env
+```
+
+Edit `server/.env` and confirm these local values:
+
+```env
+DATABASE_URL="postgresql://mg_portal_user:replace_with_a_secure_database_password@127.0.0.1:5433/mg_portal?schema=public"
+JWT_SECRET="replace-with-a-long-random-development-secret"
+PORT=4000
+CLIENT_ORIGIN="http://localhost:3000"
+POD_UPLOAD_DIR="./uploads/pod"
+POD_STORAGE_PROVIDER="local"
+SUPABASE_URL=""
+SUPABASE_SERVICE_ROLE_KEY=""
+SUPABASE_STORAGE_BUCKET="pod"
+```
+
+`DATABASE_URL` in `server/.env` is intentionally a literal value because
+Prisma and plain dotenv do not expand `${...}` references. If you change the
+PostgreSQL username, password, database, host, or port in the root `.env`,
+update this URL manually as well. `POD_UPLOAD_DIR` is relative to the
+`server/` directory and is ignored by Git.
+`DATABASE_URL` must use the same username, password, database, host, and port
+as the Docker settings in the root `.env`. `POD_UPLOAD_DIR` is relative to
+the `server/` directory and is ignored by Git. Local development uses
+`POD_STORAGE_PROVIDER="local"`. Staging/production should use
+`POD_STORAGE_PROVIDER="supabase"` with a private bucket and the server-only
+`SUPABASE_SERVICE_ROLE_KEY`; never expose that key to the client.
+
+Never commit `.env`, `server/.env`, or credentials to source control.
+
+## 3. Start PostgreSQL with Docker
+
+Run from the repository root.
+
+### Linux and Windows PowerShell
+
+```bash
+docker compose up -d
+docker compose ps
+```
+
+The database is available at `127.0.0.1:5433`. To view database logs:
+
+```bash
+docker compose logs -f postgres
+```
+
+To stop PostgreSQL while preserving its data:
+
+```bash
+docker compose down
+```
+
+To stop PostgreSQL and delete all local database data:
+
+```bash
+docker compose down -v
+```
+
+The last command is destructive. It does not delete files in the POD upload
+directory because POD files are stored by the backend outside this
+PostgreSQL-only Compose service.
+
+## 4. Apply migrations and seed demo data
 
 ```bash
 cd server
-npm install
+npx prisma migrate dev
+npm run seed
 cd ..
 ```
 
-## Step 2 — Setup Server Environment Variables
-
-The backend needs its own `.env` file (which gets created in the `server/` folder). 
-Because we use a unified root `.env` for Docker, you just need to copy the root `.env` into the server folder:
-
-```bash
-cp .env server/.env
+For a clean database in a disposable local environment, use:
+npx prisma generate
+npx prisma migrate deploy
 ```
 
-Now, open `server/.env` and make sure `DATABASE_URL` is defined properly. (If you copied it from the root, you might need to manually resolve the string interpolation so it reads exactly like this):
+`migrate deploy` applies every committed migration, including the `LineItem`
+migration required by the current delivery-record API. This is the same
+migration command used by staging and production; it prevents a fresh
+environment from having Prisma code that expects tables which do not exist.
 
 ```bash
-DATABASE_URL="postgresql://mg_portal_user:replace_with_a_secure_database_password@127.0.0.1:5433/mg_portal?schema=public"
-JWT_SECRET="make-up-some-random-password-here"
+npm run db:reset
 ```
 
-## Step 3 — Set up the database tables
+Do not run `migrate reset` against a database containing data you need. If
+Prisma reports migration drift, stop and inspect the database rather than
+accepting an automatic reset.
 
-Still inside `server/`:
+## 5. Run the application
+
+From the repository root:
 
 ```bash
-npx prisma migrate dev
+npm run dev
 ```
 
-This reads the schema file (`server/prisma/schema.prisma`) and creates all the tables in your database. If it works, you'll see a list of migrations being applied.
+This starts both workspaces:
 
-Then load some demo data (fake users, fake delivery records, etc.) so the app isn't empty:
+- Frontend: <http://localhost:3000>
+- Backend API: <http://localhost:4000>
+- Health check: <http://localhost:4000/api/health>
+
+To run them separately:
+
+### Linux
 
 ```bash
-npm run seed
-```
-
-## Step 4 — Run it
-
-You need **two terminal windows/tabs** open at once.
-
-**Terminal 1 — backend:**
-```bash
+# Terminal 1
 cd server
 npm run dev
-```
-Leave this running. It should say it's listening on port 4000.
 
-**Terminal 2 — frontend:**
-```bash
+# Terminal 2
+cd client
 npm run dev
 ```
-(run from the project root, not `server/`). It should say it's running at `http://localhost:3000`.
 
-## Step 5 — Log in
+### Windows PowerShell
 
-Open `http://localhost:3000` in your browser. You'll see a login screen with demo accounts listed on it. Use any of these (also listed in the main `README.md`):
+```powershell
+# Terminal 1
+Set-Location server
+npm run dev
+
+# Terminal 2
+Set-Location client
+npm run dev
+```
+
+## 6. Log in locally
+
+Open <http://localhost:3000> and use a seeded account:
 
 | Email | Password | Role |
 |---|---|---|
-| sales@microgenesis.com | password123 | Sales Coordinator |
-| logistics@microgenesis.com | password123 | Logistics |
-| tass@microgenesis.com | password123 | TASS |
-| admin@microgenesis.com | admin123 | Admin |
+| `admin@microgenesis.com` | `password123` | Admin |
+| `sales@microgenesis.com` | `password123` | Sales Coordinator |
+| `logistics@microgenesis.com` | `password123` | Logistics |
+| `tass@microgenesis.com` | `password123` | TASS |
 
-If login fails, the backend terminal (Terminal 1) is the first place to look for an error message.
+An Admin can create Driver accounts from **Admin Panel → Users**.
+
+## POD file storage
+
+Local POD files are stored under:
+
+```text
+server/uploads/pod/
+```
+
+The application stores file metadata in PostgreSQL and serves files through
+authenticated record routes. Uploads are limited to 10 MB per file. The
+storage provider can later be replaced with Supabase Storage without changing
+the delivery UI or database API.
+
+## Useful Docker commands
+
+These commands are the same in Linux shells and Windows PowerShell:
+
+```bash
+docker compose up -d                 # start PostgreSQL
+docker compose ps                    # show service status
+docker compose logs -f postgres      # follow database logs
+docker compose restart postgres      # restart PostgreSQL
+docker compose stop                  # stop without removing containers
+docker compose down                  # stop and remove containers
+docker compose down -v               # remove containers and database volume
+```
 
 ## Troubleshooting
 
-**"Can't reach database server" / Prisma errors on `migrate dev`**
-Your `DATABASE_URL` in `server/.env` is wrong, or the database isn't actually running/reachable. Double check the connection string from Step 0.
+### Database connection failure
 
-**Frontend loads but nothing shows up / login button does nothing**
-The backend (Terminal 1) probably isn't running, or crashed. Check that terminal for a red error message.
+Confirm that the container is running:
 
-**"Port already in use"**
-Something else on your machine is already using port 3000 or 4000. Close whatever that is, or stop a leftover `npm run dev` process from a previous session.
+```bash
+docker compose ps
+```
 
+Then confirm that `server/.env` uses port `5433` and the same credentials as
+the root `.env`.
+
+### Prisma asks to reset the database
+
+This means the live database and migration history are out of sync. Do not
+accept the reset if the database contains data you need. Back up the database
+and resolve the migration history before continuing.
+
+### Frontend cannot reach the backend
+
+Make sure the backend is running on port `4000` and visit
+<http://localhost:4000/api/health>. Check the backend terminal for errors.
+
+### Port already in use
 **You changed `server/prisma/schema.prisma` and now things are broken**
-Don't hand-edit the database directly. After changing the schema file, run `npx prisma migrate dev --name describe-your-change` from inside `server/` to generate a proper migration. See [`DONT_BREAK_THIS.md`](./DONT_BREAK_THIS.md) for why this matters.
+Don't hand-edit the database directly or use `prisma db push` for shared
+environments. From inside `server/`, create and review a migration locally:
 
-**You want to wipe everything and start over with fresh demo data**
-Log in as Admin → Admin Panel → Data Sampler → "Reset to Seed Data". Or from the backend: `npm run seed` again (after truncating tables) — see `server/prisma/seed.ts`.
+```bash
+npx prisma migrate dev --name describe-your-change
+npx prisma generate
+```
+
+Commit the generated migration directory with the schema change. Other
+environments apply it with `npx prisma migrate deploy`. See
+[`DONT_BREAK_THIS.md`](./DONT_BREAK_THIS.md) for why this matters.
+
+Stop the process using port `3000`, `4000`, or `5433`, or change the
+corresponding environment/Compose setting before restarting.
+
+## Further documentation
+**You want an empty database with users only**
+This destructive workflow removes all local business data and creates only the
+standard Admin, Sales Coordinator, Logistics, and TASS accounts:
+
+```bash
+npm run db:clean
+npm run seed:users-only
+```
+
+It leaves companies, customers, suppliers, deliveries, inventory, drivers,
+notifications, audit history, and POD metadata empty.
+
+**You want to reconcile local POD files**
+If an upload or delete operation is interrupted, run the maintenance command
+from the repository root to remove untracked POD files and report metadata
+whose physical file is missing:
+
+```bash
+npm run pod:reconcile
+```
 
 ## Where to go next
 
-- [`DONT_BREAK_THIS.md`](./DONT_BREAK_THIS.md) — read this before making changes.
-- [`docs/GLOSSARY.md`](./docs/GLOSSARY.md) — what TASS, RMA, SKU, etc. actually mean.
-- [`README.md`](./README.md) — the full feature-by-feature reference doc.
-- [`docs/ROLES.md`](./docs/ROLES.md) — full breakdown of what each login role can and can't do.
+- [`DONT_BREAK_THIS.md`](./DONT_BREAK_THIS.md)
+- [`docs/API_CONTRACT.md`](./docs/API_CONTRACT.md)
+- [`docs/MODULE_ACCESS.md`](./docs/MODULE_ACCESS.md)
+- [`docs/git-cheat-sheet.md`](./docs/git-cheat-sheet.md)

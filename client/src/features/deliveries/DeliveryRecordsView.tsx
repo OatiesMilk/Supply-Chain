@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Plus,
   Search,
@@ -19,9 +19,10 @@ import ExportMenu from '@/components/ExportMenu';
 import DriverReportModal from '@/features/drivers/DriverReportModal';
 import RouteSlipMenu from '@/components/RouteSlipMenu';
 import AccountManagerCombobox from '@/components/AccountManagerCombobox';
+import Pagination from '@/components/Pagination';
 import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, PDF_DELIVERY_COLUMNS, PDF_AC_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
-import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger } from '@/types';
+import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel } from '@/types';
 import { ApiCompany, api, ApiError } from '@/api';
 import { DELIVERY_STATUSES, AREA_HIERARCHY, getRegion, getSubregion } from '@/data';
 import { MapPin, SlidersHorizontal } from 'lucide-react';
@@ -36,8 +37,8 @@ interface DeliveryRecordsViewProps {
   companies: ApiCompany[];
   currentUserRole: UserRole;
   currentUserName: string;
-  onCreateRecord: (data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>) => void;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onCreateRecord: (data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>) => Promise<void>;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   onVerifyCollection: (id: string) => Promise<void>;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;
   onUpdateOutputActionConfig: (trigger: OutputActionTrigger, patch: Partial<OutputActionConfig>) => void;
@@ -97,6 +98,10 @@ export default function DeliveryRecordsView({
   const [driverFilter, setDriverFilter] = useState('');
   const dateFromRef = useRef<HTMLInputElement>(null);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const advFilterBtnRef = useRef<HTMLButtonElement>(null);
+  const advFilterPanelRef = useRef<HTMLDivElement>(null);
+  const [popoverAlign, setPopoverAlign] = useState<'right' | 'left'>('right');
+  const [popoverMaxWidth, setPopoverMaxWidth] = useState<number>(420);
   const [creationBanner, setCreationBanner] = useState<{ recordId: string; lines: string[] } | null>(null);
 
 
@@ -104,6 +109,8 @@ export default function DeliveryRecordsView({
   const [selectedBulkIds, setSelectedBulkIds] = useState<Set<string>>(new Set());
   const [bulkStatus, setBulkStatus] = useState<string>('Delivered');
   const [bulkApplying, setBulkApplying] = useState(false);
+  const [bulkPriority, setBulkPriority] = useState<PriorityLevel | ''>('');
+  const [priorityResult, setPriorityResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   // Monthly Driver Report modal
   const [showDriverReportModal, setShowDriverReportModal] = useState(false);
@@ -115,11 +122,11 @@ export default function DeliveryRecordsView({
   const [samplerResult, setSamplerResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const CATEGORY_MODULE: Record<string, string> = {
-    'Deliveries':            'deliveries',
-    'RMA':                   'rma',
+    'Deliveries': 'deliveries',
+    'RMA': 'rma',
     'Accounting Collection': 'accounting_collection',
-    'Procurement Pick-up':   'procurement_pickup',
-    'Sales Orders':          'sales_orders',
+    'Procurement Pick-up': 'procurement_pickup',
+    'Sales Orders': 'sales_orders',
   };
 
   const handleGenerateSample = async () => {
@@ -161,6 +168,8 @@ export default function DeliveryRecordsView({
   // component instance is reused, so bulk selections would otherwise carry
   // over and keep the action bar visible for records from the previous module.
   useEffect(() => {
+    setSelectedId(null);
+    setShowForm(false);
     setRegionFilter('All Regions');
     setSubregionFilter('All Subregions');
     setAreaFilter('All Areas');
@@ -170,6 +179,8 @@ export default function DeliveryRecordsView({
     setAmFilter('');
     setDriverFilter('');
     setSelectedBulkIds(new Set());
+    setBulkPriority('');
+    setPriorityResult(null);
   }, [category]);
 
   const [statusHistoryCounts, setStatusHistoryCounts] = useState<StatusHistoryCounts | undefined>(undefined);
@@ -182,7 +193,7 @@ export default function DeliveryRecordsView({
     };
     if (category) params.set('category', CATEGORY_TO_DB[category] ?? category);
     if (dateFrom) params.set('dateFrom', dateFrom);
-    if (dateTo)   params.set('dateTo', dateTo);
+    if (dateTo) params.set('dateTo', dateTo);
     if (areaFilter !== 'All Areas') params.set('area', areaFilter);
     if (driverFilter) params.set('driver', driverFilter);
     if (statusFilter !== 'All') params.set('status', statusFilter);
@@ -235,8 +246,16 @@ export default function DeliveryRecordsView({
     if (statusFilter !== 'All' && r.status !== statusFilter) return false;
     if (amFilter && !r.account_manager.toLowerCase().includes(amFilter.toLowerCase())) return false;
     if (driverFilter && r.driver.toLowerCase() !== driverFilter.toLowerCase()) return false;
-    if (dateFrom && r.delivery_date < dateFrom) return false;
-    if (dateTo   && r.delivery_date > dateTo)   return false;
+    if (dateFrom && r.delivery_date) {
+      const rd = new Date(r.delivery_date);
+      const df = new Date(dateFrom);
+      if (rd < df) return false;
+    }
+    if (dateTo && r.delivery_date) {
+      const rd = new Date(r.delivery_date);
+      const dt = new Date(dateTo);
+      if (rd > dt) return false;
+    }
     const q = searchQuery.toLowerCase();
     if (!q) return true;
     return (
@@ -252,16 +271,24 @@ export default function DeliveryRecordsView({
   // TASS-specific extra filters (client-side, no extra API call)
   const filtered = currentUserRole === 'TASS'
     ? baseFiltered.filter(r => {
-        if (tassDateFrom && r.delivery_date < tassDateFrom) return false;
-        if (tassDateTo   && r.delivery_date > tassDateTo)   return false;
-        if (tassAccountManager && !r.account_manager.toLowerCase().includes(tassAccountManager.toLowerCase())) return false;
-        if (tassStatusFilter) {
-          if (tassStatusFilter === 'Collection Verified') return r.collection_verified === true;
-          if (tassStatusFilter === 'Accomplished')        return r.status === 'Delivered';
-          return r.status === tassStatusFilter;
-        }
-        return true;
-      })
+      if (tassDateFrom && r.delivery_date) {
+        const rd = new Date(r.delivery_date);
+        const df = new Date(tassDateFrom);
+        if (rd < df) return false;
+      }
+      if (tassDateTo && r.delivery_date) {
+        const rd = new Date(r.delivery_date);
+        const dt = new Date(tassDateTo);
+        if (rd > dt) return false;
+      }
+      if (tassAccountManager && !r.account_manager.toLowerCase().includes(tassAccountManager.toLowerCase())) return false;
+      if (tassStatusFilter) {
+        if (tassStatusFilter === 'Collection Verified') return r.collection_verified === true;
+        if (tassStatusFilter === 'Accomplished') return r.status === 'Delivered';
+        return r.status === tassStatusFilter;
+      }
+      return true;
+    })
     : baseFiltered;
 
   const now = Date.now();
@@ -272,13 +299,71 @@ export default function DeliveryRecordsView({
     if (!da && !db) return 0;
     if (!da) return 1;
     if (!db) return -1;
-    if (activeDateSort === 'nearest')  return Math.abs(da - now) - Math.abs(db - now);
-    if (activeDateSort === 'oldest')   return da - db;
+    if (activeDateSort === 'nearest') return Math.abs(da - now) - Math.abs(db - now);
+    if (activeDateSort === 'oldest') return da - db;
     if (activeDateSort === 'furthest') return db - da;
     return 0;
   });
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  // Automatically reset to page 1 whenever any filter or search query changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    category,
+    searchQuery,
+    statusFilter,
+    regionFilter,
+    subregionFilter,
+    areaFilter,
+    dateFrom,
+    dateTo,
+    dateSort,
+    amFilter,
+    driverFilter,
+    tassDateFrom,
+    tassDateTo,
+    tassStatusFilter,
+    tassAccountManager,
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedFiltered.length / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const paginatedRecords = useMemo(() => {
+    const startIndex = (safeCurrentPage - 1) * pageSize;
+    return sortedFiltered.slice(startIndex, startIndex + pageSize);
+  }, [sortedFiltered, safeCurrentPage, pageSize]);
+
   const activeRecord = records.find(r => r.id === selectedId);
+
+  const handleBulkPriorityUpdate = async () => {
+    if (!bulkPriority || selectedBulkIds.size === 0 || bulkApplying) return;
+    setBulkApplying(true);
+    setPriorityResult(null);
+    const failedIds = new Set<string>();
+    let firstError = '';
+    const ids = [...selectedBulkIds];
+    try {
+      for (const id of ids) {
+        try {
+          await onUpdateRecord(id, { priority: bulkPriority, remarks: `Priority set to ${bulkPriority}` });
+        } catch (error) {
+          failedIds.add(id);
+          if (!firstError) firstError = error instanceof Error ? error.message : 'Please try again.';
+        }
+      }
+      setSelectedBulkIds(failedIds);
+      const savedCount = ids.length - failedIds.size;
+      setPriorityResult(failedIds.size > 0
+        ? { ok: false, message: `${savedCount} saved; priority update failed for ${[...failedIds].join(', ')}. ${firstError}` }
+        : { ok: true, message: `Priority saved as ${bulkPriority} for ${savedCount} record${savedCount === 1 ? '' : 's'}.` });
+    } finally {
+      setBulkApplying(false);
+    }
+  };
 
   const handleBulkStatusUpdate = async () => {
     if (selectedBulkIds.size === 0 || bulkApplying) return;
@@ -356,16 +441,81 @@ export default function DeliveryRecordsView({
 
   const routeSlipProps = driverFilter
     ? {
-        records: sortedFiltered,
-        driverName: driverFilter,
-        date: dateFrom || new Date().toISOString().split('T')[0],
-        preparedBy: currentUserName,
-      }
+      records: sortedFiltered,
+      driverName: driverFilter,
+      date: dateFrom || new Date().toISOString().split('T')[0],
+      preparedBy: currentUserName,
+    }
     : undefined;
 
   const showTassFilters = currentUserRole === 'TASS';
 
-  const hasAdvancedFilters = regionFilter !== 'All Regions' || subregionFilter !== 'All Subregions' || areaFilter !== 'All Areas' || !!amFilter || !!driverFilter || !!dateFrom || !!dateTo || dateSort !== 'default';
+  const hasAdvancedFilters = regionFilter !== 'All Regions' || subregionFilter !== 'All Subregions' || areaFilter !== 'All Areas' || !!amFilter || !!driverFilter || false;
+
+  // Count individual active advanced filters for the badge
+  const activeFilterCount = [
+    regionFilter !== 'All Regions',
+    subregionFilter !== 'All Subregions',
+    areaFilter !== 'All Areas',
+    !!amFilter,
+    !!driverFilter,
+    !!dateFrom,
+    !!dateTo,
+    dateSort !== 'default',
+  ].filter(Boolean).length;
+
+  // Dynamic popover alignment & width to adapt to zoom levels and viewport boundaries
+  const updatePopoverPosition = useCallback(() => {
+    if (!advFilterBtnRef.current) return;
+    const btnRect = advFilterBtnRef.current.getBoundingClientRect();
+    const sidebarEl = document.getElementById('sidebar-panel');
+    const sidebarRight = sidebarEl ? Math.max(0, sidebarEl.getBoundingClientRect().right) : 0;
+    const viewportWidth = window.innerWidth;
+
+    // Minimum left margin so popover never overlaps or touches the side navigation bar
+    const minAllowedLeft = Math.max(16, sidebarRight + 16);
+    const availableTotalWidth = Math.max(280, viewportWidth - minAllowedLeft - 16);
+    let targetWidth = Math.min(420, availableTotalWidth);
+
+    // If anchored to button's right edge, calculate where its left edge would be
+    const rightAlignedLeftEdge = btnRect.right - targetWidth;
+
+    if (rightAlignedLeftEdge < minAllowedLeft) {
+      // Not enough room to open leftwards (towards sidebar) — anchor left and open rightwards
+      const rightAvailable = Math.max(280, viewportWidth - btnRect.left - 16);
+      targetWidth = Math.min(targetWidth, rightAvailable);
+      setPopoverAlign('left');
+    } else {
+      // Plenty of room on the left of the button — anchor right
+      setPopoverAlign('right');
+    }
+    setPopoverMaxWidth(targetWidth);
+  }, []);
+
+  // Update position on open, resize, or zoom change
+  useEffect(() => {
+    if (!showAdvancedFilters) return;
+    updatePopoverPosition();
+    window.addEventListener('resize', updatePopoverPosition);
+    return () => window.removeEventListener('resize', updatePopoverPosition);
+  }, [showAdvancedFilters, updatePopoverPosition]);
+
+  // Close advanced filter popover when clicking outside
+  useEffect(() => {
+    if (!showAdvancedFilters) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        advFilterPanelRef.current &&
+        !advFilterPanelRef.current.contains(e.target as Node) &&
+        advFilterBtnRef.current &&
+        !advFilterBtnRef.current.contains(e.target as Node)
+      ) {
+        setShowAdvancedFilters(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showAdvancedFilters]);
 
   const showCheckbox = canAssignDriver || canEdit;
   const showCollectionCol = currentUserRole === 'TASS' && category === 'Accounting Collection';
@@ -379,6 +529,7 @@ export default function DeliveryRecordsView({
   // start shifts right (more gap from Delivery Date) without shrinking
   // Driver's own width — Status (a short pill badge) absorbs the change
   // instead, since it tolerates a narrower column better than Driver names do.
+  const colMinWidth = { id: '110px', company: '200px', area: '130px', date: '180px', driver: '130px', status: '130px' };
   const colPct = showCheckbox
     ? { id: 12, company: 24, area: 13, date: 22, driver: 12, status: 13 }
     : showCollectionCol
@@ -387,6 +538,11 @@ export default function DeliveryRecordsView({
 
   return (
     <div className="space-y-6 print:space-y-2" id={`records-view-${category.toLowerCase().replace(/\s+/g, '-')}`}>
+      {priorityResult && (
+        <div role={priorityResult.ok ? 'status' : 'alert'} className={`rounded-lg border px-4 py-3 text-sm ${priorityResult.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+          {priorityResult.message}
+        </div>
+      )}
       {/* View Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4 print:hidden">
         <div>
@@ -558,7 +714,7 @@ export default function DeliveryRecordsView({
                 onChange={e => setBulkStatus(e.target.value)}
                 className="text-[11px] font-bold bg-white/10 border border-white/20 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
               >
-                {(['Pending','Scheduled','Delivered','On-Hold','Rescheduled'] as const).map(s => (
+                {(['Pending', 'Scheduled', 'Delivered', 'On-Hold', 'Rescheduled'] as const).map(s => (
                   <option key={s} value={s} className="text-slate-900 bg-white">{s}</option>
                 ))}
               </select>
@@ -577,24 +733,22 @@ export default function DeliveryRecordsView({
               <span className="text-xs text-white/60">Set priority:</span>
               <select
                 id="bulk-priority-select"
+                value={bulkPriority}
+                onChange={e => setBulkPriority(e.target.value as PriorityLevel | '')}
+                disabled={bulkApplying}
                 className="text-[11px] font-bold bg-white/10 border border-white/20 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
-                defaultValue=""
               >
                 <option value="" disabled className="text-slate-400 bg-white">— pick —</option>
-                {(['1 - Low','2 - Moderate','3 - High'] as const).map(p => (
+                {(['1 - Low', '2 - Moderate', '3 - High'] as const).map(p => (
                   <option key={p} value={p} className="text-slate-900 bg-white">{p}</option>
                 ))}
               </select>
               <button
-                onClick={() => {
-                  const sel = (document.getElementById('bulk-priority-select') as HTMLSelectElement).value;
-                  if (!sel) return;
-                  [...selectedBulkIds].forEach(id => onUpdateRecord(id, { priority: sel as any, remarks: `Priority set to ${sel}` } as any));
-                  setSelectedBulkIds(new Set());
-                }}
-                className="px-4 py-1.5 bg-[#0078C1] hover:bg-blue-500 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5"
+                onClick={handleBulkPriorityUpdate}
+                disabled={!bulkPriority || bulkApplying}
+                className="px-4 py-1.5 bg-[#0078C1] hover:bg-blue-500 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
               >
-                <Check className="w-3.5 h-3.5" /> Apply
+                {bulkApplying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Apply
               </button>
             </div>
           )}
@@ -657,7 +811,7 @@ export default function DeliveryRecordsView({
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm lg:col-span-3">
             <div className="p-4 border-b border-slate-200 space-y-0 print:hidden">
               {/* ── Primary toolbar bar ── */}
-              <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 {/* LEFT: category label + status chips */}
                 <div className="flex items-center gap-0 min-w-0 flex-wrap">
                   <span className="text-xs font-black text-slate-800 uppercase tracking-wider mr-3 shrink-0">{category}</span>
@@ -666,11 +820,10 @@ export default function DeliveryRecordsView({
                       <button
                         key={s}
                         onClick={() => setStatusFilter(s)}
-                        className={`px-3 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer ${
-                          statusFilter === s
-                            ? 'bg-[#1F3864] text-white border-[#1F3864]'
-                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-                        }`}
+                        className={`px-3 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer ${statusFilter === s
+                          ? 'bg-[#1F3864] text-white border-[#1F3864]'
+                          : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+                          }`}
                       >
                         {s}
                       </button>
@@ -679,148 +832,209 @@ export default function DeliveryRecordsView({
                 </div>
 
                 {/* RIGHT: search + filter toggle + record count */}
-                <div className="flex items-center gap-2 shrink-0">
-                  <div className="relative w-56">
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end shrink-0">
+                  <div className="relative flex-1 sm:w-56 sm:flex-initial">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search records..."
                       className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-hidden focus:ring-1 focus:ring-[#0078C1]" />
                   </div>
-                  <button
-                    onClick={() => setShowAdvancedFilters(v => !v)}
-                    className={`relative p-2 rounded-lg border transition-all cursor-pointer ${showAdvancedFilters ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-400'}`}
-                    title="Toggle advanced filters"
-                  >
-                    <SlidersHorizontal className="w-4 h-4" />
-                    {hasAdvancedFilters && (
-                      <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-white" />
+                  <div className="relative">
+                    <button
+                      ref={advFilterBtnRef}
+                      onClick={() => {
+                        setShowAdvancedFilters(v => {
+                          const next = !v;
+                          if (next) {
+                            requestAnimationFrame(updatePopoverPosition);
+                          }
+                          return next;
+                        });
+                      }}
+                      className={`relative flex items-center gap-1.5 px-2.5 py-2 rounded-lg border transition-all cursor-pointer ${showAdvancedFilters ? 'bg-blue-50 border-blue-300 text-blue-700' : hasAdvancedFilters ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-400'}`}
+                      title="Toggle advanced filters"
+                    >
+                      <SlidersHorizontal className="w-4 h-4" />
+                      {activeFilterCount > 0 && (
+                        <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-blue-600 text-white text-[10px] font-black rounded-full leading-none">
+                          {activeFilterCount}
+                        </span>
+                      )}
+                    </button>
+
+                    {/* ── Advanced Filters Popover ── */}
+                    {showAdvancedFilters && (
+                      <div
+                        ref={advFilterPanelRef}
+                        className={`absolute ${popoverAlign === 'left' ? 'left-0' : 'right-0'} top-full mt-2 z-40 bg-white border border-slate-200 rounded-xl shadow-2xl p-4 space-y-4`}
+                        style={{
+                          width: `${popoverMaxWidth}px`,
+                          maxWidth: 'calc(100vw - 2rem)',
+                          maxHeight: 'calc(100vh - 180px)',
+                          overflowY: 'auto',
+                        }}
+                      >
+                        {/* Popover header */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <SlidersHorizontal className="w-4 h-4 text-slate-500" />
+                            <span className="text-xs font-black text-slate-800 uppercase tracking-wider">Advanced Filters</span>
+                            {activeFilterCount > 0 && (
+                              <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-blue-600 text-white text-[10px] font-black rounded-full leading-none">
+                                {activeFilterCount}
+                              </span>
+                            )}
+                          </div>
+                          <button onClick={() => setShowAdvancedFilters(false)} className="p-1 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors">
+                            <X className="w-4 h-4 text-slate-400" />
+                          </button>
+                        </div>
+
+                        {/* Geo filters */}
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-1.5">
+                            <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Location</span>
+                          </div>
+                          <div className="grid grid-cols-1 gap-2">
+                            <select
+                              value={regionFilter}
+                              onChange={e => { setRegionFilter(e.target.value); setSubregionFilter('All Subregions'); setAreaFilter('All Areas'); }}
+                              className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+                            >
+                              <option value="All Regions">All Regions</option>
+                              {AREA_HIERARCHY.map(r => <option key={r.region} value={r.region}>{r.region}</option>)}
+                            </select>
+                            <div className="grid grid-cols-2 gap-2">
+                              <select
+                                value={subregionFilter}
+                                onChange={e => { setSubregionFilter(e.target.value); setAreaFilter('All Areas'); }}
+                                className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+                              >
+                                <option value="All Subregions">All Subregions</option>
+                                {(regionFilter === 'All Regions' ? AREA_HIERARCHY : AREA_HIERARCHY.filter(r => r.region === regionFilter))
+                                  .flatMap(r => r.subregions)
+                                  .map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+                              </select>
+                              <select
+                                value={areaFilter}
+                                onChange={e => setAreaFilter(e.target.value)}
+                                className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+                              >
+                                {distinctAreasForFilter.map(a => <option key={a} value={a}>{a}</option>)}
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* AM + Driver */}
+                        <div className="space-y-2">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Personnel</span>
+                          <div className="grid grid-cols-2 gap-2">
+                            <AccountManagerCombobox
+                              value={amFilter}
+                              onChange={setAmFilter}
+                              options={amOptions}
+                              placeholder="Account Manager"
+                              inputClassName="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] placeholder:text-slate-400"
+                            />
+                            <AccountManagerCombobox
+                              value={driverFilter}
+                              onChange={setDriverFilter}
+                              options={driverOptions}
+                              placeholder="Driver"
+                              inputClassName="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] placeholder:text-slate-400"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Date range + sort */}
+                        <div className="space-y-2">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date Range</span>
+                          <div className="flex items-center gap-2">
+                            <input
+                              ref={dateFromRef}
+                              type="date"
+                              value={dateFrom}
+                              onChange={e => setDateFrom(e.target.value)}
+                              title="Date from"
+                              className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer flex-1 min-w-0"
+                            />
+                            <span className="text-[11px] text-slate-400 font-semibold shrink-0">—</span>
+                            <input
+                              type="date"
+                              value={dateTo}
+                              onChange={e => setDateTo(e.target.value)}
+                              title="Date to"
+                              className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer flex-1 min-w-0"
+                            />
+                            {(dateFrom || dateTo) && (
+                              <button
+                                onClick={() => { setDateFrom(''); setDateTo(''); }}
+                                title="Clear date filter"
+                                className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                          <select
+                            value={dateSort}
+                            onChange={e => setDateSort(e.target.value as typeof dateSort)}
+                            disabled={!!(dateFrom || dateTo)}
+                            title={(dateFrom || dateTo) ? 'Sort order is N/A while a date range filter is active' : undefined}
+                            className={`text-[11px] font-semibold border rounded-lg px-2.5 py-2 w-full focus:outline-none focus:ring-1 focus:ring-[#0078C1] ${(dateFrom || dateTo) ? 'border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-700 cursor-pointer'}`}
+                          >
+                            {(dateFrom || dateTo) && <option value={dateSort}>Sort: N/A</option>}
+                            <option value="default">Date: Default</option>
+                            <option value="nearest">Nearest to Present</option>
+                            <option value="oldest">Oldest First</option>
+                            <option value="furthest">Furthest Future First</option>
+                          </select>
+                        </div>
+
+                        {/* Footer: Clear all + Apply/Close */}
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                          {hasAdvancedFilters ? (
+                            <button
+                              onClick={() => { setRegionFilter('All Regions'); setSubregionFilter('All Subregions'); setAreaFilter('All Areas'); setAmFilter(''); setDriverFilter(''); setDateFrom(''); setDateTo(''); setDateSort('default'); }}
+                              className="px-3 py-1.5 text-red-600 hover:bg-red-50 font-bold text-[10px] uppercase cursor-pointer rounded-lg transition-colors"
+                            >
+                              Clear All Filters
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-slate-400">No filters active</span>
+                          )}
+                          <button
+                            onClick={() => setShowAdvancedFilters(false)}
+                            className="px-4 py-1.5 bg-[#1F3864] hover:bg-blue-900 text-white text-[11px] font-bold rounded-lg transition-colors cursor-pointer"
+                          >
+                            Done
+                          </button>
+                        </div>
+                      </div>
                     )}
-                  </button>
+                  </div>
                   <span className="text-[11px] font-bold text-slate-400 tabular-nums shrink-0">{sortedFiltered.length}</span>
                 </div>
               </div>
-
-              {/* ── Collapsible Advanced Filters ── */}
-              {showAdvancedFilters && (
-                <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-end gap-3">
-                  {/* Geo filters */}
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <select
-                      value={regionFilter}
-                      onChange={e => { setRegionFilter(e.target.value); setSubregionFilter('All Subregions'); setAreaFilter('All Areas'); }}
-                      className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 w-40 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-                    >
-                      <option value="All Regions">All Regions</option>
-                      {AREA_HIERARCHY.map(r => <option key={r.region} value={r.region}>{r.region}</option>)}
-                    </select>
-                    <select
-                      value={subregionFilter}
-                      onChange={e => { setSubregionFilter(e.target.value); setAreaFilter('All Areas'); }}
-                      className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 w-40 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-                    >
-                      <option value="All Subregions">All Subregions</option>
-                      {(regionFilter === 'All Regions' ? AREA_HIERARCHY : AREA_HIERARCHY.filter(r => r.region === regionFilter))
-                        .flatMap(r => r.subregions)
-                        .map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
-                    </select>
-                    <select
-                      value={areaFilter}
-                      onChange={e => setAreaFilter(e.target.value)}
-                      className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 w-40 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-                    >
-                      {distinctAreasForFilter.map(a => <option key={a} value={a}>{a}</option>)}
-                    </select>
-                  </div>
-
-                  {/* AM + Driver comboboxes */}
-                  <div className="flex items-center gap-2 border-l border-slate-200 pl-3">
-                    <AccountManagerCombobox
-                      value={amFilter}
-                      onChange={setAmFilter}
-                      options={amOptions}
-                      placeholder="Account Manager"
-                      inputClassName="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 w-40 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] placeholder:text-slate-400"
-                    />
-                    <AccountManagerCombobox
-                      value={driverFilter}
-                      onChange={setDriverFilter}
-                      options={driverOptions}
-                      placeholder="Driver"
-                      inputClassName="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 w-40 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] placeholder:text-slate-400"
-                    />
-                  </div>
-
-                  {/* Date range + sort */}
-                  <div className="flex items-center gap-1.5 border-l border-slate-200 pl-3">
-                    <input
-                      ref={dateFromRef}
-                      type="date"
-                      value={dateFrom}
-                      onChange={e => setDateFrom(e.target.value)}
-                      title="Date from"
-                      className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-                    />
-                    <span className="text-[11px] text-slate-400 font-semibold">—</span>
-                    <input
-                      type="date"
-                      value={dateTo}
-                      onChange={e => setDateTo(e.target.value)}
-                      title="Date to"
-                      className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-                    />
-                    {(dateFrom || dateTo) && (
-                      <button
-                        onClick={() => { setDateFrom(''); setDateTo(''); }}
-                        title="Clear date filter"
-                        className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                    <select
-                      value={dateSort}
-                      onChange={e => setDateSort(e.target.value as typeof dateSort)}
-                      disabled={!!(dateFrom || dateTo)}
-                      title={(dateFrom || dateTo) ? 'Sort order is N/A while a date range filter is active' : undefined}
-                      className={`text-[11px] font-semibold border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#0078C1] ${(dateFrom || dateTo) ? 'border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-700 cursor-pointer'}`}
-                    >
-                      {(dateFrom || dateTo) && <option value={dateSort}>Sort: N/A</option>}
-                      <option value="default">Date: Default</option>
-                      <option value="nearest">Nearest to Present</option>
-                      <option value="oldest">Oldest First</option>
-                      <option value="furthest">Furthest Future First</option>
-                    </select>
-                  </div>
-
-                  {/* Clear all */}
-                  {(searchQuery || statusFilter !== 'All' || hasAdvancedFilters) && (
-                    <button
-                      onClick={() => { setSearchQuery(''); setStatusFilter('All'); setRegionFilter('All Regions'); setSubregionFilter('All Subregions'); setAreaFilter('All Areas'); setAmFilter(''); setDriverFilter(''); setDateFrom(''); setDateTo(''); setDateSort('default'); }}
-                      className="px-3 py-1.5 text-[#1F3864] hover:underline font-bold text-[10px] uppercase cursor-pointer"
-                    >
-                      Clear All
-                    </button>
-                  )}
-                </div>
-              )}
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full table-fixed text-left border-collapse text-sm">
+              <table className="w-full min-w-[700px] table-fixed text-left border-collapse text-sm">
                 <colgroup>
-                  {showCheckbox && <col style={{ width: '4%' }} />}
-                  <col style={{ width: `${colPct.id}%` }} />
-                  <col style={{ width: `${colPct.company}%` }} />
-                  <col style={{ width: `${colPct.area}%` }} />
-                  <col style={{ width: `${colPct.date}%` }} />
-                  <col style={{ width: `${colPct.driver}%` }} />
-                  <col style={{ width: `${colPct.status}%` }} />
-                  {showCollectionCol && <col style={{ width: '8%' }} />}
+                  {showCheckbox && <col style={{ width: '4%', minWidth: '40px' }} />}
+                  <col style={{ width: `${colPct.id}%`, minWidth: colMinWidth.id }} />
+                  <col style={{ width: `${colPct.company}%`, minWidth: colMinWidth.company }} />
+                  <col style={{ width: `${colPct.area}%`, minWidth: colMinWidth.area }} />
+                  <col style={{ width: `${colPct.date}%`, minWidth: colMinWidth.date }} />
+                  <col style={{ width: `${colPct.driver}%`, minWidth: colMinWidth.driver }} />
+                  <col style={{ width: `${colPct.status}%`, minWidth: colMinWidth.status }} />
+                  {showCollectionCol && <col style={{ width: '8%', minWidth: '90px' }} />}
                 </colgroup>
                 <thead>
                   <tr className="bg-slate-100 border-b border-slate-200 text-xs font-black text-slate-500 uppercase tracking-wider">
                     {showCheckbox && (
-                      <th className="px-4 py-3">
+                      <th className="px-4 py-3" style={{ minWidth: '40px' }}>
                         <input
                           type="checkbox"
                           className="rounded cursor-pointer"
@@ -829,21 +1043,21 @@ export default function DeliveryRecordsView({
                         />
                       </th>
                     )}
-                    <th className="px-4 py-3">Record ID</th>
-                    <th className="px-4 py-3">Company</th>
-                    <th className="px-4 py-3">Area</th>
-                    <th className="px-4 py-3 text-center">Delivery Date</th>
-                    <th className="px-4 py-3">Driver</th>
-                    <th className="px-4 py-3 text-center">Status</th>
+                    <th className="px-4 py-3" style={{ minWidth: colMinWidth.id }}>Record ID</th>
+                    <th className="px-4 py-3" style={{ minWidth: colMinWidth.company }}>Company</th>
+                    <th className="px-4 py-3" style={{ minWidth: colMinWidth.area }}>Area</th>
+                    <th className="px-4 py-3 text-center" style={{ minWidth: colMinWidth.date }}>Delivery Date</th>
+                    <th className="px-4 py-3" style={{ minWidth: colMinWidth.driver }}>Driver</th>
+                    <th className="px-4 py-3 text-center" style={{ minWidth: colMinWidth.status }}>Status</th>
                     {currentUserRole === 'TASS' && category === 'Accounting Collection' && (
-                      <th className="px-4 py-3 text-center">Collection</th>
+                      <th className="px-4 py-3 text-center" style={{ minWidth: '90px' }}>Collection</th>
                     )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {sortedFiltered.length === 0 ? (
-                    <tr><td colSpan={7} className="px-4 py-3.5 text-center text-gray-400">No matching records found.</td></tr>
-                  ) : sortedFiltered.map(rec => {
+                  {paginatedRecords.length === 0 ? (
+                    <tr><td colSpan={10} className="px-4 py-3.5 text-center text-gray-400">No matching records found.</td></tr>
+                  ) : paginatedRecords.map(rec => {
                     const isSelected = selectedId === rec.id;
                     return (
                       <tr key={rec.id} onClick={() => { setSelectedId(rec.id); setShowForm(false); }}
@@ -884,17 +1098,29 @@ export default function DeliveryRecordsView({
                 </tbody>
               </table>
             </div>
-            <div className="p-3 bg-slate-50 border-t border-slate-100 text-[11px] text-slate-400 print:hidden">
-              Total {category} records: {records.filter(r => r.category === category).length}
+            <div className="border-t border-slate-200 print:hidden">
+              <Pagination
+                currentPage={safeCurrentPage}
+                totalPages={totalPages}
+                totalItems={sortedFiltered.length}
+                pageSize={pageSize}
+                onPageChange={setCurrentPage}
+                onPageSizeChange={(newSize) => {
+                  setPageSize(newSize);
+                  setCurrentPage(1);
+                }}
+                pageSizeOptions={[10, 25, 50, 100]}
+              />
             </div>
-          </div>
-        </div>
-      )}
+          </div >
+        </div >
+      )
+      }
 
       {/* Print-only header for PDF export */}
       <div className="hidden print:block mb-4">
         <h1 className="text-lg font-bold">Accounting Collection Records — {new Date().toLocaleDateString()}</h1>
       </div>
-    </div>
+    </div >
   );
 }

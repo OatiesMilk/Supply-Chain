@@ -11,6 +11,7 @@ import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus } from '@/ty
 import { AREAS, PRIORITIES, ITEM_TYPES, DELIVERY_STATUSES, ACCOUNT_MANAGERS, acStatusLabel } from '@/data';
 import { ApiCompany } from '@/api';
 import AccountingCollectionWorkspace from '@/features/accounting/AccountingCollectionWorkspace';
+import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
 
 interface AccountingCollectionViewProps {
   records: DeliveryRecord[];
@@ -19,7 +20,7 @@ interface AccountingCollectionViewProps {
   currentUserName: string;
   onCreateRecord: (
     data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>
-  ) => void;
+  ) => Promise<void>;
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
   onVerifyCollection: (id: string) => Promise<void>;
   selectedRecordIdFromDashboard?: string | null;
@@ -120,6 +121,7 @@ export default function AccountingCollectionView({
   const [form, setForm] = useState<RecordFormState>(buildEmptyForm());
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [attachmentNames, setAttachmentNames] = useState<string[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Deep-link: jump to a record from dashboard
@@ -183,9 +185,19 @@ export default function AccountingCollectionView({
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setAttachmentNames(prev => [...prev, ...Array.from(e.target.files!).map((f: File) => f.name)]);
+    const input = e.currentTarget;
+    const selectedFiles = Array.from(input.files ?? []);
+    input.value = '';
+    if (selectedFiles.length === 0) return;
+
+    const validationError = validatePodAttachments(selectedFiles);
+    if (validationError) {
+      setAttachmentError(validationError);
+      return;
     }
+
+    setAttachmentError(null);
+    setAttachmentNames(prev => [...prev, ...selectedFiles.map(file => file.name)]);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -528,9 +540,10 @@ export default function AccountingCollectionView({
                 >
                   <UploadCloud className="w-8 h-8 text-slate-400" />
                   <p className="font-bold text-slate-600">Click to upload (mock, no file is actually stored)</p>
-                  <p className="text-[10px] text-slate-400">PDF, JPG, PNG, DOC up to 10MB</p>
-                  <input type="file" ref={fileInputRef} onChange={handleFileSelect} multiple className="hidden" />
+                  <p className="text-[10px] text-slate-400">PDF, JPG/JPEG, PNG, or DOC up to 10 MB each</p>
+                  <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept={POD_ATTACHMENT_ACCEPT} multiple className="hidden" />
                 </div>
+                {attachmentError && <p role="alert" className="text-xs text-red-600">{attachmentError}</p>}
                 {attachmentNames.length > 0 && (
                   <div className="mt-2 space-y-1">
                     {attachmentNames.map((name, idx) => (

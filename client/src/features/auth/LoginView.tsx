@@ -1,6 +1,7 @@
 import { FormEvent, useState, useEffect } from 'react';
 import { LogIn, Loader2, Mail, ChevronDown } from 'lucide-react';
 import { api, ApiUser } from '@/api';
+import { keepLoginRoute } from '@/routes/screenRouting';
 
 interface LoginViewProps {
   onLoggedIn: (user: ApiUser) => void;
@@ -71,19 +72,16 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
     const errParam = params.get('error');
     if (errParam === 'account_deactivated') {
       setError('Your Microsoft account is not authorized. Contact your administrator.');
-      window.history.replaceState({}, '', '/');
     } else if (errParam === 'sso_failed') {
       setError('Microsoft login failed. Please try again or use email login.');
-      window.history.replaceState({}, '', '/');
     } else if (errParam === 'sso_not_configured') {
       setError('Microsoft login is not configured. Use email login.');
       setShowEmailForm(true);
-      window.history.replaceState({}, '', '/');
     } else if (errParam === 'sso_no_email') {
       setError('Could not retrieve email from your Microsoft account. Use email login.');
       setShowEmailForm(true);
-      window.history.replaceState({}, '', '/');
     }
+    return keepLoginRoute();
   }, []);
 
   const handleSubmit = async (e: FormEvent) => {

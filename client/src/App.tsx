@@ -1,30 +1,83 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { queryClient } from '@/api/queryClient';
+import { createQueryClient } from '@/api/queryClient';
 import { useAuth, useUIStore } from '@/store';
+import { useAuthStore } from '@/store/authStore';
 import { useAppData, useDeliveryActions, usePermissions } from '@/hooks';
 import { MainLayout } from '@/layouts';
 import { AppRouter } from '@/routes';
+import { syncAuthenticatedRoute } from '@/routes/screenRouting';
 import LoginView from '@/features/auth/LoginView';
+import ServerUnavailableView from '@/features/auth/ServerUnavailableView';
+import { useServerAvailability } from '@/hooks/useServerAvailability';
 import DriverDashboard from '@/features/dashboard/DriverDashboard';
 import { DeliveryCategory } from '@/types';
 
 function AppContent() {
+  const { authUser, authChecked, logoutPending, login, checkAuth } = useAuth();
+  const { status, retrying, retry } = useServerAvailability();
+  const [sessionReady, setSessionReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSessionReady(false);
+    if (status === 'available') {
+      void checkAuth().then(() => {
+        if (!cancelled) setSessionReady(true);
+      });
+    }
+    return () => { cancelled = true; };
+  }, [checkAuth, status]);
+
+  useEffect(() => {
+    if (!authUser) return;
+    const refresh = () => { void useAuthStore.getState().refreshPermissions(); };
+    const interval = window.setInterval(refresh, 30_000);
+    window.addEventListener('focus', refresh);
+    window.addEventListener('online', refresh);
+    window.addEventListener('session-permissions-changed', refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('online', refresh);
+      window.removeEventListener('session-permissions-changed', refresh);
+    };
+  }, [authUser?.id]);
+
+  if (status === 'unavailable') {
+    return <ServerUnavailableView retrying={retrying} onRetry={retry} />;
+  }
+
+  if (status === 'checking' || !sessionReady || !authChecked) {
+    return (
+      <div className="min-h-screen bg-[#F8F9FB] flex items-center justify-center" id="auth-check-loading" role="status">
+        Checking your session…
+      </div>
+    );
+  }
+
+  if (logoutPending) return <div role="status" className="min-h-screen flex items-center justify-center">Signing out...</div>;
+  if (!authUser) return <LoginView onLoggedIn={login} />;
+
+  return <SessionApp key={`${authUser.id}:${authUser.name}:${authUser.permissionVersion}`} />;
+}
+
+function SessionApp() {
+  // A new cache for every login also isolates late requests from the old session.
+  const [client] = useState(createQueryClient);
+  useEffect(() => () => { client.clear(); }, [client]);
+  return <QueryClientProvider client={client}><AuthenticatedApp /></QueryClientProvider>;
+}
+
+// Keep protected data hooks and application effects behind the session gate.
+function AuthenticatedApp() {
   const {
     authUser,
-    authChecked,
     currentUserRole,
     currentUserName,
     currentUserInitials,
-    login,
     logout,
-    checkAuth,
   } = useAuth();
-
-  // Validate session on app initialization
-  useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
 
   const currentUser = {
     name: currentUserName,
@@ -86,9 +139,25 @@ function AppContent() {
   const setSelectedProductId = useUIStore(s => s.setSelectedProductId);
   const selectedRecordId = useUIStore(s => s.selectedRecordId);
   const setSelectedRecordId = useUIStore(s => s.setSelectedRecordId);
-  const handleNavigate = useUIStore(s => s.handleNavigate);
+  const navigate = useUIStore(s => s.handleNavigate);
+  const handleNavigate = useCallback((screen: string, itemId?: string) => {
+    if (screen !== 'no-access' && !effectiveScreens.has(screen)) {
+      openAccessRequest(screen);
+      return;
+    }
+    navigate(screen, itemId);
+  }, [navigate, effectiveScreens, openAccessRequest]);
 
-  // Synchronize accessibility root font-size with zoomFactor
+  // Client-side routing
+  useEffect(() => {
+    const syncRoute = () => {
+      syncAuthenticatedRoute(effectiveScreens, handleNavigate);
+    };
+    syncRoute();
+    window.addEventListener('popstate', syncRoute);
+    return () => window.removeEventListener('popstate', syncRoute);
+  }, [handleNavigate, effectiveScreens]);
+
   useEffect(() => {
     document.documentElement.style.fontSize = `${zoomFactor}%`;
     return () => {
@@ -115,19 +184,19 @@ function AppContent() {
   const deliveriesActiveCount = countByCategory('Deliveries', ['Scheduled', 'Pending']);
   const rmaActiveCount = countByCategory('RMA', ['Scheduled', 'Pending', 'On-Hold']);
   const salesOrdersActiveCount = countByCategory('Sales Orders', ['Scheduled', 'Pending']);
-
-  // Authentication loading gate
-  if (!authChecked) {
-    return <div className="min-h-screen bg-[#F8F9FB]" id="auth-check-loading" />;
-  }
-
-  // Unauthenticated -> Render Login view
-  if (!authUser) {
-    return <LoginView onLoggedIn={login} />;
-  }
+  const accountingActiveCount = countByCategory('Accounting Collection', ['Scheduled', 'Pending']);
+  const procurementActiveCount = countByCategory('Procurement Pick-up', ['Scheduled', 'Pending']);
 
   // Driver role gets standalone mobile-first dashboard
-  if (authUser.role === 'DRIVER') {
+  if (effectiveScreens.size === 0) {
+    return <div className="min-h-screen flex flex-col items-center justify-center gap-4">
+      <h1 className="text-xl font-bold">No modules assigned</h1>
+      <p>Contact your administrator to request access.</p>
+      <button onClick={() => void logout()} className="rounded bg-blue-800 px-4 py-2 text-white">Sign out</button>
+    </div>;
+  }
+
+  if (authUser.role === 'DRIVER' && canAccess('driver_dashboard')) {
     return (
       <DriverDashboard
         records={deliveryRecords}
@@ -165,6 +234,8 @@ function AppContent() {
         deliveriesActiveCount,
         rmaActiveCount,
         salesOrdersActiveCount,
+        accountingActiveCount,
+        procurementActiveCount,
         onRequestAccess: () => openAccessRequest(''),
       }}
       navbarProps={{
@@ -217,9 +288,5 @@ function AppContent() {
 }
 
 export default function App() {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <AppContent />
-    </QueryClientProvider>
-  );
+  return <AppContent />;
 }
