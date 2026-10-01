@@ -9,7 +9,7 @@ import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, PDF_AC_COLUMNS, fmtDate, fmtDatetim
 import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus } from '@/types';
 import { AREAS, PRIORITIES, ITEM_TYPES, DELIVERY_STATUSES, ACCOUNT_MANAGERS, acStatusLabel } from '@/data';
-import { ApiCompany } from '@/api';
+import { ApiCompany, apiUrl } from '@/api';
 import AccountingCollectionWorkspace from '@/features/accounting/AccountingCollectionWorkspace';
 import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
 
@@ -139,7 +139,7 @@ export default function AccountingCollectionView({
     const params = new URLSearchParams({ category: 'ACCOUNTING_COLLECTION' });
     if (statusFilter !== 'All') params.set('status', statusFilter);
 
-    fetch(`/api/records/status-history-counts?${params}`, { credentials: 'include' })
+    fetch(`${apiUrl('/records/status-history-counts')}?${params}`, { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
       .then(data => setStatusHistoryCounts(data ?? undefined))
       .catch(() => setStatusHistoryCounts(undefined));

@@ -23,7 +23,7 @@ import Pagination from '@/components/Pagination';
 import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, PDF_DELIVERY_COLUMNS, PDF_AC_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel } from '@/types';
-import { ApiCompany, api, ApiError } from '@/api';
+import { ApiCompany, api, apiUrl, ApiError } from '@/api';
 import { DELIVERY_STATUSES, AREA_HIERARCHY, getRegion, getSubregion } from '@/data';
 import { MapPin, SlidersHorizontal } from 'lucide-react';
 import DeliveryRecordWorkspace from '@/features/deliveries/DeliveryRecordWorkspace';
@@ -198,7 +198,7 @@ export default function DeliveryRecordsView({
     if (driverFilter) params.set('driver', driverFilter);
     if (statusFilter !== 'All') params.set('status', statusFilter);
 
-    fetch(`/api/records/status-history-counts?${params}`, { credentials: 'include' })
+    fetch(`${apiUrl('/records/status-history-counts')}?${params}`, { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
       .then(data => setStatusHistoryCounts(data ?? undefined))
       .catch(() => setStatusHistoryCounts(undefined));

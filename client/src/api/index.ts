@@ -7,6 +7,12 @@
 
 import { requestServerCheck } from './availability';
 
+export const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+
+export function apiUrl(path: string): string {
+  return `${API_BASE}/api${path}`;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -16,10 +22,9 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/api${path}`, {
+    res = await fetch(apiUrl(path), {
       credentials: 'include',
       headers: options.body instanceof FormData
         ? { ...(options.headers || {}) }
