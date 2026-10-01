@@ -4,7 +4,10 @@ services:
     env: node
     rootDir: server
     buildCommand: npm install --include=dev && npx prisma generate && npm run build
-    startCommand: npm run start
+    # Apply all committed migrations before starting the API. Render's managed
+    # database starts empty, so the application must not boot against an
+    # unmigrated schema.
+    startCommand: npx prisma migrate deploy && npm run start
     envVars:
       - key: NODE_ENV
         value: production
