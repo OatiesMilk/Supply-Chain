@@ -52,11 +52,22 @@ const CATEGORY_OPTIONS_BY_ROLE: Record<string, Array<{ label: string; value: str
   ],
   TASS: [
     { label: 'Accounting Collection', value: 'ACCOUNTING_COLLECTION' }
+  ],
+  Driver: [
+    { label: 'Deliveries',            value: 'DELIVERY' },
+    { label: 'RMA',                   value: 'RMA' },
+    { label: 'Accounting Collection', value: 'ACCOUNTING_COLLECTION' },
+    { label: 'Procurement Pick-up',   value: 'PROCUREMENT_PICKUP' },
+    { label: 'Sales Orders',          value: 'SALES_ORDERS' }
   ]
 };
 
 function getCategoryOptions(role: string) {
-  return CATEGORY_OPTIONS_BY_ROLE[role] ?? CATEGORY_OPTIONS_BY_ROLE['Admin'];
+  return CATEGORY_OPTIONS_BY_ROLE[role] ?? [];
+}
+
+function canViewInventory(role: string) {
+  return ['Admin', 'Sales Coordinator', 'Logistics'].includes(role);
 }
 
 // ─── Filter state ─────────────────────────────────────────────────────────────
@@ -71,7 +82,7 @@ interface Filters {
 
 function defaultFilters(role: string): Filters {
   return {
-    source:   role === 'TASS' ? 'delivery' : 'all',
+    source:   canViewInventory(role) ? 'all' : 'delivery',
     category: '',
     status:   '',
     from:     '',
@@ -110,6 +121,7 @@ export default function TransactionCenter({ currentUserRole, currentUserName }: 
   const [selected, setSelected] = useState<{ source: 'delivery' | 'inventory'; id: string } | null>(null);
 
   const isTass = currentUserRole === 'TASS';
+  const inventoryAllowed = canViewInventory(currentUserRole);
   const categoryOptions = getCategoryOptions(currentUserRole);
 
   // Only show category/status filters when source includes delivery records
@@ -224,8 +236,8 @@ export default function TransactionCenter({ currentUserRole, currentUserName }: 
           {filtersOpen && (
             <div className="px-4 pb-4 space-y-3">
               <div className="flex flex-wrap gap-3 items-end">
-                {/* Source filter — hidden for TASS */}
-                {!isTass && (
+                {/* Inventory sources require an explicitly authorized role. */}
+                {inventoryAllowed && (
                   <div>
                     <label className="text-[11px] font-semibold text-slate-500 block mb-1">Source</label>
                     <select
