@@ -10,6 +10,14 @@ export interface PodFile {
   buffer: Buffer;
 }
 
+
+export function podStorageKeys(): Promise<string[]> {
+  return fs.promises.readdir(uploadDir).catch(error => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
+  });
+}
+
 export interface PodStorage {
   save(file: PodFile): Promise<string>;
   read(storageKey: string): Promise<Buffer>;

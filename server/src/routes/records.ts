@@ -191,20 +191,21 @@ router.post(
       size: req.file.size,
       buffer: req.file.buffer
     });
+
     let attachment;
     try {
       attachment = await prisma.podAttachment.create({
         data: {
           recordId: record.id,
           originalName: req.file.originalname,
-          storageKey,
+storageKey,
           mimeType: req.file.mimetype,
           size: req.file.size,
           uploadedById: req.user!.id
         }
       });
     } catch (error) {
-      await podStorage.remove(storageKey).catch(cleanupError => {
+await podStorage.remove(storageKey).catch(cleanupError => {
         console.error('[POD] Failed to clean up storage after metadata failure', cleanupError);
       });
       throw error;
@@ -241,7 +242,11 @@ router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('re
     where: { id: req.params.attachmentId, recordId: req.params.id }
   });
   if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
-  await podStorage.remove(attachment.storageKey);
+  try {
+    await podStorage.remove(attachment.storageKey);
+  } catch (error) {
+    return res.status(500).json({ error: 'Attachment could not be removed from storage. The database record was preserved for retry.' });
+  }
   await prisma.podAttachment.delete({ where: { id: attachment.id } });
   res.status(204).send();
 }));
