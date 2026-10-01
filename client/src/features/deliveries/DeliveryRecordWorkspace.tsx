@@ -12,7 +12,7 @@ import { api, ApiAuditEntry, ApiComment, ApiCompany, ApiRemarkLog } from '@/api'
 import { printSingleManifest, ManifestDocumentationData } from '@/features/deliveries/DeliveryManifest';
 import { DRIVERS, DRIVER_ASSISTANTS, DELIVERY_STATUSES, AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, ACCOUNT_MANAGERS, DRIVER_COVERAGE_AREAS, getSubregion, getNearbyAreas } from '@/data';
 import ComboboxField from '@/components/ComboboxField';
-import { Pencil, X as XIcon, Save } from 'lucide-react';
+import { Pencil, X as XIcon, Save, Plus } from 'lucide-react';
 import { getOutputTrigger, runOutputActions } from '@/outputActions';
 import StatusStepper from '@/components/StatusStepper';
 
@@ -326,6 +326,19 @@ function GeneralTab({
                 <p className="text-sm text-slate-700 leading-relaxed">{record.item_description}</p>
               </div>
             )}
+            {record.line_items && record.line_items.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <p className={`${labelCls} mb-1.5`}>Line Items</p>
+                <ul className="list-disc list-inside text-sm text-slate-700 leading-relaxed">
+                  {record.line_items.map((li, idx) => (
+                    <li key={idx}>
+                      <span className="font-mono text-xs bg-slate-100 px-1 py-0.5 rounded mr-1">x{li.quantity}</span>
+                      {li.sku}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </>
         ) : (
           <div className="space-y-4 text-xs">
@@ -415,9 +428,56 @@ function GeneralTab({
               {saveError && <p role="alert" className="text-[11px] text-red-600 font-semibold">{saveError}</p>}
             </div>
             {canEditFull && (
-              <div className="space-y-1">
-                <label className={labelCls}>Item Description</label>
-                <textarea value={draft.item_description} onChange={e => set('item_description', e.target.value)} rows={3} className={inputCls} />
+              <div className="space-y-1 mt-4 pt-4 border-t border-slate-100">
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className={labelCls}>Line Items</label>
+                  <button
+                    type="button"
+                    onClick={() => set('line_items', [...(draft.line_items || []), { sku: '', quantity: 1 }])}
+                    className="flex items-center gap-1 text-[11px] font-bold text-[#0078C1] hover:text-[#1F3864] cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add Item
+                  </button>
+                </div>
+                {(draft.line_items || []).map((item, index) => (
+                  <div key={index} className="flex items-center gap-2 mb-2">
+                    <input
+                      type="text"
+                      placeholder="SKU or Description"
+                      value={item.sku}
+                      onChange={(e) => {
+                        const newItems = [...(draft.line_items || [])];
+                        newItems[index].sku = e.target.value;
+                        set('line_items', newItems);
+                      }}
+                      className={inputCls}
+                    />
+                    <input
+                      type="number"
+                      min="1"
+                      value={item.quantity}
+                      onChange={(e) => {
+                        const newItems = [...(draft.line_items || [])];
+                        newItems[index].quantity = parseInt(e.target.value) || 1;
+                        set('line_items', newItems);
+                      }}
+                      className={`${inputCls} w-20`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newItems = (draft.line_items || []).filter((_, i) => i !== index);
+                        set('line_items', newItems);
+                      }}
+                      className="p-1 text-slate-400 hover:text-red-500 cursor-pointer shrink-0"
+                    >
+                      <XIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                {(!draft.line_items || draft.line_items.length === 0) && (
+                  <p className="text-[11px] text-slate-400 italic">No line items added.</p>
+                )}
               </div>
             )}
 
