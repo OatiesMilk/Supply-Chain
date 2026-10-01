@@ -68,10 +68,14 @@ JWT_SECRET="make-up-some-random-password-here"
 Still inside `server/`:
 
 ```bash
-npx prisma migrate dev
+npx prisma generate
+npx prisma migrate deploy
 ```
 
-This reads the schema file (`server/prisma/schema.prisma`) and creates all the tables in your database. If it works, you'll see a list of migrations being applied.
+`migrate deploy` applies every committed migration, including the `LineItem`
+migration required by the current delivery-record API. This is the same
+migration command used by staging and production; it prevents a fresh
+environment from having Prisma code that expects tables which do not exist.
 
 Then load some demo data (fake users, fake delivery records, etc.) so the app isn't empty:
 
@@ -121,10 +125,32 @@ The backend (Terminal 1) probably isn't running, or crashed. Check that terminal
 Something else on your machine is already using port 3000 or 4000. Close whatever that is, or stop a leftover `npm run dev` process from a previous session.
 
 **You changed `server/prisma/schema.prisma` and now things are broken**
-Don't hand-edit the database directly. After changing the schema file, run `npx prisma migrate dev --name describe-your-change` from inside `server/` to generate a proper migration. See [`DONT_BREAK_THIS.md`](./DONT_BREAK_THIS.md) for why this matters.
+Don't hand-edit the database directly or use `prisma db push` for shared
+environments. From inside `server/`, create and review a migration locally:
+
+```bash
+npx prisma migrate dev --name describe-your-change
+npx prisma generate
+```
+
+Commit the generated migration directory with the schema change. Other
+environments apply it with `npx prisma migrate deploy`. See
+[`DONT_BREAK_THIS.md`](./DONT_BREAK_THIS.md) for why this matters.
 
 **You want to wipe everything and start over with fresh demo data**
 Log in as Admin → Admin Panel → Data Sampler → "Reset to Seed Data". Or from the backend: `npm run seed` again (after truncating tables) — see `server/prisma/seed.ts`.
+
+**You want an empty database with users only**
+This destructive workflow removes all local business data and creates only the
+standard Admin, Sales Coordinator, Logistics, and TASS accounts:
+
+```bash
+npm run db:clean
+npm run seed:users-only
+```
+
+It leaves companies, customers, suppliers, deliveries, inventory, drivers,
+notifications, audit history, and POD metadata empty.
 
 ## Where to go next
 
