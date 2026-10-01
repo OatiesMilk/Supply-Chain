@@ -111,6 +111,14 @@ cd ..
 ```
 
 For a clean database in a disposable local environment, use:
+npx prisma generate
+npx prisma migrate deploy
+```
+
+`migrate deploy` applies every committed migration, including the `LineItem`
+migration required by the current delivery-record API. This is the same
+migration command used by staging and production; it prevents a fresh
+environment from having Prisma code that expects tables which do not exist.
 
 ```bash
 npm run db:reset
@@ -225,11 +233,36 @@ Make sure the backend is running on port `4000` and visit
 <http://localhost:4000/api/health>. Check the backend terminal for errors.
 
 ### Port already in use
+**You changed `server/prisma/schema.prisma` and now things are broken**
+Don't hand-edit the database directly or use `prisma db push` for shared
+environments. From inside `server/`, create and review a migration locally:
+
+```bash
+npx prisma migrate dev --name describe-your-change
+npx prisma generate
+```
+
+Commit the generated migration directory with the schema change. Other
+environments apply it with `npx prisma migrate deploy`. See
+[`DONT_BREAK_THIS.md`](./DONT_BREAK_THIS.md) for why this matters.
 
 Stop the process using port `3000`, `4000`, or `5433`, or change the
 corresponding environment/Compose setting before restarting.
 
 ## Further documentation
+**You want an empty database with users only**
+This destructive workflow removes all local business data and creates only the
+standard Admin, Sales Coordinator, Logistics, and TASS accounts:
+
+```bash
+npm run db:clean
+npm run seed:users-only
+```
+
+It leaves companies, customers, suppliers, deliveries, inventory, drivers,
+notifications, audit history, and POD metadata empty.
+
+## Where to go next
 
 - [`DONT_BREAK_THIS.md`](./DONT_BREAK_THIS.md)
 - [`docs/API_CONTRACT.md`](./docs/API_CONTRACT.md)

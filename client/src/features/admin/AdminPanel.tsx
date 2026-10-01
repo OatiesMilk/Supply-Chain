@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Users, ClipboardList, UserX, Plus, ChevronLeft, ChevronRight, Loader2, Check, ShieldCheck, RotateCcw, X, Settings2, Send, Pencil, Link2, Trash2 } from 'lucide-react';
 import { api, ApiPermissionEditor, ApiUserAdmin, ApiAdminAuditEntry, ApiIntegrationStatus, ApiError } from '@/api';
+import Pagination from '@/components/Pagination';
+import { ActionDialog } from '@/components/ActionDialog';
 
 import { useAuthStore } from '@/store/authStore';
 
@@ -194,9 +196,10 @@ export default function AdminPanel() {
   const [createForm, setCreateForm] = useState({ name: '', email: '', password: '', role: 'SALES_COORDINATOR' });
   const [createError, setCreateError] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
-  const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
-  const [activatingId, setActivatingId] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [userAction, setUserAction] = useState<{ kind: 'deactivate' | 'activate' | 'delete'; user: ApiUserAdmin } | null>(null);
+  const [userActionLoading, setUserActionLoading] = useState(false);
+  const [userActionError, setUserActionError] = useState<string | null>(null);
+  const [editNotice, setEditNotice] = useState<string | null>(null);
   const [openPermissionsUserId, setOpenPermissionsUserId] = useState<string | null>(null);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: '', email: '', role: '' });
@@ -237,42 +240,31 @@ export default function AdminPanel() {
     }
   };
 
-  const handleDeactivate = async (user: ApiUserAdmin) => {
-    if (!window.confirm(`Deactivate ${user.name} (${user.email})? They will no longer be able to log in.`)) return;
-    setDeactivatingId(user.id);
-    try {
-      const updated = await api.deactivateUser(user.id);
-      setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
-    } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Failed to deactivate user');
-    } finally {
-      setDeactivatingId(null);
-    }
+  const requestUserAction = (kind: 'deactivate' | 'activate' | 'delete', user: ApiUserAdmin) => {
+    setUserActionError(null);
+    setUserAction({ kind, user });
   };
 
-  const handleActivate = async (user: ApiUserAdmin) => {
-    if (!window.confirm(`Reactivate ${user.name} (${user.email})? They will be able to log in again.`)) return;
-    setActivatingId(user.id);
+  const confirmUserAction = async () => {
+    if (!userAction || userActionLoading) return;
+    const { kind, user } = userAction;
+    setUserActionError(null);
+    setUserActionLoading(true);
     try {
-      const updated = await api.activateUser(user.id);
-      setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
+      if (kind === 'delete') {
+        await api.deleteUser(user.id);
+        setUsers(prev => prev.filter(u => u.id !== user.id));
+      } else {
+        const updated = kind === 'deactivate'
+          ? await api.deactivateUser(user.id)
+          : await api.activateUser(user.id);
+        setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
+      }
+      setUserAction(null);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Failed to activate user');
+      setUserActionError(err instanceof ApiError ? err.message : `Failed to ${kind} user`);
     } finally {
-      setActivatingId(null);
-    }
-  };
-
-  const handleDelete = async (user: ApiUserAdmin) => {
-    if (!window.confirm(`Permanently delete ${user.name} (${user.email})?\n\nThis action is irreversible. The user and all their associated permissions will be removed from the system.`)) return;
-    setDeletingId(user.id);
-    try {
-      await api.deleteUser(user.id);
-      setUsers(prev => prev.filter(u => u.id !== user.id));
-    } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Failed to delete user');
-    } finally {
-      setDeletingId(null);
+      setUserActionLoading(false);
     }
   };
 
@@ -288,7 +280,7 @@ export default function AdminPanel() {
       setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
       setEditingUserId(null);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Failed to update user');
+      setEditNotice(err instanceof ApiError ? err.message : 'Failed to update user');
     } finally {
       setEditLoading(false);
     }
@@ -338,16 +330,17 @@ export default function AdminPanel() {
   const [auditEntries, setAuditEntries] = useState<ApiAdminAuditEntry[]>([]);
   const [auditTotal, setAuditTotal] = useState(0);
   const [auditPages, setAuditPages] = useState(1);
+  const [auditPageSize, setAuditPageSize] = useState(50);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
 
-  const loadAudit = async (page: number) => {
+  const loadAudit = async (page: number, size = auditPageSize) => {
     setAuditLoading(true);
     setAuditError(null);
     try {
       const result = await api.getAuditLog({
         page,
-        limit: 50,
+        limit: size,
         action: auditAction || undefined,
         from: auditFrom || undefined,
         to: auditTo || undefined
@@ -572,11 +565,11 @@ export default function AdminPanel() {
                                 </button>
                                 {u.is_active ? (
                                   <button
-                                    onClick={() => handleDeactivate(u)}
-                                    disabled={deactivatingId === u.id}
+                                    onClick={() => requestUserAction('deactivate', u)}
+                                    disabled={userActionLoading}
                                     className="flex items-center gap-1 text-red-600 hover:text-red-800 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer"
                                   >
-                                    {deactivatingId === u.id
+                                    {userActionLoading && userAction?.user.id === u.id && userAction.kind === 'deactivate'
                                       ? <Loader2 className="w-3 h-3 animate-spin" />
                                       : <UserX className="w-3 h-3" />
                                     }
@@ -584,11 +577,11 @@ export default function AdminPanel() {
                                   </button>
                                 ) : (
                                   <button
-                                    onClick={() => handleActivate(u)}
-                                    disabled={activatingId === u.id}
+                                    onClick={() => requestUserAction('activate', u)}
+                                    disabled={userActionLoading}
                                     className="flex items-center gap-1 text-emerald-600 hover:text-emerald-800 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer"
                                   >
-                                    {activatingId === u.id
+                                    {userActionLoading && userAction?.user.id === u.id && userAction.kind === 'activate'
                                       ? <Loader2 className="w-3 h-3 animate-spin" />
                                       : <Check className="w-3 h-3" />
                                     }
@@ -596,11 +589,11 @@ export default function AdminPanel() {
                                   </button>
                                 )}
                                 <button
-                                  onClick={() => handleDelete(u)}
-                                  disabled={deletingId === u.id}
+                                  onClick={() => requestUserAction('delete', u)}
+                                  disabled={userActionLoading}
                                   className="flex items-center gap-1 text-red-500 hover:text-red-700 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer"
                                 >
-                                  {deletingId === u.id
+                                  {userActionLoading && userAction?.user.id === u.id && userAction.kind === 'delete'
                                     ? <Loader2 className="w-3 h-3 animate-spin" />
                                     : <Trash2 className="w-3 h-3" />
                                   }
@@ -817,29 +810,48 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* Pagination */}
-            <div className="p-3 border-t border-slate-100 flex items-center justify-between">
-              <button
-                onClick={() => { const p = Math.max(1, auditPage - 1); setAuditPage(p); loadAudit(p); }}
-                disabled={auditPage <= 1 || auditLoading}
-                className="flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] rounded-lg disabled:opacity-40 cursor-pointer"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" /> Previous
-              </button>
-              <span className="text-[11px] text-slate-400 font-semibold">
-                {auditTotal === 0 ? '0 entries' : `${(auditPage - 1) * 50 + 1}–${Math.min(auditPage * 50, auditTotal)} of ${auditTotal}`}
-              </span>
-              <button
-                onClick={() => { const p = Math.min(auditPages, auditPage + 1); setAuditPage(p); loadAudit(p); }}
-                disabled={auditPage >= auditPages || auditLoading}
-                className="flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] rounded-lg disabled:opacity-40 cursor-pointer"
-              >
-                Next <ChevronRight className="w-3.5 h-3.5" />
-              </button>
+            <div className="border-t border-slate-100">
+              <Pagination
+                currentPage={auditPage}
+                totalPages={auditPages}
+                totalItems={auditTotal}
+                pageSize={auditPageSize}
+                onPageChange={(p) => {
+                  setAuditPage(p);
+                  loadAudit(p, auditPageSize);
+                }}
+                onPageSizeChange={(newSize) => {
+                  setAuditPageSize(newSize);
+                  setAuditPage(1);
+                  loadAudit(1, newSize);
+                }}
+                pageSizeOptions={[10, 25, 50, 100]}
+              />
             </div>
           </div>
         </div>
       )}
+      <ActionDialog
+        open={userAction !== null}
+        title={userAction?.kind === 'delete' ? `Permanently delete ${userAction.user.name}?` : userAction?.kind === 'deactivate' ? `Deactivate ${userAction.user.name}?` : `Activate ${userAction?.user.name ?? 'user'}?`}
+        description={userAction?.kind === 'delete'
+          ? `${userAction.user.email} and their permissions will be removed. This cannot be undone. Users linked to business records cannot be deleted.`
+          : userAction?.kind === 'deactivate'
+            ? `${userAction.user.email} will no longer be able to sign in. Their records remain available.`
+            : `${userAction?.user.email ?? 'This user'} will be able to sign in again.`}
+        confirmLabel={userAction?.kind === 'delete' ? 'Delete user' : userAction?.kind === 'deactivate' ? 'Deactivate user' : 'Activate user'}
+        destructive={userAction?.kind === 'delete'}
+        pending={userActionLoading}
+        error={userActionError}
+        onConfirm={confirmUserAction}
+        onDismiss={() => { setUserAction(null); setUserActionError(null); }}
+      />
+      <ActionDialog
+        open={editNotice !== null}
+        title="Could not update user"
+        description={editNotice ?? ''}
+        onDismiss={() => setEditNotice(null)}
+      />
     </div>
   );
 }

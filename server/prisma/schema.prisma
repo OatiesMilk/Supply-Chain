@@ -122,6 +122,7 @@ model DeliveryRecord {
   draft              Boolean @default(false)
   dateAndTime        String
   itemDescription    String  @default("")
+  lineItems          LineItem[] @relation("DeliveryRecordLineItems")
   documentAttachment String?
   address            String  @default("")
 
@@ -309,4 +310,15 @@ model DailyStatusSnapshot {
   createdAt DateTime @default(now())
 
   @@unique([date, category, status])
+}
+
+model LineItem {
+  id               String         @id @default(cuid())
+  deliveryRecordId String
+  deliveryRecord   DeliveryRecord @relation("DeliveryRecordLineItems", fields: [deliveryRecordId], references: [id], onDelete: Cascade)
+  sku              String
+  quantity         Int            @default(1)
+  createdAt        DateTime       @default(now())
+
+  @@index([deliveryRecordId])
 }

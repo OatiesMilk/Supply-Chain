@@ -245,7 +245,9 @@ export async function downloadAllOpsExcel(
   wb.created = new Date();
 
   // ── Sheet 1: Summary ────────────────────────────────────────────────────
-  const ws = wb.addWorksheet('Summary');
+  const ws = wb.addWorksheet('Summary', {
+    pageSetup: { paperSize: 5, orientation: 'landscape' }
+  });
   ws.columns = [{ width: 36 }, { width: 18 }, { width: 14 }];
 
   const addHeading = (text: string) => {
@@ -334,7 +336,9 @@ export async function downloadAllOpsExcel(
   }
 
   // ── Sheet 2: Records ────────────────────────────────────────────────────
-  const ws2 = wb.addWorksheet('Records');
+  const ws2 = wb.addWorksheet('Records', {
+    pageSetup: { paperSize: 5, orientation: 'landscape' }
+  });
 
   const r1 = ws2.addRow(['Microgenesis Business Systems']);
   r1.getCell(1).font = { bold: true, size: 13, color: { argb: NAVY } };
@@ -415,7 +419,7 @@ export async function downloadAllOpsPDF(
   const { jsPDF }          = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
 
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'legal' });
   const NAVY_RGB: [number, number, number] = [31, 56, 100];
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();

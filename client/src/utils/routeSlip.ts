@@ -121,7 +121,9 @@ export async function downloadRouteSlipExcel({
 }: RouteSlipParams): Promise<void> {
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('Route Slip');
+  const ws = wb.addWorksheet('Route Slip', {
+    pageSetup: { paperSize: 5, orientation: 'landscape' }
+  });
 
   const now  = new Date();
   const year = now.getFullYear();
@@ -429,7 +431,7 @@ export async function downloadRouteSlipPDF({
   const { jsPDF }             = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
 
-  const doc  = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const doc  = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'legal' });
   const now  = new Date();
   const year = now.getFullYear();
   const dateDisplay = date
@@ -748,7 +750,9 @@ export async function downloadAllDriversRouteSlipExcel({
     const counts  = auditSets ? computeHistoricCounts(driverRecords, auditSets) : computeCounts(driverRecords);
 
     const sheetName = driverName.replace(/[:\\/?*[\]]/g, '-').slice(0, 31);
-    const ws = wb.addWorksheet(sheetName);
+    const ws = wb.addWorksheet(sheetName, {
+      pageSetup: { paperSize: 5, orientation: 'landscape' }
+    });
 
     const NCOLS = 12;
     ws.columns = [
@@ -935,7 +939,9 @@ export async function downloadAllDriversRouteSlipExcel({
   };
 
   if (groups.length === 0) {
-    const ws = wb.addWorksheet('No Records');
+    const ws = wb.addWorksheet('No Records', {
+      pageSetup: { paperSize: 5, orientation: 'landscape' }
+    });
     ws.addRow(['No records with assigned drivers found.']);
   } else {
     for (const [driverName, driverRecords] of groups) {
@@ -965,7 +971,7 @@ export async function downloadAllDriversRouteSlipPDF({
   const dateDisplay = date ? fmtDate(`${date}T12:00:00`) : fmtDate(now.toISOString());
   const groups = groupByDriver(records);
 
-  const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'legal' });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const MARGIN  = 10;
@@ -1273,7 +1279,7 @@ export async function downloadRouteSlipDocx({
     sections: [{
       properties: {
         page: {
-          size: { orientation: PageOrientation.LANDSCAPE, width: 16838, height: 11906 },
+          size: { orientation: PageOrientation.LANDSCAPE, width: 12240, height: 20160 },
           margin: { top: 720, right: 720, bottom: 720, left: 720 },
         },
       },
@@ -1473,7 +1479,7 @@ export async function downloadAllDriversRouteSlipDocx({
     sections: [{
       properties: {
         page: {
-          size: { orientation: PageOrientation.LANDSCAPE, width: 16838, height: 11906 },
+          size: { orientation: PageOrientation.LANDSCAPE, width: 12240, height: 20160 },
           margin: { top: 720, right: 720, bottom: 720, left: 720 },
         },
       },

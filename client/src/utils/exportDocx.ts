@@ -229,8 +229,8 @@ export async function downloadDocx(
         page: {
           size: {
             orientation: PageOrientation.LANDSCAPE,
-            width:  16838,
-            height: 11906,
+            width:  12240,
+            height: 20160,
           },
           margin: { top: 720, right: 720, bottom: 720, left: 720 },
         },

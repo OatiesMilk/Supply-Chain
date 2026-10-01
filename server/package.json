@@ -11,11 +11,12 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
     "seed": "tsx prisma/seed.ts",
+    "seed:users-only": "tsx prisma/seed-users-only.ts",
     "lint": "tsc --noEmit",
     "db:reset": "prisma migrate reset --force",
     "seed:accounts": "tsx prisma/seed-accounts-only.ts",
     "drivers:import": "tsx prisma/import-historical-drivers.ts",
-    "db:clean": "prisma migrate reset --force --skip-seed"
+    "db:clean": "prisma migrate reset --force"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",

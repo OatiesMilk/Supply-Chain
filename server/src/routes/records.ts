@@ -31,6 +31,7 @@ const requireRecordAccess = asyncRoute(async (req, res, next) => {
 
 const recordInclude = {
   company: true,
+  lineItems: true,
   createdBy: true,
   modifiedBy: true,
   linkedCollection: {
@@ -298,6 +299,12 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
       draft: b.is_draft === 'Yes',
       dateAndTime: b.date_time ?? new Date().toISOString(),
       itemDescription: b.item_description ?? '',
+      lineItems: Array.isArray(b.line_items) ? {
+        create: b.line_items.map((li: any) => ({
+          sku: li.sku || li.description || '',
+          quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1
+        }))
+      } : undefined,
       address: b.address ?? '',
       documentAttachment: Array.isArray(b.attachments) && b.attachments.length > 0 ? b.attachments[0] : null,
       amount: b.amount != null ? parseFloat(String(b.amount)) : null,
@@ -356,7 +363,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
   }
 
   const LOGISTICS_SUBSTANTIVE_FIELDS = ['driver', 'vehicle', 'driver_assistants', 'time_in', 'time_out', 'received_by', 'linked_collection_id', 'area', 'address', 'priority'];
-  const SC_SUBSTANTIVE_FIELDS = ['company_id', 'priority', 'reference', 'area', 'address', 'account_manager', 'delivery_date', 'item_type', 'is_draft', 'date_time', 'item_description', 'attachments', 'amount'];
+  const SC_SUBSTANTIVE_FIELDS = ['company_id', 'priority', 'reference', 'area', 'address', 'account_manager', 'delivery_date', 'item_type', 'is_draft', 'date_time', 'item_description', 'line_items', 'attachments', 'amount'];
   const substantiveFields = (req.user!.role === 'LOGISTICS' || req.user!.role === 'ADMIN' || req.user!.role === 'TASS')
     ? LOGISTICS_SUBSTANTIVE_FIELDS
     : SC_SUBSTANTIVE_FIELDS;
@@ -417,6 +424,15 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (b.is_draft !== undefined) data.draft = b.is_draft === 'Yes';
     if (b.date_time !== undefined) data.dateAndTime = b.date_time;
     if (b.item_description !== undefined) data.itemDescription = b.item_description;
+    if (b.line_items !== undefined && Array.isArray(b.line_items)) {
+      data.lineItems = {
+        deleteMany: {},
+        create: b.line_items.map((li: any) => ({
+          sku: li.sku || li.description || '',
+          quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1
+        }))
+      };
+    }
     if (Array.isArray(b.attachments) && b.attachments.length > 0) data.documentAttachment = b.attachments[0];
     if (b.amount !== undefined) data.amount = b.amount != null ? parseFloat(String(b.amount)) : null;
     if (b.address !== undefined) data.address = b.address;
@@ -489,6 +505,9 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   }
 
   const dbStatus = STATUS_TO_DB[status];
+  if (existing.status === dbStatus) {
+    return res.status(409).json({ error: 'Choose a different status before saving.' });
+  }
 
   const statusData: any = {
     status: dbStatus as any,
@@ -498,22 +517,31 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   if (time_out !== undefined) statusData.timeOut = time_out ?? null;
   if (received_by !== undefined) statusData.receivedBy = received_by ?? null;
 
-  const updated = await prisma.deliveryRecord.update({
-    where: { id: existing.id },
-    data: statusData,
-    include: recordInclude
+  const updated = await prisma.$transaction(async tx => {
+    // A second save using the status we loaded cannot create another audit event.
+    const changed = await tx.deliveryRecord.updateMany({
+      where: { id: existing.id, status: existing.status, deletedAt: null },
+      data: statusData,
+    });
+    if (changed.count === 0) return null;
+    const saved = await tx.deliveryRecord.findUniqueOrThrow({ where: { id: existing.id }, include: recordInclude });
+    await tx.auditLog.create({ data: {
+      recordId: saved.id,
+      recordType: 'DeliveryRecord',
+      action: 'UPDATE',
+      changedById: req.user!.id,
+      previousValue: JSON.stringify(serializeRecord(existing)),
+      newValue: JSON.stringify(serializeRecord(saved)),
+    } });
+    await tx.remarkLog.create({ data: {
+      recordId: saved.id,
+      body: String(remarks).trim(),
+      context: 'STATUS_CHANGE',
+      authorId: req.user!.id,
+    } });
+    return saved;
   });
-
-  await writeAuditLog({
-    recordId: updated.id,
-    recordType: 'DeliveryRecord',
-    action: 'UPDATE',
-    changedById: req.user!.id,
-    previousValue: serializeRecord(existing),
-    newValue: serializeRecord(updated)
-  });
-
-  await createRemarkLog(updated.id, String(remarks).trim(), 'STATUS_CHANGE', req.user!.id);
+  if (!updated) return res.status(409).json({ error: 'The status changed while you were editing. Refresh the record and try again.' });
 
   if (dbStatus === 'ACCOMPLISHED' && existing.status !== 'ACCOMPLISHED') {
     await notifyAccomplished({
