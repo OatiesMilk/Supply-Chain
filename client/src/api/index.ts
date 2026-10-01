@@ -16,9 +16,10 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
   let res: Response;
   try {
-    res = await fetch(`/api${path}`, {
+    res = await fetch(`${API_BASE}/api${path}`, {
       credentials: 'include',
       headers: options.body instanceof FormData
         ? { ...(options.headers || {}) }
