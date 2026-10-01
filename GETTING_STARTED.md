@@ -123,6 +123,8 @@ cd ..
 ```
 
 For a clean database in a disposable local environment, use:
+
+```bash
 npx prisma generate
 npx prisma migrate deploy
 ```
@@ -238,6 +240,78 @@ the root `.env`.
 This means the live database and migration history are out of sync. Do not
 accept the reset if the database contains data you need. Back up the database
 and resolve the migration history before continuing.
+
+### Render reports `P2021` or a missing `DeliveryRecord` table
+
+`P2021` means Prisma queried a table that is not present in the database
+configured by `DATABASE_URL`. In a new Render environment, the PostgreSQL
+database starts without application tables. The Render service must therefore
+apply committed migrations before starting the API.
+
+The repository's `render.yaml` uses this startup command:
+
+```yaml
+startCommand: npx prisma migrate deploy && npm run start
+```
+
+Do not replace it with only `npm run start`. Starting the API first allows
+background jobs such as the daily status snapshot to query `DeliveryRecord`
+before migrations have run. After changing the startup command, deploy the
+branch containing the change and confirm the Render deploy log lists each
+migration as applied. If the error continues after migrations are shown as
+applied, verify that Render's `DATABASE_URL` points to the intended database
+and uses the `public` schema.
+
+### Cloudflare frontend shows “Server unavailable”
+
+The production frontend is hosted at Cloudflare Workers and the API is hosted
+on Render. The production client must set:
+
+```env
+VITE_API_BASE_URL="https://supply-chain-9fnl.onrender.com"
+```
+
+The Cloudflare Workers build project listens to the `staging` branch and uses
+`client/` as its project root:
+
+```text
+Build command: npm run build
+Output directory: dist
+```
+
+The API base URL is compiled into the Vite bundle at build time. A value
+changed in Cloudflare is not used by an already deployed bundle until a new
+Workers build completes. Requests made by the client, including
+`/api/health`, must use the Render base URL; otherwise the Cloudflare SPA
+fallback returns `index.html` instead of the JSON API response, and the client
+incorrectly reports that the server is unavailable.
+
+The Render service must allow the exact frontend origin:
+
+```env
+CLIENT_ORIGIN="https://supply-chain.mgenesis.workers.dev"
+```
+
+The frontend uses `credentials: include`, so production authentication
+cookies are configured as `HttpOnly`, `Secure`, and `SameSite=None`. This is
+required because the Cloudflare frontend and Render API are different sites.
+After changing cookie settings or deploying the production client, clear
+old cookies and sign in again.
+
+### Cloudflare build or deployment troubleshooting
+
+A successful Vite build is not the same as a successful Workers deployment.
+Check both stages in the Cloudflare log:
+
+1. `vite build` must finish successfully.
+2. `wrangler deploy` must upload the Worker and print the
+   `supply-chain.mgenesis.workers.dev` deployment URL.
+
+The Vite chunk-size warning is non-fatal. If the build succeeds but the
+deployment still serves old behavior, verify that Workers Builds is connected
+to `staging`, then retry or deploy the latest staging commit. A hostname such
+as `supply-chain.supply-chain.workers.dev` is invalid; use the deployed
+`supply-chain.mgenesis.workers.dev` hostname.
 
 ### Frontend cannot reach the backend
 
