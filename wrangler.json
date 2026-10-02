@@ -1,0 +1,10 @@
+{
+  "name": "supply-chain",
+  "main": "worker.js",
+  "compatibility_date": "2024-09-23",
+  "assets": {
+    "directory": "client/dist",
+    "binding": "ASSETS"
+  },
+  "previews": {}
+}
