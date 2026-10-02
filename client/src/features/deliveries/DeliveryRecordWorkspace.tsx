@@ -796,6 +796,7 @@ function ActionsTab({
   const [timeOut, setTimeOut] = useState(record.time_out ?? '');
   const [receivedBy, setReceivedBy] = useState(record.received_by ?? '');
   const [savingFields, setSavingFields] = useState(false);
+  const [saveDriverError, setSaveDriverError] = useState<string | null>(null);
   const [driverFieldsRemarks, setDriverFieldsRemarks] = useState('');
   const [driverFieldsRemarksError, setDriverFieldsRemarksError] = useState(false);
 
@@ -808,6 +809,7 @@ function ActionsTab({
     setReceivedBy(record.received_by ?? '');
     setDriverFieldsRemarks('');
     setDriverFieldsRemarksError(false);
+    setSaveDriverError(null);
   }, [record.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -864,23 +866,35 @@ function ActionsTab({
     (receivedBy || '') !== (record.received_by ?? '');
 
   const handleSaveDriverFields = async () => {
+    setSaveDriverError(null);
     if (driverFieldsChanged && !driverFieldsRemarks.trim()) {
       setDriverFieldsRemarksError(true);
       return;
     }
+    const remarks = driverFieldsRemarks.trim();
+    if (!driverFieldsChanged && !remarks) return;
+
     setSavingFields(true);
-    await onUpdateRecord(record.id, {
-      driver: selectedDriver,
-      driver_assistants: assistants.filter(a => a.trim()),
-      time_in: timeIn || null,
-      time_out: timeOut || null,
-      received_by: receivedBy || null,
-      ...(driverFieldsRemarks.trim() ? { remarks: driverFieldsRemarks.trim() } : {}),
-      modified_by: `${currentUserName} (${currentUserRole})`,
-      modified_at: new Date().toISOString(),
-    } as any);
-    setSavingFields(false);
-    setDriverFieldsRemarks('');
+    const updates: Partial<DeliveryRecord> = {};
+    if (selectedDriver !== (record.driver ?? '')) updates.driver = selectedDriver;
+    if (JSON.stringify(assistants.filter(a => a.trim())) !== JSON.stringify(record.driver_assistants ?? [])) {
+      updates.driver_assistants = assistants.filter(a => a.trim());
+    }
+    if ((timeIn || '') !== (record.time_in ?? '')) updates.time_in = timeIn || null;
+    if ((timeOut || '') !== (record.time_out ?? '')) updates.time_out = timeOut || null;
+    if ((receivedBy || '') !== (record.received_by ?? '')) updates.received_by = receivedBy || null;
+    if (remarks) updates.remarks = remarks;
+    updates.modified_by = `${currentUserName} (${currentUserRole})`;
+    updates.modified_at = new Date().toISOString();
+    try {
+      await onUpdateRecord(record.id, updates);
+      setDriverFieldsRemarks('');
+      setDriverFieldsRemarksError(false);
+    } catch (error) {
+      setSaveDriverError(error instanceof Error ? error.message : 'Could not save driver fields. Please try again.');
+    } finally {
+      setSavingFields(false);
+    }
   };
 
   const inputCls = 'w-full px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]';
@@ -1104,9 +1118,10 @@ function ActionsTab({
             {driverFieldsRemarksError && <p className="text-[11px] text-red-600 font-semibold">Driver & delivery remarks are required when making changes to these fields.</p>}
           </div>
 
+          {saveDriverError && <p role="alert" className="text-[11px] text-red-600 font-semibold mb-2">{saveDriverError}</p>}
           <button
             onClick={handleSaveDriverFields}
-            disabled={savingFields}
+            disabled={savingFields || (!driverFieldsChanged && !driverFieldsRemarks.trim())}
             className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-[#0078C1] hover:bg-[#1F3864] rounded-lg transition-colors cursor-pointer disabled:opacity-60"
           >
             {savingFields ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
