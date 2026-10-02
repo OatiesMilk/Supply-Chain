@@ -599,7 +599,19 @@ export default function DeliveryRecordsView({
               dateFrom={dateFrom}
               preparedBy={currentUserName}
               filename={category.toLowerCase().replace(/\s+/g, '-')}
-              onFocusDateFilter={() => dateFromRef.current?.focus()}
+              onFocusDateFilter={() => {
+                setShowAdvancedFilters(false);
+                if (dateFromRef.current) {
+                  dateFromRef.current.focus();
+                  try {
+                    if (typeof dateFromRef.current.showPicker === 'function') {
+                      dateFromRef.current.showPicker();
+                    }
+                  } catch {
+                    // Keep the visible field focused for browsers that block showPicker.
+                  }
+                }
+              }}
             />
           )}
           {/* Monthly Driver Report — Logistics / Admin, Deliveries only */}
@@ -682,6 +694,59 @@ export default function DeliveryRecordsView({
             </button>
           )}
         </div>
+      </div>
+
+      {/* Date Range Controls (Always mounted) */}
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap gap-3 items-end text-xs print:hidden" id="date-range-filters">
+        <div className="space-y-1 flex-1 min-w-[120px]">
+          <label htmlFor="dateFrom" className="font-bold text-slate-700 block">Date From</label>
+          <input
+            id="dateFrom"
+            ref={dateFromRef}
+            type="date"
+            value={dateFrom}
+            onChange={e => setDateFrom(e.target.value)}
+            title="Date from"
+            className="w-full text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+          />
+        </div>
+        <div className="space-y-1 flex-1 min-w-[120px]">
+          <label htmlFor="dateTo" className="font-bold text-slate-700 block">Date To</label>
+          <input
+            id="dateTo"
+            type="date"
+            value={dateTo}
+            onChange={e => setDateTo(e.target.value)}
+            title="Date to"
+            className="w-full text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+          />
+        </div>
+        <div className="space-y-1 flex-1 min-w-[150px]">
+          <label htmlFor="dateSort" className="font-bold text-slate-700 block">Sort</label>
+          <select
+            id="dateSort"
+            value={dateSort}
+            onChange={e => setDateSort(e.target.value as typeof dateSort)}
+            disabled={!!(dateFrom || dateTo)}
+            title={(dateFrom || dateTo) ? 'Sort order is N/A while a date range filter is active' : undefined}
+            className={`w-full text-[11px] font-semibold border rounded-lg px-2.5 py-2 focus:outline-none focus:ring-1 focus:ring-[#0078C1] ${(dateFrom || dateTo) ? 'border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-700 cursor-pointer'}`}
+          >
+            {(dateFrom || dateTo) && <option value={dateSort}>Sort: N/A</option>}
+            <option value="default">Date: Default</option>
+            <option value="nearest">Nearest to Present</option>
+            <option value="oldest">Oldest First</option>
+            <option value="furthest">Furthest Future First</option>
+          </select>
+        </div>
+        {(dateFrom || dateTo) && (
+          <button
+            onClick={() => { setDateFrom(''); setDateTo(''); }}
+            title="Clear date filter"
+            className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[11px] uppercase rounded-lg cursor-pointer h-[34px] flex items-center gap-1"
+          >
+            <X className="w-3.5 h-3.5" /> Clear
+          </button>
+        )}
       </div>
 
       {/* TASS filter controls */}
@@ -968,51 +1033,6 @@ export default function DeliveryRecordsView({
                               inputClassName="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] placeholder:text-slate-400"
                             />
                           </div>
-                        </div>
-
-                        {/* Date range + sort */}
-                        <div className="space-y-2">
-                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date Range</span>
-                          <div className="flex items-center gap-2">
-                            <input
-                              ref={dateFromRef}
-                              type="date"
-                              value={dateFrom}
-                              onChange={e => setDateFrom(e.target.value)}
-                              title="Date from"
-                              className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer flex-1 min-w-0"
-                            />
-                            <span className="text-[11px] text-slate-400 font-semibold shrink-0">—</span>
-                            <input
-                              type="date"
-                              value={dateTo}
-                              onChange={e => setDateTo(e.target.value)}
-                              title="Date to"
-                              className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer flex-1 min-w-0"
-                            />
-                            {(dateFrom || dateTo) && (
-                              <button
-                                onClick={() => { setDateFrom(''); setDateTo(''); }}
-                                title="Clear date filter"
-                                className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-                          <select
-                            value={dateSort}
-                            onChange={e => setDateSort(e.target.value as typeof dateSort)}
-                            disabled={!!(dateFrom || dateTo)}
-                            title={(dateFrom || dateTo) ? 'Sort order is N/A while a date range filter is active' : undefined}
-                            className={`text-[11px] font-semibold border rounded-lg px-2.5 py-2 w-full focus:outline-none focus:ring-1 focus:ring-[#0078C1] ${(dateFrom || dateTo) ? 'border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-700 cursor-pointer'}`}
-                          >
-                            {(dateFrom || dateTo) && <option value={dateSort}>Sort: N/A</option>}
-                            <option value="default">Date: Default</option>
-                            <option value="nearest">Nearest to Present</option>
-                            <option value="oldest">Oldest First</option>
-                            <option value="furthest">Furthest Future First</option>
-                          </select>
                         </div>
 
                         {/* Footer: Clear all + Apply/Close */}
