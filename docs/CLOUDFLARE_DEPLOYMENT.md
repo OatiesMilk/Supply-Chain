@@ -131,3 +131,17 @@ After the fix, `vite build` should complete without generating
 `client/dist/_worker.js`, and the Wrangler preview should upload the static
 assets successfully.
 
+## Client-side route refreshes
+
+The application uses client-side routes such as `/dashboard` and
+`/deliveries`. Browser navigation works because the app changes the URL without
+requesting a new document, but a direct refresh asks the Worker for that path.
+The Worker must return `client/dist/index.html` for an extensionless asset
+request that is not found; otherwise Cloudflare returns HTTP 404 for routes
+that the React app can handle.
+
+The repository's `worker.js` preserves `/api/*` proxying and implements this
+SPA fallback. Keep this behavior when changing the Worker entrypoint. A
+successful deployment log does not by itself verify route refreshes, so test
+the deployed root URL and a direct refresh of `/dashboard` or another
+extensionless application route.
