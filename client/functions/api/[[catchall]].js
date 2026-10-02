@@ -1,10 +1,6 @@
 export async function onRequest(context) {
-  // context.env.API_BASE_URL should be set in Cloudflare Pages settings
-  // Example: https://supply-chain-backend.onrender.com
-  const API_BASE_URL = context.env.API_BASE_URL;
-  if (!API_BASE_URL) {
-    return new Response("API_BASE_URL is not configured in Cloudflare Pages", { status: 500 });
-  }
+  // Use environment variable if set, otherwise fallback to the hardcoded Render URL for staging
+  const API_BASE_URL = context.env.API_BASE_URL || "https://supply-chain-9fnl.onrender.com";
 
   // Rewrite the request URL to point to the backend
   const url = new URL(context.request.url);
