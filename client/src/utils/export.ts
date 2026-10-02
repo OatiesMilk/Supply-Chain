@@ -7,6 +7,7 @@
  *   - Date: "Jul 17, 2026" | Time: "9:32 AM"
  *   - Footer row with total count
  */
+import { DocumentSize, getExcelPageSetup, getPdfFormat, fitColumnWidths, DEFAULT_DOCUMENT_SIZE } from './documentSize';
 
 export interface ExportColumn {
   header: string;
@@ -166,7 +167,8 @@ export async function downloadExcel(
   sheetName: string,
   filename: string,
   meta: ExportMeta,
-  statusHistoryCounts?: StatusHistoryCounts
+  statusHistoryCounts?: StatusHistoryCounts,
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
 ): Promise<void> {
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
@@ -174,7 +176,7 @@ export async function downloadExcel(
   wb.created = new Date();
 
   const ws = wb.addWorksheet(sheetName, {
-    pageSetup: { paperSize: 5, orientation: 'landscape' }
+    pageSetup: getExcelPageSetup(documentSize)
   });
 
   const now = new Date();
@@ -383,7 +385,8 @@ export async function downloadPDF(
   filename: string,
   meta: ExportMeta,
   landscape = true,
-  statusHistoryCounts?: StatusHistoryCounts
+  statusHistoryCounts?: StatusHistoryCounts,
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
 ): Promise<void> {
   const { jsPDF } = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
@@ -391,7 +394,7 @@ export async function downloadPDF(
   const doc = new jsPDF({
     orientation: 'landscape',
     unit: 'mm',
-    format: 'legal'
+    format: getPdfFormat(documentSize)
   });
 
   const now = new Date();
@@ -491,6 +494,18 @@ export async function downloadPDF(
     columns.map(c => pdfSafe(r[c.key]))
   );
 
+  const canDrawPill = (text: string, colWidth: number) => {
+    const pillW = Math.min(colWidth - 6, 32);
+    const oldFont = doc.getFont();
+    const oldSize = doc.getFontSize();
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    const textWidth = doc.getTextWidth(text);
+    doc.setFont(oldFont.fontName, oldFont.fontStyle);
+    doc.setFontSize(oldSize);
+    return textWidth <= pillW - 2;
+  };
+
   autoTable(doc, {
     head: [columns.map(c => c.header)],
     body: tableBody,
@@ -522,22 +537,31 @@ export async function downloadPDF(
       valign: 'middle',
     },
     columnStyles: Object.fromEntries(
-      columns.map((col, i) => [i, {
-        cellWidth: col.pdfWidth ?? 'auto',
-        halign: col.pdfAlign ?? (pillCols.has(i) ? 'center' : 'left'),
-      }])
+      (() => {
+        const MARGIN = 10;
+        const usableWidth = pageW - (MARGIN * 2);
+        const weights = columns.map(c => c.pdfWidth ?? c.width ?? 20);
+        const scaledWidths = fitColumnWidths(weights, usableWidth);
+        return columns.map((col, i) => [i, {
+          cellWidth: scaledWidths[i],
+          halign: col.pdfAlign ?? (pillCols.has(i) ? 'center' : 'left'),
+        }]);
+      })()
     ),
     // Suppress default text for pill cells so we can draw the badge manually
     willDrawCell: (data: any) => {
       if (data.section === 'body' && pillCols.has(data.column.index)) {
-        data.cell.text = [];
+        const text = String(data.cell.raw ?? '').trim();
+        if (canDrawPill(text, data.cell.width)) {
+          data.cell.text = [];
+        }
       }
     },
     // Draw colored status pills
     didDrawCell: (data: any) => {
       if (data.section !== 'body' || !pillCols.has(data.column.index)) return;
       const text = String(data.cell.raw ?? '').trim();
-      if (!text) return;
+      if (!text || !canDrawPill(text, data.cell.width)) return;
       const color: [number, number, number] = PILL_COLORS[text.toLowerCase()] ?? [107, 114, 128];
       const cw = data.cell.width;
       const ch = data.cell.height;
