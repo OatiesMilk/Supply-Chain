@@ -304,7 +304,9 @@ A successful Vite build is not the same as a successful Workers deployment.
 Check both stages in the Cloudflare log:
 
 1. `vite build` must finish successfully.
-2. `wrangler deploy` must upload the Worker and print the
+2. `wrangler preview` must use `client/wrangler.json` and find its
+   `previews` block when creating a preview.
+3. `wrangler deploy` must upload the Worker and print the
    `supply-chain.mgenesis.workers.dev` deployment URL.
 
 The Vite chunk-size warning is non-fatal. If the build succeeds but the
@@ -312,6 +314,18 @@ deployment still serves old behavior, verify that Workers Builds is connected
 to `staging`, then retry or deploy the latest staging commit. A hostname such
 as `supply-chain.supply-chain.workers.dev` is invalid; use the deployed
 `supply-chain.mgenesis.workers.dev` hostname.
+
+For Cloudflare Workers Builds with `client` as the root directory, set the
+Preview command to:
+
+```bash
+npm run cf:preview
+```
+
+The script pins Wrangler and explicitly selects `client/wrangler.json`. Do not
+use a bare `npx wrangler preview`, which can install an unpinned CLI and may
+resolve a different configuration file. Both `client/wrangler.json` and the
+repository-root `wrangler.json` must retain `"previews": {}`.
 
 ### Frontend cannot reach the backend
 
