@@ -6,47 +6,67 @@ Any AI tool or developer working in this codebase should read this file first.
 
 ---
 
+## Engineering Roles
+
+| Agent | Role | Responsibilities |
+| :--- | :--- | :--- |
+| Codex | Lead Engineer / Architect / Reviewer | Read tickets and source, define scope and acceptance criteria, choose the architecture, delegate implementation, review changes, and report the outcome to the user. |
+| Antigravity (`supply-chain-dev`) | Implementation Sub-Agent | Implement the task handed off by Codex, follow project conventions, run the agreed checks, and return changes and evidence for review. |
+
+Codex is the user's primary engineering contact. Implementation requests follow
+the workflow in `docs/agent-workflow.md`. Codex keeps architecture decisions,
+code review, and Notion coordination in the main thread. Antigravity returns
+implementation results to Codex for review before work is reported complete.
+
+For each implementation task, Codex supplies the ticket, expected behavior,
+allowed files, relevant findings, and validation requirements. Antigravity
+returns to Codex when the change requires expanding that scope. When the CLI
+is unavailable or authentication fails, Codex reports the blocker and prepares
+the handoff; it must not claim that another tool or model is Antigravity.
+
+---
+
 ## Agent: `supply-chain-dev`
 
 **Location (in-repo):** `.gemini/agents/supply-chain-dev.md`
 **Companion skill:** `.gemini/skills/use-supply-chain-dev/SKILL.md`
-**Model:** Claude Sonnet
+**Model:** Selected in the Antigravity CLI session
 
 ### Setup for teammates
 
 The agent definition lives inside this repository under `.gemini/` so it is
 available to every developer who clones the project. To activate it locally,
-copy the files into your Antigravity CLI config directory once:
+install and enable the local plugin with the Antigravity CLI:
 
 ```bash
 # Run from the project root
-mkdir -p ~/.gemini/config/plugins/supply-chain-dev-plugin/agents
-mkdir -p ~/.gemini/config/plugins/supply-chain-dev-plugin/skills/use-supply-chain-dev
-
-cp .gemini/agents/supply-chain-dev.md \
-   ~/.gemini/config/plugins/supply-chain-dev-plugin/agents/supply-chain-dev.md
-
-cp .gemini/skills/use-supply-chain-dev/SKILL.md \
-   ~/.gemini/config/plugins/supply-chain-dev-plugin/skills/use-supply-chain-dev/SKILL.md
+agy plugin install .gemini
+agy plugin enable supply-chain-dev-plugin
+agy agents
 ```
 
-Re-run the copy whenever the agent definition is updated in the repo.
+Re-run the installation whenever the agent definition is updated in the repo.
+On Windows, use `./scripts/install-antigravity-agent.ps1` as documented in
+`docs/agent-workflow.md`.
 
 ### Purpose
 
-A full-stack developer agent embedded in this project. It handles bug fixes,
+A full-stack implementation agent run through Antigravity and directed by
+Codex. It handles bug fixes,
 feature implementation, API route changes, Prisma schema updates, and frontend
 component work — all while enforcing the project's security, RBAC, and
 modularity conventions.
 
 ### How it works
 
-Before writing a single line, the agent:
-1. **Reads the relevant source files** — routes, middleware, schema, components
-2. **Asks a clarifying question** if the request is underspecified
-3. **Implements** following all project conventions (see below)
-4. **Self-validates** by running `tsc --noEmit` and Vitest before returning
-5. **Reports** what was changed and whether validation passed
+For every delegated implementation, the agents:
+
+1. **Codex reads and plans** — ticket, relevant source, scope, and acceptance criteria
+2. **Codex hands off** — one bounded implementation task to Antigravity
+3. **Antigravity reads and implements** — following the handoff and project conventions
+4. **Antigravity validates** — the agreed TypeScript and relevant Vitest checks for code changes
+5. **Codex reviews** — diff, acceptance criteria, security, API compatibility, and validation evidence
+6. **Codex reports** — reviewed changes, check results, and any outstanding work
 
 ### How to invoke
 
@@ -62,9 +82,9 @@ Before writing a single line, the agent:
 @supply-chain-dev why does refreshing the page redirect back to the dashboard?
 ```
 
-The companion routing skill (`use-supply-chain-dev`) will also auto-route
-tasks to this agent when you ask for bug fixes, feature builds, route changes,
-schema updates, or test writing.
+The companion routing skill (`use-supply-chain-dev`) routes implementation
+tasks to Antigravity after Codex prepares the handoff. Architecture, review,
+repository workflow setup, and Notion ticket reads stay with Codex.
 
 ---
 

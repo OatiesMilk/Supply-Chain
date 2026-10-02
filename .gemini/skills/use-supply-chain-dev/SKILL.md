@@ -1,46 +1,57 @@
 ---
 name: use-supply-chain-dev
 description: >
-  Routes coding, debugging, feature development, and ticket-linked implementation
-  tasks for the Supply Chain Management System to the supply-chain-dev agent.
-  Trigger whenever the user asks to fix a bug, build a feature, update a route,
-  change the schema, write a component, or audit code in this project.
+  Routes scoped Supply Chain implementation tasks to Antigravity's
+  supply-chain-dev agent, with Codex leading planning, architecture, and review.
+  Use for bug fixes, enhancements, components, API changes, schema work,
+  refactoring, and requested tests after Codex prepares a handoff.
 ---
 
-# Use supply-chain-dev
+# Codex and Antigravity workflow
 
-When the user asks for **any development work** in the Supply Chain project — fixing bugs, building features, writing tests, updating API routes, or modifying the frontend — delegate the task to the `supply-chain-dev` subagent instead of handling it in the main thread.
+**Codex: Lead Engineer / Architect / Reviewer.**
+**Antigravity (`supply-chain-dev`): Implementation Sub-Agent.**
 
-## When to delegate
+Read `AGENTS.md` and `docs/agent-workflow.md`. Codex leads the task and prepares
+a bounded implementation handoff. Antigravity implements that handoff and
+returns changes and validation evidence to Codex for review.
 
-| User says / context | Action |
-|---|---|
-| "fix TSK-XX" / "fix the bug in..." | Delegate to `supply-chain-dev` |
-| "add a new route / endpoint" | Delegate to `supply-chain-dev` |
-| "build the [module] page / feature" | Delegate to `supply-chain-dev` |
-| "update the schema / add a column" | Delegate to `supply-chain-dev` |
-| "write a test for..." | Delegate to `supply-chain-dev` |
-| "check the code for [module]" | Delegate to `supply-chain-dev` |
-| "why is [feature] broken?" | Delegate to `supply-chain-dev` |
-| "refactor [file or module]" | Delegate to `supply-chain-dev` |
-| Simple one-liner question about the project | Handle in main thread |
-| Notion ticket read/list only | Handle in main thread |
+## Routing
 
-## How to delegate
+| Request | Owner |
+| :--- | :--- |
+| Fix a bug or implement an enhancement | Codex scopes; Antigravity implements; Codex reviews |
+| Add a route, component, schema change, or refactor | Codex designs; Antigravity implements; Codex reviews |
+| Write requested tests | Codex defines expected behavior; Antigravity implements; Codex reviews |
+| Investigate why something is broken | Codex diagnoses; delegate bounded investigation or implementation when useful |
+| Review code, audit security, or choose architecture | Codex |
+| Set up agent instructions or the engineering workflow | Codex |
+| Read or list Notion tickets | Codex |
+| Update Notion tickets | Codex, within user authorization |
 
-Package the user's request with the following context and send it to the `supply-chain-dev` subagent:
+## Handoff requirements
 
-1. The user's exact request (verbatim)
-2. Any linked Notion ticket number (e.g., TSK-49) and its description if available
-3. Any file paths or module names the user has mentioned
-4. Any error messages, screenshots descriptions, or logs the user has shared
+Codex supplies:
 
-## What to expect back
+1. Ticket ID and the user's request.
+2. Objective, existing behavior, and expected behavior.
+3. Relevant source findings and allowed files or directories.
+4. Architecture decisions, API contracts, RBAC requirements, and scope limits.
+5. Acceptance criteria and the checks to run.
+6. Existing workspace changes and any explicitly authorized external actions.
 
-The agent will return a structured response with:
-- **What I read** — files it examined before implementing
-- **What I changed** — specific files and what was modified
-- **Validation** — TypeScript compile check and/or test results (✅ PASS / ❌ FAIL)
-- **Next steps** — optional Notion ticket update or PR suggestion
+Use the handoff template and CLI instructions in `docs/agent-workflow.md`.
+Use Antigravity's actual CLI agent for implementation. A Codex sub-agent is
+not an Antigravity session. If the CLI is unavailable or cannot authenticate,
+report the blocker to the user and keep the prepared handoff available.
 
-Present the response as-is to the user, then offer to create a PR or update the linked Notion ticket if appropriate.
+## Review requirements
+
+Antigravity returns the changed files, a summary of behavior, acceptance
+criteria coverage, exact checks and results, and outstanding issues. It sends
+scope expansions and material ambiguities back to Codex.
+
+Codex reads the diff, checks correctness and project conventions, assesses
+validation evidence, and sends any needed corrections to Antigravity. Codex
+then reports the reviewed result to the user. Do not simply forward the
+implementation response as final approval.
