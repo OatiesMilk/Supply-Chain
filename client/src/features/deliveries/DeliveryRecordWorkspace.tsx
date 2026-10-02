@@ -16,6 +16,8 @@ import { Pencil, X as XIcon, Save, Plus } from 'lucide-react';
 import { getOutputTrigger, runOutputActions } from '@/outputActions';
 import StatusStepper from '@/components/StatusStepper';
 import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
+import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
+import DocumentSizeSelect from '@/components/DocumentSizeSelect';
 import WorkspaceTabs from './WorkspaceTabs';
 import { WorkspaceDraftProvider, useWorkspaceDraft, useWorkspaceNavigation } from './WorkspaceDrafts';
 
@@ -1608,6 +1610,7 @@ function RecordWorkspace({
   const { requestLeave, pending } = useWorkspaceNavigation();
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError]     = useState<string | null>(null);
+  const [docSize, setDocSize]       = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
 
   const handleDownloadPdf = async () => {
     setPdfLoading(true);
@@ -1619,7 +1622,7 @@ function RecordWorkspace({
         api.getRecordComments(record.id),
       ]);
       const docData: ManifestDocumentationData = { auditEntries, remarks, comments };
-      await printSingleManifest(record, companies, docData);
+      await printSingleManifest(record, companies, docData, docSize);
     } catch (err: any) {
       setPdfError(err.message ?? 'Failed to generate PDF. Please try again.');
     } finally {
@@ -1721,7 +1724,8 @@ function RecordWorkspace({
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
           {(['Sales Coordinator', 'Logistics', 'Admin'] as UserRole[]).includes(currentUserRole) && (
-            <div className="relative">
+            <div className="relative flex flex-wrap min-w-0 items-center gap-2">
+              <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={pdfLoading} inline />
               <button
                 onClick={handleDownloadPdf}
                 disabled={pdfLoading}
