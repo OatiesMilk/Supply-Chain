@@ -107,10 +107,10 @@ export default function DeliveryRecordsView({
 
   // Bulk selection (Logistics only)
   const [selectedBulkIds, setSelectedBulkIds] = useState<Set<string>>(new Set());
-  const [bulkStatus, setBulkStatus] = useState<string>('Delivered');
+  const [bulkStatus, setBulkStatus] = useState<DeliveryStatus | ''>('');
   const [bulkApplying, setBulkApplying] = useState(false);
   const [bulkPriority, setBulkPriority] = useState<PriorityLevel | ''>('');
-  const [priorityResult, setPriorityResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [bulkResult, setBulkResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   // Monthly Driver Report modal
   const [showDriverReportModal, setShowDriverReportModal] = useState(false);
@@ -179,8 +179,9 @@ export default function DeliveryRecordsView({
     setAmFilter('');
     setDriverFilter('');
     setSelectedBulkIds(new Set());
+    setBulkStatus('');
     setBulkPriority('');
-    setPriorityResult(null);
+    setBulkResult(null);
   }, [category]);
 
   const [statusHistoryCounts, setStatusHistoryCounts] = useState<StatusHistoryCounts | undefined>(undefined);
@@ -339,40 +340,51 @@ export default function DeliveryRecordsView({
 
   const activeRecord = records.find(r => r.id === selectedId);
 
-  const handleBulkPriorityUpdate = async () => {
-    if (!bulkPriority || selectedBulkIds.size === 0 || bulkApplying) return;
+  const handleBulkUpdate = async () => {
+    if (selectedBulkIds.size === 0 || bulkApplying ||
+      !((canAssignDriver && bulkStatus) || (canEdit && bulkPriority))) return;
     setBulkApplying(true);
-    setPriorityResult(null);
+    setBulkResult(null);
     const failedIds = new Set<string>();
     let firstError = '';
+    let savedCount = 0;
+    let unchangedCount = 0;
     const ids = [...selectedBulkIds];
     try {
       for (const id of ids) {
         try {
-          await onUpdateRecord(id, { priority: bulkPriority, remarks: `Priority set to ${bulkPriority}` });
+          const record = categoryRecords.find(record => record.id === id);
+          if (!record) throw new Error('The selected record is no longer available. Refresh and try again.');
+          const updates: Partial<DeliveryRecord> = {};
+          const remarks: string[] = [];
+          if (canAssignDriver && bulkStatus && record.status !== bulkStatus) {
+            updates.status = bulkStatus;
+            remarks.push(`Status set to ${bulkStatus}`);
+          }
+          if (canEdit && bulkPriority && record.priority !== bulkPriority) {
+            updates.priority = bulkPriority;
+            remarks.push(`Priority set to ${bulkPriority}`);
+          }
+          if (remarks.length === 0) {
+            unchangedCount++;
+            continue;
+          }
+          updates.remarks = remarks.join('; ');
+          await onUpdateRecord(id, updates);
+          savedCount++;
         } catch (error) {
           failedIds.add(id);
           if (!firstError) firstError = error instanceof Error ? error.message : 'Please try again.';
         }
       }
       setSelectedBulkIds(failedIds);
-      const savedCount = ids.length - failedIds.size;
-      setPriorityResult(failedIds.size > 0
-        ? { ok: false, message: `${savedCount} saved; priority update failed for ${[...failedIds].join(', ')}. ${firstError}` }
-        : { ok: true, message: `Priority saved as ${bulkPriority} for ${savedCount} record${savedCount === 1 ? '' : 's'}.` });
+      const summary = `${savedCount} updated; ${unchangedCount} unchanged.`;
+      setBulkResult(failedIds.size > 0
+        ? { ok: false, message: `${summary} Update failed for ${[...failedIds].join(', ')}. ${firstError}` }
+        : { ok: true, message: summary });
     } finally {
       setBulkApplying(false);
     }
-  };
-
-  const handleBulkStatusUpdate = async () => {
-    if (selectedBulkIds.size === 0 || bulkApplying) return;
-    setBulkApplying(true);
-    for (const id of [...selectedBulkIds]) {
-      await (onUpdateRecord(id, { status: bulkStatus as any }) as unknown as Promise<void>);
-    }
-    setSelectedBulkIds(new Set());
-    setBulkApplying(false);
   };
 
   const toggleBulkId = (id: string) => {
@@ -538,9 +550,9 @@ export default function DeliveryRecordsView({
 
   return (
     <div className="space-y-6 print:space-y-2" id={`records-view-${category.toLowerCase().replace(/\s+/g, '-')}`}>
-      {priorityResult && (
-        <div role={priorityResult.ok ? 'status' : 'alert'} className={`rounded-lg border px-4 py-3 text-sm ${priorityResult.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
-          {priorityResult.message}
+      {bulkResult && (
+        <div role={bulkResult.ok ? 'status' : 'alert'} className={`rounded-lg border px-4 py-3 text-sm ${bulkResult.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+          {bulkResult.message}
         </div>
       )}
       {/* View Header */}
@@ -711,21 +723,15 @@ export default function DeliveryRecordsView({
               <span className="text-xs text-white/60">Set status:</span>
               <select
                 value={bulkStatus}
-                onChange={e => setBulkStatus(e.target.value)}
+                onChange={e => setBulkStatus(e.target.value as DeliveryStatus | '')}
+                disabled={bulkApplying}
                 className="text-[11px] font-bold bg-white/10 border border-white/20 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
               >
+                <option value="" className="text-slate-900 bg-white">Keep unchanged</option>
                 {(['Pending', 'Scheduled', 'Delivered', 'On-Hold', 'Rescheduled'] as const).map(s => (
                   <option key={s} value={s} className="text-slate-900 bg-white">{s}</option>
                 ))}
               </select>
-              <button
-                onClick={handleBulkStatusUpdate}
-                disabled={bulkApplying}
-                className="px-4 py-1.5 bg-[#0078C1] hover:bg-blue-500 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
-              >
-                {bulkApplying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                Apply
-              </button>
             </div>
           )}
           {canEdit && (
@@ -738,22 +744,23 @@ export default function DeliveryRecordsView({
                 disabled={bulkApplying}
                 className="text-[11px] font-bold bg-white/10 border border-white/20 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
               >
-                <option value="" disabled className="text-slate-400 bg-white">— pick —</option>
+                <option value="" className="text-slate-900 bg-white">Keep unchanged</option>
                 {(['1 - Low', '2 - Moderate', '3 - High'] as const).map(p => (
                   <option key={p} value={p} className="text-slate-900 bg-white">{p}</option>
                 ))}
               </select>
-              <button
-                onClick={handleBulkPriorityUpdate}
-                disabled={!bulkPriority || bulkApplying}
-                className="px-4 py-1.5 bg-[#0078C1] hover:bg-blue-500 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
-              >
-                {bulkApplying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Apply
-              </button>
             </div>
           )}
           <button
+            onClick={handleBulkUpdate}
+            disabled={bulkApplying || !((canAssignDriver && bulkStatus) || (canEdit && bulkPriority))}
+            className="px-4 py-1.5 bg-[#0078C1] hover:bg-blue-500 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
+          >
+            {bulkApplying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Apply
+          </button>
+          <button
             onClick={() => setSelectedBulkIds(new Set())}
+            disabled={bulkApplying}
             className="text-white/50 hover:text-white transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
