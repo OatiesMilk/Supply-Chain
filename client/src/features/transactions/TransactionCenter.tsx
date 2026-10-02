@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Filter, ChevronLeft, ChevronRight, Loader2, AlertTriangle } from 'lucide-react';
-import Pagination from '@/components/Pagination';
+import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { api, ApiTransaction, ApiTransactionList } from '@/api';
 import TransactionDetail from '@/features/transactions/TransactionDetail';
 import ExportMenu from '@/components/ExportMenu';
@@ -112,7 +112,7 @@ export default function TransactionCenter({ currentUserRole, currentUserName }: 
   const [error,   setError]   = useState<string | null>(null);
 
   const [page,    setPage]    = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [filters, setFilters] = useState<Filters>(() => defaultFilters(currentUserRole));
   const [pendingFilters, setPendingFilters] = useState<Filters>(() => defaultFilters(currentUserRole));
   const [filtersOpen, setFiltersOpen] = useState(true);

@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { FileDown, FileSpreadsheet, FileText, ChevronDown, Loader2, Route, Clock, History } from 'lucide-react';
+import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '../utils/documentSize';
+import DocumentSizeSelect from './DocumentSizeSelect';
 import {
   ExportColumn,
   ExportMeta,
@@ -60,6 +62,7 @@ export default function ExportMenu({
 }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState<LoadingKey | null>(null);
+  const [docSize, setDocSize] = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -79,27 +82,21 @@ export default function ExportMenu({
     const hist = variant === 'trail' ? statusHistoryCounts : undefined;
     try {
       if (routeSlipProps && fmt !== 'csv') {
-        const rsParams = { ...routeSlipProps, filename };
+        const rsParams = { ...routeSlipProps, filename, documentSize: docSize };
         if (fmt === 'excel') await downloadRouteSlipExcel(rsParams);
         if (fmt === 'pdf')   await downloadRouteSlipPDF(rsParams);
         if (fmt === 'docx')  await downloadRouteSlipDocx(rsParams);
       } else if (summary) {
         const summaryTitle = pdfTitle.replace(/ records?$/i, '') + ' — Comprehensive Report';
         if (fmt === 'csv')   downloadAllOpsCSV(rows, columns, filename, meta, summary, summaryTitle, hist);
-        if (fmt === 'excel') await downloadAllOpsExcel(rows, columns, filename, meta, summary, summaryTitle, hist);
-        if (fmt === 'pdf')   await downloadAllOpsPDF(rows, pdfColumns ?? columns, filename, meta, summary, summaryTitle, hist);
+        if (fmt === 'excel') await downloadAllOpsExcel(rows, columns, filename, meta, summary, summaryTitle, hist, docSize);
+        if (fmt === 'pdf')   await downloadAllOpsPDF(rows, pdfColumns ?? columns, filename, meta, summary, summaryTitle, hist, docSize);
+        if (fmt === 'docx')  await downloadDocx(rows, columns, pdfTitle, filename, meta, summary, summaryTitle, hist, docSize);
       } else {
         if (fmt === 'csv')   downloadCSV(rows, columns, filename, meta, hist);
-        if (fmt === 'excel') await downloadExcel(rows, columns, sheetName, filename, meta, hist);
-        if (fmt === 'pdf')   await downloadPDF(rows, pdfColumns ?? columns, pdfTitle, filename, meta, !pdfPortrait, hist);
-      }
-      if (fmt === 'docx') {
-        if (routeSlipProps) {
-          await downloadRouteSlipDocx({ ...routeSlipProps, filename });
-        } else {
-          const summaryTitle = summary ? (pdfTitle.replace(/ records?$/i, '') + ' — Comprehensive Report') : undefined;
-          await downloadDocx(rows, columns, pdfTitle, filename, meta, summary, summaryTitle, hist);
-        }
+        if (fmt === 'excel') await downloadExcel(rows, columns, sheetName, filename, meta, hist, docSize);
+        if (fmt === 'pdf')   await downloadPDF(rows, pdfColumns ?? columns, pdfTitle, filename, meta, !pdfPortrait, hist, docSize);
+        if (fmt === 'docx')  await downloadDocx(rows, columns, pdfTitle, filename, meta, undefined, undefined, hist, docSize);
       }
     } catch (err) {
       console.error('Export failed:', err);
@@ -149,9 +146,11 @@ export default function ExportMenu({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg py-1 min-w-[220px]">
-          {hasTrail ? (
-            <>
+        <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg p-3 min-w-[220px]">
+          <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={isLoading} />
+          <div className="flex flex-col -mx-3">
+            {hasTrail ? (
+              <>
               {/* ── Current Status ── */}
               <div className="px-3.5 pt-2 pb-1">
                 <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-slate-400">
@@ -184,6 +183,7 @@ export default function ExportMenu({
               {showPdf && fmtButton('pdf', pdfLabel, pdfIcon, 'text-red-700 hover:bg-red-50',    'current')}
             </>
           )}
+          </div>
           <div className="mx-3 mt-1 pt-1 border-t border-slate-100 text-[9px] text-slate-400 pb-1">
             {rows.length} record{rows.length !== 1 ? 's' : ''} will be exported
           </div>

@@ -3,6 +3,7 @@ import { Plus, X } from 'lucide-react';
 import { Customer, DeliveryRecord } from '@/types';
 import CustomerWorkspace from '@/features/customers/CustomerWorkspace';
 import ExportMenu from '@/components/ExportMenu';
+import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { CUSTOMER_COLUMNS } from '@/utils/export';
 
 interface CustomersViewProps {
@@ -27,11 +28,14 @@ export default function CustomersView({
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [form, setForm] = useState(EMPTY_FORM);
   const [formError, setFormError] = useState('');
   const [saveError, setSaveError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  const totalPages = Math.max(1, Math.ceil(customers.length / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, page), totalPages);
 
   const canCreate = currentUserRole !== 'TASS';
 
@@ -142,7 +146,7 @@ export default function CustomersView({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {customers.slice((page - 1) * pageSize, page * pageSize).map(c => {
+              {customers.slice((safeCurrentPage - 1) * pageSize, safeCurrentPage * pageSize).map(c => {
                 const totalRecords = deliveryRecords.filter(r => r.customer_id === c.id).length;
                 return (
                   <tr
@@ -165,8 +169,19 @@ export default function CustomersView({
           </table>
         </div>
 
-        <div className="p-3 bg-slate-50 border-t border-slate-100 text-xs font-bold text-slate-500">
-          Showing {customers.length} total registered merchant accounts.
+        <div className="border-t border-slate-200">
+          <Pagination
+            currentPage={safeCurrentPage}
+            totalPages={totalPages}
+            totalItems={customers.length}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(newSize) => {
+              setPageSize(newSize);
+              setPage(1);
+            }}
+            pageSizeOptions={[10, 25, 50, 100]}
+          />
         </div>
       </div>
 
