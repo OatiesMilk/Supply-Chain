@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Pagination from '@/components/Pagination';
 import { Search, Filter } from 'lucide-react';
 import { ApiSku } from '@/api';
@@ -26,12 +26,31 @@ export default function InventoryView({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [searchTerm, setSearchTerm] = useState('');
+  const [appliedSearchTerm, setAppliedSearchTerm] = useState('');
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [warehouseFilter, setWarehouseFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [selectedSkuId, setSelectedSkuId] = useState<string | null>(
     selectedProductIdFromDashboard ?? null
   );
+
+  useEffect(() => {
+    if (searchTerm === appliedSearchTerm) return;
+
+    searchTimeoutRef.current = setTimeout(() => {
+      setAppliedSearchTerm(searchTerm);
+      setPage(1);
+      searchTimeoutRef.current = null;
+    }, 300);
+
+    return () => {
+      if (searchTimeoutRef.current !== null) {
+        clearTimeout(searchTimeoutRef.current);
+        searchTimeoutRef.current = null;
+      }
+    };
+  }, [searchTerm, appliedSearchTerm]);
 
   // Sync dashboard navigation into local selection
   useEffect(() => {
@@ -76,9 +95,9 @@ export default function InventoryView({
   // Filter SKUs
   const filteredSkus = skus.filter(sku => {
     const matchesSearch =
-      sku.sku_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      sku.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      sku.description.toLowerCase().includes(searchTerm.toLowerCase());
+      sku.sku_code.toLowerCase().includes(appliedSearchTerm.toLowerCase()) ||
+      sku.name.toLowerCase().includes(appliedSearchTerm.toLowerCase()) ||
+      sku.description.toLowerCase().includes(appliedSearchTerm.toLowerCase());
 
     const matchesCategory = categoryFilter === 'ALL' || sku.category === categoryFilter;
 
@@ -98,6 +117,10 @@ export default function InventoryView({
 
     return matchesSearch && matchesCategory && matchesWarehouse && matchesStatus;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredSkus.length / pageSize));
+  // Keep rows and pagination in sync if refreshed data shrinks the result set.
+  const currentPage = Math.max(1, Math.min(page, totalPages));
 
   return (
     <div className="space-y-6" id="inventory-view-container">
@@ -164,7 +187,7 @@ export default function InventoryView({
 
             <select
               value={categoryFilter}
-              onChange={e => setCategoryFilter(e.target.value)}
+              onChange={e => { setCategoryFilter(e.target.value); setPage(1); }}
               className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none text-xs font-medium"
             >
               <option value="ALL">All Categories (A / B / C)</option>
@@ -175,7 +198,7 @@ export default function InventoryView({
 
             <select
               value={warehouseFilter}
-              onChange={e => setWarehouseFilter(e.target.value)}
+              onChange={e => { setWarehouseFilter(e.target.value); setPage(1); }}
               className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none text-xs font-medium"
             >
               <option value="ALL">All Bins</option>
@@ -186,7 +209,7 @@ export default function InventoryView({
 
             <select
               value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value)}
+              onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
               className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none text-xs font-medium"
             >
               <option value="ALL">All Stock Statuses</option>
@@ -195,13 +218,19 @@ export default function InventoryView({
               <option value="Out of Stock">Out of Stock</option>
             </select>
 
-            {(searchTerm || categoryFilter !== 'ALL' || warehouseFilter !== 'ALL' || statusFilter !== 'ALL') && (
+            {(searchTerm || appliedSearchTerm || categoryFilter !== 'ALL' || warehouseFilter !== 'ALL' || statusFilter !== 'ALL') && (
               <button
                 onClick={() => {
+                  if (searchTimeoutRef.current !== null) {
+                    clearTimeout(searchTimeoutRef.current);
+                    searchTimeoutRef.current = null;
+                  }
                   setSearchTerm('');
+                  setAppliedSearchTerm('');
                   setCategoryFilter('ALL');
                   setWarehouseFilter('ALL');
                   setStatusFilter('ALL');
+                  setPage(1);
                 }}
                 className="text-[#1F3864] hover:underline font-bold uppercase text-[10px]"
               >
@@ -235,7 +264,7 @@ export default function InventoryView({
                   </td>
                 </tr>
               ) : (
-                filteredSkus.slice((page - 1) * pageSize, page * pageSize).map(sku => {
+                filteredSkus.slice((currentPage - 1) * pageSize, currentPage * pageSize).map(sku => {
                   const inv = sku.inventory;
                   const atp = inv?.atp ?? 0;
                   const onHand = inv?.on_hand_qty ?? 0;
@@ -279,8 +308,8 @@ export default function InventoryView({
 
         <div className="border-t border-slate-100">
           <Pagination
-            currentPage={page}
-            totalPages={Math.ceil(filteredSkus.length / pageSize) || 1}
+            currentPage={currentPage}
+            totalPages={totalPages}
             totalItems={filteredSkus.length}
             pageSize={pageSize}
             onPageChange={setPage}
