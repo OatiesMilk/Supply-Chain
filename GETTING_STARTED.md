@@ -328,6 +328,68 @@ use a bare `npx wrangler preview`, which can install an unpinned CLI and may
 resolve a different configuration file. Both `client/wrangler.json` and the
 repository-root `wrangler.json` must retain `"previews": {}`.
 
+#### Resolved Wrangler deployment errors
+
+**Missing `cf:preview` script**
+
+If the log reports:
+
+```text
+Missing script: "cf:preview"
+```
+
+the build is using a checkout that predates the deployment hotfix or
+Cloudflare is running a stale deployment. Confirm that the Workers Build is
+tracking `staging` and start a new deployment from the latest commit. The
+current `client/package.json` defines the script.
+
+**Cannot read `./wrangler.json`**
+
+If the log reports:
+
+```text
+Could not read file: ./wrangler.json
+ENOENT: no such file or directory
+```
+
+Cloudflare is running from the `client` root directory, while the active
+Wrangler configuration is at the repository root. Use this Preview command:
+
+```bash
+npx --yes wrangler@4.146.0 preview --config ../wrangler.json
+```
+
+The repository-root configuration uses `worker.js` and serves assets from
+`client/dist`.
+
+**Uploading a Pages `_worker.js` file as an asset**
+
+If the log reports:
+
+```text
+Uploading a Pages _worker.js file as an asset
+```
+
+do not keep `_worker.js` under `client/public/`. Vite copies files from that
+directory into `client/dist`, causing Wrangler to see the Worker entrypoint as
+both executable Worker code and a public asset. Keep the Worker entrypoint at
+the repository root as `worker.js`, remove `client/public/_worker.js`, and
+configure `wrangler.json` with:
+
+```json
+{
+  "main": "worker.js",
+  "assets": {
+    "directory": "client/dist",
+    "binding": "ASSETS"
+  }
+}
+```
+
+After the fix, `vite build` should complete without generating
+`client/dist/_worker.js`, and the Wrangler preview should upload the static
+assets successfully.
+
 ### Frontend cannot reach the backend
 
 Make sure the backend is running on port `4000` and visit
