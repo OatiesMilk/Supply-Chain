@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Users, ClipboardList, UserX, Plus, ChevronLeft, ChevronRight, Loader2, Check, ShieldCheck, RotateCcw, X, Settings2, Send, Pencil, Link2, Trash2 } from 'lucide-react';
 import { api, ApiPermissionEditor, ApiUserAdmin, ApiAdminAuditEntry, ApiIntegrationStatus, ApiError } from '@/api';
-import Pagination from '@/components/Pagination';
+import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { ActionDialog } from '@/components/ActionDialog';
 
 import { useAuthStore } from '@/store/authStore';
@@ -330,7 +330,7 @@ export default function AdminPanel() {
   const [auditEntries, setAuditEntries] = useState<ApiAdminAuditEntry[]>([]);
   const [auditTotal, setAuditTotal] = useState(0);
   const [auditPages, setAuditPages] = useState(1);
-  const [auditPageSize, setAuditPageSize] = useState(50);
+  const [auditPageSize, setAuditPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
 

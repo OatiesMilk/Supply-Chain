@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import Pagination from '@/components/Pagination';
+import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { Search, Filter } from 'lucide-react';
 import { ApiSku } from '@/api';
 import SkuWorkspace from '@/features/inventory/SkuWorkspace';
@@ -24,7 +24,7 @@ export default function InventoryView({
   clearSelectedProductId
 }: InventoryViewProps) {
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [searchTerm, setSearchTerm] = useState('');
   const [appliedSearchTerm, setAppliedSearchTerm] = useState('');
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
