@@ -153,36 +153,35 @@ export default function DeliveryRecordsView({
 
 
 
-  // Deep-link support: jump straight to a flagged record (e.g. from the Dashboard's
-  // Needs Attention panel or the Logistics dispatch board's unassigned-records list).
+  const initializedCategoryRef = useRef<DeliveryCategory | null>(null);
+
+  // Reset module state before applying an incoming record link so initialization
+  // cannot clear the linked selection. Consuming the link must retain local state.
   useEffect(() => {
+    if (initializedCategoryRef.current !== category) {
+      initializedCategoryRef.current = category;
+      setSelectedId(null);
+      setShowForm(false);
+      setRegionFilter('All Regions');
+      setSubregionFilter('All Subregions');
+      setAreaFilter('All Areas');
+      setDateFrom('');
+      setDateTo('');
+      setDateSort('default');
+      setAmFilter('');
+      setDriverFilter('');
+      setSelectedBulkIds(new Set());
+      setBulkStatus('');
+      setBulkPriority('');
+      setBulkResult(null);
+    }
+
     if (selectedRecordIdFromDashboard) {
       setSelectedId(selectedRecordIdFromDashboard);
       setShowForm(false);
       clearSelectedRecordId?.();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRecordIdFromDashboard]);
-
-  // Reset category-scoped UI state when switching module tabs. The same
-  // component instance is reused, so bulk selections would otherwise carry
-  // over and keep the action bar visible for records from the previous module.
-  useEffect(() => {
-    setSelectedId(null);
-    setShowForm(false);
-    setRegionFilter('All Regions');
-    setSubregionFilter('All Subregions');
-    setAreaFilter('All Areas');
-    setDateFrom('');
-    setDateTo('');
-    setDateSort('default');
-    setAmFilter('');
-    setDriverFilter('');
-    setSelectedBulkIds(new Set());
-    setBulkStatus('');
-    setBulkPriority('');
-    setBulkResult(null);
-  }, [category]);
+  }, [category, selectedRecordIdFromDashboard, clearSelectedRecordId]);
 
   const [statusHistoryCounts, setStatusHistoryCounts] = useState<StatusHistoryCounts | undefined>(undefined);
 
