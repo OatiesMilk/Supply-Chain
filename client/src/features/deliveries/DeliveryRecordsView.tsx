@@ -378,10 +378,27 @@ export default function DeliveryRecordsView({
         }
       }
       setSelectedBulkIds(failedIds);
-      const summary = `${savedCount} updated; ${unchangedCount} unchanged.`;
-      setBulkResult(failedIds.size > 0
-        ? { ok: false, message: `${summary} Update failed for ${[...failedIds].join(', ')}. ${firstError}` }
-        : { ok: true, message: summary });
+      const messages: string[] = [];
+      if (savedCount > 0) {
+        const savedRecords = `${savedCount} record${savedCount === 1 ? '' : 's'}`;
+        if (canAssignDriver && bulkStatus && canEdit && bulkPriority) {
+          messages.push(`Status and priority changes applied to ${savedRecords}.`);
+        } else if (canAssignDriver && bulkStatus) {
+          messages.push(`Status updated for ${savedRecords}.`);
+          if (canEdit) messages.push('Priority kept unchanged.');
+        } else {
+          messages.push(`Priority updated for ${savedRecords}.`);
+          if (canAssignDriver) messages.push('Status kept unchanged.');
+        }
+      }
+      if (unchangedCount > 0) {
+        messages.push(`${unchangedCount} record${unchangedCount === 1 ? '' : 's'} already matched the selected values.`);
+      }
+      if (failedIds.size > 0) {
+        messages.push(`${failedIds.size} record${failedIds.size === 1 ? '' : 's'} failed to update and ${failedIds.size === 1 ? 'remains' : 'remain'} selected for retry.`);
+        if (firstError) messages.push(firstError);
+      }
+      setBulkResult({ ok: failedIds.size === 0, message: messages.join(' ') });
     } finally {
       setBulkApplying(false);
     }
