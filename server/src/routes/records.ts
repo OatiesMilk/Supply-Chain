@@ -503,12 +503,22 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
 // Status change — Logistics, Admin, Driver (own records), and TASS (RMA only).
 // This is also the sole path that fires the ACCOMPLISHED automated trigger.
 router.patch('/:id/status', requireAuth, requireResource('records'), requireRecordAccess, requireRole('LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), async (req, res) => {
-  const { status, remarks, time_out, received_by } = req.body ?? {};
+  const { status, remarks, time_out, received_by, priority } = req.body ?? {};
   if (!status || !STATUS_TO_DB[status]) {
     return res.status(400).json({ error: 'Valid status is required' });
   }
   if (!remarks || !String(remarks).trim()) {
     return res.status(400).json({ error: 'Remarks are required when changing status.' });
+  }
+
+  const hasPriority = priority !== undefined && priority !== '';
+  if (hasPriority) {
+    if (!['LOGISTICS', 'ADMIN'].includes(req.user!.role)) {
+      return res.status(403).json({ error: 'Your role cannot change record priority.' });
+    }
+    if (!['1 - Low', '2 - Moderate', '3 - High'].includes(priority)) {
+      return res.status(400).json({ error: 'Invalid record priority.' });
+    }
   }
 
   const existing = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null }, include: recordInclude });
@@ -526,22 +536,26 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   }
 
   const dbStatus = STATUS_TO_DB[status];
-  if (existing.status === dbStatus) {
+  const statusChanged = existing.status !== dbStatus;
+  const priorityChanged = hasPriority && existing.priority !== priority;
+  if (!statusChanged && !priorityChanged) {
     return res.status(409).json({ error: 'Choose a different status before saving.' });
   }
 
   const statusData: any = {
-    status: dbStatus as any,
     remarks: String(remarks).trim(),
     modifiedById: req.user!.id
   };
+  if (statusChanged) statusData.status = dbStatus;
+  if (priorityChanged) statusData.priority = priority;
   if (time_out !== undefined) statusData.timeOut = time_out ?? null;
   if (received_by !== undefined) statusData.receivedBy = received_by ?? null;
 
   const updated = await prisma.$transaction(async tx => {
-    // A second save using the status we loaded cannot create another audit event.
+    // Guard both submitted fields against concurrent edits before writing history.
     const changed = await tx.deliveryRecord.updateMany({
-      where: { id: existing.id, status: existing.status, deletedAt: null },
+      where: { id: existing.id, status: existing.status, deletedAt: null,
+        ...(hasPriority ? { priority: existing.priority } : {}) },
       data: statusData,
     });
     if (changed.count === 0) return null;
@@ -557,12 +571,12 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     await tx.remarkLog.create({ data: {
       recordId: saved.id,
       body: String(remarks).trim(),
-      context: 'STATUS_CHANGE',
+      context: statusChanged ? 'STATUS_CHANGE' : 'GENERAL_EDIT',
       authorId: req.user!.id,
     } });
     return saved;
   });
-  if (!updated) return res.status(409).json({ error: 'The status changed while you were editing. Refresh the record and try again.' });
+  if (!updated) return res.status(409).json({ error: 'The record changed while you were editing. Refresh the record and try again.' });
 
   if (dbStatus === 'ACCOMPLISHED' && existing.status !== 'ACCOMPLISHED') {
     await notifyAccomplished({

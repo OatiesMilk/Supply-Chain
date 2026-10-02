@@ -45,15 +45,20 @@ export function createUpdateRecordMutationOptions(queryClient: ReturnType<typeof
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<DeliveryRecord> }) => {
       if (updates.status) {
         const u = updates as any;
-        const extra: { time_out?: string; received_by?: string } = {};
+        const extra: { time_out?: string; received_by?: string; priority?: string } = {};
         if (u.time_out) extra.time_out = u.time_out;
         if (u.received_by) extra.received_by = u.received_by;
-        return normalizeApiRecord(await api.patchStatus(
+        if (updates.priority !== undefined) extra.priority = updates.priority;
+        const saved = normalizeApiRecord(await api.patchStatus(
           id,
           updates.status,
           u.status_remarks ?? u.remarks ?? '',
           Object.keys(extra).length > 0 ? extra : undefined
         ));
+        if (updates.priority !== undefined && saved.priority !== updates.priority) {
+          throw new Error('The server did not save the selected priority. Please try again.');
+        }
+        return saved;
       } else {
         const {
           modified_by,
