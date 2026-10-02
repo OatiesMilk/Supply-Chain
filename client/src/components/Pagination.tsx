@@ -1,6 +1,8 @@
 import React from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
+export const DEFAULT_PAGE_SIZE = 10;
+
 export interface PaginationProps {
   currentPage: number;
   totalPages: number;

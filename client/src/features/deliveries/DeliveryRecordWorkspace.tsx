@@ -16,6 +16,8 @@ import { Pencil, X as XIcon, Save, Plus } from 'lucide-react';
 import { getOutputTrigger, runOutputActions } from '@/outputActions';
 import StatusStepper from '@/components/StatusStepper';
 import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
+import WorkspaceTabs from './WorkspaceTabs';
+import { WorkspaceDraftProvider, useWorkspaceDraft, useWorkspaceNavigation } from './WorkspaceDrafts';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -76,8 +78,8 @@ interface TabDef {
 }
 
 const ALL_TABS: TabDef[] = [
-  { id: 'general',   label: 'General',        icon: ClipboardList,  roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
-  { id: 'actions',   label: 'Assign',          icon: UserPlus,       roles: ['Logistics', 'Admin'] },
+  { id: 'general',   label: 'Overview',        icon: ClipboardList,  roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
+  { id: 'actions',   label: 'Dispatch & Logistics', icon: UserPlus, roles: ['Logistics', 'Admin'] },
   { id: 'comments',  label: 'Comments',        icon: MessagesSquare, roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
   { id: 'remarks',   label: 'Remarks',         icon: ScrollText,     roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
   { id: 'audit',     label: 'Audit Trail',     icon: History,        roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
@@ -116,17 +118,17 @@ function GeneralTab({
   currentUserRole,
   currentUserName,
   onUpdateRecord,
+  readOnly = false,
 }: {
   record: DeliveryRecord;
   currentUserRole: UserRole;
   currentUserName: string;
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
+  readOnly?: boolean;
 }) {
-  const CategoryIcon = CATEGORY_ICON[record.category] ?? FileText;
-
   // SC can edit all fields while the record is still Scheduled; Logistics can always edit Area + Address
-  const canEditFull = currentUserRole === 'Sales Coordinator' && record.status === 'Scheduled';
-  const canEditAreaAddress = currentUserRole === 'Logistics';
+  const canEditFull = !readOnly && currentUserRole === 'Sales Coordinator' && record.status === 'Scheduled';
+  const canEditAreaAddress = !readOnly && currentUserRole === 'Logistics';
   const canEdit = canEditFull || canEditAreaAddress;
 
   const [editing, setEditing] = useState(false);
@@ -148,6 +150,7 @@ function GeneralTab({
     address: record.address ?? '',
     line_items: record.line_items || [],
   });
+  useWorkspaceDraft('general', editing, saving);
 
   // Re-sync draft when a different record is opened
   useEffect(() => {
@@ -232,25 +235,6 @@ function GeneralTab({
 
   return (
     <div className="space-y-5">
-      {/* Header card */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-        <div className="flex flex-wrap items-center gap-3 mb-3">
-          <span className="font-mono font-black text-lg text-slate-900">{record.id}</span>
-          <span className="px-2.5 py-1 rounded-md font-black text-[10px] uppercase tracking-wider border bg-blue-100 text-blue-800 border-blue-200 flex items-center gap-1">
-            <CategoryIcon className="w-3 h-3" /> {record.category}
-          </span>
-          <span className={`px-2.5 py-1 rounded-full border text-[10px] font-semibold tracking-wide ${STATUS_COLOR[record.status] ?? 'bg-slate-50 text-slate-700 border-slate-200'}`}>
-            {record.status}
-          </span>
-          {!editing && (
-            <span className={`px-2.5 py-1 rounded-full border text-[10px] font-semibold ${PRIORITY_COLOR[record.priority] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}>
-              Priority: {record.priority}
-            </span>
-          )}
-        </div>
-        <p className="text-sm font-bold text-slate-700">{record.company_name}</p>
-      </div>
-
       {/* Status stepper */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Status Progression</p>
@@ -526,6 +510,7 @@ function GeneralTab({
         record={record}
         currentUserRole={currentUserRole}
         onUpdateRecord={onUpdateRecord}
+        readOnly={readOnly}
       />
 
       {/* Audit footer */}
@@ -552,16 +537,19 @@ function LinkedCollectionCard({
   record,
   currentUserRole,
   onUpdateRecord,
+  readOnly = false,
 }: {
   record: DeliveryRecord;
   currentUserRole: UserRole;
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
+  readOnly?: boolean;
 }) {
-  const canLink = (currentUserRole === 'Logistics' || currentUserRole === 'Admin');
+  const canLink = !readOnly && (currentUserRole === 'Logistics' || currentUserRole === 'Admin');
   const [linkInput, setLinkInput]   = useState('');
   const [linkRemarks, setLinkRemarks] = useState('');
   const [linking, setLinking]       = useState(false);
   const [linkError, setLinkError]   = useState<string | null>(null);
+  useWorkspaceDraft('linked-collection', !!(linkInput || linkRemarks), linking);
 
   const handleLink = async (collectionId: string | null) => {
     if (!linkRemarks.trim() && collectionId !== null) {
@@ -796,6 +784,7 @@ function ActionsTab({
   const [timeOut, setTimeOut] = useState(record.time_out ?? '');
   const [receivedBy, setReceivedBy] = useState(record.received_by ?? '');
   const [savingFields, setSavingFields] = useState(false);
+  const [saveDriverError, setSaveDriverError] = useState<string | null>(null);
   const [driverFieldsRemarks, setDriverFieldsRemarks] = useState('');
   const [driverFieldsRemarksError, setDriverFieldsRemarksError] = useState(false);
 
@@ -808,6 +797,7 @@ function ActionsTab({
     setReceivedBy(record.received_by ?? '');
     setDriverFieldsRemarks('');
     setDriverFieldsRemarksError(false);
+    setSaveDriverError(null);
   }, [record.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -862,25 +852,39 @@ function ActionsTab({
     (timeIn || '') !== (record.time_in ?? '') ||
     (timeOut || '') !== (record.time_out ?? '') ||
     (receivedBy || '') !== (record.received_by ?? '');
+  useWorkspaceDraft('dispatch', driverFieldsChanged || selectedStatus !== record.status || !!(statusRemarks || driverFieldsRemarks), applying || savingFields);
 
   const handleSaveDriverFields = async () => {
+    if (savingFields) return;
+    setSaveDriverError(null);
     if (driverFieldsChanged && !driverFieldsRemarks.trim()) {
       setDriverFieldsRemarksError(true);
       return;
     }
+    const remarks = driverFieldsRemarks.trim();
+    if (!driverFieldsChanged && !remarks) return;
+
     setSavingFields(true);
-    await onUpdateRecord(record.id, {
-      driver: selectedDriver,
-      driver_assistants: assistants.filter(a => a.trim()),
-      time_in: timeIn || null,
-      time_out: timeOut || null,
-      received_by: receivedBy || null,
-      ...(driverFieldsRemarks.trim() ? { remarks: driverFieldsRemarks.trim() } : {}),
-      modified_by: `${currentUserName} (${currentUserRole})`,
-      modified_at: new Date().toISOString(),
-    } as any);
-    setSavingFields(false);
-    setDriverFieldsRemarks('');
+    const updates: Partial<DeliveryRecord> = {};
+    if (selectedDriver !== (record.driver ?? '')) updates.driver = selectedDriver;
+    if (JSON.stringify(assistants.filter(a => a.trim())) !== JSON.stringify(record.driver_assistants ?? [])) {
+      updates.driver_assistants = assistants.filter(a => a.trim());
+    }
+    if ((timeIn || '') !== (record.time_in ?? '')) updates.time_in = timeIn || null;
+    if ((timeOut || '') !== (record.time_out ?? '')) updates.time_out = timeOut || null;
+    if ((receivedBy || '') !== (record.received_by ?? '')) updates.received_by = receivedBy || null;
+    if (remarks) updates.remarks = remarks;
+    updates.modified_by = `${currentUserName} (${currentUserRole})`;
+    updates.modified_at = new Date().toISOString();
+    try {
+      await onUpdateRecord(record.id, updates);
+      setDriverFieldsRemarks('');
+      setDriverFieldsRemarksError(false);
+    } catch (error) {
+      setSaveDriverError(error instanceof Error ? error.message : 'Could not save driver fields. Please try again.');
+    } finally {
+      setSavingFields(false);
+    }
   };
 
   const inputCls = 'w-full px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]';
@@ -1102,11 +1106,13 @@ function ActionsTab({
               className={`w-full px-3 py-2 border rounded-lg text-xs resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${driverFieldsRemarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
             />
             {driverFieldsRemarksError && <p className="text-[11px] text-red-600 font-semibold">Driver & delivery remarks are required when making changes to these fields.</p>}
+
           </div>
 
+          {saveDriverError && <p role="alert" className="text-[11px] text-red-600 font-semibold mb-2">{saveDriverError}</p>}
           <button
             onClick={handleSaveDriverFields}
-            disabled={savingFields}
+            disabled={savingFields || (!driverFieldsChanged && !driverFieldsRemarks.trim())}
             className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-[#0078C1] hover:bg-[#1F3864] rounded-lg transition-colors cursor-pointer disabled:opacity-60"
           >
             {savingFields ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
@@ -1126,6 +1132,7 @@ function CommentsTab({ recordId }: { recordId: string }) {
   const [commentBody, setCommentBody] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  useWorkspaceDraft('comments', !!commentBody, submitting);
 
   useEffect(() => {
     setLoading(true);
@@ -1426,6 +1433,7 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  useWorkspaceDraft('documents', false, uploading);
 
   useEffect(() => {
     setError(null);
@@ -1576,7 +1584,15 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function DeliveryRecordWorkspace({
+export default function DeliveryRecordWorkspace(props: DeliveryRecordWorkspaceProps) {
+  return (
+    <WorkspaceDraftProvider key={`${props.record.id}-${props.currentUserRole}-${props.forceReadOnly ?? false}`}>
+      <RecordWorkspace {...props} />
+    </WorkspaceDraftProvider>
+  );
+}
+
+function RecordWorkspace({
   record,
   allRecordIds,
   allRecords = [],
@@ -1589,6 +1605,7 @@ export default function DeliveryRecordWorkspace({
   outputActionConfigs,
   forceReadOnly = false,
 }: DeliveryRecordWorkspaceProps) {
+  const { requestLeave, pending } = useWorkspaceNavigation();
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError]     = useState<string | null>(null);
 
@@ -1614,13 +1631,6 @@ export default function DeliveryRecordWorkspace({
   const visibleTabs = ALL_TABS.filter(t =>
     t.roles.includes(currentUserRole) && !(forceReadOnly && t.id === 'actions')
   );
-  const [activeTab, setActiveTab] = useState<TabId>(visibleTabs[0]?.id ?? 'general');
-
-  // Reset to first tab when navigating to a different record
-  useEffect(() => {
-    setActiveTab(visibleTabs[0]?.id ?? 'general');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [record.id]);
 
   const currentIndex = allRecordIds.indexOf(record.id);
   const prevId = currentIndex > 0 ? allRecordIds[currentIndex - 1] : null;
@@ -1628,8 +1638,8 @@ export default function DeliveryRecordWorkspace({
 
   const moduleName = record.category;
 
-  const renderTabContent = () => {
-    switch (activeTab) {
+  const renderTabContent = (tabId: string) => {
+    switch (tabId) {
       case 'general':
         return (
           <GeneralTab
@@ -1637,6 +1647,7 @@ export default function DeliveryRecordWorkspace({
             currentUserRole={currentUserRole}
             currentUserName={currentUserName}
             onUpdateRecord={onUpdateRecord}
+            readOnly={forceReadOnly}
           />
         );
 
@@ -1675,7 +1686,8 @@ export default function DeliveryRecordWorkspace({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
         <div className="flex items-center gap-3 min-w-0">
           <button
-            onClick={onBack}
+            onClick={() => requestLeave(onBack)}
+            disabled={pending}
             className="flex items-center gap-1.5 text-[#0078C1] hover:text-[#1F3864] text-xs font-semibold transition-colors shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -1688,8 +1700,8 @@ export default function DeliveryRecordWorkspace({
 
         <div className="flex items-center gap-1">
           <button
-            onClick={() => prevId && onNavigateToRecord(prevId)}
-            disabled={!prevId}
+            onClick={() => { if (prevId) requestLeave(() => onNavigateToRecord(prevId)); }}
+            disabled={!prevId || pending}
             className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold text-slate-600"
             title="Previous Record"
           >
@@ -1700,8 +1712,8 @@ export default function DeliveryRecordWorkspace({
             {currentIndex + 1} / {allRecordIds.length}
           </span>
           <button
-            onClick={() => nextId && onNavigateToRecord(nextId)}
-            disabled={!nextId}
+            onClick={() => { if (nextId) requestLeave(() => onNavigateToRecord(nextId)); }}
+            disabled={!nextId || pending}
             className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold text-slate-600"
             title="Next Record"
           >
@@ -1736,35 +1748,30 @@ export default function DeliveryRecordWorkspace({
         </div>
       </div>
 
-      {/* Tab Navigation + Content */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="border-b border-slate-200 overflow-x-auto">
-          <div className="flex items-stretch min-w-max">
-            {visibleTabs.map(tab => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-5 py-4 text-sm whitespace-nowrap border-b-[3px] transition-all ${
-                    isActive
-                      ? 'border-[#1F3864] text-[#1F3864] bg-blue-50/70 font-semibold'
-                      : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100 font-medium'
-                  }`}
-                >
-                  <Icon className="w-[18px] h-[18px] shrink-0" />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
+      <section aria-label="Record summary" className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="font-bold text-slate-800">{record.company_name}</span>
+          <span className="text-slate-500">{record.category}</span>
+          <span className={`rounded-full border px-2 py-0.5 font-semibold ${STATUS_COLOR[record.status] ?? 'bg-slate-50 text-slate-700 border-slate-200'}`}>{record.status}</span>
+          <span className={`rounded-full border px-2 py-0.5 ${PRIORITY_COLOR[record.priority] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}>Priority: {record.priority}</span>
         </div>
-
-        <div className="p-5">
-          {renderTabContent()}
-        </div>
-      </div>
+        <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-700">
+          {[
+            ['Driver', record.driver || 'Unassigned'],
+            ['Delivery date', record.delivery_date],
+            ['Time in', record.time_in || '—'],
+            ['Time out', record.time_out || '—'],
+          ].map(([label, value]) => <div key={label} className="flex gap-1"><dt className="text-slate-500">{label}:</dt><dd className="font-semibold">{value}</dd></div>)}
+        </dl>
+      </section>
+      <WorkspaceTabs
+        id={`record-${record.id}`}
+        tabs={visibleTabs.map(tab => {
+          const Icon = tab.icon;
+          return { id: tab.id, label: tab.label, icon: <Icon aria-hidden="true" className="w-[18px] h-[18px] shrink-0" /> };
+        })}
+        renderPanel={renderTabContent}
+      />
     </div>
   );
 }
