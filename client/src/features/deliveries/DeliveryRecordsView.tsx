@@ -171,8 +171,9 @@ export default function DeliveryRecordsView({
       setAmFilter('');
       setDriverFilter('');
       setSelectedBulkIds(new Set());
+      setBulkStatus('');
       setBulkPriority('');
-      setPriorityResult(null);
+      setBulkResult(null);
     }
 
     if (selectedRecordIdFromDashboard) {
