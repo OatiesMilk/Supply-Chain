@@ -6,7 +6,7 @@ import RecordCreateForm from "@/features/deliveries/RecordCreateForm";
 import AllOpsExportMenu from "@/components/AllOpsExportMenu";
 import { StatusHistoryCounts } from "@/utils/export";
 import { DateSortMode, sortRecordsByDate } from "@/utils/allOpsExport";
-import Pagination from "@/components/Pagination";
+import Pagination, { DEFAULT_PAGE_SIZE } from "@/components/Pagination";
 
 interface MainViewProps {
   records: DeliveryRecord[];
@@ -150,7 +150,7 @@ export default function MainView({
   }, [filtered, dateFrom, dateTo, sortMode]);
 
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   // Reset page to 1 whenever filters change
   useEffect(() => {
