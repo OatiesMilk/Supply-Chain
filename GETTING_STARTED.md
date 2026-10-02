@@ -322,7 +322,8 @@ Preview command to:
 npm run cf:preview
 ```
 
-The script pins Wrangler and explicitly selects `client/wrangler.json`. Do not
+The script pins Wrangler and explicitly selects the repository-root
+`wrangler.json` from the `client` working directory. Do not
 use a bare `npx wrangler preview`, which can install an unpinned CLI and may
 resolve a different configuration file. Both `client/wrangler.json` and the
 repository-root `wrangler.json` must retain `"previews": {}`.
