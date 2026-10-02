@@ -19,7 +19,7 @@ import ExportMenu from '@/components/ExportMenu';
 import DriverReportModal from '@/features/drivers/DriverReportModal';
 import RouteSlipMenu from '@/components/RouteSlipMenu';
 import AccountManagerCombobox from '@/components/AccountManagerCombobox';
-import Pagination from '@/components/Pagination';
+import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, PDF_DELIVERY_COLUMNS, PDF_AC_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel } from '@/types';
@@ -107,10 +107,10 @@ export default function DeliveryRecordsView({
 
   // Bulk selection (Logistics only)
   const [selectedBulkIds, setSelectedBulkIds] = useState<Set<string>>(new Set());
-  const [bulkStatus, setBulkStatus] = useState<string>('Delivered');
+  const [bulkStatus, setBulkStatus] = useState<DeliveryStatus | ''>('');
   const [bulkApplying, setBulkApplying] = useState(false);
   const [bulkPriority, setBulkPriority] = useState<PriorityLevel | ''>('');
-  const [priorityResult, setPriorityResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [bulkResult, setBulkResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   // Monthly Driver Report modal
   const [showDriverReportModal, setShowDriverReportModal] = useState(false);
@@ -153,35 +153,35 @@ export default function DeliveryRecordsView({
 
 
 
-  // Deep-link support: jump straight to a flagged record (e.g. from the Dashboard's
-  // Needs Attention panel or the Logistics dispatch board's unassigned-records list).
+  const initializedCategoryRef = useRef<DeliveryCategory | null>(null);
+
+  // Reset module state before applying an incoming record link so initialization
+  // cannot clear the linked selection. Consuming the link must retain local state.
   useEffect(() => {
+    if (initializedCategoryRef.current !== category) {
+      initializedCategoryRef.current = category;
+      setSelectedId(null);
+      setShowForm(false);
+      setRegionFilter('All Regions');
+      setSubregionFilter('All Subregions');
+      setAreaFilter('All Areas');
+      setDateFrom('');
+      setDateTo('');
+      setDateSort('default');
+      setAmFilter('');
+      setDriverFilter('');
+      setSelectedBulkIds(new Set());
+      setBulkStatus('');
+      setBulkPriority('');
+      setBulkResult(null);
+    }
+
     if (selectedRecordIdFromDashboard) {
       setSelectedId(selectedRecordIdFromDashboard);
       setShowForm(false);
       clearSelectedRecordId?.();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRecordIdFromDashboard]);
-
-  // Reset category-scoped UI state when switching module tabs. The same
-  // component instance is reused, so bulk selections would otherwise carry
-  // over and keep the action bar visible for records from the previous module.
-  useEffect(() => {
-    setSelectedId(null);
-    setShowForm(false);
-    setRegionFilter('All Regions');
-    setSubregionFilter('All Subregions');
-    setAreaFilter('All Areas');
-    setDateFrom('');
-    setDateTo('');
-    setDateSort('default');
-    setAmFilter('');
-    setDriverFilter('');
-    setSelectedBulkIds(new Set());
-    setBulkPriority('');
-    setPriorityResult(null);
-  }, [category]);
+  }, [category, selectedRecordIdFromDashboard, clearSelectedRecordId]);
 
   const [statusHistoryCounts, setStatusHistoryCounts] = useState<StatusHistoryCounts | undefined>(undefined);
 
@@ -306,7 +306,7 @@ export default function DeliveryRecordsView({
   });
 
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   // Automatically reset to page 1 whenever any filter or search query changes
   useEffect(() => {
@@ -339,40 +339,68 @@ export default function DeliveryRecordsView({
 
   const activeRecord = records.find(r => r.id === selectedId);
 
-  const handleBulkPriorityUpdate = async () => {
-    if (!bulkPriority || selectedBulkIds.size === 0 || bulkApplying) return;
+  const handleBulkUpdate = async () => {
+    if (selectedBulkIds.size === 0 || bulkApplying ||
+      !((canAssignDriver && bulkStatus) || (canEdit && bulkPriority))) return;
     setBulkApplying(true);
-    setPriorityResult(null);
+    setBulkResult(null);
     const failedIds = new Set<string>();
     let firstError = '';
+    let savedCount = 0;
+    let unchangedCount = 0;
     const ids = [...selectedBulkIds];
     try {
       for (const id of ids) {
         try {
-          await onUpdateRecord(id, { priority: bulkPriority, remarks: `Priority set to ${bulkPriority}` });
+          const record = categoryRecords.find(record => record.id === id);
+          if (!record) throw new Error('The selected record is no longer available. Refresh and try again.');
+          const updates: Partial<DeliveryRecord> = {};
+          const remarks: string[] = [];
+          if (canAssignDriver && bulkStatus && record.status !== bulkStatus) {
+            updates.status = bulkStatus;
+            remarks.push(`Status set to ${bulkStatus}`);
+          }
+          if (canEdit && bulkPriority && record.priority !== bulkPriority) {
+            updates.priority = bulkPriority;
+            remarks.push(`Priority set to ${bulkPriority}`);
+          }
+          if (remarks.length === 0) {
+            unchangedCount++;
+            continue;
+          }
+          updates.remarks = remarks.join('; ');
+          await onUpdateRecord(id, updates);
+          savedCount++;
         } catch (error) {
           failedIds.add(id);
           if (!firstError) firstError = error instanceof Error ? error.message : 'Please try again.';
         }
       }
       setSelectedBulkIds(failedIds);
-      const savedCount = ids.length - failedIds.size;
-      setPriorityResult(failedIds.size > 0
-        ? { ok: false, message: `${savedCount} saved; priority update failed for ${[...failedIds].join(', ')}. ${firstError}` }
-        : { ok: true, message: `Priority saved as ${bulkPriority} for ${savedCount} record${savedCount === 1 ? '' : 's'}.` });
+      const messages: string[] = [];
+      if (savedCount > 0) {
+        const savedRecords = `${savedCount} record${savedCount === 1 ? '' : 's'}`;
+        if (canAssignDriver && bulkStatus && canEdit && bulkPriority) {
+          messages.push(`Status and priority changes applied to ${savedRecords}.`);
+        } else if (canAssignDriver && bulkStatus) {
+          messages.push(`Status updated for ${savedRecords}.`);
+          if (canEdit) messages.push('Priority kept unchanged.');
+        } else {
+          messages.push(`Priority updated for ${savedRecords}.`);
+          if (canAssignDriver) messages.push('Status kept unchanged.');
+        }
+      }
+      if (unchangedCount > 0) {
+        messages.push(`${unchangedCount} record${unchangedCount === 1 ? '' : 's'} already matched the selected values.`);
+      }
+      if (failedIds.size > 0) {
+        messages.push(`${failedIds.size} record${failedIds.size === 1 ? '' : 's'} failed to update and ${failedIds.size === 1 ? 'remains' : 'remain'} selected for retry.`);
+        if (firstError) messages.push(firstError);
+      }
+      setBulkResult({ ok: failedIds.size === 0, message: messages.join(' ') });
     } finally {
       setBulkApplying(false);
     }
-  };
-
-  const handleBulkStatusUpdate = async () => {
-    if (selectedBulkIds.size === 0 || bulkApplying) return;
-    setBulkApplying(true);
-    for (const id of [...selectedBulkIds]) {
-      await (onUpdateRecord(id, { status: bulkStatus as any }) as unknown as Promise<void>);
-    }
-    setSelectedBulkIds(new Set());
-    setBulkApplying(false);
   };
 
   const toggleBulkId = (id: string) => {
@@ -538,9 +566,9 @@ export default function DeliveryRecordsView({
 
   return (
     <div className="space-y-6 print:space-y-2" id={`records-view-${category.toLowerCase().replace(/\s+/g, '-')}`}>
-      {priorityResult && (
-        <div role={priorityResult.ok ? 'status' : 'alert'} className={`rounded-lg border px-4 py-3 text-sm ${priorityResult.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
-          {priorityResult.message}
+      {bulkResult && (
+        <div role={bulkResult.ok ? 'status' : 'alert'} className={`rounded-lg border px-4 py-3 text-sm ${bulkResult.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+          {bulkResult.message}
         </div>
       )}
       {/* View Header */}
@@ -571,7 +599,19 @@ export default function DeliveryRecordsView({
               dateFrom={dateFrom}
               preparedBy={currentUserName}
               filename={category.toLowerCase().replace(/\s+/g, '-')}
-              onFocusDateFilter={() => dateFromRef.current?.focus()}
+              onFocusDateFilter={() => {
+                setShowAdvancedFilters(false);
+                if (dateFromRef.current) {
+                  dateFromRef.current.focus();
+                  try {
+                    if (typeof dateFromRef.current.showPicker === 'function') {
+                      dateFromRef.current.showPicker();
+                    }
+                  } catch {
+                    // Keep the visible field focused for browsers that block showPicker.
+                  }
+                }
+              }}
             />
           )}
           {/* Monthly Driver Report — Logistics / Admin, Deliveries only */}
@@ -656,6 +696,59 @@ export default function DeliveryRecordsView({
         </div>
       </div>
 
+      {/* Date Range Controls (Always mounted) */}
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap gap-3 items-end text-xs print:hidden" id="date-range-filters">
+        <div className="space-y-1 flex-1 min-w-[120px]">
+          <label htmlFor="dateFrom" className="font-bold text-slate-700 block">Date From</label>
+          <input
+            id="dateFrom"
+            ref={dateFromRef}
+            type="date"
+            value={dateFrom}
+            onChange={e => setDateFrom(e.target.value)}
+            title="Date from"
+            className="w-full text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+          />
+        </div>
+        <div className="space-y-1 flex-1 min-w-[120px]">
+          <label htmlFor="dateTo" className="font-bold text-slate-700 block">Date To</label>
+          <input
+            id="dateTo"
+            type="date"
+            value={dateTo}
+            onChange={e => setDateTo(e.target.value)}
+            title="Date to"
+            className="w-full text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+          />
+        </div>
+        <div className="space-y-1 flex-1 min-w-[150px]">
+          <label htmlFor="dateSort" className="font-bold text-slate-700 block">Sort</label>
+          <select
+            id="dateSort"
+            value={dateSort}
+            onChange={e => setDateSort(e.target.value as typeof dateSort)}
+            disabled={!!(dateFrom || dateTo)}
+            title={(dateFrom || dateTo) ? 'Sort order is N/A while a date range filter is active' : undefined}
+            className={`w-full text-[11px] font-semibold border rounded-lg px-2.5 py-2 focus:outline-none focus:ring-1 focus:ring-[#0078C1] ${(dateFrom || dateTo) ? 'border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-700 cursor-pointer'}`}
+          >
+            {(dateFrom || dateTo) && <option value={dateSort}>Sort: N/A</option>}
+            <option value="default">Date: Default</option>
+            <option value="nearest">Nearest to Present</option>
+            <option value="oldest">Oldest First</option>
+            <option value="furthest">Furthest Future First</option>
+          </select>
+        </div>
+        {(dateFrom || dateTo) && (
+          <button
+            onClick={() => { setDateFrom(''); setDateTo(''); }}
+            title="Clear date filter"
+            className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[11px] uppercase rounded-lg cursor-pointer h-[34px] flex items-center gap-1"
+          >
+            <X className="w-3.5 h-3.5" /> Clear
+          </button>
+        )}
+      </div>
+
       {/* TASS filter controls */}
       {showTassFilters && (
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap gap-3 items-end text-xs print:hidden" id="tass-filters">
@@ -711,21 +804,15 @@ export default function DeliveryRecordsView({
               <span className="text-xs text-white/60">Set status:</span>
               <select
                 value={bulkStatus}
-                onChange={e => setBulkStatus(e.target.value)}
+                onChange={e => setBulkStatus(e.target.value as DeliveryStatus | '')}
+                disabled={bulkApplying}
                 className="text-[11px] font-bold bg-white/10 border border-white/20 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
               >
+                <option value="" className="text-slate-900 bg-white">Keep unchanged</option>
                 {(['Pending', 'Scheduled', 'Delivered', 'On-Hold', 'Rescheduled'] as const).map(s => (
                   <option key={s} value={s} className="text-slate-900 bg-white">{s}</option>
                 ))}
               </select>
-              <button
-                onClick={handleBulkStatusUpdate}
-                disabled={bulkApplying}
-                className="px-4 py-1.5 bg-[#0078C1] hover:bg-blue-500 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
-              >
-                {bulkApplying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                Apply
-              </button>
             </div>
           )}
           {canEdit && (
@@ -738,22 +825,23 @@ export default function DeliveryRecordsView({
                 disabled={bulkApplying}
                 className="text-[11px] font-bold bg-white/10 border border-white/20 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
               >
-                <option value="" disabled className="text-slate-400 bg-white">— pick —</option>
+                <option value="" className="text-slate-900 bg-white">Keep unchanged</option>
                 {(['1 - Low', '2 - Moderate', '3 - High'] as const).map(p => (
                   <option key={p} value={p} className="text-slate-900 bg-white">{p}</option>
                 ))}
               </select>
-              <button
-                onClick={handleBulkPriorityUpdate}
-                disabled={!bulkPriority || bulkApplying}
-                className="px-4 py-1.5 bg-[#0078C1] hover:bg-blue-500 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
-              >
-                {bulkApplying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Apply
-              </button>
             </div>
           )}
           <button
+            onClick={handleBulkUpdate}
+            disabled={bulkApplying || !((canAssignDriver && bulkStatus) || (canEdit && bulkPriority))}
+            className="px-4 py-1.5 bg-[#0078C1] hover:bg-blue-500 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
+          >
+            {bulkApplying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Apply
+          </button>
+          <button
             onClick={() => setSelectedBulkIds(new Set())}
+            disabled={bulkApplying}
             className="text-white/50 hover:text-white transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
@@ -945,51 +1033,6 @@ export default function DeliveryRecordsView({
                               inputClassName="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] placeholder:text-slate-400"
                             />
                           </div>
-                        </div>
-
-                        {/* Date range + sort */}
-                        <div className="space-y-2">
-                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date Range</span>
-                          <div className="flex items-center gap-2">
-                            <input
-                              ref={dateFromRef}
-                              type="date"
-                              value={dateFrom}
-                              onChange={e => setDateFrom(e.target.value)}
-                              title="Date from"
-                              className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer flex-1 min-w-0"
-                            />
-                            <span className="text-[11px] text-slate-400 font-semibold shrink-0">—</span>
-                            <input
-                              type="date"
-                              value={dateTo}
-                              onChange={e => setDateTo(e.target.value)}
-                              title="Date to"
-                              className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer flex-1 min-w-0"
-                            />
-                            {(dateFrom || dateTo) && (
-                              <button
-                                onClick={() => { setDateFrom(''); setDateTo(''); }}
-                                title="Clear date filter"
-                                className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-                          <select
-                            value={dateSort}
-                            onChange={e => setDateSort(e.target.value as typeof dateSort)}
-                            disabled={!!(dateFrom || dateTo)}
-                            title={(dateFrom || dateTo) ? 'Sort order is N/A while a date range filter is active' : undefined}
-                            className={`text-[11px] font-semibold border rounded-lg px-2.5 py-2 w-full focus:outline-none focus:ring-1 focus:ring-[#0078C1] ${(dateFrom || dateTo) ? 'border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-700 cursor-pointer'}`}
-                          >
-                            {(dateFrom || dateTo) && <option value={dateSort}>Sort: N/A</option>}
-                            <option value="default">Date: Default</option>
-                            <option value="nearest">Nearest to Present</option>
-                            <option value="oldest">Oldest First</option>
-                            <option value="furthest">Furthest Future First</option>
-                          </select>
                         </div>
 
                         {/* Footer: Clear all + Apply/Close */}

@@ -9,7 +9,7 @@ import { seedDrivers } from './seeds/drivers';
 
 
 import { seedUsers, USERS } from './seeds/users';
-
+import { seedDriverDemo } from './seed-driver-demo';
 const PRODUCTS = [
   { legacyId: 'PRD-001', skuCode: 'UTK-TAB10',    name: 'Utak Premium 10" POS Tablet',              category: 'A', unitCost: 8500, unitPrice: 14999, reorderPoint: 15, description: 'High-performance 10-inch Android tablet pre-configured with Utak POS launcher. Eye-safe display with anti-shatter screen.',                                              createdAt: new Date('2026-06-01T09:00:00') },
   { legacyId: 'PRD-002', skuCode: 'UTK-TAB08',    name: 'Utak Compact 8" POS Tablet',               category: 'A', unitCost: 5200, unitPrice: 9499,  reorderPoint: 20, description: 'Compact 8-inch high-durability tablet optimized for handheld waiter ordering and quick-service checkout.',                                                               createdAt: new Date('2026-06-01T09:05:00') },
@@ -332,6 +332,7 @@ export async function runSeed(force = false) {
 
   console.log(`Seed complete: ${USERS.length} users, ${COMPANIES.length} companies, ${records.length} delivery records.`);
   await seedSkus(sales.id);
+  await seedDriverDemo(prisma);
 }
 
 if (require.main === module) {
