@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  Layers,
+  LayoutGrid,
   LayoutDashboard,
   Truck,
   RotateCcw,
@@ -18,8 +18,6 @@ import {
   Menu,
   X,
   Lock,
-  Banknote,
-  PackageSearch,
 } from 'lucide-react';
 import { UserRole } from '@/types';
 
@@ -36,8 +34,6 @@ export interface SidebarProps {
   deliveriesActiveCount: number;
   rmaActiveCount: number;
   salesOrdersActiveCount: number;
-  accountingActiveCount: number;
-  procurementActiveCount: number;
   onRequestAccess?: () => void;
 }
 
@@ -54,8 +50,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   deliveriesActiveCount,
   rmaActiveCount,
   salesOrdersActiveCount,
-  accountingActiveCount,
-  procurementActiveCount,
   onRequestAccess,
 }) => {
   const navItemClass = (screen: any) => {
@@ -133,22 +127,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <nav className="flex-1 py-3 space-y-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]" id="sidebar-nav">
           {/* 0. Main */}
           <div className="space-y-1">
-            {canAccess('main') && (<button onClick={() => handleNavigate('main')} title={isSidebarCollapsed ? 'Main' : ''} className={navItemClass('main')}>
+            <button onClick={() => handleNavigate('main')} title={isSidebarCollapsed ? 'Main' : ''} className={navItemClass('main')}>
               <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                <Layers className="w-5 h-5 shrink-0" />
+                <LayoutGrid className="w-5 h-5 shrink-0" />
                 {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Main</span>}
               </span>
-            </button>)}
+            </button>
           </div>
 
           {/* 1. Dashboard */}
           <div className="space-y-1">
-            {canAccess('dashboard') && (<button onClick={() => handleNavigate('dashboard')} title={isSidebarCollapsed ? 'Dashboard' : ''} className={navItemClass('dashboard')}>
+            <button onClick={() => handleNavigate('dashboard')} title={isSidebarCollapsed ? 'Dashboard' : ''} className={navItemClass('dashboard')}>
               <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
                 <LayoutDashboard className="w-5 h-5 shrink-0" />
                 {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Dashboard</span>}
               </span>
-            </button>)}
+            </button>
           </div>
 
           <div className="space-y-1">
@@ -188,36 +182,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             )}
 
-            {/* 4. Accounting Collection */}
-            {canAccess('accounting_collection') && (
-              <button onClick={() => handleNavigate('accounting_collection')} title={isSidebarCollapsed ? 'Accounting Collection' : ''} className={navItemClass('accounting_collection')}>
-                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                  <Banknote className="w-5 h-5 shrink-0" />
-                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Accounting Collection</span>}
-                </span>
-                {accountingActiveCount > 0 && (
-                  isSidebarCollapsed
-                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                    : <span className="bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{accountingActiveCount}</span>
-                )}
-              </button>
-            )}
-
-            {/* 5. Procurement Pick-up */}
-            {canAccess('procurement_pickup') && (
-              <button onClick={() => handleNavigate('procurement_pickup')} title={isSidebarCollapsed ? 'Procurement Pick-up' : ''} className={navItemClass('procurement_pickup')}>
-                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                  <PackageSearch className="w-5 h-5 shrink-0" />
-                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Procurement Pick-up</span>}
-                </span>
-                {procurementActiveCount > 0 && (
-                  isSidebarCollapsed
-                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                    : <span className="bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{procurementActiveCount}</span>
-                )}
-              </button>
-            )}
-
             {/* 6. Sales Orders */}
             {canAccess('sales_orders') && (
               <button onClick={() => handleNavigate('sales_orders')} title={isSidebarCollapsed ? 'Sales Orders' : ''} className={navItemClass('sales_orders')}>
@@ -242,19 +206,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="border-t border-white/10 my-2 mx-3" />
             )}
 
-            {canAccess('customers') && (<button onClick={() => handleNavigate('customers')} title={isSidebarCollapsed ? 'Customers' : ''} className={navItemClass('customers')}>
+            <button onClick={() => handleNavigate('customers')} title={isSidebarCollapsed ? 'Customers' : ''} className={navItemClass('customers')}>
               <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
                 <Users className="w-5 h-5 shrink-0" />
                 {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Customers</span>}
               </span>
-            </button>)}
+            </button>
 
-            {canAccess('suppliers') && (<button onClick={() => handleNavigate('suppliers')} title={isSidebarCollapsed ? 'Suppliers' : ''} className={navItemClass('suppliers')}>
+            <button onClick={() => handleNavigate('suppliers')} title={isSidebarCollapsed ? 'Suppliers' : ''} className={navItemClass('suppliers')}>
               <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
                 <Building2 className="w-5 h-5 shrink-0" />
                 {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Suppliers</span>}
               </span>
-            </button>)}
+            </button>
 
             {canAccess('driver') && (
               <button onClick={() => handleNavigate('driver')} title={isSidebarCollapsed ? 'Driver View' : ''} className={navItemClass('driver')}>
@@ -328,19 +292,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             )}
 
-            {canAccess('transactions') && (<button onClick={() => handleNavigate('transactions')} title={isSidebarCollapsed ? 'Transaction Center' : ''} className={navItemClass('transactions')}>
+            <button onClick={() => handleNavigate('transactions')} title={isSidebarCollapsed ? 'Transaction Center' : ''} className={navItemClass('transactions')}>
               <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
                 <ArrowLeftRight className="w-5 h-5 shrink-0" />
                 {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Transaction Center</span>}
               </span>
-            </button>)}
+            </button>
 
-            {canAccess('inventory') && (<button onClick={() => handleNavigate('inventory')} title={isSidebarCollapsed ? 'SKU Master' : ''} className={navItemClass('inventory')}>
+            <button onClick={() => handleNavigate('inventory')} title={isSidebarCollapsed ? 'SKU Master' : ''} className={navItemClass('inventory')}>
               <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
                 <Boxes className="w-5 h-5 shrink-0" />
                 {!isSidebarCollapsed && <span className="text-xs font-medium truncate">SKU Master</span>}
               </span>
-            </button>)}
+            </button>
 
             {canAccess('data_sampler') && (
               <button

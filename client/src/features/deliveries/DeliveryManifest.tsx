@@ -9,7 +9,6 @@
 import { fmtDate } from '@/utils/export';
 import { DeliveryRecord } from '@/types';
 import { ApiCompany, ApiAuditEntry, ApiComment, ApiRemarkLog } from '@/api';
-import { DocumentSize, getPdfFormat, fitColumnWidths, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
 
 export interface ManifestDocumentationData {
   auditEntries: ApiAuditEntry[];
@@ -81,18 +80,15 @@ const CONTEXT_LABEL: Record<string, string> = {
   STATUS_CHANGE: 'Status Change',
 };
 
-
-
 /** Generate a single-record manifest PDF.
  *  When docData is supplied, a second page (Documentation Trail) is appended. */
 export async function printSingleManifest(
   record: DeliveryRecord,
   companies: ApiCompany[],
-  docData?: ManifestDocumentationData,
-  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
+  docData?: ManifestDocumentationData
 ): Promise<void> {
   const { jsPDF } = await import('jspdf');
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: getPdfFormat(documentSize) });
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const logo = await loadLogo();
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -107,9 +103,7 @@ export async function printSingleManifest(
   );
 
   let y = 34;
-  const col1 = 10;
-  const colW = (pageW - 30) / 2;
-  const col2 = col1 + colW + 10;
+  const col1 = 10, col2 = 110, colW = 90;
 
   // ── Section: Recipient ──────────────────────────────────────────────────
   doc.setFillColor(...NAVY);
@@ -184,14 +178,14 @@ export async function printSingleManifest(
   doc.setLineWidth(0.3);
   const sigY = Math.max(y + 20, pageH - 60);
 
-  doc.line(col1, sigY, col1 + colW - 15, sigY);
+  doc.line(10, sigY, 85, sigY);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(...SLATE);
-  doc.text('Received by (Signature over Printed Name)', col1, sigY + 4);
+  doc.text('Received by (Signature over Printed Name)', 10, sigY + 4);
 
-  doc.line(col2, sigY, col2 + colW - 15, sigY);
-  doc.text('Date & Time Received', col2, sigY + 4);
+  doc.line(110, sigY, 185, sigY);
+  doc.text('Date & Time Received', 110, sigY + 4);
 
   // ── Footer ───────────────────────────────────────────────────────────────
   doc.setFontSize(7.5);
@@ -353,13 +347,12 @@ export async function printDriverDayManifest(
   driver: string,
   date: string,
   records: DeliveryRecord[],
-  companies: ApiCompany[],
-  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
+  companies: ApiCompany[]
 ): Promise<void> {
   const { jsPDF } = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
 
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: getPdfFormat(documentSize) });
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const logo = await loadLogo();
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -400,24 +393,19 @@ export async function printDriverDayManifest(
     head: [['#', 'Record ID', 'Company', 'Area', 'Address', 'SAP Ref', 'Item Type', 'Status']],
     body,
     startY: 44,
-    margin: { left: 10, right: 10 },
     styles: { fontSize: 8, cellPadding: { top: 2, right: 2.5, bottom: 2, left: 2.5 } },
     headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
     alternateRowStyles: { fillColor: [248, 249, 250] },
-    columnStyles: (() => {
-      const weights = [8, 22, 38, 22, 40, 22, 20, 18];
-      const scaled = fitColumnWidths(weights, pageW - 20);
-      return {
-        0: { cellWidth: scaled[0], halign: 'center' as const },
-        1: { cellWidth: scaled[1], fontStyle: 'bold' as const },
-        2: { cellWidth: scaled[2] },
-        3: { cellWidth: scaled[3] },
-        4: { cellWidth: scaled[4] },
-        5: { cellWidth: scaled[5] },
-        6: { cellWidth: scaled[6] },
-        7: { cellWidth: scaled[7] }
-      };
-    })(),
+    columnStyles: {
+      0: { cellWidth: 8, halign: 'center' },
+      1: { cellWidth: 22, fontStyle: 'bold' },
+      2: { cellWidth: 38 },
+      3: { cellWidth: 22 },
+      4: { cellWidth: 40 },
+      5: { cellWidth: 22 },
+      6: { cellWidth: 20 },
+      7: { cellWidth: 18 }
+    },
     didDrawPage: (data) => {
       const pages = (doc as any).internal.getNumberOfPages();
       doc.setFontSize(7.5);

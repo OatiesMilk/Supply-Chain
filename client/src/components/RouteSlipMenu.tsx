@@ -1,7 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
 import { Route, ChevronDown, Loader2, AlertTriangle, FileText, Clock, History } from 'lucide-react';
-import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '../utils/documentSize';
-import DocumentSizeSelect from './DocumentSizeSelect';
 import { DeliveryRecord } from '../types';
 import {
   downloadRouteSlipExcel,
@@ -32,7 +30,6 @@ export default function RouteSlipMenu({
   const [open, setOpen]         = useState(false);
   const [loading, setLoading]   = useState<LoadingKey | null>(null);
   const [warning, setWarning]   = useState<Format | null>(null);
-  const [docSize, setDocSize]   = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
   const [trailFallback, setTrailFallback] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -78,13 +75,12 @@ export default function RouteSlipMenu({
           preparedBy,
           filename,
           auditSets,
-          documentSize: docSize,
         };
         if (fmt === 'excel') await downloadRouteSlipExcel(params);
         if (fmt === 'pdf')   await downloadRouteSlipPDF(params);
         if (fmt === 'docx')  await downloadRouteSlipDocx(params);
       } else {
-        const params = { records, date: dateFrom, preparedBy, filename, auditSets, documentSize: docSize };
+        const params = { records, date: dateFrom, preparedBy, filename, auditSets };
         if (fmt === 'excel') await downloadAllDriversRouteSlipExcel(params);
         if (fmt === 'pdf')   await downloadAllDriversRouteSlipPDF(params);
         if (fmt === 'docx')  await downloadAllDriversRouteSlipDocx(params);
@@ -133,9 +129,8 @@ export default function RouteSlipMenu({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg p-3 min-w-[220px]">
-          <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={isLoading} />
-          <div className="flex flex-col -mx-3">
+        <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg py-1 min-w-[220px]">
+
           {/* ── Current Status ── */}
           <div className="px-3.5 pt-2 pb-1">
             <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-slate-400">
@@ -188,7 +183,6 @@ export default function RouteSlipMenu({
             <FileText className="w-3.5 h-3.5" /> Word (Status Trail)
           </button>
 
-          </div>
           <div className="mx-3 mt-1.5 pt-1 border-t border-slate-100 text-[9px] text-slate-400 pb-1.5">
             {driverFilter
               ? `${records.length} record${records.length !== 1 ? 's' : ''} · ${driverFilter}`

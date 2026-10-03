@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Filter, ChevronLeft, ChevronRight, Loader2, AlertTriangle } from 'lucide-react';
-import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { api, ApiTransaction, ApiTransactionList } from '@/api';
 import TransactionDetail from '@/features/transactions/TransactionDetail';
 import ExportMenu from '@/components/ExportMenu';
@@ -52,22 +51,11 @@ const CATEGORY_OPTIONS_BY_ROLE: Record<string, Array<{ label: string; value: str
   ],
   TASS: [
     { label: 'Accounting Collection', value: 'ACCOUNTING_COLLECTION' }
-  ],
-  Driver: [
-    { label: 'Deliveries',            value: 'DELIVERY' },
-    { label: 'RMA',                   value: 'RMA' },
-    { label: 'Accounting Collection', value: 'ACCOUNTING_COLLECTION' },
-    { label: 'Procurement Pick-up',   value: 'PROCUREMENT_PICKUP' },
-    { label: 'Sales Orders',          value: 'SALES_ORDERS' }
   ]
 };
 
 function getCategoryOptions(role: string) {
-  return CATEGORY_OPTIONS_BY_ROLE[role] ?? [];
-}
-
-function canViewInventory(role: string) {
-  return ['Admin', 'Sales Coordinator', 'Logistics'].includes(role);
+  return CATEGORY_OPTIONS_BY_ROLE[role] ?? CATEGORY_OPTIONS_BY_ROLE['Admin'];
 }
 
 // ─── Filter state ─────────────────────────────────────────────────────────────
@@ -82,7 +70,7 @@ interface Filters {
 
 function defaultFilters(role: string): Filters {
   return {
-    source:   canViewInventory(role) ? 'all' : 'delivery',
+    source:   role === 'TASS' ? 'delivery' : 'all',
     category: '',
     status:   '',
     from:     '',
@@ -112,7 +100,6 @@ export default function TransactionCenter({ currentUserRole, currentUserName }: 
   const [error,   setError]   = useState<string | null>(null);
 
   const [page,    setPage]    = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [filters, setFilters] = useState<Filters>(() => defaultFilters(currentUserRole));
   const [pendingFilters, setPendingFilters] = useState<Filters>(() => defaultFilters(currentUserRole));
   const [filtersOpen, setFiltersOpen] = useState(true);
@@ -121,18 +108,17 @@ export default function TransactionCenter({ currentUserRole, currentUserName }: 
   const [selected, setSelected] = useState<{ source: 'delivery' | 'inventory'; id: string } | null>(null);
 
   const isTass = currentUserRole === 'TASS';
-  const inventoryAllowed = canViewInventory(currentUserRole);
   const categoryOptions = getCategoryOptions(currentUserRole);
 
   // Only show category/status filters when source includes delivery records
   const showCategoryFilter = pendingFilters.source !== 'inventory' && !isTass;
   const showStatusFilter   = pendingFilters.source !== 'inventory';
 
-  const fetchData = useCallback(async (f: Filters, p: number, limit: number) => {
+  const fetchData = useCallback(async (f: Filters, p: number) => {
     setLoading(true);
     setError(null);
     try {
-      const params: Parameters<typeof api.getTransactions>[0] = { page: p, limit };
+      const params: Parameters<typeof api.getTransactions>[0] = { page: p, limit: 25 };
       if (f.source   && f.source   !== 'all') params.source   = f.source;
       if (f.category)                          params.category = f.category;
       if (f.status)                            params.status   = f.status;
@@ -148,8 +134,8 @@ export default function TransactionCenter({ currentUserRole, currentUserName }: 
   }, []);
 
   useEffect(() => {
-    fetchData(filters, page, pageSize);
-  }, [filters, page, pageSize, fetchData]);
+    fetchData(filters, page);
+  }, [filters, page, fetchData]);
 
   const handleApply = () => {
     setFilters(pendingFilters);
@@ -236,8 +222,8 @@ export default function TransactionCenter({ currentUserRole, currentUserName }: 
           {filtersOpen && (
             <div className="px-4 pb-4 space-y-3">
               <div className="flex flex-wrap gap-3 items-end">
-                {/* Inventory sources require an explicitly authorized role. */}
-                {inventoryAllowed && (
+                {/* Source filter — hidden for TASS */}
+                {!isTass && (
                   <div>
                     <label className="text-[11px] font-semibold text-slate-500 block mb-1">Source</label>
                     <select
@@ -372,19 +358,35 @@ export default function TransactionCenter({ currentUserRole, currentUserName }: 
           </div>
         )}
 
-        <div className="border-t border-slate-100">
-          <Pagination
-            currentPage={page}
-            totalPages={totalPages}
-            totalItems={total}
-            pageSize={pageSize}
-            onPageChange={setPage}
-            onPageSizeChange={(newSize) => {
-              setPageSize(newSize);
-              setPage(1);
-            }}
-            pageSizeOptions={[10, 25, 50, 100]}
-          />
+        {/* Footer / Pagination */}
+        <div className="p-3 bg-slate-50 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-slate-500">
+          <span>
+            {total === 0
+              ? 'No transactions'
+              : `Showing ${startRow}–${endRow} of ${total} transaction${total !== 1 ? 's' : ''}`}
+          </span>
+
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <button
+                disabled={page <= 1}
+                onClick={() => setPage(p => p - 1)}
+                className="flex items-center gap-1 px-2.5 py-1 border border-slate-200 rounded-lg hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-slate-600 transition-colors"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" /> Prev
+              </button>
+              <span className="font-semibold text-slate-600">
+                Page {page} of {totalPages}
+              </span>
+              <button
+                disabled={page >= totalPages}
+                onClick={() => setPage(p => p + 1)}
+                className="flex items-center gap-1 px-2.5 py-1 border border-slate-200 rounded-lg hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-slate-600 transition-colors"
+              >
+                Next <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

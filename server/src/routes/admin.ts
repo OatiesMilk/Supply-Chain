@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { prisma } from '../db';
-import { requireResource, requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requireRole } from '../middleware/auth';
 import { sendEmail } from '../services/mailer';
 
 const router = Router();
 
 // Full audit log with pagination and optional filters — ADMIN only.
-router.get('/audit-log', requireAuth, requireResource('admin'), requireRole('ADMIN'), async (req, res) => {
+router.get('/audit-log', requireAuth, requireRole('ADMIN'), async (req, res) => {
   const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10));
   const limit = Math.max(1, Math.min(200, parseInt(String(req.query.limit ?? '50'), 10)));
   const skip = (page - 1) * limit;
@@ -58,7 +58,7 @@ router.get('/audit-log', requireAuth, requireResource('admin'), requireRole('ADM
 
 // ─── Integration diagnostics — ADMIN only ──────────────────────────────────
 
-router.get('/integration-status', requireAuth, requireResource('admin'), requireRole('ADMIN'), async (_req, res) => {
+router.get('/integration-status', requireAuth, requireRole('ADMIN'), async (_req, res) => {
   const azureConfigured = !!(process.env.AZURE_CLIENT_ID && process.env.AZURE_CLIENT_SECRET);
   const azureTenant = process.env.AZURE_TENANT_ID || 'common';
   const smtpConfigured = !!process.env.SMTP_HOST;
@@ -95,7 +95,7 @@ router.get('/integration-status', requireAuth, requireResource('admin'), require
 
 // ─── Test email — ADMIN only ───────────────────────────────────────────────
 
-router.post('/test-email', requireAuth, requireResource('admin'), requireRole('ADMIN'), async (req, res) => {
+router.post('/test-email', requireAuth, requireRole('ADMIN'), async (req, res) => {
   const { to } = req.body ?? {};
   if (!to || typeof to !== 'string') {
     return res.status(400).json({ error: 'A "to" email address is required' });

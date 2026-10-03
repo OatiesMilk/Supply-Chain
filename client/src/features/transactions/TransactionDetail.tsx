@@ -76,7 +76,7 @@ function InfoRow({ label, value }: { label: string; value?: string | null }) {
 
 // ─── Delivery Detail ──────────────────────────────────────────────────────────
 
-export function DeliveryDetail({ detail }: { detail: ApiTransactionDetail }) {
+function DeliveryDetail({ detail }: { detail: ApiTransactionDetail }) {
   const statusStyle = detail.status ? (STATUS_BADGE[detail.status] ?? 'bg-slate-50 text-slate-700 border-slate-200') : '';
   const statusLabel = detail.status ? (STATUS_LABEL[detail.status] ?? detail.status) : '—';
 
@@ -114,7 +114,7 @@ export function DeliveryDetail({ detail }: { detail: ApiTransactionDetail }) {
           <InfoRow label="Area"                value={detail.area} />
           <InfoRow label="Vehicle"             value={detail.vehicle} />
           <InfoRow label="Driver"              value={detail.driver} />
-          <InfoRow label="Driver Assistant"    value={Array.isArray(detail.driver_assistants) ? detail.driver_assistants.join(', ') : null} />
+          <InfoRow label="Driver Assistant"    value={detail.driver_assistants?.join(', ') ?? null} />
           <InfoRow label="Account Manager"     value={detail.account_manager} />
           <InfoRow label="Item Type"           value={detail.item_type} />
           <InfoRow label="Priority"            value={detail.priority} />

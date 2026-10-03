@@ -6,7 +6,6 @@
 
 import { DeliveryRecord } from '../types';
 import { ExportColumn, ExportMeta, StatusHistoryCounts, fmtDate, fmtTime, fmtStatus, fmtCurrency, fmtDatetime } from './export';
-import { DocumentSize, DEFAULT_DOCUMENT_SIZE, getExcelPageSetup, getPdfFormat, fitColumnWidths } from './documentSize';
 
 const STATUS_ORDER = ['Scheduled', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'] as const;
 
@@ -238,8 +237,7 @@ export async function downloadAllOpsExcel(
   meta: ExportMeta,
   summary: AllOpsSummary,
   reportTitle = 'All Operations — Comprehensive Report',
-  statusHistoryCounts?: StatusHistoryCounts,
-  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
+  statusHistoryCounts?: StatusHistoryCounts
 ): Promise<void> {
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
@@ -247,9 +245,7 @@ export async function downloadAllOpsExcel(
   wb.created = new Date();
 
   // ── Sheet 1: Summary ────────────────────────────────────────────────────
-  const ws = wb.addWorksheet('Summary', {
-    pageSetup: getExcelPageSetup(documentSize)
-  });
+  const ws = wb.addWorksheet('Summary');
   ws.columns = [{ width: 36 }, { width: 18 }, { width: 14 }];
 
   const addHeading = (text: string) => {
@@ -338,9 +334,7 @@ export async function downloadAllOpsExcel(
   }
 
   // ── Sheet 2: Records ────────────────────────────────────────────────────
-  const ws2 = wb.addWorksheet('Records', {
-    pageSetup: getExcelPageSetup(documentSize)
-  });
+  const ws2 = wb.addWorksheet('Records');
 
   const r1 = ws2.addRow(['Microgenesis Business Systems']);
   r1.getCell(1).font = { bold: true, size: 13, color: { argb: NAVY } };
@@ -416,13 +410,12 @@ export async function downloadAllOpsPDF(
   meta: ExportMeta,
   summary: AllOpsSummary,
   reportTitle = 'All Operations — Comprehensive Report',
-  statusHistoryCounts?: StatusHistoryCounts,
-  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
+  statusHistoryCounts?: StatusHistoryCounts
 ): Promise<void> {
   const { jsPDF }          = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
 
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: getPdfFormat(documentSize) });
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const NAVY_RGB: [number, number, number] = [31, 56, 100];
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -651,7 +644,6 @@ export async function downloadAllOpsPDF(
       cellPadding: { top: 2, right: 3, bottom: 2, left: 3 },
       lineColor: [226, 232, 240],
       lineWidth: 0.2,
-      overflow: 'linebreak',
     },
     headStyles: {
       fillColor: NAVY_RGB,
@@ -665,66 +657,33 @@ export async function downloadAllOpsPDF(
     alternateRowStyles: { fillColor: [248, 250, 252] },
     bodyStyles: { textColor: [30, 41, 59], minCellHeight: 8, valign: 'middle' },
     columnStyles: Object.fromEntries(
-      (() => {
-        const MARGIN = 10;
-        const usableWidth = pageW - (MARGIN * 2);
-        const weights = columns.map(c => c.pdfWidth ?? c.width ?? 20);
-        const scaledWidths = fitColumnWidths(weights, usableWidth);
-        return columns.map((col, i) => [i, {
-          cellWidth: scaledWidths[i],
-          halign: col.pdfAlign ?? (pillCols.has(i) ? 'center' : 'left'),
-        }]);
-      })()
+      columns.map((col, i) => [i, {
+        cellWidth: col.pdfWidth ?? 'auto',
+        halign: col.pdfAlign ?? (pillCols.has(i) ? 'center' : 'left'),
+      }])
     ),
     willDrawCell: (data: any) => {
-      if (data.section === 'body' && pillCols.has(data.column.index)) {
-        const text = String(data.cell.raw ?? '').trim();
-        if (text) {
-          const pillW = Math.min(data.cell.width - 6, 32);
-          const currentFont = doc.getFont();
-          const currentFontSize = doc.getFontSize();
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(6);
-          const textW = doc.getTextWidth(text);
-          doc.setFont(currentFont.fontName, currentFont.fontStyle);
-          doc.setFontSize(currentFontSize);
-
-          if (textW <= pillW - 2) {
-            data.cell.text = [];
-          }
-        }
-      }
+      if (data.section === 'body' && pillCols.has(data.column.index)) data.cell.text = [];
     },
     didDrawCell: (data: any) => {
       if (data.section !== 'body' || !pillCols.has(data.column.index)) return;
       const text = String(data.cell.raw ?? '').trim();
       if (!text) return;
+      const color: [number, number, number] = PILL_COLORS[text.toLowerCase()] ?? [107, 114, 128];
       const { width: cw, height: ch, x: cx, y: cy } = data.cell;
       const pillW = Math.min(cw - 6, 32);
-
-      const currentFont = doc.getFont();
-      const currentFontSize = doc.getFontSize();
-      doc.setFont('helvetica', 'bold');
+      const pillH = 5;
+      const pillX = cx + (cw - pillW) / 2;
+      const pillY = cy + (ch - pillH) / 2;
+      doc.setFillColor(color[0], color[1], color[2]);
+      doc.roundedRect(pillX, pillY, pillW, pillH, 1.2, 1.2, 'F');
+      doc.setTextColor(255, 255, 255);
       doc.setFontSize(6);
-      const textW = doc.getTextWidth(text);
-      doc.setFont(currentFont.fontName, currentFont.fontStyle);
-      doc.setFontSize(currentFontSize);
-
-      if (textW <= pillW - 2) {
-        const color: [number, number, number] = PILL_COLORS[text.toLowerCase()] ?? [107, 114, 128];
-        const pillH = 5;
-        const pillX = cx + (cw - pillW) / 2;
-        const pillY = cy + (ch - pillH) / 2;
-        doc.setFillColor(color[0], color[1], color[2]);
-        doc.roundedRect(pillX, pillY, pillW, pillH, 1.2, 1.2, 'F');
-        doc.setTextColor(255, 255, 255);
-        doc.setFontSize(6);
-        doc.setFont('helvetica', 'bold');
-        doc.text(text, pillX + pillW / 2, pillY + pillH / 2 + 0.4, { align: 'center', baseline: 'middle' });
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
-        doc.setTextColor(30, 41, 59);
-      }
+      doc.setFont('helvetica', 'bold');
+      doc.text(text, pillX + pillW / 2, pillY + pillH / 2 + 0.4, { align: 'center', baseline: 'middle' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(30, 41, 59);
     },
     rowPageBreak: 'avoid',
     didDrawPage: (data: any) => {

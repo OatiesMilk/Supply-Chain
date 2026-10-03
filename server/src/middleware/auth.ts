@@ -1,8 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../db';
-import { asyncRoute } from './asyncRoute';
-import { sessionUser, type Screen, type Resource, type Permission } from '../services/permissions';
 
 export type Role = 'SALES_COORDINATOR' | 'LOGISTICS' | 'TASS' | 'ADMIN' | 'DRIVER';
 
@@ -11,10 +9,6 @@ export interface AuthUser {
   name: string;
   email: string;
   role: Role;
-  permissions: Permission[];
-  effectiveScreens: Screen[];
-  resources: Resource[];
-  permissionVersion: string;
 }
 
 declare global {
@@ -33,7 +27,7 @@ if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
 }
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-only-insecure-secret';
 
-export function signToken(user: Pick<AuthUser, 'id' | 'name' | 'email' | 'role'>): string {
+export function signToken(user: AuthUser): string {
   return jwt.sign(user, JWT_SECRET, { expiresIn: '8h' });
 }
 
@@ -41,7 +35,7 @@ export function setSessionCookie(res: Response, token: string) {
   const isProd = process.env.NODE_ENV === 'production';
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
-    sameSite: isProd ? 'none' : 'lax',
+    sameSite: 'lax',
     secure: isProd,
     maxAge: 8 * 60 * 60 * 1000
   });
@@ -51,12 +45,12 @@ export function clearSessionCookie(res: Response) {
   const isProd = process.env.NODE_ENV === 'production';
   res.clearCookie(COOKIE_NAME, {
     httpOnly: true,
-    sameSite: isProd ? 'none' : 'lax',
+    sameSite: 'lax',
     secure: isProd
   });
 }
 
-export const requireAuth = asyncRoute(async (req: Request, res: Response, next: NextFunction) => {
+export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   const token = req.cookies?.[COOKIE_NAME];
   if (!token) {
     return res.status(401).json({ error: 'Not authenticated' });
@@ -72,16 +66,15 @@ export const requireAuth = asyncRoute(async (req: Request, res: Response, next: 
   // or admin cleanup can wipe/recreate users while old browser sessions are
   // still around. Writes that reference req.user.id (createdById, etc.) would
   // otherwise fail a DB foreign-key check downstream instead of failing here.
-  const user = await prisma.user.findUnique({ where: { id: payload.id }, include: { permissions: true } });
+  const user = await prisma.user.findUnique({ where: { id: payload.id } });
   if (!user || !user.isActive) {
     clearSessionCookie(res);
     return res.status(401).json({ error: 'Session no longer valid — please log in again' });
   }
 
-  req.user = sessionUser(user) as AuthUser;
-  res.setHeader('Cache-Control', 'no-store');
+  req.user = { id: user.id, name: user.name, email: user.email, role: user.role as Role };
   next();
-});
+}
 
 export function requireRole(...roles: Role[]) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -89,24 +82,6 @@ export function requireRole(...roles: Role[]) {
     if (!roles.includes(req.user.role)) {
       return res.status(403).json({ error: 'Forbidden for this role' });
     }
-    next();
-  };
-}
-
-export function requireScreen(...screens: Screen[]) {
-  return (req: Request, res: Response, next: NextFunction) => {
-    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-    if (!screens.some(screen => req.user!.effectiveScreens.includes(screen))) {
-      return res.status(403).json({ error: 'Module access denied' });
-    }
-    next();
-  };
-}
-
-export function requireResource(resource: Resource) {
-  return (req: Request, res: Response, next: NextFunction) => {
-    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-    if (!req.user.resources.includes(resource)) return res.status(403).json({ error: 'Module access denied' });
     next();
   };
 }

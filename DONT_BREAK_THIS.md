@@ -15,20 +15,12 @@ Deliveries, RMA, Sales Orders, Procurement Pick-up, and Accounting Collection al
 
 ## 2. Permissions are checked in TWO places, and both must agree
 
-The canonical policy is `server/src/services/permissions.ts`. Login and session
-restoration return effective permissions to the frontend; the Admin editor uses
-the same policy. The frontend uses that snapshot to gate navigation, routes and
-queries. Backend routes enforce `requireResource`/`requireScreen` and retain
-`requireRole` and field-level restrictions for privileged actions.
+Who can see or do what is enforced twice:
+- On the frontend, in `src/App.tsx` (`DEFAULT_ROLE_SCOPE`) — this only controls what's *shown* in the UI.
+- On the backend, in `server/src/middleware/auth.ts` (`requireAuth`/`requireRole`) — this is the *real* security boundary.
 
-**Don't:** reintroduce separate role defaults in the frontend or treat hiding a
-button as API authorization. A module grant must not implicitly grant user
-management or other administrative actions.
-**Do:** update the canonical policy and relevant API guards together, and cover
-both allowed and denied requests. See [Module access](docs/MODULE_ACCESS.md) for
-shared-resource rules, session refresh and the test checklist.
-
----
+**Don't:** change only the frontend to "give someone access" to a screen or button. Hiding a button doesn't stop someone from calling the API directly — the backend check is what actually protects the data.
+**Do:** if you're changing who can do something, change the backend route's `requireRole(...)` first, then update the frontend to match. If you only touch one side, you'll either create a security hole (frontend hidden, backend still open) or a confusing bug (backend blocks it, frontend still shows it as available).
 
 ## 3. Most "notifications" in Output Actions are fake — on purpose
 

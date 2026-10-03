@@ -1,27 +1,63 @@
+databases:
+  - name: mg-portal-db
+    databaseName: mg_portal
+    user: mg_portal_user
+    plan: free
+
 services:
   - type: web
-    name: supply-chain-api
+    name: mg-portal
     env: node
-    rootDir: server
-    buildCommand: npm install --include=dev && npx prisma generate && npm run build
-    # Apply all committed migrations before starting the API. Render's managed
-    # database starts empty, so the application must not boot against an
-    # unmigrated schema.
-    startCommand: npx prisma migrate deploy && npm run start
+    plan: free
+    # Build: install both frontend and backend deps, build Vite frontend,
+    # then build the Express backend TypeScript, then generate Prisma client.
+    buildCommand: >
+      npm install --include=dev &&
+      npm run prisma:generate --workspace=server &&
+      npm run build
+    # Start: run DB migrations (idempotent — safe on every deploy/restart),
+    # then start Express, which serves both the API and the built Vite
+    # frontend. Seeding is intentionally NOT run here — it truncates and
+    # repopulates demo data, which would wipe live production data on every
+    # deploy or container restart. Run `npm run seed --workspace=server`
+    # manually (e.g. from the Render shell) only for initial environment setup.
+    startCommand: >
+      cd server &&
+      npx prisma migrate deploy &&
+      cd .. &&
+      npm start
+    # Render polls this path after a new instance starts and only routes
+    # live traffic to it once the check passes, so a bad deploy (e.g. one
+    # that can't reach the database) never takes over from a healthy one.
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 4000
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: mg-portal-db
+          property: connectionString
       - key: JWT_SECRET
         generateValue: true
-      - key: CLIENT_ORIGIN
+      - key: PORT
+        value: 10000
+      # Microsoft Azure AD SSO (set in Render dashboard)
+      - key: AZURE_CLIENT_ID
         sync: false
-      - key: POD_UPLOAD_DIR
-        value: /data/uploads/pod
-    disk:
-      name: pod-storage
-      mountPath: /data
-      sizeGB: 10
+      - key: AZURE_CLIENT_SECRET
+        sync: false
+      - key: AZURE_TENANT_ID
+        sync: false
+      - key: APP_URL
+        sync: false
+      # SMTP fallback (if not using Graph API for email)
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false

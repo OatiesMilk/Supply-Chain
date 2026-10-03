@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { prisma } from '../db';
-import { requireResource, requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requireRole } from '../middleware/auth';
 
 const router = Router();
 
-router.get('/', requireAuth, requireResource('companies'), async (_req, res) => {
+router.get('/', requireAuth, async (_req, res) => {
   const companies = await prisma.company.findMany({ orderBy: { name: 'asc' } });
   res.json(
     companies.map(c => ({
@@ -18,7 +18,7 @@ router.get('/', requireAuth, requireResource('companies'), async (_req, res) => 
   );
 });
 
-router.post('/', requireAuth, requireResource('companies'), requireRole('SALES_COORDINATOR', 'ADMIN'), async (req, res) => {
+router.post('/', requireAuth, requireRole('SALES_COORDINATOR', 'ADMIN'), async (req, res) => {
   const { name, sap_number, address, contact_person } = req.body ?? {};
   if (!name) return res.status(400).json({ error: 'name is required' });
 

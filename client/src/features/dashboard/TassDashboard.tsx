@@ -92,6 +92,23 @@ export default function TassDashboard({
 
   return (
     <div className="space-y-6" id="tass-dashboard">
+      {/* Welcome Banner */}
+      <div className="bg-gradient-to-r from-[#1F3864] to-[#122B4F] text-white p-6 rounded-xl shadow-md flex items-center justify-between gap-4 border-l-8 border-l-[#0078C1]">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-black tracking-tight">
+            Technical Operations
+          </h1>
+        </div>
+        {onRefresh && (
+          <button
+            onClick={onRefresh}
+            className="flex items-center gap-1.5 bg-black/20 hover:bg-black/30 px-3 py-2 rounded-lg border border-white/10 text-xs font-bold text-white transition-colors cursor-pointer"
+          >
+            <RotateCw className="w-3.5 h-3.5" /> Refresh
+          </button>
+        )}
+      </div>
+
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Open RMA Records */}

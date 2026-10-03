@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../db';
-import { requireResource, requireAuth } from '../middleware/auth';
+import { requireAuth } from '../middleware/auth';
 
 const router = Router();
 
@@ -11,7 +11,7 @@ function todayRangeUTC() {
   return { start, end, dateStr: start.toISOString().split('T')[0] };
 }
 
-router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res) => {
+router.get('/stats', requireAuth, async (req, res) => {
   const { start, end, dateStr } = todayRangeUTC();
   const role = req.user!.role;
 

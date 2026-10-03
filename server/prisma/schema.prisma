@@ -23,20 +23,19 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  createdRecords         DeliveryRecord[] @relation("CreatedByUser")
-  modifiedRecords        DeliveryRecord[] @relation("ModifiedByUser")
-  auditEntries           AuditLog[]
-  productCreated         Product[]        @relation("ProductCreatedBy")
-  productModified        Product[]        @relation("ProductModifiedBy")
-  customerCreated        Customer[]       @relation("CustomerCreatedBy")
-  customerModified       Customer[]       @relation("CustomerModifiedBy")
-  supplierCreated        Supplier[]       @relation("SupplierCreatedBy")
-  supplierModified       Supplier[]       @relation("SupplierModifiedBy")
-  notifications          Notification[]
-  comments               Comment[]
-  permissions            UserPermission[]
-  remarkLogs             RemarkLog[]
-  podAttachmentsUploaded PodAttachment[]
+  createdRecords   DeliveryRecord[] @relation("CreatedByUser")
+  modifiedRecords  DeliveryRecord[] @relation("ModifiedByUser")
+  auditEntries     AuditLog[]
+  productCreated   Product[]        @relation("ProductCreatedBy")
+  productModified  Product[]        @relation("ProductModifiedBy")
+  customerCreated  Customer[]       @relation("CustomerCreatedBy")
+  customerModified Customer[]       @relation("CustomerModifiedBy")
+  supplierCreated  Supplier[]       @relation("SupplierCreatedBy")
+  supplierModified Supplier[]       @relation("SupplierModifiedBy")
+  notifications    Notification[]
+  comments         Comment[]
+  permissions      UserPermission[]
+  remarkLogs       RemarkLog[]
 }
 
 model UserPermission {
@@ -122,7 +121,6 @@ model DeliveryRecord {
   draft              Boolean @default(false)
   dateAndTime        String
   itemDescription    String  @default("")
-  lineItems          LineItem[] @relation("DeliveryRecordLineItems")
   documentAttachment String?
   address            String  @default("")
 
@@ -139,7 +137,6 @@ model DeliveryRecord {
   linkedCollectionId String?
   linkedCollection   DeliveryRecord?  @relation("CollectionLink", fields: [linkedCollectionId], references: [id])
   linkedDeliveries   DeliveryRecord[] @relation("CollectionLink")
-  podAttachments     PodAttachment[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -151,21 +148,6 @@ model DeliveryRecord {
   @@index([companyId])
   @@index([accountManager])
   @@index([linkedCollectionId])
-}
-
-model PodAttachment {
-  id           String         @id @default(cuid())
-  recordId     String
-  record       DeliveryRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
-  originalName String
-  storageKey   String         @unique
-  mimeType     String
-  size         Int
-  uploadedById String
-  uploadedBy   User           @relation(fields: [uploadedById], references: [id])
-  createdAt    DateTime       @default(now())
-
-  @@index([recordId, createdAt(sort: Desc)])
 }
 
 model AuditLog {
@@ -310,15 +292,4 @@ model DailyStatusSnapshot {
   createdAt DateTime @default(now())
 
   @@unique([date, category, status])
-}
-
-model LineItem {
-  id               String         @id @default(cuid())
-  deliveryRecordId String
-  deliveryRecord   DeliveryRecord @relation("DeliveryRecordLineItems", fields: [deliveryRecordId], references: [id], onDelete: Cascade)
-  sku              String
-  quantity         Int            @default(1)
-  createdAt        DateTime       @default(now())
-
-  @@index([deliveryRecordId])
 }

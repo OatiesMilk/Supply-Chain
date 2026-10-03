@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../db';
-import { requireResource, requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requireRole } from '../middleware/auth';
 import { writeAuditLog } from '../services/audit';
 import { serializeRecord } from '../mappings';
 import { runSeed } from '../../prisma/seed';
@@ -15,7 +15,7 @@ const MODULES = [
   { key: 'sales_orders',          dbCategory: 'SALES_ORDERS',          label: 'Sales Orders' },
 ];
 
-router.get('/counts', requireAuth, requireResource('dataSampler'), requireRole('ADMIN'), async (_req, res) => {
+router.get('/counts', requireAuth, requireRole('ADMIN'), async (_req, res) => {
   const counts = await Promise.all(
     MODULES.map(async m => {
       const count = await prisma.deliveryRecord.count({
@@ -135,7 +135,7 @@ const REF_PREFIX: Record<string, string> = {
   SALES_ORDERS: 'SAP-SO',
 };
 
-router.post('/generate', requireAuth, requireResource('dataSampler'), requireRole('ADMIN'), async (req, res) => {
+router.post('/generate', requireAuth, requireRole('ADMIN'), async (req, res) => {
   try {
     const { module, count = 1, fields } = req.body ?? {};
 
@@ -241,7 +241,7 @@ router.post('/generate', requireAuth, requireResource('dataSampler'), requireRol
   }
 });
 
-router.post('/reset', requireAuth, requireResource('dataSampler'), requireRole('ADMIN'), async (req, res) => {
+router.post('/reset', requireAuth, requireRole('ADMIN'), async (req, res) => {
   const { mode } = req.body ?? {};
   if (mode !== 'full' && mode !== 'seed') {
     return res.status(400).json({ error: 'mode must be "full" or "seed"' });

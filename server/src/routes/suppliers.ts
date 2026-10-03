@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { prisma } from '../db';
-import { requireScreen, requireResource, requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requireRole } from '../middleware/auth';
 
 const router = Router();
 
-router.get('/', requireAuth, requireResource('suppliers'), async (_req, res) => {
+router.get('/', requireAuth, async (_req, res) => {
   const suppliers = await prisma.supplier.findMany({ 
     orderBy: { name: 'asc' },
     include: { createdBy: true, modifiedBy: true }
@@ -27,7 +27,7 @@ router.get('/', requireAuth, requireResource('suppliers'), async (_req, res) => 
   );
 });
 
-router.post('/', requireAuth, requireResource('suppliers'), requireScreen('suppliers'), requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER'), async (req, res) => {
+router.post('/', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER'), async (req, res) => {
   const { name, contact_person, email, phone, address, city, category } = req.body ?? {};
   if (!name || !category) return res.status(400).json({ error: 'name and category are required' });
 

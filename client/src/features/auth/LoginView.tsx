@@ -1,7 +1,6 @@
 import { FormEvent, useState, useEffect } from 'react';
 import { LogIn, Loader2, Mail, ChevronDown } from 'lucide-react';
-import { api, apiUrl, ApiUser } from '@/api';
-import { keepLoginRoute } from '@/routes/screenRouting';
+import { api, ApiUser } from '@/api';
 
 interface LoginViewProps {
   onLoggedIn: (user: ApiUser) => void;
@@ -66,40 +65,25 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
   const [loading, setLoading] = useState(false);
   const [ssoLoading, setSsoLoading] = useState(false);
   const [showEmailForm, setShowEmailForm] = useState(false);
-  const [isSeeding, setIsSeeding] = useState(false);
-
-  const handleSeedDemo = async () => {
-    setIsSeeding(true);
-    setError(null);
-    try {
-      const res = await fetch(apiUrl('/dev/public-seed'), { method: 'POST' });
-      if (res.ok) {
-        alert('Database has been successfully seeded with demo data!');
-      } else {
-        setError('Failed to seed demo database');
-      }
-    } catch (err) {
-      setError('Error connecting to server to seed data');
-    } finally {
-      setIsSeeding(false);
-    }
-  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const errParam = params.get('error');
     if (errParam === 'account_deactivated') {
       setError('Your Microsoft account is not authorized. Contact your administrator.');
+      window.history.replaceState({}, '', '/');
     } else if (errParam === 'sso_failed') {
       setError('Microsoft login failed. Please try again or use email login.');
+      window.history.replaceState({}, '', '/');
     } else if (errParam === 'sso_not_configured') {
       setError('Microsoft login is not configured. Use email login.');
       setShowEmailForm(true);
+      window.history.replaceState({}, '', '/');
     } else if (errParam === 'sso_no_email') {
       setError('Could not retrieve email from your Microsoft account. Use email login.');
       setShowEmailForm(true);
+      window.history.replaceState({}, '', '/');
     }
-    return keepLoginRoute();
   }, []);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -120,7 +104,7 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
     setError(null);
     setSsoLoading(true);
     try {
-      const res = await fetch(apiUrl('/auth/microsoft'), {
+      const res = await fetch('/api/auth/microsoft', {
         method: 'POST',
         credentials: 'include',
       });
@@ -326,17 +310,6 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
                     </div>
                   </button>
                 ))}
-              </div>
-
-              <div className="mt-4 pt-4 border-t border-slate-100">
-                <button
-                  onClick={handleSeedDemo}
-                  disabled={isSeeding || isLoading}
-                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold text-xs py-2.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {isSeeding ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                  {isSeeding ? 'Seeding Database...' : 'Seed Demo Data (Resets DB)'}
-                </button>
               </div>
             </div>
           )}

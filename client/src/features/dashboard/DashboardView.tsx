@@ -418,7 +418,7 @@ export default function DashboardView({
         id="record-count-footer"
       >
         <span>
-          Records available to your account:{" "}
+          Total records in system:{" "}
           <span className="font-black text-slate-800">
             {totalRecordCount.toLocaleString()}
           </span>{" "}

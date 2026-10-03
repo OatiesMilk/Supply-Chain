@@ -8,7 +8,6 @@ coverage/
 !.env.example
 server/*.db
 server/prisma/*.db
-server/uploads/
 teams/.env
 teams/manifest.filled.json
 teams/microgenesis-teams-app.zip

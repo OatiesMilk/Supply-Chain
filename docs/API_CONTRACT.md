@@ -248,17 +248,3 @@ All endpoints are prefixed with `/api`. Unless marked otherwise, endpoints requi
 **Purpose:** Generate summary statistics for operational exports.
 **Method:** GET
 **Authorization:** LOGISTICS, ADMIN
-
-
-## Module access session contract (TSK-55)
-
-Both `POST /api/auth/login` and `GET /api/auth/me` return `id`, `name`, `email`,
-`role`, account `permissions`, resolved `effectiveScreens`, allowed `resources`
-and `permissionVersion`. Protected UI must wait for this complete snapshot.
-
-`GET /api/users/:id/permissions` additionally returns `catalog`, `roleDefaults`
-and `editableScreens`. `PUT /api/users/:id/permissions` takes
-`{ permissions: [{ screen, granted }], expectedVersion }` and returns the updated
-editor snapshot. Invalid input returns 400, a stale version returns 409, and
-unauthorized module access returns 403. An empty permission array resets overrides.
-See [Module access](MODULE_ACCESS.md) for authorization semantics and verification.

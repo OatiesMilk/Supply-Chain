@@ -28,6 +28,3 @@ export * from './RouteSlipMenu';
 
 export { default as AccessRequestModal } from './AccessRequestModal';
 export * from './AccessRequestModal';
-
-export { default as Pagination } from './Pagination';
-export * from './Pagination';

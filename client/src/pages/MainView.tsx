@@ -1,12 +1,11 @@
 import { useState, useMemo, useEffect } from "react";
-import { Layers, Plus } from "lucide-react";
+import { LayoutGrid, Plus } from "lucide-react";
 import { DeliveryRecord, DeliveryCategory, UserRole } from "@/types";
-import { ApiCompany, apiUrl } from "@/api";
+import { ApiCompany } from "@/api";
 import RecordCreateForm from "@/features/deliveries/RecordCreateForm";
 import AllOpsExportMenu from "@/components/AllOpsExportMenu";
 import { StatusHistoryCounts } from "@/utils/export";
 import { DateSortMode, sortRecordsByDate } from "@/utils/allOpsExport";
-import Pagination, { DEFAULT_PAGE_SIZE } from "@/components/Pagination";
 
 interface MainViewProps {
   records: DeliveryRecord[];
@@ -24,7 +23,7 @@ interface MainViewProps {
       | "modified_at"
       | "email_notification_sent"
     >,
-  ) => Promise<void>;
+  ) => void;
   effectiveScreens: Set<string>;
 }
 
@@ -99,7 +98,7 @@ export default function MainView({
     if (activeFilter !== "all" && activeFilter !== "draft")
       params.set("status", activeFilter);
 
-    fetch(`${apiUrl('/records/status-history-counts')}?${params}`, {
+    fetch(`/api/records/status-history-counts?${params}`, {
       credentials: "include",
     })
       .then((r) => (r.ok ? r.json() : null))
@@ -148,22 +147,6 @@ export default function MainView({
       );
     return dateFrom || dateTo ? result : sortRecordsByDate(result, sortMode);
   }, [filtered, dateFrom, dateTo, sortMode]);
-
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-
-  // Reset page to 1 whenever filters change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [activeFilter, dateFrom, dateTo, sortMode]);
-
-  const totalPages = Math.max(1, Math.ceil(displayRecords.length / pageSize));
-  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
-
-  const paginatedRecords = useMemo(() => {
-    const startIndex = (safeCurrentPage - 1) * pageSize;
-    return displayRecords.slice(startIndex, startIndex + pageSize);
-  }, [displayRecords, safeCurrentPage, pageSize]);
 
   const handleRowClick = (record: DeliveryRecord) => {
     const screen = CATEGORY_TO_SCREEN[record.category];
@@ -301,105 +284,89 @@ export default function MainView({
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
         {displayRecords.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <Layers className="w-10 h-10 text-slate-200" />
+            <LayoutGrid className="w-10 h-10 text-slate-200" />
             <p className="text-sm text-slate-400">
               No records match this filter.
             </p>
           </div>
         ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full table-auto text-xs">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50 text-left">
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
-                      Date Created
-                    </th>
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                      Company
-                    </th>
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                      Reference
-                    </th>
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
-                      Category
-                    </th>
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                      Area
-                    </th>
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
-                      Account Manager
-                    </th>
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
-                      Delivery Date
-                    </th>
+          <div className="overflow-x-auto">
+            <table className="w-full table-auto text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-left">
+                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                    Date Created
+                  </th>
+                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                    Company
+                  </th>
+                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                    Reference
+                  </th>
+                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                    Category
+                  </th>
+                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                    Area
+                  </th>
+                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                    Account Manager
+                  </th>
+                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                    Delivery Date
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {displayRecords.map((record) => (
+                  <tr
+                    key={record.id}
+                    onClick={() => handleRowClick(record)}
+                    className="hover:bg-slate-50 cursor-pointer transition-colors group"
+                  >
+                    <td className="px-4 py-3 whitespace-nowrap text-slate-500 font-mono text-[10px]">
+                      {fmtCreatedAt(record.created_at)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="font-semibold text-slate-800 group-hover:text-[#0078C1] transition-colors line-clamp-1">
+                        {record.company_name}
+                      </span>
+                      <span className="block text-[10px] text-slate-400 font-mono">
+                        {record.id}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                      {record.reference || "—"}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                        {record.category}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <span
+                        className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold ${STATUS_BADGE[record.status] ?? "bg-slate-50 text-slate-600 border-slate-200"}`}
+                      >
+                        {record.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                      {record.area || "—"}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                      {record.account_manager || "—"}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                      {record.delivery_date || "—"}
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {paginatedRecords.map((record) => (
-                    <tr
-                      key={record.id}
-                      onClick={() => handleRowClick(record)}
-                      className="hover:bg-slate-50 cursor-pointer transition-colors group"
-                    >
-                      <td className="px-4 py-3 whitespace-nowrap text-slate-500 font-mono text-[10px]">
-                        {fmtCreatedAt(record.created_at)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="font-semibold text-slate-800 group-hover:text-[#0078C1] transition-colors line-clamp-1">
-                          {record.company_name}
-                        </span>
-                        <span className="block text-[10px] text-slate-400 font-mono">
-                          {record.id}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                        {record.reference || "—"}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
-                          {record.category}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span
-                          className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold ${STATUS_BADGE[record.status] ?? "bg-slate-50 text-slate-600 border-slate-200"}`}
-                        >
-                          {record.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                        {record.area || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                        {record.account_manager || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                        {record.delivery_date || "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="border-t border-slate-200">
-              <Pagination
-                currentPage={safeCurrentPage}
-                totalPages={totalPages}
-                totalItems={displayRecords.length}
-                pageSize={pageSize}
-                onPageChange={setCurrentPage}
-                onPageSizeChange={(newSize) => {
-                  setPageSize(newSize);
-                  setCurrentPage(1);
-                }}
-                pageSizeOptions={[10, 25, 50, 100]}
-              />
-            </div>
-          </>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 

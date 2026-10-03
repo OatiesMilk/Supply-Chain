@@ -61,7 +61,6 @@ export interface DeliveryRecord extends AuditFields {
   is_draft: 'Yes' | 'No';
   date_time: string; // separate date+time field, ISO datetime
   item_description: string;
-  line_items?: { id?: string, sku: string, quantity: number }[];
   attachments: string[]; // mock file names only
   email_notification_sent: boolean;
   output_actions_log: OutputActionLogEntry[]; // full history of fired output actions

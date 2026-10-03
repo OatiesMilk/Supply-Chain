@@ -1,43 +1,20 @@
 import { Router } from 'express';
 import { prisma } from '../db';
-import { asyncRoute } from '../middleware/asyncRoute';
-import { assignmentError, withDriverDirectoryLock } from '../services/driverDirectory';
-import { requireAuth, requireRole, requireResource } from '../middleware/auth';
+import { requireAuth, requireRole } from '../middleware/auth';
 import { writeAuditLog } from '../services/audit';
 import { notifyAccomplished } from '../services/notify';
 import { notifyRole, notifyUser } from '../services/inAppNotify';
 import { CATEGORY_TO_DB, STATUS_TO_DB, STATUS_FROM_DB, serializeRecord } from '../mappings';
-import { podStorage, podUpload } from '../services/podStorage';
-
-import { canWriteCategory, recordScope } from '../services/recordAccess';
 
 const router = Router();
-const requireRecordAccess = asyncRoute(async (req, res, next) => {
-  if (req.params.id) {
-    const record = await prisma.deliveryRecord.findFirst({
-      where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] },
-      select: { category: true },
-    });
-    if (!record) return res.status(403).json({ error: 'Record access denied' });
-    if (req.method !== 'GET' && !canWriteCategory(req.user!, record.category)) {
-      return res.status(403).json({ error: 'Module access denied' });
-    }
-  } else if (req.method === 'POST' && req.body?.category) {
-    const category = CATEGORY_TO_DB[req.body.category] ?? req.body.category;
-    if (!canWriteCategory(req.user!, category)) return res.status(403).json({ error: 'Module access denied' });
-  }
-  next();
-});
 
 const recordInclude = {
   company: true,
-  lineItems: true,
   createdBy: true,
   modifiedBy: true,
   linkedCollection: {
     include: { company: true }
-  },
-  podAttachments: { orderBy: { createdAt: 'desc' as const } }
+  }
 };
 
 async function createRemarkLog(recordId: string, body: string, context: string, authorId: string) {
@@ -54,9 +31,15 @@ function generateRecordId(): string {
 }
 
 const TASS_CATEGORIES: string[] = ['ACCOUNTING_COLLECTION', 'RMA'];
-router.get('/', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
+function categoryFilterForRole(role: string, userName?: string) {
+  if (role === 'TASS') return { category: { in: TASS_CATEGORIES } };
+  if (role === 'DRIVER') return { driver: userName ?? '' };
+  return {};
+}
+
+router.get('/', requireAuth, async (req, res) => {
   const records = await prisma.deliveryRecord.findMany({
-    where: { deletedAt: null, AND: [recordScope(req.user!)] },
+    where: { deletedAt: null, ...categoryFilterForRole(req.user!.role, req.user!.name) },
     include: recordInclude,
     orderBy: { createdAt: 'desc' }
   });
@@ -64,12 +47,12 @@ router.get('/', requireAuth, requireResource('records'), requireRecordAccess, as
 });
 
 // Must be before /:id to avoid "status-history-counts" matching as an ID
-router.get('/status-history-counts', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
+router.get('/status-history-counts', requireAuth, async (req, res) => {
   const { category, dateFrom, dateTo, area, driver, status } = req.query as Record<string, string>;
 
   const where: any = {
     deletedAt: null,
-    AND: [recordScope(req.user!)]
+    ...categoryFilterForRole(req.user!.role, req.user!.name)
   };
 
   if (category) where.category = CATEGORY_TO_DB[category] ?? category;
@@ -125,7 +108,7 @@ router.get('/status-history-counts', requireAuth, requireResource('records'), re
   res.json({ ever_held, current, total_records: records.length });
 });
 
-router.get('/:id', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
+router.get('/:id', requireAuth, async (req, res) => {
   const record = await prisma.deliveryRecord.findFirst({
     where: { id: req.params.id, deletedAt: null },
     include: recordInclude
@@ -139,13 +122,12 @@ router.get('/:id', requireAuth, requireResource('records'), requireRecordAccess,
   res.json(serializeRecord(record));
 });
 
-router.get('/:id/audit', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
+router.get('/:id/audit', requireAuth, async (req, res) => {
   const entries = await prisma.auditLog.findMany({
     where: { recordId: req.params.id, recordType: 'DeliveryRecord' },
     include: { changedBy: true },
     orderBy: { timestamp: 'desc' }
   });
-
   res.json(
     entries.map(e => ({
       id: e.id,
@@ -158,101 +140,8 @@ router.get('/:id/audit', requireAuth, requireResource('records'), requireRecordA
   );
 });
 
-router.get('/:id/attachments', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
-  const attachments = await prisma.podAttachment.findMany({
-    where: { recordId: req.params.id },
-    orderBy: { createdAt: 'desc' }
-  });
-  res.json(attachments.map(attachment => ({
-    id: attachment.id,
-    name: attachment.originalName,
-    mime_type: attachment.mimeType,
-    size: attachment.size,
-    uploaded_at: attachment.createdAt,
-    download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`
-  })));
-});
-
-router.post(
-  '/:id/attachments',
-  requireAuth,
-  requireResource('records'),
-  requireRecordAccess,
-  requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'),
-  podUpload.single('file'),
-  asyncRoute(async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: 'A file is required.' });
-    const record = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null } });
-    if (!record) return res.status(404).json({ error: 'Record not found' });
-
-    const storageKey = await podStorage.save({
-      originalName: req.file.originalname,
-      mimeType: req.file.mimetype,
-      size: req.file.size,
-      buffer: req.file.buffer
-    });
-
-    let attachment;
-    try {
-      attachment = await prisma.podAttachment.create({
-        data: {
-          recordId: record.id,
-          originalName: req.file.originalname,
-storageKey,
-          mimeType: req.file.mimetype,
-          size: req.file.size,
-          uploadedById: req.user!.id
-        }
-      });
-    } catch (error) {
-await podStorage.remove(storageKey).catch(cleanupError => {
-        console.error('[POD] Failed to clean up storage after metadata failure', cleanupError);
-      });
-      throw error;
-    }
-    res.status(201).json({
-      id: attachment.id,
-      name: attachment.originalName,
-      mime_type: attachment.mimeType,
-      size: attachment.size,
-      uploaded_at: attachment.createdAt,
-      download_url: `/api/records/${record.id}/attachments/${attachment.id}/download`
-    });
-  })
-);
-
-router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
-  const attachment = await prisma.podAttachment.findFirst({
-    where: { id: req.params.attachmentId, recordId: req.params.id }
-  });
-  if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
-  try {
-    const content = await podStorage.read(attachment.storageKey);
-    res.setHeader('Content-Type', attachment.mimeType);
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(attachment.originalName)}"`);
-    res.send(content);
-  } catch (error) {
-    if (!res.headersSent) res.status(404).json({ error: 'Attachment file not found' });
-    else console.error('[POD] Failed to read attachment', error);
-  }
-}));
-
-router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'), asyncRoute(async (req, res) => {
-  const attachment = await prisma.podAttachment.findFirst({
-    where: { id: req.params.attachmentId, recordId: req.params.id }
-  });
-  if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
-  try {
-    await podStorage.remove(attachment.storageKey);
-  } catch (error) {
-    return res.status(500).json({ error: 'Attachment could not be removed from storage. The database record was preserved for retry.' });
-  }
-  await prisma.podAttachment.delete({ where: { id: attachment.id } });
-  res.status(204).send();
-}));
-
 // Append-only remarks history
-router.get('/:id/remarks', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
+router.get('/:id/remarks', requireAuth, async (req, res) => {
   const remarks = await prisma.remarkLog.findMany({
     where: { recordId: req.params.id },
     include: { author: { select: { name: true, role: true } } },
@@ -272,7 +161,7 @@ router.get('/:id/remarks', requireAuth, requireResource('records'), requireRecor
 
 // Create - Sales Coordinator only.
 // SoD: Sales Coordinator cannot assign drivers; driver assignment is Logistics-only.
-router.post('/', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS'), async (req, res) => {
+router.post('/', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS'), async (req, res) => {
   const b = req.body ?? {};
   const isDraft = b.is_draft === 'Yes';
   const required = isDraft
@@ -320,12 +209,6 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
       draft: b.is_draft === 'Yes',
       dateAndTime: b.date_time ?? new Date().toISOString(),
       itemDescription: b.item_description ?? '',
-      lineItems: Array.isArray(b.line_items) ? {
-        create: b.line_items.map((li: any) => ({
-          sku: li.sku || li.description || '',
-          quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1
-        }))
-      } : undefined,
       address: b.address ?? '',
       documentAttachment: Array.isArray(b.attachments) && b.attachments.length > 0 ? b.attachments[0] : null,
       amount: b.amount != null ? parseFloat(String(b.amount)) : null,
@@ -359,7 +242,7 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
 
 // Full update - ADMIN added alongside LOGISTICS for linked collection management.
 // SoD: only LOGISTICS/ADMIN may set driver/vehicle/driverAssistant/linkedCollectionId.
-router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), asyncRoute(async (req, res) => {
+router.put('/:id', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), async (req, res) => {
   const existing = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null }, include: recordInclude });
   if (!existing) return res.status(404).json({ error: 'Record not found' });
 
@@ -374,17 +257,8 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
 
   const b = req.body ?? {};
 
-  if (b.priority !== undefined) {
-    if (!['SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'].includes(req.user!.role)) {
-      return res.status(403).json({ error: 'Your role cannot change record priority.' });
-    }
-    if (!['1 - Low', '2 - Moderate', '3 - High'].includes(b.priority)) {
-      return res.status(400).json({ error: 'Invalid record priority.' });
-    }
-  }
-
-  const LOGISTICS_SUBSTANTIVE_FIELDS = ['driver', 'vehicle', 'driver_assistants', 'time_in', 'time_out', 'received_by', 'linked_collection_id', 'area', 'address', 'priority'];
-  const SC_SUBSTANTIVE_FIELDS = ['company_id', 'priority', 'reference', 'area', 'address', 'account_manager', 'delivery_date', 'item_type', 'is_draft', 'date_time', 'item_description', 'line_items', 'attachments', 'amount'];
+  const LOGISTICS_SUBSTANTIVE_FIELDS = ['driver', 'vehicle', 'driver_assistants', 'time_in', 'time_out', 'received_by', 'linked_collection_id', 'area', 'address'];
+  const SC_SUBSTANTIVE_FIELDS = ['company_id', 'priority', 'reference', 'area', 'address', 'account_manager', 'delivery_date', 'item_type', 'is_draft', 'date_time', 'item_description', 'attachments', 'amount'];
   const substantiveFields = (req.user!.role === 'LOGISTICS' || req.user!.role === 'ADMIN' || req.user!.role === 'TASS')
     ? LOGISTICS_SUBSTANTIVE_FIELDS
     : SC_SUBSTANTIVE_FIELDS;
@@ -404,13 +278,9 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (b.time_out !== undefined) data.timeOut = b.time_out ?? null;
     if (b.received_by !== undefined) data.receivedBy = b.received_by ?? null;
   } else if (req.user!.role === 'LOGISTICS' || req.user!.role === 'ADMIN' || req.user!.role === 'TASS') {
-    if (b.priority !== undefined) data.priority = b.priority;
     if (b.driver !== undefined) data.driver = b.driver;
     if (b.vehicle !== undefined) data.vehicle = b.vehicle;
-    if (b.driver_assistants !== undefined) {
-      if (!Array.isArray(b.driver_assistants)) return res.status(400).json({ error: 'Assistants must be an array of names.' });
-      data.driverAssistants = JSON.stringify(b.driver_assistants);
-    }
+    if (b.driver_assistants !== undefined) data.driverAssistants = JSON.stringify(Array.isArray(b.driver_assistants) ? b.driver_assistants : []);
     if (b.time_in !== undefined) data.timeIn = b.time_in ?? null;
     if (b.time_out !== undefined) data.timeOut = b.time_out ?? null;
     if (b.received_by !== undefined) data.receivedBy = b.received_by ?? null;
@@ -445,35 +315,25 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (b.is_draft !== undefined) data.draft = b.is_draft === 'Yes';
     if (b.date_time !== undefined) data.dateAndTime = b.date_time;
     if (b.item_description !== undefined) data.itemDescription = b.item_description;
-    if (b.line_items !== undefined && Array.isArray(b.line_items)) {
-      data.lineItems = {
-        deleteMany: {},
-        create: b.line_items.map((li: any) => ({
-          sku: li.sku || li.description || '',
-          quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1
-        }))
-      };
-    }
     if (Array.isArray(b.attachments) && b.attachments.length > 0) data.documentAttachment = b.attachments[0];
     if (b.amount !== undefined) data.amount = b.amount != null ? parseFloat(String(b.amount)) : null;
     if (b.address !== undefined) data.address = b.address;
   }
 
-  const result = await withDriverDirectoryLock(prisma, async tx => {
-    const current = await tx.deliveryRecord.findUnique({ where: { id: existing.id } });
-    if (!current || current.deletedAt) return { error: 'Record not found', updated: null };
-    const invalidAssignment = await assignmentError(tx, current, data);
-    if (invalidAssignment) return { error: invalidAssignment, updated: null };
-    const updated = await tx.deliveryRecord.update({ where: { id: existing.id }, data, include: recordInclude });
-    await tx.auditLog.create({ data: {
-      recordId: updated.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id,
-      previousValue: JSON.stringify(serializeRecord({ ...existing, ...current })),
-      newValue: JSON.stringify(serializeRecord(updated)),
-    } });
-    return { error: null, updated };
+  const updated = await prisma.deliveryRecord.update({
+    where: { id: existing.id },
+    data,
+    include: recordInclude
   });
-  if (result.error) return res.status(result.error === 'Record not found' ? 404 : 400).json({ error: result.error });
-  const updated = result.updated!;
+
+  await writeAuditLog({
+    recordId: updated.id,
+    recordType: 'DeliveryRecord',
+    action: 'UPDATE',
+    changedById: req.user!.id,
+    previousValue: serializeRecord(existing),
+    newValue: serializeRecord(updated)
+  });
 
   // Write remark log for every non-DRIVER edit that has remarks
   if (req.user!.role !== 'DRIVER' && b.remarks && String(b.remarks).trim()) {
@@ -498,27 +358,17 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
   }
 
   res.json(serializeRecord(updated));
-}));
+});
 
 // Status change — Logistics, Admin, Driver (own records), and TASS (RMA only).
 // This is also the sole path that fires the ACCOMPLISHED automated trigger.
-router.patch('/:id/status', requireAuth, requireResource('records'), requireRecordAccess, requireRole('LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), async (req, res) => {
-  const { status, remarks, time_out, received_by, priority } = req.body ?? {};
+router.patch('/:id/status', requireAuth, requireRole('LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), async (req, res) => {
+  const { status, remarks, time_out, received_by } = req.body ?? {};
   if (!status || !STATUS_TO_DB[status]) {
     return res.status(400).json({ error: 'Valid status is required' });
   }
   if (!remarks || !String(remarks).trim()) {
     return res.status(400).json({ error: 'Remarks are required when changing status.' });
-  }
-
-  const hasPriority = priority !== undefined && priority !== '';
-  if (hasPriority) {
-    if (!['LOGISTICS', 'ADMIN'].includes(req.user!.role)) {
-      return res.status(403).json({ error: 'Your role cannot change record priority.' });
-    }
-    if (!['1 - Low', '2 - Moderate', '3 - High'].includes(priority)) {
-      return res.status(400).json({ error: 'Invalid record priority.' });
-    }
   }
 
   const existing = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null }, include: recordInclude });
@@ -536,47 +386,31 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   }
 
   const dbStatus = STATUS_TO_DB[status];
-  const statusChanged = existing.status !== dbStatus;
-  const priorityChanged = hasPriority && existing.priority !== priority;
-  if (!statusChanged && !priorityChanged) {
-    return res.status(409).json({ error: 'Choose a different status before saving.' });
-  }
 
   const statusData: any = {
+    status: dbStatus as any,
     remarks: String(remarks).trim(),
     modifiedById: req.user!.id
   };
-  if (statusChanged) statusData.status = dbStatus;
-  if (priorityChanged) statusData.priority = priority;
   if (time_out !== undefined) statusData.timeOut = time_out ?? null;
   if (received_by !== undefined) statusData.receivedBy = received_by ?? null;
 
-  const updated = await prisma.$transaction(async tx => {
-    // Guard both submitted fields against concurrent edits before writing history.
-    const changed = await tx.deliveryRecord.updateMany({
-      where: { id: existing.id, status: existing.status, deletedAt: null,
-        ...(hasPriority ? { priority: existing.priority } : {}) },
-      data: statusData,
-    });
-    if (changed.count === 0) return null;
-    const saved = await tx.deliveryRecord.findUniqueOrThrow({ where: { id: existing.id }, include: recordInclude });
-    await tx.auditLog.create({ data: {
-      recordId: saved.id,
-      recordType: 'DeliveryRecord',
-      action: 'UPDATE',
-      changedById: req.user!.id,
-      previousValue: JSON.stringify(serializeRecord(existing)),
-      newValue: JSON.stringify(serializeRecord(saved)),
-    } });
-    await tx.remarkLog.create({ data: {
-      recordId: saved.id,
-      body: String(remarks).trim(),
-      context: statusChanged ? 'STATUS_CHANGE' : 'GENERAL_EDIT',
-      authorId: req.user!.id,
-    } });
-    return saved;
+  const updated = await prisma.deliveryRecord.update({
+    where: { id: existing.id },
+    data: statusData,
+    include: recordInclude
   });
-  if (!updated) return res.status(409).json({ error: 'The record changed while you were editing. Refresh the record and try again.' });
+
+  await writeAuditLog({
+    recordId: updated.id,
+    recordType: 'DeliveryRecord',
+    action: 'UPDATE',
+    changedById: req.user!.id,
+    previousValue: serializeRecord(existing),
+    newValue: serializeRecord(updated)
+  });
+
+  await createRemarkLog(updated.id, String(remarks).trim(), 'STATUS_CHANGE', req.user!.id);
 
   if (dbStatus === 'ACCOMPLISHED' && existing.status !== 'ACCOMPLISHED') {
     await notifyAccomplished({
@@ -604,7 +438,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
 });
 
 // Collection verification - TASS only, for ACCOUNTING_COLLECTION records that are ACCOMPLISHED.
-router.patch('/:id/verify-collection', requireAuth, requireResource('records'), requireRecordAccess, requireRole('TASS'), async (req, res) => {
+router.patch('/:id/verify-collection', requireAuth, requireRole('TASS'), async (req, res) => {
   const existing = await prisma.deliveryRecord.findFirst({
     where: { id: req.params.id, deletedAt: null },
     include: recordInclude
@@ -655,7 +489,7 @@ router.patch('/:id/verify-collection', requireAuth, requireResource('records'), 
 });
 
 // Soft delete only - never hard-delete, per spec.
-router.delete('/:id', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR'), async (req, res) => {
+router.delete('/:id', requireAuth, requireRole('SALES_COORDINATOR'), async (req, res) => {
   const existing = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null } });
   if (!existing) return res.status(404).json({ error: 'Record not found' });
 
@@ -678,7 +512,7 @@ router.delete('/:id', requireAuth, requireResource('records'), requireRecordAcce
 });
 
 // ── Comments ──────────────────────────────────────────────────────────────────
-router.get('/:id/comments', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
+router.get('/:id/comments', requireAuth, async (req, res) => {
   const comments = await prisma.comment.findMany({
     where: { recordId: req.params.id, recordType: 'DeliveryRecord' },
     include: { author: { select: { name: true } } },
@@ -695,7 +529,7 @@ router.get('/:id/comments', requireAuth, requireResource('records'), requireReco
   );
 });
 
-router.post('/:id/comments', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
+router.post('/:id/comments', requireAuth, async (req, res) => {
   const { body } = req.body ?? {};
   if (!body || !String(body).trim()) {
     return res.status(400).json({ error: 'Comment body is required' });

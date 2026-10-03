@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../db';
-import { requireAuth, requireScreen } from '../middleware/auth';
+import { requireAuth, requireRole } from '../middleware/auth';
 import { CATEGORY_TO_DB, CATEGORY_FROM_DB, STATUS_TO_DB, STATUS_FROM_DB } from '../mappings';
 
 const router = Router();
@@ -8,7 +8,7 @@ const router = Router();
 // GET /reports/daily-status-history?from=YYYY-MM-DD&to=YYYY-MM-DD&status=&category=
 // Reads from the DailyStatusSnapshot rollup table (written once daily by the
 // 6 PM EOD job) instead of recomputing counts live from DeliveryRecord.
-router.get('/daily-status-history', requireAuth, requireScreen('status_history'), async (req, res) => {
+router.get('/daily-status-history', requireAuth, requireRole('LOGISTICS', 'ADMIN'), async (req, res) => {
   const { from, to, status, category } = req.query as { from?: string; to?: string; status?: string; category?: string };
 
   if (!from || !to) {
@@ -87,7 +87,7 @@ router.get('/daily-status-history', requireAuth, requireScreen('status_history')
 
 // GET /reports/summary — on-demand statistical summary with optional filters.
 // Reads live from DeliveryRecord (not the snapshot table).
-router.get('/summary', requireAuth, requireScreen('statistical_reports'), async (req, res) => {
+router.get('/summary', requireAuth, requireRole('LOGISTICS', 'ADMIN'), async (req, res) => {
   const { dateFrom, dateTo, category, area, driver, status } = req.query as Record<string, string>;
 
   const where: any = { deletedAt: null };

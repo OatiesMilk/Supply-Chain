@@ -1,7 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { BarChart2, Loader2, AlertTriangle, RefreshCw, FileDown, FileSpreadsheet, FileText, ChevronDown } from 'lucide-react';
-import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
-import DocumentSizeSelect from '@/components/DocumentSizeSelect';
 import { api, ApiReportSummary } from '@/api';
 import { DELIVERY_STATUSES } from '@/data';
 import { ExportColumn, ExportMeta, fmtDate, fmtTime, downloadCSV, downloadExcel, downloadPDF } from '@/utils/export';
@@ -79,7 +77,6 @@ function StatReportExportMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState<ExportFmt | null>(null);
-  const [docSize, setDocSize] = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -106,9 +103,9 @@ function StatReportExportMenu({
     };
     try {
       if (fmt === 'csv')   downloadCSV(rows, REPORT_COLUMNS, 'mg-statistical-report', meta);
-      if (fmt === 'excel') await downloadExcel(rows, REPORT_COLUMNS, 'Statistical Report', 'mg-statistical-report', meta, undefined, docSize);
-      if (fmt === 'pdf')   await downloadPDF(rows, REPORT_COLUMNS, title, 'mg-statistical-report', meta, false, undefined, docSize);
-      if (fmt === 'docx')  await downloadDocx(rows, REPORT_COLUMNS, title, `mg-statistical-report-${new Date().toISOString().split('T')[0]}`, meta, undefined, undefined, undefined, docSize);
+      if (fmt === 'excel') await downloadExcel(rows, REPORT_COLUMNS, 'Statistical Report', 'mg-statistical-report', meta);
+      if (fmt === 'pdf')   await downloadPDF(rows, REPORT_COLUMNS, title, 'mg-statistical-report', meta, false);
+      if (fmt === 'docx')  await downloadDocx(rows, REPORT_COLUMNS, title, `mg-statistical-report-${new Date().toISOString().split('T')[0]}`, meta);
     } catch (err) {
       console.error('Statistical report export failed:', err);
     } finally {
@@ -136,19 +133,16 @@ function StatReportExportMenu({
         {!isLoading && <ChevronDown className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />}
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg p-3 min-w-[220px]">
-          <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={isLoading} />
-          <div className="flex flex-col -mx-3">
-            {options.map(opt => (
-              <button
-                key={opt.fmt}
-                onClick={() => run(opt.fmt)}
-                className={`w-full flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold transition-colors cursor-pointer ${opt.color}`}
-              >
-                {opt.icon} {opt.label}
-              </button>
-            ))}
-          </div>
+        <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg py-1 min-w-max">
+          {options.map(opt => (
+            <button
+              key={opt.fmt}
+              onClick={() => run(opt.fmt)}
+              className={`w-full flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold transition-colors cursor-pointer ${opt.color}`}
+            >
+              {opt.icon} {opt.label}
+            </button>
+          ))}
         </div>
       )}
     </div>

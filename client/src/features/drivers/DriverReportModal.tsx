@@ -1,7 +1,5 @@
 import { useState, useMemo } from 'react';
 import { X, FileBarChart2, Loader2, Clock, History } from 'lucide-react';
-import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
-import DocumentSizeSelect from '@/components/DocumentSizeSelect';
 import { DeliveryRecord } from '@/types';
 import { downloadDriverReport } from '@/utils/exportDriverReport';
 import { fetchHistoricStatusSets } from '@/utils/routeSlip';
@@ -37,7 +35,6 @@ export default function DriverReportModal({ records, onClose, generatedByName, g
   const [month, setMonth]       = useState(defaultMY.month);
   const [year, setYear]         = useState(defaultMY.year);
   const [format, setFormat]     = useState<'excel' | 'pdf' | 'docx' | 'csv'>('excel');
-  const [docSize, setDocSize]   = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
   const [statusMode, setStatusMode] = useState<'current' | 'trail'>('current');
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState<string | null>(null);
@@ -62,7 +59,7 @@ export default function DriverReportModal({ records, onClose, generatedByName, g
           auditSets = undefined;
         }
       }
-      await downloadDriverReport(records, month, year, format, generatedByName, generatedByRole, auditSets, docSize);
+      await downloadDriverReport(records, month, year, format, generatedByName, generatedByRole, auditSets);
       onClose();
     } catch (e: any) {
       setError(e?.message ?? 'Export failed. Please try again.');
@@ -134,10 +131,6 @@ export default function DriverReportModal({ records, onClose, generatedByName, g
               <option value="csv">CSV (.csv)</option>
             </select>
           </div>
-
-          {format !== 'csv' && (
-            <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={loading} />
-          )}
 
           {/* Status Mode */}
           <div className="space-y-1.5">

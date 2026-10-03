@@ -6,7 +6,6 @@ import { runOutputActions } from '@/outputActions';
 import { ApiCompany } from '@/api';
 import OutputActionsPanel from '@/features/deliveries/OutputActionsPanel';
 import ComboboxField from '@/components/ComboboxField';
-import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
 
 // ── Sample-data tables (moved here from DeliveryRecordsView) ──────────────────
 
@@ -107,13 +106,11 @@ interface RecordFormState {
   is_draft: string;
   date_time: string;
   item_description: string;
-  line_items: { sku: string; quantity: number }[];
   address: string;
   attachments: string[];
 }
 
 const buildEmptyForm = (category: DeliveryCategory): RecordFormState => ({
-
   company_name: '',
   company_id: '',
   priority: '2 - Moderate',
@@ -130,7 +127,6 @@ const buildEmptyForm = (category: DeliveryCategory): RecordFormState => ({
   is_draft: 'No',
   date_time: '',
   item_description: '',
-  line_items: [],
   attachments: []
 });
 
@@ -142,7 +138,7 @@ export interface RecordCreateFormProps {
   availableCategories?: DeliveryCategory[];
   onCategoryChange?: (cat: DeliveryCategory) => void;
   companies: ApiCompany[];
-  onSubmit: (data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>) => Promise<void>;
+  onSubmit: (data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>) => void;
   onCancel: () => void;
   // Optional: output action integration — only provided by DeliveryRecordsView
   outputActionConfigs?: Record<OutputActionTrigger, OutputActionConfig>;
@@ -167,7 +163,6 @@ export default function RecordCreateForm({
   const [form, setForm] = useState<RecordFormState>(() => buildEmptyForm(category));
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [attachmentNames, setAttachmentNames] = useState<string[]>([]);
-  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const updateField = <K extends keyof RecordFormState>(key: K, value: RecordFormState[K]) =>
@@ -201,26 +196,15 @@ export default function RecordCreateForm({
       is_draft: 'No',
       date_time: `${deliveryDate}T${String(afRandInt(7, 11)).padStart(2, '0')}:00`,
       item_description: afPick(AF_ITEMS[cat] ?? ['(sample item)']),
-      line_items: [{ sku: afPick(AF_ITEMS[cat] ?? ['Sample SKU']), quantity: afRandInt(1, 10) }],
       attachments: [],
     });
     setFormErrors({});
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const input = e.currentTarget;
-    const selectedFiles = Array.from(input.files ?? []);
-    input.value = '';
-    if (selectedFiles.length === 0) return;
-
-    const validationError = validatePodAttachments(selectedFiles);
-    if (validationError) {
-      setAttachmentError(validationError);
-      return;
+    if (e.target.files) {
+      setAttachmentNames(prev => [...prev, ...Array.from(e.target.files!).map((f: File) => f.name)]);
     }
-
-    setAttachmentError(null);
-    setAttachmentNames(prev => [...prev, ...selectedFiles.map(file => file.name)]);
   };
 
   const handleCompanySelect = (name: string) => {
@@ -232,7 +216,6 @@ export default function RecordCreateForm({
     e.preventDefault();
     const errors: Record<string, string> = {};
     if (!form.company_name.trim()) errors.company_name = 'Company Name is required';
-    else if (!form.company_id) errors.company_name = 'Select a company from the list';
     if (form.is_draft !== 'Yes' && !form.reference.trim()) {
       errors.reference = 'Reference (SAP number) is required';
     }
@@ -254,27 +237,19 @@ export default function RecordCreateForm({
         : creationOutput.newEntries.map((e: any) => e.message);
     }
 
-    try {
-      await onSubmit({
-        ...form,
-        customer_id: form.company_id || '',
-        driver: '',
-        driver_assistants: [],
-        category: form.category,
-        priority: form.priority as DeliveryRecord['priority'],
-        status: form.status as DeliveryStatus,
-        item_type: form.item_type as DeliveryRecord['item_type'],
-        is_draft: form.is_draft as DeliveryRecord['is_draft'],
-        line_items: form.line_items,
-        attachments: attachmentNames,
-        output_actions_log: outputActionLog
-      });
-    } catch (error) {
-      setFormErrors({
-        submit: error instanceof Error ? error.message : 'Could not create the record. Please try again.',
-      });
-      return;
-    }
+    onSubmit({
+      ...form,
+      customer_id: form.company_id || '',
+      driver: '',
+      driver_assistants: [],
+      category: form.category,
+      priority: form.priority as DeliveryRecord['priority'],
+      status: form.status as DeliveryStatus,
+      item_type: form.item_type as DeliveryRecord['item_type'],
+      is_draft: form.is_draft as DeliveryRecord['is_draft'],
+      attachments: attachmentNames,
+      output_actions_log: outputActionLog
+    });
 
     if (onAfterSubmit) {
       onAfterSubmit({ referenceLabel: form.reference || form.company_name, lines: bannerLines });
@@ -313,11 +288,6 @@ export default function RecordCreateForm({
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5 text-xs">
-        {formErrors.submit && (
-          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
-            {formErrors.submit}
-          </p>
-        )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
 
           {/* ── REQUIRED FIELDS ─────────────────────────────────────── */}
@@ -446,57 +416,11 @@ export default function RecordCreateForm({
               placeholder="Special instructions or notes..." className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
           </div>
 
-          {/* Line Items */}
+          {/* Item Description */}
           <div className="space-y-1.5 md:col-span-2">
-            <div className="flex justify-between items-center mb-1.5">
-              <label className="font-bold text-slate-700">Line Items <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
-              <button
-                type="button"
-                onClick={() => updateField('line_items', [...(form.line_items || []), { sku: '', quantity: 1 }])}
-                className="flex items-center gap-1 text-[11px] font-bold text-[#0078C1] hover:text-[#1F3864] cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" /> Add Item
-              </button>
-            </div>
-            {(form.line_items || []).map((item, index) => (
-              <div key={index} className="flex items-center gap-2 mb-2">
-                <input
-                  type="text"
-                  placeholder="SKU or Description"
-                  value={item.sku}
-                  onChange={(e) => {
-                    const newItems = [...(form.line_items || [])];
-                    newItems[index].sku = e.target.value;
-                    updateField('line_items', newItems);
-                  }}
-                  className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-xs"
-                />
-                <input
-                  type="number"
-                  min="1"
-                  value={item.quantity}
-                  onChange={(e) => {
-                    const newItems = [...(form.line_items || [])];
-                    newItems[index].quantity = parseInt(e.target.value) || 1;
-                    updateField('line_items', newItems);
-                  }}
-                  className="w-20 px-3 py-2 border border-slate-300 rounded-lg text-xs"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const newItems = (form.line_items || []).filter((_, i) => i !== index);
-                    updateField('line_items', newItems);
-                  }}
-                  className="p-1 text-slate-400 hover:text-red-500 cursor-pointer shrink-0"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
-            {(!form.line_items || form.line_items.length === 0) && (
-              <p className="text-[11px] text-slate-400 italic">No line items added. Use the description box above if preferred.</p>
-            )}
+            <label className="font-bold text-slate-700">Item Description <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+            <textarea value={form.item_description} onChange={e => updateField('item_description', e.target.value)} rows={3}
+              placeholder="Cargo details, quantities, or bundle breakdown..." className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
           </div>
 
           {/* Document Attachments */}
@@ -508,10 +432,9 @@ export default function RecordCreateForm({
             >
               <UploadCloud className="w-8 h-8 text-slate-400" />
               <p className="font-bold text-slate-600">Click to upload (mock, no file is actually stored)</p>
-              <p className="text-[10px] text-slate-400">PDF, JPG/JPEG, PNG, or DOC up to 10 MB each</p>
-              <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept={POD_ATTACHMENT_ACCEPT} multiple className="hidden" />
+              <p className="text-[10px] text-slate-400">PDF, JPG, PNG, DOC up to 10MB</p>
+              <input type="file" ref={fileInputRef} onChange={handleFileSelect} multiple className="hidden" />
             </div>
-            {attachmentError && <p role="alert" className="text-xs text-red-600">{attachmentError}</p>}
             {attachmentNames.length > 0 && (
               <div className="mt-2 space-y-1">
                 {attachmentNames.map((name, idx) => (
