@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Plus,
   Search,
@@ -18,17 +18,15 @@ import {
 import ExportMenu from '@/components/ExportMenu';
 import DriverReportModal from '@/features/drivers/DriverReportModal';
 import RouteSlipMenu from '@/components/RouteSlipMenu';
-import AccountManagerCombobox from '@/components/AccountManagerCombobox';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, PDF_DELIVERY_COLUMNS, PDF_AC_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel } from '@/types';
 import { ApiCompany, api, apiUrl, ApiError } from '@/api';
 import { DELIVERY_STATUSES, AREA_HIERARCHY, getRegion, getSubregion } from '@/data';
-import { MapPin, SlidersHorizontal } from 'lucide-react';
 import DeliveryRecordWorkspace from '@/features/deliveries/DeliveryRecordWorkspace';
 import RecordCreateForm from '@/features/deliveries/RecordCreateForm';
-import DeliveryFiltersPopover, { DeliveryFilterCombobox } from './DeliveryFiltersPopover';
+import FilterPopover, { FilterCombobox } from '@/components/FilterPopover';
 
 interface DeliveryRecordsViewProps {
   category: DeliveryCategory;
@@ -99,10 +97,6 @@ export default function DeliveryRecordsView({
   const [driverFilter, setDriverFilter] = useState('');
   const dateFromRef = useRef<HTMLInputElement>(null);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const advFilterBtnRef = useRef<HTMLButtonElement>(null);
-  const advFilterPanelRef = useRef<HTMLDivElement>(null);
-  const [popoverAlign, setPopoverAlign] = useState<'right' | 'left'>('right');
-  const [popoverMaxWidth, setPopoverMaxWidth] = useState<number>(420);
   const [creationBanner, setCreationBanner] = useState<{ recordId: string; lines: string[] } | null>(null);
 
 
@@ -479,73 +473,20 @@ export default function DeliveryRecordsView({
 
   const showTassFilters = currentUserRole === 'TASS';
 
-  const hasAdvancedFilters = regionFilter !== 'All Regions' || subregionFilter !== 'All Subregions' || areaFilter !== 'All Areas' || !!amFilter || !!driverFilter || false;
-
-  // Count individual active advanced filters for the badge
   const activeFilterCount = [
-    regionFilter !== 'All Regions',
-    subregionFilter !== 'All Subregions',
-    areaFilter !== 'All Areas',
-    !!amFilter,
-    !!driverFilter,
-    !!dateFrom,
-    !!dateTo,
-    dateSort !== 'default',
+    regionFilter !== 'All Regions', subregionFilter !== 'All Subregions', areaFilter !== 'All Areas',
+    !!amFilter, !!driverFilter, !!dateFrom, !!dateTo, dateSort !== 'default',
+    statusFilter !== 'All', !!searchQuery,
+    ...(showTassFilters ? [!!tassDateFrom, !!tassDateTo, !!tassStatusFilter, !!tassAccountManager] : []),
   ].filter(Boolean).length;
-  const deliveryFilterCount = activeFilterCount + Number(statusFilter !== 'All') + Number(!!searchQuery);
 
-  // Dynamic popover alignment & width to adapt to zoom levels and viewport boundaries
-  const updatePopoverPosition = useCallback(() => {
-    if (!advFilterBtnRef.current) return;
-    const btnRect = advFilterBtnRef.current.getBoundingClientRect();
-    const sidebarEl = document.getElementById('sidebar-panel');
-    const sidebarRight = sidebarEl ? Math.max(0, sidebarEl.getBoundingClientRect().right) : 0;
-    const viewportWidth = window.innerWidth;
+  const clearAllFilters = () => {
+    setSearchQuery(''); setStatusFilter('All'); setRegionFilter('All Regions');
+    setSubregionFilter('All Subregions'); setAreaFilter('All Areas');
+    setAmFilter(''); setDriverFilter(''); setDateFrom(''); setDateTo(''); setDateSort('default');
+    setTassDateFrom(''); setTassDateTo(''); setTassStatusFilter(''); setTassAccountManager('');
+  };
 
-    // Minimum left margin so popover never overlaps or touches the side navigation bar
-    const minAllowedLeft = Math.max(16, sidebarRight + 16);
-    const availableTotalWidth = Math.max(280, viewportWidth - minAllowedLeft - 16);
-    let targetWidth = Math.min(420, availableTotalWidth);
-
-    // If anchored to button's right edge, calculate where its left edge would be
-    const rightAlignedLeftEdge = btnRect.right - targetWidth;
-
-    if (rightAlignedLeftEdge < minAllowedLeft) {
-      // Not enough room to open leftwards (towards sidebar) — anchor left and open rightwards
-      const rightAvailable = Math.max(280, viewportWidth - btnRect.left - 16);
-      targetWidth = Math.min(targetWidth, rightAvailable);
-      setPopoverAlign('left');
-    } else {
-      // Plenty of room on the left of the button — anchor right
-      setPopoverAlign('right');
-    }
-    setPopoverMaxWidth(targetWidth);
-  }, []);
-
-  // Update position on open, resize, or zoom change
-  useEffect(() => {
-    if (!showAdvancedFilters) return;
-    updatePopoverPosition();
-    window.addEventListener('resize', updatePopoverPosition);
-    return () => window.removeEventListener('resize', updatePopoverPosition);
-  }, [showAdvancedFilters, updatePopoverPosition]);
-
-  // Close advanced filter popover when clicking outside
-  useEffect(() => {
-    if (!showAdvancedFilters) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (
-        advFilterPanelRef.current &&
-        !advFilterPanelRef.current.contains(e.target as Node) &&
-        advFilterBtnRef.current &&
-        !advFilterBtnRef.current.contains(e.target as Node)
-      ) {
-        setShowAdvancedFilters(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showAdvancedFilters]);
 
   const showCheckbox = canAssignDriver || canEdit;
   const showCollectionCol = currentUserRole === 'TASS' && category === 'Accounting Collection';
@@ -755,18 +696,18 @@ export default function DeliveryRecordsView({
       {showTassFilters && (
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap gap-3 items-end text-xs print:hidden" id="tass-filters">
           <div className="space-y-1">
-            <label className="font-bold text-slate-700 block">Delivery Date From</label>
-            <input type="date" value={tassDateFrom} onChange={e => setTassDateFrom(e.target.value)}
+            <label htmlFor="tass-date-from" className="font-bold text-slate-700 block">Delivery Date From</label>
+            <input id="tass-date-from" type="date" value={tassDateFrom} onChange={e => setTassDateFrom(e.target.value)}
               className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
           </div>
           <div className="space-y-1">
-            <label className="font-bold text-slate-700 block">Delivery Date To</label>
-            <input type="date" value={tassDateTo} onChange={e => setTassDateTo(e.target.value)}
+            <label htmlFor="tass-date-to" className="font-bold text-slate-700 block">Delivery Date To</label>
+            <input id="tass-date-to" type="date" value={tassDateTo} onChange={e => setTassDateTo(e.target.value)}
               className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
           </div>
           <div className="space-y-1">
-            <label className="font-bold text-slate-700 block">Status</label>
-            <select value={tassStatusFilter} onChange={e => setTassStatusFilter(e.target.value)}
+            <label htmlFor="tass-status-filter" className="font-bold text-slate-700 block">Status</label>
+            <select id="tass-status-filter" value={tassStatusFilter} onChange={e => setTassStatusFilter(e.target.value)}
               className="px-3 py-2 border border-slate-300 rounded-lg bg-white text-xs w-44">
               <option value="">All Statuses</option>
               <option value="Accomplished">Accomplished</option>
@@ -775,22 +716,15 @@ export default function DeliveryRecordsView({
               <option value="Scheduled">Scheduled</option>
             </select>
           </div>
-          <div className="space-y-1">
-            <label className="font-bold text-slate-700 block">Account Manager</label>
-            <AccountManagerCombobox
-              value={tassAccountManager}
-              onChange={setTassAccountManager}
-              options={amOptions}
-              placeholder="Filter by AM..."
-              inputClassName="px-3 py-2 border border-slate-300 rounded-lg text-xs w-40"
-            />
+          <div className="min-w-[180px]">
+            <FilterCombobox label="Account Manager" placeholder="All Account Managers" value={tassAccountManager} onChange={setTassAccountManager} options={amOptions} />
           </div>
-          {(tassDateFrom || tassDateTo || tassStatusFilter || tassAccountManager) && (
+          {activeFilterCount > 0 && (
             <button
-              onClick={() => { setTassDateFrom(''); setTassDateTo(''); setTassStatusFilter(''); setTassAccountManager(''); }}
+              onClick={clearAllFilters}
               className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[11px] uppercase rounded-lg cursor-pointer"
             >
-              Clear Filters
+              Clear All Filters
             </button>
           )}
         </div>
@@ -910,7 +844,7 @@ export default function DeliveryRecordsView({
                       <button
                         key={s}
                         onClick={() => setStatusFilter(s)}
-                        aria-pressed={category === 'Deliveries' ? statusFilter === s : undefined}
+                        aria-pressed={statusFilter === s}
                         className={`px-3 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer ${statusFilter === s
                           ? 'bg-[#1F3864] text-white border-[#1F3864]'
                           : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
@@ -927,17 +861,12 @@ export default function DeliveryRecordsView({
                   <div className="relative flex-1 sm:w-56 sm:flex-initial">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search records..."
-                      aria-label={category === 'Deliveries' ? 'Search delivery records' : undefined}
+                      aria-label={`Search ${category === 'Deliveries' ? 'delivery' : category} records`}
                       className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-hidden focus:ring-1 focus:ring-[#0078C1]" />
                   </div>
-                  {category === 'Deliveries' ? (
-                    <DeliveryFiltersPopover open={showAdvancedFilters} onOpenChange={setShowAdvancedFilters}
-                      count={deliveryFilterCount}
-                      onClear={() => {
-                        setSearchQuery(''); setStatusFilter('All'); setRegionFilter('All Regions');
-                        setSubregionFilter('All Subregions'); setAreaFilter('All Areas');
-                        setAmFilter(''); setDriverFilter(''); setDateFrom(''); setDateTo(''); setDateSort('default');
-                      }}>
+                    <FilterPopover open={showAdvancedFilters} onOpenChange={setShowAdvancedFilters}
+                      count={activeFilterCount}
+                      onClear={clearAllFilters}>
                       <fieldset className="space-y-2 min-w-0">
                         <legend className="text-xs font-bold text-slate-800 mb-2">Location</legend>
                         <label className="block text-xs font-semibold text-slate-600">Region
@@ -969,142 +898,12 @@ export default function DeliveryRecordsView({
                       <fieldset className="min-w-0">
                         <legend className="text-xs font-bold text-slate-800 mb-2">Personnel</legend>
                         <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-2">
-                          <DeliveryFilterCombobox label="Account Manager" value={amFilter} onChange={setAmFilter} options={amOptions} />
-                          <DeliveryFilterCombobox label="Driver" value={driverFilter} onChange={setDriverFilter} options={driverOptions} />
+                          <FilterCombobox label="Account Manager" placeholder="All Account Managers" value={amFilter} onChange={setAmFilter} options={amOptions} />
+                          <FilterCombobox label="Driver" placeholder="All Drivers" value={driverFilter} onChange={setDriverFilter} options={driverOptions} />
                         </div>
                       </fieldset>
-                    </DeliveryFiltersPopover>
-                  ) : <div className="relative">
-                    <button
-                      ref={advFilterBtnRef}
-                      onClick={() => {
-                        setShowAdvancedFilters(v => {
-                          const next = !v;
-                          if (next) {
-                            requestAnimationFrame(updatePopoverPosition);
-                          }
-                          return next;
-                        });
-                      }}
-                      className={`relative flex items-center gap-1.5 px-2.5 py-2 rounded-lg border transition-all cursor-pointer ${showAdvancedFilters ? 'bg-blue-50 border-blue-300 text-blue-700' : hasAdvancedFilters ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-400'}`}
-                      title="Toggle advanced filters"
-                    >
-                      <SlidersHorizontal className="w-4 h-4" />
-                      {activeFilterCount > 0 && (
-                        <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-blue-600 text-white text-[10px] font-black rounded-full leading-none">
-                          {activeFilterCount}
-                        </span>
-                      )}
-                    </button>
+                    </FilterPopover>
 
-                    {/* ── Advanced Filters Popover ── */}
-                    {showAdvancedFilters && (
-                      <div
-                        ref={advFilterPanelRef}
-                        className={`absolute ${popoverAlign === 'left' ? 'left-0' : 'right-0'} top-full mt-2 z-40 bg-white border border-slate-200 rounded-xl shadow-2xl p-4 space-y-4`}
-                        style={{
-                          width: `${popoverMaxWidth}px`,
-                          maxWidth: 'calc(100vw - 2rem)',
-                          maxHeight: 'calc(100vh - 180px)',
-                          overflowY: 'auto',
-                        }}
-                      >
-                        {/* Popover header */}
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <SlidersHorizontal className="w-4 h-4 text-slate-500" />
-                            <span className="text-xs font-black text-slate-800 uppercase tracking-wider">Advanced Filters</span>
-                            {activeFilterCount > 0 && (
-                              <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-blue-600 text-white text-[10px] font-black rounded-full leading-none">
-                                {activeFilterCount}
-                              </span>
-                            )}
-                          </div>
-                          <button onClick={() => setShowAdvancedFilters(false)} className="p-1 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors">
-                            <X className="w-4 h-4 text-slate-400" />
-                          </button>
-                        </div>
-
-                        {/* Geo filters */}
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-1.5">
-                            <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Location</span>
-                          </div>
-                          <div className="grid grid-cols-1 gap-2">
-                            <select
-                              value={regionFilter}
-                              onChange={e => { setRegionFilter(e.target.value); setSubregionFilter('All Subregions'); setAreaFilter('All Areas'); }}
-                              className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-                            >
-                              <option value="All Regions">All Regions</option>
-                              {AREA_HIERARCHY.map(r => <option key={r.region} value={r.region}>{r.region}</option>)}
-                            </select>
-                            <div className="grid grid-cols-2 gap-2">
-                              <select
-                                value={subregionFilter}
-                                onChange={e => { setSubregionFilter(e.target.value); setAreaFilter('All Areas'); }}
-                                className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-                              >
-                                <option value="All Subregions">All Subregions</option>
-                                {(regionFilter === 'All Regions' ? AREA_HIERARCHY : AREA_HIERARCHY.filter(r => r.region === regionFilter))
-                                  .flatMap(r => r.subregions)
-                                  .map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
-                              </select>
-                              <select
-                                value={areaFilter}
-                                onChange={e => setAreaFilter(e.target.value)}
-                                className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-                              >
-                                {distinctAreasForFilter.map(a => <option key={a} value={a}>{a}</option>)}
-                              </select>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* AM + Driver */}
-                        <div className="space-y-2">
-                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Personnel</span>
-                          <div className="grid grid-cols-2 gap-2">
-                            <AccountManagerCombobox
-                              value={amFilter}
-                              onChange={setAmFilter}
-                              options={amOptions}
-                              placeholder="Account Manager"
-                              inputClassName="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] placeholder:text-slate-400"
-                            />
-                            <AccountManagerCombobox
-                              value={driverFilter}
-                              onChange={setDriverFilter}
-                              options={driverOptions}
-                              placeholder="Driver"
-                              inputClassName="text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] placeholder:text-slate-400"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Footer: Clear all + Apply/Close */}
-                        <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                          {hasAdvancedFilters ? (
-                            <button
-                              onClick={() => { setRegionFilter('All Regions'); setSubregionFilter('All Subregions'); setAreaFilter('All Areas'); setAmFilter(''); setDriverFilter(''); setDateFrom(''); setDateTo(''); setDateSort('default'); }}
-                              className="px-3 py-1.5 text-red-600 hover:bg-red-50 font-bold text-[10px] uppercase cursor-pointer rounded-lg transition-colors"
-                            >
-                              Clear All Filters
-                            </button>
-                          ) : (
-                            <span className="text-[10px] text-slate-400">No filters active</span>
-                          )}
-                          <button
-                            onClick={() => setShowAdvancedFilters(false)}
-                            className="px-4 py-1.5 bg-[#1F3864] hover:bg-blue-900 text-white text-[11px] font-bold rounded-lg transition-colors cursor-pointer"
-                          >
-                            Done
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>}
                   <span className="text-[11px] font-bold text-slate-400 tabular-nums shrink-0">{sortedFiltered.length}</span>
                 </div>
               </div>

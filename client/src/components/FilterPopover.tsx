@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import {
   autoUpdate, flip, offset, shift, size, FloatingFocusManager, FloatingPortal,
   useDismiss, useFloating, useInteractions,
@@ -6,6 +6,7 @@ import {
 import { SlidersHorizontal, X } from 'lucide-react';
 
 const boundaryPadding = 12;
+const FilterOverlayContext = createContext<string | null>(null);
 
 interface Props {
   open: boolean;
@@ -15,8 +16,8 @@ interface Props {
   children: ReactNode;
 }
 
-/** Deliveries-only overlay; the legacy filters in other modules remain independent. */
-export default function DeliveryFiltersPopover({ open, onOpenChange, count, onClear, children }: Props) {
+/** Shared filter panel with collision-aware, accessible nested suggestions. */
+export default function FilterPopover({ open, onOpenChange, count, onClear, children }: Props) {
   const id = useId();
   const { refs, floatingStyles, context } = useFloating({
     open, onOpenChange, placement: 'bottom-end', strategy: 'fixed',
@@ -33,7 +34,8 @@ export default function DeliveryFiltersPopover({ open, onOpenChange, count, onCl
   });
   const dismiss = useDismiss(context, {
     // Suggestions are portaled alongside the panel, so they count as inside clicks.
-    outsidePress: event => !(event.target instanceof Element && event.target.closest('[data-delivery-filter-options]')),
+    outsidePress: event => !(event.target instanceof Element
+      && event.target.closest('[data-filter-options-owner]')?.getAttribute('data-filter-options-owner') === id),
     escapeKey: false,
   });
   const { getReferenceProps, getFloatingProps } = useInteractions([dismiss]);
@@ -60,7 +62,9 @@ export default function DeliveryFiltersPopover({ open, onOpenChange, count, onCl
             <button type="button" aria-label="Close advanced filters" onClick={() => onOpenChange(false)}
               className="min-h-10 min-w-10 flex items-center justify-center rounded-lg hover:bg-slate-100"><X className="w-4 h-4" /></button>
           </div>
-          <div className="p-4 space-y-4 min-h-0 overflow-y-auto">{children}</div>
+          <div className="p-4 space-y-4 min-h-0 overflow-y-auto">
+            <FilterOverlayContext.Provider value={id}>{children}</FilterOverlayContext.Provider>
+          </div>
           <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-slate-100 shrink-0">
             <button type="button" disabled={!count} onClick={onClear}
               className="min-h-10 text-xs font-bold text-red-600 disabled:text-slate-400">Clear All Filters</button>
@@ -77,10 +81,12 @@ interface ComboboxProps {
   value: string;
   options: string[];
   onChange: (value: string) => void;
+  placeholder?: string;
 }
 
-export function DeliveryFilterCombobox({ label, value, options, onChange }: ComboboxProps) {
+export function FilterCombobox({ label, value, options, onChange, placeholder = 'All' }: ComboboxProps) {
   const id = useId();
+  const ownerId = useContext(FilterOverlayContext);
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const optionRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -111,7 +117,7 @@ export function DeliveryFilterCombobox({ label, value, options, onChange }: Comb
       <input ref={refs.setReference} {...getReferenceProps()} id={id} role="combobox" type="text"
         aria-autocomplete="list" aria-expanded={open} aria-controls={open ? `${id}-list` : undefined}
         aria-activedescendant={open && activeIndex >= 0 && suggestions[activeIndex] ? `${id}-option-${activeIndex}` : undefined}
-        value={value} placeholder={`All ${label === 'Driver' ? 'Drivers' : 'Account Managers'}`}
+        value={value} placeholder={placeholder}
         onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
         onChange={event => { onChange(event.target.value); setOpen(true); }}
         onKeyDown={event => {
@@ -130,7 +136,7 @@ export function DeliveryFilterCombobox({ label, value, options, onChange }: Comb
         className="absolute right-0 top-0 min-h-10 min-w-10 flex items-center justify-center text-slate-500"><X className="w-3.5 h-3.5" /></button>}
     </div>
     {open && <FloatingPortal>
-      <div ref={refs.setFloating} style={floatingStyles} {...getFloatingProps()} data-delivery-filter-options
+      <div ref={refs.setFloating} style={floatingStyles} {...getFloatingProps()} data-filter-options-owner={ownerId ?? undefined}
         id={`${id}-list`} role="listbox" aria-label={`${label} suggestions`}
         className="z-50 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg py-1">
         {suggestions.length === 0 && <div role="status" className="px-3 py-2 text-xs text-slate-500">No matches found</div>}
