@@ -28,6 +28,7 @@ import { DELIVERY_STATUSES, AREA_HIERARCHY, getRegion, getSubregion } from '@/da
 import { MapPin, SlidersHorizontal } from 'lucide-react';
 import DeliveryRecordWorkspace from '@/features/deliveries/DeliveryRecordWorkspace';
 import RecordCreateForm from '@/features/deliveries/RecordCreateForm';
+import DeliveryFiltersPopover, { DeliveryFilterCombobox } from './DeliveryFiltersPopover';
 
 interface DeliveryRecordsViewProps {
   category: DeliveryCategory;
@@ -491,6 +492,7 @@ export default function DeliveryRecordsView({
     !!dateTo,
     dateSort !== 'default',
   ].filter(Boolean).length;
+  const deliveryFilterCount = activeFilterCount + Number(statusFilter !== 'All') + Number(!!searchQuery);
 
   // Dynamic popover alignment & width to adapt to zoom levels and viewport boundaries
   const updatePopoverPosition = useCallback(() => {
@@ -908,6 +910,7 @@ export default function DeliveryRecordsView({
                       <button
                         key={s}
                         onClick={() => setStatusFilter(s)}
+                        aria-pressed={category === 'Deliveries' ? statusFilter === s : undefined}
                         className={`px-3 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer ${statusFilter === s
                           ? 'bg-[#1F3864] text-white border-[#1F3864]'
                           : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
@@ -924,9 +927,54 @@ export default function DeliveryRecordsView({
                   <div className="relative flex-1 sm:w-56 sm:flex-initial">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search records..."
+                      aria-label={category === 'Deliveries' ? 'Search delivery records' : undefined}
                       className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-hidden focus:ring-1 focus:ring-[#0078C1]" />
                   </div>
-                  <div className="relative">
+                  {category === 'Deliveries' ? (
+                    <DeliveryFiltersPopover open={showAdvancedFilters} onOpenChange={setShowAdvancedFilters}
+                      count={deliveryFilterCount}
+                      onClear={() => {
+                        setSearchQuery(''); setStatusFilter('All'); setRegionFilter('All Regions');
+                        setSubregionFilter('All Subregions'); setAreaFilter('All Areas');
+                        setAmFilter(''); setDriverFilter(''); setDateFrom(''); setDateTo(''); setDateSort('default');
+                      }}>
+                      <fieldset className="space-y-2 min-w-0">
+                        <legend className="text-xs font-bold text-slate-800 mb-2">Location</legend>
+                        <label className="block text-xs font-semibold text-slate-600">Region
+                          <select value={regionFilter}
+                            onChange={e => { setRegionFilter(e.target.value); setSubregionFilter('All Subregions'); setAreaFilter('All Areas'); }}
+                            className="mt-1 min-h-10 text-xs border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white focus:ring-2 focus:ring-[#0078C1]">
+                            <option value="All Regions">All Regions</option>
+                            {AREA_HIERARCHY.map(r => <option key={r.region} value={r.region}>{r.region}</option>)}
+                          </select>
+                        </label>
+                        <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-2">
+                          <label className="block min-w-0 text-xs font-semibold text-slate-600">Subregion
+                            <select value={subregionFilter}
+                              onChange={e => { setSubregionFilter(e.target.value); setAreaFilter('All Areas'); }}
+                              className="mt-1 min-h-10 text-xs border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white focus:ring-2 focus:ring-[#0078C1]">
+                              <option value="All Subregions">All Subregions</option>
+                              {(regionFilter === 'All Regions' ? AREA_HIERARCHY : AREA_HIERARCHY.filter(r => r.region === regionFilter))
+                                .flatMap(r => r.subregions).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+                            </select>
+                          </label>
+                          <label className="block min-w-0 text-xs font-semibold text-slate-600">Area
+                            <select value={areaFilter} onChange={e => setAreaFilter(e.target.value)}
+                              className="mt-1 min-h-10 text-xs border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white focus:ring-2 focus:ring-[#0078C1]">
+                              {distinctAreasForFilter.map(a => <option key={a} value={a}>{a}</option>)}
+                            </select>
+                          </label>
+                        </div>
+                      </fieldset>
+                      <fieldset className="min-w-0">
+                        <legend className="text-xs font-bold text-slate-800 mb-2">Personnel</legend>
+                        <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-2">
+                          <DeliveryFilterCombobox label="Account Manager" value={amFilter} onChange={setAmFilter} options={amOptions} />
+                          <DeliveryFilterCombobox label="Driver" value={driverFilter} onChange={setDriverFilter} options={driverOptions} />
+                        </div>
+                      </fieldset>
+                    </DeliveryFiltersPopover>
+                  ) : <div className="relative">
                     <button
                       ref={advFilterBtnRef}
                       onClick={() => {
@@ -1056,7 +1104,7 @@ export default function DeliveryRecordsView({
                         </div>
                       </div>
                     )}
-                  </div>
+                  </div>}
                   <span className="text-[11px] font-bold text-slate-400 tabular-nums shrink-0">{sortedFiltered.length}</span>
                 </div>
               </div>
