@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Plus, Search, X, Check, FileText, UploadCloud,
-  Loader2, Wand2, SlidersHorizontal
+  Loader2, Wand2
 } from 'lucide-react';
 import ExportMenu from '@/components/ExportMenu';
-import AccountManagerCombobox from '@/components/AccountManagerCombobox';
+import FilterPopover, { FilterCombobox } from '@/components/FilterPopover';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, PDF_AC_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
 import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus } from '@/types';
@@ -118,6 +118,8 @@ export default function AccountingCollectionView({
   const [dateSort, setDateSort] = useState<'default' | 'nearest' | 'oldest' | 'furthest'>('default');
   const [amFilter, setAmFilter] = useState('');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const activeFilterCount = [!!searchQuery, statusFilter !== 'All', !!amFilter, dateSort !== 'default'].filter(Boolean).length;
+  const clearAllFilters = () => { setSearchQuery(''); setStatusFilter('All'); setAmFilter(''); setDateSort('default'); };
   const [form, setForm] = useState<RecordFormState>(buildEmptyForm());
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [attachmentNames, setAttachmentNames] = useState<string[]>([]);
@@ -584,6 +586,7 @@ export default function AccountingCollectionView({
                     <button
                       key={s}
                       onClick={() => setStatusFilter(s)}
+                      aria-pressed={statusFilter === s}
                       className={`px-3 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer ${
                         statusFilter === s
                           ? 'bg-[#1F3864] text-white border-[#1F3864]'
@@ -597,66 +600,37 @@ export default function AccountingCollectionView({
               </div>
 
               {/* RIGHT: search + filter toggle + record count */}
-              <div className="flex items-center gap-2 shrink-0">
-                <div className="relative w-56">
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end shrink-0">
+                <div className="relative flex-1 sm:w-56 sm:flex-initial">
                   <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
+                    aria-label="Search accounting collection records"
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                     placeholder="Search by ID, company, reference..."
                     className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-[#0078C1]"
                   />
                 </div>
-                <button
-                  onClick={() => setShowAdvancedFilters(v => !v)}
-                  className={`relative p-2 rounded-lg border transition-all cursor-pointer ${showAdvancedFilters ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-400'}`}
-                  title="Toggle advanced filters"
-                >
-                  <SlidersHorizontal className="w-4 h-4" />
-                  {(!!amFilter || dateSort !== 'default') && (
-                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-white" />
-                  )}
-                </button>
+                <FilterPopover open={showAdvancedFilters} onOpenChange={setShowAdvancedFilters}
+                  count={activeFilterCount} onClear={clearAllFilters}>
+                  <FilterCombobox label="Account Manager" placeholder="All Account Managers"
+                    value={amFilter} onChange={setAmFilter} options={amOptions} />
+                  <label className="block text-xs font-semibold text-slate-600">Date sort
+                    <select value={dateSort} onChange={e => setDateSort(e.target.value as typeof dateSort)}
+                      className="mt-1 min-h-10 w-full text-xs border border-slate-200 rounded-lg px-2.5 py-2 bg-white focus:ring-2 focus:ring-[#0078C1]">
+                      <option value="default">Sort: Default</option>
+                      <option value="nearest">Sort: Nearest to Present</option>
+                      <option value="oldest">Sort: Oldest First</option>
+                      <option value="furthest">Sort: Furthest Future First</option>
+                    </select>
+                  </label>
+                </FilterPopover>
                 <span className="text-[11px] font-bold text-slate-400 tabular-nums shrink-0">{sortedFiltered.length}</span>
               </div>
             </div>
 
-            {/* ── Collapsible Advanced Filters ── */}
-            {showAdvancedFilters && (
-              <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-end gap-3">
-                {/* Account Manager */}
-                <AccountManagerCombobox
-                  value={amFilter}
-                  onChange={setAmFilter}
-                  options={amOptions}
-                  placeholder="Account Manager"
-                  inputClassName="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 w-40 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] placeholder:text-slate-400"
-                />
 
-                {/* Date sort */}
-                <select
-                  value={dateSort}
-                  onChange={e => setDateSort(e.target.value as typeof dateSort)}
-                  className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#0078C1]"
-                >
-                  <option value="default">Sort: Default</option>
-                  <option value="nearest">Sort: Nearest to Present</option>
-                  <option value="oldest">Sort: Oldest First</option>
-                  <option value="furthest">Sort: Furthest Future First</option>
-                </select>
-
-                {/* Clear all */}
-                {(searchQuery || statusFilter !== 'All' || amFilter || dateSort !== 'default') && (
-                  <button
-                    onClick={() => { setSearchQuery(''); setStatusFilter('All'); setAmFilter(''); setDateSort('default'); }}
-                    className="px-3 py-1.5 text-[#1F3864] hover:underline font-bold text-[10px] uppercase cursor-pointer"
-                  >
-                    Clear All
-                  </button>
-                )}
-              </div>
-            )}
           </div>
 
           {/* Table */}
