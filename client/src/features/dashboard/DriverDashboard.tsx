@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   CheckCircle,
   MapPin,
@@ -10,8 +10,12 @@ import {
   LogOut,
   X,
   Loader2,
+  Paperclip,
+  FileText
 } from "lucide-react";
 import { DeliveryRecord, DeliveryStatus } from "@/types";
+import { api, ApiPodAttachment } from "@/api";
+import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from "@/utils/attachmentValidation";
 
 interface DriverDashboardProps {
   records: DeliveryRecord[];
@@ -231,6 +235,11 @@ export default function DriverDashboard({
                       <Clock className="w-4 h-4 text-blue-500 shrink-0" />
                       Time In recorded: {fmtTime(rec.time_in)}
                     </div>
+                  )}
+
+                  {/* Step 2: Proof of Delivery */}
+                  {rec.time_in && (
+                    <PodUploader recordId={rec.id} />
                   )}
 
                   {/* Receiver Name — always visible, optional */}
@@ -458,6 +467,80 @@ export default function DriverDashboard({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function PodUploader({ recordId }: { recordId: string }) {
+  const [files, setFiles] = useState<ApiPodAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    api.getRecordAttachments(recordId).then(setFiles).catch(() => {});
+  }, [recordId]);
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const incoming = e.target.files;
+    if (!incoming || incoming.length === 0 || uploading) return;
+    const selectedFiles = Array.from(incoming);
+    const validationError = validatePodAttachments(selectedFiles);
+    if (validationError) {
+      setError(validationError);
+      if (inputRef.current) inputRef.current.value = '';
+      return;
+    }
+
+    setUploading(true);
+    setError(null);
+    try {
+      for (const file of selectedFiles) {
+        const uploaded = await api.uploadRecordAttachment(recordId, file);
+        setFiles(prev => [uploaded, ...prev]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed.');
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  };
+
+  return (
+    <div className="space-y-1">
+      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
+        <Paperclip className="w-3.5 h-3.5" /> Proof of Delivery
+      </label>
+      <div className="space-y-2">
+        <button
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
+          className="w-full py-2 border border-slate-300 border-dashed rounded-xl text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 hover:border-[#0078C1] flex items-center justify-center gap-2 transition-colors cursor-pointer"
+        >
+          {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4 text-slate-400" />}
+          {uploading ? 'Uploading...' : 'Upload Photo / Document'}
+        </button>
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept={POD_ATTACHMENT_ACCEPT}
+          className="hidden"
+          onChange={handleFileSelect}
+        />
+        {error && <p className="text-[10px] text-red-500 font-semibold">{error}</p>}
+        {files.length > 0 && (
+          <div className="flex flex-col gap-1.5 mt-2">
+            {files.map(f => (
+              <div key={f.id} className="flex items-center gap-2 text-[10px] bg-slate-100 px-2.5 py-1.5 rounded-lg border border-slate-200 shadow-sm">
+                <FileText className="w-3.5 h-3.5 text-[#1F3864] shrink-0" />
+                <span className="truncate text-slate-700 font-semibold flex-1">{f.name}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
