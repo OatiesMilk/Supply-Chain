@@ -16,6 +16,7 @@ Before running any test case, confirm the database is ready.
 | Step | Action | Expected Result |
 |------|--------|-----------------|
 | P-1 | Run `npm run seed:users-only` from root | Users are created without delivery records |
+| P-1.1 | Run `npm run seed:driver-demo` from root | A driver-assigned delivery record exists for today; use the seeded **Leo Driver** account |
 | P-2 | Open `http://localhost:3000` in browser | Login page is visible |
 | P-3 | Check that you have one user per role: **Sales Coordinator**, **Logistics**, **Driver** | All three accounts are accessible |
 
@@ -194,16 +195,18 @@ Before running any test case, confirm the database is ready.
 | Test ID | Test Case | Steps | Expected Result | Pass / Fail |
 |---------|-----------|-------|-----------------|-------------|
 | C-2.1 | Record Time In | Click **Record Time In** button on an active record card | Button disappears; replaced by a blue confirmation banner showing the recorded time | |
-| C-2.2 | POD upload section appears | After tapping Time In, scroll down the card | A **"Proof of Delivery"** section with an **Upload Photo / Document** button is now visible | |
-| C-2.3 | Upload a POD file | Click **Upload Photo / Document** → select a JPG or PDF image | File name appears below the button; upload completes | |
-| C-2.4 | Upload multiple POD files | Repeat upload with a second file | Both file entries appear below the button | |
-| C-2.5 | POD upload rejected if wrong type | Select a non-image/non-PDF file | Error message shown; file is not uploaded | |
-| C-2.6 | Fill Received By | Type a name in the **Received By** field | Text input accepts and stores the name for submission | |
-| C-2.7 | Mark as Accomplished | Click the green **Accomplish** button → enter remarks → click Confirm | Record moves to the **Accomplished** section at the bottom of the dashboard; stats update | |
-| C-2.8 | Mark as Pending | On a different active record, click the amber **Pending** button → enter remarks → Confirm | Record stays visible but status changes to Pending | |
-| C-2.9 | Mark as Rescheduled | Click the purple **Reschedule** button → enter remarks → Confirm | Record is marked Rescheduled | |
-| C-2.10 | Remarks are required | Click **Accomplish** → click Confirm without entering remarks | Confirm button is **disabled** (greyed out); cannot submit | |
-| C-2.11 | Cannot update other driver's record | Attempt to access a record belonging to another driver via URL manipulation | Backend returns 403: "Drivers may only update their own assigned records" | |
+| C-2.2 | POD upload section is visible | Open an active delivery card, before or after Time In | A **"Proof of Delivery (photo required)"** section with an **Upload Photo / Document** button is visible | |
+| C-2.3 | Upload a supporting document | Click **Upload Photo / Document** → select a PDF or DOC file | File name appears below the button; upload completes, but it does **not** satisfy the photo requirement | |
+| C-2.4 | Upload a valid delivery photo | Select a real JPG or PNG image and wait for the saved confirmation | The photo appears as saved/verified; **Accomplish** becomes eligible once the other requirements are met | |
+| C-2.5 | PDF/DOC alone cannot accomplish | With only PDF/DOC attachments saved, attempt to open or submit Accomplish | Accomplish remains disabled or the backend rejects completion with the photo-required message | |
+| C-2.6 | POD upload rejected if wrong type | Select a non-JPG/PNG/PDF/DOC file | Error message shown; file is not uploaded | |
+| C-2.7 | Fill Received By | Type a name in the **Received By** field | Text input accepts and stores the name for submission | |
+| C-2.8 | Mark as Accomplished | After a saved JPG/PNG exists, click green **Accomplish** → enter remarks → click Confirm | Record moves to the **Accomplished** section; stats update | |
+| C-2.9 | Mark as Pending | On a different active record, click amber **Pending** → enter remarks → Confirm | Record stays visible but status changes to Pending; no delivery photo is required | |
+| C-2.10 | Mark as Rescheduled | Click purple **Reschedule** → enter remarks → Confirm | Record is marked Rescheduled; no delivery photo is required | |
+| C-2.11 | Remarks are required | With a saved JPG/PNG, click **Accomplish** → click Confirm without entering remarks | Confirm button is **disabled**; cannot submit | |
+| C-2.12 | Cannot complete through the API without a photo | Send a direct `PATCH /api/records/:id/status` request with `status=Delivered` and remarks but no saved photo | Backend returns **400** with the photo-required message; record remains unchanged | |
+| C-2.13 | Cannot update other driver's record | Attempt to upload or complete a record belonging to another driver via URL/API manipulation | Backend returns **403**; assigned-driver access is enforced | |
 
 ---
 
@@ -211,9 +214,9 @@ Before running any test case, confirm the database is ready.
 
 | Test ID | Test Case | Steps | Expected Result | Pass / Fail |
 |---------|-----------|-------|-----------------|-------------|
-| C-3.1 | Accomplished section visible | After completing C-2.7, scroll to bottom of dashboard | An "Accomplished" divider section appears with completed record cards | |
+| C-3.1 | Accomplished section visible | After completing C-2.8, scroll to bottom of dashboard | An "Accomplished" divider section appears with completed record cards | |
 | C-3.2 | Time In/Out shown on done cards | Check the accomplished record card | Time In and Time Out timestamps are displayed | |
-| C-3.3 | Received By shown on done cards | Check accomplished record | The name entered in C-2.6 is displayed next to a checkmark icon | |
+| C-3.3 | Received By shown on done cards | Check accomplished record | The name entered in C-2.7 is displayed next to a checkmark icon | |
 
 ---
 
@@ -225,6 +228,8 @@ This test verifies that Logistics can see the Driver's field updates in real-tim
 |---------|-----------|-------|-----------------|-------------|
 | X-1 | Driver records update visible to Logistics | Log in as Driver → Accomplish a record → Log out → Log in as Logistics → Open same record | Status shows **Delivered**, Time In/Out populated, Received By name shown, POD attachments visible in Documents tab | |
 | X-2 | Audit trail shows Driver activity | As Logistics, open the Accomplished record → Audit Trail tab | The driver's status change and time entries are logged with the driver's name | |
+
+> **Delivery completion rule:** A Delivery can be marked **Accomplished** only when at least one successfully saved, byte-validated JPG or PNG proof-of-delivery photo exists and remarks are provided. PDF/DOC files are optional supporting documents and do not satisfy the photo requirement. The backend enforces this rule independently of the frontend.
 
 ---
 

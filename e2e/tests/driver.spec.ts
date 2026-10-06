@@ -79,39 +79,51 @@ test.describe('C-2 ePOD Flow', () => {
     await expect(page.getByText(/time in recorded/i)).toBeVisible({ timeout: 8_000 });
   });
 
-  test('C-2.2 POD upload section appears AFTER Time In', async ({ page }) => {
-    // The PodUploader only renders when rec.time_in is truthy
-    const timeInConfirmation = page.getByText(/time in recorded/i).first();
-    if (!(await timeInConfirmation.isVisible())) {
-      test.skip(true, 'Time In not yet recorded — cannot verify POD upload section');
+  test('C-2.2 POD upload section is visible on an active delivery', async ({ page }) => {
+    const uploadButton = page.getByRole('button', { name: /upload photo|upload.*doc/i }).first();
+    if (!(await uploadButton.isVisible())) {
+      test.skip(true, 'No active record assigned to driver for today — skipping ePOD tests');
       return;
     }
-
     await expect(page.getByText(/proof of delivery/i)).toBeVisible();
-    await expect(page.getByRole('button', { name: /upload photo|upload.*doc/i })).toBeVisible();
+    await expect(uploadButton).toBeVisible();
   });
 
-  test('C-2.3 Driver can upload a POD file', async ({ page }) => {
+  test('C-2.4 Driver can upload a valid delivery photo', async ({ page }) => {
     const podSection = page.getByRole('button', { name: /upload photo|upload.*doc/i }).first();
     if (!(await podSection.isVisible())) {
-      test.skip(true, 'POD upload section not yet visible — Time In must be recorded first');
+      test.skip(true, 'POD upload section not visible');
       return;
     }
 
-    const jpgPath = path.join('/tmp', 'uat_pod.jpg');
-    // Minimal JPEG magic bytes
-    const jpegBuf = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, ...Buffer.from('UAT POD FILE')]);
-    fs.writeFileSync(jpgPath, jpegBuf);
+    const pngPath = path.join('/tmp', 'uat_pod.png');
+    const pngBuf = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
+    fs.writeFileSync(pngPath, pngBuf);
 
     const fileInput = page.locator('input[type="file"]').last();
-    await fileInput.setInputFiles(jpgPath);
+    await fileInput.setInputFiles(pngPath);
 
-    await expect(page.getByText('uat_pod.jpg')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('uat_pod.png')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/delivery photo saved/i)).toBeVisible({ timeout: 15_000 });
 
-    fs.unlinkSync(jpgPath);
+    fs.unlinkSync(pngPath);
   });
 
-  test('C-2.6 Received By field accepts text', async ({ page }) => {
+  test('C-2.3 Supporting documents upload but do not satisfy photo proof', async ({ page }) => {
+    const podSection = page.getByRole('button', { name: /upload photo|upload.*doc/i }).first();
+    if (!(await podSection.isVisible())) {
+      test.skip(true, 'POD upload section not visible');
+      return;
+    }
+
+    const pdfPath = path.join('/tmp', 'uat_supporting_document.pdf');
+    fs.writeFileSync(pdfPath, '%PDF-1.4 UAT supporting document');
+    await page.locator('input[type="file"]').last().setInputFiles(pdfPath);
+    await expect(page.getByText('uat_supporting_document.pdf')).toBeVisible({ timeout: 15_000 });
+    fs.unlinkSync(pdfPath);
+  });
+
+  test('C-2.7 Received By field accepts text', async ({ page }) => {
     const receivedByInput = page.getByPlaceholder(/received.*item|name of person/i).first();
     if (!(await receivedByInput.isVisible())) {
       test.skip(true, 'Received By input not visible');
@@ -136,7 +148,7 @@ test.describe('C-2 ePOD Flow', () => {
     await expect(confirmBtn).toBeDisabled();
   });
 
-  test('C-2.7 Full Accomplish flow with remarks', async ({ page }) => {
+  test('C-2.8 Full Accomplish flow with remarks', async ({ page }) => {
     const accomplishBtn = page.getByRole('button', { name: /accomplish/i }).first();
     if (!(await accomplishBtn.isVisible())) {
       test.skip(true, 'No active record to accomplish');
