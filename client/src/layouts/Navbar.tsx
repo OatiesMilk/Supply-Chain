@@ -1,3 +1,4 @@
+import { manilaToday } from '@/utils/recordLifecycle';
 import React, { useState } from "react";
 import {
   Menu,
@@ -113,7 +114,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         <span className="hidden md:flex items-center gap-1.5 font-bold text-slate-500 text-[10.5px] uppercase tracking-wide">
           <Clock className="w-3.5 h-3.5 text-slate-400" />{" "}
-          {new Date().toISOString().split("T")[0]}
+          {manilaToday()}
         </span>
 
         <button

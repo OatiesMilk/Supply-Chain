@@ -11,7 +11,7 @@ export type DeliveryCategory =
   | 'Accounting Collection'
   | 'Procurement Pick-up';
 
-export type DeliveryStatus = 'Scheduled' | 'Delivered' | 'On-Hold' | 'Rescheduled' | 'Pending';
+export type DeliveryStatus = 'Draft' | 'Scheduled' | 'In Transit' | 'Delivered' | 'On-Hold' | 'Rescheduled' | 'Pending';
 
 export type PriorityLevel = '1 - Low' | '2 - Moderate' | '3 - High';
 
@@ -47,6 +47,7 @@ export interface DeliveryRecord extends AuditFields {
   reference: string; // SAP number
   remarks: string;
   status: DeliveryStatus;
+  allowed_statuses?: DeliveryStatus[]; // Authoritative transitions supplied by the server
   vehicle: string;
   area: string;
   driver: string;

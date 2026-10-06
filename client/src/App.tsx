@@ -181,11 +181,11 @@ function AuthenticatedApp() {
   const countByCategory = (cat: DeliveryCategory, statuses: string[]) =>
     deliveryRecords.filter(r => r.category === cat && statuses.includes(r.status)).length;
 
-  const deliveriesActiveCount = countByCategory('Deliveries', ['Scheduled', 'Pending']);
-  const rmaActiveCount = countByCategory('RMA', ['Scheduled', 'Pending', 'On-Hold']);
-  const salesOrdersActiveCount = countByCategory('Sales Orders', ['Scheduled', 'Pending']);
-  const accountingActiveCount = countByCategory('Accounting Collection', ['Scheduled', 'Pending']);
-  const procurementActiveCount = countByCategory('Procurement Pick-up', ['Scheduled', 'Pending']);
+  const deliveriesActiveCount = countByCategory('Deliveries', ['Scheduled', 'In Transit', 'Pending']);
+  const rmaActiveCount = countByCategory('RMA', ['Scheduled', 'In Transit', 'Pending', 'On-Hold']);
+  const salesOrdersActiveCount = countByCategory('Sales Orders', ['Scheduled', 'In Transit', 'Pending']);
+  const accountingActiveCount = countByCategory('Accounting Collection', ['Scheduled', 'In Transit', 'Pending']);
+  const procurementActiveCount = countByCategory('Procurement Pick-up', ['Scheduled', 'In Transit', 'Pending']);
 
   // Driver role gets standalone mobile-first dashboard
   if (effectiveScreens.size === 0) {

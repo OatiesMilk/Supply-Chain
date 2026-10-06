@@ -8,7 +8,7 @@ import { DeliveryRecord } from '../types';
 import { ExportColumn, ExportMeta, StatusHistoryCounts, fmtDate, fmtTime, fmtStatus, fmtCurrency, fmtDatetime } from './export';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE, getExcelPageSetup, getPdfFormat, fitColumnWidths } from './documentSize';
 
-const STATUS_ORDER = ['Scheduled', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'] as const;
+const STATUS_ORDER = ['Draft', 'Scheduled', 'In Transit', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'] as const;
 
 // ─── Sort ────────────────────────────────────────────────────────────────────
 
