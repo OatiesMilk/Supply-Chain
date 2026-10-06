@@ -18,7 +18,12 @@
     "seed:driver-demo": "npm run seed:driver-demo --workspace=mg-portal-server",
     "pod:reconcile": "npm run pod:reconcile --workspace=mg-portal-server",
     "docker:up": "docker-compose up -d",
-    "docker:down": "docker-compose down"
+    "docker:down": "docker-compose down",
+    "e2e": "npm test --prefix e2e",
+    "e2e:sc": "npm run test:sc --prefix e2e",
+    "e2e:logistics": "npm run test:logistics --prefix e2e",
+    "e2e:driver": "npm run test:driver --prefix e2e",
+    "e2e:report": "npm run report --prefix e2e"
   },
   "devDependencies": {
     "concurrently": "^10.0.5",

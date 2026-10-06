@@ -8,6 +8,10 @@ import { api } from '@/api';
 import { DRIVERS, VEHICLES, DRIVER_ASSISTANTS } from '@/data';
 import { getOutputTrigger, runOutputActions } from '@/outputActions';
 import { screenKeyForCategory } from '@/routes/screenRouting';
+import AssistantPicker from './AssistantPicker';
+import PodUploader from '@/components/PodUploader';
+import { usePodAttachments } from '@/api/queries/usePodAttachments';
+import { deliveryPhotoError } from '@/utils/podRequirement';
 
 interface DriverViewProps {
   records: DeliveryRecord[];
@@ -69,6 +73,8 @@ export default function DriverView({
       ? a.delivery_date.localeCompare(b.delivery_date) || a.reference.localeCompare(b.reference)
       : b.delivery_date.localeCompare(a.delivery_date) || a.reference.localeCompare(b.reference));
   const selectedRecord = records.find(record => record.id === selectedRecordId && record.driver === driver) ?? null;
+  const { readiness: podReadiness } = usePodAttachments(selectedRecord?.id ?? '');
+  const photoError = selectedRecord ? deliveryPhotoError(selectedRecord.category, 'Delivered', podReadiness) : null;
   const activeForDriver = driverRecords.filter(isActive).length;
 
   useEffect(() => {
@@ -122,6 +128,7 @@ export default function DriverView({
 
   const confirmStatus = async () => {
     if (!selectedRecord || !pendingStatus || !remarks.trim()) return;
+    if (deliveryPhotoError(selectedRecord.category, pendingStatus, podReadiness)) return;
     const status = pendingStatus;
     const receivedBy = receiverInputs[selectedRecord.id]?.trim() || selectedRecord.received_by?.trim() || '';
     const updates = {
@@ -287,8 +294,6 @@ export default function DriverView({
                         </div>
                       )}
 
-                      {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
-
                       {selectedRecord.category === 'RMA' && (
                         <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">RMA runs are view only for Logistics.</p>
                       )}
@@ -303,27 +308,13 @@ export default function DriverView({
                           </select>
                         </div>
 
-                        <div>
-                          <label htmlFor="driver-run-assistant" className="mb-1 block text-sm font-medium text-slate-700">Assistants</label>
-                          <div className={`min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base flex flex-wrap items-center gap-2 min-w-0 focus-within:ring-2 focus-within:ring-blue-600 focus-within:border-blue-600 ${saving ? 'opacity-50 pointer-events-none' : ''}`}>
-                            {selectedRecord.driver_assistants.map(name => (
-                              <span key={name} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700 min-w-0 max-w-full">
-                                <span className="min-w-0 break-words">{name}</span>
-                                <button type="button" disabled={saving} onClick={() => removeAssistant(selectedRecord, name)}
-                                  aria-label={`Remove ${name}`} className="flex min-h-7 min-w-7 shrink-0 items-center justify-center rounded-full hover:bg-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">
-                                  <X aria-hidden="true" className="h-3.5 w-3.5" />
-                                </button>
-                              </span>
-                            ))}
-                            <select id="driver-run-assistant" value="" disabled={saving} onChange={event => addAssistant(selectedRecord, event.target.value)}
-                              className="flex-1 basis-32 min-w-0 max-w-full border-none bg-transparent p-0 outline-none focus:ring-0 text-base">
-                              <option value="">Add assistant…</option>
-                              {DRIVER_ASSISTANTS.filter(name => !selectedRecord.driver_assistants.includes(name)).map(name =>
-                                <option key={name} value={name}>{name}</option>)}
-                            </select>
-                          </div>
-                        </div>
+                        <AssistantPicker key={selectedRecord.id} selected={selectedRecord.driver_assistants}
+                          options={DRIVER_ASSISTANTS} saving={saving}
+                          onAdd={name => addAssistant(selectedRecord, name)}
+                          onRemove={name => removeAssistant(selectedRecord, name)} />
                       </div>}
+
+                      {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
 
                       {selectedRecord.category !== 'RMA' && selectedRecord.status !== 'Delivered' && (
                         <div className="space-y-4 border-t border-slate-200 pt-4">
@@ -346,9 +337,11 @@ export default function DriverView({
                             </div>
                           )}
 
+                          <PodUploader key={selectedRecord.id} recordId={selectedRecord.id} required={selectedRecord.category === 'Deliveries'} disabled={saving} />
+                          {photoError && <p className="text-xs text-slate-600">{photoError}</p>}
                           <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
                             {(['Delivered', 'Pending', 'Rescheduled'] as const).map(status => (
-                              <button key={status} type="button" disabled={saving || (status === 'Delivered' && (!selectedRecord.time_in || !(receiverInputs[selectedRecord.id]?.trim() || selectedRecord.received_by?.trim())))}
+                              <button key={status} type="button" disabled={saving || (status === 'Delivered' && (!!photoError || !selectedRecord.time_in || !(receiverInputs[selectedRecord.id]?.trim() || selectedRecord.received_by?.trim())))}
                                 onClick={event => { lastTrigger.current = event.currentTarget; setPendingStatus(status); setRemarks(''); setError(''); }}
                                 className={`min-h-11 rounded-lg px-2 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${status === 'Delivered' ? 'bg-emerald-700 text-white' : status === 'Pending' ? 'bg-amber-100 text-amber-900' : 'bg-violet-100 text-violet-900'}`}>
                                 {status === 'Delivered' ? 'Accomplish' : status === 'Rescheduled' ? 'Reschedule' : status}
@@ -401,6 +394,7 @@ export default function DriverView({
               <button type="button" onClick={closeStatus} disabled={saving} aria-label="Close status confirmation"
                 className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"><X aria-hidden="true" className="h-5 w-5" /></button>
             </div>
+            {pendingStatus === 'Delivered' && photoError && <p role="alert" className="text-sm text-red-800">{photoError}</p>}
             {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
             <div>
               <label htmlFor="driver-status-remarks" className="mb-1 block text-sm font-semibold text-slate-700">Remarks <span aria-hidden="true">*</span></label>
@@ -409,7 +403,7 @@ export default function DriverView({
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={closeStatus} disabled={saving} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700">Cancel</button>
-              <button type="button" onClick={() => void confirmStatus()} disabled={saving || !remarks.trim()}
+              <button type="button" onClick={() => void confirmStatus()} disabled={saving || !remarks.trim() || !!deliveryPhotoError(selectedRecord.category, pendingStatus, podReadiness)}
                 className="min-h-11 rounded-lg bg-blue-800 px-4 text-sm font-semibold text-white disabled:opacity-40">{saving ? 'Saving…' : 'Confirm'}</button>
             </div>
           </div>

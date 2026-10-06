@@ -12,3 +12,7 @@ server/uploads/
 teams/.env
 teams/manifest.filled.json
 teams/microgenesis-teams-app.zip
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/
+e2e/helpers/auth-*.json

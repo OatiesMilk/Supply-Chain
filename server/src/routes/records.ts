@@ -8,6 +8,7 @@ import { notifyAccomplished } from '../services/notify';
 import { notifyRole, notifyUser } from '../services/inAppNotify';
 import { CATEGORY_TO_DB, STATUS_TO_DB, STATUS_FROM_DB, serializeRecord } from '../mappings';
 import { podStorage, podUpload } from '../services/podStorage';
+import { DELIVERY_PHOTO_REQUIRED, hasStoredDeliveryPhoto, isPhotoMimeType, isPodPhoto, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
 
 import { canWriteCategory, recordScope } from '../services/recordAccess';
 
@@ -158,31 +159,36 @@ router.get('/:id/audit', requireAuth, requireResource('records'), requireRecordA
   );
 });
 
-router.get('/:id/attachments', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
+router.get('/:id/attachments', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
   const attachments = await prisma.podAttachment.findMany({
     where: { recordId: req.params.id },
     orderBy: { createdAt: 'desc' }
   });
-  res.json(attachments.map(attachment => ({
+  res.json(await Promise.all(attachments.map(async attachment => ({
     id: attachment.id,
     name: attachment.originalName,
     mime_type: attachment.mimeType,
+    is_photo: await isStoredPodPhoto(attachment),
     size: attachment.size,
     uploaded_at: attachment.createdAt,
     download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`
-  })));
-});
+  }))));
+}));
 
 router.post(
   '/:id/attachments',
   requireAuth,
   requireResource('records'),
   requireRecordAccess,
-  requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'),
+  requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER'),
   podUpload.single('file'),
   asyncRoute(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'A file is required.' });
-    const record = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null } });
+    const isPhoto = isPodPhoto(req.file.buffer, req.file.mimetype);
+    if (isPhotoMimeType(req.file.mimetype) && !isPhoto) {
+      return res.status(400).json({ error: 'This file is not a valid JPG or PNG photo. Choose a photo and try again.' });
+    }
+    const record = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] } });
     if (!record) return res.status(404).json({ error: 'Record not found' });
 
     const storageKey = await podStorage.save({
@@ -198,14 +204,14 @@ router.post(
         data: {
           recordId: record.id,
           originalName: req.file.originalname,
-storageKey,
+          storageKey,
           mimeType: req.file.mimetype,
           size: req.file.size,
           uploadedById: req.user!.id
         }
       });
     } catch (error) {
-await podStorage.remove(storageKey).catch(cleanupError => {
+      await podStorage.remove(storageKey).catch(cleanupError => {
         console.error('[POD] Failed to clean up storage after metadata failure', cleanupError);
       });
       throw error;
@@ -214,6 +220,7 @@ await podStorage.remove(storageKey).catch(cleanupError => {
       id: attachment.id,
       name: attachment.originalName,
       mime_type: attachment.mimeType,
+      is_photo: isPhoto,
       size: attachment.size,
       uploaded_at: attachment.createdAt,
       download_url: `/api/records/${record.id}/attachments/${attachment.id}/download`
@@ -238,16 +245,24 @@ router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResour
 }));
 
 router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'), asyncRoute(async (req, res) => {
-  const attachment = await prisma.podAttachment.findFirst({
-    where: { id: req.params.attachmentId, recordId: req.params.id }
+  const result = await prisma.$transaction(async tx => {
+    await lockPodRecord(tx, req.params.id);
+    const attachment = await tx.podAttachment.findFirst({ where: { id: req.params.attachmentId, recordId: req.params.id } });
+    if (!attachment) return { status: 404, error: 'Attachment not found' };
+    const record = await tx.deliveryRecord.findUnique({ where: { id: req.params.id } });
+    if (record?.category === 'DELIVERY' && record.status === 'ACCOMPLISHED' &&
+        await isStoredPodPhoto(attachment) && !await hasStoredDeliveryPhoto(tx, record.id, attachment.id)) {
+      return { status: 409, error: 'Keep at least one delivery photo on an accomplished delivery. Upload a replacement before removing this photo.' };
+    }
+    try {
+      await podStorage.remove(attachment.storageKey);
+    } catch {
+      return { status: 500, error: 'Attachment could not be removed from storage. The database record was preserved for retry.' };
+    }
+    await tx.podAttachment.delete({ where: { id: attachment.id } });
+    return null;
   });
-  if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
-  try {
-    await podStorage.remove(attachment.storageKey);
-  } catch (error) {
-    return res.status(500).json({ error: 'Attachment could not be removed from storage. The database record was preserved for retry.' });
-  }
-  await prisma.podAttachment.delete({ where: { id: attachment.id } });
+  if (result) return res.status(result.status).json({ error: result.error });
   res.status(204).send();
 }));
 
@@ -297,6 +312,9 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
   }
 
   const dbStatus = STATUS_TO_DB[b.status] ?? 'SCHEDULED';
+  if (dbCategory === 'DELIVERY' && dbStatus === 'ACCOMPLISHED') {
+    return res.status(400).json({ error: DELIVERY_PHOTO_REQUIRED });
+  }
 
   const created = await prisma.deliveryRecord.create({
     data: {
@@ -502,7 +520,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
 
 // Status change — Logistics, Admin, Driver (own records), and TASS (RMA only).
 // This is also the sole path that fires the ACCOMPLISHED automated trigger.
-router.patch('/:id/status', requireAuth, requireResource('records'), requireRecordAccess, requireRole('LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), async (req, res) => {
+router.patch('/:id/status', requireAuth, requireResource('records'), requireRecordAccess, requireRole('LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), asyncRoute(async (req, res) => {
   const { status, remarks, time_out, received_by, priority } = req.body ?? {};
   if (!status || !STATUS_TO_DB[status]) {
     return res.status(400).json({ error: 'Valid status is required' });
@@ -552,6 +570,10 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   if (received_by !== undefined) statusData.receivedBy = received_by ?? null;
 
   const updated = await prisma.$transaction(async tx => {
+    await lockPodRecord(tx, existing.id);
+    if (existing.category === 'DELIVERY' && dbStatus === 'ACCOMPLISHED' && !await hasStoredDeliveryPhoto(tx, existing.id)) {
+      return 'PHOTO_REQUIRED' as const;
+    }
     // Guard both submitted fields against concurrent edits before writing history.
     const changed = await tx.deliveryRecord.updateMany({
       where: { id: existing.id, status: existing.status, deletedAt: null,
@@ -576,6 +598,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     } });
     return saved;
   });
+  if (updated === 'PHOTO_REQUIRED') return res.status(400).json({ error: DELIVERY_PHOTO_REQUIRED });
   if (!updated) return res.status(409).json({ error: 'The record changed while you were editing. Refresh the record and try again.' });
 
   if (dbStatus === 'ACCOMPLISHED' && existing.status !== 'ACCOMPLISHED') {
@@ -601,7 +624,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   }
 
   res.json(serializeRecord(updated));
-});
+}));
 
 // Collection verification - TASS only, for ACCOUNTING_COLLECTION records that are ACCOMPLISHED.
 router.patch('/:id/verify-collection', requireAuth, requireResource('records'), requireRecordAccess, requireRole('TASS'), async (req, res) => {
