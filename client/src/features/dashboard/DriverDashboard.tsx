@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useCallback } from "react";
 import {
   CheckCircle,
   MapPin,
@@ -9,18 +9,16 @@ import {
   UserCheck,
   LogOut,
   X,
-  Loader2,
-  Paperclip,
-  FileText
+  Loader2
 } from "lucide-react";
 import { DeliveryRecord, DeliveryStatus } from "@/types";
-import { api, ApiPodAttachment } from "@/api";
-import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from "@/utils/attachmentValidation";
+import PodUploader from "@/components/PodUploader";
+import { deliveryPhotoError, type PodReadiness } from "@/utils/podRequirement";
 
 interface DriverDashboardProps {
   records: DeliveryRecord[];
   currentUserName: string;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   onLogout: () => void;
   dataLoading: boolean;
 }
@@ -62,6 +60,16 @@ export default function DriverDashboard({
     Record<string, string>
   >({});
 
+  const [podStates, setPodStates] = useState<Record<string, PodReadiness>>({});
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const onPodReadinessChange = useCallback((id: string, state: PodReadiness) => {
+    setPodStates(previous => ({ ...previous, [id]: state }));
+  }, []);
+  const photoError = pendingAction
+    ? deliveryPhotoError(pendingAction.rec.category, pendingAction.status, podStates[pendingAction.rec.id])
+    : null;
+
   // Show all assigned records (backend already filters to this driver's records)
   const todayRecs = records.filter((r) => r.delivery_date === today);
   const activeRecs = todayRecs.filter((r) => r.status !== "Delivered");
@@ -71,7 +79,7 @@ export default function DriverDashboard({
     onUpdateRecord(rec.id, { time_in: new Date().toISOString() } as any);
   };
 
-  const applyStatus = (
+  const applyStatus = async (
     rec: DeliveryRecord,
     status: DeliveryStatus,
     remarks: string,
@@ -83,7 +91,7 @@ export default function DriverDashboard({
             received_by: receivedByInputs[rec.id]?.trim() || null,
           }
         : undefined;
-    onUpdateRecord(rec.id, {
+    await onUpdateRecord(rec.id, {
       status,
       status_remarks: remarks,
       modified_by: currentUserName,
@@ -238,9 +246,7 @@ export default function DriverDashboard({
                   )}
 
                   {/* Step 2: Proof of Delivery */}
-                  {rec.time_in && (
-                    <PodUploader recordId={rec.id} />
-                  )}
+                  <PodUploader recordId={rec.id} required={rec.category === 'Deliveries'} disabled={saving} onReadinessChange={onPodReadinessChange} />
 
                   {/* Receiver Name — always visible, optional */}
                   <div className="space-y-1">
@@ -267,8 +273,10 @@ export default function DriverDashboard({
                       onClick={() => {
                         setPendingAction({ rec, status: "Delivered" });
                         setRemarksInput("");
+                        setSaveError(null);
                       }}
-                      className="py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-emerald-600 hover:bg-emerald-700 text-white transition-all flex flex-col items-center gap-1 cursor-pointer"
+                      disabled={saving || !!deliveryPhotoError(rec.category, "Delivered", podStates[rec.id])}
+                      className="disabled:opacity-40 disabled:cursor-not-allowed py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-emerald-600 hover:bg-emerald-700 text-white transition-all flex flex-col items-center gap-1 cursor-pointer"
                     >
                       <CheckCircle className="w-4 h-4" /> Accomplish
                     </button>
@@ -276,6 +284,7 @@ export default function DriverDashboard({
                       onClick={() => {
                         setPendingAction({ rec, status: "Pending" });
                         setRemarksInput("");
+                        setSaveError(null);
                       }}
                       className="py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-amber-500 hover:bg-amber-600 text-white transition-all flex flex-col items-center gap-1"
                     >
@@ -285,6 +294,7 @@ export default function DriverDashboard({
                       onClick={() => {
                         setPendingAction({ rec, status: "Rescheduled" });
                         setRemarksInput("");
+                        setSaveError(null);
                       }}
                       className="py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-purple-500 hover:bg-purple-600 text-white transition-all flex flex-col items-center gap-1"
                     >
@@ -414,6 +424,7 @@ export default function DriverDashboard({
                 </p>
               </div>
               <button
+                disabled={saving}
                 onClick={() => {
                   setPendingAction(null);
                   setRemarksInput("");
@@ -438,8 +449,11 @@ export default function DriverDashboard({
               />
             </div>
 
+            {photoError && <p role="alert" className="text-xs text-red-700">{photoError}</p>}
+            {saveError && <p role="alert" className="text-xs text-red-700">{saveError}</p>}
             <div className="flex gap-2 justify-end">
               <button
+                disabled={saving}
                 onClick={() => {
                   setPendingAction(null);
                   setRemarksInput("");
@@ -449,98 +463,29 @@ export default function DriverDashboard({
                 Cancel
               </button>
               <button
-                disabled={!remarksInput.trim()}
-                onClick={() => {
-                  applyStatus(
-                    pendingAction.rec,
-                    pendingAction.status,
-                    remarksInput.trim(),
-                  );
-                  setPendingAction(null);
-                  setRemarksInput("");
+                disabled={saving || !remarksInput.trim() || !!photoError}
+                onClick={async () => {
+                  if (saving || !remarksInput.trim() || photoError) return;
+                  setSaving(true);
+                  setSaveError(null);
+                  try {
+                    await applyStatus(pendingAction.rec, pendingAction.status, remarksInput.trim());
+                    setPendingAction(null);
+                    setRemarksInput("");
+                  } catch (error) {
+                    setSaveError(error instanceof Error ? error.message : 'Could not update the delivery. Please try again.');
+                  } finally {
+                    setSaving(false);
+                  }
                 }}
                 className="px-4 py-2 bg-[#1F3864] hover:bg-[#0078C1] text-white text-xs font-bold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
-                Confirm
+                {saving ? "Saving…" : "Confirm"}
               </button>
             </div>
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function PodUploader({ recordId }: { recordId: string }) {
-  const [files, setFiles] = useState<ApiPodAttachment[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    api.getRecordAttachments(recordId).then(setFiles).catch(() => {});
-  }, [recordId]);
-
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const incoming = e.target.files;
-    if (!incoming || incoming.length === 0 || uploading) return;
-    const selectedFiles = Array.from(incoming);
-    const validationError = validatePodAttachments(selectedFiles);
-    if (validationError) {
-      setError(validationError);
-      if (inputRef.current) inputRef.current.value = '';
-      return;
-    }
-
-    setUploading(true);
-    setError(null);
-    try {
-      for (const file of selectedFiles) {
-        const uploaded = await api.uploadRecordAttachment(recordId, file);
-        setFiles(prev => [uploaded, ...prev]);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed.');
-    } finally {
-      setUploading(false);
-      if (inputRef.current) inputRef.current.value = '';
-    }
-  };
-
-  return (
-    <div className="space-y-1">
-      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
-        <Paperclip className="w-3.5 h-3.5" /> Proof of Delivery
-      </label>
-      <div className="space-y-2">
-        <button
-          onClick={() => inputRef.current?.click()}
-          disabled={uploading}
-          className="w-full py-2 border border-slate-300 border-dashed rounded-xl text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 hover:border-[#0078C1] flex items-center justify-center gap-2 transition-colors cursor-pointer"
-        >
-          {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4 text-slate-400" />}
-          {uploading ? 'Uploading...' : 'Upload Photo / Document'}
-        </button>
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          accept={POD_ATTACHMENT_ACCEPT}
-          className="hidden"
-          onChange={handleFileSelect}
-        />
-        {error && <p className="text-[10px] text-red-500 font-semibold">{error}</p>}
-        {files.length > 0 && (
-          <div className="flex flex-col gap-1.5 mt-2">
-            {files.map(f => (
-              <div key={f.id} className="flex items-center gap-2 text-[10px] bg-slate-100 px-2.5 py-1.5 rounded-lg border border-slate-200 shadow-sm">
-                <FileText className="w-3.5 h-3.5 text-[#1F3864] shrink-0" />
-                <span className="truncate text-slate-700 font-semibold flex-1">{f.name}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   );
 }

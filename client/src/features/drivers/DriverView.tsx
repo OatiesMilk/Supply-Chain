@@ -9,6 +9,9 @@ import { DRIVERS, VEHICLES, DRIVER_ASSISTANTS } from '@/data';
 import { getOutputTrigger, runOutputActions } from '@/outputActions';
 import { screenKeyForCategory } from '@/routes/screenRouting';
 import AssistantPicker from './AssistantPicker';
+import PodUploader from '@/components/PodUploader';
+import { usePodAttachments } from '@/api/queries/usePodAttachments';
+import { deliveryPhotoError } from '@/utils/podRequirement';
 
 interface DriverViewProps {
   records: DeliveryRecord[];
@@ -70,6 +73,8 @@ export default function DriverView({
       ? a.delivery_date.localeCompare(b.delivery_date) || a.reference.localeCompare(b.reference)
       : b.delivery_date.localeCompare(a.delivery_date) || a.reference.localeCompare(b.reference));
   const selectedRecord = records.find(record => record.id === selectedRecordId && record.driver === driver) ?? null;
+  const { readiness: podReadiness } = usePodAttachments(selectedRecord?.id ?? '');
+  const photoError = selectedRecord ? deliveryPhotoError(selectedRecord.category, 'Delivered', podReadiness) : null;
   const activeForDriver = driverRecords.filter(isActive).length;
 
   useEffect(() => {
@@ -123,6 +128,7 @@ export default function DriverView({
 
   const confirmStatus = async () => {
     if (!selectedRecord || !pendingStatus || !remarks.trim()) return;
+    if (deliveryPhotoError(selectedRecord.category, pendingStatus, podReadiness)) return;
     const status = pendingStatus;
     const receivedBy = receiverInputs[selectedRecord.id]?.trim() || selectedRecord.received_by?.trim() || '';
     const updates = {
@@ -331,9 +337,11 @@ export default function DriverView({
                             </div>
                           )}
 
+                          <PodUploader key={selectedRecord.id} recordId={selectedRecord.id} required={selectedRecord.category === 'Deliveries'} disabled={saving} />
+                          {photoError && <p className="text-xs text-slate-600">{photoError}</p>}
                           <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
                             {(['Delivered', 'Pending', 'Rescheduled'] as const).map(status => (
-                              <button key={status} type="button" disabled={saving || (status === 'Delivered' && (!selectedRecord.time_in || !(receiverInputs[selectedRecord.id]?.trim() || selectedRecord.received_by?.trim())))}
+                              <button key={status} type="button" disabled={saving || (status === 'Delivered' && (!!photoError || !selectedRecord.time_in || !(receiverInputs[selectedRecord.id]?.trim() || selectedRecord.received_by?.trim())))}
                                 onClick={event => { lastTrigger.current = event.currentTarget; setPendingStatus(status); setRemarks(''); setError(''); }}
                                 className={`min-h-11 rounded-lg px-2 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${status === 'Delivered' ? 'bg-emerald-700 text-white' : status === 'Pending' ? 'bg-amber-100 text-amber-900' : 'bg-violet-100 text-violet-900'}`}>
                                 {status === 'Delivered' ? 'Accomplish' : status === 'Rescheduled' ? 'Reschedule' : status}
@@ -386,6 +394,7 @@ export default function DriverView({
               <button type="button" onClick={closeStatus} disabled={saving} aria-label="Close status confirmation"
                 className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"><X aria-hidden="true" className="h-5 w-5" /></button>
             </div>
+            {pendingStatus === 'Delivered' && photoError && <p role="alert" className="text-sm text-red-800">{photoError}</p>}
             {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
             <div>
               <label htmlFor="driver-status-remarks" className="mb-1 block text-sm font-semibold text-slate-700">Remarks <span aria-hidden="true">*</span></label>
@@ -394,7 +403,7 @@ export default function DriverView({
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={closeStatus} disabled={saving} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700">Cancel</button>
-              <button type="button" onClick={() => void confirmStatus()} disabled={saving || !remarks.trim()}
+              <button type="button" onClick={() => void confirmStatus()} disabled={saving || !remarks.trim() || !!deliveryPhotoError(selectedRecord.category, pendingStatus, podReadiness)}
                 className="min-h-11 rounded-lg bg-blue-800 px-4 text-sm font-semibold text-white disabled:opacity-40">{saving ? 'Saving…' : 'Confirm'}</button>
             </div>
           </div>

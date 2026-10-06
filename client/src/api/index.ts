@@ -234,6 +234,7 @@ export interface ApiRemarkLog {
 
 export interface ApiPodAttachment {
   id: string;
+  is_photo: boolean;
   name: string;
   mime_type: string;
   size: number;

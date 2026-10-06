@@ -8,7 +8,7 @@ import {
   ScrollText, Link2, X as XCircle
 } from 'lucide-react';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel, ItemType } from '@/types';
-import { api, ApiAuditEntry, ApiComment, ApiCompany, ApiPodAttachment, ApiRemarkLog } from '@/api';
+import { api, ApiAuditEntry, ApiComment, ApiCompany, ApiRemarkLog } from '@/api';
 import { printSingleManifest, ManifestDocumentationData } from '@/features/deliveries/DeliveryManifest';
 import { DRIVERS, DRIVER_ASSISTANTS, DELIVERY_STATUSES, AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, ACCOUNT_MANAGERS, DRIVER_COVERAGE_AREAS, getSubregion, getNearbyAreas } from '@/data';
 import ComboboxField from '@/components/ComboboxField';
@@ -16,6 +16,9 @@ import { Pencil, X as XIcon, Save, Plus } from 'lucide-react';
 import { getOutputTrigger, runOutputActions } from '@/outputActions';
 import StatusStepper from '@/components/StatusStepper';
 import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
+import PodUploader from '@/components/PodUploader';
+import { usePodAttachments } from '@/api/queries/usePodAttachments';
+import { deliveryPhotoError } from '@/utils/podRequirement';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
 import DocumentSizeSelect from '@/components/DocumentSizeSelect';
 import WorkspaceTabs from './WorkspaceTabs';
@@ -779,6 +782,8 @@ function ActionsTab({
   const [statusRemarks, setStatusRemarks] = useState('');
   const [remarksError, setRemarksError] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const { readiness: podReadiness } = usePodAttachments(record.id);
+  const photoError = deliveryPhotoError(record.category, selectedStatus, podReadiness);
 
   const [selectedDriver, setSelectedDriver] = useState(record.driver);
   const [assistants, setAssistants] = useState<string[]>(record.driver_assistants ?? []);
@@ -810,7 +815,7 @@ function ActionsTab({
   }, [record.id, record.status]);
 
   const handleStatusChange = async () => {
-    if (applying || selectedStatus === record.status) return;
+    if (applying || selectedStatus === record.status || photoError) return;
     if (!statusRemarks.trim()) {
       setRemarksError(true);
       return;
@@ -854,7 +859,7 @@ function ActionsTab({
     (timeIn || '') !== (record.time_in ?? '') ||
     (timeOut || '') !== (record.time_out ?? '') ||
     (receivedBy || '') !== (record.received_by ?? '');
-  useWorkspaceDraft('dispatch', driverFieldsChanged || selectedStatus !== record.status || !!(statusRemarks || driverFieldsRemarks), applying || savingFields);
+  useWorkspaceDraft('dispatch', driverFieldsChanged || selectedStatus !== record.status || !!(statusRemarks || driverFieldsRemarks), applying || savingFields || podReadiness.uploading);
 
   const handleSaveDriverFields = async () => {
     if (savingFields) return;
@@ -893,6 +898,7 @@ function ActionsTab({
 
   return (
     <div className="space-y-6">
+      {record.category === 'Deliveries' && record.status !== 'Delivered' && <PodUploader key={record.id} recordId={record.id} required disabled={applying} />}
       {/* Status update */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status Update</h4>
@@ -935,13 +941,14 @@ function ActionsTab({
           <button
             type="button"
             onClick={handleStatusChange}
-            disabled={applying || selectedStatus === record.status}
+            disabled={applying || selectedStatus === record.status || !!photoError}
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#0078C1] px-4 text-xs font-semibold text-white hover:bg-[#1F3864] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {applying ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Check aria-hidden="true" className="h-4 w-4" />}
             {applying ? 'Saving...' : 'Save Status Change'}
           </button>
         </div>
+        {photoError && <p role="alert" className="text-xs font-semibold text-red-700">{photoError}</p>}
         {statusError && <p role="alert" className="text-xs font-semibold text-red-700">{statusError}</p>}
       </div>
 
@@ -1430,16 +1437,15 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
 // ─── Documents Tab ────────────────────────────────────────────────────────────
 
 function DocumentsTab({ record }: { record: DeliveryRecord }) {
-  const [files, setFiles] = useState<ApiPodAttachment[]>([]);
+  const { files, readiness, uploadFiles, removeFile: deleteFile } = usePodAttachments(record.id);
+  const uploading = readiness.uploading;
   const [dragging, setDragging] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   useWorkspaceDraft('documents', false, uploading);
 
   useEffect(() => {
     setError(null);
-    api.getRecordAttachments(record.id).then(setFiles).catch(err => setError(err instanceof Error ? err.message : 'Could not load attachments.'));
   }, [record.id]);
 
   const addFiles = async (incoming: FileList | null) => {
@@ -1452,32 +1458,19 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
       return;
     }
 
-    setUploading(true);
     setError(null);
     try {
-      for (const file of selectedFiles) {
-        const uploaded = await api.uploadRecordAttachment(record.id, file);
-        setFiles(prev => [uploaded, ...prev]);
-      }
+      await uploadFiles(selectedFiles);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed.');
-      // A network failure can happen after the server stored the file. Refresh
-      // from the server so the list cannot stay out of sync with persisted files.
-      try {
-        setFiles(await api.getRecordAttachments(record.id));
-      } catch {
-        // Keep the upload error visible; the next view refresh can reload the list.
-      }
     } finally {
-      setUploading(false);
       if (inputRef.current) inputRef.current.value = '';
     }
   };
 
   const removeFile = async (id: string) => {
     try {
-      await api.deleteRecordAttachment(record.id, id);
-      setFiles(prev => prev.filter(file => file.id !== id));
+      await deleteFile(id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not remove attachment.');
     }
@@ -1532,6 +1525,8 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
         />
       </div>
 
+      {readiness.loading && <p role="status" className="text-xs text-slate-600">Loading attachments…</p>}
+      {readiness.loadFailed && <p role="alert" className="text-xs text-red-700">Could not load attachments.</p>}
       {/* File list */}
       {files.length > 0 ? (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
@@ -1561,6 +1556,7 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
                       <FileText className="w-3.5 h-3.5" />
                     </a>
                   <button
+                    disabled={uploading}
                     onClick={() => removeFile(f.id)}
                     className="p-1.5 hover:bg-red-50 rounded text-slate-300 hover:text-red-500 transition-colors"
                     title="Remove"
