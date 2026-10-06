@@ -1,0 +1,193 @@
+/**
+ * sales_coordinator.spec.ts
+ *
+ * UAT Part A — Sales Coordinator role E2E tests.
+ * Covers: login, access control, create record, validation, attachments, comments.
+ *
+ * Test IDs match the UAT_PLAN.md document (A-1.x, A-2.x, A-3.x, A-4.x, A-5.x).
+ */
+import { test, expect, Page } from '@playwright/test';
+import path from 'path';
+import fs from 'fs';
+
+const BASE_URL = 'http://localhost:3000';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+async function expectSidebarHas(page: Page, label: string) {
+  await expect(page.getByRole('navigation').getByText(label, { exact: false })).toBeVisible();
+}
+
+async function expectSidebarMisses(page: Page, label: string) {
+  await expect(page.getByRole('navigation').getByText(label, { exact: false })).not.toBeVisible();
+}
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
+
+test.describe('A-1 Login & Access Control', () => {
+  test('A-1.1 Dashboard loads after login', async ({ page }) => {
+    await page.goto(BASE_URL);
+    await page.waitForLoadState('networkidle');
+    // storageState already authenticated — should land on an app page, not login
+    await expect(page).not.toHaveURL(/login/);
+  });
+
+  test('A-1.2 SC sidebar shows correct permitted screens', async ({ page }) => {
+    await page.goto(BASE_URL);
+    await page.waitForLoadState('networkidle');
+    await expectSidebarHas(page, 'Dashboard');
+    await expectSidebarHas(page, 'Deliveries');
+    await expectSidebarHas(page, 'Customers');
+    await expectSidebarHas(page, 'Transaction');
+  });
+
+  test('A-1.3 SC sidebar does NOT show restricted screens', async ({ page }) => {
+    await page.goto(BASE_URL);
+    await page.waitForLoadState('networkidle');
+    await expectSidebarMisses(page, 'Driver View');
+    await expectSidebarMisses(page, 'Driver Manager');
+    await expectSidebarMisses(page, 'Driver Board');
+    await expectSidebarMisses(page, 'Statistical Reports');
+    await expectSidebarMisses(page, 'Admin');
+  });
+});
+
+test.describe('A-2 Create a Delivery Record', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto(`${BASE_URL}/deliveries`);
+    await page.waitForLoadState('networkidle');
+  });
+
+  test('A-2.2 Empty form submission shows validation errors', async ({ page }) => {
+    // Open the create form
+    const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
+    await newBtn.click();
+    await page.waitForLoadState('networkidle');
+
+    // Click Save without filling anything
+    await page.getByRole('button', { name: /save|create|submit/i }).first().click();
+
+    // Expect validation errors
+    await expect(page.getByText(/company name is required/i)).toBeVisible();
+  });
+
+  test('A-2.3 Company must be selected from list', async ({ page }) => {
+    const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
+    await newBtn.click();
+
+    // Type a garbage company name
+    const companyInput = page.getByPlaceholder(/company|customer/i).first();
+    await companyInput.fill('ZZZZNOTACOMPANY');
+    await page.getByRole('button', { name: /save|create|submit/i }).first().click();
+
+    await expect(page.getByText(/select a company from the list/i)).toBeVisible();
+  });
+
+  test('A-2.4 Valid record creates with Scheduled status', async ({ page }) => {
+    const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
+    await newBtn.click();
+    await page.waitForLoadState('networkidle');
+
+    // Fill company (pick first suggestion)
+    const companyInput = page.getByPlaceholder(/company|customer/i).first();
+    await companyInput.fill('M'); // trigger dropdown
+    await page.waitForTimeout(500);
+    const firstOption = page.getByRole('option').first();
+    if (await firstOption.isVisible()) {
+      await firstOption.click();
+    }
+
+    // Fill reference
+    const refInput = page.getByPlaceholder(/reference|sap/i).first();
+    await refInput.fill(`UAT-${Date.now()}`);
+
+    // Set delivery date to today
+    const today = new Date().toISOString().split('T')[0];
+    const dateInput = page.locator('input[type="date"]').first();
+    await dateInput.fill(today);
+
+    await page.getByRole('button', { name: /save|create|submit/i }).first().click();
+    await page.waitForLoadState('networkidle');
+
+    // Record should appear in the list — status badge shows Scheduled
+    await expect(page.getByText(/scheduled/i).first()).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('A-2.7 Reject file over 10 MB', async ({ page }) => {
+    const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
+    await newBtn.click();
+
+    // Create a temporary > 10 MB file
+    const bigFilePath = path.join('/tmp', 'big_test_file.pdf');
+    const TEN_MB = 11 * 1024 * 1024;
+    const buf = Buffer.alloc(TEN_MB, 'x');
+    fs.writeFileSync(bigFilePath, buf);
+
+    const fileInput = page.locator('input[type="file"]').first();
+    await fileInput.setInputFiles(bigFilePath);
+
+    await expect(page.getByText(/size|too large|10\s*mb/i)).toBeVisible({ timeout: 5_000 });
+
+    fs.unlinkSync(bigFilePath);
+  });
+
+  test('A-2.8 Reject unsupported file type', async ({ page }) => {
+    const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
+    await newBtn.click();
+
+    const badFilePath = path.join('/tmp', 'malicious.exe');
+    fs.writeFileSync(badFilePath, Buffer.from('MZ'));
+
+    const fileInput = page.locator('input[type="file"]').first();
+    await fileInput.setInputFiles(badFilePath);
+
+    await expect(page.getByText(/unsupported|invalid|type|format/i)).toBeVisible({ timeout: 5_000 });
+
+    fs.unlinkSync(badFilePath);
+  });
+});
+
+test.describe('A-3 Edit a Record', () => {
+  test('A-3.3 Dispatch & Logistics tab NOT visible for SC', async ({ page }) => {
+    await page.goto(`${BASE_URL}/deliveries`);
+    await page.waitForLoadState('networkidle');
+
+    // Open first record
+    const firstRow = page.getByRole('row').nth(1);
+    if (await firstRow.isVisible()) {
+      await firstRow.click();
+      await page.waitForTimeout(800);
+      await expect(page.getByRole('tab', { name: /dispatch/i })).not.toBeVisible();
+    }
+  });
+
+  test('A-3.5 SC can leave a comment', async ({ page }) => {
+    await page.goto(`${BASE_URL}/deliveries`);
+    await page.waitForLoadState('networkidle');
+
+    const firstRow = page.getByRole('row').nth(1);
+    if (await firstRow.isVisible()) {
+      await firstRow.click();
+      await page.waitForTimeout(800);
+
+      // Navigate to Comments tab
+      const commentsTab = page.getByRole('tab', { name: /comments/i });
+      if (await commentsTab.isVisible()) {
+        await commentsTab.click();
+        const commentInput = page.getByPlaceholder(/comment|type/i);
+        await commentInput.fill('UAT automated comment test');
+        await page.getByRole('button', { name: /send|post|submit/i }).click();
+        await expect(page.getByText('UAT automated comment test')).toBeVisible({ timeout: 8_000 });
+      }
+    }
+  });
+});
+
+test.describe('A-5 Transaction Center', () => {
+  test('A-5.1 Transaction Center page renders', async ({ page }) => {
+    await page.goto(`${BASE_URL}/transactions`);
+    await page.waitForLoadState('networkidle');
+    // Should not show "not available" message
+    await expect(page.getByText(/not available for your account/i)).not.toBeVisible();
+  });
+});
