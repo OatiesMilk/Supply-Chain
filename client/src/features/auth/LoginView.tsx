@@ -85,6 +85,19 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
     }
   };
 
+  const handleSeedUat = async () => {
+    setIsSeeding(true);
+    setError(null);
+    try {
+      const result = await api.seedUat();
+      alert(`UAT data is ready: ${result.userCount} demo accounts and ${result.driverRecords} driver run(s) for today.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to prepare UAT data');
+    } finally {
+      setIsSeeding(false);
+    }
+  };
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const errParam = params.get('error');
@@ -336,6 +349,13 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
                 >
                   {isSeeding ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                   {isSeeding ? 'Seeding Database...' : 'Seed Demo Data (Resets DB)'}
+                </button>
+                <button
+                  onClick={handleSeedUat}
+                  disabled={isSeeding || isLoading}
+                  className="w-full mt-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-xs py-2.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {isSeeding ? 'Preparing UAT Data...' : 'Prepare UAT Data (Accounts + Today’s Driver Run)'}
                 </button>
               </div>
             </div>
