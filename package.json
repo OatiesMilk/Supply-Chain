@@ -16,6 +16,7 @@
     "seed:users-only": "npm run seed:users-only --workspace=mg-portal-server",
     "seed:accounts": "npm run seed:accounts --workspace=mg-portal-server",
     "seed:driver-demo": "npm run seed:driver-demo --workspace=mg-portal-server",
+    "seed:uat": "npm run seed:uat --workspace=mg-portal-server",
     "pod:reconcile": "npm run pod:reconcile --workspace=mg-portal-server",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",

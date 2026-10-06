@@ -13,6 +13,7 @@
     "seed": "tsx prisma/seed.ts",
     "seed:users-only": "tsx prisma/seed-users-only.ts",
     "seed:driver-demo": "tsx prisma/seed-driver-demo.ts",
+    "seed:uat": "tsx prisma/seed-uat.ts",
     "lint": "tsc --noEmit",
     "db:reset": "prisma migrate reset --force",
     "seed:accounts": "tsx prisma/seed-accounts-only.ts",

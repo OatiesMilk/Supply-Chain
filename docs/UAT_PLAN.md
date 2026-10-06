@@ -15,8 +15,9 @@ Before running any test case, confirm the database is ready.
 
 | Step | Action | Expected Result |
 |------|--------|-----------------|
-| P-1 | Run `npm run seed:users-only` from root | Users are created without delivery records |
-| P-1.1 | Run `npm run seed:driver-demo` from root | A driver-assigned delivery record exists for today; use the seeded **Leo Driver** account |
+| P-1 | Set `VITE_SHOW_DEMO_ACCOUNTS=true` in the frontend and `UAT_SEED_ENABLED=true` in the backend staging environment | The login screen shows the demo-account and **Prepare UAT Data** controls |
+| P-1.1 | Click **Prepare UAT Data (Accounts + Today’s Driver Run)** | Existing data is reset; demo accounts, companies, and a driver-assigned delivery for today are created |
+| P-1.2 | Alternatively run `npm run seed:uat --workspace=mg-portal-server` from root | The same UAT dataset is created from the command line |
 | P-2 | Open `http://localhost:3000` in browser | Login page is visible |
 | P-3 | Check that you have one user per role: **Sales Coordinator**, **Logistics**, **Driver** | All three accounts are accessible |
 

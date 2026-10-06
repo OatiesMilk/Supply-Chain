@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { runSeed } from '../../prisma/seed';
+import { runUatSeed } from '../../prisma/seed-uat';
 import { requireResource, requireAuth, requireRole } from '../middleware/auth';
 
 const router = Router();
@@ -29,6 +30,20 @@ router.post('/public-seed', async (_req, res) => {
   } catch (err) {
     console.error('Public seed failed:', err);
     res.status(500).json({ error: 'Failed to reset seed data' });
+  }
+});
+
+router.post('/public-seed-uat', async (_req, res) => {
+  if (process.env.NODE_ENV === 'production' || process.env.UAT_SEED_ENABLED !== 'true') {
+    return res.status(403).json({ error: 'UAT seed is disabled in this environment' });
+  }
+
+  try {
+    const result = await runUatSeed();
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('UAT seed failed:', err);
+    res.status(500).json({ error: 'Failed to prepare UAT data' });
   }
 });
 
