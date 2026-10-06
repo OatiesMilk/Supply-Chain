@@ -8,6 +8,8 @@ import fs from 'fs';
 import { prisma } from './db';
 import { notifyRole, notifyUser } from './services/inAppNotify';
 import { sendMailReal, sendEmail } from './services/mailer';
+import { manilaToday } from './services/deliveryLifecycle';
+import { saveDailyStatusSnapshot as writeDailyStatusSnapshot } from './services/dailyStatusSnapshot';
 
 import authRoutes from './routes/auth';
 import recordsRoutes from './routes/records';
@@ -145,9 +147,9 @@ app.listen(PORT, () => {
 
 function scheduleDaily(hour: number, minute: number, task: () => void) {
   const now = new Date();
-  const next = new Date(now);
-  next.setHours(hour, minute, 0, 0);
-  if (next <= now) next.setDate(next.getDate() + 1);
+  let next = new Date(`${manilaToday(now)}T00:00:00+08:00`);
+  next = new Date(next.getTime() + (hour * 60 + minute) * 60 * 1000);
+  if (next <= now) next = new Date(next.getTime() + 24 * 60 * 60 * 1000);
   setTimeout(() => {
     task();
     setInterval(task, 24 * 60 * 60 * 1000);
@@ -158,7 +160,7 @@ async function notify4PM() {
   try {
     // 4 PM logistics alert: unassigned scheduled records
     const unassigned = await prisma.deliveryRecord.findMany({
-      where: { status: 'SCHEDULED', driver: '', deletedAt: null }
+      where: { status: 'SCHEDULED', draft: false, driver: '', deletedAt: null }
     });
     if (unassigned.length > 0) {
       await notifyRole(
@@ -169,11 +171,10 @@ async function notify4PM() {
     }
 
     // 4 PM account manager alert: their unfinished records
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    const todayStart = new Date(`${manilaToday()}T00:00:00+08:00`);
 
     const openRecords = await prisma.deliveryRecord.findMany({
-      where: { deletedAt: null, status: { notIn: ['ACCOMPLISHED'] } },
+      where: { deletedAt: null, draft: false, status: { notIn: ['ACCOMPLISHED'] } },
       include: { company: true }
     });
     if (openRecords.length === 0) return;
@@ -231,18 +232,18 @@ async function notify4PM() {
 async function notify6PM() {
   try {
     const stillOpen = await prisma.deliveryRecord.findMany({
-      where: { status: 'SCHEDULED', deletedAt: null }
+      where: { status: { in: ['SCHEDULED', 'IN_TRANSIT'] }, draft: false, deletedAt: null }
     });
     if (stillOpen.length > 0) {
       await notifyRole(
         'LOGISTICS',
-        `${stillOpen.length} scheduled delivery${stillOpen.length !== 1 ? 'ies' : ''} still open`,
-        `End-of-day check: ${stillOpen.length} record${stillOpen.length !== 1 ? 's' : ''} remain Scheduled and have not been delivered.`
+        `${stillOpen.length} delivery${stillOpen.length !== 1 ? 'ies' : ''} still open`,
+        `End-of-day check: ${stillOpen.length} record${stillOpen.length !== 1 ? 's' : ''} remain Scheduled or In Transit and have not been delivered.`
       );
       await notifyRole(
         'SALES_COORDINATOR',
         `${stillOpen.length} delivery${stillOpen.length !== 1 ? 'ies' : ''} not yet accomplished`,
-        `6 PM: ${stillOpen.length} record${stillOpen.length !== 1 ? 's' : ''} are still in Scheduled status.`
+        `6 PM: ${stillOpen.length} record${stillOpen.length !== 1 ? 's' : ''} are still Scheduled or In Transit.`
       );
     }
   } catch (err) {
@@ -254,40 +255,8 @@ async function notify6PM() {
 
 async function saveDailyStatusSnapshot() {
   try {
-    const today = new Date().toISOString().split('T')[0];
-
-    const allRecords = await prisma.deliveryRecord.findMany({
-      where: { deletedAt: null },
-      select: { category: true, status: true }
-    });
-
-    // Group by category + status
-    const byCategoryStatus: Record<string, number> = {};
-    const byStatusTotal: Record<string, number> = {};
-    for (const r of allRecords) {
-      const key = `${r.category}::${r.status}`;
-      byCategoryStatus[key] = (byCategoryStatus[key] ?? 0) + 1;
-      byStatusTotal[r.status] = (byStatusTotal[r.status] ?? 0) + 1;
-    }
-
-    for (const [key, count] of Object.entries(byCategoryStatus)) {
-      const [category, status] = key.split('::');
-      await prisma.dailyStatusSnapshot.upsert({
-        where: { date_category_status: { date: today, category, status } },
-        update: { count },
-        create: { date: today, category, status, count }
-      });
-    }
-
-    for (const [status, count] of Object.entries(byStatusTotal)) {
-      await prisma.dailyStatusSnapshot.upsert({
-        where: { date_category_status: { date: today, category: 'ALL', status } },
-        update: { count },
-        create: { date: today, category: 'ALL', status, count }
-      });
-    }
-
-    console.log(`[Daily Snapshot] Saved status counts for ${today}`);
+    await writeDailyStatusSnapshot();
+    console.log(`[Daily Snapshot] Saved status counts for ${manilaToday()}`);
   } catch (err) {
     console.error('[Daily Snapshot]', err);
   }
@@ -296,10 +265,11 @@ async function saveDailyStatusSnapshot() {
 // Fires once per week on the given day (0=Sun,1=Mon,...) at hour:minute.
 function scheduleWeekly(dayOfWeek: number, hour: number, minute: number, task: () => void) {
   const now = new Date();
-  const next = new Date(now);
-  next.setHours(hour, minute, 0, 0);
-  const daysUntil = (dayOfWeek - now.getDay() + 7) % 7;
-  next.setDate(next.getDate() + (daysUntil === 0 && next <= now ? 7 : daysUntil));
+  const todayStart = new Date(`${manilaToday(now)}T00:00:00+08:00`);
+  const localDay = new Date(todayStart.getTime() + 8 * 60 * 60 * 1000).getUTCDay();
+  const daysUntil = (dayOfWeek - localDay + 7) % 7;
+  let next = new Date(todayStart.getTime() + (daysUntil * 24 * 60 + hour * 60 + minute) * 60 * 1000);
+  if (next <= now) next = new Date(next.getTime() + 7 * 24 * 60 * 60 * 1000);
   setTimeout(() => {
     task();
     setInterval(task, 7 * 24 * 60 * 60 * 1000);
@@ -309,10 +279,9 @@ function scheduleWeekly(dayOfWeek: number, hour: number, minute: number, task: (
 async function notifyWeeklyReport() {
   try {
     const now     = new Date();
-    const weekAgo = new Date(now);
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    const dateTo   = now.toISOString().split('T')[0];
-    const dateFrom = weekAgo.toISOString().split('T')[0];
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const dateTo   = manilaToday(now);
+    const dateFrom = manilaToday(weekAgo);
 
     const records = await prisma.deliveryRecord.findMany({
       where: { deletedAt: null, deliveryDate: { gte: dateFrom, lte: dateTo } },
