@@ -15,3 +15,23 @@ export function screenKeyForCategory(category: DeliveryCategory): string {
   const found = Object.entries(CATEGORY_SCREENS).find(([, cat]) => cat === category);
   return found ? found[0] : 'dashboard';
 }
+
+export function syncAuthenticatedRoute(screens: Set<string>, navigate: (screen: string, itemId?: string) => void) {
+  const requested = window.location.pathname.substring(1) || 'dashboard';
+  if (screens.has(requested)) {
+    navigate(requested, new URLSearchParams(window.location.search).get('item') || undefined);
+    return;
+  }
+  const fallback = screens.has('dashboard') ? 'dashboard' : screens.values().next().value ?? 'no-access';
+  if (fallback) {
+    window.history.replaceState({ screen: fallback }, '', `/${fallback}`);
+    navigate(fallback);
+  }
+}
+
+export function keepLoginRoute() {
+  const sync = () => window.history.replaceState({ screen: 'login' }, '', '/login');
+  sync();
+  window.addEventListener('popstate', sync);
+  return () => window.removeEventListener('popstate', sync);
+}

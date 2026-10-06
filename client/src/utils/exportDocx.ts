@@ -5,9 +5,7 @@
 
 import type { ExportColumn, ExportMeta, StatusHistoryCounts } from './export';
 import type { AllOpsSummary } from './allOpsExport';
-
-// A4 landscape content width in twips (16838 − 2×720 margins)
-const CONTENT_W = 15398;
+import { DocumentSize, DEFAULT_DOCUMENT_SIZE, getDocxDimensions, getDocxLandscapeContentWidth, fitColumnWidths } from './documentSize';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -41,6 +39,7 @@ export async function downloadDocx(
   summary?:     AllOpsSummary,
   summaryTitle?: string,
   statusHistoryCounts?: StatusHistoryCounts,
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
 ): Promise<void> {
   const {
     Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun,
@@ -51,10 +50,10 @@ export async function downloadDocx(
   const dateStr = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
   // Column widths proportional to pdfWidth/width, filling the page
-  const totalW   = columns.reduce((s, c) => s + (c.pdfWidth ?? c.width ?? 20), 0);
-  const colWidths = columns.map(c =>
-    Math.round(((c.pdfWidth ?? c.width ?? 20) / totalW) * CONTENT_W),
-  );
+  const { width, height } = getDocxDimensions(documentSize);
+  const CONTENT_W = getDocxLandscapeContentWidth(documentSize);
+  const weights = columns.map(c => c.pdfWidth ?? c.width ?? 20);
+  const colWidths = fitColumnWidths(weights, CONTENT_W, true);
 
   // ── Table header row ───────────────────────────────────────────────────────
   const hdrRow = new TableRow({
@@ -229,8 +228,8 @@ export async function downloadDocx(
         page: {
           size: {
             orientation: PageOrientation.LANDSCAPE,
-            width:  16838,
-            height: 11906,
+            width,
+            height,
           },
           margin: { top: 720, right: 720, bottom: 720, left: 720 },
         },

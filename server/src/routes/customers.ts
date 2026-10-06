@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { prisma } from '../db';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireResource, requireAuth, requireRole } from '../middleware/auth';
 
 const router = Router();
 
-router.get('/', requireAuth, async (_req, res) => {
+router.get('/', requireAuth, requireResource('customers'), async (_req, res) => {
   const customers = await prisma.customer.findMany({ 
     orderBy: { name: 'asc' },
     include: { createdBy: true, modifiedBy: true }
@@ -27,7 +27,7 @@ router.get('/', requireAuth, async (_req, res) => {
 });
 
 // Every role may create a Customer except TASS.
-router.post('/', requireAuth, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER'), async (req, res) => {
+router.post('/', requireAuth, requireResource('customers'), requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER'), async (req, res) => {
   const { name, contact_person, email, phone, address, city } = req.body ?? {};
   if (!name) return res.status(400).json({ error: 'name is required' });
 

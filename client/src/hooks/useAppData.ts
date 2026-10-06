@@ -1,6 +1,7 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { setManagedDriverList, subscribeManagedDrivers, getManagedDriverVersion } from '@/data';
 import { useQueryClient } from '@tanstack/react-query';
-import { ApiUser } from '@/api';
+import { ApiUser, ApiDriver } from '@/api';
 import { UserRole } from '@/types';
 import {
   useRecordsQuery,
@@ -18,25 +19,34 @@ import {
   useResetDemoDataMutation,
 } from '@/api/queries';
 
+const EMPTY_DRIVERS: ApiDriver[] = [];
+
 export function useAppData(
   authUser: ApiUser | null,
   currentUser: { name: string; initials: string },
   currentUserRole: UserRole
 ) {
   const queryClient = useQueryClient();
+  const allowed = (resource: string) => !!authUser?.resources.includes(resource);
 
   const {
     data: deliveryRecords = [],
     isLoading: recordsLoading,
     error: recordsError,
-  } = useRecordsQuery();
+  } = useRecordsQuery(allowed('records'));
 
-  const { data: companies = [] } = useCompaniesQuery();
-  const { data: customers = [] } = useCustomersQuery();
-  const { data: suppliers = [] } = useSuppliersQuery();
-  const { data: products = [] } = useSkusQuery();
-  const { data: managedDrivers = [] } = useDriversQuery();
-  const { data: dashboardStats = null } = useDashboardStatsQuery(!!authUser);
+  const { data: companies = [] } = useCompaniesQuery(allowed('companies'));
+  const { data: customers = [] } = useCustomersQuery(allowed('customers'));
+  const { data: suppliers = [] } = useSuppliersQuery(allowed('suppliers'));
+  const { data: products = [] } = useSkusQuery(allowed('skus'));
+  const { data: managedDrivers = EMPTY_DRIVERS, isError: driversError } = useDriversQuery(allowed('drivers'));
+  // Legacy assignment dropdowns read the shared proxies; notify them after updates.
+  useSyncExternalStore(subscribeManagedDrivers, getManagedDriverVersion, getManagedDriverVersion);
+  useEffect(() => {
+    setManagedDriverList(driversError ? [] : managedDrivers);
+    return () => setManagedDriverList([]);
+  }, [managedDrivers, driversError]);
+  const { data: dashboardStats = null } = useDashboardStatsQuery(allowed('dashboard'));
 
   const createCustomerMutation = useCreateCustomerMutation(currentUser);
   const createSupplierMutation = useCreateSupplierMutation(currentUser);
@@ -92,12 +102,6 @@ export function useAppData(
   };
 
   const handleResetDemoData = async () => {
-    if (
-      !window.confirm(
-        'Reset all Supply Chain Portal data back to the original demo seed data? This clears every change made on the server and cannot be undone.'
-      )
-    )
-      return;
     await resetDemoDataMutation.mutateAsync();
   };
 

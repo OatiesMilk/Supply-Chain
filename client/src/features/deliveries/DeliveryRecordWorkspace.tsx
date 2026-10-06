@@ -12,9 +12,17 @@ import { api, ApiAuditEntry, ApiComment, ApiCompany, ApiRemarkLog } from '@/api'
 import { printSingleManifest, ManifestDocumentationData } from '@/features/deliveries/DeliveryManifest';
 import { DRIVERS, DRIVER_ASSISTANTS, DELIVERY_STATUSES, AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, ACCOUNT_MANAGERS, DRIVER_COVERAGE_AREAS, getSubregion, getNearbyAreas } from '@/data';
 import ComboboxField from '@/components/ComboboxField';
-import { Pencil, X as XIcon, Save } from 'lucide-react';
+import { Pencil, X as XIcon, Save, Plus } from 'lucide-react';
 import { getOutputTrigger, runOutputActions } from '@/outputActions';
 import StatusStepper from '@/components/StatusStepper';
+import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
+import PodUploader from '@/components/PodUploader';
+import { usePodAttachments } from '@/api/queries/usePodAttachments';
+import { deliveryPhotoError } from '@/utils/podRequirement';
+import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
+import DocumentSizeSelect from '@/components/DocumentSizeSelect';
+import WorkspaceTabs from './WorkspaceTabs';
+import { WorkspaceDraftProvider, useWorkspaceDraft, useWorkspaceNavigation } from './WorkspaceDrafts';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -58,7 +66,7 @@ interface DeliveryRecordWorkspaceProps {
   companies: ApiCompany[];
   onBack: () => void;
   onNavigateToRecord: (id: string) => void;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;
   forceReadOnly?: boolean;
 }
@@ -75,8 +83,8 @@ interface TabDef {
 }
 
 const ALL_TABS: TabDef[] = [
-  { id: 'general',   label: 'General',        icon: ClipboardList,  roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
-  { id: 'actions',   label: 'Assign',          icon: UserPlus,       roles: ['Logistics', 'Admin'] },
+  { id: 'general',   label: 'Overview',        icon: ClipboardList,  roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
+  { id: 'actions',   label: 'Dispatch & Logistics', icon: UserPlus, roles: ['Logistics', 'Admin'] },
   { id: 'comments',  label: 'Comments',        icon: MessagesSquare, roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
   { id: 'remarks',   label: 'Remarks',         icon: ScrollText,     roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
   { id: 'audit',     label: 'Audit Trail',     icon: History,        roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
@@ -106,7 +114,7 @@ function ScaffoldTab({ icon: Icon, label, detail }: { icon: typeof FileText; lab
 type EditDraft = {
   priority: PriorityLevel; reference: string; area: string; vehicle: string;
   account_manager: string; delivery_date: string; date_time: string;
-  item_type: ItemType; is_draft: 'Yes' | 'No'; remarks: string; item_description: string;
+  item_type: ItemType; is_draft: 'Yes' | 'No'; remarks: string; item_description: string; line_items: { sku: string, quantity: number }[];
   address: string;
 };
 
@@ -115,22 +123,23 @@ function GeneralTab({
   currentUserRole,
   currentUserName,
   onUpdateRecord,
+  readOnly = false,
 }: {
   record: DeliveryRecord;
   currentUserRole: UserRole;
   currentUserName: string;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
+  readOnly?: boolean;
 }) {
-  const CategoryIcon = CATEGORY_ICON[record.category] ?? FileText;
-
   // SC can edit all fields while the record is still Scheduled; Logistics can always edit Area + Address
-  const canEditFull = currentUserRole === 'Sales Coordinator' && record.status === 'Scheduled';
-  const canEditAreaAddress = currentUserRole === 'Logistics';
+  const canEditFull = !readOnly && currentUserRole === 'Sales Coordinator' && record.status === 'Scheduled';
+  const canEditAreaAddress = !readOnly && currentUserRole === 'Logistics';
   const canEdit = canEditFull || canEditAreaAddress;
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [remarksError, setRemarksError] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [draft, setDraft] = useState<EditDraft>({
     priority: record.priority,
     reference: record.reference,
@@ -144,7 +153,9 @@ function GeneralTab({
     remarks: record.remarks || '',
     item_description: record.item_description || '',
     address: record.address ?? '',
+    line_items: record.line_items || [],
   });
+  useWorkspaceDraft('general', editing, saving);
 
   // Re-sync draft when a different record is opened
   useEffect(() => {
@@ -162,12 +173,16 @@ function GeneralTab({
       remarks: record.remarks || '',
       item_description: record.item_description || '',
       address: record.address ?? '',
+    line_items: record.line_items || [],
     });
   }, [record.id]);
 
   const set = <K extends keyof EditDraft>(k: K, v: EditDraft[K]) => setDraft(p => ({ ...p, [k]: v }));
 
   const handleStartEdit = () => {
+    setSaveError(null);
+    // A bulk priority change can update this record while the workspace stays open.
+    setDraft(d => ({ ...d, priority: record.priority }));
     // Logistics enters a fresh change note rather than seeing/overwriting existing remarks
     if (canEditAreaAddress && !canEditFull) {
       setDraft(d => ({ ...d, remarks: '' }));
@@ -181,17 +196,23 @@ function GeneralTab({
       return;
     }
     setRemarksError(false);
+    setSaveError(null);
     setSaving(true);
     const updates = canEditFull
       ? { ...draft }
       : { area: draft.area, address: draft.address, remarks: draft.remarks };
-    await onUpdateRecord(record.id, {
-      ...updates,
-      modified_by: `${currentUserName} (${currentUserRole})`,
-      modified_at: new Date().toISOString(),
-    });
-    setSaving(false);
-    setEditing(false);
+    try {
+      await onUpdateRecord(record.id, {
+        ...updates,
+        modified_by: `${currentUserName} (${currentUserRole})`,
+        modified_at: new Date().toISOString(),
+      });
+      setEditing(false);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not save the record. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleCancel = () => {
@@ -208,6 +229,7 @@ function GeneralTab({
       remarks: record.remarks || '',
       item_description: record.item_description || '',
       address: record.address ?? '',
+    line_items: record.line_items || [],
     });
     setRemarksError(false);
     setEditing(false);
@@ -218,25 +240,6 @@ function GeneralTab({
 
   return (
     <div className="space-y-5">
-      {/* Header card */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-        <div className="flex flex-wrap items-center gap-3 mb-3">
-          <span className="font-mono font-black text-lg text-slate-900">{record.id}</span>
-          <span className="px-2.5 py-1 rounded-md font-black text-[10px] uppercase tracking-wider border bg-blue-100 text-blue-800 border-blue-200 flex items-center gap-1">
-            <CategoryIcon className="w-3 h-3" /> {record.category}
-          </span>
-          <span className={`px-2.5 py-1 rounded-full border text-[10px] font-semibold tracking-wide ${STATUS_COLOR[record.status] ?? 'bg-slate-50 text-slate-700 border-slate-200'}`}>
-            {record.status}
-          </span>
-          {!editing && (
-            <span className={`px-2.5 py-1 rounded-full border text-[10px] font-semibold ${PRIORITY_COLOR[record.priority] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}>
-              Priority: {record.priority}
-            </span>
-          )}
-        </div>
-        <p className="text-sm font-bold text-slate-700">{record.company_name}</p>
-      </div>
-
       {/* Status stepper */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Status Progression</p>
@@ -311,6 +314,19 @@ function GeneralTab({
               <div className="mt-4 pt-4 border-t border-slate-100">
                 <p className={`${labelCls} mb-1.5`}>Item Description</p>
                 <p className="text-sm text-slate-700 leading-relaxed">{record.item_description}</p>
+              </div>
+            )}
+            {record.line_items && record.line_items.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <p className={`${labelCls} mb-1.5`}>Line Items</p>
+                <ul className="list-disc list-inside text-sm text-slate-700 leading-relaxed">
+                  {record.line_items.map((li, idx) => (
+                    <li key={idx}>
+                      <span className="font-mono text-xs bg-slate-100 px-1 py-0.5 rounded mr-1">x{li.quantity}</span>
+                      {li.sku}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
           </>
@@ -399,11 +415,59 @@ function GeneralTab({
                 className={`w-full px-2.5 py-1.5 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${remarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
               />
               {remarksError && <p className="text-[11px] text-red-600 font-semibold">Remarks are required to save changes.</p>}
+              {saveError && <p role="alert" className="text-[11px] text-red-600 font-semibold">{saveError}</p>}
             </div>
             {canEditFull && (
-              <div className="space-y-1">
-                <label className={labelCls}>Item Description</label>
-                <textarea value={draft.item_description} onChange={e => set('item_description', e.target.value)} rows={3} className={inputCls} />
+              <div className="space-y-1 mt-4 pt-4 border-t border-slate-100">
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className={labelCls}>Line Items</label>
+                  <button
+                    type="button"
+                    onClick={() => set('line_items', [...(draft.line_items || []), { sku: '', quantity: 1 }])}
+                    className="flex items-center gap-1 text-[11px] font-bold text-[#0078C1] hover:text-[#1F3864] cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add Item
+                  </button>
+                </div>
+                {(draft.line_items || []).map((item, index) => (
+                  <div key={index} className="flex items-center gap-2 mb-2">
+                    <input
+                      type="text"
+                      placeholder="SKU or Description"
+                      value={item.sku}
+                      onChange={(e) => {
+                        const newItems = [...(draft.line_items || [])];
+                        newItems[index].sku = e.target.value;
+                        set('line_items', newItems);
+                      }}
+                      className={inputCls}
+                    />
+                    <input
+                      type="number"
+                      min="1"
+                      value={item.quantity}
+                      onChange={(e) => {
+                        const newItems = [...(draft.line_items || [])];
+                        newItems[index].quantity = parseInt(e.target.value) || 1;
+                        set('line_items', newItems);
+                      }}
+                      className={`${inputCls} w-20`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newItems = (draft.line_items || []).filter((_, i) => i !== index);
+                        set('line_items', newItems);
+                      }}
+                      className="p-1 text-slate-400 hover:text-red-500 cursor-pointer shrink-0"
+                    >
+                      <XIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                {(!draft.line_items || draft.line_items.length === 0) && (
+                  <p className="text-[11px] text-slate-400 italic">No line items added.</p>
+                )}
               </div>
             )}
 
@@ -451,6 +515,7 @@ function GeneralTab({
         record={record}
         currentUserRole={currentUserRole}
         onUpdateRecord={onUpdateRecord}
+        readOnly={readOnly}
       />
 
       {/* Audit footer */}
@@ -477,16 +542,19 @@ function LinkedCollectionCard({
   record,
   currentUserRole,
   onUpdateRecord,
+  readOnly = false,
 }: {
   record: DeliveryRecord;
   currentUserRole: UserRole;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
+  readOnly?: boolean;
 }) {
-  const canLink = (currentUserRole === 'Logistics' || currentUserRole === 'Admin');
+  const canLink = !readOnly && (currentUserRole === 'Logistics' || currentUserRole === 'Admin');
   const [linkInput, setLinkInput]   = useState('');
   const [linkRemarks, setLinkRemarks] = useState('');
   const [linking, setLinking]       = useState(false);
   const [linkError, setLinkError]   = useState<string | null>(null);
+  useWorkspaceDraft('linked-collection', !!(linkInput || linkRemarks), linking);
 
   const handleLink = async (collectionId: string | null) => {
     if (!linkRemarks.trim() && collectionId !== null) {
@@ -706,12 +774,16 @@ function ActionsTab({
   allRecords: DeliveryRecord[];
   currentUserRole: UserRole;
   currentUserName: string;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;
 }) {
   const [applying, setApplying] = useState(false);
+  const [selectedStatus, setSelectedStatus] = useState<DeliveryStatus>(record.status);
   const [statusRemarks, setStatusRemarks] = useState('');
   const [remarksError, setRemarksError] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const { readiness: podReadiness } = usePodAttachments(record.id);
+  const photoError = deliveryPhotoError(record.category, selectedStatus, podReadiness);
 
   const [selectedDriver, setSelectedDriver] = useState(record.driver);
   const [assistants, setAssistants] = useState<string[]>(record.driver_assistants ?? []);
@@ -719,6 +791,7 @@ function ActionsTab({
   const [timeOut, setTimeOut] = useState(record.time_out ?? '');
   const [receivedBy, setReceivedBy] = useState(record.received_by ?? '');
   const [savingFields, setSavingFields] = useState(false);
+  const [saveDriverError, setSaveDriverError] = useState<string | null>(null);
   const [driverFieldsRemarks, setDriverFieldsRemarks] = useState('');
   const [driverFieldsRemarksError, setDriverFieldsRemarksError] = useState(false);
 
@@ -731,35 +804,47 @@ function ActionsTab({
     setReceivedBy(record.received_by ?? '');
     setDriverFieldsRemarks('');
     setDriverFieldsRemarksError(false);
+    setSaveDriverError(null);
   }, [record.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleStatusChange = async (newStatus: DeliveryStatus) => {
+  useEffect(() => {
+    setSelectedStatus(record.status);
+    setStatusRemarks('');
+    setStatusError(null);
+    setRemarksError(false);
+  }, [record.id, record.status]);
+
+  const handleStatusChange = async () => {
+    if (applying || selectedStatus === record.status || photoError) return;
     if (!statusRemarks.trim()) {
       setRemarksError(true);
       return;
     }
     setRemarksError(false);
+    setStatusError(null);
     setApplying(true);
     const now = new Date().toISOString();
     const updates: Partial<DeliveryRecord> & { status_remarks?: string } = {
-      status: newStatus,
+      status: selectedStatus,
       status_remarks: statusRemarks.trim(),
       modified_by: `${currentUserName} (${currentUserRole})`,
       modified_at: now,
     };
 
-    const trigger = getOutputTrigger(record.category, newStatus);
-    if (trigger) {
-      const result = await runOutputActions(trigger, outputActionConfigs[trigger], {
-        amName: record.account_manager, at: now, recordId: record.id, api,
-      });
-      updates.output_actions_log = [...result.newEntries, ...(record.output_actions_log ?? [])];
-      updates.email_notification_sent = result.emailSent;
+    try {
+      await onUpdateRecord(record.id, updates);
+      setStatusRemarks('');
+      const trigger = getOutputTrigger(record.category, selectedStatus);
+      if (trigger) {
+        await runOutputActions(trigger, outputActionConfigs[trigger], {
+          amName: record.account_manager, at: now, recordId: record.id, api,
+        });
+      }
+    } catch (error) {
+      setStatusError(error instanceof Error ? error.message : 'Could not save the status change. Please try again.');
+    } finally {
+      setApplying(false);
     }
-
-    onUpdateRecord(record.id, updates);
-    setStatusRemarks('');
-    setApplying(false);
   };
 
   const addAssistant = () => setAssistants(prev => [...prev, '']);
@@ -774,31 +859,46 @@ function ActionsTab({
     (timeIn || '') !== (record.time_in ?? '') ||
     (timeOut || '') !== (record.time_out ?? '') ||
     (receivedBy || '') !== (record.received_by ?? '');
+  useWorkspaceDraft('dispatch', driverFieldsChanged || selectedStatus !== record.status || !!(statusRemarks || driverFieldsRemarks), applying || savingFields || podReadiness.uploading);
 
   const handleSaveDriverFields = async () => {
+    if (savingFields) return;
+    setSaveDriverError(null);
     if (driverFieldsChanged && !driverFieldsRemarks.trim()) {
       setDriverFieldsRemarksError(true);
       return;
     }
+    const remarks = driverFieldsRemarks.trim();
+    if (!driverFieldsChanged && !remarks) return;
+
     setSavingFields(true);
-    await onUpdateRecord(record.id, {
-      driver: selectedDriver,
-      driver_assistants: assistants.filter(a => a.trim()),
-      time_in: timeIn || null,
-      time_out: timeOut || null,
-      received_by: receivedBy || null,
-      ...(driverFieldsRemarks.trim() ? { remarks: driverFieldsRemarks.trim() } : {}),
-      modified_by: `${currentUserName} (${currentUserRole})`,
-      modified_at: new Date().toISOString(),
-    } as any);
-    setSavingFields(false);
-    setDriverFieldsRemarks('');
+    const updates: Partial<DeliveryRecord> = {};
+    if (selectedDriver !== (record.driver ?? '')) updates.driver = selectedDriver;
+    if (JSON.stringify(assistants.filter(a => a.trim())) !== JSON.stringify(record.driver_assistants ?? [])) {
+      updates.driver_assistants = assistants.filter(a => a.trim());
+    }
+    if ((timeIn || '') !== (record.time_in ?? '')) updates.time_in = timeIn || null;
+    if ((timeOut || '') !== (record.time_out ?? '')) updates.time_out = timeOut || null;
+    if ((receivedBy || '') !== (record.received_by ?? '')) updates.received_by = receivedBy || null;
+    if (remarks) updates.remarks = remarks;
+    updates.modified_by = `${currentUserName} (${currentUserRole})`;
+    updates.modified_at = new Date().toISOString();
+    try {
+      await onUpdateRecord(record.id, updates);
+      setDriverFieldsRemarks('');
+      setDriverFieldsRemarksError(false);
+    } catch (error) {
+      setSaveDriverError(error instanceof Error ? error.message : 'Could not save driver fields. Please try again.');
+    } finally {
+      setSavingFields(false);
+    }
   };
 
   const inputCls = 'w-full px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]';
 
   return (
     <div className="space-y-6">
+      {record.category === 'Deliveries' && record.status !== 'Delivered' && <PodUploader key={record.id} recordId={record.id} required disabled={applying} />}
       {/* Status update */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status Update</h4>
@@ -813,29 +913,43 @@ function ActionsTab({
             placeholder="Reason for this status change (required)…"
             className={`w-full px-3 py-2 border rounded-lg text-xs resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${remarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
           />
-          {remarksError && <p className="text-[11px] text-red-600 font-semibold">Status change remarks are required before applying a new status.</p>}
+          {remarksError && <p role="alert" className="text-[11px] text-red-600 font-semibold">Add a reason before saving the status change.</p>}
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {([...DELIVERY_STATUSES] as DeliveryStatus[]).map(s => (
             <button
+              type="button"
               key={s}
-              onClick={() => handleStatusChange(s)}
-              disabled={applying || record.status === s}
-              className={`py-2.5 px-3 rounded-lg border text-xs font-bold transition-all ${
-                record.status === s
-                  ? 'bg-[#1F3864] text-white border-[#1F3864] cursor-default'
-                  : 'bg-white text-slate-700 border-slate-200 hover:border-[#0078C1] hover:text-[#0078C1] cursor-pointer disabled:opacity-50'
+              onClick={() => { setSelectedStatus(s); setStatusError(null); }}
+              disabled={applying}
+              aria-pressed={selectedStatus === s}
+              className={`min-h-10 rounded-lg border px-3 py-2.5 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] disabled:opacity-50 ${
+                selectedStatus === s
+                  ? 'border-[#1F3864] bg-[#1F3864] text-white'
+                  : 'border-slate-200 bg-white text-slate-700 hover:border-[#0078C1] hover:text-[#0078C1]'
               }`}
             >
-              {applying && record.status !== s ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin mx-auto" />
-              ) : s}
+              {s}
             </button>
           ))}
         </div>
-        <p className="text-[10px] text-slate-400">
-          Current status: <span className="font-bold text-slate-600">{record.status}</span>
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+          <p className="text-xs text-slate-600">
+            Current status: <span className="font-semibold text-slate-800">{record.status}</span>
+            {selectedStatus !== record.status && <span className="ml-2 text-[#1F3864]">→ {selectedStatus} (unsaved)</span>}
+          </p>
+          <button
+            type="button"
+            onClick={handleStatusChange}
+            disabled={applying || selectedStatus === record.status || !!photoError}
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#0078C1] px-4 text-xs font-semibold text-white hover:bg-[#1F3864] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {applying ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Check aria-hidden="true" className="h-4 w-4" />}
+            {applying ? 'Saving...' : 'Save Status Change'}
+          </button>
+        </div>
+        {photoError && <p role="alert" className="text-xs font-semibold text-red-700">{photoError}</p>}
+        {statusError && <p role="alert" className="text-xs font-semibold text-red-700">{statusError}</p>}
       </div>
 
       {/* Driver assignment + completion fields */}
@@ -1001,11 +1115,13 @@ function ActionsTab({
               className={`w-full px-3 py-2 border rounded-lg text-xs resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${driverFieldsRemarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
             />
             {driverFieldsRemarksError && <p className="text-[11px] text-red-600 font-semibold">Driver & delivery remarks are required when making changes to these fields.</p>}
+
           </div>
 
+          {saveDriverError && <p role="alert" className="text-[11px] text-red-600 font-semibold mb-2">{saveDriverError}</p>}
           <button
             onClick={handleSaveDriverFields}
-            disabled={savingFields}
+            disabled={savingFields || (!driverFieldsChanged && !driverFieldsRemarks.trim())}
             className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-[#0078C1] hover:bg-[#1F3864] rounded-lg transition-colors cursor-pointer disabled:opacity-60"
           >
             {savingFields ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
@@ -1025,6 +1141,7 @@ function CommentsTab({ recordId }: { recordId: string }) {
   const [commentBody, setCommentBody] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  useWorkspaceDraft('comments', !!commentBody, submitting);
 
   useEffect(() => {
     setLoading(true);
@@ -1319,54 +1436,44 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
 
 // ─── Documents Tab ────────────────────────────────────────────────────────────
 
-type UploadedFile = {
-  name: string;
-  size: number;
-  type: string;
-  url: string; // object URL for preview
-  uploadedAt: string;
-};
-
 function DocumentsTab({ record }: { record: DeliveryRecord }) {
-  const [files, setFiles] = useState<UploadedFile[]>(() =>
-    // Pre-populate from record.attachments (string filenames from existing data)
-    record.attachments.map(name => ({
-      name,
-      size: 0,
-      type: '',
-      url: '',
-      uploadedAt: record.created_at,
-    }))
-  );
+  const { files, readiness, uploadFiles, removeFile: deleteFile } = usePodAttachments(record.id);
+  const uploading = readiness.uploading;
   const [dragging, setDragging] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  useWorkspaceDraft('documents', false, uploading);
 
-  // Sync when record changes (e.g. prev/next navigation)
   useEffect(() => {
-    setFiles(record.attachments.map(name => ({
-      name, size: 0, type: '', url: '', uploadedAt: record.created_at,
-    })));
-  }, [record.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    setError(null);
+  }, [record.id]);
 
-  const addFiles = (incoming: FileList | null) => {
-    if (!incoming) return;
-    const newFiles: UploadedFile[] = Array.from(incoming).map(f => ({
-      name: f.name,
-      size: f.size,
-      type: f.type,
-      url: URL.createObjectURL(f),
-      uploadedAt: new Date().toISOString(),
-    }));
-    setFiles(prev => [...prev, ...newFiles]);
+  const addFiles = async (incoming: FileList | null) => {
+    if (!incoming || incoming.length === 0 || uploading) return;
+    const selectedFiles = Array.from(incoming);
+    const validationError = validatePodAttachments(selectedFiles);
+    if (validationError) {
+      setError(validationError);
+      if (inputRef.current) inputRef.current.value = '';
+      return;
+    }
+
+    setError(null);
+    try {
+      await uploadFiles(selectedFiles);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed.');
+    } finally {
+      if (inputRef.current) inputRef.current.value = '';
+    }
   };
 
-  const removeFile = (idx: number) => {
-    setFiles(prev => {
-      const next = [...prev];
-      if (next[idx].url) URL.revokeObjectURL(next[idx].url);
-      next.splice(idx, 1);
-      return next;
-    });
+  const removeFile = async (id: string) => {
+    try {
+      await deleteFile(id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove attachment.');
+    }
   };
 
   const formatSize = (bytes: number) => {
@@ -1391,28 +1498,35 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
       <div
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
-        onDrop={e => { e.preventDefault(); setDragging(false); addFiles(e.dataTransfer.files); }}
-        onClick={() => inputRef.current?.click()}
+        onDrop={e => { e.preventDefault(); setDragging(false); if (!uploading) addFiles(e.dataTransfer.files); }}
+        onClick={() => { if (!uploading) inputRef.current?.click(); }}
+        aria-busy={uploading}
         className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all ${
           dragging
             ? 'border-[#0078C1] bg-blue-50'
-            : 'border-slate-300 hover:border-[#0078C1] hover:bg-slate-50'
+            : uploading
+              ? 'border-slate-200 bg-slate-50 cursor-wait'
+              : 'border-slate-300 hover:border-[#0078C1] hover:bg-slate-50'
         }`}
       >
         <Paperclip className={`w-8 h-8 transition-colors ${dragging ? 'text-[#0078C1]' : 'text-slate-300'}`} />
         <div className="text-center">
-          <p className="text-sm font-bold text-slate-700">Drop files here or click to upload</p>
-          <p className="text-xs text-slate-400 mt-0.5">PDF, Word, Excel, images — any format</p>
+          <p className="text-sm font-bold text-slate-700">{uploading ? 'Uploading…' : 'Drop files here or click to upload'}</p>
+            <p className="text-xs text-slate-400 mt-0.5">PDF, JPG, PNG, or DOC — up to 10 MB each</p>
         </div>
         <input
           ref={inputRef}
           type="file"
           multiple
+          accept={POD_ATTACHMENT_ACCEPT}
           className="hidden"
+          disabled={uploading}
           onChange={e => addFiles(e.target.files)}
         />
       </div>
 
+      {readiness.loading && <p role="status" className="text-xs text-slate-600">Loading attachments…</p>}
+      {readiness.loadFailed && <p role="alert" className="text-xs text-red-700">Could not load attachments.</p>}
       {/* File list */}
       {files.length > 0 ? (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
@@ -1422,19 +1536,18 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
             </p>
           </div>
           <div className="divide-y divide-slate-100">
-            {files.map((f, i) => (
-              <div key={i} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 group">
-                <span className="text-xl shrink-0">{fileIcon(f.type, f.name)}</span>
+            {files.map(f => (
+              <div key={f.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 group">
+                <span className="text-xl shrink-0">{fileIcon(f.mime_type, f.name)}</span>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-semibold text-slate-800 truncate">{f.name}</p>
                   <p className="text-[10px] text-slate-400 font-mono mt-0.5">
-                    {f.size ? formatSize(f.size) + ' · ' : ''}{formatTs(f.uploadedAt)}
+                    {f.size ? formatSize(f.size) + ' · ' : ''}{formatTs(f.uploaded_at)}
                   </p>
                 </div>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {f.url && (
-                    <a
-                      href={f.url}
+                  <a
+                      href={f.download_url}
                       download={f.name}
                       className="p-1.5 hover:bg-slate-100 rounded text-slate-400 hover:text-[#0078C1] transition-colors"
                       title="Download"
@@ -1442,9 +1555,9 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
                     >
                       <FileText className="w-3.5 h-3.5" />
                     </a>
-                  )}
                   <button
-                    onClick={() => removeFile(i)}
+                    disabled={uploading}
+                    onClick={() => removeFile(f.id)}
                     className="p-1.5 hover:bg-red-50 rounded text-slate-300 hover:text-red-500 transition-colors"
                     title="Remove"
                   >
@@ -1461,16 +1574,23 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
         </div>
       )}
 
-      <p className="text-[10px] text-slate-400 text-center">
-        Files are stored locally in this session. Backend file storage integration pending.
-      </p>
+      {error && <p role="alert" className="text-xs text-red-600 text-center">{error}</p>}
+      <p className="text-[10px] text-slate-400 text-center">Files are stored in the local Docker volume and protected by record access permissions.</p>
     </div>
   );
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function DeliveryRecordWorkspace({
+export default function DeliveryRecordWorkspace(props: DeliveryRecordWorkspaceProps) {
+  return (
+    <WorkspaceDraftProvider key={`${props.record.id}-${props.currentUserRole}-${props.forceReadOnly ?? false}`}>
+      <RecordWorkspace {...props} />
+    </WorkspaceDraftProvider>
+  );
+}
+
+function RecordWorkspace({
   record,
   allRecordIds,
   allRecords = [],
@@ -1483,8 +1603,10 @@ export default function DeliveryRecordWorkspace({
   outputActionConfigs,
   forceReadOnly = false,
 }: DeliveryRecordWorkspaceProps) {
+  const { requestLeave, pending } = useWorkspaceNavigation();
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError]     = useState<string | null>(null);
+  const [docSize, setDocSize]       = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
 
   const handleDownloadPdf = async () => {
     setPdfLoading(true);
@@ -1496,7 +1618,7 @@ export default function DeliveryRecordWorkspace({
         api.getRecordComments(record.id),
       ]);
       const docData: ManifestDocumentationData = { auditEntries, remarks, comments };
-      await printSingleManifest(record, companies, docData);
+      await printSingleManifest(record, companies, docData, docSize);
     } catch (err: any) {
       setPdfError(err.message ?? 'Failed to generate PDF. Please try again.');
     } finally {
@@ -1508,13 +1630,6 @@ export default function DeliveryRecordWorkspace({
   const visibleTabs = ALL_TABS.filter(t =>
     t.roles.includes(currentUserRole) && !(forceReadOnly && t.id === 'actions')
   );
-  const [activeTab, setActiveTab] = useState<TabId>(visibleTabs[0]?.id ?? 'general');
-
-  // Reset to first tab when navigating to a different record
-  useEffect(() => {
-    setActiveTab(visibleTabs[0]?.id ?? 'general');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [record.id]);
 
   const currentIndex = allRecordIds.indexOf(record.id);
   const prevId = currentIndex > 0 ? allRecordIds[currentIndex - 1] : null;
@@ -1522,8 +1637,8 @@ export default function DeliveryRecordWorkspace({
 
   const moduleName = record.category;
 
-  const renderTabContent = () => {
-    switch (activeTab) {
+  const renderTabContent = (tabId: string) => {
+    switch (tabId) {
       case 'general':
         return (
           <GeneralTab
@@ -1531,6 +1646,7 @@ export default function DeliveryRecordWorkspace({
             currentUserRole={currentUserRole}
             currentUserName={currentUserName}
             onUpdateRecord={onUpdateRecord}
+            readOnly={forceReadOnly}
           />
         );
 
@@ -1569,7 +1685,8 @@ export default function DeliveryRecordWorkspace({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
         <div className="flex items-center gap-3 min-w-0">
           <button
-            onClick={onBack}
+            onClick={() => requestLeave(onBack)}
+            disabled={pending}
             className="flex items-center gap-1.5 text-[#0078C1] hover:text-[#1F3864] text-xs font-semibold transition-colors shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -1582,8 +1699,8 @@ export default function DeliveryRecordWorkspace({
 
         <div className="flex items-center gap-1">
           <button
-            onClick={() => prevId && onNavigateToRecord(prevId)}
-            disabled={!prevId}
+            onClick={() => { if (prevId) requestLeave(() => onNavigateToRecord(prevId)); }}
+            disabled={!prevId || pending}
             className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold text-slate-600"
             title="Previous Record"
           >
@@ -1594,8 +1711,8 @@ export default function DeliveryRecordWorkspace({
             {currentIndex + 1} / {allRecordIds.length}
           </span>
           <button
-            onClick={() => nextId && onNavigateToRecord(nextId)}
-            disabled={!nextId}
+            onClick={() => { if (nextId) requestLeave(() => onNavigateToRecord(nextId)); }}
+            disabled={!nextId || pending}
             className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold text-slate-600"
             title="Next Record"
           >
@@ -1603,7 +1720,8 @@ export default function DeliveryRecordWorkspace({
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
           {(['Sales Coordinator', 'Logistics', 'Admin'] as UserRole[]).includes(currentUserRole) && (
-            <div className="relative">
+            <div className="relative flex flex-wrap min-w-0 items-center gap-2">
+              <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={pdfLoading} inline />
               <button
                 onClick={handleDownloadPdf}
                 disabled={pdfLoading}
@@ -1630,35 +1748,30 @@ export default function DeliveryRecordWorkspace({
         </div>
       </div>
 
-      {/* Tab Navigation + Content */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="border-b border-slate-200 overflow-x-auto">
-          <div className="flex items-stretch min-w-max">
-            {visibleTabs.map(tab => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-5 py-4 text-sm whitespace-nowrap border-b-[3px] transition-all ${
-                    isActive
-                      ? 'border-[#1F3864] text-[#1F3864] bg-blue-50/70 font-semibold'
-                      : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100 font-medium'
-                  }`}
-                >
-                  <Icon className="w-[18px] h-[18px] shrink-0" />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
+      <section aria-label="Record summary" className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="font-bold text-slate-800">{record.company_name}</span>
+          <span className="text-slate-500">{record.category}</span>
+          <span className={`rounded-full border px-2 py-0.5 font-semibold ${STATUS_COLOR[record.status] ?? 'bg-slate-50 text-slate-700 border-slate-200'}`}>{record.status}</span>
+          <span className={`rounded-full border px-2 py-0.5 ${PRIORITY_COLOR[record.priority] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}>Priority: {record.priority}</span>
         </div>
-
-        <div className="p-5">
-          {renderTabContent()}
-        </div>
-      </div>
+        <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-700">
+          {[
+            ['Driver', record.driver || 'Unassigned'],
+            ['Delivery date', record.delivery_date],
+            ['Time in', record.time_in || '—'],
+            ['Time out', record.time_out || '—'],
+          ].map(([label, value]) => <div key={label} className="flex gap-1"><dt className="text-slate-500">{label}:</dt><dd className="font-semibold">{value}</dd></div>)}
+        </dl>
+      </section>
+      <WorkspaceTabs
+        id={`record-${record.id}`}
+        tabs={visibleTabs.map(tab => {
+          const Icon = tab.icon;
+          return { id: tab.id, label: tab.label, icon: <Icon aria-hidden="true" className="w-[18px] h-[18px] shrink-0" /> };
+        })}
+        renderPanel={renderTabContent}
+      />
     </div>
   );
 }

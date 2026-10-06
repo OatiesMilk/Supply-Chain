@@ -4,7 +4,9 @@
  */
 
 import { DeliveryRecord } from '../types';
+import { apiUrl } from '../api';
 import { fmtDate } from './export';
+import { DocumentSize, DEFAULT_DOCUMENT_SIZE, getExcelPageSetup, getPdfFormat, fitColumnWidths, getDocxDimensions, getDocxLandscapeContentWidth } from './documentSize';
 
 export interface RouteSlipParams {
   records: DeliveryRecord[];
@@ -15,6 +17,7 @@ export interface RouteSlipParams {
   filename: string;
   /** When provided, counts are built from the full status history (Status Trail mode). */
   auditSets?: Map<string, Set<string>>;
+  documentSize?: import('./documentSize').DocumentSize;
 }
 
 const TITLE       = 'COURIER/DAILY ROUTE SLIP REPORT';
@@ -82,7 +85,7 @@ export async function fetchHistoricStatusSets(records: DeliveryRecord[]): Promis
 
   await Promise.all(records.map(async r => {
     try {
-      const res = await fetch(`/api/records/${r.id}/audit`, { credentials: 'include' });
+      const res = await fetch(`${apiUrl(`/records/${r.id}/audit`)}`, { credentials: 'include' });
       if (!res.ok) return;
       const entries: { previous_value: unknown; new_value: unknown }[] = await res.json();
       const set = sets.get(r.id)!;
@@ -117,11 +120,13 @@ const TRAIL_FOOTNOTE = '* Status Trail counts reflect all statuses each record h
 // ─── Excel ────────────────────────────────────────────────────────────────────
 
 export async function downloadRouteSlipExcel({
-  records, driverName, date, preparedBy, filename, auditSets,
+  records, driverName, date, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
 }: RouteSlipParams): Promise<void> {
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('Route Slip');
+  const ws = wb.addWorksheet('Route Slip', {
+    pageSetup: getExcelPageSetup(documentSize)
+  });
 
   const now  = new Date();
   const year = now.getFullYear();
@@ -424,12 +429,12 @@ export async function downloadRouteSlipExcel({
 // ─── PDF ──────────────────────────────────────────────────────────────────────
 
 export async function downloadRouteSlipPDF({
-  records, driverName, date, preparedBy, filename, auditSets,
+  records, driverName, date, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
 }: RouteSlipParams): Promise<void> {
   const { jsPDF }             = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
 
-  const doc  = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const doc  = new jsPDF({ orientation: 'landscape', unit: 'mm', format: getPdfFormat(documentSize) });
   const now  = new Date();
   const year = now.getFullYear();
   const dateDisplay = date
@@ -543,20 +548,14 @@ export async function downloadRouteSlipPDF({
     },
     alternateRowStyles: { fillColor: [248, 250, 252] },
     bodyStyles: { textColor: [30, 41, 59], minCellHeight: 7.5, valign: 'middle' },
-    columnStyles: {
-      0:  { cellWidth: 16 },  // Priority
-      1:  { cellWidth: 52 },  // Company Name
-      2:  { cellWidth: 24 },  // Documents
-      3:  { cellWidth: 22 },  // Reference
-      4:  { cellWidth: 16 },  // Waybill #
-      5:  { cellWidth: 38 },  // Remarks
-      6:  { cellWidth: 20 },  // Area
-      7:  { cellWidth: 14 },  // Type/Mode
-      8:  { cellWidth: 15 },  // TIME-IN
-      9:  { cellWidth: 18 },  // TIME-OUT
-      10: { cellWidth: 20 },  // Signed by Client
-      11: { cellWidth: 22 },  // Remarks (last)
-    },
+    columnStyles: Object.fromEntries(
+      (() => {
+        const usableWidth = pageW - (MARGIN * 2);
+        const weights = [16, 52, 24, 22, 16, 38, 20, 14, 15, 18, 20, 22];
+        const scaledWidths = fitColumnWidths(weights, usableWidth);
+        return scaledWidths.map((w, i) => [i, { cellWidth: w }]);
+      })()
+    ),
     didDrawPage: (data: any) => {
       const total   = (doc as any).internal.getNumberOfPages();
       const current = data.pageNumber;
@@ -709,6 +708,7 @@ export interface AllDriversRouteSlipParams {
   filename: string;
   /** When provided, counts are built from the full status history (Status Trail mode). */
   auditSets?: Map<string, Set<string>>;
+  documentSize?: import('./documentSize').DocumentSize;
 }
 
 function groupByDriver(records: DeliveryRecord[]): [string, DeliveryRecord[]][] {
@@ -732,7 +732,7 @@ function groupByDriver(records: DeliveryRecord[]): [string, DeliveryRecord[]][] 
 }
 
 export async function downloadAllDriversRouteSlipExcel({
-  records, date, preparedBy, filename, auditSets,
+  records, date, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
 }: AllDriversRouteSlipParams): Promise<void> {
   const ExcelJS = (await import('exceljs')).default;
   const wb      = new ExcelJS.Workbook();
@@ -748,7 +748,9 @@ export async function downloadAllDriversRouteSlipExcel({
     const counts  = auditSets ? computeHistoricCounts(driverRecords, auditSets) : computeCounts(driverRecords);
 
     const sheetName = driverName.replace(/[:\\/?*[\]]/g, '-').slice(0, 31);
-    const ws = wb.addWorksheet(sheetName);
+    const ws = wb.addWorksheet(sheetName, {
+      pageSetup: getExcelPageSetup(documentSize)
+    });
 
     const NCOLS = 12;
     ws.columns = [
@@ -935,7 +937,9 @@ export async function downloadAllDriversRouteSlipExcel({
   };
 
   if (groups.length === 0) {
-    const ws = wb.addWorksheet('No Records');
+    const ws = wb.addWorksheet('No Records', {
+      pageSetup: getExcelPageSetup(documentSize)
+    });
     ws.addRow(['No records with assigned drivers found.']);
   } else {
     for (const [driverName, driverRecords] of groups) {
@@ -954,7 +958,7 @@ export async function downloadAllDriversRouteSlipExcel({
 }
 
 export async function downloadAllDriversRouteSlipPDF({
-  records, date, preparedBy, filename, auditSets,
+  records, date, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
 }: AllDriversRouteSlipParams): Promise<void> {
   const { jsPDF }             = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
@@ -965,7 +969,7 @@ export async function downloadAllDriversRouteSlipPDF({
   const dateDisplay = date ? fmtDate(`${date}T12:00:00`) : fmtDate(now.toISOString());
   const groups = groupByDriver(records);
 
-  const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: getPdfFormat(documentSize) });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const MARGIN  = 10;
@@ -1125,12 +1129,9 @@ export async function downloadAllDriversRouteSlipPDF({
         },
         alternateRowStyles: { fillColor: [248, 250, 252] },
         bodyStyles: { textColor: [30, 41, 59], minCellHeight: 7.5, valign: 'middle' },
-        columnStyles: {
-          0:  { cellWidth: 16 }, 1:  { cellWidth: 52 }, 2:  { cellWidth: 24 },
-          3:  { cellWidth: 22 }, 4:  { cellWidth: 16 }, 5:  { cellWidth: 38 },
-          6:  { cellWidth: 20 }, 7:  { cellWidth: 14 }, 8:  { cellWidth: 15 },
-          9:  { cellWidth: 18 }, 10: { cellWidth: 20 }, 11: { cellWidth: 22 },
-        },
+        columnStyles: Object.fromEntries(
+          fitColumnWidths([16, 52, 24, 22, 16, 38, 20, 14, 15, 18, 20, 22], usableW).map((w, i) => [i, { cellWidth: w }])
+        ),
         didDrawPage: (data: any) => {
           doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(148, 163, 184);
           doc.text('Microgenesis Business Systems — Confidential', centerX, pageH - 4, { align: 'center' });
@@ -1155,7 +1156,7 @@ export async function downloadAllDriversRouteSlipPDF({
 // ─── DOCX ─────────────────────────────────────────────────────────────────────
 
 export async function downloadRouteSlipDocx({
-  records, driverName, date, preparedBy, filename, auditSets,
+  records, driverName, date, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
 }: RouteSlipParams): Promise<void> {
   const {
     Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, ImageRun,
@@ -1180,7 +1181,7 @@ export async function downloadRouteSlipDocx({
     for (let i = 0; i < bin.length; i++) logoBytes[i] = bin.charCodeAt(i);
   }
 
-  const CONTENT_W = 15398;
+  const CONTENT_W = getDocxLandscapeContentWidth(documentSize);
   const nb        = { style: 'none'   as const, size: 0, color: 'FFFFFF' };
   const thin      = { style: 'single' as const, size: 4, color: 'E2E8F0' };
   const noBorders  = { top: nb,   bottom: nb,   left: nb,   right: nb };
@@ -1191,8 +1192,7 @@ export async function downloadRouteSlipDocx({
   const centerW = CONTENT_W - leftW - rightW;
 
   const PDF_COL_W = [16, 52, 24, 22, 16, 38, 20, 14, 15, 15, 20, 25];
-  const totalPDF  = PDF_COL_W.reduce((s, w) => s + w, 0);
-  const colWidths = PDF_COL_W.map(w => Math.round((w / totalPDF) * CONTENT_W));
+  const colWidths = fitColumnWidths(PDF_COL_W, CONTENT_W, true);
   const HEADERS_12 = [
     'Priority', 'Company Name', 'Documents', 'Reference',
     'Waybill #', 'Remarks', 'Area', 'Type / Mode',
@@ -1267,13 +1267,14 @@ export async function downloadRouteSlipDocx({
     ],
   });
 
+  const { width, height } = getDocxDimensions(documentSize);
   const doc = new Document({
     creator: 'Microgenesis Business Systems',
     title: TITLE,
     sections: [{
       properties: {
         page: {
-          size: { orientation: PageOrientation.LANDSCAPE, width: 16838, height: 11906 },
+          size: { orientation: PageOrientation.LANDSCAPE, width, height },
           margin: { top: 720, right: 720, bottom: 720, left: 720 },
         },
       },
@@ -1318,7 +1319,7 @@ export async function downloadRouteSlipDocx({
 }
 
 export async function downloadAllDriversRouteSlipDocx({
-  records, date, preparedBy, filename, auditSets,
+  records, date, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
 }: AllDriversRouteSlipParams): Promise<void> {
   const {
     Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, ImageRun,
@@ -1339,15 +1340,14 @@ export async function downloadAllDriversRouteSlipDocx({
     for (let i = 0; i < bin.length; i++) logoBytes[i] = bin.charCodeAt(i);
   }
 
-  const CONTENT_W = 15398;
+  const CONTENT_W = getDocxLandscapeContentWidth(documentSize);
   const nb         = { style: 'none'   as const, size: 0, color: 'FFFFFF' };
   const thin       = { style: 'single' as const, size: 4, color: 'E2E8F0' };
   const noBorders  = { top: nb,   bottom: nb,   left: nb,   right: nb };
   const thinBorders = { top: thin, bottom: thin, left: thin, right: thin };
 
   const PDF_COL_W  = [16, 52, 24, 22, 16, 38, 20, 14, 15, 15, 20, 25];
-  const totalPDF   = PDF_COL_W.reduce((s, w) => s + w, 0);
-  const colWidths  = PDF_COL_W.map(w => Math.round((w / totalPDF) * CONTENT_W));
+  const colWidths  = fitColumnWidths(PDF_COL_W, CONTENT_W, true);
   const HEADERS_12 = [
     'Priority', 'Company Name', 'Documents', 'Reference',
     'Waybill #', 'Remarks', 'Area', 'Type / Mode',
@@ -1467,13 +1467,14 @@ export async function downloadAllDriversRouteSlipDocx({
         buildDriverContent(driverName, driverRecords, idx === 0),
       );
 
+  const { width, height } = getDocxDimensions(documentSize);
   const doc = new Document({
     creator: 'Microgenesis Business Systems',
     title: TITLE,
     sections: [{
       properties: {
         page: {
-          size: { orientation: PageOrientation.LANDSCAPE, width: 16838, height: 11906 },
+          size: { orientation: PageOrientation.LANDSCAPE, width, height },
           margin: { top: 720, right: 720, bottom: 720, left: 720 },
         },
       },

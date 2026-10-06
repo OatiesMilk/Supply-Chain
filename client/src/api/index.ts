@@ -5,6 +5,14 @@
  * sent automatically via `credentials: 'include'`.
  */
 
+import { requestServerCheck } from './availability';
+
+export const API_BASE = '';
+
+export function apiUrl(path: string): string {
+  return `${API_BASE}/api${path}`;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -14,14 +22,25 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {})
-    },
-    ...options
-  });
+  let res: Response;
+  try {
+    res = await fetch(apiUrl(path), {
+      credentials: 'include',
+      headers: options.body instanceof FormData
+        ? { ...(options.headers || {}) }
+        : { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      ...options
+    });
+  } catch (error) {
+    if (!(error instanceof DOMException && error.name === 'AbortError')) requestServerCheck();
+    throw error;
+  }
+
+  if ((res.status === 401 || res.status === 403) && !path.startsWith('/auth/') && typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('session-permissions-changed'));
+  }
+
+  if (res.status >= 500) requestServerCheck();
 
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
@@ -44,6 +63,20 @@ export interface ApiUser {
   email: string;
   role: 'SALES_COORDINATOR' | 'LOGISTICS' | 'TASS' | 'ADMIN' | 'DRIVER';
   permissions: { screen: string; granted: boolean }[];
+  effectiveScreens: string[];
+  resources: string[];
+  permissionVersion: string;
+}
+
+export interface ApiPermissionEditor {
+  userId: string;
+  permissions: { screen: string; granted: boolean }[];
+  effectiveScreens: string[];
+  resources: string[];
+  permissionVersion: string;
+  roleDefaults: string[];
+  catalog: { screen: string; label: string }[];
+  editableScreens: string[];
 }
 
 // Extended user record returned by the admin user-management endpoint
@@ -197,6 +230,16 @@ export interface ApiRemarkLog {
   author: string;
   author_role: string;
   created_at: string;
+}
+
+export interface ApiPodAttachment {
+  id: string;
+  is_photo: boolean;
+  name: string;
+  mime_type: string;
+  size: number;
+  uploaded_at: string;
+  download_url: string;
 }
 
 export interface ApiReportSummary {
@@ -353,10 +396,18 @@ export const api = {
     request<any>('/records', { method: 'POST', body: JSON.stringify(data) }),
   updateRecord: (id: string, data: Record<string, unknown>) =>
     request<any>(`/records/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  patchStatus: (id: string, status: string, remarks?: string, extra?: { time_out?: string; received_by?: string }) =>
+  patchStatus: (id: string, status: string, remarks?: string, extra?: { time_out?: string; received_by?: string; priority?: string }) =>
     request<any>(`/records/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, remarks: remarks ?? '', ...extra }) }),
   verifyCollection: (id: string) =>
     request<any>(`/records/${id}/verify-collection`, { method: 'PATCH' }),
+  getRecordAttachments: (id: string) => request<ApiPodAttachment[]>(`/records/${id}/attachments`),
+  uploadRecordAttachment: (id: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<ApiPodAttachment>(`/records/${id}/attachments`, { method: 'POST', body: form });
+  },
+  deleteRecordAttachment: (id: string, attachmentId: string) =>
+    request<void>(`/records/${id}/attachments/${attachmentId}`, { method: 'DELETE' }),
 
   getCompanies: () => request<ApiCompany[]>('/companies'),
 
@@ -380,12 +431,14 @@ export const api = {
     request<ApiUserAdmin>(`/users/${id}/deactivate`, { method: 'PATCH' }),
   activateUser: (id: string) =>
     request<ApiUserAdmin>(`/users/${id}/activate`, { method: 'PATCH' }),
+  deleteUser: (id: string) =>
+    request<{ ok: boolean; deleted_id: string }>(`/users/${id}`, { method: 'DELETE' }),
   getUserPermissions: (userId: string) =>
-    request<{ userId: string; permissions: { screen: string; granted: boolean }[] }>(`/users/${userId}/permissions`),
-  setUserPermissions: (userId: string, permissions: { screen: string; granted: boolean }[]) =>
-    request<{ userId: string; permissions: { screen: string; granted: boolean }[] }>(`/users/${userId}/permissions`, {
+    request<ApiPermissionEditor>(`/users/${userId}/permissions`),
+  setUserPermissions: (userId: string, permissions: { screen: string; granted: boolean }[], expectedVersion: string) =>
+    request<ApiPermissionEditor>(`/users/${userId}/permissions`, {
       method: 'PUT',
-      body: JSON.stringify({ permissions })
+      body: JSON.stringify({ permissions, expectedVersion })
     }),
 
   // Admin integration diagnostics
@@ -417,6 +470,7 @@ export const api = {
     request<ApiSku>(`/skus/${id}/adjust`, { method: 'POST', body: JSON.stringify(data) }),
 
   resetSeed: () => request<{ ok: boolean }>('/dev/reset-seed', { method: 'POST' }),
+  seedUat: () => request<{ ok: boolean; userCount: number; driverRecords: number }>('/dev/public-seed-uat', { method: 'POST' }),
 
   // Data Sampler (Admin only)
   dataSampler: {

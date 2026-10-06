@@ -3,6 +3,7 @@ import { Plus, X } from 'lucide-react';
 import { Supplier, DeliveryRecord } from '@/types';
 import SupplierWorkspace from '@/features/suppliers/SupplierWorkspace';
 import ExportMenu from '@/components/ExportMenu';
+import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { SUPPLIER_COLUMNS } from '@/utils/export';
 
 const CATEGORY_COLOR: Record<string, string> = {
@@ -28,8 +29,13 @@ const EMPTY_FORM = { name: '', contact_person: '', email: '', phone: '', address
 export default function SuppliersView({ suppliers, deliveryRecords, currentUserRole = '', currentUserName = '', onCreateSupplier }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [form, setForm] = useState(EMPTY_FORM);
   const [formError, setFormError] = useState('');
+
+  const totalPages = Math.max(1, Math.ceil(suppliers.length / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, page), totalPages);
 
   const canCreate = currentUserRole !== 'TASS';
 
@@ -131,7 +137,7 @@ export default function SuppliersView({ suppliers, deliveryRecords, currentUserR
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {suppliers.map(s => {
+              {suppliers.slice((safeCurrentPage - 1) * pageSize, safeCurrentPage * pageSize).map(s => {
                 const pickupCount = deliveryRecords.filter(r =>
                   r.category === 'Procurement Pick-up' &&
                   (r.item_description.toLowerCase().includes(s.name.toLowerCase()) ||
@@ -164,8 +170,19 @@ export default function SuppliersView({ suppliers, deliveryRecords, currentUserR
           </table>
         </div>
 
-        <div className="p-3 bg-slate-50 border-t border-slate-100 text-xs font-bold text-slate-500">
-          Showing {suppliers.length} registered suppliers.
+        <div className="border-t border-slate-200">
+          <Pagination
+            currentPage={safeCurrentPage}
+            totalPages={totalPages}
+            totalItems={suppliers.length}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(newSize) => {
+              setPageSize(newSize);
+              setPage(1);
+            }}
+            pageSizeOptions={[10, 25, 50, 100]}
+          />
         </div>
       </div>
 

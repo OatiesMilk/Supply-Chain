@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Plus,
   Search,
@@ -18,15 +18,15 @@ import {
 import ExportMenu from '@/components/ExportMenu';
 import DriverReportModal from '@/features/drivers/DriverReportModal';
 import RouteSlipMenu from '@/components/RouteSlipMenu';
-import AccountManagerCombobox from '@/components/AccountManagerCombobox';
+import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, PDF_DELIVERY_COLUMNS, PDF_AC_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
-import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger } from '@/types';
-import { ApiCompany, api, ApiError } from '@/api';
+import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel } from '@/types';
+import { ApiCompany, api, apiUrl, ApiError } from '@/api';
 import { DELIVERY_STATUSES, AREA_HIERARCHY, getRegion, getSubregion } from '@/data';
-import { MapPin, SlidersHorizontal } from 'lucide-react';
 import DeliveryRecordWorkspace from '@/features/deliveries/DeliveryRecordWorkspace';
 import RecordCreateForm from '@/features/deliveries/RecordCreateForm';
+import FilterPopover, { FilterCombobox } from '@/components/FilterPopover';
 
 interface DeliveryRecordsViewProps {
   category: DeliveryCategory;
@@ -36,8 +36,8 @@ interface DeliveryRecordsViewProps {
   companies: ApiCompany[];
   currentUserRole: UserRole;
   currentUserName: string;
-  onCreateRecord: (data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>) => void;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onCreateRecord: (data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>) => Promise<void>;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   onVerifyCollection: (id: string) => Promise<void>;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;
   onUpdateOutputActionConfig: (trigger: OutputActionTrigger, patch: Partial<OutputActionConfig>) => void;
@@ -102,8 +102,10 @@ export default function DeliveryRecordsView({
 
   // Bulk selection (Logistics only)
   const [selectedBulkIds, setSelectedBulkIds] = useState<Set<string>>(new Set());
-  const [bulkStatus, setBulkStatus] = useState<string>('Delivered');
+  const [bulkStatus, setBulkStatus] = useState<DeliveryStatus | ''>('');
   const [bulkApplying, setBulkApplying] = useState(false);
+  const [bulkPriority, setBulkPriority] = useState<PriorityLevel | ''>('');
+  const [bulkResult, setBulkResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   // Monthly Driver Report modal
   const [showDriverReportModal, setShowDriverReportModal] = useState(false);
@@ -115,11 +117,11 @@ export default function DeliveryRecordsView({
   const [samplerResult, setSamplerResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const CATEGORY_MODULE: Record<string, string> = {
-    'Deliveries':            'deliveries',
-    'RMA':                   'rma',
+    'Deliveries': 'deliveries',
+    'RMA': 'rma',
     'Accounting Collection': 'accounting_collection',
-    'Procurement Pick-up':   'procurement_pickup',
-    'Sales Orders':          'sales_orders',
+    'Procurement Pick-up': 'procurement_pickup',
+    'Sales Orders': 'sales_orders',
   };
 
   const handleGenerateSample = async () => {
@@ -146,31 +148,35 @@ export default function DeliveryRecordsView({
 
 
 
-  // Deep-link support: jump straight to a flagged record (e.g. from the Dashboard's
-  // Needs Attention panel or the Logistics dispatch board's unassigned-records list).
+  const initializedCategoryRef = useRef<DeliveryCategory | null>(null);
+
+  // Reset module state before applying an incoming record link so initialization
+  // cannot clear the linked selection. Consuming the link must retain local state.
   useEffect(() => {
+    if (initializedCategoryRef.current !== category) {
+      initializedCategoryRef.current = category;
+      setSelectedId(null);
+      setShowForm(false);
+      setRegionFilter('All Regions');
+      setSubregionFilter('All Subregions');
+      setAreaFilter('All Areas');
+      setDateFrom('');
+      setDateTo('');
+      setDateSort('default');
+      setAmFilter('');
+      setDriverFilter('');
+      setSelectedBulkIds(new Set());
+      setBulkStatus('');
+      setBulkPriority('');
+      setBulkResult(null);
+    }
+
     if (selectedRecordIdFromDashboard) {
       setSelectedId(selectedRecordIdFromDashboard);
       setShowForm(false);
       clearSelectedRecordId?.();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRecordIdFromDashboard]);
-
-  // Reset category-scoped UI state when switching module tabs. The same
-  // component instance is reused, so bulk selections would otherwise carry
-  // over and keep the action bar visible for records from the previous module.
-  useEffect(() => {
-    setRegionFilter('All Regions');
-    setSubregionFilter('All Subregions');
-    setAreaFilter('All Areas');
-    setDateFrom('');
-    setDateTo('');
-    setDateSort('default');
-    setAmFilter('');
-    setDriverFilter('');
-    setSelectedBulkIds(new Set());
-  }, [category]);
+  }, [category, selectedRecordIdFromDashboard, clearSelectedRecordId]);
 
   const [statusHistoryCounts, setStatusHistoryCounts] = useState<StatusHistoryCounts | undefined>(undefined);
 
@@ -182,12 +188,12 @@ export default function DeliveryRecordsView({
     };
     if (category) params.set('category', CATEGORY_TO_DB[category] ?? category);
     if (dateFrom) params.set('dateFrom', dateFrom);
-    if (dateTo)   params.set('dateTo', dateTo);
+    if (dateTo) params.set('dateTo', dateTo);
     if (areaFilter !== 'All Areas') params.set('area', areaFilter);
     if (driverFilter) params.set('driver', driverFilter);
     if (statusFilter !== 'All') params.set('status', statusFilter);
 
-    fetch(`/api/records/status-history-counts?${params}`, { credentials: 'include' })
+    fetch(`${apiUrl('/records/status-history-counts')}?${params}`, { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
       .then(data => setStatusHistoryCounts(data ?? undefined))
       .catch(() => setStatusHistoryCounts(undefined));
@@ -235,8 +241,16 @@ export default function DeliveryRecordsView({
     if (statusFilter !== 'All' && r.status !== statusFilter) return false;
     if (amFilter && !r.account_manager.toLowerCase().includes(amFilter.toLowerCase())) return false;
     if (driverFilter && r.driver.toLowerCase() !== driverFilter.toLowerCase()) return false;
-    if (dateFrom && r.delivery_date < dateFrom) return false;
-    if (dateTo   && r.delivery_date > dateTo)   return false;
+    if (dateFrom && r.delivery_date) {
+      const rd = new Date(r.delivery_date);
+      const df = new Date(dateFrom);
+      if (rd < df) return false;
+    }
+    if (dateTo && r.delivery_date) {
+      const rd = new Date(r.delivery_date);
+      const dt = new Date(dateTo);
+      if (rd > dt) return false;
+    }
     const q = searchQuery.toLowerCase();
     if (!q) return true;
     return (
@@ -252,16 +266,24 @@ export default function DeliveryRecordsView({
   // TASS-specific extra filters (client-side, no extra API call)
   const filtered = currentUserRole === 'TASS'
     ? baseFiltered.filter(r => {
-        if (tassDateFrom && r.delivery_date < tassDateFrom) return false;
-        if (tassDateTo   && r.delivery_date > tassDateTo)   return false;
-        if (tassAccountManager && !r.account_manager.toLowerCase().includes(tassAccountManager.toLowerCase())) return false;
-        if (tassStatusFilter) {
-          if (tassStatusFilter === 'Collection Verified') return r.collection_verified === true;
-          if (tassStatusFilter === 'Accomplished')        return r.status === 'Delivered';
-          return r.status === tassStatusFilter;
-        }
-        return true;
-      })
+      if (tassDateFrom && r.delivery_date) {
+        const rd = new Date(r.delivery_date);
+        const df = new Date(tassDateFrom);
+        if (rd < df) return false;
+      }
+      if (tassDateTo && r.delivery_date) {
+        const rd = new Date(r.delivery_date);
+        const dt = new Date(tassDateTo);
+        if (rd > dt) return false;
+      }
+      if (tassAccountManager && !r.account_manager.toLowerCase().includes(tassAccountManager.toLowerCase())) return false;
+      if (tassStatusFilter) {
+        if (tassStatusFilter === 'Collection Verified') return r.collection_verified === true;
+        if (tassStatusFilter === 'Accomplished') return r.status === 'Delivered';
+        return r.status === tassStatusFilter;
+      }
+      return true;
+    })
     : baseFiltered;
 
   const now = Date.now();
@@ -272,22 +294,108 @@ export default function DeliveryRecordsView({
     if (!da && !db) return 0;
     if (!da) return 1;
     if (!db) return -1;
-    if (activeDateSort === 'nearest')  return Math.abs(da - now) - Math.abs(db - now);
-    if (activeDateSort === 'oldest')   return da - db;
+    if (activeDateSort === 'nearest') return Math.abs(da - now) - Math.abs(db - now);
+    if (activeDateSort === 'oldest') return da - db;
     if (activeDateSort === 'furthest') return db - da;
     return 0;
   });
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+
+  // Automatically reset to page 1 whenever any filter or search query changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    category,
+    searchQuery,
+    statusFilter,
+    regionFilter,
+    subregionFilter,
+    areaFilter,
+    dateFrom,
+    dateTo,
+    dateSort,
+    amFilter,
+    driverFilter,
+    tassDateFrom,
+    tassDateTo,
+    tassStatusFilter,
+    tassAccountManager,
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedFiltered.length / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const paginatedRecords = useMemo(() => {
+    const startIndex = (safeCurrentPage - 1) * pageSize;
+    return sortedFiltered.slice(startIndex, startIndex + pageSize);
+  }, [sortedFiltered, safeCurrentPage, pageSize]);
+
   const activeRecord = records.find(r => r.id === selectedId);
 
-  const handleBulkStatusUpdate = async () => {
-    if (selectedBulkIds.size === 0 || bulkApplying) return;
+  const handleBulkUpdate = async () => {
+    if (selectedBulkIds.size === 0 || bulkApplying ||
+      !((canAssignDriver && bulkStatus) || (canEdit && bulkPriority))) return;
     setBulkApplying(true);
-    for (const id of [...selectedBulkIds]) {
-      await (onUpdateRecord(id, { status: bulkStatus as any }) as unknown as Promise<void>);
+    setBulkResult(null);
+    const failedIds = new Set<string>();
+    let firstError = '';
+    let savedCount = 0;
+    let unchangedCount = 0;
+    const ids = [...selectedBulkIds];
+    try {
+      for (const id of ids) {
+        try {
+          const record = categoryRecords.find(record => record.id === id);
+          if (!record) throw new Error('The selected record is no longer available. Refresh and try again.');
+          const updates: Partial<DeliveryRecord> = {};
+          const remarks: string[] = [];
+          if (canAssignDriver && bulkStatus && record.status !== bulkStatus) {
+            updates.status = bulkStatus;
+            remarks.push(`Status set to ${bulkStatus}`);
+          }
+          if (canEdit && bulkPriority && record.priority !== bulkPriority) {
+            updates.priority = bulkPriority;
+            remarks.push(`Priority set to ${bulkPriority}`);
+          }
+          if (remarks.length === 0) {
+            unchangedCount++;
+            continue;
+          }
+          updates.remarks = remarks.join('; ');
+          await onUpdateRecord(id, updates);
+          savedCount++;
+        } catch (error) {
+          failedIds.add(id);
+          if (!firstError) firstError = error instanceof Error ? error.message : 'Please try again.';
+        }
+      }
+      setSelectedBulkIds(failedIds);
+      const messages: string[] = [];
+      if (savedCount > 0) {
+        const savedRecords = `${savedCount} record${savedCount === 1 ? '' : 's'}`;
+        if (canAssignDriver && bulkStatus && canEdit && bulkPriority) {
+          messages.push(`Status and priority changes applied to ${savedRecords}.`);
+        } else if (canAssignDriver && bulkStatus) {
+          messages.push(`Status updated for ${savedRecords}.`);
+          if (canEdit) messages.push('Priority kept unchanged.');
+        } else {
+          messages.push(`Priority updated for ${savedRecords}.`);
+          if (canAssignDriver) messages.push('Status kept unchanged.');
+        }
+      }
+      if (unchangedCount > 0) {
+        messages.push(`${unchangedCount} record${unchangedCount === 1 ? '' : 's'} already matched the selected values.`);
+      }
+      if (failedIds.size > 0) {
+        messages.push(`${failedIds.size} record${failedIds.size === 1 ? '' : 's'} failed to update and ${failedIds.size === 1 ? 'remains' : 'remain'} selected for retry.`);
+        if (firstError) messages.push(firstError);
+      }
+      setBulkResult({ ok: failedIds.size === 0, message: messages.join(' ') });
+    } finally {
+      setBulkApplying(false);
     }
-    setSelectedBulkIds(new Set());
-    setBulkApplying(false);
   };
 
   const toggleBulkId = (id: string) => {
@@ -356,16 +464,29 @@ export default function DeliveryRecordsView({
 
   const routeSlipProps = driverFilter
     ? {
-        records: sortedFiltered,
-        driverName: driverFilter,
-        date: dateFrom || new Date().toISOString().split('T')[0],
-        preparedBy: currentUserName,
-      }
+      records: sortedFiltered,
+      driverName: driverFilter,
+      date: dateFrom || new Date().toISOString().split('T')[0],
+      preparedBy: currentUserName,
+    }
     : undefined;
 
   const showTassFilters = currentUserRole === 'TASS';
 
-  const hasAdvancedFilters = regionFilter !== 'All Regions' || subregionFilter !== 'All Subregions' || areaFilter !== 'All Areas' || !!amFilter || !!driverFilter || !!dateFrom || !!dateTo || dateSort !== 'default';
+  const activeFilterCount = [
+    regionFilter !== 'All Regions', subregionFilter !== 'All Subregions', areaFilter !== 'All Areas',
+    !!amFilter, !!driverFilter, !!dateFrom, !!dateTo, dateSort !== 'default',
+    statusFilter !== 'All', !!searchQuery,
+    ...(showTassFilters ? [!!tassDateFrom, !!tassDateTo, !!tassStatusFilter, !!tassAccountManager] : []),
+  ].filter(Boolean).length;
+
+  const clearAllFilters = () => {
+    setSearchQuery(''); setStatusFilter('All'); setRegionFilter('All Regions');
+    setSubregionFilter('All Subregions'); setAreaFilter('All Areas');
+    setAmFilter(''); setDriverFilter(''); setDateFrom(''); setDateTo(''); setDateSort('default');
+    setTassDateFrom(''); setTassDateTo(''); setTassStatusFilter(''); setTassAccountManager('');
+  };
+
 
   const showCheckbox = canAssignDriver || canEdit;
   const showCollectionCol = currentUserRole === 'TASS' && category === 'Accounting Collection';
@@ -379,6 +500,7 @@ export default function DeliveryRecordsView({
   // start shifts right (more gap from Delivery Date) without shrinking
   // Driver's own width — Status (a short pill badge) absorbs the change
   // instead, since it tolerates a narrower column better than Driver names do.
+  const colMinWidth = { id: '110px', company: '200px', area: '130px', date: '180px', driver: '130px', status: '130px' };
   const colPct = showCheckbox
     ? { id: 12, company: 24, area: 13, date: 22, driver: 12, status: 13 }
     : showCollectionCol
@@ -387,6 +509,11 @@ export default function DeliveryRecordsView({
 
   return (
     <div className="space-y-6 print:space-y-2" id={`records-view-${category.toLowerCase().replace(/\s+/g, '-')}`}>
+      {bulkResult && (
+        <div role={bulkResult.ok ? 'status' : 'alert'} className={`rounded-lg border px-4 py-3 text-sm ${bulkResult.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+          {bulkResult.message}
+        </div>
+      )}
       {/* View Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4 print:hidden">
         <div>
@@ -415,7 +542,19 @@ export default function DeliveryRecordsView({
               dateFrom={dateFrom}
               preparedBy={currentUserName}
               filename={category.toLowerCase().replace(/\s+/g, '-')}
-              onFocusDateFilter={() => dateFromRef.current?.focus()}
+              onFocusDateFilter={() => {
+                setShowAdvancedFilters(false);
+                if (dateFromRef.current) {
+                  dateFromRef.current.focus();
+                  try {
+                    if (typeof dateFromRef.current.showPicker === 'function') {
+                      dateFromRef.current.showPicker();
+                    }
+                  } catch {
+                    // Keep the visible field focused for browsers that block showPicker.
+                  }
+                }
+              }}
             />
           )}
           {/* Monthly Driver Report — Logistics / Admin, Deliveries only */}
@@ -500,22 +639,75 @@ export default function DeliveryRecordsView({
         </div>
       </div>
 
+      {/* Date Range Controls (Always mounted) */}
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap gap-3 items-end text-xs print:hidden" id="date-range-filters">
+        <div className="space-y-1 flex-1 min-w-[120px]">
+          <label htmlFor="dateFrom" className="font-bold text-slate-700 block">Date From</label>
+          <input
+            id="dateFrom"
+            ref={dateFromRef}
+            type="date"
+            value={dateFrom}
+            onChange={e => setDateFrom(e.target.value)}
+            title="Date from"
+            className="w-full text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+          />
+        </div>
+        <div className="space-y-1 flex-1 min-w-[120px]">
+          <label htmlFor="dateTo" className="font-bold text-slate-700 block">Date To</label>
+          <input
+            id="dateTo"
+            type="date"
+            value={dateTo}
+            onChange={e => setDateTo(e.target.value)}
+            title="Date to"
+            className="w-full text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+          />
+        </div>
+        <div className="space-y-1 flex-1 min-w-[150px]">
+          <label htmlFor="dateSort" className="font-bold text-slate-700 block">Sort</label>
+          <select
+            id="dateSort"
+            value={dateSort}
+            onChange={e => setDateSort(e.target.value as typeof dateSort)}
+            disabled={!!(dateFrom || dateTo)}
+            title={(dateFrom || dateTo) ? 'Sort order is N/A while a date range filter is active' : undefined}
+            className={`w-full text-[11px] font-semibold border rounded-lg px-2.5 py-2 focus:outline-none focus:ring-1 focus:ring-[#0078C1] ${(dateFrom || dateTo) ? 'border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-700 cursor-pointer'}`}
+          >
+            {(dateFrom || dateTo) && <option value={dateSort}>Sort: N/A</option>}
+            <option value="default">Date: Default</option>
+            <option value="nearest">Nearest to Present</option>
+            <option value="oldest">Oldest First</option>
+            <option value="furthest">Furthest Future First</option>
+          </select>
+        </div>
+        {(dateFrom || dateTo) && (
+          <button
+            onClick={() => { setDateFrom(''); setDateTo(''); }}
+            title="Clear date filter"
+            className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[11px] uppercase rounded-lg cursor-pointer h-[34px] flex items-center gap-1"
+          >
+            <X className="w-3.5 h-3.5" /> Clear
+          </button>
+        )}
+      </div>
+
       {/* TASS filter controls */}
       {showTassFilters && (
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap gap-3 items-end text-xs print:hidden" id="tass-filters">
           <div className="space-y-1">
-            <label className="font-bold text-slate-700 block">Delivery Date From</label>
-            <input type="date" value={tassDateFrom} onChange={e => setTassDateFrom(e.target.value)}
+            <label htmlFor="tass-date-from" className="font-bold text-slate-700 block">Delivery Date From</label>
+            <input id="tass-date-from" type="date" value={tassDateFrom} onChange={e => setTassDateFrom(e.target.value)}
               className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
           </div>
           <div className="space-y-1">
-            <label className="font-bold text-slate-700 block">Delivery Date To</label>
-            <input type="date" value={tassDateTo} onChange={e => setTassDateTo(e.target.value)}
+            <label htmlFor="tass-date-to" className="font-bold text-slate-700 block">Delivery Date To</label>
+            <input id="tass-date-to" type="date" value={tassDateTo} onChange={e => setTassDateTo(e.target.value)}
               className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
           </div>
           <div className="space-y-1">
-            <label className="font-bold text-slate-700 block">Status</label>
-            <select value={tassStatusFilter} onChange={e => setTassStatusFilter(e.target.value)}
+            <label htmlFor="tass-status-filter" className="font-bold text-slate-700 block">Status</label>
+            <select id="tass-status-filter" value={tassStatusFilter} onChange={e => setTassStatusFilter(e.target.value)}
               className="px-3 py-2 border border-slate-300 rounded-lg bg-white text-xs w-44">
               <option value="">All Statuses</option>
               <option value="Accomplished">Accomplished</option>
@@ -524,22 +716,15 @@ export default function DeliveryRecordsView({
               <option value="Scheduled">Scheduled</option>
             </select>
           </div>
-          <div className="space-y-1">
-            <label className="font-bold text-slate-700 block">Account Manager</label>
-            <AccountManagerCombobox
-              value={tassAccountManager}
-              onChange={setTassAccountManager}
-              options={amOptions}
-              placeholder="Filter by AM..."
-              inputClassName="px-3 py-2 border border-slate-300 rounded-lg text-xs w-40"
-            />
+          <div className="min-w-[180px]">
+            <FilterCombobox label="Account Manager" placeholder="All Account Managers" value={tassAccountManager} onChange={setTassAccountManager} options={amOptions} />
           </div>
-          {(tassDateFrom || tassDateTo || tassStatusFilter || tassAccountManager) && (
+          {activeFilterCount > 0 && (
             <button
-              onClick={() => { setTassDateFrom(''); setTassDateTo(''); setTassStatusFilter(''); setTassAccountManager(''); }}
+              onClick={clearAllFilters}
               className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[11px] uppercase rounded-lg cursor-pointer"
             >
-              Clear Filters
+              Clear All Filters
             </button>
           )}
         </div>
@@ -555,21 +740,15 @@ export default function DeliveryRecordsView({
               <span className="text-xs text-white/60">Set status:</span>
               <select
                 value={bulkStatus}
-                onChange={e => setBulkStatus(e.target.value)}
+                onChange={e => setBulkStatus(e.target.value as DeliveryStatus | '')}
+                disabled={bulkApplying}
                 className="text-[11px] font-bold bg-white/10 border border-white/20 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
               >
-                {(['Pending','Scheduled','Delivered','On-Hold','Rescheduled'] as const).map(s => (
+                <option value="" className="text-slate-900 bg-white">Keep unchanged</option>
+                {(['Pending', 'Scheduled', 'Delivered', 'On-Hold', 'Rescheduled'] as const).map(s => (
                   <option key={s} value={s} className="text-slate-900 bg-white">{s}</option>
                 ))}
               </select>
-              <button
-                onClick={handleBulkStatusUpdate}
-                disabled={bulkApplying}
-                className="px-4 py-1.5 bg-[#0078C1] hover:bg-blue-500 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
-              >
-                {bulkApplying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                Apply
-              </button>
             </div>
           )}
           {canEdit && (
@@ -577,29 +756,28 @@ export default function DeliveryRecordsView({
               <span className="text-xs text-white/60">Set priority:</span>
               <select
                 id="bulk-priority-select"
+                value={bulkPriority}
+                onChange={e => setBulkPriority(e.target.value as PriorityLevel | '')}
+                disabled={bulkApplying}
                 className="text-[11px] font-bold bg-white/10 border border-white/20 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
-                defaultValue=""
               >
-                <option value="" disabled className="text-slate-400 bg-white">— pick —</option>
-                {(['1 - Low','2 - Moderate','3 - High'] as const).map(p => (
+                <option value="" className="text-slate-900 bg-white">Keep unchanged</option>
+                {(['1 - Low', '2 - Moderate', '3 - High'] as const).map(p => (
                   <option key={p} value={p} className="text-slate-900 bg-white">{p}</option>
                 ))}
               </select>
-              <button
-                onClick={() => {
-                  const sel = (document.getElementById('bulk-priority-select') as HTMLSelectElement).value;
-                  if (!sel) return;
-                  [...selectedBulkIds].forEach(id => onUpdateRecord(id, { priority: sel as any, remarks: `Priority set to ${sel}` } as any));
-                  setSelectedBulkIds(new Set());
-                }}
-                className="px-4 py-1.5 bg-[#0078C1] hover:bg-blue-500 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5"
-              >
-                <Check className="w-3.5 h-3.5" /> Apply
-              </button>
             </div>
           )}
           <button
+            onClick={handleBulkUpdate}
+            disabled={bulkApplying || !((canAssignDriver && bulkStatus) || (canEdit && bulkPriority))}
+            className="px-4 py-1.5 bg-[#0078C1] hover:bg-blue-500 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
+          >
+            {bulkApplying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Apply
+          </button>
+          <button
             onClick={() => setSelectedBulkIds(new Set())}
+            disabled={bulkApplying}
             className="text-white/50 hover:text-white transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
@@ -657,7 +835,7 @@ export default function DeliveryRecordsView({
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm lg:col-span-3">
             <div className="p-4 border-b border-slate-200 space-y-0 print:hidden">
               {/* ── Primary toolbar bar ── */}
-              <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 {/* LEFT: category label + status chips */}
                 <div className="flex items-center gap-0 min-w-0 flex-wrap">
                   <span className="text-xs font-black text-slate-800 uppercase tracking-wider mr-3 shrink-0">{category}</span>
@@ -666,11 +844,11 @@ export default function DeliveryRecordsView({
                       <button
                         key={s}
                         onClick={() => setStatusFilter(s)}
-                        className={`px-3 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer ${
-                          statusFilter === s
-                            ? 'bg-[#1F3864] text-white border-[#1F3864]'
-                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-                        }`}
+                        aria-pressed={statusFilter === s}
+                        className={`px-3 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer ${statusFilter === s
+                          ? 'bg-[#1F3864] text-white border-[#1F3864]'
+                          : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+                          }`}
                       >
                         {s}
                       </button>
@@ -679,148 +857,74 @@ export default function DeliveryRecordsView({
                 </div>
 
                 {/* RIGHT: search + filter toggle + record count */}
-                <div className="flex items-center gap-2 shrink-0">
-                  <div className="relative w-56">
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end shrink-0">
+                  <div className="relative flex-1 sm:w-56 sm:flex-initial">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search records..."
+                      aria-label={`Search ${category === 'Deliveries' ? 'delivery' : category} records`}
                       className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-hidden focus:ring-1 focus:ring-[#0078C1]" />
                   </div>
-                  <button
-                    onClick={() => setShowAdvancedFilters(v => !v)}
-                    className={`relative p-2 rounded-lg border transition-all cursor-pointer ${showAdvancedFilters ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-400'}`}
-                    title="Toggle advanced filters"
-                  >
-                    <SlidersHorizontal className="w-4 h-4" />
-                    {hasAdvancedFilters && (
-                      <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-white" />
-                    )}
-                  </button>
+                    <FilterPopover open={showAdvancedFilters} onOpenChange={setShowAdvancedFilters}
+                      count={activeFilterCount}
+                      onClear={clearAllFilters}>
+                      <fieldset className="space-y-2 min-w-0">
+                        <legend className="text-xs font-bold text-slate-800 mb-2">Location</legend>
+                        <label className="block text-xs font-semibold text-slate-600">Region
+                          <select value={regionFilter}
+                            onChange={e => { setRegionFilter(e.target.value); setSubregionFilter('All Subregions'); setAreaFilter('All Areas'); }}
+                            className="mt-1 min-h-10 text-xs border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white focus:ring-2 focus:ring-[#0078C1]">
+                            <option value="All Regions">All Regions</option>
+                            {AREA_HIERARCHY.map(r => <option key={r.region} value={r.region}>{r.region}</option>)}
+                          </select>
+                        </label>
+                        <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-2">
+                          <label className="block min-w-0 text-xs font-semibold text-slate-600">Subregion
+                            <select value={subregionFilter}
+                              onChange={e => { setSubregionFilter(e.target.value); setAreaFilter('All Areas'); }}
+                              className="mt-1 min-h-10 text-xs border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white focus:ring-2 focus:ring-[#0078C1]">
+                              <option value="All Subregions">All Subregions</option>
+                              {(regionFilter === 'All Regions' ? AREA_HIERARCHY : AREA_HIERARCHY.filter(r => r.region === regionFilter))
+                                .flatMap(r => r.subregions).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+                            </select>
+                          </label>
+                          <label className="block min-w-0 text-xs font-semibold text-slate-600">Area
+                            <select value={areaFilter} onChange={e => setAreaFilter(e.target.value)}
+                              className="mt-1 min-h-10 text-xs border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white focus:ring-2 focus:ring-[#0078C1]">
+                              {distinctAreasForFilter.map(a => <option key={a} value={a}>{a}</option>)}
+                            </select>
+                          </label>
+                        </div>
+                      </fieldset>
+                      <fieldset className="min-w-0">
+                        <legend className="text-xs font-bold text-slate-800 mb-2">Personnel</legend>
+                        <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-2">
+                          <FilterCombobox label="Account Manager" placeholder="All Account Managers" value={amFilter} onChange={setAmFilter} options={amOptions} />
+                          <FilterCombobox label="Driver" placeholder="All Drivers" value={driverFilter} onChange={setDriverFilter} options={driverOptions} />
+                        </div>
+                      </fieldset>
+                    </FilterPopover>
+
                   <span className="text-[11px] font-bold text-slate-400 tabular-nums shrink-0">{sortedFiltered.length}</span>
                 </div>
               </div>
-
-              {/* ── Collapsible Advanced Filters ── */}
-              {showAdvancedFilters && (
-                <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-end gap-3">
-                  {/* Geo filters */}
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <select
-                      value={regionFilter}
-                      onChange={e => { setRegionFilter(e.target.value); setSubregionFilter('All Subregions'); setAreaFilter('All Areas'); }}
-                      className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 w-40 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-                    >
-                      <option value="All Regions">All Regions</option>
-                      {AREA_HIERARCHY.map(r => <option key={r.region} value={r.region}>{r.region}</option>)}
-                    </select>
-                    <select
-                      value={subregionFilter}
-                      onChange={e => { setSubregionFilter(e.target.value); setAreaFilter('All Areas'); }}
-                      className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 w-40 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-                    >
-                      <option value="All Subregions">All Subregions</option>
-                      {(regionFilter === 'All Regions' ? AREA_HIERARCHY : AREA_HIERARCHY.filter(r => r.region === regionFilter))
-                        .flatMap(r => r.subregions)
-                        .map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
-                    </select>
-                    <select
-                      value={areaFilter}
-                      onChange={e => setAreaFilter(e.target.value)}
-                      className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 w-40 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-                    >
-                      {distinctAreasForFilter.map(a => <option key={a} value={a}>{a}</option>)}
-                    </select>
-                  </div>
-
-                  {/* AM + Driver comboboxes */}
-                  <div className="flex items-center gap-2 border-l border-slate-200 pl-3">
-                    <AccountManagerCombobox
-                      value={amFilter}
-                      onChange={setAmFilter}
-                      options={amOptions}
-                      placeholder="Account Manager"
-                      inputClassName="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 w-40 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] placeholder:text-slate-400"
-                    />
-                    <AccountManagerCombobox
-                      value={driverFilter}
-                      onChange={setDriverFilter}
-                      options={driverOptions}
-                      placeholder="Driver"
-                      inputClassName="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 w-40 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] placeholder:text-slate-400"
-                    />
-                  </div>
-
-                  {/* Date range + sort */}
-                  <div className="flex items-center gap-1.5 border-l border-slate-200 pl-3">
-                    <input
-                      ref={dateFromRef}
-                      type="date"
-                      value={dateFrom}
-                      onChange={e => setDateFrom(e.target.value)}
-                      title="Date from"
-                      className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-                    />
-                    <span className="text-[11px] text-slate-400 font-semibold">—</span>
-                    <input
-                      type="date"
-                      value={dateTo}
-                      onChange={e => setDateTo(e.target.value)}
-                      title="Date to"
-                      className="text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-                    />
-                    {(dateFrom || dateTo) && (
-                      <button
-                        onClick={() => { setDateFrom(''); setDateTo(''); }}
-                        title="Clear date filter"
-                        className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                    <select
-                      value={dateSort}
-                      onChange={e => setDateSort(e.target.value as typeof dateSort)}
-                      disabled={!!(dateFrom || dateTo)}
-                      title={(dateFrom || dateTo) ? 'Sort order is N/A while a date range filter is active' : undefined}
-                      className={`text-[11px] font-semibold border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#0078C1] ${(dateFrom || dateTo) ? 'border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-700 cursor-pointer'}`}
-                    >
-                      {(dateFrom || dateTo) && <option value={dateSort}>Sort: N/A</option>}
-                      <option value="default">Date: Default</option>
-                      <option value="nearest">Nearest to Present</option>
-                      <option value="oldest">Oldest First</option>
-                      <option value="furthest">Furthest Future First</option>
-                    </select>
-                  </div>
-
-                  {/* Clear all */}
-                  {(searchQuery || statusFilter !== 'All' || hasAdvancedFilters) && (
-                    <button
-                      onClick={() => { setSearchQuery(''); setStatusFilter('All'); setRegionFilter('All Regions'); setSubregionFilter('All Subregions'); setAreaFilter('All Areas'); setAmFilter(''); setDriverFilter(''); setDateFrom(''); setDateTo(''); setDateSort('default'); }}
-                      className="px-3 py-1.5 text-[#1F3864] hover:underline font-bold text-[10px] uppercase cursor-pointer"
-                    >
-                      Clear All
-                    </button>
-                  )}
-                </div>
-              )}
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full table-fixed text-left border-collapse text-sm">
+              <table className="w-full min-w-[700px] table-fixed text-left border-collapse text-sm">
                 <colgroup>
-                  {showCheckbox && <col style={{ width: '4%' }} />}
-                  <col style={{ width: `${colPct.id}%` }} />
-                  <col style={{ width: `${colPct.company}%` }} />
-                  <col style={{ width: `${colPct.area}%` }} />
-                  <col style={{ width: `${colPct.date}%` }} />
-                  <col style={{ width: `${colPct.driver}%` }} />
-                  <col style={{ width: `${colPct.status}%` }} />
-                  {showCollectionCol && <col style={{ width: '8%' }} />}
+                  {showCheckbox && <col style={{ width: '4%', minWidth: '40px' }} />}
+                  <col style={{ width: `${colPct.id}%`, minWidth: colMinWidth.id }} />
+                  <col style={{ width: `${colPct.company}%`, minWidth: colMinWidth.company }} />
+                  <col style={{ width: `${colPct.area}%`, minWidth: colMinWidth.area }} />
+                  <col style={{ width: `${colPct.date}%`, minWidth: colMinWidth.date }} />
+                  <col style={{ width: `${colPct.driver}%`, minWidth: colMinWidth.driver }} />
+                  <col style={{ width: `${colPct.status}%`, minWidth: colMinWidth.status }} />
+                  {showCollectionCol && <col style={{ width: '8%', minWidth: '90px' }} />}
                 </colgroup>
                 <thead>
                   <tr className="bg-slate-100 border-b border-slate-200 text-xs font-black text-slate-500 uppercase tracking-wider">
                     {showCheckbox && (
-                      <th className="px-4 py-3">
+                      <th className="px-4 py-3" style={{ minWidth: '40px' }}>
                         <input
                           type="checkbox"
                           className="rounded cursor-pointer"
@@ -829,21 +933,21 @@ export default function DeliveryRecordsView({
                         />
                       </th>
                     )}
-                    <th className="px-4 py-3">Record ID</th>
-                    <th className="px-4 py-3">Company</th>
-                    <th className="px-4 py-3">Area</th>
-                    <th className="px-4 py-3 text-center">Delivery Date</th>
-                    <th className="px-4 py-3">Driver</th>
-                    <th className="px-4 py-3 text-center">Status</th>
+                    <th className="px-4 py-3" style={{ minWidth: colMinWidth.id }}>Record ID</th>
+                    <th className="px-4 py-3" style={{ minWidth: colMinWidth.company }}>Company</th>
+                    <th className="px-4 py-3" style={{ minWidth: colMinWidth.area }}>Area</th>
+                    <th className="px-4 py-3 text-center" style={{ minWidth: colMinWidth.date }}>Delivery Date</th>
+                    <th className="px-4 py-3" style={{ minWidth: colMinWidth.driver }}>Driver</th>
+                    <th className="px-4 py-3 text-center" style={{ minWidth: colMinWidth.status }}>Status</th>
                     {currentUserRole === 'TASS' && category === 'Accounting Collection' && (
-                      <th className="px-4 py-3 text-center">Collection</th>
+                      <th className="px-4 py-3 text-center" style={{ minWidth: '90px' }}>Collection</th>
                     )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {sortedFiltered.length === 0 ? (
-                    <tr><td colSpan={7} className="px-4 py-3.5 text-center text-gray-400">No matching records found.</td></tr>
-                  ) : sortedFiltered.map(rec => {
+                  {paginatedRecords.length === 0 ? (
+                    <tr><td colSpan={10} className="px-4 py-3.5 text-center text-gray-400">No matching records found.</td></tr>
+                  ) : paginatedRecords.map(rec => {
                     const isSelected = selectedId === rec.id;
                     return (
                       <tr key={rec.id} onClick={() => { setSelectedId(rec.id); setShowForm(false); }}
@@ -884,17 +988,29 @@ export default function DeliveryRecordsView({
                 </tbody>
               </table>
             </div>
-            <div className="p-3 bg-slate-50 border-t border-slate-100 text-[11px] text-slate-400 print:hidden">
-              Total {category} records: {records.filter(r => r.category === category).length}
+            <div className="border-t border-slate-200 print:hidden">
+              <Pagination
+                currentPage={safeCurrentPage}
+                totalPages={totalPages}
+                totalItems={sortedFiltered.length}
+                pageSize={pageSize}
+                onPageChange={setCurrentPage}
+                onPageSizeChange={(newSize) => {
+                  setPageSize(newSize);
+                  setCurrentPage(1);
+                }}
+                pageSizeOptions={[10, 25, 50, 100]}
+              />
             </div>
-          </div>
-        </div>
-      )}
+          </div >
+        </div >
+      )
+      }
 
       {/* Print-only header for PDF export */}
       <div className="hidden print:block mb-4">
         <h1 className="text-lg font-bold">Accounting Collection Records — {new Date().toLocaleDateString()}</h1>
       </div>
-    </div>
+    </div >
   );
 }

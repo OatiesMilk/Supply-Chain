@@ -1,5 +1,6 @@
 import { DeliveryRecord } from '../types';
 import { AREA_HIERARCHY } from '../data';
+import { DocumentSize, DEFAULT_DOCUMENT_SIZE, getDocxDimensions, getDocxLandscapeContentWidth, getExcelPageSetup, getPdfFormat } from './documentSize';
 
 // ─── Style constants (navy/gold — matches Microgenesis template) ──────────────
 
@@ -950,11 +951,12 @@ async function exportPDF(
   stats: Map<string, DriverStats>,
   month: string, year: number,
   byName: string, byRole: string,
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
 ): Promise<void> {
   const { jsPDF } = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
 
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: getPdfFormat(documentSize) });
   const NAVY_RGB: [number, number, number]   = [31, 56, 100];
   const DARKER_RGB: [number, number, number] = [13, 27, 42];
   const GOLD_RGB: [number, number, number]   = [255, 192, 0];
@@ -1291,6 +1293,7 @@ async function exportDOCX(
   stats: Map<string, DriverStats>,
   month: string, year: number,
   byName: string, byRole: string,
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
 ): Promise<void> {
   const assigned = deliveries.filter(r => r.driver?.trim());
   const pctStr = (n: number, total: number) => total > 0 ? `${((n / total) * 100).toFixed(2)}%` : '0.00%';
@@ -1299,7 +1302,8 @@ async function exportDOCX(
     AlignmentType, WidthType, PageOrientation, VerticalAlign,
   } = await import('docx');
 
-  const CONTENT_W = 15398;
+  const { width, height } = getDocxDimensions(documentSize);
+  const CONTENT_W = getDocxLandscapeContentWidth(documentSize);
   const navyFill = '1F3864';
   const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
@@ -1495,7 +1499,7 @@ async function exportDOCX(
     sections: [{
       properties: {
         page: {
-          size: { orientation: PageOrientation.LANDSCAPE, width: 16838, height: 11906 },
+          size: { orientation: PageOrientation.LANDSCAPE, width, height },
           margin: { top: 720, right: 720, bottom: 720, left: 720 },
         },
       },
@@ -1650,6 +1654,7 @@ export async function downloadDriverReport(
   generatedByName: string,
   generatedByRole: string,
   auditSets?: Map<string, Set<string>>,
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
 ): Promise<void> {
   const mo = monthName(month);
 
@@ -1669,23 +1674,24 @@ export async function downloadDriverReport(
   }
 
   if (format === 'pdf') {
-    await exportPDF(deliveries, drivers, stats, mo, year, generatedByName, generatedByRole);
+    await exportPDF(deliveries, drivers, stats, mo, year, generatedByName, generatedByRole, documentSize);
     return;
   }
 
   if (format === 'docx') {
-    await exportDOCX(deliveries, drivers, stats, mo, year, generatedByName, generatedByRole);
+    await exportDOCX(deliveries, drivers, stats, mo, year, generatedByName, generatedByRole, documentSize);
     return;
   }
 
   // Excel
+  const { getExcelPageSetup } = await import('./documentSize');
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
   wb.creator = generatedByName;
   wb.created = new Date();
 
-  await buildSheet1(wb.addWorksheet('Monthly Report'), deliveries, assigned, drivers, stats, mo, year, generatedByName, generatedByRole);
-  buildSheet2(wb.addWorksheet('Summary'),        deliveries, assigned, drivers, stats, mo, year, generatedByName, generatedByRole);
+  await buildSheet1(wb.addWorksheet('Monthly Report', { pageSetup: getExcelPageSetup(documentSize) }), deliveries, assigned, drivers, stats, mo, year, generatedByName, generatedByRole);
+  buildSheet2(wb.addWorksheet('Summary', { pageSetup: getExcelPageSetup(documentSize) }), deliveries, assigned, drivers, stats, mo, year, generatedByName, generatedByRole);
 
   const buf  = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });

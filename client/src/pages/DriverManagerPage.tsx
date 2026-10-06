@@ -2,6 +2,7 @@ import React from 'react';
 import DriverManagerView from '@/features/drivers/DriverManagerView';
 import { UserRole } from '@/types';
 import { ApiDriver } from '@/api';
+import { useDriversQuery } from '@/api/queries/useDriversQuery';
 
 export interface DriverManagerPageProps {
   drivers: ApiDriver[];
@@ -20,6 +21,14 @@ export const DriverManagerPage: React.FC<DriverManagerPageProps> = ({
   onUpdateDriver,
   onDeleteDriver,
 }) => {
+  const roster = useDriversQuery();
+  if (roster.isPending) return <div role="status">Loading driver directory...</div>;
+  if (roster.isError) return (
+    <div role="alert" className="p-4 text-red-700">
+      Could not load the driver directory: {roster.error.message}
+      <button className="ml-3 underline" onClick={() => void roster.refetch()}>Retry</button>
+    </div>
+  );
   return (
     <DriverManagerView
       drivers={drivers}

@@ -7,10 +7,12 @@
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
+    "cf:preview": "npx --yes wrangler@4.146.0 preview --config ../wrangler.json",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@floating-ui/react": "^0.27.20",
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "@tanstack/react-query": "^5.103.2",
