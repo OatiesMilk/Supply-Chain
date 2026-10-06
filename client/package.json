@@ -12,6 +12,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@floating-ui/react": "^0.27.20",
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "@tanstack/react-query": "^5.103.2",
