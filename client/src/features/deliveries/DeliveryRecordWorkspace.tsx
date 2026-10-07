@@ -142,8 +142,9 @@ function GeneralTab({
   const canEditFull = !readOnly && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && (record.status === 'Scheduled' || isDraftRecord(record));
   const canManageDraft = !readOnly && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && !record.time_in;
   const [lifecycleRemarks, setLifecycleRemarks] = useState('');
-  const canEditAreaAddress = !readOnly && currentUserRole === 'Logistics';
-  const canEdit = canEditFull || canEditAreaAddress;
+  const canEditAreaAddress = !readOnly && currentUserRole === 'Logistics' && record.category !== 'RMA';
+  const canEditPriority = !readOnly && ((currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') || (currentUserRole === 'Logistics' && record.category !== 'RMA'));
+  const canEdit = canEditFull || canEditAreaAddress || canEditPriority;
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -206,9 +207,27 @@ function GeneralTab({
     setRemarksError(false);
     setSaveError(null);
     setSaving(true);
-    const updates = canEditFull
-      ? { priority: draft.priority, reference: draft.reference, area: draft.area, vehicle: draft.vehicle, account_manager: draft.account_manager, delivery_date: draft.delivery_date, item_type: draft.item_type, remarks: draft.remarks, item_description: draft.item_description, line_items: draft.line_items, address: draft.address }
-      : { area: draft.area, address: draft.address, remarks: draft.remarks };
+    const updates: any = { remarks: draft.remarks };
+    if (canEditFull) {
+      updates.priority = draft.priority;
+      updates.reference = draft.reference;
+      updates.area = draft.area;
+      updates.vehicle = draft.vehicle;
+      updates.account_manager = draft.account_manager;
+      updates.delivery_date = draft.delivery_date;
+      updates.item_type = draft.item_type;
+      updates.item_description = draft.item_description;
+      updates.line_items = draft.line_items;
+      updates.address = draft.address;
+    } else {
+      if (canEditAreaAddress) {
+        updates.area = draft.area;
+        updates.address = draft.address;
+      }
+      if (canEditPriority) {
+        updates.priority = draft.priority;
+      }
+    }
     try {
       await onUpdateRecord(record.id, {
         ...updates,
@@ -279,7 +298,7 @@ function GeneralTab({
               onClick={handleStartEdit}
               className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-[#0078C1] hover:bg-blue-50 border border-blue-200 rounded-lg transition-colors cursor-pointer"
             >
-              <Pencil className="w-3 h-3" /> {canEditAreaAddress && !canEditFull ? 'Edit Area / Address' : 'Edit'}
+              <Pencil className="w-3 h-3" /> Edit
             </button>
           )}
 
@@ -339,20 +358,21 @@ function GeneralTab({
         ) : (
           <div className="space-y-4 text-xs">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {canEditFull && (
-                <>
-                  <div className="space-y-1">
-                    <label className={labelCls}>Priority</label>
-                    <select value={draft.priority} onChange={e => set('priority', e.target.value as PriorityLevel)} className={inputCls}>
-                      {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className={labelCls}>Reference (SAP)</label>
-                    <input type="text" value={draft.reference} onChange={e => set('reference', e.target.value)} className={inputCls} />
-                  </div>
-                </>
+              {canEditPriority && (
+                <div className="space-y-1">
+                  <label className={labelCls}>Priority</label>
+                  <select value={draft.priority} onChange={e => set('priority', e.target.value as PriorityLevel)} className={inputCls}>
+                    {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
               )}
+              {canEditFull && (
+                <div className="space-y-1">
+                  <label className={labelCls}>Reference (SAP)</label>
+                  <input type="text" value={draft.reference} onChange={e => set('reference', e.target.value)} className={inputCls} />
+                </div>
+              )}
+              {(canEditFull || canEditAreaAddress) && (<>
               <div className="space-y-1">
                 <ComboboxField
                   label="Area"
@@ -370,6 +390,7 @@ function GeneralTab({
                 <label className={labelCls}>Address <span className="text-[10px] font-normal text-slate-400 normal-case tracking-normal">(optional)</span></label>
                 <input type="text" value={draft.address} onChange={e => set('address', e.target.value)} className={inputCls} placeholder="Street, building, floor, or additional location detail" />
               </div>
+              </>)}
               {canEditFull && (
                 <>
                   <div className="space-y-1">
@@ -415,7 +436,7 @@ function GeneralTab({
                 value={draft.remarks}
                 onChange={e => { set('remarks', e.target.value); if (remarksError && e.target.value.trim()) setRemarksError(false); }}
                 rows={3}
-                placeholder={canEditFull ? '' : 'Explain why you are updating the area or address…'}
+                placeholder={canEditFull ? '' : 'Explain why you are making this update...'}
                 className={`w-full px-2.5 py-1.5 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${remarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
               />
               {remarksError && <p className="text-[11px] text-red-600 font-semibold">Remarks are required to save changes.</p>}
@@ -812,7 +833,7 @@ function ActionsTab({
   const [actionRemarksError, setActionRemarksError] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
-  const { readiness: podReadiness } = usePodAttachments(record.id);
+  const { readiness: podReadiness, uploadStaged } = usePodAttachments(record.id);
   const timeInMutation = useRecordTimeInMutation();
 
   const [selectedDriver, setSelectedDriver] = useState(record.driver);
@@ -848,12 +869,12 @@ function ActionsTab({
     setSaveFeedback(null);
   }, [record.id, record.time_in, record.time_out, record.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useWorkspaceDraft('dispatch', hasChanges || !!actionRemarks, saving || podReadiness.uploading);
+  useWorkspaceDraft('dispatch', hasChanges || !!actionRemarks || podReadiness.hasStagedFiles, saving || podReadiness.uploading);
 
   const handleSave = async () => {
     if (saving || photoError) return;
 
-    if (!hasChanges && !actionRemarks.trim()) {
+    if (!hasChanges && !actionRemarks.trim() && !podReadiness.hasStagedFiles) {
       setSaveFeedback({ message: 'No changes detected to save.', type: 'info' });
       return;
     }
@@ -871,6 +892,8 @@ function ActionsTab({
     let detailsSaved = false;
 
     try {
+      await uploadStaged();
+
       // The update hook routes status changes to PATCH /status and ordinary
       // dispatch fields to PUT /records/:id. Keep them as two ordered writes
       // behind this single button so neither set of changes is silently lost.
@@ -1511,7 +1534,7 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
 // ─── Documents Tab ────────────────────────────────────────────────────────────
 
 function DocumentsTab({ record }: { record: DeliveryRecord }) {
-  const { files, readiness, uploadFiles, removeFile: deleteFile } = usePodAttachments(record.id);
+  const { files, readiness, uploadDirect, removeFile: deleteFile } = usePodAttachments(record.id);
   const uploading = readiness.uploading;
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1537,7 +1560,7 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
 
     setError(null);
     try {
-      await uploadFiles(selectedFiles);
+      await uploadDirect(selectedFiles);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed.');
     } finally {

@@ -498,7 +498,7 @@ function OverviewTab({
   const [receivedBy, setReceivedBy] = useState(record.received_by ?? '');
   const [draftReference, setDraftReference] = useState(record.reference);
   useEffect(() => { setReceivedBy(record.received_by ?? ''); setDraftReference(record.reference); setStatusError(null); }, [record.id]);
-  const { readiness } = usePodAttachments(record.id);
+  const { readiness, uploadStaged } = usePodAttachments(record.id);
   const timeInMutation = useRecordTimeInMutation();
   const [statusRemarks, setStatusRemarks] = useState('');
   const [remarksError, setRemarksError] = useState(false);
@@ -513,6 +513,7 @@ function OverviewTab({
     setRemarksError(false);
     setUpdating(true);
     try {
+      await uploadStaged();
       await onUpdateRecord(record.id, { status: newStatus, ...(newStatus === "Delivered" ? { received_by: receivedBy.trim() } : {}), ...({ status_remarks: statusRemarks.trim() } as any) });
       setStatusRemarks('');
     } catch (error) {
