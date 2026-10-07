@@ -13,7 +13,6 @@ import {
   TransactionCenterPage,
   AdminPage,
   DataSamplerPage,
-  StatusHistoryPage,
   StatisticalReportsPage,
   AccountManagerDirectoryPage,
   MainView,
@@ -259,9 +258,6 @@ export const AppRouter: React.FC<AppRouterProps> = ({
           currentUserName={currentUserName}
         />
       );
-
-    case 'status_history':
-      return <StatusHistoryPage />;
 
     case 'statistical_reports':
       return (

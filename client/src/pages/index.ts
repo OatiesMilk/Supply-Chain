@@ -42,8 +42,6 @@ export * from './AdminPage';
 export { default as DataSamplerPage } from './DataSamplerPage';
 export * from './DataSamplerPage';
 
-export { default as StatusHistoryPage } from './StatusHistoryPage';
-export * from './StatusHistoryPage';
 
 export { default as StatisticalReportsPage } from './StatisticalReportsPage';
 export * from './StatisticalReportsPage';

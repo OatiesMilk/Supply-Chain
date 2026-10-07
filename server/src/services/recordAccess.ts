@@ -10,7 +10,7 @@ export const CATEGORY_SCREEN: Record<string, Screen> = {
 // Aggregate views need shared records, but an explicit category denial also
 // removes those records from shared lists and direct detail/audit endpoints.
 export function readableCategories(user: AuthUser): string[] {
-  const aggregate: Screen[] = ['main', 'dashboard', 'calendar', 'driver', 'driver_board', 'driver_dashboard', 'status_history', 'statistical_reports'];
+  const aggregate: Screen[] = ['main', 'dashboard', 'calendar', 'driver', 'driver_board', 'driver_dashboard', 'statistical_reports'];
   const shared = aggregate.some(s => user.effectiveScreens.includes(s));
   return Object.keys(CATEGORY_SCREEN).filter(category => {
     const screen = CATEGORY_SCREEN[category];

@@ -26,26 +26,7 @@ async function invoke(path: string, query: Record<string, string>) {
   return body;
 }
 
-test('live daily reports distinguish drafts and legacy started runs, including filtered counts', async () => {
-  stub(prisma.dailyStatusSnapshot, 'findMany', async () => []);
-  stub(prisma.deliveryRecord, 'findMany', async () => records);
-  const query = { from: '2026-10-06', to: '2026-10-06' };
-  const all = await invoke('/daily-status-history', query);
-  assert.deepEqual(all.rows.map((row: any) => [row.status, row.count]), [['Draft', 1], ['In Transit', 1], ['Scheduled', 1]]);
-  const draft = await invoke('/daily-status-history', { ...query, status: 'Draft' });
-  assert.deepEqual(draft.rows.map((row: any) => [row.status, row.count]), [['Draft', 1]]);
-  const started = await invoke('/daily-status-history', { ...query, status: 'In Transit' });
-  assert.deepEqual(started.rows.map((row: any) => [row.status, row.count]), [['In Transit', 1]]);
-});
 
-test('a saved snapshot with no selected status does not fabricate historical counts from live records', async () => {
-  const find = stub(prisma.dailyStatusSnapshot, 'findMany', async () => [{ date: '2026-10-06', category: 'ALL', status: 'SCHEDULED', count: 5 }]);
-  stub(prisma.deliveryRecord, 'findMany', async () => records);
-  const result = await invoke('/daily-status-history', { from: '2026-10-06', to: '2026-10-06', status: 'Draft' });
-  assert.equal(find.mock.calls[0].arguments[0].where.status, undefined);
-  assert.deepEqual(result.rows, []);
-  assert.equal(result.source, 'snapshot');
-});
 
 test('statistical summary uses the same draft and started-run states as records', async () => {
   stub(prisma.deliveryRecord, 'findMany', async () => records);

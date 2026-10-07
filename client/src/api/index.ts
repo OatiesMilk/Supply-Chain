@@ -584,16 +584,6 @@ export const api = {
   getTransaction: (source: string, id: string) =>
     request<ApiTransactionDetail>(`/transactions/${source}/${id}`),
 
-  // Daily Status History (rollup snapshot, not a live recomputation)
-  getDailyStatusHistory: (params: { from: string; to: string; status?: string; category?: string }) => {
-    const qs = new URLSearchParams({ from: params.from, to: params.to });
-    if (params.status) qs.set('status', params.status);
-    if (params.category) qs.set('category', params.category);
-    return request<{ rows: { date: string; category: string; status: string; count: number }[]; source?: 'snapshot' | 'live' }>(
-      `/reports/daily-status-history?${qs.toString()}`
-    );
-  },
-
   // Driver Manager
   getDrivers: (all?: boolean) => request<ApiDriver[]>(`/drivers${all ? '?all=1' : ''}`),
   createDriver: (data: { name: string; type: 'DRIVER' | 'ASSISTANT'; coverage_areas?: string[] }) =>
