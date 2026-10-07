@@ -41,8 +41,8 @@ export interface OutputActionLogEntry {
 
 export interface DeliveryRecord extends AuditFields {
   id: string; // e.g., REC-4001
-  company_name: string; // validated lookup value, matches a Customer.name
-  customer_id: string; // link back to Customer master
+  company_name: string; // display name of the record's Company
+  company_id: string; // Company the record belongs to (never a Customer ID)
   priority: PriorityLevel;
   reference: string; // SAP number
   remarks: string;

@@ -257,7 +257,6 @@ export default function RecordCreateForm({
 
       await onSubmit({
         ...form,
-        customer_id: form.company_id || '',
         driver: '',
         driver_assistants: [],
         category: form.category,

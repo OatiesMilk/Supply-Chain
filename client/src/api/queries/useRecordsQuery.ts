@@ -8,7 +8,6 @@ export const RECORDS_QUERY_KEY = ['records'] as const;
 export function normalizeApiRecord(r: any): DeliveryRecord {
   return {
     ...r,
-    customer_id: r.company_id,
     driver_assistants: Array.isArray(r.driver_assistants) ? r.driver_assistants : [],
     output_actions_log: r.output_actions_log ?? [],
     email_notification_sent: r.status === 'Delivered',
@@ -79,7 +78,6 @@ export function createUpdateRecordMutationOptions(queryClient: ReturnType<typeof
           output_actions_log,
           email_notification_sent,
           company_name,
-          customer_id,
           ...rest
         } = updates as any;
         const saved = normalizeApiRecord(await api.updateRecord(id, rest));

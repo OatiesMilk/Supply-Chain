@@ -233,7 +233,6 @@ export default function AccountingCollectionView({
       // schema requires it, so submit a fixed default rather than exposing it.
       vehicle: '(None)',
       category: CATEGORY,
-      customer_id: form.company_id,
       priority: form.priority as DeliveryRecord['priority'],
       status: isDraft ? 'Draft' : 'Scheduled',
       item_type: form.item_type as DeliveryRecord['item_type'],
