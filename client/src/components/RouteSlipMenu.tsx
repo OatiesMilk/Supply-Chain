@@ -1,3 +1,4 @@
+import { manilaToday } from '@/utils/recordLifecycle';
 import { useState, useRef, useEffect } from 'react';
 import { Route, ChevronDown, Loader2, AlertTriangle, FileText, Clock, History } from 'lucide-react';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '../utils/documentSize';
@@ -74,7 +75,7 @@ export default function RouteSlipMenu({
         const params = {
           records,
           driverName: driverFilter,
-          date: dateFrom || new Date().toISOString().split('T')[0],
+          date: dateFrom || manilaToday(),
           preparedBy,
           filename,
           auditSets,

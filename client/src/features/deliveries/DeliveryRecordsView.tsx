@@ -1,3 +1,4 @@
+import { selectableStatuses, manilaToday } from '@/utils/recordLifecycle';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Plus,
@@ -56,6 +57,8 @@ const outputLineIcon = (message: string) => {
 
 const statusColor = (status: DeliveryStatus) => {
   switch (status) {
+    case 'Draft': return 'bg-slate-100 text-slate-700 border-slate-300';
+    case 'In Transit': return 'bg-cyan-50 text-cyan-700 border-cyan-200';
     case 'Delivered': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
     case 'On-Hold': return 'bg-red-50 text-red-700 border-red-200';
     case 'Rescheduled': return 'bg-purple-50 text-purple-700 border-purple-200';
@@ -352,6 +355,7 @@ export default function DeliveryRecordsView({
           const updates: Partial<DeliveryRecord> = {};
           const remarks: string[] = [];
           if (canAssignDriver && bulkStatus && record.status !== bulkStatus) {
+            if (!selectableStatuses(record, currentUserRole).includes(bulkStatus)) throw new Error("This status transition is not available for the selected record.");
             updates.status = bulkStatus;
             remarks.push(`Status set to ${bulkStatus}`);
           }
@@ -466,7 +470,7 @@ export default function DeliveryRecordsView({
     ? {
       records: sortedFiltered,
       driverName: driverFilter,
-      date: dateFrom || new Date().toISOString().split('T')[0],
+      date: dateFrom || manilaToday(),
       preparedBy: currentUserName,
     }
     : undefined;
@@ -736,7 +740,7 @@ export default function DeliveryRecordsView({
           <ListChecks className="w-4 h-4 text-blue-300 shrink-0" />
           <span className="text-sm font-bold text-white">{selectedBulkIds.size} selected</span>
           {canAssignDriver && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2" title="Complete deliveries individually with Time In, a saved JPG/PNG photo, Received By, and remarks.">
               <span className="text-xs text-white/60">Set status:</span>
               <select
                 value={bulkStatus}
@@ -745,7 +749,7 @@ export default function DeliveryRecordsView({
                 className="text-[11px] font-bold bg-white/10 border border-white/20 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
               >
                 <option value="" className="text-slate-900 bg-white">Keep unchanged</option>
-                {(['Pending', 'Scheduled', 'Delivered', 'On-Hold', 'Rescheduled'] as const).map(s => (
+                {DELIVERY_STATUSES.filter(s => s !== 'In Transit' && s !== 'Delivered' && s !== 'Draft' && [...selectedBulkIds].every(id => { const record = categoryRecords.find(r => r.id === id); return record && (record.status === s || selectableStatuses(record, currentUserRole).includes(s)); })).map(s => (
                   <option key={s} value={s} className="text-slate-900 bg-white">{s}</option>
                 ))}
               </select>

@@ -4,7 +4,7 @@ import { api, ApiError } from '@/api';
 
 type HistoryRow = { date: string; category: string; status: string; count: number };
 
-const STATUS_OPTIONS = ['All', 'Scheduled', 'Delivered', 'On-Hold', 'Rescheduled', 'Pending'];
+const STATUS_OPTIONS = ['All', 'Draft', 'Scheduled', 'In Transit', 'Delivered', 'On-Hold', 'Rescheduled', 'Pending'];
 const CATEGORY_OPTIONS = ['All', 'Deliveries', 'RMA', 'Accounting Collection', 'Procurement Pick-up', 'Sales Orders'];
 
 function defaultFromDate(): string {

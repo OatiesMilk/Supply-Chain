@@ -2,6 +2,7 @@ import React, { useEffect, useId, useState } from 'react';
 import { Truck, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { DeliveryRecord } from '@/types';
 import { DRIVERS, DRIVER_COVERAGE } from '@/data';
+import { isDraftRecord } from '@/utils/recordLifecycle';
 
 function splitDriversByArea(recordArea: string): { matched: string[]; others: string[] } {
   const area = recordArea.toLowerCase();
@@ -27,6 +28,7 @@ const CATEGORY_SCREEN: Record<string, string> = {
 };
 
 const STATUS_COLOR: Record<string, string> = {
+  'In Transit': 'bg-cyan-100 text-cyan-700 border-cyan-200',
   Delivered:   'bg-emerald-100 text-emerald-700 border-emerald-200',
   Scheduled:   'bg-blue-100 text-blue-700 border-blue-200',
   Pending:     'bg-amber-100 text-amber-700 border-amber-200',
@@ -159,7 +161,7 @@ export default function DriverBoard({ records, onNavigate, onUpdateRecord, curre
   const [assignments, setAssignments] = useState<Record<string, AssignmentState>>({});
 
   // Active (non-Delivered) records only for the board
-  const activeRecords = records.filter(r => r.status !== 'Delivered');
+  const activeRecords = records.filter(r => r.status !== 'Delivered' && !isDraftRecord(r));
 
   // Collect distinct areas for filter chips
   const allAreas = ['All', ...Array.from(new Set(activeRecords.map(r => r.area).filter(Boolean))).sort()];
@@ -191,8 +193,9 @@ export default function DriverBoard({ records, onNavigate, onUpdateRecord, curre
         modified_at: new Date().toISOString()
       });
       setAssignments(previous => ({ ...previous, [recordId]: idleAssignment }));
-    } catch {
-      setAssignments(previous => ({ ...previous, [recordId]: { editing: true, pending: false, error: 'Could not save the assignment. Choose a driver to try again.' } }));
+    } catch (error) {
+      const message = error instanceof Error && error.message.trim() ? error.message : 'Could not save the assignment.';
+      setAssignments(previous => ({ ...previous, [recordId]: { editing: true, pending: false, error: `${message} Choose a driver to try again.` } }));
     }
   };
 

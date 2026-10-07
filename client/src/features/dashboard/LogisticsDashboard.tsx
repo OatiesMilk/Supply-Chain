@@ -1,3 +1,4 @@
+import { manilaToday } from '@/utils/recordLifecycle';
 import {
   Truck,
   UserX,
@@ -25,7 +26,7 @@ export default function LogisticsDashboard({
   onNavigate,
   onRefresh,
 }: Props) {
-  const today = new Date().toISOString().split("T")[0];
+  const today = manilaToday();
 
   // Derive lists from deliveryRecords (already filtered to Logistics-visible records by API)
   const unassignedRecords = deliveryRecords.filter(

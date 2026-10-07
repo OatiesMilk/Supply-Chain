@@ -23,13 +23,14 @@ export function readableCategories(user: AuthUser): string[] {
 export function recordScope(user: AuthUser): Prisma.DeliveryRecordWhereInput {
   return {
     category: { in: readableCategories(user) },
-    ...(user.role === 'DRIVER' ? { driver: user.name } : {}),
+    ...(user.role === 'DRIVER' ? { driver: user.name, draft: false } : {}),
   };
 }
 
 export function canWriteCategory(user: AuthUser, category: string): boolean {
   const screen = CATEGORY_SCREEN[category];
   if (!screen || !readableCategories(user).includes(category)) return false;
+  if (user.role === 'LOGISTICS' && category === 'RMA') return false;
   // Scheduling views can edit their records, subject to the existing action
   // and field-level role restrictions in records.ts.
   const editors: Screen[] = [screen, 'driver_dashboard', 'driver', 'calendar', 'driver_board'];

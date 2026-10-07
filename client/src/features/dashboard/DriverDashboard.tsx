@@ -13,7 +13,10 @@ import {
 } from "lucide-react";
 import { DeliveryRecord, DeliveryStatus } from "@/types";
 import PodUploader from "@/components/PodUploader";
-import { deliveryPhotoError, type PodReadiness } from "@/utils/podRequirement";
+import { completionError, type PodReadiness } from "@/utils/podRequirement";
+
+import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
+import { canRecordTimeIn, isDraftRecord, manilaToday } from '@/utils/recordLifecycle';
 
 interface DriverDashboardProps {
   records: DeliveryRecord[];
@@ -31,6 +34,7 @@ const STATUS_VERB: Record<string, string> = {
 
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString([], {
+    timeZone: "Asia/Manila",
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -43,8 +47,11 @@ export default function DriverDashboard({
   onLogout,
   dataLoading,
 }: DriverDashboardProps) {
-  const today = new Date().toISOString().split("T")[0];
+  const today = manilaToday();
+  const timeInMutation = useRecordTimeInMutation();
+  records = records.filter(record => !isDraftRecord(record));
   const todayLabel = new Date().toLocaleDateString("en-PH", {
+    timeZone: "Asia/Manila",
     weekday: "long",
     month: "long",
     day: "numeric",
@@ -67,7 +74,7 @@ export default function DriverDashboard({
     setPodStates(previous => ({ ...previous, [id]: state }));
   }, []);
   const photoError = pendingAction
-    ? deliveryPhotoError(pendingAction.rec.category, pendingAction.status, podStates[pendingAction.rec.id])
+    ? completionError(pendingAction.rec, pendingAction.status, receivedByInputs[pendingAction.rec.id] ?? pendingAction.rec.received_by, podStates[pendingAction.rec.id])
     : null;
 
   // Show all assigned records (backend already filters to this driver's records)
@@ -76,7 +83,9 @@ export default function DriverDashboard({
   const doneRecs = todayRecs.filter((r) => r.status === "Delivered");
 
   const handleTimeIn = (rec: DeliveryRecord) => {
-    onUpdateRecord(rec.id, { time_in: new Date().toISOString() } as any);
+    setPendingAction({ rec, status: "In Transit" });
+    setRemarksInput("");
+    setSaveError(null);
   };
 
   const applyStatus = async (
@@ -87,15 +96,12 @@ export default function DriverDashboard({
     const extra =
       status === "Delivered"
         ? {
-            time_out: new Date().toISOString(),
-            received_by: receivedByInputs[rec.id]?.trim() || null,
+            received_by: (receivedByInputs[rec.id] ?? rec.received_by ?? "").trim(),
           }
         : undefined;
     await onUpdateRecord(rec.id, {
       status,
       status_remarks: remarks,
-      modified_by: currentUserName,
-      modified_at: new Date().toISOString(),
       ...(extra ?? {}),
     } as any);
   };
@@ -234,6 +240,7 @@ export default function DriverDashboard({
                   {!rec.time_in ? (
                     <button
                       onClick={() => handleTimeIn(rec)}
+                      disabled={saving || !canRecordTimeIn(rec)}
                       className="w-full py-2.5 rounded-xl font-bold text-xs tracking-wide uppercase bg-blue-600 hover:bg-blue-700 text-white transition-all flex items-center justify-center gap-2"
                     >
                       <Clock className="w-4 h-4" /> Record Time In
@@ -246,16 +253,16 @@ export default function DriverDashboard({
                   )}
 
                   {/* Step 2: Proof of Delivery */}
-                  <PodUploader recordId={rec.id} required={rec.category === 'Deliveries'} disabled={saving} onReadinessChange={onPodReadinessChange} />
+                  <PodUploader recordId={rec.id} required disabled={saving} onReadinessChange={onPodReadinessChange} />
 
-                  {/* Receiver Name — always visible, optional */}
+                  {/* Receiver name is required for completion. */}
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                      <UserCheck className="w-3.5 h-3.5" /> Received By
+                      <UserCheck className="w-3.5 h-3.5" /> Received By *
                     </label>
                     <input
                       type="text"
-                      value={receivedByInputs[rec.id] ?? ""}
+                      value={receivedByInputs[rec.id] ?? rec.received_by ?? ""}
                       onChange={(e) =>
                         setReceivedByInputs((prev) => ({
                           ...prev,
@@ -267,6 +274,7 @@ export default function DriverDashboard({
                     />
                   </div>
 
+                  {completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id]) && <p className="text-xs text-slate-600">{completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}</p>}
                   {/* Step 3: Status buttons */}
                   <div className="grid grid-cols-3 gap-2">
                     <button
@@ -275,7 +283,7 @@ export default function DriverDashboard({
                         setRemarksInput("");
                         setSaveError(null);
                       }}
-                      disabled={saving || !!deliveryPhotoError(rec.category, "Delivered", podStates[rec.id])}
+                      disabled={saving || !(rec.allowed_statuses ?? []).includes("Delivered") || !!completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}
                       className="disabled:opacity-40 disabled:cursor-not-allowed py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-emerald-600 hover:bg-emerald-700 text-white transition-all flex flex-col items-center gap-1 cursor-pointer"
                     >
                       <CheckCircle className="w-4 h-4" /> Accomplish
@@ -286,7 +294,8 @@ export default function DriverDashboard({
                         setRemarksInput("");
                         setSaveError(null);
                       }}
-                      className="py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-amber-500 hover:bg-amber-600 text-white transition-all flex flex-col items-center gap-1"
+                      disabled={saving || !(rec.allowed_statuses ?? []).includes("Pending")}
+                      className="disabled:opacity-40 py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-amber-500 hover:bg-amber-600 text-white transition-all flex flex-col items-center gap-1"
                     >
                       <Navigation className="w-4 h-4" /> Pending
                     </button>
@@ -296,7 +305,8 @@ export default function DriverDashboard({
                         setRemarksInput("");
                         setSaveError(null);
                       }}
-                      className="py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-purple-500 hover:bg-purple-600 text-white transition-all flex flex-col items-center gap-1"
+                      disabled={saving || !(rec.allowed_statuses ?? []).includes("Rescheduled")}
+                      className="disabled:opacity-40 py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-purple-500 hover:bg-purple-600 text-white transition-all flex flex-col items-center gap-1"
                     >
                       <RefreshCw className="w-4 h-4" /> Reschedule
                     </button>
@@ -469,7 +479,11 @@ export default function DriverDashboard({
                   setSaving(true);
                   setSaveError(null);
                   try {
-                    await applyStatus(pendingAction.rec, pendingAction.status, remarksInput.trim());
+                    if (pendingAction.status === "In Transit") {
+                      await timeInMutation.mutateAsync({ id: pendingAction.rec.id, remarks: remarksInput.trim() });
+                    } else {
+                      await applyStatus(pendingAction.rec, pendingAction.status, remarksInput.trim());
+                    }
                     setPendingAction(null);
                     setRemarksInput("");
                   } catch (error) {

@@ -4,7 +4,7 @@ interface Props {
   status: string;
 }
 
-const MAIN_STEPS = ['Pending', 'Scheduled', 'Delivered'];
+const MAIN_STEPS = ['Draft', 'Scheduled', 'In Transit', 'Delivered'];
 
 const STEP_STYLE: Record<string, string> = {
   done:    'bg-emerald-500 text-white border-emerald-500',
@@ -13,6 +13,7 @@ const STEP_STYLE: Record<string, string> = {
 };
 
 const SIDE_STATES: Record<string, { icon: typeof AlertTriangle; color: string; label: string }> = {
+  'Pending': { icon: AlertTriangle, color: 'text-amber-700 bg-amber-50 border-amber-200', label: 'Pending' },
   'On-Hold':     { icon: PauseCircle, color: 'text-red-600 bg-red-50 border-red-200',    label: 'On-Hold'     },
   'Rescheduled': { icon: RefreshCw,   color: 'text-purple-600 bg-purple-50 border-purple-200', label: 'Rescheduled' }
 };
@@ -25,7 +26,7 @@ export default function StatusStepper({ status }: Props) {
     <div className="flex items-center gap-1 flex-wrap">
       {MAIN_STEPS.map((step, i) => {
         const isLastStep = i === MAIN_STEPS.length - 1;
-        const isDone   = mainIdx > i || (mainIdx === i && isLastStep && !sideState) || (sideState && i < 2);
+        const isDone   = mainIdx > i || (mainIdx === i && isLastStep && !sideState);
         const isActive = mainIdx === i && !isLastStep && !sideState;
         const style    = isDone ? STEP_STYLE.done : isActive ? STEP_STYLE.active : STEP_STYLE.pending;
 

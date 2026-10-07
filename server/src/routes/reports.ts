@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { prisma } from '../db';
 import { requireAuth, requireScreen } from '../middleware/auth';
-import { CATEGORY_TO_DB, CATEGORY_FROM_DB, STATUS_TO_DB, STATUS_FROM_DB } from '../mappings';
+import { CATEGORY_TO_DB, CATEGORY_FROM_DB, STATUS_FROM_DB } from '../mappings';
+import { runState } from '../services/deliveryLifecycle';
 
 const router = Router();
 
@@ -16,11 +17,6 @@ router.get('/daily-status-history', requireAuth, requireScreen('status_history')
   }
 
   const where: any = { date: { gte: from, lte: to } };
-
-  if (status) {
-    const dbStatus = STATUS_TO_DB[status] ?? status;
-    where.status = dbStatus;
-  }
 
   // Default to the combined 'ALL' total unless a specific category is requested —
   // never mix per-category and combined rows in the same result set.
@@ -38,17 +34,15 @@ router.get('/daily-status-history', requireAuth, requireScreen('status_history')
   const snapshotDates = new Set(snapshots.map(s => s.date));
 
   // Query live records for any dates within range not covered by pre-computed snapshots
-  const dbStatus   = status   ? (STATUS_TO_DB[status]     ?? status)   : undefined;
   const dbCategory = category ? (CATEGORY_TO_DB[category] ?? category) : undefined;
 
   const liveRecords = await prisma.deliveryRecord.findMany({
     where: {
       deletedAt: null,
       deliveryDate: { gte: from, lte: to },
-      ...(dbStatus   ? { status: dbStatus }     : {}),
       ...(dbCategory ? { category: dbCategory } : {}),
     },
-    select: { category: true, status: true, deliveryDate: true }
+    select: { category: true, status: true, draft: true, timeIn: true, deliveryDate: true }
   });
 
   // Group live records by date + category + status for dates not in snapshots
@@ -56,13 +50,15 @@ router.get('/daily-status-history', requireAuth, requireScreen('status_history')
   for (const r of liveRecords) {
     const date = r.deliveryDate ?? '';
     if (snapshotDates.has(date)) continue;
+    const currentStatus = runState(r);
+    if (status && currentStatus !== status) continue;
     const cat  = dbCategory ? r.category : 'ALL';
-    const key  = `${date}::${cat}::${r.status}`;
+    const key  = `${date}::${cat}::${currentStatus}`;
     grouped[key] = (grouped[key] ?? 0) + 1;
   }
 
   const combinedRows = [
-    ...snapshots.map(s => ({
+    ...snapshots.filter(s => !status || (STATUS_FROM_DB[s.status] ?? s.status) === status).map(s => ({
       date:     s.date,
       category: CATEGORY_FROM_DB[s.category] ?? s.category,
       status:   STATUS_FROM_DB[s.status] ?? s.status,
@@ -99,12 +95,11 @@ router.get('/summary', requireAuth, requireScreen('statistical_reports'), async 
   if (category) where.category = CATEGORY_TO_DB[category] ?? category;
   if (area)     where.area     = area;
   if (driver)   where.driver   = driver;
-  if (status)   where.status   = STATUS_TO_DB[status] ?? status;
-
-  const records = await prisma.deliveryRecord.findMany({
+  const foundRecords = await prisma.deliveryRecord.findMany({
     where,
-    select: { category: true, status: true, area: true, driver: true, deliveryDate: true }
+    select: { category: true, status: true, draft: true, timeIn: true, area: true, driver: true, deliveryDate: true }
   });
+  const records = foundRecords.filter(record => !status || runState(record) === status);
 
   const total = records.length;
   const byStatus:   Record<string, number> = {};
@@ -113,7 +108,7 @@ router.get('/summary', requireAuth, requireScreen('statistical_reports'), async 
   const byDriver:   Record<string, number> = {};
 
   for (const r of records) {
-    const statusKey   = STATUS_FROM_DB[r.status]     ?? r.status;
+    const statusKey   = runState(r);
     const categoryKey = CATEGORY_FROM_DB[r.category] ?? r.category;
     byStatus[statusKey]     = (byStatus[statusKey]     ?? 0) + 1;
     byCategory[categoryKey] = (byCategory[categoryKey] ?? 0) + 1;

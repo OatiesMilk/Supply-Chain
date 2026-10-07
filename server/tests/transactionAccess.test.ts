@@ -47,12 +47,13 @@ test('HTTP transaction reads enforce driver ownership, category, inventory denia
   let readFailure = false;
   const now = new Date('2026-10-01T00:00:00Z');
   const record = (id: string, driver: string, category = 'DELIVERY', deletedAt: Date | null = null) => ({
-    id, driver, category, deletedAt, company: { name: 'Customer' }, companyId: 'customer',
+    id, driver, category, deletedAt, draft: false, company: { name: 'Customer' }, companyId: 'customer',
     createdBy: { name: 'Coordinator' }, modifiedBy: { name: 'Coordinator' }, reference: id,
     status: 'SCHEDULED', deliveryDate: '2026-10-01', itemDescription: 'Shipment',
     driverAssistants: '[]', createdAt: now, updatedAt: now,
   });
   const rows = [
+    { ...record('own-draft', user.name), draft: true },
     record('own', user.name), record('other', 'Driver Two'), record('unassigned', ''),
     record('own-rma', user.name, 'RMA'), record('deleted', user.name, 'DELIVERY', now),
     record('collection', user.name, 'ACCOUNTING_COLLECTION'),
@@ -112,7 +113,7 @@ test('HTTP transaction reads enforce driver ownership, category, inventory denia
     assert.equal((await get('/api/transactions/delivery/own')).status, 200);
     assert.equal((await get('/api/transactions/delivery/own-rma')).status, 200);
     assert.equal(auditRead.mock.callCount(), 2);
-    for (const id of ['other', 'unassigned', 'unknown-category', 'deleted', 'missing']) {
+    for (const id of ['own-draft', 'other', 'unassigned', 'unknown-category', 'deleted', 'missing']) {
       const response = await get(`/api/transactions/delivery/${id}`);
       assert.equal(response.status, 404, id);
       assert.deepEqual(await response.json(), { error: 'Delivery record not found' });

@@ -1,3 +1,4 @@
+import { manilaToday } from '@/utils/recordLifecycle';
 import {
   Users,
   ClipboardList,
@@ -61,7 +62,7 @@ export default function AdminDashboard({
   onNavigate,
   onRefresh,
 }: Props) {
-  const today = new Date().toISOString().split("T")[0];
+  const today = manilaToday();
 
   // Compute from deliveryRecords as fallback / supplement
   const totalActiveUsers = stats?.total_active_users ?? 0;
