@@ -451,10 +451,14 @@ export default function DriverDashboard({
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-600 uppercase tracking-wider block">
-                Remarks <span className="text-red-500">*</span>
+              <label htmlFor="driver-action-remarks" className="text-[10px] font-black text-slate-600 uppercase tracking-wider block">
+                Remarks — reason for change (required)
               </label>
+              <p id="driver-action-remarks-help" className="text-xs text-slate-600">Explain why you are making this change. The reason is saved with your name in the record history.</p>
               <textarea
+                id="driver-action-remarks"
+                aria-describedby="driver-action-remarks-help"
+                required
                 value={remarksInput}
                 onChange={(e) => setRemarksInput(e.target.value)}
                 rows={3}

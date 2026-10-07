@@ -120,7 +120,6 @@ model DeliveryRecord {
   category           String // DELIVERY | RMA | ACCOUNTING_COLLECTION | PROCUREMENT_PICKUP | SALES_ORDERS
   itemType           String
   draft              Boolean @default(false)
-  dateAndTime        String
   itemDescription    String  @default("")
   lineItems          LineItem[] @relation("DeliveryRecordLineItems")
   documentAttachment String?

@@ -415,8 +415,9 @@ export default function DriverView({
             {pendingStatus === 'Delivered' && photoError && <p role="alert" className="text-sm text-red-800">{photoError}</p>}
             {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
             <div>
-              <label htmlFor="driver-status-remarks" className="mb-1 block text-sm font-semibold text-slate-700">Remarks <span aria-hidden="true">*</span></label>
-              <textarea id="driver-status-remarks" required autoFocus rows={3} value={remarks} onChange={event => setRemarks(event.target.value)}
+              <label htmlFor="driver-status-remarks" className="mb-1 block text-sm font-semibold text-slate-700">Remarks — reason for change (required)</label>
+              <p id="driver-status-remarks-help" className="mb-2 text-sm text-slate-600">Explain why you are making this change. The reason is saved with your name in the record history.</p>
+              <textarea id="driver-status-remarks" aria-describedby="driver-status-remarks-help" required autoFocus rows={3} value={remarks} onChange={event => setRemarks(event.target.value)}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div className="flex justify-end gap-2">

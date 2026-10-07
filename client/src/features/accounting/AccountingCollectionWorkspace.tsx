@@ -3,6 +3,8 @@ import { completionError } from '@/utils/podRequirement';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
 import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
 import PodUploader from '@/components/PodUploader';
+import { CompanyHistoryButton } from '@/components/CompanyHistoryPanel';
+import { useUIStore } from '@/store/uiStore';
 import { useState, useEffect, useRef } from 'react';
 import {
   ArrowLeft, ChevronLeft, ChevronRight,
@@ -166,30 +168,33 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [commentBody, setCommentBody] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [commentError, setCommentError] = useState('');
+  const [retry, setRetry] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     setLoading(true);
     setError(null);
     Promise.all([
-      api.getRecordAudit(recordId),
-      api.getRecordComments(recordId)
+      api.getRecordAudit(recordId).catch(() => { throw new Error('Could not load audit history. Try again.'); }),
+      api.getRecordComments(recordId).catch(() => { throw new Error('Could not load comments. Try again.'); })
     ])
       .then(([audit, cmts]) => { setEntries(audit); setComments(cmts); })
       .catch(e => setError(e.message ?? 'Failed to load audit trail.'))
       .finally(() => setLoading(false));
-  }, [recordId]);
+  }, [recordId, retry]);
 
   const handleSubmitComment = async () => {
     const body = commentBody.trim();
     if (!body || submitting) return;
     setSubmitting(true);
+    setCommentError('');
     try {
       const created = await api.createRecordComment(recordId, body);
       setComments(prev => [...prev, created]);
       setCommentBody('');
     } catch {
-      // silently fail — user can retry
+      setCommentError('Could not send your comment. Your text is kept below; try again.');
     } finally {
       setSubmitting(false);
     }
@@ -205,8 +210,9 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center gap-2 py-20 text-red-600 text-sm">
+      <div role="alert" className="flex flex-wrap items-center justify-center gap-2 py-20 text-red-600 text-sm">
         <AlertTriangle className="w-4 h-4" /> {error}
+        <button type="button" onClick={() => setRetry(value => value + 1)} className="min-h-11 rounded px-3 font-semibold underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700">Retry loading history and comments</button>
       </div>
     );
   }
@@ -295,13 +301,14 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
       <div className="border-t border-slate-200 pt-5">
         <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-2 mb-4 px-2">
           <MessageSquare className="w-3.5 h-3.5 text-[#0078C1]" />
-          Notes & Comments
+          Comments
           {comments.length > 0 && (
             <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
               {comments.length}
             </span>
           )}
         </h4>
+        <p id="accounting-comment-help" className="mb-3 px-2 text-sm text-slate-600">Optional discussion about this record. Comments do not replace the remarks required when making changes.</p>
 
         {/* Existing comments */}
         {comments.length > 0 && (
@@ -324,27 +331,34 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
         )}
 
         {/* New comment input */}
+        <label htmlFor="accounting-comment-body" className="mb-1 block px-2 text-sm font-medium text-slate-700">Comment (optional)</label>
         <div className="flex items-end gap-2 px-2">
           <textarea
+            id="accounting-comment-body"
+            aria-describedby="accounting-comment-help"
+            disabled={submitting}
             ref={inputRef}
             value={commentBody}
             onChange={e => setCommentBody(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSubmitComment();
             }}
-            placeholder="Add a note or comment… (Ctrl+Enter to send)"
+            placeholder="Add to the discussion… (Ctrl+Enter to send)"
             rows={2}
-            className="flex-1 text-xs border border-slate-300 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] placeholder:text-slate-400"
+            className="min-w-0 flex-1 text-base border border-slate-300 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] placeholder:text-slate-400"
           />
           <button
+            type="button"
+            aria-label="Send comment"
             onClick={handleSubmitComment}
             disabled={!commentBody.trim() || submitting}
-            className="p-2.5 bg-[#0078C1] text-white rounded-lg hover:bg-[#005fa3] disabled:opacity-40 transition-colors cursor-pointer shrink-0"
+            className="min-h-11 min-w-11 touch-manipulation p-2.5 bg-[#0078C1] text-white rounded-lg hover:bg-[#005fa3] disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 cursor-pointer shrink-0"
             title="Send comment (Ctrl+Enter)"
           >
             {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           </button>
         </div>
+        {commentError && <p role="alert" className="mt-2 px-2 text-sm text-red-700">{commentError}</p>}
       </div>
     </div>
   );
@@ -478,6 +492,7 @@ function OverviewTab({
   currentUserRole: UserRole;
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
 }) {
+  const navigate = useUIStore(s => s.handleNavigate);
   const [updating, setUpdating] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [receivedBy, setReceivedBy] = useState(record.received_by ?? '');
@@ -530,7 +545,12 @@ function OverviewTab({
               {completionError(record, 'Delivered', receivedBy, readiness) && <p className="text-xs text-slate-600">{completionError(record, 'Delivered', receivedBy, readiness)}</p>}
             </>}
             <div>
+              <label htmlFor="accounting-change-remarks" className="mb-1 block text-sm font-medium text-slate-700">Remarks — reason for change (required)</label>
+              <p id="accounting-change-remarks-help" className="mb-2 text-xs text-slate-600">Explain why you are making this change. The reason is saved with your name in the record history.</p>
               <textarea
+                id="accounting-change-remarks"
+                aria-describedby="accounting-change-remarks-help"
+                required
                 value={statusRemarks}
                 onChange={e => { setStatusRemarks(e.target.value); if (remarksError && e.target.value.trim()) setRemarksError(false); }}
                 rows={2}
@@ -580,7 +600,15 @@ function OverviewTab({
             Priority: {record.priority}
           </span>
         </div>
-        <p className="text-sm font-bold text-slate-700 mb-3">{record.company_name}</p>
+        <div className="text-sm font-bold text-slate-700 mb-3">
+          <CompanyHistoryButton
+            companyId={record.company_id}
+            companyName={record.company_name}
+            currentRecordId={record.id}
+            disabled={updating}
+            onOpenRecord={navigate}
+          />
+        </div>
         {record.amount != null && (
           <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3">
             <div>
@@ -637,7 +665,7 @@ function OverviewTab({
             { label: 'Driver',          value: record.driver || 'Unassigned' },
             { label: 'Account Manager', value: record.account_manager },
             { label: 'Delivery Date',   value: record.delivery_date },
-            { label: 'Date & Time',     value: record.date_time ? formatTs(record.date_time) : '—' },
+            { label: 'Created At',      value: record.created_at ? formatTs(record.created_at) : '—' },
             { label: 'Item Type',       value: record.item_type },
             { label: 'Draft',           value: record.is_draft },
           ].map(row => (
