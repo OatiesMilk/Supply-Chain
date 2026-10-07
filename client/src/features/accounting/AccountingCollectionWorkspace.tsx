@@ -637,7 +637,7 @@ function OverviewTab({
             { label: 'Driver',          value: record.driver || 'Unassigned' },
             { label: 'Account Manager', value: record.account_manager },
             { label: 'Delivery Date',   value: record.delivery_date },
-            { label: 'Date & Time',     value: record.date_time ? formatTs(record.date_time) : '—' },
+            { label: 'Created At',      value: record.created_at ? formatTs(record.created_at) : '—' },
             { label: 'Item Type',       value: record.item_type },
             { label: 'Draft',           value: record.is_draft },
           ].map(row => (

@@ -356,7 +356,6 @@ export interface ApiTransactionDetail {
   driver_assistants?: string[];
   account_manager?: string;
   delivery_date?: string;
-  date_time?: string;
   item_type?: string;
   remarks?: string;
   priority?: string;

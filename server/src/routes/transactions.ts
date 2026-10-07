@@ -214,7 +214,7 @@ router.get('/:source/:id', requireAuth, requireTransactionAccess, asyncRoute(asy
       driver_assistants: parseDriverAssistants(record.driverAssistants),
       account_manager:  record.accountManager,
       delivery_date:    record.deliveryDate,
-      date_time:        record.dateAndTime,
+      
       item_type:        record.itemType,
       remarks:          record.remarks,
       priority:         record.priority,
