@@ -833,7 +833,7 @@ function ActionsTab({
   const [actionRemarksError, setActionRemarksError] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
-  const { readiness: podReadiness } = usePodAttachments(record.id);
+  const { readiness: podReadiness, uploadStaged } = usePodAttachments(record.id);
   const timeInMutation = useRecordTimeInMutation();
 
   const [selectedDriver, setSelectedDriver] = useState(record.driver);
@@ -869,12 +869,12 @@ function ActionsTab({
     setSaveFeedback(null);
   }, [record.id, record.time_in, record.time_out, record.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useWorkspaceDraft('dispatch', hasChanges || !!actionRemarks, saving || podReadiness.uploading);
+  useWorkspaceDraft('dispatch', hasChanges || !!actionRemarks || podReadiness.hasStagedFiles, saving || podReadiness.uploading);
 
   const handleSave = async () => {
     if (saving || photoError) return;
 
-    if (!hasChanges && !actionRemarks.trim()) {
+    if (!hasChanges && !actionRemarks.trim() && !podReadiness.hasStagedFiles) {
       setSaveFeedback({ message: 'No changes detected to save.', type: 'info' });
       return;
     }
@@ -892,6 +892,8 @@ function ActionsTab({
     let detailsSaved = false;
 
     try {
+      await uploadStaged();
+
       // The update hook routes status changes to PATCH /status and ordinary
       // dispatch fields to PUT /records/:id. Keep them as two ordered writes
       // behind this single button so neither set of changes is silently lost.
@@ -1532,7 +1534,7 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
 // ─── Documents Tab ────────────────────────────────────────────────────────────
 
 function DocumentsTab({ record }: { record: DeliveryRecord }) {
-  const { files, readiness, uploadFiles, removeFile: deleteFile } = usePodAttachments(record.id);
+  const { files, readiness, uploadDirect, removeFile: deleteFile } = usePodAttachments(record.id);
   const uploading = readiness.uploading;
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1558,7 +1560,7 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
 
     setError(null);
     try {
-      await uploadFiles(selectedFiles);
+      await uploadDirect(selectedFiles);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed.');
     } finally {

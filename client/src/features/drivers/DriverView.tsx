@@ -80,7 +80,7 @@ export default function DriverView({
       ? a.delivery_date.localeCompare(b.delivery_date) || a.reference.localeCompare(b.reference)
       : b.delivery_date.localeCompare(a.delivery_date) || a.reference.localeCompare(b.reference));
   const selectedRecord = records.find(record => record.id === selectedRecordId && record.driver === driver) ?? null;
-  const { readiness: podReadiness } = usePodAttachments(selectedRecord?.id ?? '');
+  const { readiness: podReadiness, uploadStaged } = usePodAttachments(selectedRecord?.id ?? '');
   const photoError = selectedRecord ? completionError(selectedRecord, 'Delivered', receiverInputs[selectedRecord.id] ?? selectedRecord.received_by, podReadiness) : null;
   const activeForDriver = driverRecords.filter(isActive).length;
 
@@ -142,44 +142,48 @@ export default function DriverView({
       return;
     }
 
-    if (pendingStatus === "In Transit") {
-      setSaving(true);
-      setFeedback(null);
-      try {
+    setSaving(true);
+    setFeedback(null);
+    try {
+      await uploadStaged();
+
+      if (pendingStatus === "In Transit") {
         await timeInMutation.mutateAsync({ id: selectedRecord.id, remarks: remarks.trim() });
         closeStatus();
         setFeedback({ message: 'Status updated successfully.', type: 'success' });
         setTimeout(() => setFeedback(null), 3000);
-      } catch (error) {
-        setFeedback({ message: error instanceof Error ? error.message : "Could not record Time In.", type: 'error' });
-      } finally { setSaving(false); }
-      return;
-    }
-    const status = pendingStatus;
-    const receivedBy = receiverInputs[selectedRecord.id]?.trim() || selectedRecord.received_by?.trim() || '';
-    const updates = {
-      status,
-      status_remarks: remarks.trim(),
-      ...(status === 'Delivered' ? { received_by: receivedBy } : {}),
-    } as Partial<DeliveryRecord>;
-    const saved = await save(selectedRecord, updates, 'Could not update the run. Please try again.');
-    if (!saved) return;
-    closeStatus();
-    setFeedback({ message: 'Status updated successfully.', type: 'success' });
-    setTimeout(() => setFeedback(null), 3000);
-    if (status === 'Delivered' && tab === 'active') setSelectedRecordId(null);
-    const trigger = getOutputTrigger(selectedRecord.category, status);
-    if (trigger) {
-      try {
-        await runOutputActions(trigger, outputActionConfigs[trigger], {
-          amName: selectedRecord.account_manager,
-          at: new Date().toISOString(),
-          recordId: selectedRecord.id,
-          api,
-        });
-      } catch {
-        setFeedback({ message: 'The status was saved, but an output action could not finish. Check notifications before retrying.', type: 'error' });
+        return;
       }
+      const status = pendingStatus;
+      const receivedBy = receiverInputs[selectedRecord.id]?.trim() || selectedRecord.received_by?.trim() || '';
+      const updates = {
+        status,
+        status_remarks: remarks.trim(),
+        ...(status === 'Delivered' ? { received_by: receivedBy } : {}),
+      } as Partial<DeliveryRecord>;
+      const saved = await save(selectedRecord, updates, 'Could not update the run. Please try again.');
+      if (!saved) return;
+      closeStatus();
+      setFeedback({ message: 'Status updated successfully.', type: 'success' });
+      setTimeout(() => setFeedback(null), 3000);
+      if (status === 'Delivered' && tab === 'active') setSelectedRecordId(null);
+      const trigger = getOutputTrigger(selectedRecord.category, status);
+      if (trigger) {
+        try {
+          await runOutputActions(trigger, outputActionConfigs[trigger], {
+            amName: selectedRecord.account_manager,
+            at: new Date().toISOString(),
+            recordId: selectedRecord.id,
+            api,
+          });
+        } catch {
+          setFeedback({ message: 'The status was saved, but an output action could not finish. Check notifications before retrying.', type: 'error' });
+        }
+      }
+    } catch (error) {
+      setFeedback({ message: error instanceof Error ? error.message : "Could not update the run. Please try again.", type: 'error' });
+    } finally {
+      setSaving(false);
     }
   };
 

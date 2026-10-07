@@ -5,6 +5,7 @@ export interface PodReadiness {
   uploading: boolean;
   hasPhoto: boolean;
   loadFailed: boolean;
+  hasStagedFiles: boolean;
 }
 
 export function deliveryPhotoError(category: DeliveryCategory, status: DeliveryStatus, pod?: PodReadiness): string | null {
