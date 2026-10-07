@@ -408,8 +408,8 @@ export const api = {
     form.append('file', file);
     return request<ApiPodAttachment>(`/records/${id}/attachments`, { method: 'POST', body: form });
   },
-  deleteRecordAttachment: (id: string, attachmentId: string) =>
-    request<void>(`/records/${id}/attachments/${attachmentId}`, { method: 'DELETE' }),
+  deleteRecordAttachment: (id: string, attachmentId: string, remarks: string) =>
+    request<void>(`/records/${id}/attachments/${attachmentId}`, { method: 'DELETE', body: JSON.stringify({ remarks }) }),
 
   getCompanies: () => request<ApiCompany[]>('/companies'),
 

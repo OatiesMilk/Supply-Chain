@@ -27,7 +27,7 @@ export function usePodAttachments(recordId: string) {
   });
   const remove = useMutation({
     mutationKey,
-    mutationFn: (id: string) => api.deleteRecordAttachment(recordId, id),
+    mutationFn: ({ id: attachmentId, remarks }: { id: string; remarks: string }) => api.deleteRecordAttachment(recordId, attachmentId, remarks),
     onSettled: () => client.invalidateQueries({ queryKey }),
   });
   const uploading = useIsMutating({ mutationKey }) > 0;
