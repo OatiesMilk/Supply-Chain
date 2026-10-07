@@ -4,9 +4,11 @@ import { prisma } from '../src/db';
 import records from '../src/routes/records';
 import { signToken } from '../src/middleware/auth';
 import { podStorage } from '../src/services/podStorage';
-import { isPodPhoto } from '../src/services/podPhotos';
+import sharp from 'sharp';
+import { PassThrough } from 'node:stream';
+import { isPodPhoto, isVerifiedPodPhoto } from '../src/services/podPhotos';
 
-const photo = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
+const photo = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWMwTpsJAAICATMDms/iAAAAAElFTkSuQmCC', 'base64');
 const restorers: (() => void)[] = [];
 function stub(target: any, key: string, implementation: (...args: any[]) => any) {
   const original = target[key];
@@ -22,9 +24,21 @@ function restoreStubs() {
 const originalMailEnv = Object.fromEntries(['SMTP_HOST', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET', 'AZURE_TENANT_ID'].map(key => [key, process.env[key]]));
 const user = (role = 'DRIVER') => ({ id: 'test-user', name: 'Assigned Driver', email: 'test@example.com', role, isActive: true, permissions: [] });
 const attachment = (overrides: Record<string, unknown> = {}) => ({ id: 'photo-1', recordId: 'delivery-1', originalName: 'photo.png', mimeType: 'image/png', storageKey: 'photo.png', size: photo.length, createdAt: new Date(), ...overrides });
-const record = (overrides: Record<string, unknown> = {}) => ({ id: 'delivery-1', category: 'DELIVERY', status: 'SCHEDULED', priority: '2 - Moderate', driver: 'Assigned Driver', company: { name: 'Test Company' }, accountManager: 'Test AM', deletedAt: null, ...overrides });
+const record = (overrides: Record<string, unknown> = {}) => ({ id: 'delivery-1', category: 'DELIVERY', status: 'SCHEDULED', priority: '2 - Moderate', driver: 'Assigned Driver', company: { name: 'Test Company' }, accountManager: 'Test AM', timeIn: '2026-10-07T01:00:00.000Z', receivedBy: 'Recipient', timeOut: null, deletedAt: null, ...overrides });
+
+function failClosed() {
+  for (const model of [prisma.user, prisma.company, prisma.deliveryRecord, prisma.podAttachment, prisma.auditLog, prisma.remarkLog, prisma.notification, prisma.notificationLog, prisma.driver]) {
+    for (const method of ['findFirst', 'findUnique', 'findUniqueOrThrow', 'findMany', 'create', 'createMany', 'upsert', 'update', 'updateMany', 'delete', 'deleteMany', 'count']) {
+      stub(model, method, async () => { throw new Error('Unstubbed database operation: ' + method); });
+    }
+  }
+  stub(prisma, '$transaction', async () => { throw new Error('Unstubbed transaction'); });
+  for (const method of ['save', 'read', 'remove']) stub(podStorage, method, async () => { throw new Error('Unstubbed storage operation: ' + method); });
+}
+function resetFixtures() { restoreStubs(); failClosed(); }
 
 beforeEach(() => {
+  failClosed();
   for (const key of Object.keys(originalMailEnv)) delete process.env[key];
 });
 afterEach(() => {
@@ -35,55 +49,65 @@ afterEach(() => {
 });
 
 // Exercise the actual middleware/handlers in memory: no listener, live DB or email.
-async function request(method: string, path: string, options: { role?: string; body?: unknown; file?: unknown; attachmentId?: string } = {}) {
+async function request(method: string, path: string, options: { role?: string; authenticated?: boolean; body?: unknown; file?: unknown; attachmentId?: string; multipart?: Buffer; contentType?: string } = {}) {
   const actor = user(options.role);
   stub(prisma.user, 'findUnique', async () => actor as any);
   const route = (records as any).stack.find((layer: any) => layer.route?.path === path && layer.route.methods[method]).route;
-  const req: any = { method: method.toUpperCase(), headers: {}, cookies: { mg_session: signToken(actor as any) },
-    params: { id: 'delivery-1', attachmentId: options.attachmentId ?? 'photo-1' }, body: options.body ?? {}, file: options.file };
+  const req: any = Object.assign(options.multipart ? new PassThrough() : {}, { method: method.toUpperCase(), headers: {}, cookies: { mg_session: signToken(actor as any) },
+    params: path === '/' ? {} : { id: 'delivery-1', attachmentId: options.attachmentId ?? 'photo-1' }, body: options.body ?? {}, file: options.file });
+  if (options.multipart) req.headers = { 'content-type': options.contentType, 'content-length': String(options.multipart.length) };
+  if (options.authenticated === false) req.cookies = {};
   return new Promise<{ status: number; body: any }>((resolve, reject) => {
+    const timer = setTimeout(() => { req.destroy?.(); reject(new Error('In-memory request timed out')); }, 3000);
     const res: any = { statusCode: 200, setHeader() {}, clearCookie() {},
       status(code: number) { this.statusCode = code; return this; },
-      json(body: unknown) { resolve({ status: this.statusCode, body }); return this; },
-      send(body: unknown) { resolve({ status: this.statusCode, body }); return this; } };
+      json(body: unknown) { clearTimeout(timer); resolve({ status: this.statusCode, body }); return this; },
+      send(body: unknown) { clearTimeout(timer); resolve({ status: this.statusCode, body }); return this; } };
     let index = 0;
     const next = (error?: unknown) => {
-      if (error) return reject(error);
+      if (error) { clearTimeout(timer); return reject(error); }
       const handler = route.stack[index++]?.handle;
       if (!handler) return reject(new Error('Route did not return a response'));
       try { Promise.resolve(handler(req, res, next)).catch(reject); } catch (error) { reject(error); }
     };
     next();
+    if (options.multipart) req.end(options.multipart);
   });
 }
 
 function database(row = record(), files: any[] = []) {
+  failClosed();
   let saved = row;
   const events: string[] = [];
+  const audit: any[] = []; const remarks: any[] = [];
   stub(prisma.deliveryRecord, 'findFirst', async ({ where }: any) => {
     const scopedDriver = where.AND?.[0]?.driver;
     return scopedDriver && scopedDriver !== saved.driver ? null : saved as any;
   });
   const tx = {
+    $executeRaw: async () => {},
     $queryRaw: async () => { events.push('lock'); return [{ id: saved.id }]; },
     deliveryRecord: {
       findUnique: async () => saved,
+      update: async ({ data }: any) => { events.push('update'); saved = { ...saved, ...data }; return saved; },
       updateMany: async ({ data }: any) => { events.push('update'); saved = { ...saved, ...data }; return { count: 1 }; },
       findUniqueOrThrow: async () => saved,
     },
     podAttachment: {
+      create: async (args: any) => prisma.podAttachment.create(args),
       findMany: async ({ where }: any) => { events.push('photos'); return files.filter(file => file.id !== where.id?.not); },
       findFirst: async () => files[0] ?? null,
       delete: async () => { events.push('delete'); return files.shift(); },
     },
-    auditLog: { create: async () => { events.push('audit'); return {}; } },
-    remarkLog: { create: async () => { events.push('remark'); return {}; } },
+    auditLog: { create: async ({ data }: any) => { events.push('audit'); audit.push(data); return {}; } },
+    remarkLog: { create: async ({ data }: any) => { events.push('remark'); remarks.push(data); return {}; } },
   };
   stub(prisma, '$transaction', async (fn: any) => fn(tx));
-  stub(prisma.notificationLog, 'create', async () => ({} as any));
+  stub(prisma.notificationLog, 'create', async () => { events.push('notification'); return {} as any; });
+  stub(prisma.notification, 'createMany', async () => { events.push('notification'); return { count: 0 }; });
   stub(prisma.user, 'findMany', async () => []);
   stub(podStorage, 'read', async () => photo);
-  return { events, saved: () => saved };
+  return { events, audit, remarks, tx, saved: () => saved };
 }
 
 test('image proof checks bytes, rejecting renamed, empty, mismatched and truncated files', () => {
@@ -119,7 +143,7 @@ test('driver cannot upload to another driver record and counterfeit image upload
 
 test('delivery completion rejects absent, document-only, missing and counterfeit photos without writes', async () => {
   for (const kind of ['empty', 'document', 'missing', 'counterfeit']) {
-    restoreStubs();
+    resetFixtures();
     const state = database(record(), kind === 'empty' ? [] : [attachment(kind === 'document' ? { mimeType: 'application/pdf' } : {})]);
     if (kind === 'missing') stub(podStorage, 'read', async () => { throw new Error('missing'); });
     if (kind === 'counterfeit') stub(podStorage, 'read', async () => Buffer.alloc(photo.length));
@@ -136,12 +160,12 @@ test('a persisted photo enables delivery completion after taking the record lock
   const result = await request('patch', '/:id/status', { body: { status: 'Delivered', remarks: 'Completed' } });
   assert.equal(result.status, 200);
   assert.equal(result.body.status, 'Delivered');
-  assert.deepEqual(state.events, ['lock', 'photos', 'update', 'audit', 'remark']);
+  assert.deepEqual(state.events.slice(0, 5), ['lock', 'photos', 'update', 'audit', 'remark']);
 });
 
 test('pending statuses and non-delivery completion do not require a photo', async () => {
   for (const [category, status] of [['DELIVERY', 'Pending'], ['PROCUREMENT_PICKUP', 'Delivered'], ['ACCOUNTING_COLLECTION', 'Delivered'], ['RMA', 'Delivered']]) {
-    restoreStubs();
+    resetFixtures();
     const state = database(record({ category }));
     const result = await request('patch', '/:id/status', { role: 'ADMIN', body: { status, remarks: 'Updated' } });
     assert.equal(result.status, 200, category);
@@ -171,4 +195,181 @@ test('a replacement photo allows removal while preserving delivery proof', async
   const result = await request('delete', '/:id/attachments/:attachmentId', { role: 'ADMIN' });
   assert.equal(result.status, 204);
   assert.deepEqual(state.events, ['lock', 'photos', 'delete']);
+});
+
+test('C-2.12 isolates missing photo with valid recipient, Time In and remarks for every completion role', async () => {
+  for (const role of ['DRIVER', 'LOGISTICS', 'ADMIN']) {
+    resetFixtures();
+    const state = database();
+    const before = { ...state.saved() };
+    const response = await request('patch', '/:id/status', { role, body: { status: 'Delivered', remarks: 'POD test' } });
+    assert.equal(response.status, 400, role);
+    assert.match(response.body.error, /photo/);
+    assert.deepEqual(state.saved(), before);
+    assert.deepEqual(state.events, ['lock', 'photos']);
+  }
+});
+
+test('C-2.13 status, edit and upload reject another driver with no mutations or storage writes', async () => {
+  for (const [method, path] of [['patch', '/:id/status'], ['put', '/:id'], ['post', '/:id/attachments']]) {
+    resetFixtures();
+    const state = database(record({ driver: 'Driver B' }), [attachment()]);
+    const before = { ...state.saved() };
+    const storage = stub(podStorage, 'save', async () => { throw new Error('Unexpected storage write'); });
+    const create = stub(prisma.podAttachment, 'create', async () => { throw new Error('Unexpected attachment write'); });
+    const response = await request(method, path, {
+      body: { status: 'Delivered', remarks: 'Completion', received_by: 'Recipient' },
+      file: { originalname: 'photo.png', mimetype: 'image/png', size: photo.length, buffer: photo },
+    });
+    assert.equal(response.status, 403, path);
+    assert.deepEqual(state.saved(), before);
+    assert.deepEqual(state.events, []);
+    assert.equal(storage.mock.callCount(), 0);
+    assert.equal(create.mock.callCount(), 0);
+  }
+});
+
+test('completion prerequisites are enforced independently for Driver, Logistics and Admin', async () => {
+  for (const role of ['DRIVER', 'LOGISTICS', 'ADMIN']) {
+    for (const missing of ['timeIn', 'receivedBy', 'remarks']) {
+      resetFixtures();
+      const state = database(record(missing === 'remarks' ? {} : { [missing]: '  ' }), [attachment()]);
+      const response = await request('patch', '/:id/status', { role, body: { status: 'Delivered', remarks: missing === 'remarks' ? ' ' : 'Completed' } });
+      assert.equal(response.status, 400, `${role}: ${missing}`);
+      assert.match(response.body.error, missing === 'timeIn' ? /Time In/ : missing === 'receivedBy' ? /Received By/ : /Remarks/);
+      assert.equal(state.saved().status, 'SCHEDULED');
+      assert.equal(state.events.some(event => ['update', 'audit', 'remark', 'notification'].includes(event)), false);
+    }
+  }
+});
+
+test('owner positive controls stamp server Time Out and authenticated audit actor for all roles', async () => {
+  for (const role of ['DRIVER', 'LOGISTICS', 'ADMIN']) {
+    resetFixtures();
+    const state = database(record(), [attachment()]);
+    const start = Date.now();
+    const response = await request('patch', '/:id/status', { role, body: { status: 'Delivered', remarks: ' Completed ', received_by: ' Named recipient ', time_out: '1999-01-01T00:00:00.000Z' } });
+    assert.equal(response.status, 200);
+    assert.equal(state.saved().status, 'ACCOMPLISHED');
+    assert.ok(Date.parse(state.saved().timeOut!) >= start && Date.parse(state.saved().timeOut!) <= Date.now());
+    assert.equal(state.saved().receivedBy, 'Named recipient');
+    assert.equal(state.audit[0].changedById, 'test-user');
+    assert.equal(state.remarks[0].authorId, 'test-user');
+    assert.equal(state.remarks[0].body, 'Completed');
+  }
+});
+
+test('reassignment between access check and locked mutation is denied for status and edit', async () => {
+  for (const [method, path] of [['patch', '/:id/status'], ['put', '/:id']]) {
+    resetFixtures();
+    const state = database(record(), [attachment()]);
+    state.tx.deliveryRecord.findUnique = async () => record({ driver: 'Driver B' });
+    const result = await request(method, path, { body: { status: 'Delivered', remarks: 'Updated', received_by: 'Recipient' } });
+    assert.equal(result.status, 403);
+    assert.deepEqual(state.events, ['lock']);
+    assert.equal(state.saved().status, 'SCHEDULED');
+  }
+});
+
+test('client Time Out cannot be spoofed through driver PUT or a non-completion status', async () => {
+  const state = database();
+  assert.equal((await request('put', '/:id', { body: { time_out: '1999-01-01T00:00:00.000Z' } })).status, 403);
+  assert.deepEqual(state.events, []);
+  assert.equal((await request('patch', '/:id/status', { body: { status: 'Pending', remarks: 'Pending', time_out: '1999-01-01T00:00:00.000Z' } })).status, 200);
+  assert.equal(state.saved().timeOut, null);
+});
+
+test('a priority-only save on an accomplished record preserves its original Time Out', async () => {
+  const timeOut = '2026-10-07T02:00:00.000Z';
+  const state = database(record({ status: 'ACCOMPLISHED', timeOut }), [attachment()]);
+  assert.equal((await request('patch', '/:id/status', { role: 'ADMIN', body: { status: 'Delivered', priority: '3 - High', remarks: 'Priority corrected', time_out: '1999-01-01T00:00:00.000Z' } })).status, 200);
+  assert.equal(state.saved().timeOut, timeOut);
+});
+
+test('Logistics and Admin retain audited ISO Time Out corrections', async () => {
+  for (const role of ['LOGISTICS', 'ADMIN']) {
+    resetFixtures();
+    const state = database(record({ status: 'ACCOMPLISHED' }), [attachment()]);
+    stub(prisma.remarkLog, 'create', async ({ data }: any) => { state.remarks.push(data); return {} as any; });
+    const correction = '2026-10-07T02:30:00.000Z';
+    const response = await request('put', '/:id', { role, body: { time_out: correction, remarks: 'Corrected clock entry' } });
+    assert.equal(response.status, 200);
+    assert.equal(state.saved().timeOut, correction);
+    assert.equal(state.audit[0].changedById, 'test-user');
+    assert.equal(state.remarks[0].authorId, 'test-user');
+  }
+});
+
+test('Logistics RMA write restrictions remain enforced for status, edit and upload', async () => {
+  for (const [method, path] of [['patch', '/:id/status'], ['put', '/:id'], ['post', '/:id/attachments']]) {
+    resetFixtures();
+    const state = database(record({ category: 'RMA' }));
+    assert.equal((await request(method, path, { role: 'LOGISTICS', body: { status: 'Delivered', remarks: 'Blocked' } })).status, 403);
+    assert.deepEqual(state.events, []);
+  }
+});
+
+test('protected status, edit and upload routes reject unauthenticated requests without mutations', async () => {
+  for (const [method, path] of [['patch', '/:id/status'], ['put', '/:id'], ['post', '/:id/attachments']]) {
+    resetFixtures();
+    const state = database();
+    assert.equal((await request(method, path, { authenticated: false, body: { status: 'Delivered', remarks: 'Unauthorized' } })).status, 401);
+    assert.deepEqual(state.events, []);
+  }
+});
+
+test('framed counterfeit PNG and JPEG cannot satisfy actual pixel decoding', async () => {
+  const png = Buffer.from(photo);
+  const idat = png.indexOf(Buffer.from('IDAT'));
+  png.fill(0, idat + 4, idat + 8);
+  const jpeg = Buffer.from('ffd8ffc00008080001000100ffda00020102ffd9', 'hex');
+  for (const [bytes, mime] of [[png, 'image/png'], [jpeg, 'image/jpeg']] as const) {
+    assert.equal(isPodPhoto(bytes, mime), true, 'Framing guard alone accepted the counterfeit');
+    assert.equal(await isVerifiedPodPhoto(bytes, mime), false);
+  }
+  const genuineJpeg = await sharp({ create: { width: 1, height: 1, channels: 3, background: '#336699' } }).jpeg().toBuffer();
+  assert.equal(await isVerifiedPodPhoto(genuineJpeg, 'image/jpeg'), true);
+  assert.equal(await isVerifiedPodPhoto(photo, 'image/png'), true);
+});
+
+test('real multipart middleware accepts genuine bytes and rejects counterfeit bytes without storage writes', async () => {
+  database();
+  const save = stub(podStorage, 'save', async () => 'photo.png');
+  stub(prisma.podAttachment, 'create', async () => attachment() as any);
+  const boundary = 'isolated-pod-test-boundary';
+  const multipart = (bytes: Buffer) => Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="photo.png"\r\nContent-Type: image/png\r\n\r\n`),
+    bytes, Buffer.from(`\r\n--${boundary}--\r\n`),
+  ]);
+  const contentType = `multipart/form-data; boundary=${boundary}`;
+  assert.equal((await request('post', '/:id/attachments', { multipart: multipart(photo), contentType })).status, 201);
+  assert.equal(save.mock.callCount(), 1);
+  assert.equal((await request('post', '/:id/attachments', { multipart: multipart(Buffer.from('not a PNG')), contentType })).status, 400);
+  assert.equal(save.mock.callCount(), 1);
+});
+
+test('upload rejects reassignment under the row lock before any storage or metadata write', async () => {
+  const state = database();
+  state.tx.deliveryRecord.findUnique = async () => record({ driver: 'Driver B' });
+  const save = stub(podStorage, 'save', async () => { throw new Error('Unexpected save'); });
+  const create = stub(prisma.podAttachment, 'create', async () => { throw new Error('Unexpected metadata'); });
+  const response = await request('post', '/:id/attachments', { file: { originalname: 'photo.png', mimetype: 'image/png', size: photo.length, buffer: photo } });
+  assert.equal(response.status, 403);
+  assert.deepEqual(state.events, ['lock']);
+  assert.equal(save.mock.callCount(), 0);
+  assert.equal(create.mock.callCount(), 0);
+});
+
+test('upload compensates object storage on metadata and transaction commit failure', async () => {
+  for (const failure of ['metadata', 'commit']) {
+    resetFixtures();
+    const state = database();
+    stub(podStorage, 'save', async () => 'new-key');
+    const remove = stub(podStorage, 'remove', async () => {});
+    stub(prisma.podAttachment, 'create', async () => { if (failure === 'metadata') throw new Error('metadata failed'); return attachment() as any; });
+    if (failure === 'commit') stub(prisma, '$transaction', async (fn: any) => { await fn(state.tx); throw new Error('commit failed'); });
+    await assert.rejects(request('post', '/:id/attachments', { file: { originalname: 'photo.png', mimetype: 'image/png', size: photo.length, buffer: photo } }), new RegExp(`${failure} failed`));
+    assert.equal(remove.mock.callCount(), 1);
+    assert.equal(remove.mock.calls[0].arguments[0], 'new-key');
+  }
 });

@@ -8,7 +8,7 @@ import { notifyAccomplished } from '../services/notify';
 import { notifyRole, notifyUser } from '../services/inAppNotify';
 import { CATEGORY_TO_DB, STATUS_TO_DB, STATUS_FROM_DB, serializeRecord } from '../mappings';
 import { podStorage, podUpload } from '../services/podStorage';
-import { DELIVERY_PHOTO_REQUIRED, hasStoredDeliveryPhoto, isPhotoMimeType, isPodPhoto, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
+import { DELIVERY_PHOTO_REQUIRED, hasStoredDeliveryPhoto, isPhotoMimeType, isVerifiedPodPhoto, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
 
 import { canWriteCategory, recordScope } from '../services/recordAccess';
 
@@ -20,6 +20,9 @@ const requireRecordAccess = asyncRoute(async (req, res, next) => {
       select: { category: true },
     });
     if (!record) return res.status(403).json({ error: 'Record access denied' });
+    if (req.method !== 'GET' && req.user!.role === 'LOGISTICS' && record.category === 'RMA') {
+      return res.status(403).json({ error: 'Logistics has view-only access to RMA/TASS records' });
+    }
     if (req.method !== 'GET' && !canWriteCategory(req.user!, record.category)) {
       return res.status(403).json({ error: 'Module access denied' });
     }
@@ -184,38 +187,43 @@ router.post(
   podUpload.single('file'),
   asyncRoute(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'A file is required.' });
-    const isPhoto = isPodPhoto(req.file.buffer, req.file.mimetype);
+    const isPhoto = await isVerifiedPodPhoto(req.file.buffer, req.file.mimetype);
     if (isPhotoMimeType(req.file.mimetype) && !isPhoto) {
       return res.status(400).json({ error: 'This file is not a valid JPG or PNG photo. Choose a photo and try again.' });
     }
-    const record = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] } });
-    if (!record) return res.status(404).json({ error: 'Record not found' });
-
-    const storageKey = await podStorage.save({
-      originalName: req.file.originalname,
-      mimeType: req.file.mimetype,
-      size: req.file.size,
-      buffer: req.file.buffer
-    });
-
-    let attachment;
+    let storageKey: string | undefined;
+    let result;
     try {
-      attachment = await prisma.podAttachment.create({
-        data: {
-          recordId: record.id,
-          originalName: req.file.originalname,
-          storageKey,
-          mimeType: req.file.mimetype,
-          size: req.file.size,
-          uploadedById: req.user!.id
+      result = await prisma.$transaction(async tx => {
+        await lockPodRecord(tx, req.params.id);
+        const record = await tx.deliveryRecord.findUnique({ where: { id: req.params.id } });
+        if (!record || record.deletedAt) return { status: 404, error: 'Record not found', attachment: null };
+        if (req.user!.role === 'DRIVER' && record.driver !== req.user!.name) {
+          return { status: 403, error: 'Drivers may only upload to their own assigned records', attachment: null };
         }
-      });
+        if (!canWriteCategory(req.user!, record.category) || (req.user!.role === 'LOGISTICS' && record.category === 'RMA')) {
+          return { status: 403, error: 'Record access denied', attachment: null };
+        }
+        storageKey = await podStorage.save({
+          originalName: req.file!.originalname, mimeType: req.file!.mimetype,
+          size: req.file!.size, buffer: req.file!.buffer,
+        });
+        const attachment = await tx.podAttachment.create({ data: {
+          recordId: record.id, originalName: req.file!.originalname, storageKey,
+          mimeType: req.file!.mimetype, size: req.file!.size, uploadedById: req.user!.id,
+        } });
+        return { status: 201, error: null, attachment };
+      }, { timeout: 30_000 });
     } catch (error) {
-      await podStorage.remove(storageKey).catch(cleanupError => {
+      // Object storage is external to the database transaction: compensate on
+      // metadata or commit failure, retaining the existing orphan-recovery log.
+      if (storageKey) await podStorage.remove(storageKey).catch(cleanupError => {
         console.error('[POD] Failed to clean up storage after metadata failure', cleanupError);
       });
       throw error;
     }
+    if (result.error) return res.status(result.status).json({ error: result.error });
+    const attachment = result.attachment!;
     res.status(201).json({
       id: attachment.id,
       name: attachment.originalName,
@@ -223,7 +231,7 @@ router.post(
       is_photo: isPhoto,
       size: attachment.size,
       uploaded_at: attachment.createdAt,
-      download_url: `/api/records/${record.id}/attachments/${attachment.id}/download`
+      download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`
     });
   })
 );
@@ -392,6 +400,14 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
 
   const b = req.body ?? {};
 
+  if (b.time_out !== undefined && req.user!.role === 'DRIVER') {
+    return res.status(403).json({ error: 'Time Out is recorded by the server when completing a run.' });
+  }
+  if (b.time_out !== undefined && b.time_out !== null &&
+      (typeof b.time_out !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(b.time_out) || !Number.isFinite(Date.parse(b.time_out)))) {
+    return res.status(400).json({ error: 'Time Out corrections must be a valid ISO timestamp.' });
+  }
+
   if (b.priority !== undefined) {
     if (!['SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'].includes(req.user!.role)) {
       return res.status(403).json({ error: 'Your role cannot change record priority.' });
@@ -419,7 +435,6 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
       return res.status(403).json({ error: 'Drivers may only update their own assigned records' });
     }
     if (b.time_in !== undefined) data.timeIn = b.time_in ?? null;
-    if (b.time_out !== undefined) data.timeOut = b.time_out ?? null;
     if (b.received_by !== undefined) data.receivedBy = b.received_by ?? null;
   } else if (req.user!.role === 'LOGISTICS' || req.user!.role === 'ADMIN' || req.user!.role === 'TASS') {
     if (b.priority !== undefined) data.priority = b.priority;
@@ -478,8 +493,12 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
   }
 
   const result = await withDriverDirectoryLock(prisma, async tx => {
+    await lockPodRecord(tx, existing.id);
     const current = await tx.deliveryRecord.findUnique({ where: { id: existing.id } });
     if (!current || current.deletedAt) return { error: 'Record not found', updated: null };
+    if (req.user!.role === 'DRIVER' && current.driver !== req.user!.name) {
+      return { error: 'Drivers may only update their own assigned records', updated: null };
+    }
     const invalidAssignment = await assignmentError(tx, current, data);
     if (invalidAssignment) return { error: invalidAssignment, updated: null };
     const updated = await tx.deliveryRecord.update({ where: { id: existing.id }, data, include: recordInclude });
@@ -490,7 +509,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     } });
     return { error: null, updated };
   });
-  if (result.error) return res.status(result.error === 'Record not found' ? 404 : 400).json({ error: result.error });
+  if (result.error) return res.status(result.error === 'Record not found' ? 404 : result.error === 'Drivers may only update their own assigned records' ? 403 : 400).json({ error: result.error });
   const updated = result.updated!;
 
   // Write remark log for every non-DRIVER edit that has remarks
@@ -521,7 +540,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
 // Status change — Logistics, Admin, Driver (own records), and TASS (RMA only).
 // This is also the sole path that fires the ACCOMPLISHED automated trigger.
 router.patch('/:id/status', requireAuth, requireResource('records'), requireRecordAccess, requireRole('LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), asyncRoute(async (req, res) => {
-  const { status, remarks, time_out, received_by, priority } = req.body ?? {};
+  const { status, remarks, received_by, priority } = req.body ?? {};
   if (!status || !STATUS_TO_DB[status]) {
     return res.status(400).json({ error: 'Valid status is required' });
   }
@@ -566,14 +585,22 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   };
   if (statusChanged) statusData.status = dbStatus;
   if (priorityChanged) statusData.priority = priority;
-  if (time_out !== undefined) statusData.timeOut = time_out ?? null;
   if (received_by !== undefined) statusData.receivedBy = received_by ?? null;
 
   const updated = await prisma.$transaction(async tx => {
     await lockPodRecord(tx, existing.id);
-    if (existing.category === 'DELIVERY' && dbStatus === 'ACCOMPLISHED' && !await hasStoredDeliveryPhoto(tx, existing.id)) {
-      return 'PHOTO_REQUIRED' as const;
+    const current = await tx.deliveryRecord.findUnique({ where: { id: existing.id } });
+    if (!current || current.deletedAt) return null;
+    if (req.user!.role === 'DRIVER' && current.driver !== req.user!.name) return 'ACCESS_DENIED' as const;
+    if (current.category !== existing.category || current.status !== existing.status) return null;
+    if (current.category === 'DELIVERY' && dbStatus === 'ACCOMPLISHED') {
+      if (!current.timeIn?.trim() || !Number.isFinite(Date.parse(current.timeIn))) return 'TIME_IN_REQUIRED' as const;
+      const recipient = received_by !== undefined ? received_by : current.receivedBy;
+      if (typeof recipient !== 'string' || !recipient.trim()) return 'RECIPIENT_REQUIRED' as const;
+      statusData.receivedBy = recipient.trim();
+      if (!await hasStoredDeliveryPhoto(tx, existing.id)) return 'PHOTO_REQUIRED' as const;
     }
+    if (dbStatus === 'ACCOMPLISHED' && statusChanged) statusData.timeOut = new Date().toISOString();
     // Guard both submitted fields against concurrent edits before writing history.
     const changed = await tx.deliveryRecord.updateMany({
       where: { id: existing.id, status: existing.status, deletedAt: null,
@@ -587,7 +614,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
       recordType: 'DeliveryRecord',
       action: 'UPDATE',
       changedById: req.user!.id,
-      previousValue: JSON.stringify(serializeRecord(existing)),
+      previousValue: JSON.stringify(serializeRecord({ ...existing, ...current })),
       newValue: JSON.stringify(serializeRecord(saved)),
     } });
     await tx.remarkLog.create({ data: {
@@ -599,6 +626,9 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     return saved;
   });
   if (updated === 'PHOTO_REQUIRED') return res.status(400).json({ error: DELIVERY_PHOTO_REQUIRED });
+  if (updated === 'TIME_IN_REQUIRED') return res.status(400).json({ error: 'Record Time In before completing this delivery.' });
+  if (updated === 'RECIPIENT_REQUIRED') return res.status(400).json({ error: 'Received By is required before completing this delivery.' });
+  if (updated === 'ACCESS_DENIED') return res.status(403).json({ error: 'Drivers may only update their own assigned records' });
   if (!updated) return res.status(409).json({ error: 'The record changed while you were editing. Refresh the record and try again.' });
 
   if (dbStatus === 'ACCOMPLISHED' && existing.status !== 'ACCOMPLISHED') {
