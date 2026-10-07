@@ -23,10 +23,10 @@ const requireRecordAccess = asyncRoute(async (req, res, next) => {
     });
     if (!record) return res.status(403).json({ error: 'Record access denied' });
     if (req.method !== 'GET' && req.user!.role === 'LOGISTICS' && record.category === 'RMA') {
-      return res.status(403).json({ error: 'Logistics has view-only access to RMA/TASS records' });
+      return res.status(403).json({ error: 'Logistics has view-only access to RMA records' });
     }
     if (req.method !== 'GET' && !canWriteCategory(req.user!, record.category)) {
-      return res.status(403).json({ error: req.user!.role === 'LOGISTICS' && record.category === 'RMA' ? 'Logistics has view-only access to RMA/TASS records' : 'Module access denied' });
+      return res.status(403).json({ error: req.user!.role === 'LOGISTICS' && record.category === 'RMA' ? 'Logistics has view-only access to RMA records' : 'Module access denied' });
     }
   } else if (req.method === 'POST' && req.body?.category) {
     const category = CATEGORY_TO_DB[req.body.category] ?? req.body.category;
@@ -355,7 +355,7 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
   const dbCategory = CATEGORY_TO_DB[b.category] ?? b.category;
 
   if (req.user!.role === 'LOGISTICS' && dbCategory === 'RMA') {
-    return res.status(403).json({ error: 'Logistics has view-only access to RMA/TASS records' });
+    return res.status(403).json({ error: 'Logistics has view-only access to RMA records' });
   }
 
   if (
@@ -434,7 +434,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
 
   // Only LOGISTICS (not ADMIN) is blocked from RMA records per SoD
   if (req.user!.role === 'LOGISTICS' && existing.category === 'RMA') {
-    return res.status(403).json({ error: 'Logistics has view-only access to RMA/TASS records' });
+    return res.status(403).json({ error: 'Logistics has view-only access to RMA records' });
   }
   // TASS may only write RMA records
   if (req.user!.role === 'TASS' && existing.category !== 'RMA') {

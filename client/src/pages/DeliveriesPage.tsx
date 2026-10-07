@@ -71,7 +71,7 @@ export const DeliveriesPage: React.FC<DeliveriesPageProps> = ({
   const meta =
     category === 'RMA' && currentUserRole === 'Logistics'
       ? {
-          title: 'TASS (Returns / Pull-out)',
+          title: 'RMA (Returns / Pull-out)',
           subtitle:
             'View returns and pull-out records (read-only — driver assignment not available for Logistics on this screen).',
         }

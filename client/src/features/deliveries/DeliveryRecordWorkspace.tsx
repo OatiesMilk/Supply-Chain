@@ -93,7 +93,7 @@ const ALL_TABS: TabDef[] = [
   { id: 'general',   label: 'Overview',        icon: ClipboardList,  roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
   { id: 'actions',   label: 'Dispatch & Logistics', icon: UserPlus, roles: ['Logistics', 'Admin'] },
   { id: 'comments',  label: 'Comments',        icon: MessagesSquare, roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
-  { id: 'remarks',   label: 'Remarks',         icon: ScrollText,     roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
+  { id: 'remarks',   label: 'Remarks History', icon: ScrollText,     roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
   { id: 'audit',     label: 'Audit Trail',     icon: History,        roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
   { id: 'documents', label: 'Documents',       icon: FolderOpen,     roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
 ];
@@ -190,12 +190,11 @@ function GeneralTab({
 
   const handleStartEdit = () => {
     setSaveError(null);
+    setRemarksError(false);
     // A bulk priority change can update this record while the workspace stays open.
     setDraft(d => ({ ...d, priority: record.priority }));
-    // Logistics enters a fresh change note rather than seeing/overwriting existing remarks
-    if (canEditAreaAddress && !canEditFull) {
-      setDraft(d => ({ ...d, remarks: '' }));
-    }
+    // Keep the saved note in read mode; every edit starts with a fresh reason.
+    setDraft(d => ({ ...d, remarks: '' }));
     setEditing(true);
   };
 
@@ -257,8 +256,9 @@ function GeneralTab({
 
       {canManageDraft && selectableStatuses(record, currentUserRole).some(status => status === 'Draft' || status === 'Scheduled') && (
         <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-          <label className="block text-xs font-bold text-slate-700">Submission remarks *</label>
-          <textarea value={lifecycleRemarks} onChange={e => setLifecycleRemarks(e.target.value)} rows={2} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" placeholder="Reason for submitting or returning to draft" />
+          <label htmlFor="submission-change-remarks" className="block text-xs font-bold text-slate-700">Remarks — reason for change (required)</label>
+          <p id="submission-change-remarks-help" className="text-xs text-slate-600">Explain why you are submitting or returning this record to Draft. The reason is saved with your name in Remarks History.</p>
+          <textarea id="submission-change-remarks" aria-describedby="submission-change-remarks-help" required value={lifecycleRemarks} onChange={e => setLifecycleRemarks(e.target.value)} rows={2} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" placeholder="Reason for submitting or returning to draft" />
           {selectableStatuses(record, currentUserRole).filter(status => isDraftRecord(record) ? status === 'Scheduled' : status === 'Draft').map(status => (
             <button key={status} type="button" disabled={saving || !lifecycleRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
               onClick={async () => { setSaving(true); setSaveError(null); try { await onUpdateRecord(record.id, { status, remarks: lifecycleRemarks.trim() }); setLifecycleRemarks(''); } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not change submission status.'); } finally { setSaving(false); } }}>
@@ -422,10 +422,14 @@ function GeneralTab({
               )}
             </div>
             <div className="space-y-1">
-              <label className={labelCls}>
-                {canEditFull ? 'Remarks' : 'Change Note'} <span className="text-red-500">*</span>
+              <label htmlFor="overview-change-remarks" className={labelCls}>
+                Remarks — reason for change <span className="text-red-500">*</span>
               </label>
+              <p id="overview-change-remarks-help" className="text-xs text-slate-600">Explain why you are making this change. The reason is saved with your name in Remarks History.</p>
               <textarea
+                id="overview-change-remarks"
+                aria-describedby="overview-change-remarks-help"
+                required
                 value={draft.remarks}
                 onChange={e => { set('remarks', e.target.value); if (remarksError && e.target.value.trim()) setRemarksError(false); }}
                 rows={3}
@@ -656,8 +660,12 @@ function LinkedCollectionCard({
                 />
               </div>
               <div className="space-y-1.5 text-xs">
-                <label className={labelCls}>Reason <span className="text-red-500">*</span></label>
+                <label htmlFor="collection-link-remarks" className={labelCls}>Remarks — reason for change <span className="text-red-500">*</span></label>
+                <p id="collection-link-remarks-help" className="text-xs text-slate-600">Explain why you are linking this collection. This is the change reason, not a discussion comment.</p>
                 <input
+                  id="collection-link-remarks"
+                  aria-describedby="collection-link-remarks-help"
+                  required
                   type="text"
                   value={linkRemarks}
                   onChange={e => { setLinkRemarks(e.target.value); setLinkError(null); }}
@@ -932,10 +940,14 @@ function ActionsTab({
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status Update</h4>
         <div className="space-y-2">
-          <label className="text-xs font-bold text-slate-700">
-            Status Change Remarks <span className="text-red-500">*</span>
+          <label htmlFor="status-change-remarks" className="text-xs font-bold text-slate-700">
+            Remarks — reason for change <span className="text-red-500">*</span>
           </label>
+          <p id="status-change-remarks-help" className="text-xs text-slate-600">Explain why you are changing this run. The reason is saved with your name in Remarks History.</p>
           <textarea
+            id="status-change-remarks"
+            aria-describedby="status-change-remarks-help"
+            required
             value={statusRemarks}
             onChange={e => { setStatusRemarks(e.target.value); if (remarksError && e.target.value.trim()) setRemarksError(false); }}
             rows={2}
@@ -1137,14 +1149,18 @@ function ActionsTab({
           <p className="text-xs text-slate-500">Time In starts the run; Time Out is saved automatically on completion. Existing timestamps can be corrected above with remarks, using Manila time.</p>
 
           <div className="space-y-1.5 pt-2 border-t border-slate-100">
-            <label className="text-xs font-bold text-slate-700">
-              Driver &amp; Delivery Remarks{' '}
+            <label htmlFor="dispatch-change-remarks" className="text-xs font-bold text-slate-700">
+              Remarks — reason for change{' '}
               {driverFieldsChanged
                 ? <span className="text-red-500">*</span>
                 : <span className="text-slate-400 font-normal">(optional — no changes detected)</span>
               }
             </label>
+            <p id="dispatch-change-remarks-help" className="text-xs text-slate-600">Explain why you are changing the assignment or delivery details. The reason is saved with your name in Remarks History.</p>
             <textarea
+              id="dispatch-change-remarks"
+              aria-describedby="dispatch-change-remarks-help"
+              required={driverFieldsChanged}
               value={driverFieldsRemarks}
               onChange={e => { setDriverFieldsRemarks(e.target.value); if (driverFieldsRemarksError && e.target.value.trim()) setDriverFieldsRemarksError(false); }}
               rows={2}
@@ -1172,32 +1188,37 @@ function ActionsTab({
 
 // ─── Comments Tab ─────────────────────────────────────────────────────────────
 
-function CommentsTab({ recordId }: { recordId: string }) {
+function CommentsTab({ recordId, readOnly = false }: { recordId: string; readOnly?: boolean }) {
   const [comments, setComments] = useState<ApiComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [commentBody, setCommentBody] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [sendError, setSendError] = useState('');
+  const [retry, setRetry] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useWorkspaceDraft('comments', !!commentBody, submitting);
 
   useEffect(() => {
     setLoading(true);
+    setLoadError('');
     api.getRecordComments(recordId)
       .then(setComments)
-      .catch(() => {})
+      .catch(() => setLoadError('Could not load comments. Please try again.'))
       .finally(() => setLoading(false));
-  }, [recordId]);
+  }, [recordId, retry]);
 
   const handleSubmit = async () => {
     const body = commentBody.trim();
-    if (!body || submitting) return;
+    if (readOnly || !body || submitting) return;
     setSubmitting(true);
+    setSendError('');
     try {
       const created = await api.createRecordComment(recordId, body);
       setComments(prev => [...prev, created]);
       setCommentBody('');
     } catch {
-      // silently fail — user can retry
+      setSendError('Could not send your comment. Your text is kept below; try again.');
     } finally {
       setSubmitting(false);
     }
@@ -1215,13 +1236,16 @@ function CommentsTab({ recordId }: { recordId: string }) {
     <div className="space-y-4 py-2">
       <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-2 px-1">
         <MessageSquare className="w-3.5 h-3.5 text-[#0078C1]" />
-        Notes & Comments
+        Comments
         {comments.length > 0 && (
           <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
             {comments.length}
           </span>
         )}
       </h4>
+      <p id="record-comment-help" className="text-sm text-slate-600">Optional discussion about this record. Comments do not replace the remarks required when making changes.</p>
+      {loadError && <div role="alert" className="text-sm text-red-700">{loadError} <button type="button" onClick={() => setRetry(value => value + 1)} className="min-h-11 rounded px-3 font-semibold underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700">Retry loading comments</button></div>}
+      {readOnly && <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">RMA is view only for Logistics. You can read the discussion here.</p>}
 
       {comments.length > 0 && (
         <div className="space-y-3">
@@ -1242,34 +1266,43 @@ function CommentsTab({ recordId }: { recordId: string }) {
         </div>
       )}
 
-      {comments.length === 0 && (
+      {!loadError && comments.length === 0 && (
         <div className="flex flex-col items-center justify-center py-10 text-center gap-3">
           <MessageSquare className="w-8 h-8 text-slate-200" />
-          <p className="text-sm text-slate-400">No comments yet. Add the first note below.</p>
+          <p className="text-sm text-slate-400">{readOnly ? 'No comments yet.' : 'No comments yet. Add the first comment below.'}</p>
         </div>
       )}
 
+      {!readOnly && <div>
+      <label htmlFor="record-comment-body" className="mb-1 block text-sm font-medium text-slate-700">Comment (optional)</label>
       <div className="flex items-end gap-2">
         <textarea
+          id="record-comment-body"
+          aria-describedby="record-comment-help"
+          disabled={submitting}
           ref={inputRef}
           value={commentBody}
           onChange={e => setCommentBody(e.target.value)}
           onKeyDown={e => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSubmit();
           }}
-          placeholder="Add a note or comment… (Ctrl+Enter to send)"
+          placeholder="Add to the discussion… (Ctrl+Enter to send)"
           rows={2}
-          className="flex-1 text-xs border border-slate-300 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] placeholder:text-slate-400"
+          className="min-w-0 flex-1 text-base border border-slate-300 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] placeholder:text-slate-400"
         />
         <button
+          type="button"
+          aria-label="Send comment"
           onClick={handleSubmit}
           disabled={!commentBody.trim() || submitting}
-          className="p-2.5 bg-[#0078C1] text-white rounded-lg hover:bg-[#005fa3] disabled:opacity-40 transition-colors cursor-pointer shrink-0"
+          className="min-h-11 min-w-11 touch-manipulation p-2.5 bg-[#0078C1] text-white rounded-lg hover:bg-[#005fa3] disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 cursor-pointer shrink-0"
           title="Send comment (Ctrl+Enter)"
         >
           {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
         </button>
       </div>
+      {sendError && <p role="alert" className="mt-2 text-sm text-red-700">{sendError}</p>}
+      </div>}
     </div>
   );
 }
@@ -1749,7 +1782,7 @@ function RecordWorkspace({
         );
 
       case 'comments':
-        return <CommentsTab recordId={record.id} />;
+        return <CommentsTab recordId={record.id} readOnly={forceReadOnly} />;
 
       case 'remarks':
         return <RemarksTab recordId={record.id} />;

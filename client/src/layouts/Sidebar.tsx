@@ -175,10 +175,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             {/* 3. RMA */}
             {canAccess('rma') && (
-              <button onClick={() => handleNavigate('rma')} title={isSidebarCollapsed ? (currentUserRole === 'Logistics' ? 'TASS' : 'RMA') : ''} className={navItemClass('rma')}>
+              <button onClick={() => handleNavigate('rma')} title={isSidebarCollapsed ? 'RMA' : ''} className={navItemClass('rma')}>
                 <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
                   <RotateCcw className="w-5 h-5 shrink-0" />
-                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">{currentUserRole === 'Logistics' ? 'TASS' : 'RMA'}</span>}
+                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">RMA</span>}
                 </span>
                 {rmaActiveCount > 0 && (
                   isSidebarCollapsed
