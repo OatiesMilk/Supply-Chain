@@ -408,7 +408,7 @@ function TransactionRow({ txn, onClick }: { key?: React.Key; txn: ApiTransaction
       </td>
       <td className="px-4 py-3 font-semibold text-slate-700">{txn.type}</td>
       <td className="px-4 py-3 font-mono text-slate-700">{txn.reference}</td>
-      <td className="px-4 py-3 max-w-[160px] truncate font-medium text-slate-800" title={txn.entity}>
+      <td className="px-4 py-3 max-w-[160px] truncate font-semibold text-slate-800" title={txn.entity}>
         {txn.entity}
       </td>
       <td className="px-4 py-3">

@@ -147,7 +147,7 @@ export default function CustomersView({
                   >
                     <td className="px-4 py-3.5 font-bold text-slate-400">{c.id}</td>
                     <td className="px-4 py-3.5">
-                      <div className="font-extrabold text-slate-900 text-sm">{c.name}</div>
+                      <div className="font-semibold text-slate-900 text-sm">{c.name}</div>
                       <div className="text-xs text-slate-500 mt-0.5">{c.email}</div>
                     </td>
                     <td className="px-4 py-3.5 text-slate-700 font-extrabold">{c.contact_person}</td>

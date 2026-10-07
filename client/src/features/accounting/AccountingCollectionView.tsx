@@ -652,7 +652,7 @@ export default function AccountingCollectionView({
                   >
                     <td className="px-4 py-3.5 font-bold text-slate-400 truncate">{rec.id}</td>
                     <td className="px-4 py-3.5">
-                      <div className="font-medium text-sm text-slate-900 truncate" title={rec.company_name}>{rec.company_name}</div>
+                      <div className="font-semibold text-sm text-slate-900 truncate" title={rec.company_name}>{rec.company_name}</div>
                       <div className="text-xs text-gray-400 mt-0.5 truncate" title={rec.reference}>{rec.reference}</div>
                     </td>
                     <td className="px-4 py-3.5 font-mono text-slate-600 truncate" title={rec.reference}>{rec.reference}</td>

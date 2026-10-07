@@ -152,7 +152,7 @@ export default function SuppliersView({ suppliers, deliveryRecords, currentUserR
                   >
                     <td className="px-4 py-3 font-mono font-black text-slate-700 tracking-tight text-xs">{s.id}</td>
                     <td className="px-4 py-3.5">
-                      <div className="font-extrabold text-slate-900 text-sm">{s.name}</div>
+                      <div className="font-semibold text-slate-900 text-sm">{s.name}</div>
                       <div className="text-xs text-slate-500 mt-0.5">{s.email}</div>
                     </td>
                     <td className="px-4 py-3.5 text-slate-700 font-semibold">{s.contact_person}</td>
