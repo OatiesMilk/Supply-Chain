@@ -1,10 +1,19 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Building2,
-  Shield, Lock, Phone, Mail, MapPin, User, Paperclip,
-  ClipboardList, History, FolderOpen
+  Lock, Phone, Mail, MapPin, User, Paperclip,
+  ClipboardList, History, FolderOpen, Pencil, CheckCircle2
 } from 'lucide-react';
 import { Customer } from '@/types';
+import { ActionDialog } from '@/components/ActionDialog';
+import { CUSTOMERS_QUERY_KEY } from '@/api/queries/useCompaniesQuery';
+import CustomerEditForm from './CustomerEditForm';
+import CustomerAuditTrail from './CustomerAuditTrail';
+
+// Roles allowed to edit customers and read their audit trail; the server
+// enforces the same list on PUT /customers/:id and GET /customers/:id/audit.
+const CUSTOMER_EDITOR_ROLES = ['Sales Coordinator', 'Logistics', 'Admin'];
 
 // Customers are a merchant directory, separate from the Company a record
 // belongs to, so this workspace has no record history (see TSK-102).
@@ -23,13 +32,13 @@ interface TabDef {
   id: TabId;
   label: string;
   icon: typeof Building2;
-  adminOnly?: boolean;
+  roles?: string[];
 }
 
 const ALL_TABS: TabDef[] = [
   { id: 'overview',  label: 'Overview',                icon: ClipboardList },
   { id: 'documents', label: 'Documents & Attachments', icon: FolderOpen    },
-  { id: 'audit',     label: 'Audit Trail',             icon: History, adminOnly: true },
+  { id: 'audit',     label: 'Audit Trail',             icon: History, roles: CUSTOMER_EDITOR_ROLES },
 ];
 
 function formatTs(ts: string): string {
@@ -63,9 +72,31 @@ export default function CustomerWorkspace({
   onBack,
   onNavigateToCustomer
 }: CustomerWorkspaceProps) {
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [editing, setEditing] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [formKey, setFormKey] = useState(0);
+  const [savedNotice, setSavedNotice] = useState(false);
+  const [pendingLeave, setPendingLeave] = useState<(() => void) | null>(null);
+  const handleDirtyChange = useCallback((value: boolean) => setDirty(value), []);
 
+  const canEdit = CUSTOMER_EDITOR_ROLES.includes(currentUserRole);
   const customer = customers.find(c => c.id === customerId);
+
+  useEffect(() => { setEditing(false); setSavedNotice(false); }, [customerId]);
+  useEffect(() => {
+    if (!savedNotice) return;
+    const timer = window.setTimeout(() => setSavedNotice(false), 5000);
+    return () => window.clearTimeout(timer);
+  }, [savedNotice]);
+
+  // Leaving the edit form with unsaved changes asks first.
+  const guard = (action: () => void) => {
+    if (editing && dirty) { setPendingLeave(() => action); return; }
+    setEditing(false);
+    action();
+  };
 
   const currentIndex = allCustomerIds.indexOf(customerId);
   const prevId = currentIndex > 0 ? allCustomerIds[currentIndex - 1] : null;
@@ -80,7 +111,7 @@ export default function CustomerWorkspace({
     );
   }
 
-  const visibleTabs = ALL_TABS.filter(t => !t.adminOnly || currentUserRole === 'Admin');
+  const visibleTabs = ALL_TABS.filter(t => !t.roles || t.roles.includes(currentUserRole));
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -93,16 +124,47 @@ export default function CustomerWorkspace({
                 <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-[#1F3864] to-[#0078C1] flex items-center justify-center shrink-0">
                   <Building2 className="w-7 h-7 text-white" />
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2 mb-1">
                     <span className="text-xl font-black text-slate-900">{customer.name}</span>
                     <span className="px-2.5 py-1 rounded-md font-black text-xs border bg-slate-100 text-slate-700 border-slate-200">{customer.id}</span>
                   </div>
                   <p className="text-xs text-slate-500">{customer.city}</p>
                 </div>
+                {canEdit && !editing && (
+                  <button
+                    type="button"
+                    onClick={() => { setSavedNotice(false); setEditing(true); }}
+                    className="inline-flex min-h-9 shrink-0 items-center gap-1.5 self-start rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:border-[#0078C1] hover:text-[#0078C1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+                  >
+                    <Pencil aria-hidden="true" className="h-3.5 w-3.5" /> Edit customer
+                  </button>
+                )}
               </div>
             </div>
 
+            <div role="status" aria-live="polite">
+              {savedNotice && (
+                <p className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+                  <CheckCircle2 aria-hidden="true" className="h-4 w-4 shrink-0" />
+                  Changes saved. The reason was added to the Audit Trail.
+                </p>
+              )}
+            </div>
+
+            {editing ? (
+              <CustomerEditForm
+                key={`${customer.id}-${formKey}`}
+                customer={customer}
+                onDirtyChange={handleDirtyChange}
+                onCancel={() => guard(() => {})}
+                onSaved={() => { setEditing(false); setDirty(false); setSavedNotice(true); }}
+                onReloadLatest={async () => {
+                  await queryClient.refetchQueries({ queryKey: CUSTOMERS_QUERY_KEY });
+                  setFormKey(k => k + 1);
+                }}
+              />
+            ) : (<>
             {/* Contact grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {([
@@ -143,6 +205,7 @@ export default function CustomerWorkspace({
                 </div>
               ))}
             </div>
+            </>)}
           </div>
         );
 
@@ -150,28 +213,15 @@ export default function CustomerWorkspace({
         return <ScaffoldTab icon={Paperclip} label="Documents & Attachments" />;
 
       case 'audit':
-        if (currentUserRole !== 'Admin') {
+        if (!canEdit) {
           return (
             <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-500">
               <Lock className="w-8 h-8 text-slate-300" />
-              <p className="text-sm">Audit Trail access requires Admin role.</p>
+              <p className="text-sm">The Audit Trail is available to Sales Coordinators, Logistics and Admins.</p>
             </div>
           );
         }
-        return (
-          <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
-            <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center">
-              <Shield className="w-8 h-8 text-slate-300" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-slate-700">No Server Audit Trail Available</h3>
-              <p className="text-sm text-slate-400 mt-1 max-w-sm">
-                Customer records are managed client-side and do not yet generate server audit entries.
-                Connect the Customers module to the backend to enable audit trail tracking.
-              </p>
-            </div>
-          </div>
-        );
+        return <CustomerAuditTrail customerId={customer.id} />;
 
       default:
         return null;
@@ -184,7 +234,7 @@ export default function CustomerWorkspace({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
         <div className="flex items-center gap-3 min-w-0">
           <button
-            onClick={onBack}
+            onClick={() => guard(onBack)}
             className="flex items-center gap-1.5 text-[#0078C1] hover:text-[#1F3864] text-xs font-semibold transition-colors shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -196,7 +246,7 @@ export default function CustomerWorkspace({
 
         <div className="flex items-center gap-1">
           <button
-            onClick={() => prevId && onNavigateToCustomer(prevId)}
+            onClick={() => prevId && guard(() => onNavigateToCustomer(prevId))}
             disabled={!prevId}
             className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold text-slate-600"
             title="Previous Customer"
@@ -208,7 +258,7 @@ export default function CustomerWorkspace({
             {currentIndex + 1} / {allCustomerIds.length}
           </span>
           <button
-            onClick={() => nextId && onNavigateToCustomer(nextId)}
+            onClick={() => nextId && guard(() => onNavigateToCustomer(nextId))}
             disabled={!nextId}
             className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold text-slate-600"
             title="Next Customer"
@@ -220,7 +270,8 @@ export default function CustomerWorkspace({
       </div>
 
       {/* Tab Navigation + Content */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+      {/* overflow-clip keeps the rounded corners without breaking the sticky save bar */}
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-clip">
         <div className="border-b border-slate-200 overflow-x-auto">
           <div className="flex items-stretch min-w-max">
             {visibleTabs.map(tab => {
@@ -229,7 +280,7 @@ export default function CustomerWorkspace({
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => { if (tab.id !== activeTab) guard(() => setActiveTab(tab.id)); }}
                   className={`flex items-center gap-2 px-5 py-4 text-sm whitespace-nowrap border-b-[3px] transition-all ${
                     isActive
                       ? 'border-[#1F3864] text-[#1F3864] bg-blue-50/70 font-semibold'
@@ -238,9 +289,6 @@ export default function CustomerWorkspace({
                 >
                   <Icon className="w-[18px] h-[18px] shrink-0" />
                   {tab.label}
-                  {tab.adminOnly && (
-                    <span className="text-[9px] font-black text-slate-400 uppercase ml-1">ADMIN</span>
-                  )}
                 </button>
               );
             })}
@@ -251,6 +299,22 @@ export default function CustomerWorkspace({
           {renderTabContent()}
         </div>
       </div>
+
+      <ActionDialog
+        open={pendingLeave !== null}
+        title="Discard unsaved changes?"
+        description="Your edits to this customer haven't been saved. If you leave now, they'll be lost."
+        confirmLabel="Discard changes"
+        destructive
+        onDismiss={() => setPendingLeave(null)}
+        onConfirm={() => {
+          const action = pendingLeave;
+          setPendingLeave(null);
+          setEditing(false);
+          setDirty(false);
+          action?.();
+        }}
+      />
     </div>
   );
 }
