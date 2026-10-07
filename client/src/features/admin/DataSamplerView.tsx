@@ -51,7 +51,7 @@ const MODULE_ACTIVE: Record<string, string> = {
   sales_orders:          'border-indigo-500 bg-indigo-100 ring-2 ring-indigo-200',
 };
 
-const DEFAULT_STATUSES = ['Scheduled', 'Delivered', 'On-Hold', 'Rescheduled', 'Pending'];
+const DEFAULT_STATUSES = ['Scheduled'];
 
 const REF_PREFIXES: Record<string, string> = {
   deliveries:            'SAP',
@@ -347,7 +347,7 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
                 </div>
               </div>
               <p className="text-[11px] text-slate-500">
-                Records will use realistic weighted distributions: 50% Scheduled, 20% Delivered, 15% Pending, 10% Rescheduled, 5% On-Hold. Dates span the last 30 days to 14 days ahead.
+                Records start Scheduled. Use the delivery workflow to record Time In and complete them with proof of delivery. Dates span the last 30 days to 14 days ahead.
               </p>
               <button
                 onClick={() => handleGenerate(false)}

@@ -87,7 +87,7 @@ export function getNearbyAreas(area: string): string[] {
 export const VEHICLES = ['(None)', 'Truck-A (6-Wheeler)', 'Truck-B (10-Wheeler)', 'Van-01 (L300)', 'Motorcycle-01 (Express)'];
 export const PRIORITIES = ['1 - Low', '2 - Moderate', '3 - High'] as const;
 export const ITEM_TYPES = ['Small Item', 'Medium Item', 'Large / Pallet'] as const;
-export const DELIVERY_STATUSES = ['Scheduled', 'Delivered', 'On-Hold', 'Rescheduled', 'Pending'] as const;
+export const DELIVERY_STATUSES = ['Draft', 'Scheduled', 'In Transit', 'Delivered', 'On-Hold', 'Rescheduled', 'Pending'] as const;
 
 // Accounting Collection displays collection-domain vocabulary in its UI while
 // the underlying DeliveryStatus value stays the same shared enum used by

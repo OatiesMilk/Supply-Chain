@@ -1,3 +1,4 @@
+import { manilaToday, manilaDateTimeInput, submissionErrors } from '@/utils/recordLifecycle';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Plus, Search, X, Check, FileText, UploadCloud,
@@ -21,7 +22,7 @@ interface AccountingCollectionViewProps {
   onCreateRecord: (
     data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>
   ) => Promise<void>;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   onVerifyCollection: (id: string) => Promise<void>;
   selectedRecordIdFromDashboard?: string | null;
   clearSelectedRecordId?: () => void;
@@ -56,10 +57,10 @@ const buildEmptyForm = (): RecordFormState => ({
   status: 'Scheduled',
   area: 'Carmona',
   account_manager: '',
-  delivery_date: new Date().toISOString().split('T')[0],
+  delivery_date: manilaToday(),
   item_type: 'Small Item',
   is_draft: 'No',
-  date_time: new Date().toISOString().slice(0, 16),
+  date_time: manilaDateTimeInput(new Date().toISOString()),
   item_description: '',
   attachments: [],
   amount: '',
@@ -86,11 +87,13 @@ const acAfRandInt = (min: number, max: number) => Math.floor(Math.random() * (ma
 const acAfFutureDate = (minDays = 1, maxDays = 10) => {
   const d = new Date();
   d.setDate(d.getDate() + acAfRandInt(minDays, maxDays));
-  return d.toISOString().split('T')[0];
+  return manilaToday(d);
 };
 
 const statusColor = (status: DeliveryStatus) => {
   switch (status) {
+    case 'Draft': return 'bg-slate-100 text-slate-700 border-slate-300';
+    case 'In Transit': return 'bg-cyan-50 text-cyan-700 border-cyan-200';
     case 'Delivered':   return 'bg-emerald-50 text-emerald-700 border-emerald-200';
     case 'On-Hold':     return 'bg-red-50 text-red-700 border-red-200';
     case 'Rescheduled': return 'bg-purple-50 text-purple-700 border-purple-200';
@@ -121,6 +124,7 @@ export default function AccountingCollectionView({
   const activeFilterCount = [!!searchQuery, statusFilter !== 'All', !!amFilter, dateSort !== 'default'].filter(Boolean).length;
   const clearAllFilters = () => { setSearchQuery(''); setStatusFilter('All'); setAmFilter(''); setDateSort('default'); };
   const [form, setForm] = useState<RecordFormState>(buildEmptyForm());
+  const [saving, setSaving] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [attachmentNames, setAttachmentNames] = useState<string[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -202,15 +206,15 @@ export default function AccountingCollectionView({
     setAttachmentNames(prev => [...prev, ...selectedFiles.map(file => file.name)]);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const errors: Record<string, string> = {};
-    if (!form.company_name.trim()) errors.company_name = 'Company Name is required';
-    if (!form.reference.trim()) errors.reference = 'Reference (SAP number) is required';
-    if (!form.account_manager.trim()) errors.account_manager = 'Account Manager is required';
-    if (!form.delivery_date) errors.delivery_date = 'Delivery Date is required';
-    if (!form.area.trim()) errors.area = 'Area is required';
-    if (!form.amount.trim() || isNaN(parseFloat(form.amount))) errors.amount = 'Amount to Collect is required';
+    if (saving) return;
+    const isDraft = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "draft";
+    const errors = submissionErrors(form, isDraft);
+    if (!isDraft && !form.account_manager.trim()) errors.account_manager = 'Account Manager is required';
+    if (!isDraft && !form.delivery_date) errors.delivery_date = 'Delivery Date is required';
+    if (!isDraft && !form.area.trim()) errors.area = 'Area is required';
+    if (!isDraft && (!form.amount.trim() || isNaN(parseFloat(form.amount)))) errors.amount = 'Amount to Collect is required';
 
     if (Object.keys(errors).length > 0) {
       setFormErrors(errors);
@@ -218,7 +222,9 @@ export default function AccountingCollectionView({
     }
     setFormErrors({});
 
-    onCreateRecord({
+    setSaving(true);
+    try {
+      await onCreateRecord({
       ...form,
       driver: '',
       driver_assistants: [],
@@ -229,9 +235,9 @@ export default function AccountingCollectionView({
       category: CATEGORY,
       customer_id: form.company_id,
       priority: form.priority as DeliveryRecord['priority'],
-      status: form.status as DeliveryStatus,
+      status: isDraft ? 'Draft' : 'Scheduled',
       item_type: form.item_type as DeliveryRecord['item_type'],
-      is_draft: form.is_draft as DeliveryRecord['is_draft'],
+      is_draft: isDraft ? 'Yes' : 'No',
       attachments: attachmentNames,
       output_actions_log: [],
       collection_verified: false,
@@ -243,6 +249,7 @@ export default function AccountingCollectionView({
     setForm(buildEmptyForm());
     setAttachmentNames([]);
     setShowForm(false);
+    } catch (error) { setFormErrors({ submit: error instanceof Error ? error.message : "Could not create this record." }); } finally { setSaving(false); }
   };
 
   // Filter records
@@ -407,6 +414,7 @@ export default function AccountingCollectionView({
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5 text-xs">
+            {formErrors.submit && <p role="alert" className="text-xs text-red-700">{formErrors.submit}</p>}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {/* Company Name */}
               <div className="space-y-1.5">
@@ -466,14 +474,6 @@ export default function AccountingCollectionView({
                   placeholder="Special instructions or notes..." className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
               </div>
 
-              {/* Status */}
-              <div className="space-y-1.5">
-                <label className="font-bold text-slate-700">Status</label>
-                <select value={form.status} onChange={e => updateField('status', e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">
-                  {DELIVERY_STATUSES.map(s => <option key={s} value={s}>{acStatusLabel(s)}</option>)}
-                </select>
-              </div>
-
               {/* Area */}
               <div className="space-y-1.5">
                 <label className="font-bold text-slate-700">Area <span className="text-red-500">*</span></label>
@@ -507,15 +507,6 @@ export default function AccountingCollectionView({
                 <label className="font-bold text-slate-700">Item Type</label>
                 <select value={form.item_type} onChange={e => updateField('item_type', e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">
                   {ITEM_TYPES.map(it => <option key={it} value={it}>{it}</option>)}
-                </select>
-              </div>
-
-              {/* Draft */}
-              <div className="space-y-1.5">
-                <label className="font-bold text-slate-700">Draft</label>
-                <select value={form.is_draft} onChange={e => updateField('is_draft', e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">
-                  <option value="No">No</option>
-                  <option value="Yes">Yes</option>
                 </select>
               </div>
 
@@ -563,8 +554,9 @@ export default function AccountingCollectionView({
               <button type="button" onClick={() => setShowForm(false)} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors text-[11px] uppercase">
                 Cancel
               </button>
-              <button type="submit" className="px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5">
-                <Check className="w-4 h-4" /> Save Record
+              <button type="submit" value="draft" disabled={saving} className="px-5 py-2.5 border border-slate-300 text-slate-700 font-bold rounded-lg disabled:opacity-50">Save as Draft</button>
+              <button type="submit" value="submit" disabled={saving} className="px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5">
+                <Check className="w-4 h-4" /> {saving ? "Saving…" : "Submit"}
               </button>
             </div>
           </form>
@@ -582,7 +574,7 @@ export default function AccountingCollectionView({
               <div className="flex items-center gap-0 min-w-0 flex-wrap">
                 <span className="text-xs font-black text-slate-800 uppercase tracking-wider mr-3 shrink-0">Accounting Collection</span>
                 <div className="flex items-center gap-1.5 border-l border-slate-200 pl-3 flex-wrap">
-                  {['All', 'Scheduled', 'Pending', 'Delivered', 'On-Hold', 'Rescheduled'].map(s => (
+                  {['All', ...DELIVERY_STATUSES].map(s => (
                     <button
                       key={s}
                       onClick={() => setStatusFilter(s)}

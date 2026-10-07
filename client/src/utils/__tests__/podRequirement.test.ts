@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { deliveryPhotoError, hasSavedPodPhoto, type PodReadiness } from '../podRequirement';
+import { completionError, deliveryPhotoError, hasSavedPodPhoto, type PodReadiness } from '../podRequirement';
 import { validatePodAttachments } from '../attachmentValidation';
 import type { DeliveryCategory, DeliveryStatus } from '../../types';
 
@@ -56,13 +56,26 @@ test('failed upload with no saved photo stays blocked; retry can recover', () =>
   assert.equal(deliveryPhotoError('Deliveries', 'Delivered', state), null);
 });
 
-test('other categories and noncompletion delivery statuses do not require a photo', () => {
+test('all categories require a saved photo for completion, while side states do not', () => {
   for (const category of ['RMA', 'Accounting Collection', 'Procurement Pick-up', 'Sales Orders'] as DeliveryCategory[]) {
-    assert.equal(deliveryPhotoError(category, 'Delivered'), null);
+    assert.ok(deliveryPhotoError(category, 'Delivered'));
+    assert.equal(deliveryPhotoError(category, 'Delivered', ready()), null);
   }
-  for (const status of ['Scheduled', 'Pending', 'Rescheduled', 'On-Hold'] as DeliveryStatus[]) {
+  for (const status of ['Draft', 'Scheduled', 'In Transit', 'Pending', 'Rescheduled', 'On-Hold'] as DeliveryStatus[]) {
     assert.equal(deliveryPhotoError('Deliveries', status), null);
   }
+});
+
+test('completion needs Time In and a nonblank receiver even with verified photos', () => {
+  const record = { category: 'Deliveries' as DeliveryCategory, time_in: null as string | null };
+  assert.match(completionError(record, 'Delivered', 'Receiver', ready())!, /Time In/);
+  record.time_in = '2026-10-06T01:00:00.000Z';
+  for (const receiver of [null, undefined, '', '   ', '\t']) {
+    assert.match(completionError(record, 'Delivered', receiver, ready())!, /Received By/);
+  }
+  assert.match(completionError(record, 'Delivered', 'Receiver', ready({ hasPhoto: false }))!, /JPG or PNG/);
+  assert.equal(completionError(record, 'Delivered', ' Receiver ', ready()), null);
+  assert.equal(completionError(record, 'Pending', '', ready({ hasPhoto: false })), null);
 });
 
 test('supporting documents remain valid uploads while format and size limits still apply', () => {

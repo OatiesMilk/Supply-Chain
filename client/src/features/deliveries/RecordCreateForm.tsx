@@ -1,3 +1,4 @@
+import { manilaToday, submissionErrors } from '@/utils/recordLifecycle';
 import React, { useRef, useState } from 'react';
 import { Plus, X, Check, FileText, UploadCloud, Wand2 } from 'lucide-react';
 import { DeliveryRecord, DeliveryCategory, DeliveryStatus, OutputActionConfig, OutputActionTrigger } from '@/types';
@@ -86,7 +87,7 @@ const afRandInt = (min: number, max: number) => Math.floor(Math.random() * (max 
 const afFutureDate = (minDays = 1, maxDays = 14) => {
   const d = new Date();
   d.setDate(d.getDate() + afRandInt(minDays, maxDays));
-  return d.toISOString().split('T')[0];
+  return manilaToday(d);
 };
 
 // ── Form state ────────────────────────────────────────────────────────────────
@@ -165,6 +166,7 @@ export default function RecordCreateForm({
   onAfterSubmit,
 }: RecordCreateFormProps) {
   const [form, setForm] = useState<RecordFormState>(() => buildEmptyForm(category));
+  const [saving, setSaving] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [attachmentNames, setAttachmentNames] = useState<string[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -230,12 +232,9 @@ export default function RecordCreateForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const errors: Record<string, string> = {};
-    if (!form.company_name.trim()) errors.company_name = 'Company Name is required';
-    else if (!form.company_id) errors.company_name = 'Select a company from the list';
-    if (form.is_draft !== 'Yes' && !form.reference.trim()) {
-      errors.reference = 'Reference (SAP number) is required';
-    }
+    if (saving) return;
+    const isDraft = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "draft";
+    const errors = submissionErrors(form, isDraft);
 
     if (Object.keys(errors).length > 0) {
       setFormErrors(errors);
@@ -246,15 +245,16 @@ export default function RecordCreateForm({
     let outputActionLog: any[] = [];
     let bannerLines: string[] = [];
 
-    if (outputActionConfigs) {
-      const creationOutput = await runOutputActions('Record Created', outputActionConfigs['Record Created'], { amName: form.account_manager });
-      outputActionLog = creationOutput.newEntries;
-      bannerLines = creationOutput.banners.length > 0
-        ? creationOutput.banners
-        : creationOutput.newEntries.map((e: any) => e.message);
-    }
-
+    setSaving(true);
     try {
+      if (!isDraft && outputActionConfigs) {
+        const creationOutput = await runOutputActions('Record Created', outputActionConfigs['Record Created'], { amName: form.account_manager });
+        outputActionLog = creationOutput.newEntries;
+        bannerLines = creationOutput.banners.length > 0
+          ? creationOutput.banners
+          : creationOutput.newEntries.map((e: any) => e.message);
+      }
+
       await onSubmit({
         ...form,
         customer_id: form.company_id || '',
@@ -262,9 +262,9 @@ export default function RecordCreateForm({
         driver_assistants: [],
         category: form.category,
         priority: form.priority as DeliveryRecord['priority'],
-        status: form.status as DeliveryStatus,
+        status: isDraft ? 'Draft' : 'Scheduled',
         item_type: form.item_type as DeliveryRecord['item_type'],
-        is_draft: form.is_draft as DeliveryRecord['is_draft'],
+        is_draft: isDraft ? 'Yes' : 'No',
         line_items: form.line_items,
         attachments: attachmentNames,
         output_actions_log: outputActionLog
@@ -274,6 +274,8 @@ export default function RecordCreateForm({
         submit: error instanceof Error ? error.message : 'Could not create the record. Please try again.',
       });
       return;
+    } finally {
+      setSaving(false);
     }
 
     if (onAfterSubmit) {
@@ -296,7 +298,7 @@ export default function RecordCreateForm({
             <Plus className="w-5 h-5 text-[#0078C1]" />
             {categoryLocked ? `Create New ${cat} Record` : 'Create New Record'}
           </h3>
-          <p className="text-[11.5px] text-slate-500 font-medium">Fields marked with * are required.</p>
+          <p className="text-[11.5px] text-slate-500 font-medium">Submit requires a company and SAP reference. Save as Draft requires a company.</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -366,18 +368,6 @@ export default function RecordCreateForm({
               placeholder="e.g., SAP-88231"
               className={`w-full px-3 py-2 border rounded-lg focus:outline-hidden ${formErrors.reference ? 'border-red-500' : 'border-slate-300'}`} />
             {formErrors.reference && <p className="text-red-500 text-[10px] font-semibold">{formErrors.reference}</p>}
-          </div>
-
-          {/* Draft — placed near top so it adjusts which other fields are required */}
-          <div className="space-y-1.5 md:col-span-2">
-            <label className="font-bold text-slate-700">Draft</label>
-            <select value={form.is_draft} onChange={e => updateField('is_draft', e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">
-              <option value="No">No</option>
-              <option value="Yes">Yes</option>
-            </select>
-            <p className="text-[10px] text-slate-400 mt-1">
-              Mark as Draft to save an incomplete record — Logistics will complete the remaining details before dispatch.
-            </p>
           </div>
 
           {/* ── OPTIONAL FIELDS ─────────────────────────────────────── */}
@@ -538,8 +528,9 @@ export default function RecordCreateForm({
           <button type="button" onClick={onCancel} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors text-[11px] uppercase">
             Cancel
           </button>
-          <button type="submit" className="px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5">
-            <Check className="w-4 h-4" /> Save Record
+          <button type="submit" value="draft" disabled={saving} className="px-5 py-2.5 border border-slate-300 text-slate-700 font-bold rounded-lg disabled:opacity-50">Save as Draft</button>
+          <button type="submit" value="submit" disabled={saving} className="px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5">
+            <Check className="w-4 h-4" /> {saving ? "Saving…" : "Submit"}
           </button>
         </div>
       </form>

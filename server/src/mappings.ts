@@ -4,6 +4,8 @@
 // and return the same strings the existing frontend already uses everywhere,
 // without forcing a UI rewrite of every label.
 
+import { allowedStatuses, runState } from './services/deliveryLifecycle';
+
 export const CATEGORY_TO_DB: Record<string, string> = {
   'Sales Orders': 'SALES_ORDERS',
   'Deliveries': 'DELIVERY',
@@ -21,7 +23,9 @@ export const CATEGORY_FROM_DB: Record<string, string> = {
 };
 
 export const STATUS_TO_DB: Record<string, string> = {
+  Draft: 'SCHEDULED',
   Scheduled: 'SCHEDULED',
+  'In Transit': 'IN_TRANSIT',
   Delivered: 'ACCOMPLISHED',
   'On-Hold': 'ON_HOLD',
   Rescheduled: 'RESCHEDULED',
@@ -29,6 +33,8 @@ export const STATUS_TO_DB: Record<string, string> = {
 };
 
 export const STATUS_FROM_DB: Record<string, string> = {
+  DRAFT: 'Draft',
+  IN_TRANSIT: 'In Transit',
   SCHEDULED: 'Scheduled',
   ACCOMPLISHED: 'Delivered',
   ON_HOLD: 'On-Hold',
@@ -53,7 +59,8 @@ export function serializeRecord(r: any) {
     priority: r.priority,
     reference: r.reference,
     remarks: r.remarks,
-    status: STATUS_FROM_DB[r.status] ?? r.status,
+    status: runState(r),
+    allowed_statuses: allowedStatuses(r),
     vehicle: r.vehicle,
     area: r.area,
     driver: r.driver,
@@ -77,7 +84,7 @@ export function serializeRecord(r: any) {
     collection_verified_at: r.collectionVerifiedAt ?? null,
     amount: r.amount ?? null,
     linked_collection_id: r.linkedCollectionId ?? null,
-    linked_collection: r.linkedCollection ? {
+    linked_collection: r.linkedCollection && !r.linkedCollection.draft ? {
       id: r.linkedCollection.id,
       reference: r.linkedCollection.reference,
       company_name: r.linkedCollection.company?.name ?? '',
