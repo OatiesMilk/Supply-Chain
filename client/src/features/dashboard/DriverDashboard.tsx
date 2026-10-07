@@ -18,6 +18,8 @@ import { completionError, type PodReadiness } from "@/utils/podRequirement";
 import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
 import { canRecordTimeIn, isDraftRecord, manilaToday } from '@/utils/recordLifecycle';
 import DoneRecordModal from "./DoneRecordModal";
+import { uploadStagedFiles } from '@/api/queries/usePodAttachments';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface DriverDashboardProps {
   records: DeliveryRecord[];
@@ -50,6 +52,7 @@ export default function DriverDashboard({
 }: DriverDashboardProps) {
   const today = manilaToday();
   const timeInMutation = useRecordTimeInMutation();
+  const queryClient = useQueryClient();
   records = records.filter(record => !isDraftRecord(record));
   const todayLabel = new Date().toLocaleDateString("en-PH", {
     timeZone: "Asia/Manila",
@@ -500,8 +503,11 @@ export default function DriverDashboard({
                   setSaving(true);
                   setSaveFeedback(null);
                   try {
+                    const recordId = pendingAction.rec.id;
+                    await uploadStagedFiles(recordId, queryClient);
+
                     if (pendingAction.status === "In Transit") {
-                      await timeInMutation.mutateAsync({ id: pendingAction.rec.id, remarks: remarksInput.trim() });
+                      await timeInMutation.mutateAsync({ id: recordId, remarks: remarksInput.trim() });
                     } else {
                       await applyStatus(pendingAction.rec, pendingAction.status, remarksInput.trim());
                     }
