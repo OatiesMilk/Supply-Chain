@@ -130,8 +130,9 @@ function GeneralTab({
 }) {
   // SC can edit all fields while the record is still Scheduled; Logistics can always edit Area + Address
   const canEditFull = !readOnly && currentUserRole === 'Sales Coordinator' && record.status === 'Scheduled';
-  const canEditAreaAddress = !readOnly && currentUserRole === 'Logistics';
-  const canEdit = canEditFull || canEditAreaAddress;
+  const canEditAreaAddress = !readOnly && currentUserRole === 'Logistics' && record.category !== 'RMA';
+  const canEditPriority = !readOnly && (currentUserRole === 'Sales Coordinator' || (currentUserRole === 'Logistics' && record.category !== 'RMA'));
+  const canEdit = canEditFull || canEditAreaAddress || canEditPriority;
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -195,9 +196,18 @@ function GeneralTab({
     setRemarksError(false);
     setSaveError(null);
     setSaving(true);
-    const updates = canEditFull
-      ? { ...draft }
-      : { area: draft.area, address: draft.address, remarks: draft.remarks };
+    const updates: any = { remarks: draft.remarks };
+    if (canEditFull) {
+      Object.assign(updates, draft);
+    } else {
+      if (canEditAreaAddress) {
+        updates.area = draft.area;
+        updates.address = draft.address;
+      }
+      if (canEditPriority) {
+        updates.priority = draft.priority;
+      }
+    }
     try {
       await onUpdateRecord(record.id, {
         ...updates,
@@ -252,7 +262,7 @@ function GeneralTab({
               onClick={handleStartEdit}
               className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-[#0078C1] hover:bg-blue-50 border border-blue-200 rounded-lg transition-colors cursor-pointer"
             >
-              <Pencil className="w-3 h-3" /> {canEditAreaAddress && !canEditFull ? 'Edit Area / Address' : 'Edit'}
+              <Pencil className="w-3 h-3" /> Edit
             </button>
           )}
           {editing && (
@@ -330,20 +340,21 @@ function GeneralTab({
         ) : (
           <div className="space-y-4 text-xs">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {canEditFull && (
-                <>
-                  <div className="space-y-1">
-                    <label className={labelCls}>Priority</label>
-                    <select value={draft.priority} onChange={e => set('priority', e.target.value as PriorityLevel)} className={inputCls}>
-                      {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className={labelCls}>Reference (SAP)</label>
-                    <input type="text" value={draft.reference} onChange={e => set('reference', e.target.value)} className={inputCls} />
-                  </div>
-                </>
+              {canEditPriority && (
+                <div className="space-y-1">
+                  <label className={labelCls}>Priority</label>
+                  <select value={draft.priority} onChange={e => set('priority', e.target.value as PriorityLevel)} className={inputCls}>
+                    {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
               )}
+              {canEditFull && (
+                <div className="space-y-1">
+                  <label className={labelCls}>Reference (SAP)</label>
+                  <input type="text" value={draft.reference} onChange={e => set('reference', e.target.value)} className={inputCls} />
+                </div>
+              )}
+              {(canEditFull || canEditAreaAddress) && (<>
               <div className="space-y-1">
                 <ComboboxField
                   label="Area"
@@ -361,6 +372,7 @@ function GeneralTab({
                 <label className={labelCls}>Address <span className="text-[10px] font-normal text-slate-400 normal-case tracking-normal">(optional)</span></label>
                 <input type="text" value={draft.address} onChange={e => set('address', e.target.value)} className={inputCls} placeholder="Street, building, floor, or additional location detail" />
               </div>
+              </>)}
               {canEditFull && (
                 <>
                   <div className="space-y-1">
@@ -408,7 +420,7 @@ function GeneralTab({
                 value={draft.remarks}
                 onChange={e => { set('remarks', e.target.value); if (remarksError && e.target.value.trim()) setRemarksError(false); }}
                 rows={3}
-                placeholder={canEditFull ? '' : 'Explain why you are updating the area or address…'}
+                placeholder={canEditFull ? '' : 'Explain why you are making this update...'}
                 className={`w-full px-2.5 py-1.5 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${remarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
               />
               {remarksError && <p className="text-[11px] text-red-600 font-semibold">Remarks are required to save changes.</p>}
