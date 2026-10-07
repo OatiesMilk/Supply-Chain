@@ -363,7 +363,7 @@ export default function RecordCreateForm({
             <label className="font-bold text-slate-700">
               Reference (SAP Number){form.is_draft !== 'Yes' && <span className="text-red-500"> *</span>}
             </label>
-            <input type="text" value={form.reference} onChange={e => updateField('reference', e.target.value)}
+            <input type="text" value={form.reference} onChange={e => { updateField('reference', e.target.value); if (e.target.value.trim()) setFormErrors(prev => ({ ...prev, reference: '' })); }}
               placeholder="e.g., SAP-88231"
               className={`w-full px-3 py-2 border rounded-lg focus:outline-hidden ${formErrors.reference ? 'border-red-500' : 'border-slate-300'}`} />
             {formErrors.reference && <p className="text-red-500 text-[10px] font-semibold">{formErrors.reference}</p>}
@@ -408,9 +408,10 @@ export default function RecordCreateForm({
 
           {/* Delivery Date */}
           <div className="space-y-1.5">
-            <label className="font-bold text-slate-700">Delivery Date <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
-            <input type="date" value={form.delivery_date} onChange={e => updateField('delivery_date', e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
+            <label className="font-bold text-slate-700">Delivery Date <span className="text-red-500">* on submit</span></label>
+            <input type="date" value={form.delivery_date} onChange={e => { updateField('delivery_date', e.target.value); if (e.target.value) setFormErrors(prev => ({ ...prev, delivery_date: '' })); }}
+              className={`w-full px-3 py-2 border rounded-lg ${formErrors.delivery_date ? 'border-red-500' : 'border-slate-300'}`} />
+            {formErrors.delivery_date && <p className="text-red-500 text-[10px] font-semibold">{formErrors.delivery_date}</p>}
           </div>
 
           {/* Item Type */}

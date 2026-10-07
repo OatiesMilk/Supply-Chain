@@ -199,6 +199,10 @@ function GeneralTab({
   };
 
   const handleSave = async () => {
+    if (canEditFull && !isDraftRecord(record) && !draft.delivery_date.trim()) {
+      setSaveError('Delivery Date is required for a submitted record.');
+      return;
+    }
     if (!draft.remarks.trim()) {
       setRemarksError(true);
       return;
@@ -260,11 +264,13 @@ function GeneralTab({
           <p id="submission-change-remarks-help" className="text-xs text-slate-600">Explain why you are submitting or returning this record to Draft. The reason is saved with your name in Remarks History.</p>
           <textarea id="submission-change-remarks" aria-describedby="submission-change-remarks-help" required value={lifecycleRemarks} onChange={e => setLifecycleRemarks(e.target.value)} rows={2} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" placeholder="Reason for submitting or returning to draft" />
           {selectableStatuses(record, currentUserRole).filter(status => isDraftRecord(record) ? status === 'Scheduled' : status === 'Draft').map(status => (
-            <button key={status} type="button" disabled={saving || !lifecycleRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+            <button key={status} type="button" disabled={saving || !lifecycleRemarks.trim() || (status === 'Scheduled' && (!record.reference.trim() || !record.delivery_date.trim()))} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
               onClick={async () => { setSaving(true); setSaveError(null); try { await onUpdateRecord(record.id, { status, remarks: lifecycleRemarks.trim() }); setLifecycleRemarks(''); } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not change submission status.'); } finally { setSaving(false); } }}>
               {isDraftRecord(record) ? 'Submit' : 'Return to Draft'}
             </button>
           ))}
+          {isDraftRecord(record) && !record.delivery_date.trim() && <p className="text-xs text-amber-700">Set and save a Delivery Date before submitting this draft.</p>}
+          {isDraftRecord(record) && !record.reference.trim() && <p className="text-xs text-amber-700">Set and save a SAP reference before submitting this draft.</p>}
           <p className="text-xs text-slate-500">Drafts retain existing assignments and stay hidden from drivers until submitted.</p>
           {saveError && <p role="alert" className="text-xs text-red-700">{saveError}</p>}
         </div>
@@ -395,11 +401,6 @@ function GeneralTab({
                     <label className={labelCls}>Delivery Date</label>
                     <input type="date" value={draft.delivery_date} onChange={e => set('delivery_date', e.target.value)} className={inputCls} />
                   </div>
-                  <div className="space-y-1">
-                    <label className={labelCls}>Date &amp; Time</label>
-                    
-                  </div>
-
                 </>
               )}
             </div>

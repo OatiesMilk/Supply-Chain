@@ -346,7 +346,7 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
   const isDraft = b.is_draft === 'Yes' || b.status === 'Draft';
   const required = isDraft
     ? ['company_id', 'category']
-    : ['company_id', 'reference', 'category'];
+    : ['company_id', 'reference', 'category', 'delivery_date'];
   const missing = required.filter(k => typeof b[k] !== 'string' || !b[k].trim());
   if (missing.length > 0) {
     return res.status(400).json({ error: `Missing required fields: ${missing.join(', ')}` });
@@ -366,7 +366,6 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
   }
 
   if (!isDraft && !b.reference?.trim()) return res.status(400).json({ error: 'Reference is required' });
-  if (!isDraft && !b.delivery_date) return res.status(400).json({ error: 'Delivery Date is required' });
   if (b.status && !['Draft', 'Scheduled'].includes(b.status)) return res.status(400).json({ error: 'New records must be Draft or Scheduled.' });
   if ((b.driver && String(b.driver).trim()) || (Array.isArray(b.driver_assistants) && b.driver_assistants.length)) return res.status(400).json({ error: 'Assign drivers after submitting the record.' });
   const created = await prisma.$transaction(async tx => {
@@ -461,7 +460,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
   }
 
   const LOGISTICS_SUBSTANTIVE_FIELDS = ['driver', 'vehicle', 'driver_assistants', 'time_in', 'time_out', 'received_by', 'linked_collection_id', 'area', 'address', 'priority'];
-  const SC_SUBSTANTIVE_FIELDS = ['company_id', 'priority', 'reference', 'area', 'address', 'account_manager', 'delivery_date', 'item_type', 'is_draft', 'date_time', 'item_description', 'line_items', 'attachments', 'amount'];
+  const SC_SUBSTANTIVE_FIELDS = ['company_id', 'priority', 'reference', 'area', 'address', 'account_manager', 'delivery_date', 'item_type', 'is_draft', 'item_description', 'line_items', 'attachments', 'amount'];
   const substantiveFields = req.user!.role === 'ADMIN' ? [...LOGISTICS_SUBSTANTIVE_FIELDS, ...SC_SUBSTANTIVE_FIELDS] : (req.user!.role === 'LOGISTICS' || req.user!.role === 'TASS')
     ? LOGISTICS_SUBSTANTIVE_FIELDS
     : SC_SUBSTANTIVE_FIELDS;
@@ -556,8 +555,10 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
       const invalid = transitionError(current, data.draft ? 'Draft' : 'Scheduled', req.user!.role);
       if (invalid) return { error: invalid, updated: null };
       if (!data.draft && !String(data.reference ?? current.reference).trim()) return { error: 'Reference is required to submit the draft.', updated: null };
+      if (!data.draft && !String(data.deliveryDate ?? current.deliveryDate).trim()) return { error: 'Delivery Date is required to submit the draft.', updated: null };
       data.status = 'SCHEDULED';
     }
+    if (!current.draft && data.deliveryDate !== undefined && !String(data.deliveryDate).trim()) return { error: 'Delivery Date is required for a submitted record.', updated: null };
     if ((data.draft ?? current.draft) && (data.driver !== undefined && data.driver !== current.driver || data.driverAssistants !== undefined && data.driverAssistants !== current.driverAssistants)) return { error: 'New assignments to drafts are not allowed.', updated: null };
     if (hasTimestamp) {
       if (current.draft || !current.timeIn || (b.time_out !== undefined && !current.timeOut)) return { error: 'The timestamps changed. Refresh and try again.', updated: null };
@@ -577,10 +578,16 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (typeof b.remarks === 'string' && b.remarks.trim()) await tx.remarkLog.create({ data: {
       recordId: updated.id, body: b.remarks.trim(), context: hasTimestamp ? 'TIMESTAMP_CORRECTION' : 'GENERAL_EDIT', authorId: req.user!.id,
     } });
-    return { error: null, updated };
+    return { error: null, updated, wasPublished: current.draft && !updated.draft };
   });
   if (result.error) return res.status(result.error === 'Record not found' ? 404 : result.error === 'Record access denied' || result.error === 'Only Sales Coordinator or Admin may submit or return drafts.' ? 403 : 400).json({ error: result.error });
   const updated = result.updated!;
+
+  if ('wasPublished' in result && result.wasPublished) await notifyRole(
+    'LOGISTICS', `New ${updated.category.replace(/_/g, ' ')} record — driver needed`,
+    `${updated.company.name} · ${updated.reference} on ${updated.deliveryDate} requires driver assignment.`,
+    updated.id, 'DeliveryRecord'
+  );
 
   // Notify the record creator (Sales Coordinator) when Logistics assigns a driver
   if (
@@ -650,6 +657,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
       if (error) return { error, saved: null, previous: null };
     }
     if (current.draft && status === 'Scheduled' && !current.reference.trim()) return { error: 'Reference is required to submit the draft.', saved: null, previous: null };
+    if (statusChanged && status !== 'Draft' && !String(current.deliveryDate ?? '').trim()) return { error: 'Delivery Date is required before submitting or advancing a record.', saved: null, previous: null };
     const data: any = { ...(statusChanged ? { status: STATUS_TO_DB[status], draft: status === 'Draft' } : {}), remarks: remarks.trim(), modifiedById: req.user!.id };
     if (hasPriority) data.priority = priority;
     if (current.status === 'ACCOMPLISHED' && received_by !== undefined && !received_by.trim()) return { error: 'Received By is required on completed runs.', saved: null, previous: null };
@@ -668,10 +676,15 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
       previousValue: JSON.stringify(serializeRecord(current)), newValue: JSON.stringify(serializeRecord(saved)),
     } });
     await tx.remarkLog.create({ data: { recordId: saved.id, body: remarks.trim(), context: 'STATUS_CHANGE', authorId: req.user!.id } });
-    return { error: null, saved, previous: current };
+    return { error: null, saved, previous: current, wasPublished: current.draft && !saved.draft };
   });
   if (result.error) return res.status(result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' ? 403 : 400).json({ error: result.error });
   const updated = result.saved!;
+  if ('wasPublished' in result && result.wasPublished) await notifyRole(
+    'LOGISTICS', `New ${updated.category.replace(/_/g, ' ')} record — driver needed`,
+    `${updated.company.name} · ${updated.reference} on ${updated.deliveryDate} requires driver assignment.`,
+    updated.id, 'DeliveryRecord'
+  );
   if (status === 'Delivered' && result.previous!.status !== 'ACCOMPLISHED') {
     await notifyAccomplished({
       id: updated.id, companyName: updated.company.name, deliveryDate: updated.deliveryDate,

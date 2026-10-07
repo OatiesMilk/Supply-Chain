@@ -497,7 +497,8 @@ function OverviewTab({
   const [statusError, setStatusError] = useState<string | null>(null);
   const [receivedBy, setReceivedBy] = useState(record.received_by ?? '');
   const [draftReference, setDraftReference] = useState(record.reference);
-  useEffect(() => { setReceivedBy(record.received_by ?? ''); setDraftReference(record.reference); setStatusError(null); }, [record.id]);
+  const [draftDeliveryDate, setDraftDeliveryDate] = useState(record.delivery_date);
+  useEffect(() => { setReceivedBy(record.received_by ?? ''); setDraftReference(record.reference); setDraftDeliveryDate(record.delivery_date); setStatusError(null); }, [record.id]);
   const { readiness } = usePodAttachments(record.id);
   const timeInMutation = useRecordTimeInMutation();
   const [statusRemarks, setStatusRemarks] = useState('');
@@ -506,6 +507,10 @@ function OverviewTab({
 
   const handleStatusChange = async (newStatus: DeliveryStatus) => {
     if (!canEdit || newStatus === record.status || updating) return;
+    if (newStatus === 'Scheduled' && isDraftRecord(record) && !record.delivery_date.trim()) {
+      setStatusError('Set and save a Delivery Date before submitting this draft.');
+      return;
+    }
     const error = completionError(record, newStatus, receivedBy, readiness);
     if (error) { setStatusError(error); return; }
     setStatusError(null);
@@ -533,8 +538,10 @@ function OverviewTab({
             {isDraftRecord(record) && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && <div className="space-y-2">
               <label className="block text-xs font-bold text-slate-700">Reference (required to submit)</label>
               <input value={draftReference} onChange={e => setDraftReference(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
-              <button type="button" disabled={updating || !statusRemarks.trim() || !draftReference.trim() || draftReference === record.reference} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold disabled:opacity-50"
-                onClick={async () => { setUpdating(true); setStatusError(null); try { await onUpdateRecord(record.id, { reference: draftReference.trim(), remarks: statusRemarks.trim() }); setStatusRemarks(''); } catch (error) { setStatusError(error instanceof Error ? error.message : 'Could not save the draft.'); } finally { setUpdating(false); } }}>Save Draft Reference</button>
+              <label className="block text-xs font-bold text-slate-700">Delivery Date (required to submit)</label>
+              <input type="date" value={draftDeliveryDate} onChange={e => setDraftDeliveryDate(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
+              <button type="button" disabled={updating || !statusRemarks.trim() || (draftReference === record.reference && draftDeliveryDate === record.delivery_date)} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold disabled:opacity-50"
+                onClick={async () => { setUpdating(true); setStatusError(null); try { await onUpdateRecord(record.id, { reference: draftReference.trim(), delivery_date: draftDeliveryDate, remarks: statusRemarks.trim() }); setStatusRemarks(''); } catch (error) { setStatusError(error instanceof Error ? error.message : 'Could not save the draft.'); } finally { setUpdating(false); } }}>Save Draft Details</button>
             </div>}
             {record.status !== 'Delivered' && <>
               <PodUploader recordId={record.id} required disabled={updating} />
@@ -566,7 +573,7 @@ function OverviewTab({
                   <button
                     key={s}
                     onClick={() => handleStatusChange(s)}
-                    disabled={isActive || updating || !!completionError(record, s, receivedBy, readiness)}
+                    disabled={isActive || updating || !!completionError(record, s, receivedBy, readiness) || (s === 'Scheduled' && isDraftRecord(record) && (!record.reference.trim() || !record.delivery_date.trim()))}
                     className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all disabled:cursor-default ${
                       isActive
                         ? (STATUS_ACTIVE[s] ?? 'bg-slate-700 text-white border-slate-700')

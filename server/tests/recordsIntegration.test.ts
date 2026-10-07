@@ -196,3 +196,76 @@ test('Record list rejects invalid filters', async () => {
     assert.equal(calls.length, 0);
   });
 });
+
+test('Delivery Date is required on create and draft submission through both update paths', async () => {
+  const { url, close } = await setupApp();
+  const row = createUser('SALES_COORDINATOR');
+  const originalUserLookup = prisma.user.findUnique;
+  const originalRecordLookup = prisma.deliveryRecord.findFirst;
+  const originalTransaction = prisma.$transaction;
+  const originalLogisticsLookup = prisma.user.findMany;
+  let record: any = {
+    id: 'REC-12345', companyId: 'company-1', company: { name: 'Merchant' },
+    category: 'DELIVERY', status: 'SCHEDULED', draft: true, reference: 'SAP-123',
+    deliveryDate: '', driver: '', driverAssistants: '[]', timeIn: null, deletedAt: null,
+    createdById: row.id,
+  };
+  let logisticsNotifications = 0;
+  prisma.user.findUnique = mock.fn(async () => row) as any;
+  prisma.deliveryRecord.findFirst = mock.fn(async () => record) as any;
+  prisma.user.findMany = mock.fn(async () => { logisticsNotifications += 1; return []; }) as any;
+  prisma.$transaction = mock.fn(async (work: (tx: any) => Promise<unknown>) => work({
+    $executeRaw: async () => 1,
+    $queryRaw: async () => [{ id: record.id }],
+    deliveryRecord: {
+      findUnique: async () => record,
+      update: async ({ data }: { data: Record<string, unknown> }) => {
+        record = { ...record, ...data };
+        return record;
+      },
+    },
+    auditLog: { create: async () => ({}) },
+    remarkLog: { create: async () => ({}) },
+    driver: { findFirst: async () => null },
+  })) as any;
+
+  try {
+    const headers = { ...await loginAs(url, row), 'Content-Type': 'application/json' };
+    const request = (path: string, method: string, body: unknown) => fetch(`${url}/records${path}`, {
+      method, headers, body: JSON.stringify(body),
+    });
+    const create = await request('', 'POST', {
+      company_id: 'company-1', category: 'Deliveries', reference: 'SAP-123',
+      delivery_date: '   ', is_draft: 'No',
+    });
+    assert.equal(create.status, 400);
+    assert.match((await create.json() as { error: string }).error, /delivery_date/);
+
+    const put = await request('/REC-12345', 'PUT', { is_draft: 'No', remarks: 'Submit draft' });
+    assert.equal(put.status, 400);
+    assert.match((await put.json() as { error: string }).error, /Delivery Date/);
+    const patch = await request('/REC-12345/status', 'PATCH', { status: 'Scheduled', remarks: 'Submit draft' });
+    assert.equal(patch.status, 400);
+    assert.match((await patch.json() as { error: string }).error, /Delivery Date/);
+    assert.equal(logisticsNotifications, 0);
+
+    record.deliveryDate = '2026-10-08';
+    const submitted = await request('/REC-12345', 'PUT', { is_draft: 'No', remarks: 'Submit draft' });
+    assert.equal(submitted.status, 200);
+    assert.equal(logisticsNotifications, 1);
+    const repeated = await request('/REC-12345', 'PUT', { is_draft: 'No', remarks: 'Repeat submit' });
+    assert.equal(repeated.status, 200);
+    assert.equal(logisticsNotifications, 1);
+
+    record.draft = true;
+    const submittedByStatus = await request('/REC-12345/status', 'PATCH', { status: 'Scheduled', remarks: 'Submit draft' });
+    assert.equal(submittedByStatus.status, 200);
+    assert.equal(logisticsNotifications, 2);
+  } finally {
+    prisma.user.findUnique = originalUserLookup;
+    prisma.deliveryRecord.findFirst = originalRecordLookup;
+    prisma.$transaction = originalTransaction;
+    prisma.user.findMany = originalLogisticsLookup;
+    await close();
+  }
+});

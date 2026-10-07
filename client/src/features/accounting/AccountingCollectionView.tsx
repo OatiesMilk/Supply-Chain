@@ -56,7 +56,7 @@ const buildEmptyForm = (): RecordFormState => ({
   status: 'Scheduled',
   area: 'Carmona',
   account_manager: '',
-  delivery_date: manilaToday(),
+  delivery_date: '',
   item_type: 'Small Item',
   is_draft: 'No',
   item_description: '',
@@ -185,6 +185,7 @@ export default function AccountingCollectionView({
   const handleCompanySelect = (name: string) => {
     const company = companies.find(c => c.name === name);
     setForm(prev => ({ ...prev, company_name: name, company_id: company?.id ?? '' }));
+    if (company) setFormErrors(prev => ({ ...prev, company_name: '' }));
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -439,7 +440,7 @@ export default function AccountingCollectionView({
               {/* Reference */}
               <div className="space-y-1.5">
                 <label className="font-bold text-slate-700">Reference (SAP Number) <span className="text-red-500">*</span></label>
-                <input type="text" value={form.reference} onChange={e => updateField('reference', e.target.value)}
+                <input type="text" value={form.reference} onChange={e => { updateField('reference', e.target.value); if (e.target.value.trim()) setFormErrors(prev => ({ ...prev, reference: '' })); }}
                   placeholder="e.g., SAP-88231"
                   className={`w-full px-3 py-2 border rounded-lg focus:outline-none ${formErrors.reference ? 'border-red-500' : 'border-slate-300'}`} />
                 {formErrors.reference && <p className="text-red-500 text-[10px] font-semibold">{formErrors.reference}</p>}

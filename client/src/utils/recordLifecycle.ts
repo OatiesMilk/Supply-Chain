@@ -5,7 +5,7 @@ export function submissionErrors(data: { company_name: string; company_id: strin
   if (!data.company_name.trim()) errors.company_name = 'Company Name is required';
   else if (!data.company_id) errors.company_name = 'Select a company from the list';
   if (!isDraft && !data.reference.trim()) errors.reference = 'Reference (SAP number) is required';
-  if (!isDraft && !data.delivery_date) errors.delivery_date = 'Delivery Date is required';
+  if (!isDraft && !data.delivery_date.trim()) errors.delivery_date = 'Delivery Date is required';
   return errors;
 }
 
