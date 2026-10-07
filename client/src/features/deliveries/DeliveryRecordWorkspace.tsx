@@ -786,83 +786,39 @@ function ActionsTab({
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;
 }) {
-  const [applying, setApplying] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<DeliveryStatus>(record.status);
-  const [statusRemarks, setStatusRemarks] = useState('');
-  const [remarksError, setRemarksError] = useState(false);
-  const [statusError, setStatusError] = useState<string | null>(null);
 
   const [selectedDriver, setSelectedDriver] = useState(record.driver);
   const [assistants, setAssistants] = useState<string[]>(record.driver_assistants ?? []);
   const [timeIn, setTimeIn] = useState(record.time_in ?? '');
   const [timeOut, setTimeOut] = useState(record.time_out ?? '');
   const [receivedBy, setReceivedBy] = useState(record.received_by ?? '');
-  const [savingFields, setSavingFields] = useState(false);
-  const [saveDriverError, setSaveDriverError] = useState<string | null>(null);
-  const [driverFieldsRemarks, setDriverFieldsRemarks] = useState('');
-  const [driverFieldsRemarksError, setDriverFieldsRemarksError] = useState(false);
-  const [statusSuccess, setStatusSuccess] = useState(false);
-  const [driverSuccess, setDriverSuccess] = useState(false);
+
+  const [remarks, setRemarks] = useState('');
+  const [remarksError, setRemarksError] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Sync assistants / completion fields when navigating to a different record
   useEffect(() => {
+    setSelectedStatus(record.status);
     setSelectedDriver(record.driver);
     setAssistants(record.driver_assistants ?? []);
     setTimeIn(record.time_in ?? '');
     setTimeOut(record.time_out ?? '');
     setReceivedBy(record.received_by ?? '');
-    setDriverFieldsRemarks('');
-    setDriverFieldsRemarksError(false);
-    setSaveDriverError(null);
-    setDriverSuccess(false);
+    
+    setRemarks('');
+    setRemarksError(false);
+    setSaveError(null);
+    setSaveSuccess(false);
   }, [record.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  
+  // also sync status if it changes externally
   useEffect(() => {
     setSelectedStatus(record.status);
-    setStatusRemarks('');
-    setStatusError(null);
-    setRemarksError(false);
-    setStatusSuccess(false);
-  }, [record.id, record.status]);
-
-  const handleStatusChange = async () => {
-    if (applying) return;
-    if (selectedStatus === record.status) {
-      setStatusError('Choose a different status before saving.');
-      return;
-    }
-    if (!statusRemarks.trim()) {
-      setRemarksError(true);
-      return;
-    }
-    setRemarksError(false);
-    setStatusError(null);
-    setApplying(true);
-    setStatusSuccess(false);
-    const now = new Date().toISOString();
-    const updates: Partial<DeliveryRecord> & { status_remarks?: string } = {
-      status: selectedStatus,
-      status_remarks: statusRemarks.trim(),
-      modified_by: `${currentUserName} (${currentUserRole})`,
-      modified_at: now,
-    };
-
-    try {
-      await onUpdateRecord(record.id, updates);
-      setStatusRemarks('');
-      setStatusSuccess(true);
-      const trigger = getOutputTrigger(record.category, selectedStatus);
-      if (trigger) {
-        await runOutputActions(trigger, outputActionConfigs[trigger], {
-          amName: record.account_manager, at: now, recordId: record.id, api,
-        });
-      }
-    } catch (error) {
-      setStatusError(error instanceof Error ? error.message : 'Could not save the status change. Please try again.');
-    } finally {
-      setApplying(false);
-    }
-  };
+  }, [record.status]);
 
   const addAssistant = () => setAssistants(prev => [...prev, '']);
   const updateAssistant = (i: number, val: string) =>
@@ -876,43 +832,74 @@ function ActionsTab({
     (timeIn || '') !== (record.time_in ?? '') ||
     (timeOut || '') !== (record.time_out ?? '') ||
     (receivedBy || '') !== (record.received_by ?? '');
-  useWorkspaceDraft('dispatch', driverFieldsChanged || selectedStatus !== record.status || !!(statusRemarks || driverFieldsRemarks), applying || savingFields);
+    
+  const statusChanged = selectedStatus !== record.status;
+  const isDirty = driverFieldsChanged || statusChanged || !!remarks.trim();
 
-  const handleSaveDriverFields = async () => {
-    if (savingFields) return;
-    setSaveDriverError(null);
-    if (driverFieldsChanged && !driverFieldsRemarks.trim()) {
-      setDriverFieldsRemarksError(true);
+  useWorkspaceDraft('dispatch', isDirty, saving);
+
+  const handleSave = async () => {
+    if (saving) return;
+    setSaveError(null);
+    
+    if (!driverFieldsChanged && !statusChanged) {
+      setSaveError('Change fields before saving.');
       return;
     }
-    const remarks = driverFieldsRemarks.trim();
-    if (!driverFieldsChanged && !remarks) {
-      setSaveDriverError('Change fields before saving.');
+    
+    const remarksTrimmed = remarks.trim();
+    if (!remarksTrimmed) {
+      setRemarksError(true);
       return;
     }
 
-    setSavingFields(true);
-    setDriverSuccess(false);
-    const updates: Partial<DeliveryRecord> = {};
-    if (selectedDriver !== (record.driver ?? '')) updates.driver = selectedDriver;
-    if (JSON.stringify(assistants.filter(a => a.trim())) !== JSON.stringify(record.driver_assistants ?? [])) {
-      updates.driver_assistants = assistants.filter(a => a.trim());
-    }
-    if ((timeIn || '') !== (record.time_in ?? '')) updates.time_in = timeIn || null;
-    if ((timeOut || '') !== (record.time_out ?? '')) updates.time_out = timeOut || null;
-    if ((receivedBy || '') !== (record.received_by ?? '')) updates.received_by = receivedBy || null;
-    if (remarks) updates.remarks = remarks;
-    updates.modified_by = `${currentUserName} (${currentUserRole})`;
-    updates.modified_at = new Date().toISOString();
+    setSaving(true);
+    setSaveSuccess(false);
+    
+    const now = new Date().toISOString();
+    
     try {
-      await onUpdateRecord(record.id, updates);
-      setDriverFieldsRemarks('');
-      setDriverFieldsRemarksError(false);
-      setDriverSuccess(true);
+      if (driverFieldsChanged) {
+        const updates: Partial<DeliveryRecord> = {};
+        if (selectedDriver !== (record.driver ?? '')) updates.driver = selectedDriver;
+        if (JSON.stringify(assistants.filter(a => a.trim())) !== JSON.stringify(record.driver_assistants ?? [])) {
+          updates.driver_assistants = assistants.filter(a => a.trim());
+        }
+        if ((timeIn || '') !== (record.time_in ?? '')) updates.time_in = timeIn || null;
+        if ((timeOut || '') !== (record.time_out ?? '')) updates.time_out = timeOut || null;
+        if ((receivedBy || '') !== (record.received_by ?? '')) updates.received_by = receivedBy || null;
+        
+        updates.remarks = remarksTrimmed;
+        updates.modified_by = `${currentUserName} (${currentUserRole})`;
+        updates.modified_at = now;
+        
+        await onUpdateRecord(record.id, updates);
+      }
+
+      if (statusChanged) {
+        const statusUpdates: Partial<DeliveryRecord> & { status_remarks?: string } = {
+          status: selectedStatus,
+          status_remarks: remarksTrimmed,
+          modified_by: `${currentUserName} (${currentUserRole})`,
+          modified_at: now,
+        };
+        await onUpdateRecord(record.id, statusUpdates);
+        
+        const trigger = getOutputTrigger(record.category, selectedStatus);
+        if (trigger) {
+          await runOutputActions(trigger, outputActionConfigs[trigger], {
+            amName: record.account_manager, at: now, recordId: record.id, api,
+          });
+        }
+      }
+      
+      setRemarks('');
+      setRemarksError(false);
+      setSaveSuccess(true);
     } catch (error) {
-      setSaveDriverError(error instanceof Error ? error.message : 'Could not save driver fields. Please try again.');
+      setSaveError(error instanceof Error ? error.message : 'Could not save changes. Please try again.');
     } finally {
-      setSavingFields(false);
+      setSaving(false);
     }
   };
 
@@ -922,27 +909,20 @@ function ActionsTab({
     <div className="space-y-6">
       {/* Status update */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status Update</h4>
-        <div className="space-y-2">
-          <label className="text-xs font-bold text-slate-700">
-            Status Change Remarks <span className="text-red-500">*</span>
-          </label>
-          <textarea
-            value={statusRemarks}
-            onChange={e => { setStatusRemarks(e.target.value); if (remarksError && e.target.value.trim()) setRemarksError(false); }}
-            rows={2}
-            placeholder="Reason for this status change (required)…"
-            className={`w-full px-3 py-2 border rounded-lg text-xs resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${remarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
-          />
-          {remarksError && <p role="alert" className="text-[11px] text-red-600 font-semibold">Add a reason before saving the status change.</p>}
+        <div className="flex items-center justify-between">
+          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status Update</h4>
+          <p className="text-xs text-slate-600">
+            Current status: <span className="font-semibold text-slate-800">{record.status}</span>
+            {selectedStatus !== record.status && <span className="ml-2 text-[#1F3864]">? {selectedStatus} (unsaved)</span>}
+          </p>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {([...DELIVERY_STATUSES] as DeliveryStatus[]).map(s => (
             <button
               type="button"
               key={s}
-              onClick={() => { setSelectedStatus(s); setStatusError(null); }}
-              disabled={applying}
+              onClick={() => { setSelectedStatus(s); setSaveError(null); }}
+              disabled={saving}
               aria-pressed={selectedStatus === s}
               className={`min-h-10 rounded-lg border px-3 py-2.5 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] disabled:opacity-50 ${
                 selectedStatus === s
@@ -954,28 +934,11 @@ function ActionsTab({
             </button>
           ))}
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
-          <p className="text-xs text-slate-600">
-            Current status: <span className="font-semibold text-slate-800">{record.status}</span>
-            {selectedStatus !== record.status && <span className="ml-2 text-[#1F3864]">→ {selectedStatus} (unsaved)</span>}
-          </p>
-          <button
-            type="button"
-            onClick={handleStatusChange}
-            disabled={applying}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#0078C1] px-4 text-xs font-semibold text-white hover:bg-[#1F3864] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {applying ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Check aria-hidden="true" className="h-4 w-4" />}
-            {applying ? 'Saving...' : 'Save Status Change'}
-          </button>
-        </div>
-        {statusError && <p role="alert" className="text-xs font-semibold text-red-700">{statusError}</p>}
-        {statusSuccess && !statusError && <p role="status" className="text-xs font-semibold text-emerald-700">Status successfully updated!</p>}
       </div>
 
       {/* Driver assignment + completion fields */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Driver &amp; Delivery Details</h4>
+        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Driver & Delivery Details</h4>
         <div className="space-y-3">
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-slate-700">Driver</label>
@@ -997,7 +960,6 @@ function ActionsTab({
               });
               const otherDrivers = DRIVERS.filter(d => !coveringDrivers.includes(d));
 
-              // Same-day driver hint: other records in the same subregion, assigned today
               const today = new Date().toISOString().slice(0, 10);
               const subregionAreas = record.area ? [record.area, ...nearbyAreas] : [];
               const sameDayHintMap: Record<string, number> = {};
@@ -1031,17 +993,17 @@ function ActionsTab({
                   </select>
                   {coveringDrivers.length > 0 && (
                     <p className="text-[10px] text-emerald-600 font-semibold">
-                      {coveringDrivers.length} driver{coveringDrivers.length !== 1 ? 's' : ''} normally cover{coveringDrivers.length === 1 ? 's' : ''} the {recordSubregion} area — shown first.
+                      {coveringDrivers.length} driver{coveringDrivers.length !== 1 ? 's' : ''} normally cover{coveringDrivers.length === 1 ? 's' : ''} the {recordSubregion} area � shown first.
                     </p>
                   )}
                   {coveringDrivers.length === 0 && (
                     <p className="text-[10px] text-slate-400">
-                      No driver is mapped to {recordSubregion ?? record.area} yet — showing all drivers.
+                      No driver is mapped to {recordSubregion ?? record.area} yet � showing all drivers.
                     </p>
                   )}
                   {recordSubregion && nearbyAreas.length > 0 && (
                     <p className="text-[10px] text-slate-400 italic">
-                      Part of <span className="font-semibold not-italic text-slate-500">{recordSubregion}</span> — nearby: {nearbyAreas.join(', ')}
+                      Part of <span className="font-semibold not-italic text-slate-500">{recordSubregion}</span> � nearby: {nearbyAreas.join(', ')}
                     </p>
                   )}
                   {sameDayHints.length > 0 && (
@@ -1049,7 +1011,7 @@ function ActionsTab({
                       {sameDayHints.map(([driver, count]) => (
                         <p key={driver} className="text-[10px] text-blue-700 font-semibold flex items-center gap-1">
                           <Shield className="w-3 h-3 text-blue-400 shrink-0" />
-                          {driver} — {count} record{count !== 1 ? 's' : ''} nearby today
+                          {driver} � {count} record{count !== 1 ? 's' : ''} nearby today
                         </p>
                       ))}
                     </div>
@@ -1084,7 +1046,7 @@ function ActionsTab({
                   onClick={() => removeAssistant(i)}
                   className="px-2 py-1 text-slate-400 hover:text-red-500 border border-slate-200 rounded-lg hover:border-red-200 transition-colors text-xs cursor-pointer"
                   title="Remove"
-                >✕</button>
+                >?</button>
               </div>
             ))}
           </div>
@@ -1119,41 +1081,43 @@ function ActionsTab({
               />
             </div>
           </div>
-
-          <div className="space-y-1.5 pt-2 border-t border-slate-100">
-            <label className="text-xs font-bold text-slate-700">
-              Driver &amp; Delivery Remarks{' '}
-              {driverFieldsChanged
-                ? <span className="text-red-500">*</span>
-                : <span className="text-slate-400 font-normal">(optional — no changes detected)</span>
-              }
-            </label>
-            <textarea
-              value={driverFieldsRemarks}
-              onChange={e => { setDriverFieldsRemarks(e.target.value); if (driverFieldsRemarksError && e.target.value.trim()) setDriverFieldsRemarksError(false); }}
-              rows={2}
-              placeholder={driverFieldsChanged ? 'Reason for this driver/vehicle/delivery detail change (required)…' : 'Optional note for this save…'}
-              className={`w-full px-3 py-2 border rounded-lg text-xs resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${driverFieldsRemarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
-            />
-            {driverFieldsRemarksError && <p className="text-[11px] text-red-600 font-semibold">Driver & delivery remarks are required when making changes to these fields.</p>}
-
-          </div>
-
-          {saveDriverError && <p role="alert" className="text-[11px] text-red-600 font-semibold mb-2">{saveDriverError}</p>}
-          {driverSuccess && !saveDriverError && <p role="status" className="text-[11px] font-semibold text-emerald-700 mb-2">Driver and delivery details successfully saved!</p>}
+        </div>
+      </div>
+      
+      {/* Unified Save Action */}
+      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Save Changes</h4>
+        <div className="space-y-2">
+          <label className="text-xs font-bold text-slate-700">
+            Change Note <span className="text-red-500">*</span>
+          </label>
+          <textarea
+            value={remarks}
+            onChange={e => { setRemarks(e.target.value); if (remarksError && e.target.value.trim()) setRemarksError(false); }}
+            rows={2}
+            placeholder={isDirty ? 'Explain why you are making this update...' : 'Optional note...'}
+            className={`w-full px-3 py-2 border rounded-lg text-xs resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${remarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
+          />
+          {remarksError && <p role="alert" className="text-[11px] text-red-600 font-semibold">A change note is required when saving changes.</p>}
+        </div>
+        
+        <div className="flex flex-col items-start gap-3 border-t border-slate-100 pt-4">
+          {saveError && <p role="alert" className="text-[11px] text-red-600 font-semibold">{saveError}</p>}
+          {saveSuccess && !saveError && <p role="status" className="text-[11px] font-semibold text-emerald-700">Changes successfully saved!</p>}
           <button
-            onClick={handleSaveDriverFields}
-            disabled={savingFields}
-            className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-[#0078C1] hover:bg-[#1F3864] rounded-lg transition-colors cursor-pointer disabled:opacity-60"
+            onClick={handleSave}
+            disabled={saving || !isDirty}
+            className="flex items-center justify-center gap-1.5 px-4 py-2 w-full sm:w-auto text-xs font-bold text-white bg-[#0078C1] hover:bg-[#1F3864] rounded-lg transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {savingFields ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-            {savingFields ? 'Saving…' : 'Save Driver & Delivery Details'}
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+            {saving ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </div>
     </div>
   );
 }
+
 
 // ─── Comments Tab ─────────────────────────────────────────────────────────────
 
