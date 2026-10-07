@@ -118,7 +118,7 @@ function ScaffoldTab({ icon: Icon, label, detail }: { icon: typeof FileText; lab
 
 type EditDraft = {
   priority: PriorityLevel; reference: string; area: string; vehicle: string;
-  account_manager: string; delivery_date: string; date_time: string;
+  account_manager: string; delivery_date: string;
   item_type: ItemType; is_draft: 'Yes' | 'No'; remarks: string; item_description: string; line_items: { sku: string, quantity: number }[];
   address: string;
 };
@@ -154,7 +154,7 @@ function GeneralTab({
     vehicle: record.vehicle || '(None)',
     account_manager: record.account_manager,
     delivery_date: record.delivery_date,
-    date_time: record.date_time ?? '',
+    
     item_type: record.item_type,
     is_draft: record.is_draft,
     remarks: record.remarks || '',
@@ -174,7 +174,7 @@ function GeneralTab({
       vehicle: record.vehicle || '(None)',
       account_manager: record.account_manager,
       delivery_date: record.delivery_date,
-      date_time: record.date_time ?? '',
+      
       item_type: record.item_type,
       is_draft: record.is_draft,
       remarks: record.remarks || '',
@@ -206,7 +206,7 @@ function GeneralTab({
     setSaveError(null);
     setSaving(true);
     const updates = canEditFull
-      ? { priority: draft.priority, reference: draft.reference, area: draft.area, vehicle: draft.vehicle, account_manager: draft.account_manager, delivery_date: draft.delivery_date, date_time: draft.date_time, item_type: draft.item_type, remarks: draft.remarks, item_description: draft.item_description, line_items: draft.line_items, address: draft.address }
+      ? { priority: draft.priority, reference: draft.reference, area: draft.area, vehicle: draft.vehicle, account_manager: draft.account_manager, delivery_date: draft.delivery_date, item_type: draft.item_type, remarks: draft.remarks, item_description: draft.item_description, line_items: draft.line_items, address: draft.address }
       : { area: draft.area, address: draft.address, remarks: draft.remarks };
     try {
       await onUpdateRecord(record.id, {
@@ -230,7 +230,7 @@ function GeneralTab({
       vehicle: record.vehicle || '(None)',
       account_manager: record.account_manager,
       delivery_date: record.delivery_date,
-      date_time: record.date_time ?? '',
+      
       item_type: record.item_type,
       is_draft: record.is_draft,
       remarks: record.remarks || '',
@@ -316,7 +316,7 @@ function GeneralTab({
                 { label: 'Received By',       value: record.received_by || '—' },
                 { label: 'Account Manager',   value: record.account_manager },
                 { label: 'Delivery Date',   value: record.delivery_date },
-                { label: 'Date & Time',     value: record.date_time ? formatTs(record.date_time) : '—' },
+                { label: 'Created At',      value: record.created_at ? formatTs(record.created_at) : '—' },
                 { label: 'Item Type',       value: record.item_type },
                 { label: 'Draft',           value: record.is_draft },
               ].map(row => (
@@ -413,7 +413,7 @@ function GeneralTab({
                   </div>
                   <div className="space-y-1">
                     <label className={labelCls}>Date &amp; Time</label>
-                    <input type="datetime-local" value={draft.date_time} onChange={e => set('date_time', e.target.value)} className={inputCls} />
+                    
                   </div>
 
                 </>

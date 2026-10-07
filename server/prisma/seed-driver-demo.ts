@@ -130,7 +130,7 @@ export async function seedDriverDemo(prisma: PrismaClient, targetDate?: string) 
             category: 'DELIVERY',
             itemType: 'Small Item',
             draft: false,
-            dateAndTime: `${dateStr}T09:00:00`,
+            
             itemDescription: 'Demo item for testing driver app',
             collectionVerified: false,
             createdById: sales.id,

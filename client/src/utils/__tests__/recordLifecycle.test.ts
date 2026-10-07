@@ -9,7 +9,7 @@ const record = (overrides: Partial<DeliveryRecord> = {}): DeliveryRecord => ({
 } as DeliveryRecord);
 
 test('Save as Draft accepts an incomplete reference; Submit requires the reference and both require a selected company', () => {
-  const draft = { company_name: 'Customer', company_id: 'company-1', reference: '   ' };
+  const draft = { company_name: 'Customer', company_id: 'company-1', reference: '   ', delivery_date: '2026-08-01' };
   assert.deepEqual(submissionErrors(draft, true), {});
   assert.match(submissionErrors(draft, false).reference, /required/);
   assert.deepEqual(submissionErrors({ ...draft, reference: 'SAP-89' }, false), {});

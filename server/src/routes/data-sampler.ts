@@ -204,7 +204,7 @@ router.post('/generate', requireAuth, requireResource('dataSampler'), requireRol
             category:        mod.dbCategory as any,
             itemType:        overrides.item_type      ?? itemType,
             draft:           false,
-            dateAndTime:     overrides.date_time      ?? new Date().toISOString(),
+            
             itemDescription: overrides.item_description ?? itemDescription,
             amount: overrides.amount != null
               ? parseFloat(String(overrides.amount))
