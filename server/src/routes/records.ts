@@ -246,6 +246,11 @@ router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResour
 }));
 
 router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'), asyncRoute(async (req, res) => {
+  const { remarks } = req.body ?? {};
+  if (typeof remarks !== 'string' || !remarks.trim()) {
+    return res.status(400).json({ error: 'Remarks are required to remove an attachment.' });
+  }
+
   const result = await prisma.$transaction(async tx => {
     await lockPodRecord(tx, req.params.id);
     const attachment = await tx.podAttachment.findFirst({ where: { id: req.params.attachmentId, recordId: req.params.id } });
@@ -262,6 +267,7 @@ router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('re
     }
     await tx.podAttachment.delete({ where: { id: attachment.id } });
     await tx.auditLog.create({ data: { recordId: req.params.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id, previousValue: JSON.stringify({ attachment: attachment.originalName, attachment_id: attachment.id }), newValue: JSON.stringify({ attachment_removed: attachment.id }) } });
+    await tx.remarkLog.create({ data: { recordId: req.params.id, body: `Removed attachment ${attachment.originalName}: ${remarks.trim()}`, context: 'GENERAL_EDIT', authorId: req.user!.id } });
     return null;
   });
   if (result) return res.status(result.status).json({ error: result.error });
