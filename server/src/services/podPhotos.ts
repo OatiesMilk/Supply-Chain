@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { podStorage } from './podStorage';
+import sharp from 'sharp';
 
 export const DELIVERY_PHOTO_REQUIRED = 'Upload at least one JPG or PNG delivery photo before marking this delivery Accomplished.';
 
@@ -45,11 +46,23 @@ export function isPodPhoto(buffer: Buffer, mimeType: string): boolean {
   return false;
 }
 
+// Framing alone can be forged. Decode pixel statistics without trusting
+// filenames or allocating a full raw raster buffer in JavaScript.
+export async function isVerifiedPodPhoto(buffer: Buffer, mimeType: string): Promise<boolean> {
+  if (!isPodPhoto(buffer, mimeType)) return false;
+  try {
+    await sharp(buffer, { failOn: 'warning', limitInputPixels: 40_000_000 }).stats();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function isStoredPodPhoto(attachment: { mimeType: string; storageKey: string; size: number }) {
   if (!isPhotoMimeType(attachment.mimeType) || attachment.size <= 0) return false;
   try {
     const content = await podStorage.read(attachment.storageKey);
-    return content.length === attachment.size && isPodPhoto(content, attachment.mimeType);
+    return content.length === attachment.size && await isVerifiedPodPhoto(content, attachment.mimeType);
   } catch {
     // Missing/unreadable files must never satisfy delivery proof.
     return false;

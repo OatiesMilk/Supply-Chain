@@ -8,7 +8,7 @@ import { notifyAccomplished } from '../services/notify';
 import { notifyRole, notifyUser } from '../services/inAppNotify';
 import { CATEGORY_TO_DB, STATUS_TO_DB, STATUS_FROM_DB, serializeRecord } from '../mappings';
 import { podStorage, podUpload } from '../services/podStorage';
-import { DELIVERY_PHOTO_REQUIRED, hasStoredDeliveryPhoto, isPhotoMimeType, isPodPhoto, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
+import { DELIVERY_PHOTO_REQUIRED, hasStoredDeliveryPhoto, isPhotoMimeType, isVerifiedPodPhoto, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
 
 import { canWriteCategory, recordScope } from '../services/recordAccess';
 import { isoTimestamp, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
@@ -21,6 +21,9 @@ const requireRecordAccess = asyncRoute(async (req, res, next) => {
       select: { category: true },
     });
     if (!record) return res.status(403).json({ error: 'Record access denied' });
+    if (req.method !== 'GET' && req.user!.role === 'LOGISTICS' && record.category === 'RMA') {
+      return res.status(403).json({ error: 'Logistics has view-only access to RMA/TASS records' });
+    }
     if (req.method !== 'GET' && !canWriteCategory(req.user!, record.category)) {
       return res.status(403).json({ error: req.user!.role === 'LOGISTICS' && record.category === 'RMA' ? 'Logistics has view-only access to RMA/TASS records' : 'Module access denied' });
     }
@@ -185,38 +188,43 @@ router.post(
   podUpload.single('file'),
   asyncRoute(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'A file is required.' });
-    const isPhoto = isPodPhoto(req.file.buffer, req.file.mimetype);
+    const isPhoto = await isVerifiedPodPhoto(req.file.buffer, req.file.mimetype);
     if (isPhotoMimeType(req.file.mimetype) && !isPhoto) {
       return res.status(400).json({ error: 'This file is not a valid JPG or PNG photo. Choose a photo and try again.' });
     }
-    const record = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] } });
-    if (!record) return res.status(404).json({ error: 'Record not found' });
-
-    const storageKey = await podStorage.save({
-      originalName: req.file.originalname,
-      mimeType: req.file.mimetype,
-      size: req.file.size,
-      buffer: req.file.buffer
-    });
-
-    let attachment;
+    let storageKey: string | undefined;
+    let result;
     try {
-      attachment = await prisma.podAttachment.create({
-        data: {
-          recordId: record.id,
-          originalName: req.file.originalname,
-          storageKey,
-          mimeType: req.file.mimetype,
-          size: req.file.size,
-          uploadedById: req.user!.id
+      result = await prisma.$transaction(async tx => {
+        await lockPodRecord(tx, req.params.id);
+        const record = await tx.deliveryRecord.findUnique({ where: { id: req.params.id } });
+        if (!record || record.deletedAt) return { status: 404, error: 'Record not found', attachment: null };
+        if (req.user!.role === 'DRIVER' && (record.draft || record.driver !== req.user!.name)) {
+          return { status: 403, error: 'Drivers may only upload to their own assigned records', attachment: null };
         }
-      });
+        if (!canWriteCategory(req.user!, record.category) || (req.user!.role === 'LOGISTICS' && record.category === 'RMA')) {
+          return { status: 403, error: 'Record access denied', attachment: null };
+        }
+        storageKey = await podStorage.save({
+          originalName: req.file!.originalname, mimeType: req.file!.mimetype,
+          size: req.file!.size, buffer: req.file!.buffer,
+        });
+        const attachment = await tx.podAttachment.create({ data: {
+          recordId: record.id, originalName: req.file!.originalname, storageKey,
+          mimeType: req.file!.mimetype, size: req.file!.size, uploadedById: req.user!.id,
+        } });
+        return { status: 201, error: null, attachment };
+      }, { timeout: 30_000 });
     } catch (error) {
-      await podStorage.remove(storageKey).catch(cleanupError => {
+      // Object storage is external to the database transaction: compensate on
+      // metadata or commit failure, retaining the existing orphan-recovery log.
+      if (storageKey) await podStorage.remove(storageKey).catch(cleanupError => {
         console.error('[POD] Failed to clean up storage after metadata failure', cleanupError);
       });
       throw error;
     }
+    if (result.error) return res.status(result.status).json({ error: result.error });
+    const attachment = result.attachment!;
     res.status(201).json({
       id: attachment.id,
       name: attachment.originalName,
@@ -224,7 +232,7 @@ router.post(
       is_photo: isPhoto,
       size: attachment.size,
       uploaded_at: attachment.createdAt,
-      download_url: `/api/records/${record.id}/attachments/${attachment.id}/download`
+      download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`
     });
   })
 );
@@ -503,8 +511,9 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     await lockPodRecord(tx, existing.id);
     const current = await tx.deliveryRecord.findUnique({ where: { id: existing.id } });
     if (!current || current.deletedAt) return { error: 'Record not found', updated: null };
-    if (req.user!.role === 'DRIVER' && (current.draft || current.driver !== req.user!.name)) return { error: 'Record access denied', updated: null };
+    if (!canWriteCategory(req.user!, current.category) || (req.user!.role === 'DRIVER' && (current.draft || current.driver !== req.user!.name))) return { error: 'Record access denied', updated: null };
     if (data.draft !== undefined && data.draft !== current.draft) {
+      if (!['SALES_COORDINATOR', 'ADMIN'].includes(req.user!.role)) return { error: 'Only Sales Coordinator or Admin may submit or return drafts.', updated: null };
       const invalid = transitionError(current, data.draft ? 'Draft' : 'Scheduled', req.user!.role);
       if (invalid) return { error: invalid, updated: null };
       if (!data.draft && !String(data.reference ?? current.reference).trim()) return { error: 'Reference is required to submit the draft.', updated: null };
@@ -531,7 +540,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     } });
     return { error: null, updated };
   });
-  if (result.error) return res.status(result.error === 'Record not found' ? 404 : 400).json({ error: result.error });
+  if (result.error) return res.status(result.error === 'Record not found' ? 404 : result.error === 'Record access denied' || result.error === 'Only Sales Coordinator or Admin may submit or return drafts.' ? 403 : 400).json({ error: result.error });
   const updated = result.updated!;
 
   // Notify the record creator (Sales Coordinator) when Logistics assigns a driver
@@ -589,8 +598,8 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   if (hasPriority && !['1 - Low', '2 - Moderate', '3 - High'].includes(priority)) return res.status(400).json({ error: 'Invalid record priority.' });
   const result = await prisma.$transaction(async tx => {
     await lockPodRecord(tx, req.params.id);
-    const current = await tx.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] }, include: recordInclude });
-    if (!current) return { error: 'Record access denied', saved: null, previous: null };
+    const current = await tx.deliveryRecord.findUnique({ where: { id: req.params.id }, include: recordInclude });
+    if (!current || current.deletedAt || (req.user!.role === 'DRIVER' && (current.draft || current.driver !== req.user!.name)) || !canWriteCategory(req.user!, current.category)) return { error: 'Record access denied', saved: null, previous: null };
     if (req.user!.role === 'TASS' && current.category !== 'RMA') return { error: 'TASS status updates are limited to RMA records', saved: null, previous: null };
     if (req.user!.role === 'SALES_COORDINATOR' && !(status === 'Draft' || current.draft && status === 'Scheduled')) return { error: 'Sales Coordinator may only submit or return drafts.', saved: null, previous: null };
     const statusChanged = runState(current) !== status;
@@ -622,7 +631,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     await tx.remarkLog.create({ data: { recordId: saved.id, body: remarks.trim(), context: 'STATUS_CHANGE', authorId: req.user!.id } });
     return { error: null, saved, previous: current };
   });
-  if (result.error) return res.status(400).json({ error: result.error });
+  if (result.error) return res.status(result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' ? 403 : 400).json({ error: result.error });
   const updated = result.saved!;
   if (status === 'Delivered' && result.previous!.status !== 'ACCOMPLISHED') {
     await notifyAccomplished({
