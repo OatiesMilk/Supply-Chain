@@ -106,7 +106,6 @@ interface RecordFormState {
   category: DeliveryCategory;
   item_type: string;
   is_draft: string;
-  date_time: string;
   item_description: string;
   line_items: { sku: string; quantity: number }[];
   address: string;
@@ -129,7 +128,6 @@ const buildEmptyForm = (category: DeliveryCategory): RecordFormState => ({
   category,
   item_type: 'Small Item',
   is_draft: 'No',
-  date_time: '',
   item_description: '',
   line_items: [],
   attachments: []
@@ -172,8 +170,10 @@ export default function RecordCreateForm({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const updateField = <K extends keyof RecordFormState>(key: K, value: RecordFormState[K]) =>
+  const updateField = <K extends keyof RecordFormState>(key: K, value: RecordFormState[K]) => {
+    setFormErrors(prev => { const n = { ...prev }; delete n[key as string]; return n; });
     setForm(prev => ({ ...prev, [key]: value }));
+  }
 
   const handleCategoryChange = (cat: DeliveryCategory) => {
     setForm(prev => ({ ...buildEmptyForm(cat), company_name: prev.company_name, company_id: prev.company_id }));
@@ -201,7 +201,6 @@ export default function RecordCreateForm({
       category: cat,
       item_type: afPick(ITEM_TYPES),
       is_draft: 'No',
-      date_time: `${deliveryDate}T${String(afRandInt(7, 11)).padStart(2, '0')}:00`,
       item_description: afPick(AF_ITEMS[cat] ?? ['(sample item)']),
       line_items: [{ sku: afPick(AF_ITEMS[cat] ?? ['Sample SKU']), quantity: afRandInt(1, 10) }],
       attachments: [],
@@ -226,6 +225,7 @@ export default function RecordCreateForm({
   };
 
   const handleCompanySelect = (name: string) => {
+    setFormErrors(prev => { const n = { ...prev }; delete n.company_name; delete n.company_id; return n; });
     const company = companies.find(c => c.name === name);
     setForm(prev => ({ ...prev, company_name: name, company_id: company?.id || '' }));
   };
@@ -419,13 +419,6 @@ export default function RecordCreateForm({
             <select value={form.item_type} onChange={e => updateField('item_type', e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">
               {ITEM_TYPES.map(it => <option key={it} value={it}>{it}</option>)}
             </select>
-          </div>
-
-          {/* Date and Time */}
-          <div className="space-y-1.5">
-            <label className="font-bold text-slate-700">Date and Time <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
-            <input type="datetime-local" value={form.date_time} onChange={e => updateField('date_time', e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
           </div>
 
           {/* Remarks */}

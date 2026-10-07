@@ -60,7 +60,6 @@ export interface DeliveryRecord extends AuditFields {
   category: DeliveryCategory;
   item_type: ItemType;
   is_draft: 'Yes' | 'No';
-  date_time: string; // separate date+time field, ISO datetime
   item_description: string;
   line_items?: { id?: string, sku: string, quantity: number }[];
   attachments: string[]; // mock file names only

@@ -110,8 +110,7 @@ export function DeliveryDetail({ detail }: { detail: ApiTransactionDetail }) {
           <InfoRow label="Company / Entity"    value={detail.entity} />
           <InfoRow label="Item Description"    value={detail.description} />
           <InfoRow label="Delivery Date"       value={detail.delivery_date} />
-          <InfoRow label="Date & Time"         value={detail.date_time ? formatTs(detail.date_time) : null} />
-          <InfoRow label="Area"                value={detail.area} />
+                    <InfoRow label="Area"                value={detail.area} />
           <InfoRow label="Vehicle"             value={detail.vehicle} />
           <InfoRow label="Driver"              value={detail.driver} />
           <InfoRow label="Driver Assistant"    value={Array.isArray(detail.driver_assistants) ? detail.driver_assistants.join(', ') : null} />
