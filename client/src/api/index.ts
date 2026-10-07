@@ -15,9 +15,12 @@ export function apiUrl(path: string): string {
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  /** Per-field validation messages from the server, keyed by API field name. */
+  fields: Record<string, string>;
+  constructor(message: string, status: number, fields: Record<string, string> = {}) {
     super(message);
     this.status = status;
+    this.fields = fields;
   }
 }
 
@@ -44,17 +47,27 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
+    let fields: Record<string, string> = {};
     try {
       const body = await res.json();
       if (body?.error) message = body.error;
+      if (body?.fields && typeof body.fields === 'object') fields = body.fields;
     } catch {
       // ignore non-JSON error bodies
     }
-    throw new ApiError(message, res.status);
+    throw new ApiError(message, res.status, fields);
   }
 
   if (res.status === 204) return undefined as unknown as T;
   return res.json() as Promise<T>;
+}
+
+/** Optional server-side filters for GET /records; the server always applies the user's record scope. */
+export interface RecordListFilters {
+  company_id?: string;
+  category?: string;
+  limit?: number;
+  cursor?: string;
 }
 
 export interface ApiUser {
@@ -125,6 +138,23 @@ export interface ApiCustomer {
   created_at: string;
   modified_by: string;
   modified_at: string;
+}
+
+export type CustomerEditableField = 'name' | 'contact_person' | 'email' | 'phone' | 'city' | 'address';
+
+export type CustomerUpdateInput = Partial<Record<CustomerEditableField, string>> & {
+  remarks: string;
+  /** The modified_at value the edit was based on; the server rejects stale edits with 409. */
+  expected_modified_at: string;
+};
+
+export interface ApiCustomerAuditEntry {
+  id: string;
+  action: string;
+  changed_by: string;
+  timestamp: string;
+  remarks: string;
+  changes: Array<{ field: string; label: string; from: string; to: string }>;
 }
 
 export interface ApiSupplier {
@@ -356,7 +386,6 @@ export interface ApiTransactionDetail {
   driver_assistants?: string[];
   account_manager?: string;
   delivery_date?: string;
-  date_time?: string;
   item_type?: string;
   remarks?: string;
   priority?: string;
@@ -389,7 +418,14 @@ export const api = {
   logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
   me: () => request<ApiUser>('/auth/me'),
 
-  getRecords: () => request<any[]>('/records'),
+  getRecords: (filters: RecordListFilters = {}) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) {
+      if (value !== undefined && value !== '') params.set(key, String(value));
+    }
+    const query = params.toString();
+    return request<any[]>(`/records${query ? `?${query}` : ''}`);
+  },
   getRecord: (id: string) => request<any>(`/records/${id}`),
   getRecordAudit: (id: string) => request<ApiAuditEntry[]>(`/records/${id}/audit`),
   createRecord: (data: Record<string, unknown>) =>
@@ -408,14 +444,17 @@ export const api = {
     form.append('file', file);
     return request<ApiPodAttachment>(`/records/${id}/attachments`, { method: 'POST', body: form });
   },
-  deleteRecordAttachment: (id: string, attachmentId: string) =>
-    request<void>(`/records/${id}/attachments/${attachmentId}`, { method: 'DELETE' }),
+  deleteRecordAttachment: (id: string, attachmentId: string, remarks: string) =>
+    request<void>(`/records/${id}/attachments/${attachmentId}`, { method: 'DELETE', body: JSON.stringify({ remarks }) }),
 
   getCompanies: () => request<ApiCompany[]>('/companies'),
 
   getCustomers: () => request<ApiCustomer[]>('/customers'),
   createCustomer: (data: { name: string; contact_person?: string; email?: string; phone?: string; address?: string; city?: string }) =>
     request<ApiCustomer>('/customers', { method: 'POST', body: JSON.stringify(data) }),
+  updateCustomer: (id: string, data: CustomerUpdateInput) =>
+    request<ApiCustomer>(`/customers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  getCustomerAudit: (id: string) => request<ApiCustomerAuditEntry[]>(`/customers/${id}/audit`),
 
   getSuppliers: () => request<ApiSupplier[]>('/suppliers'),
   createSupplier: (data: { name: string; contact_person?: string; email?: string; phone?: string; address?: string; city?: string; category?: string }) =>

@@ -3,6 +3,8 @@ import { completionError } from '@/utils/podRequirement';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
 import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
 import PodUploader from '@/components/PodUploader';
+import { CompanyHistoryButton } from '@/components/CompanyHistoryPanel';
+import { useUIStore } from '@/store/uiStore';
 import { useState, useEffect, useRef } from 'react';
 import {
   ArrowLeft, ChevronLeft, ChevronRight,
@@ -478,6 +480,7 @@ function OverviewTab({
   currentUserRole: UserRole;
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
 }) {
+  const navigate = useUIStore(s => s.handleNavigate);
   const [updating, setUpdating] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [receivedBy, setReceivedBy] = useState(record.received_by ?? '');
@@ -580,7 +583,15 @@ function OverviewTab({
             Priority: {record.priority}
           </span>
         </div>
-        <p className="text-sm font-bold text-slate-700 mb-3">{record.company_name}</p>
+        <div className="text-sm font-bold text-slate-700 mb-3">
+          <CompanyHistoryButton
+            companyId={record.company_id}
+            companyName={record.company_name}
+            currentRecordId={record.id}
+            disabled={updating}
+            onOpenRecord={navigate}
+          />
+        </div>
         {record.amount != null && (
           <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3">
             <div>
@@ -637,7 +648,7 @@ function OverviewTab({
             { label: 'Driver',          value: record.driver || 'Unassigned' },
             { label: 'Account Manager', value: record.account_manager },
             { label: 'Delivery Date',   value: record.delivery_date },
-            { label: 'Date & Time',     value: record.date_time ? formatTs(record.date_time) : '—' },
+            { label: 'Created At',      value: record.created_at ? formatTs(record.created_at) : '—' },
             { label: 'Item Type',       value: record.item_type },
             { label: 'Draft',           value: record.is_draft },
           ].map(row => (

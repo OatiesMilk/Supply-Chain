@@ -1,6 +1,6 @@
 import { useState, FormEvent } from 'react';
 import { Plus, X } from 'lucide-react';
-import { Customer, DeliveryRecord } from '@/types';
+import { Customer } from '@/types';
 import CustomerWorkspace from '@/features/customers/CustomerWorkspace';
 import ExportMenu from '@/components/ExportMenu';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
@@ -8,10 +8,8 @@ import { CUSTOMER_COLUMNS } from '@/utils/export';
 
 interface CustomersViewProps {
   customers: Customer[];
-  deliveryRecords: DeliveryRecord[];
   currentUserRole: string;
   currentUserName: string;
-  onNavigate: (screen: string, item_id?: string) => void;
   onCreateCustomer: (data: { name: string; contact_person?: string; email?: string; phone?: string; address?: string; city?: string }) => Promise<void>;
 }
 
@@ -19,10 +17,8 @@ const EMPTY_FORM = { name: '', contact_person: '', email: '', phone: '', address
 
 export default function CustomersView({
   customers,
-  deliveryRecords,
   currentUserRole,
   currentUserName,
-  onNavigate,
   onCreateCustomer
 }: CustomersViewProps) {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
@@ -70,10 +66,8 @@ export default function CustomersView({
         customerId={selectedCustomerId}
         allCustomerIds={customers.map(c => c.id)}
         customers={customers}
-        deliveryRecords={deliveryRecords}
         currentUserRole={currentUserRole}
         onBack={handleBackToList}
-        onNavigate={onNavigate}
         onNavigateToCustomer={handleNavigateToCustomer}
       />
     );
@@ -87,7 +81,6 @@ export default function CustomersView({
     phone: c.phone,
     city: c.city,
     address: c.address,
-    total_records: deliveryRecords.filter(r => r.customer_id === c.id).length,
   }));
 
   return (
@@ -142,12 +135,10 @@ export default function CustomersView({
                 <th className="px-4 py-3">Merchant Customer</th>
                 <th className="px-4 py-3">Contact Person</th>
                 <th className="px-4 py-3">City</th>
-                <th className="px-4 py-3 text-center">Records Logged</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {customers.slice((safeCurrentPage - 1) * pageSize, safeCurrentPage * pageSize).map(c => {
-                const totalRecords = deliveryRecords.filter(r => r.customer_id === c.id).length;
                 return (
                   <tr
                     key={c.id}
@@ -161,7 +152,6 @@ export default function CustomersView({
                     </td>
                     <td className="px-4 py-3.5 text-slate-700 font-extrabold">{c.contact_person}</td>
                     <td className="px-4 py-3.5 text-slate-500 font-bold">{c.city}</td>
-                    <td className="px-4 py-3.5 text-center font-bold text-slate-800">{totalRecords}</td>
                   </tr>
                 );
               })}

@@ -203,10 +203,8 @@ export const AppRouter: React.FC<AppRouterProps> = ({
       return (
         <CustomersPage
           customers={customers}
-          deliveryRecords={deliveryRecords}
           currentUserRole={currentUserRole}
           currentUserName={currentUserName}
-          onNavigate={handleNavigate}
           onCreateCustomer={handleCreateCustomer}
         />
       );

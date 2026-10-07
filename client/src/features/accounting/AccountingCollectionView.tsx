@@ -42,7 +42,6 @@ interface RecordFormState {
   delivery_date: string;
   item_type: string;
   is_draft: string;
-  date_time: string;
   item_description: string;
   attachments: string[];
   amount: string; // string for controlled input, parsed to number on submit
@@ -60,7 +59,6 @@ const buildEmptyForm = (): RecordFormState => ({
   delivery_date: manilaToday(),
   item_type: 'Small Item',
   is_draft: 'No',
-  date_time: manilaDateTimeInput(new Date().toISOString()),
   item_description: '',
   attachments: [],
   amount: '',
@@ -177,7 +175,6 @@ export default function AccountingCollectionView({
       delivery_date: deliveryDate,
       item_type: acAfPick(ITEM_TYPES),
       is_draft: 'No',
-      date_time: `${deliveryDate}T${String(acAfRandInt(8, 11)).padStart(2, '0')}:00`,
       item_description: acAfPick(AC_AF_ITEMS),
       attachments: [],
       amount: String(acAfRandInt(500, 15000) * 10),
@@ -233,7 +230,6 @@ export default function AccountingCollectionView({
       // schema requires it, so submit a fixed default rather than exposing it.
       vehicle: '(None)',
       category: CATEGORY,
-      customer_id: form.company_id,
       priority: form.priority as DeliveryRecord['priority'],
       status: isDraft ? 'Draft' : 'Scheduled',
       item_type: form.item_type as DeliveryRecord['item_type'],
@@ -508,13 +504,6 @@ export default function AccountingCollectionView({
                 <select value={form.item_type} onChange={e => updateField('item_type', e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">
                   {ITEM_TYPES.map(it => <option key={it} value={it}>{it}</option>)}
                 </select>
-              </div>
-
-              {/* Date and Time */}
-              <div className="space-y-1.5">
-                <label className="font-bold text-slate-700">Date and Time</label>
-                <input type="datetime-local" value={form.date_time} onChange={e => updateField('date_time', e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
               </div>
 
               {/* Item Description */}

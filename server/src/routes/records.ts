@@ -1,4 +1,5 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../db';
 import { asyncRoute } from '../middleware/asyncRoute';
 import { assignmentError, withDriverDirectoryLock } from '../services/driverDirectory';
@@ -8,7 +9,7 @@ import { notifyAccomplished } from '../services/notify';
 import { notifyRole, notifyUser } from '../services/inAppNotify';
 import { CATEGORY_TO_DB, STATUS_TO_DB, STATUS_FROM_DB, serializeRecord } from '../mappings';
 import { podStorage, podUpload } from '../services/podStorage';
-import { DELIVERY_PHOTO_REQUIRED, hasStoredDeliveryPhoto, isPhotoMimeType, isPodPhoto, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
+import { DELIVERY_PHOTO_REQUIRED, hasStoredDeliveryPhoto, isPhotoMimeType, isVerifiedPodPhoto, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
 
 import { canWriteCategory, recordScope } from '../services/recordAccess';
 import { isoTimestamp, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
@@ -21,6 +22,9 @@ const requireRecordAccess = asyncRoute(async (req, res, next) => {
       select: { category: true },
     });
     if (!record) return res.status(403).json({ error: 'Record access denied' });
+    if (req.method !== 'GET' && req.user!.role === 'LOGISTICS' && record.category === 'RMA') {
+      return res.status(403).json({ error: 'Logistics has view-only access to RMA/TASS records' });
+    }
     if (req.method !== 'GET' && !canWriteCategory(req.user!, record.category)) {
       return res.status(403).json({ error: req.user!.role === 'LOGISTICS' && record.category === 'RMA' ? 'Logistics has view-only access to RMA/TASS records' : 'Module access denied' });
     }
@@ -51,11 +55,49 @@ function generateRecordId(): string {
 }
 
 const TASS_CATEGORIES: string[] = ['ACCOUNTING_COLLECTION', 'RMA'];
+const LIST_ID_PATTERN = /^[\w-]{1,64}$/;
+const LIST_MAX_LIMIT = 100;
+
+// Optional filters for GET /records. Without any query params the endpoint
+// keeps returning every record the user can read, newest first.
+function parseListQuery(query: express.Request['query']) {
+  const { company_id, category, limit, cursor } = query;
+  const where: Prisma.DeliveryRecordWhereInput = {};
+  let take: number | undefined;
+
+  if (company_id !== undefined) {
+    if (typeof company_id !== 'string' || !LIST_ID_PATTERN.test(company_id)) return { error: 'company_id is invalid' };
+    where.companyId = company_id;
+  }
+  if (category !== undefined) {
+    const dbCategory = typeof category === 'string' ? CATEGORY_TO_DB[category] : undefined;
+    if (!dbCategory) return { error: 'category is invalid' };
+    where.category = dbCategory as Prisma.DeliveryRecordWhereInput['category'];
+  }
+  if (limit !== undefined) {
+    take = typeof limit === 'string' && /^\d+$/.test(limit) ? Number(limit) : NaN;
+    if (!(take >= 1 && take <= LIST_MAX_LIMIT)) return { error: `limit must be between 1 and ${LIST_MAX_LIMIT}` };
+  }
+  if (cursor !== undefined) {
+    if (typeof cursor !== 'string' || !LIST_ID_PATTERN.test(cursor)) return { error: 'cursor is invalid' };
+    if (take === undefined) return { error: 'cursor requires limit' };
+  }
+  return { where, take, cursor: cursor as string | undefined };
+}
+
 router.get('/', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
+  const parsed = parseListQuery(req.query);
+  if ('error' in parsed) return res.status(400).json({ error: parsed.error });
+
+  // recordScope stays in the AND list so filters can only narrow what the
+  // user is already allowed to read. An unknown or out-of-scope company
+  // returns an empty list rather than revealing whether it exists.
   const records = await prisma.deliveryRecord.findMany({
-    where: { deletedAt: null, AND: [recordScope(req.user!)] },
+    where: { deletedAt: null, ...parsed.where, AND: [recordScope(req.user!)] },
     include: recordInclude,
-    orderBy: { createdAt: 'desc' }
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    ...(parsed.take !== undefined ? { take: parsed.take } : {}),
+    ...(parsed.cursor ? { cursor: { id: parsed.cursor }, skip: 1 } : {}),
   });
   res.json(records.map(serializeRecord));
 });
@@ -185,38 +227,43 @@ router.post(
   podUpload.single('file'),
   asyncRoute(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'A file is required.' });
-    const isPhoto = isPodPhoto(req.file.buffer, req.file.mimetype);
+    const isPhoto = await isVerifiedPodPhoto(req.file.buffer, req.file.mimetype);
     if (isPhotoMimeType(req.file.mimetype) && !isPhoto) {
       return res.status(400).json({ error: 'This file is not a valid JPG or PNG photo. Choose a photo and try again.' });
     }
-    const record = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] } });
-    if (!record) return res.status(404).json({ error: 'Record not found' });
-
-    const storageKey = await podStorage.save({
-      originalName: req.file.originalname,
-      mimeType: req.file.mimetype,
-      size: req.file.size,
-      buffer: req.file.buffer
-    });
-
-    let attachment;
+    let storageKey: string | undefined;
+    let result;
     try {
-      attachment = await prisma.podAttachment.create({
-        data: {
-          recordId: record.id,
-          originalName: req.file.originalname,
-          storageKey,
-          mimeType: req.file.mimetype,
-          size: req.file.size,
-          uploadedById: req.user!.id
+      result = await prisma.$transaction(async tx => {
+        await lockPodRecord(tx, req.params.id);
+        const record = await tx.deliveryRecord.findUnique({ where: { id: req.params.id } });
+        if (!record || record.deletedAt) return { status: 404, error: 'Record not found', attachment: null };
+        if (req.user!.role === 'DRIVER' && (record.draft || record.driver !== req.user!.name)) {
+          return { status: 403, error: 'Drivers may only upload to their own assigned records', attachment: null };
         }
-      });
+        if (!canWriteCategory(req.user!, record.category) || (req.user!.role === 'LOGISTICS' && record.category === 'RMA')) {
+          return { status: 403, error: 'Record access denied', attachment: null };
+        }
+        storageKey = await podStorage.save({
+          originalName: req.file!.originalname, mimeType: req.file!.mimetype,
+          size: req.file!.size, buffer: req.file!.buffer,
+        });
+        const attachment = await tx.podAttachment.create({ data: {
+          recordId: record.id, originalName: req.file!.originalname, storageKey,
+          mimeType: req.file!.mimetype, size: req.file!.size, uploadedById: req.user!.id,
+        } });
+        return { status: 201, error: null, attachment };
+      }, { timeout: 30_000 });
     } catch (error) {
-      await podStorage.remove(storageKey).catch(cleanupError => {
+      // Object storage is external to the database transaction: compensate on
+      // metadata or commit failure, retaining the existing orphan-recovery log.
+      if (storageKey) await podStorage.remove(storageKey).catch(cleanupError => {
         console.error('[POD] Failed to clean up storage after metadata failure', cleanupError);
       });
       throw error;
     }
+    if (result.error) return res.status(result.status).json({ error: result.error });
+    const attachment = result.attachment!;
     res.status(201).json({
       id: attachment.id,
       name: attachment.originalName,
@@ -224,7 +271,7 @@ router.post(
       is_photo: isPhoto,
       size: attachment.size,
       uploaded_at: attachment.createdAt,
-      download_url: `/api/records/${record.id}/attachments/${attachment.id}/download`
+      download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`
     });
   })
 );
@@ -246,6 +293,11 @@ router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResour
 }));
 
 router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'), asyncRoute(async (req, res) => {
+  const { remarks } = req.body ?? {};
+  if (typeof remarks !== 'string' || !remarks.trim()) {
+    return res.status(400).json({ error: 'Remarks are required to remove an attachment.' });
+  }
+
   const result = await prisma.$transaction(async tx => {
     await lockPodRecord(tx, req.params.id);
     const attachment = await tx.podAttachment.findFirst({ where: { id: req.params.attachmentId, recordId: req.params.id } });
@@ -262,6 +314,7 @@ router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('re
     }
     await tx.podAttachment.delete({ where: { id: attachment.id } });
     await tx.auditLog.create({ data: { recordId: req.params.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id, previousValue: JSON.stringify({ attachment: attachment.originalName, attachment_id: attachment.id }), newValue: JSON.stringify({ attachment_removed: attachment.id }) } });
+    await tx.remarkLog.create({ data: { recordId: req.params.id, body: `Removed attachment ${attachment.originalName}: ${remarks.trim()}`, context: 'GENERAL_EDIT', authorId: req.user!.id } });
     return null;
   });
   if (result) return res.status(result.status).json({ error: result.error });
@@ -312,6 +365,8 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
     return res.status(403).json({ error: 'Sales Coordinator cannot assign drivers — use the Logistics role' });
   }
 
+  if (!isDraft && !b.reference?.trim()) return res.status(400).json({ error: 'Reference is required' });
+  if (!isDraft && !b.delivery_date) return res.status(400).json({ error: 'Delivery Date is required' });
   if (b.status && !['Draft', 'Scheduled'].includes(b.status)) return res.status(400).json({ error: 'New records must be Draft or Scheduled.' });
   if ((b.driver && String(b.driver).trim()) || (Array.isArray(b.driver_assistants) && b.driver_assistants.length)) return res.status(400).json({ error: 'Assign drivers after submitting the record.' });
   const created = await prisma.$transaction(async tx => {
@@ -335,7 +390,7 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
         category: dbCategory as any,
         itemType: b.item_type ?? 'Small Item',
         draft: isDraft,
-        dateAndTime: b.date_time ?? new Date().toISOString(),
+        
         itemDescription: b.item_description ?? '',
         lineItems: Array.isArray(b.line_items) ? {
           create: b.line_items.map((li: any) => ({
@@ -464,7 +519,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (b.delivery_date !== undefined) data.deliveryDate = b.delivery_date;
     if (b.item_type !== undefined) data.itemType = b.item_type;
     if (b.is_draft !== undefined) data.draft = b.is_draft === 'Yes';
-    if (b.date_time !== undefined) data.dateAndTime = b.date_time;
+    
     if (b.item_description !== undefined) data.itemDescription = b.item_description;
     if (b.line_items !== undefined && Array.isArray(b.line_items)) {
       data.lineItems = {
@@ -482,7 +537,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
 
   // Admin can correct the same full metadata exposed by the staff editor.
   if (req.user!.role === 'ADMIN') {
-    const metadata: Record<string, string> = { company_id: 'companyId', reference: 'reference', account_manager: 'accountManager', delivery_date: 'deliveryDate', item_type: 'itemType', date_time: 'dateAndTime', item_description: 'itemDescription' };
+    const metadata: Record<string, string> = { company_id: 'companyId', reference: 'reference', account_manager: 'accountManager', delivery_date: 'deliveryDate', item_type: 'itemType', item_description: 'itemDescription' };
     for (const [input, field] of Object.entries(metadata)) if (b[input] !== undefined) data[field] = b[input];
     if (b.amount !== undefined) data.amount = b.amount != null ? parseFloat(String(b.amount)) : null;
     if (Array.isArray(b.attachments) && b.attachments.length > 0) data.documentAttachment = b.attachments[0];
@@ -495,8 +550,9 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     await lockPodRecord(tx, existing.id);
     const current = await tx.deliveryRecord.findUnique({ where: { id: existing.id } });
     if (!current || current.deletedAt) return { error: 'Record not found', updated: null };
-    if (req.user!.role === 'DRIVER' && (current.draft || current.driver !== req.user!.name)) return { error: 'Record access denied', updated: null };
+    if (!canWriteCategory(req.user!, current.category) || (req.user!.role === 'DRIVER' && (current.draft || current.driver !== req.user!.name))) return { error: 'Record access denied', updated: null };
     if (data.draft !== undefined && data.draft !== current.draft) {
+      if (!['SALES_COORDINATOR', 'ADMIN'].includes(req.user!.role)) return { error: 'Only Sales Coordinator or Admin may submit or return drafts.', updated: null };
       const invalid = transitionError(current, data.draft ? 'Draft' : 'Scheduled', req.user!.role);
       if (invalid) return { error: invalid, updated: null };
       if (!data.draft && !String(data.reference ?? current.reference).trim()) return { error: 'Reference is required to submit the draft.', updated: null };
@@ -523,7 +579,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     } });
     return { error: null, updated };
   });
-  if (result.error) return res.status(result.error === 'Record not found' ? 404 : 400).json({ error: result.error });
+  if (result.error) return res.status(result.error === 'Record not found' ? 404 : result.error === 'Record access denied' || result.error === 'Only Sales Coordinator or Admin may submit or return drafts.' ? 403 : 400).json({ error: result.error });
   const updated = result.updated!;
 
   // Notify the record creator (Sales Coordinator) when Logistics assigns a driver
@@ -581,8 +637,8 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   if (hasPriority && !['1 - Low', '2 - Moderate', '3 - High'].includes(priority)) return res.status(400).json({ error: 'Invalid record priority.' });
   const result = await prisma.$transaction(async tx => {
     await lockPodRecord(tx, req.params.id);
-    const current = await tx.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] }, include: recordInclude });
-    if (!current) return { error: 'Record access denied', saved: null, previous: null };
+    const current = await tx.deliveryRecord.findUnique({ where: { id: req.params.id }, include: recordInclude });
+    if (!current || current.deletedAt || (req.user!.role === 'DRIVER' && (current.draft || current.driver !== req.user!.name)) || !canWriteCategory(req.user!, current.category)) return { error: 'Record access denied', saved: null, previous: null };
     if (req.user!.role === 'TASS' && current.category !== 'RMA') return { error: 'TASS status updates are limited to RMA records', saved: null, previous: null };
     if (req.user!.role === 'SALES_COORDINATOR' && !(status === 'Draft' || current.draft && status === 'Scheduled')) return { error: 'Sales Coordinator may only submit or return drafts.', saved: null, previous: null };
     const statusChanged = runState(current) !== status;
@@ -614,7 +670,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     await tx.remarkLog.create({ data: { recordId: saved.id, body: remarks.trim(), context: 'STATUS_CHANGE', authorId: req.user!.id } });
     return { error: null, saved, previous: current };
   });
-  if (result.error) return res.status(400).json({ error: result.error });
+  if (result.error) return res.status(result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' ? 403 : 400).json({ error: result.error });
   const updated = result.saved!;
   if (status === 'Delivered' && result.previous!.status !== 'ACCOMPLISHED') {
     await notifyAccomplished({
