@@ -40,7 +40,7 @@ function initials(name: string) {
   return name.split(/\s+/).map(p => p[0]).join('').slice(0, 2).toUpperCase();
 }
 
-type AssignmentState = { editing: boolean; pending: boolean; error: string };
+type AssignmentState = { editing: boolean; pending: boolean; error: string; feedback?: { message: string; type: 'success' | 'error' }; };
 const idleAssignment: AssignmentState = { editing: false, pending: false, error: '' };
 const focusStyle = 'touch-manipulation focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700';
 
@@ -147,6 +147,7 @@ const RecordCard: React.FC<CardProps> = function RecordCard({ record, onNavigate
           </div>
         )}
         {assignment.error && <p id={`${id}-error`} role="alert" className="mt-2 text-sm text-red-700">{assignment.error}</p>}
+        {assignment.feedback && <p role="alert" className={`mt-2 text-xs ${assignment.feedback.type === 'success' ? 'text-emerald-700' : 'text-red-700'}`}>{assignment.feedback.message}</p>}
       </div>
     </article>
   );
@@ -192,7 +193,8 @@ export default function DriverBoard({ records, onNavigate, onUpdateRecord, curre
         modified_by: `${currentUserName} (Logistics)`,
         modified_at: new Date().toISOString()
       });
-      setAssignments(previous => ({ ...previous, [recordId]: idleAssignment }));
+      setAssignments(previous => ({ ...previous, [recordId]: { ...idleAssignment, feedback: { message: driver ? 'Driver assigned successfully.' : 'Driver unassigned successfully.', type: 'success' } } }));
+      setTimeout(() => setAssignments(prev => ({ ...prev, [recordId]: { ...(prev[recordId] ?? idleAssignment), feedback: undefined } })), 3000);
     } catch (error) {
       const message = error instanceof Error && error.message.trim() ? error.message : 'Could not save the assignment.';
       setAssignments(previous => ({ ...previous, [recordId]: { editing: true, pending: false, error: `${message} Choose a driver to try again.` } }));
