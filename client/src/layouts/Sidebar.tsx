@@ -9,7 +9,6 @@ import {
   Building2,
   Calendar,
   Columns,
-  History,
   BarChart3,
   BookOpen,
   ArrowLeftRight,
@@ -297,15 +296,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
                   <Columns className="w-5 h-5 shrink-0" />
                   {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Driver Board</span>}
-                </span>
-              </button>
-            )}
-
-            {canAccess('status_history') && (
-              <button onClick={() => handleNavigate('status_history')} title={isSidebarCollapsed ? 'Status History' : ''} className={navItemClass('status_history')}>
-                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                  <History className="w-5 h-5 shrink-0" />
-                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Status History</span>}
                 </span>
               </button>
             )}

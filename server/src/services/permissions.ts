@@ -7,16 +7,16 @@ export const SCREEN_LABELS = {
   sales_orders: 'Sales Orders', customers: 'Customers', suppliers: 'Suppliers',
   driver: 'Driver View', driver_manager: 'Driver Manager', calendar: 'Delivery Calendar',
   driver_board: 'Driver Board', am_directory: 'AM Directory', transactions: 'Transaction Center',
-  inventory: 'SKU Master', status_history: 'Status History', statistical_reports: 'Statistical Reports',
+  inventory: 'SKU Master', statistical_reports: 'Statistical Reports',
   driver_dashboard: 'Driver Dashboard', data_sampler: 'Data Sampler', admin: 'Admin Panel',
 } as const;
 export type Screen = keyof typeof SCREEN_LABELS;
 export type Permission = { screen: string; granted: boolean };
 export const RECORD_SCREENS = ['deliveries', 'rma', 'accounting_collection', 'procurement_pickup', 'sales_orders'] as const;
-const AGGREGATE_SCREENS = ['main', 'dashboard', 'driver', 'calendar', 'driver_board', 'status_history', 'statistical_reports', 'driver_dashboard'] as const;
+const AGGREGATE_SCREENS = ['main', 'dashboard', 'driver', 'calendar', 'driver_board', 'statistical_reports', 'driver_dashboard'] as const;
 export const ROLE_DEFAULTS: Record<string, readonly Screen[]> = {
   SALES_COORDINATOR: ['main', 'dashboard', ...RECORD_SCREENS, 'customers', 'suppliers', 'am_directory', 'transactions', 'inventory'],
-  LOGISTICS: ['main', 'dashboard', ...RECORD_SCREENS, 'customers', 'suppliers', 'driver', 'driver_manager', 'calendar', 'driver_board', 'transactions', 'inventory', 'status_history', 'statistical_reports'],
+  LOGISTICS: ['main', 'dashboard', ...RECORD_SCREENS, 'customers', 'suppliers', 'driver', 'driver_manager', 'calendar', 'driver_board', 'transactions', 'inventory', 'statistical_reports'],
   TASS: ['main', 'dashboard', 'rma', 'procurement_pickup', 'accounting_collection', 'transactions', 'inventory', 'suppliers'],
   ADMIN: (Object.keys(SCREEN_LABELS) as Screen[]).filter(s => s !== 'driver_dashboard'),
   DRIVER: ['driver_dashboard'],

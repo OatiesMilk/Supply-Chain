@@ -22,7 +22,6 @@ export const DEV_ADMIN_USER: ApiUser = {
     { screen: 'Suppliers', granted: true },
     { screen: 'Driver Management', granted: true },
     { screen: 'Account Managers', granted: true },
-    { screen: 'Status History', granted: true },
     { screen: 'Statistical Report', granted: true },
     { screen: 'Admin Panel', granted: true },
     { screen: 'Data Sampler', granted: true },
