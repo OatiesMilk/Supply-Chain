@@ -5,7 +5,7 @@ import { validatePodAttachments } from '../attachmentValidation';
 import type { DeliveryCategory, DeliveryStatus } from '../../types';
 
 const ready = (overrides: Partial<PodReadiness> = {}): PodReadiness => ({
-  loading: false, uploading: false, hasPhoto: true, loadFailed: false, ...overrides,
+  loading: false, uploading: false, hasPhoto: true, loadFailed: false, hasStagedFiles: false, ...overrides,
 });
 
 test('delivery completion requires a server-validated saved photo, not a name or MIME claim', () => {
