@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api';
 import { DeliveryRecord } from '@/types';
+import { completionError, hasSavedPodPhoto } from '@/utils/podRequirement';
 
 export const RECORDS_QUERY_KEY = ['records'] as const;
 
@@ -45,9 +46,21 @@ export function createUpdateRecordMutationOptions(queryClient: ReturnType<typeof
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<DeliveryRecord> }) => {
       if (updates.status) {
         const u = updates as any;
-        const extra: { time_out?: string; received_by?: string; priority?: string } = {};
-        if (u.time_out) extra.time_out = u.time_out;
+        const extra: { received_by?: string; priority?: string } = {};
         if (u.received_by) extra.received_by = u.received_by;
+        if (updates.status === 'Delivered') {
+          const record = normalizeApiRecord(await api.getRecord(id));
+          if (record.status !== 'Delivered') {
+            const files = await api.getRecordAttachments(id);
+            const receivedBy = updates.received_by !== undefined ? updates.received_by : record.received_by;
+            const error = completionError(record, updates.status, receivedBy, {
+              loading: false, uploading: false, loadFailed: false, hasPhoto: hasSavedPodPhoto(files),
+            });
+            if (error) throw new Error(error);
+            if (!(u.status_remarks ?? u.remarks ?? '').trim()) throw new Error('Remarks are required to complete this run.');
+            extra.received_by = receivedBy!.trim();
+          }
+        }
         if (updates.priority !== undefined) extra.priority = updates.priority;
         const saved = normalizeApiRecord(await api.patchStatus(
           id,
@@ -92,6 +105,18 @@ export function createUpdateRecordMutationOptions(queryClient: ReturnType<typeof
 export function useUpdateRecordMutation() {
   const queryClient = useQueryClient();
   return useMutation(createUpdateRecordMutationOptions(queryClient));
+}
+
+export function useRecordTimeInMutation() {
+  const queryClient = useQueryClient();
+  const options = createUpdateRecordMutationOptions(queryClient);
+  return useMutation({
+    mutationFn: async ({ id, remarks }: { id: string; remarks: string }) => {
+      if (!remarks.trim()) throw new Error('Remarks are required to record Time In.');
+      return normalizeApiRecord(await api.recordTimeIn(id, remarks.trim()));
+    },
+    onSuccess: options.onSuccess,
+  });
 }
 
 export function useVerifyCollectionMutation(currentUser: { name: string }) {

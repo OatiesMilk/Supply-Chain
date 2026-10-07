@@ -1,3 +1,4 @@
+import { manilaToday } from '@/utils/recordLifecycle';
 import { useState } from 'react';
 import { ChevronLeft, ChevronRight, Truck, X } from 'lucide-react';
 import { DeliveryRecord } from '@/types';
@@ -10,6 +11,8 @@ interface Props {
 // Solid dot color (used only for the small legend/day dots — fine at full saturation
 // since they're tiny). Separate from the chip background below.
 const STATUS_COLOR: Record<string, string> = {
+  Draft: 'bg-slate-400',
+  'In Transit': 'bg-cyan-500',
   Delivered:   'bg-emerald-500',
   Scheduled:   'bg-blue-500',
   Pending:     'bg-amber-500',
@@ -22,6 +25,8 @@ const STATUS_COLOR: Record<string, string> = {
 // that no longer exists in v4 — it silently did nothing, leaving every chip
 // rendered as a fully solid, saturated block instead of a soft tint).
 const STATUS_CHIP: Record<string, string> = {
+  Draft: 'bg-slate-100 text-slate-700',
+  'In Transit': 'bg-cyan-50 text-cyan-700',
   Delivered:   'bg-emerald-50 text-emerald-700',
   Scheduled:   'bg-blue-50 text-blue-700',
   Pending:     'bg-amber-50 text-amber-700',
@@ -44,9 +49,10 @@ function isoDate(y: number, m: number, d: number) {
 }
 
 export default function DeliveryCalendar({ records, onNavigate }: Props) {
-  const today = new Date();
-  const [year, setYear] = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth());
+  const todayStr = manilaToday();
+  const [todayYear, todayMonth] = todayStr.split("-").map(Number);
+  const [year, setYear] = useState(todayYear);
+  const [month, setMonth] = useState(todayMonth - 1);
   const [dayPopup, setDayPopup] = useState<{ date: string; records: DeliveryRecord[] } | null>(null);
 
   const firstDay = new Date(year, month, 1).getDay();
@@ -69,7 +75,6 @@ export default function DeliveryCalendar({ records, onNavigate }: Props) {
     else setMonth(m => m + 1);
   };
 
-  const todayStr = today.toISOString().split('T')[0];
 
   const monthLabel = new Date(year, month, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
 

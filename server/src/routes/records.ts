@@ -11,6 +11,7 @@ import { podStorage, podUpload } from '../services/podStorage';
 import { DELIVERY_PHOTO_REQUIRED, hasStoredDeliveryPhoto, isPhotoMimeType, isVerifiedPodPhoto, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
 
 import { canWriteCategory, recordScope } from '../services/recordAccess';
+import { isoTimestamp, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
 
 const router = Router();
 const requireRecordAccess = asyncRoute(async (req, res, next) => {
@@ -24,7 +25,7 @@ const requireRecordAccess = asyncRoute(async (req, res, next) => {
       return res.status(403).json({ error: 'Logistics has view-only access to RMA/TASS records' });
     }
     if (req.method !== 'GET' && !canWriteCategory(req.user!, record.category)) {
-      return res.status(403).json({ error: 'Module access denied' });
+      return res.status(403).json({ error: req.user!.role === 'LOGISTICS' && record.category === 'RMA' ? 'Logistics has view-only access to RMA/TASS records' : 'Module access denied' });
     }
   } else if (req.method === 'POST' && req.body?.category) {
     const category = CATEGORY_TO_DB[req.body.category] ?? req.body.category;
@@ -43,11 +44,6 @@ const recordInclude = {
   },
   podAttachments: { orderBy: { createdAt: 'desc' as const } }
 };
-
-async function createRemarkLog(recordId: string, body: string, context: string, authorId: string) {
-  if (!body.trim()) return;
-  await prisma.remarkLog.create({ data: { recordId, body: body.trim(), context, authorId } });
-}
 
 function randInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -84,20 +80,22 @@ router.get('/status-history-counts', requireAuth, requireResource('records'), re
   }
   if (area)   where.area   = area;
   if (driver) where.driver = driver;
-  if (status) where.status = STATUS_TO_DB[status] ?? status;
-
-  const records = await prisma.deliveryRecord.findMany({
+  const candidates = await prisma.deliveryRecord.findMany({
     where,
-    select: { id: true, status: true }
+    select: { id: true, status: true, draft: true, timeIn: true }
   });
+  // Draft shares its stored enum with Scheduled; legacy started runs can also
+  // still carry SCHEDULED. Filter the same effective state returned to clients.
+  const filteredStatus = STATUS_FROM_DB[status] ?? status;
+  const records = status ? candidates.filter(record => runState(record) === filteredStatus) : candidates;
 
-  const STATUSES = ['Scheduled', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'];
+  const STATUSES = ['Draft', 'Scheduled', 'In Transit', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'];
   const current: Record<string, number>  = Object.fromEntries(STATUSES.map(s => [s, 0]));
   const ever_held: Record<string, number> = Object.fromEntries(STATUSES.map(s => [s, 0]));
   const recordStatusMap = new Map<string, Set<string>>();
 
   for (const r of records) {
-    const s = STATUS_FROM_DB[r.status] ?? r.status;
+    const s = runState(r);
     current[s] = (current[s] ?? 0) + 1;
     recordStatusMap.set(r.id, new Set([s]));
   }
@@ -114,8 +112,11 @@ router.get('/status-history-counts', requireAuth, requireResource('records'), re
       try {
         const nv = entry.newValue  ? JSON.parse(entry.newValue)  : null;
         const pv = entry.previousValue ? JSON.parse(entry.previousValue) : null;
-        if (nv?.status) set.add(STATUS_FROM_DB[nv.status] ?? nv.status);
-        if (pv?.status) set.add(STATUS_FROM_DB[pv.status] ?? pv.status);
+        for (const snapshot of [nv, pv]) if (snapshot?.status) set.add(runState({
+          status: STATUS_TO_DB[snapshot.status] ?? snapshot.status,
+          draft: snapshot.draft === true || snapshot.is_draft === 'Yes' || snapshot.status === 'Draft',
+          timeIn: snapshot.timeIn ?? snapshot.time_in,
+        }));
       } catch { /* ignore */ }
     }
   }
@@ -131,7 +132,7 @@ router.get('/status-history-counts', requireAuth, requireResource('records'), re
 
 router.get('/:id', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
   const record = await prisma.deliveryRecord.findFirst({
-    where: { id: req.params.id, deletedAt: null },
+    where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] },
     include: recordInclude
   });
   if (!record) return res.status(404).json({ error: 'Record not found' });
@@ -198,7 +199,7 @@ router.post(
         await lockPodRecord(tx, req.params.id);
         const record = await tx.deliveryRecord.findUnique({ where: { id: req.params.id } });
         if (!record || record.deletedAt) return { status: 404, error: 'Record not found', attachment: null };
-        if (req.user!.role === 'DRIVER' && record.driver !== req.user!.name) {
+        if (req.user!.role === 'DRIVER' && (record.draft || record.driver !== req.user!.name)) {
           return { status: 403, error: 'Drivers may only upload to their own assigned records', attachment: null };
         }
         if (!canWriteCategory(req.user!, record.category) || (req.user!.role === 'LOGISTICS' && record.category === 'RMA')) {
@@ -258,7 +259,7 @@ router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('re
     const attachment = await tx.podAttachment.findFirst({ where: { id: req.params.attachmentId, recordId: req.params.id } });
     if (!attachment) return { status: 404, error: 'Attachment not found' };
     const record = await tx.deliveryRecord.findUnique({ where: { id: req.params.id } });
-    if (record?.category === 'DELIVERY' && record.status === 'ACCOMPLISHED' &&
+    if (record?.status === 'ACCOMPLISHED' &&
         await isStoredPodPhoto(attachment) && !await hasStoredDeliveryPhoto(tx, record.id, attachment.id)) {
       return { status: 409, error: 'Keep at least one delivery photo on an accomplished delivery. Upload a replacement before removing this photo.' };
     }
@@ -268,6 +269,7 @@ router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('re
       return { status: 500, error: 'Attachment could not be removed from storage. The database record was preserved for retry.' };
     }
     await tx.podAttachment.delete({ where: { id: attachment.id } });
+    await tx.auditLog.create({ data: { recordId: req.params.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id, previousValue: JSON.stringify({ attachment: attachment.originalName, attachment_id: attachment.id }), newValue: JSON.stringify({ attachment_removed: attachment.id }) } });
     return null;
   });
   if (result) return res.status(result.status).json({ error: result.error });
@@ -293,15 +295,14 @@ router.get('/:id/remarks', requireAuth, requireResource('records'), requireRecor
   );
 });
 
-// Create - Sales Coordinator only.
-// SoD: Sales Coordinator cannot assign drivers; driver assignment is Logistics-only.
-router.post('/', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS'), async (req, res) => {
+// Create a Draft or Scheduled record. Assignment happens after submission.
+router.post('/', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'), asyncRoute(async (req, res) => {
   const b = req.body ?? {};
-  const isDraft = b.is_draft === 'Yes';
+  const isDraft = b.is_draft === 'Yes' || b.status === 'Draft';
   const required = isDraft
     ? ['company_id', 'category']
     : ['company_id', 'reference', 'category'];
-  const missing = required.filter(k => !b[k]);
+  const missing = required.filter(k => typeof b[k] !== 'string' || !b[k].trim());
   if (missing.length > 0) {
     return res.status(400).json({ error: `Missing required fields: ${missing.join(', ')}` });
   }
@@ -319,60 +320,55 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
     return res.status(403).json({ error: 'Sales Coordinator cannot assign drivers — use the Logistics role' });
   }
 
-  const dbStatus = STATUS_TO_DB[b.status] ?? 'SCHEDULED';
-  if (dbCategory === 'DELIVERY' && dbStatus === 'ACCOMPLISHED') {
-    return res.status(400).json({ error: DELIVERY_PHOTO_REQUIRED });
-  }
+  if (b.status && !['Draft', 'Scheduled'].includes(b.status)) return res.status(400).json({ error: 'New records must be Draft or Scheduled.' });
+  if ((b.driver && String(b.driver).trim()) || (Array.isArray(b.driver_assistants) && b.driver_assistants.length)) return res.status(400).json({ error: 'Assign drivers after submitting the record.' });
+  const created = await prisma.$transaction(async tx => {
+    const created = await tx.deliveryRecord.create({
+      data: {
+        id: generateRecordId(),
+        companyId: b.company_id,
+        priority: b.priority ?? '2 - Moderate',
+        reference: b.reference ?? '',
+        remarks: b.remarks ?? '',
+        status: 'SCHEDULED',
+        vehicle: b.vehicle ?? '(None)',
+        area: b.area ?? '',
+        driver: '',
+        driverAssistants: '[]',
+        timeIn: null,
+        timeOut: null,
+        receivedBy: null,
+        accountManager: b.account_manager ?? '',
+        deliveryDate: b.delivery_date ?? '',
+        category: dbCategory as any,
+        itemType: b.item_type ?? 'Small Item',
+        draft: isDraft,
+        dateAndTime: b.date_time ?? new Date().toISOString(),
+        itemDescription: b.item_description ?? '',
+        lineItems: Array.isArray(b.line_items) ? {
+          create: b.line_items.map((li: any) => ({
+            sku: li.sku || li.description || '',
+            quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1
+          }))
+        } : undefined,
+        address: b.address ?? '',
+        documentAttachment: Array.isArray(b.attachments) && b.attachments.length > 0 ? b.attachments[0] : null,
+        amount: b.amount != null ? parseFloat(String(b.amount)) : null,
+        createdById: req.user!.id,
+        modifiedById: req.user!.id
+      },
+      include: recordInclude
+    });
 
-  const created = await prisma.deliveryRecord.create({
-    data: {
-      id: generateRecordId(),
-      companyId: b.company_id,
-      priority: b.priority ?? '2 - Moderate',
-      reference: b.reference,
-      remarks: b.remarks ?? '',
-      status: dbStatus as any,
-      vehicle: b.vehicle ?? '(None)',
-      area: b.area ?? '',
-      driver: '',
-      driverAssistants: '[]',
-      timeIn: null,
-      timeOut: null,
-      receivedBy: null,
-      accountManager: b.account_manager ?? '',
-      deliveryDate: b.delivery_date ?? '',
-      category: dbCategory as any,
-      itemType: b.item_type ?? 'Small Item',
-      draft: b.is_draft === 'Yes',
-      dateAndTime: b.date_time ?? new Date().toISOString(),
-      itemDescription: b.item_description ?? '',
-      lineItems: Array.isArray(b.line_items) ? {
-        create: b.line_items.map((li: any) => ({
-          sku: li.sku || li.description || '',
-          quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1
-        }))
-      } : undefined,
-      address: b.address ?? '',
-      documentAttachment: Array.isArray(b.attachments) && b.attachments.length > 0 ? b.attachments[0] : null,
-      amount: b.amount != null ? parseFloat(String(b.amount)) : null,
-      createdById: req.user!.id,
-      modifiedById: req.user!.id
-    },
-    include: recordInclude
+    await tx.auditLog.create({ data: {
+      recordId: created.id, recordType: 'DeliveryRecord', action: 'CREATE', changedById: req.user!.id,
+      newValue: JSON.stringify(serializeRecord(created)),
+    } });
+    if (typeof b.remarks === 'string' && b.remarks.trim()) await tx.remarkLog.create({ data: { recordId: created.id, body: b.remarks.trim(), context: 'CREATION', authorId: req.user!.id } });
+    return created;
   });
 
-  await writeAuditLog({
-    recordId: created.id,
-    recordType: 'DeliveryRecord',
-    action: 'CREATE',
-    changedById: req.user!.id,
-    previousValue: null,
-    newValue: serializeRecord(created)
-  });
-
-  await createRemarkLog(created.id, b.remarks ?? '', 'CREATION', req.user!.id);
-
-  await notifyRole(
+  if (!isDraft) await notifyRole(
     'LOGISTICS',
     `New ${dbCategory.replace(/_/g, ' ')} record — driver needed`,
     `${created.company.name} · ${created.reference || '(no reference)'}${created.deliveryDate ? ` on ${created.deliveryDate}` : ''} requires driver assignment.`,
@@ -381,12 +377,12 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
   );
 
   res.status(201).json(serializeRecord(created));
-});
+}));
 
 // Full update - ADMIN added alongside LOGISTICS for linked collection management.
 // SoD: only LOGISTICS/ADMIN may set driver/vehicle/driverAssistant/linkedCollectionId.
 router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), asyncRoute(async (req, res) => {
-  const existing = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null }, include: recordInclude });
+  const existing = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] }, include: recordInclude });
   if (!existing) return res.status(404).json({ error: 'Record not found' });
 
   // Only LOGISTICS (not ADMIN) is blocked from RMA records per SoD
@@ -399,14 +395,14 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
   }
 
   const b = req.body ?? {};
-
-  if (b.time_out !== undefined && req.user!.role === 'DRIVER') {
-    return res.status(403).json({ error: 'Time Out is recorded by the server when completing a run.' });
+  if (b.status !== undefined) return res.status(400).json({ error: 'Use the status action to change status.' });
+  const hasTimestamp = b.time_in !== undefined || b.time_out !== undefined;
+  if (hasTimestamp && !['LOGISTICS', 'ADMIN'].includes(req.user!.role)) return res.status(403).json({ error: 'Only Logistics or Admin may correct recorded timestamps.' });
+  for (const [field, current] of [['time_in', existing.timeIn], ['time_out', existing.timeOut]] as const) {
+    if (b[field] !== undefined && (!current || !isoTimestamp(b[field]))) return res.status(400).json({ error: 'Corrections require an existing timestamp and a full ISO timestamp with timezone. Use Record Time In to start the run.' });
   }
-  if (b.time_out !== undefined && b.time_out !== null &&
-      (typeof b.time_out !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(b.time_out) || !Number.isFinite(Date.parse(b.time_out)))) {
-    return res.status(400).json({ error: 'Time Out corrections must be a valid ISO timestamp.' });
-  }
+  if (b.is_draft !== undefined && !['Yes', 'No'].includes(b.is_draft)) return res.status(400).json({ error: 'is_draft must be Yes or No.' });
+  if (b.is_draft !== undefined && (b.is_draft === 'Yes') !== existing.draft && !['SALES_COORDINATOR', 'ADMIN'].includes(req.user!.role)) return res.status(403).json({ error: 'Only Sales Coordinator or Admin may submit or return drafts.' });
 
   if (b.priority !== undefined) {
     if (!['SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'].includes(req.user!.role)) {
@@ -419,12 +415,12 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
 
   const LOGISTICS_SUBSTANTIVE_FIELDS = ['driver', 'vehicle', 'driver_assistants', 'time_in', 'time_out', 'received_by', 'linked_collection_id', 'area', 'address', 'priority'];
   const SC_SUBSTANTIVE_FIELDS = ['company_id', 'priority', 'reference', 'area', 'address', 'account_manager', 'delivery_date', 'item_type', 'is_draft', 'date_time', 'item_description', 'line_items', 'attachments', 'amount'];
-  const substantiveFields = (req.user!.role === 'LOGISTICS' || req.user!.role === 'ADMIN' || req.user!.role === 'TASS')
+  const substantiveFields = req.user!.role === 'ADMIN' ? [...LOGISTICS_SUBSTANTIVE_FIELDS, ...SC_SUBSTANTIVE_FIELDS] : (req.user!.role === 'LOGISTICS' || req.user!.role === 'TASS')
     ? LOGISTICS_SUBSTANTIVE_FIELDS
     : SC_SUBSTANTIVE_FIELDS;
   const hasSubstantiveChange = substantiveFields.some(f => f in b);
 
-  if (req.user!.role !== 'DRIVER' && hasSubstantiveChange && (!b.remarks || !String(b.remarks).trim())) {
+  if ((hasSubstantiveChange || hasTimestamp || b.is_draft !== undefined || b.received_by !== undefined || b.remarks !== undefined) && (typeof b.remarks !== 'string' || !b.remarks.trim())) {
     return res.status(400).json({ error: 'Remarks are required when editing a record.' });
   }
 
@@ -434,7 +430,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (existing.driver !== req.user!.name) {
       return res.status(403).json({ error: 'Drivers may only update their own assigned records' });
     }
-    if (b.time_in !== undefined) data.timeIn = b.time_in ?? null;
+
     if (b.received_by !== undefined) data.receivedBy = b.received_by ?? null;
   } else if (req.user!.role === 'LOGISTICS' || req.user!.role === 'ADMIN' || req.user!.role === 'TASS') {
     if (b.priority !== undefined) data.priority = b.priority;
@@ -444,8 +440,8 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
       if (!Array.isArray(b.driver_assistants)) return res.status(400).json({ error: 'Assistants must be an array of names.' });
       data.driverAssistants = JSON.stringify(b.driver_assistants);
     }
-    if (b.time_in !== undefined) data.timeIn = b.time_in ?? null;
-    if (b.time_out !== undefined) data.timeOut = b.time_out ?? null;
+    if (b.time_in !== undefined) data.timeIn = isoTimestamp(b.time_in);
+    if (b.time_out !== undefined) data.timeOut = isoTimestamp(b.time_out);
     if (b.received_by !== undefined) data.receivedBy = b.received_by ?? null;
     if (b.area !== undefined) data.area = b.area;
     if (b.address !== undefined) data.address = b.address;
@@ -492,13 +488,37 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (b.address !== undefined) data.address = b.address;
   }
 
+  // Admin can correct the same full metadata exposed by the staff editor.
+  if (req.user!.role === 'ADMIN') {
+    const metadata: Record<string, string> = { company_id: 'companyId', reference: 'reference', account_manager: 'accountManager', delivery_date: 'deliveryDate', item_type: 'itemType', date_time: 'dateAndTime', item_description: 'itemDescription' };
+    for (const [input, field] of Object.entries(metadata)) if (b[input] !== undefined) data[field] = b[input];
+    if (b.amount !== undefined) data.amount = b.amount != null ? parseFloat(String(b.amount)) : null;
+    if (Array.isArray(b.attachments) && b.attachments.length > 0) data.documentAttachment = b.attachments[0];
+    if (Array.isArray(b.line_items)) data.lineItems = { deleteMany: {}, create: b.line_items.map((li: any) => ({ sku: li.sku || li.description || '', quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1 })) };
+  }
+  if (b.is_draft !== undefined) data.draft = b.is_draft === 'Yes';
+  if (b.remarks !== undefined) data.remarks = String(b.remarks).trim();
+  if (b.received_by !== undefined && typeof b.received_by !== 'string') return res.status(400).json({ error: 'Received By must be a name.' });
   const result = await withDriverDirectoryLock(prisma, async tx => {
     await lockPodRecord(tx, existing.id);
     const current = await tx.deliveryRecord.findUnique({ where: { id: existing.id } });
     if (!current || current.deletedAt) return { error: 'Record not found', updated: null };
-    if (req.user!.role === 'DRIVER' && current.driver !== req.user!.name) {
-      return { error: 'Drivers may only update their own assigned records', updated: null };
+    if (!canWriteCategory(req.user!, current.category) || (req.user!.role === 'DRIVER' && (current.draft || current.driver !== req.user!.name))) return { error: 'Record access denied', updated: null };
+    if (data.draft !== undefined && data.draft !== current.draft) {
+      if (!['SALES_COORDINATOR', 'ADMIN'].includes(req.user!.role)) return { error: 'Only Sales Coordinator or Admin may submit or return drafts.', updated: null };
+      const invalid = transitionError(current, data.draft ? 'Draft' : 'Scheduled', req.user!.role);
+      if (invalid) return { error: invalid, updated: null };
+      if (!data.draft && !String(data.reference ?? current.reference).trim()) return { error: 'Reference is required to submit the draft.', updated: null };
+      data.status = 'SCHEDULED';
     }
+    if ((data.draft ?? current.draft) && (data.driver !== undefined && data.driver !== current.driver || data.driverAssistants !== undefined && data.driverAssistants !== current.driverAssistants)) return { error: 'New assignments to drafts are not allowed.', updated: null };
+    if (hasTimestamp) {
+      if (current.draft || !current.timeIn || (b.time_out !== undefined && !current.timeOut)) return { error: 'The timestamps changed. Refresh and try again.', updated: null };
+      const correctedIn = data.timeIn ?? current.timeIn;
+      const correctedOut = data.timeOut ?? current.timeOut;
+      if (correctedOut && new Date(correctedOut) < new Date(correctedIn)) return { error: 'Time Out must be after Time In.', updated: null };
+    }
+    if (current.status === 'ACCOMPLISHED' && b.received_by !== undefined && !b.received_by.trim()) return { error: 'Received By is required on completed runs.', updated: null };
     const invalidAssignment = await assignmentError(tx, current, data);
     if (invalidAssignment) return { error: invalidAssignment, updated: null };
     const updated = await tx.deliveryRecord.update({ where: { id: existing.id }, data, include: recordInclude });
@@ -507,16 +527,13 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
       previousValue: JSON.stringify(serializeRecord({ ...existing, ...current })),
       newValue: JSON.stringify(serializeRecord(updated)),
     } });
+    if (typeof b.remarks === 'string' && b.remarks.trim()) await tx.remarkLog.create({ data: {
+      recordId: updated.id, body: b.remarks.trim(), context: hasTimestamp ? 'TIMESTAMP_CORRECTION' : 'GENERAL_EDIT', authorId: req.user!.id,
+    } });
     return { error: null, updated };
   });
-  if (result.error) return res.status(result.error === 'Record not found' ? 404 : result.error === 'Drivers may only update their own assigned records' ? 403 : 400).json({ error: result.error });
+  if (result.error) return res.status(result.error === 'Record not found' ? 404 : result.error === 'Record access denied' || result.error === 'Only Sales Coordinator or Admin may submit or return drafts.' ? 403 : 400).json({ error: result.error });
   const updated = result.updated!;
-
-  // Write remark log for every non-DRIVER edit that has remarks
-  if (req.user!.role !== 'DRIVER' && b.remarks && String(b.remarks).trim()) {
-    const context = (req.user!.role === 'LOGISTICS' || req.user!.role === 'ADMIN' || req.user!.role === 'TASS') ? 'DRIVER_UPDATE' : 'GENERAL_EDIT';
-    await createRemarkLog(updated.id, b.remarks, context, req.user!.id);
-  }
 
   // Notify the record creator (Sales Coordinator) when Logistics assigns a driver
   if (
@@ -537,129 +554,92 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
   res.json(serializeRecord(updated));
 }));
 
-// Status change — Logistics, Admin, Driver (own records), and TASS (RMA only).
-// This is also the sole path that fires the ACCOMPLISHED automated trigger.
-router.patch('/:id/status', requireAuth, requireResource('records'), requireRecordAccess, requireRole('LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), asyncRoute(async (req, res) => {
-  const { status, remarks, received_by, priority } = req.body ?? {};
-  if (!status || !STATUS_TO_DB[status]) {
-    return res.status(400).json({ error: 'Valid status is required' });
-  }
-  if (!remarks || !String(remarks).trim()) {
-    return res.status(400).json({ error: 'Remarks are required when changing status.' });
-  }
-
-  const hasPriority = priority !== undefined && priority !== '';
-  if (hasPriority) {
-    if (!['LOGISTICS', 'ADMIN'].includes(req.user!.role)) {
-      return res.status(403).json({ error: 'Your role cannot change record priority.' });
-    }
-    if (!['1 - Low', '2 - Moderate', '3 - High'].includes(priority)) {
-      return res.status(400).json({ error: 'Invalid record priority.' });
-    }
-  }
-
-  const existing = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null }, include: recordInclude });
-  if (!existing) return res.status(404).json({ error: 'Record not found' });
-
-  if (req.user!.role === 'DRIVER' && existing.driver !== req.user!.name) {
-    return res.status(403).json({ error: 'Drivers may only update their own assigned records' });
-  }
-
-  if (req.user!.role === 'LOGISTICS' && existing.category === 'RMA') {
-    return res.status(403).json({ error: 'Logistics has view-only access to RMA/TASS records' });
-  }
-  if (req.user!.role === 'TASS' && existing.category !== 'RMA') {
-    return res.status(403).json({ error: 'TASS status updates are limited to RMA records' });
-  }
-
-  const dbStatus = STATUS_TO_DB[status];
-  const statusChanged = existing.status !== dbStatus;
-  const priorityChanged = hasPriority && existing.priority !== priority;
-  if (!statusChanged && !priorityChanged) {
-    return res.status(409).json({ error: 'Choose a different status before saving.' });
-  }
-
-  const statusData: any = {
-    remarks: String(remarks).trim(),
-    modifiedById: req.user!.id
-  };
-  if (statusChanged) statusData.status = dbStatus;
-  if (priorityChanged) statusData.priority = priority;
-  if (received_by !== undefined) statusData.receivedBy = received_by ?? null;
-
-  const updated = await prisma.$transaction(async tx => {
-    await lockPodRecord(tx, existing.id);
-    const current = await tx.deliveryRecord.findUnique({ where: { id: existing.id } });
-    if (!current || current.deletedAt) return null;
-    if (req.user!.role === 'DRIVER' && current.driver !== req.user!.name) return 'ACCESS_DENIED' as const;
-    if (current.category !== existing.category || current.status !== existing.status) return null;
-    if (current.category === 'DELIVERY' && dbStatus === 'ACCOMPLISHED') {
-      if (!current.timeIn?.trim() || !Number.isFinite(Date.parse(current.timeIn))) return 'TIME_IN_REQUIRED' as const;
-      const recipient = received_by !== undefined ? received_by : current.receivedBy;
-      if (typeof recipient !== 'string' || !recipient.trim()) return 'RECIPIENT_REQUIRED' as const;
-      statusData.receivedBy = recipient.trim();
-      if (!await hasStoredDeliveryPhoto(tx, existing.id)) return 'PHOTO_REQUIRED' as const;
-    }
-    if (dbStatus === 'ACCOMPLISHED' && statusChanged) statusData.timeOut = new Date().toISOString();
-    // Guard both submitted fields against concurrent edits before writing history.
-    const changed = await tx.deliveryRecord.updateMany({
-      where: { id: existing.id, status: existing.status, deletedAt: null,
-        ...(hasPriority ? { priority: existing.priority } : {}) },
-      data: statusData,
-    });
-    if (changed.count === 0) return null;
-    const saved = await tx.deliveryRecord.findUniqueOrThrow({ where: { id: existing.id }, include: recordInclude });
+// Time In is the sole action that starts an assigned run.
+router.post('/:id/time-in', requireAuth, requireResource('records'), requireRecordAccess, requireRole('DRIVER', 'LOGISTICS', 'ADMIN'), asyncRoute(async (req, res) => {
+  const remarks = req.body?.remarks;
+  if (typeof remarks !== 'string' || !remarks.trim()) return res.status(400).json({ error: 'Remarks are required when recording Time In.' });
+  const result = await prisma.$transaction(async tx => {
+    await lockPodRecord(tx, req.params.id);
+    const current = await tx.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] }, include: recordInclude });
+    if (!current) return { error: 'Record access denied', saved: null };
+    const error = timeInError(current);
+    if (error) return { error, saved: null };
+    const saved = await tx.deliveryRecord.update({ where: { id: current.id }, data: {
+      timeIn: new Date().toISOString(), timeOut: null, status: 'IN_TRANSIT', remarks: remarks.trim(), modifiedById: req.user!.id,
+    }, include: recordInclude });
     await tx.auditLog.create({ data: {
-      recordId: saved.id,
-      recordType: 'DeliveryRecord',
-      action: 'UPDATE',
-      changedById: req.user!.id,
-      previousValue: JSON.stringify(serializeRecord({ ...existing, ...current })),
-      newValue: JSON.stringify(serializeRecord(saved)),
+      recordId: saved.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id,
+      previousValue: JSON.stringify(serializeRecord(current)), newValue: JSON.stringify(serializeRecord(saved)),
     } });
-    await tx.remarkLog.create({ data: {
-      recordId: saved.id,
-      body: String(remarks).trim(),
-      context: statusChanged ? 'STATUS_CHANGE' : 'GENERAL_EDIT',
-      authorId: req.user!.id,
-    } });
-    return saved;
+    await tx.remarkLog.create({ data: { recordId: saved.id, body: remarks.trim(), context: 'TIME_IN', authorId: req.user!.id } });
+    return { error: null, saved };
   });
-  if (updated === 'PHOTO_REQUIRED') return res.status(400).json({ error: DELIVERY_PHOTO_REQUIRED });
-  if (updated === 'TIME_IN_REQUIRED') return res.status(400).json({ error: 'Record Time In before completing this delivery.' });
-  if (updated === 'RECIPIENT_REQUIRED') return res.status(400).json({ error: 'Received By is required before completing this delivery.' });
-  if (updated === 'ACCESS_DENIED') return res.status(403).json({ error: 'Drivers may only update their own assigned records' });
-  if (!updated) return res.status(409).json({ error: 'The record changed while you were editing. Refresh the record and try again.' });
+  if (result.error) return res.status(400).json({ error: result.error });
+  res.json(serializeRecord(result.saved));
+}));
 
-  if (dbStatus === 'ACCOMPLISHED' && existing.status !== 'ACCOMPLISHED') {
-    await notifyAccomplished({
-      id: updated.id,
-      companyName: updated.company.name,
-      deliveryDate: updated.deliveryDate,
-      reference: updated.reference,
-      accountManager: updated.accountManager,
-      accomplishedByName: req.user!.name,
-      recipientOverride: existing.category === 'ACCOUNTING_COLLECTION' ? 'Billing Department' : undefined
-    });
-
-    if (existing.category === 'ACCOUNTING_COLLECTION') {
-      await notifyRole(
-        'TASS',
-        'Collection ready for verification',
-        `${updated.company.name} · ${updated.reference} is now accomplished and requires collection verification.`,
-        updated.id,
-        'DeliveryRecord'
-      );
+// Every completion path validates persisted proof and stamps server Time Out atomically.
+router.patch('/:id/status', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), asyncRoute(async (req, res) => {
+  const { status, remarks, received_by, priority } = req.body ?? {};
+  if (!status || !STATUS_TO_DB[status]) return res.status(400).json({ error: 'Valid status is required' });
+  if (typeof remarks !== 'string' || !remarks.trim()) return res.status(400).json({ error: 'Remarks are required when changing status.' });
+  if (req.body.time_in !== undefined || req.body.time_out !== undefined) return res.status(400).json({ error: 'Use Record Time In or timestamp corrections; Time Out is recorded automatically on completion.' });
+  if (received_by !== undefined && typeof received_by !== 'string') return res.status(400).json({ error: 'Received By must be a name.' });
+  const hasPriority = priority !== undefined && priority !== '';
+  if (hasPriority && !['LOGISTICS', 'ADMIN'].includes(req.user!.role)) return res.status(403).json({ error: 'Your role cannot change record priority.' });
+  if (hasPriority && !['1 - Low', '2 - Moderate', '3 - High'].includes(priority)) return res.status(400).json({ error: 'Invalid record priority.' });
+  const result = await prisma.$transaction(async tx => {
+    await lockPodRecord(tx, req.params.id);
+    const current = await tx.deliveryRecord.findUnique({ where: { id: req.params.id }, include: recordInclude });
+    if (!current || current.deletedAt || (req.user!.role === 'DRIVER' && (current.draft || current.driver !== req.user!.name)) || !canWriteCategory(req.user!, current.category)) return { error: 'Record access denied', saved: null, previous: null };
+    if (req.user!.role === 'TASS' && current.category !== 'RMA') return { error: 'TASS status updates are limited to RMA records', saved: null, previous: null };
+    if (req.user!.role === 'SALES_COORDINATOR' && !(status === 'Draft' || current.draft && status === 'Scheduled')) return { error: 'Sales Coordinator may only submit or return drafts.', saved: null, previous: null };
+    const statusChanged = runState(current) !== status;
+    const priorityChanged = hasPriority && current.priority !== priority;
+    if (!statusChanged && !priorityChanged) return { error: 'Choose a different status or priority before saving.', saved: null, previous: null };
+    if (statusChanged) {
+      if ((status === 'Delivered' || status === 'Pending') && !isoTimestamp(current.timeIn)) return { error: 'Record a valid Time In before completing or marking this run Pending.', saved: null, previous: null };
+      const error = transitionError(current, status as RunState, req.user!.role);
+      if (error) return { error, saved: null, previous: null };
     }
+    if (current.draft && status === 'Scheduled' && !current.reference.trim()) return { error: 'Reference is required to submit the draft.', saved: null, previous: null };
+    const data: any = { ...(statusChanged ? { status: STATUS_TO_DB[status], draft: status === 'Draft' } : {}), remarks: remarks.trim(), modifiedById: req.user!.id };
+    if (hasPriority) data.priority = priority;
+    if (current.status === 'ACCOMPLISHED' && received_by !== undefined && !received_by.trim()) return { error: 'Received By is required on completed runs.', saved: null, previous: null };
+    if (received_by !== undefined) data.receivedBy = received_by.trim();
+    if (statusChanged && status === 'Delivered') {
+      if (!isoTimestamp(current.timeIn)) return { error: 'Record a valid Time In before completing this run.', saved: null, previous: null };
+      if (!String(received_by ?? current.receivedBy ?? '').trim()) return { error: 'Received By is required before completing this run.', saved: null, previous: null };
+      if (!await hasStoredDeliveryPhoto(tx, current.id)) return { error: DELIVERY_PHOTO_REQUIRED, saved: null, previous: null };
+      data.receivedBy = String(received_by ?? current.receivedBy).trim();
+      data.timeOut = new Date().toISOString();
+    }
+    if (statusChanged && status === 'Rescheduled') { data.timeIn = null; data.timeOut = null; data.receivedBy = null; }
+    const saved = await tx.deliveryRecord.update({ where: { id: current.id }, data, include: recordInclude });
+    await tx.auditLog.create({ data: {
+      recordId: saved.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id,
+      previousValue: JSON.stringify(serializeRecord(current)), newValue: JSON.stringify(serializeRecord(saved)),
+    } });
+    await tx.remarkLog.create({ data: { recordId: saved.id, body: remarks.trim(), context: 'STATUS_CHANGE', authorId: req.user!.id } });
+    return { error: null, saved, previous: current };
+  });
+  if (result.error) return res.status(result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' ? 403 : 400).json({ error: result.error });
+  const updated = result.saved!;
+  if (status === 'Delivered' && result.previous!.status !== 'ACCOMPLISHED') {
+    await notifyAccomplished({
+      id: updated.id, companyName: updated.company.name, deliveryDate: updated.deliveryDate,
+      reference: updated.reference, accountManager: updated.accountManager, accomplishedByName: req.user!.name,
+      recipientOverride: updated.category === 'ACCOUNTING_COLLECTION' ? 'Billing Department' : undefined,
+    });
+    if (updated.category === 'ACCOUNTING_COLLECTION') await notifyRole('TASS', 'Collection ready for verification', `${updated.company.name} · ${updated.reference} is now accomplished and requires collection verification.`, updated.id, 'DeliveryRecord');
   }
-
   res.json(serializeRecord(updated));
 }));
 
 // Collection verification - TASS only, for ACCOUNTING_COLLECTION records that are ACCOMPLISHED.
 router.patch('/:id/verify-collection', requireAuth, requireResource('records'), requireRecordAccess, requireRole('TASS'), async (req, res) => {
   const existing = await prisma.deliveryRecord.findFirst({
-    where: { id: req.params.id, deletedAt: null },
+    where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] },
     include: recordInclude
   });
   if (!existing) return res.status(404).json({ error: 'Record not found' });
@@ -748,7 +728,7 @@ router.get('/:id/comments', requireAuth, requireResource('records'), requireReco
   );
 });
 
-router.post('/:id/comments', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
+router.post('/:id/comments', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), async (req, res) => {
   const { body } = req.body ?? {};
   if (!body || !String(body).trim()) {
     return res.status(400).json({ error: 'Comment body is required' });

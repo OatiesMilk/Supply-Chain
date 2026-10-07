@@ -1,3 +1,4 @@
+import { manilaToday } from '@/utils/recordLifecycle';
 import {
   RotateCcw,
   Clock,
@@ -70,7 +71,7 @@ export default function TassDashboard({
   const verifiedToday =
     stats?.verified_today ??
     (() => {
-      const today = new Date().toISOString().split("T")[0];
+      const today = manilaToday();
       return deliveryRecords.filter(
         (r) =>
           r.collection_verified &&

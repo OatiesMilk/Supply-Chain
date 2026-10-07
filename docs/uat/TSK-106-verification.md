@@ -21,13 +21,13 @@ The two existing HTTP regression suites use temporary loopback listeners and moc
 | C-2.12 missing photo | Assigned delivery with valid persisted ISO Time In, recipient and remarks; repeat Driver/Logistics/Admin | PATCH returns 400 with photo-specific error; no record, history, audit, notification or storage mutation |
 | Other prerequisites | Remove only Time In, recipient, or remarks while a genuine stored photo exists | 400 specific to the missing prerequisite, no mutation |
 | C-2.13 another driver's record | Driver A targets Driver B through status PATCH, record PUT and attachment POST | 403; no record, attachment, audit, remark, notification or storage write |
-| Genuine owner completion | All prerequisites valid, genuine persisted PNG, authenticated owner and permitted staff roles | 200 / Delivered; server ISO Time Out falls within request interval; actor ID retained in audit and remarks |
+| Genuine owner completion | All prerequisites valid, genuine persisted PNG, authenticated owner and permitted staff roles; omit client timestamps | 200 / Delivered; server ISO Time Out falls within request interval; actor ID retained in audit and remarks |
 | Counterfeit image | Empty/text/truncated images and forged PNG/JPEG framing | Rejected; filenames and image MIME types alone cannot satisfy proof |
 | Multipart | Real in-memory multipart stream through Multer, valid and invalid bytes | Valid upload 201; invalid image 400 before storage |
 | Reassignment interleaving | Simulate assignment changing between initial access check and locked status/edit/upload check | 403; no mutation or storage save |
 | Upload compensation | Metadata creation or transaction commit throws after mocked object save | New object key removed; no success response |
 | Authentication / RMA | Missing session on status/edit/upload; Logistics attempts RMA writes | 401 / 403 with no mutation |
-| Timestamp spoofing / corrections | Client timestamp on completion and non-completion PATCH, Driver PUT, audited Logistics/Admin ISO correction | PATCH ignores client timestamp; completion stamps server time; Driver PUT denied; legitimate staff correction retained |
+| Timestamp spoofing / corrections | Client Time In or Time Out on completion and non-completion PATCH, Driver PUT, audited Logistics/Admin ISO correction | PATCH returns 400 without mutation; a valid completion request without client timestamps stamps server Time Out; Driver PUT denied; legitimate staff correction retained |
 
 Production proof validation keeps the MIME/signature/framing checks and then decodes pixels with Sharp `stats()`, `failOn: 'warning'` and a 40-million-input-pixel bound. The existing 10 MB multipart limit remains. Stored files are decoded again at completion; missing, unreadable and corrupted storage objects do not count. Sharp native dependencies are declared in the server workspace and npm lockfile.
 
@@ -44,6 +44,6 @@ Limitations and follow-up prerequisites:
 - These tests simulate transaction interleavings and assert locked rechecks; they do **not** prove PostgreSQL isolation, actual concurrent connections, rollback behavior, or object-store availability. Run concurrency/rollback UAT against disposable PostgreSQL and storage after the prerequisite tickets settle.
 - Object storage and PostgreSQL are separate systems. Upload uses a row lock and transactional metadata, with compensating object removal on failure; this is not a distributed atomic transaction. The upload transaction allows up to 30 seconds for remote storage while retaining the ownership lock. A failed cleanup retains the existing recovery log and requires reconciliation.
 - Assignment still uses an exact driver/account name string. Stable driver↔user identity, collision/rename handling and its database migration remain a separate prerequisite; this ticket does not claim that migration is complete.
-- Draft/future-run rules, the new In Transit lifecycle, canonical server Time In, overdue tracking and client staged uploads remain their own lifecycle/attachment tickets. Re-run this verification after those changes. No schema or production environment changes are made here.
+- The merged dev lifecycle now includes Draft restrictions, dedicated server Time In / In Transit, and timestamp reset on rescheduling; these are covered by the combined suite. Future-run rules, overdue tracking and client staged uploads remain separate follow-ups. No schema or production environment changes are made here.
 
 Sharp API references: [pixel statistics](https://sharp.pixelplumbing.com/api-input/#stats), [untrusted-input failure and pixel limits](https://sharp.pixelplumbing.com/api-constructor/).

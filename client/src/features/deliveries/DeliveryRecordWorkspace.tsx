@@ -18,22 +18,27 @@ import StatusStepper from '@/components/StatusStepper';
 import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
 import PodUploader from '@/components/PodUploader';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
-import { deliveryPhotoError } from '@/utils/podRequirement';
+import { completionError } from '@/utils/podRequirement';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
 import DocumentSizeSelect from '@/components/DocumentSizeSelect';
 import WorkspaceTabs from './WorkspaceTabs';
 import { WorkspaceDraftProvider, useWorkspaceDraft, useWorkspaceNavigation } from './WorkspaceDrafts';
 
+import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
+import { selectableStatuses, canRecordTimeIn, isDraftRecord, manilaToday, manilaDateTimeInput, manilaInputToIso } from '@/utils/recordLifecycle';
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatTs(ts: string): string {
   return new Date(ts).toLocaleString('en-PH', {
-    year: 'numeric', month: 'short', day: '2-digit',
+    timeZone: 'Asia/Manila', year: 'numeric', month: 'short', day: '2-digit',
     hour: '2-digit', minute: '2-digit'
   });
 }
 
 const STATUS_COLOR: Record<string, string> = {
+  'Draft': 'bg-slate-100 text-slate-700 border-slate-300',
+  'In Transit': 'bg-cyan-50 text-cyan-700 border-cyan-200',
   'Delivered':   'bg-emerald-50 text-emerald-700 border-emerald-200',
   'On-Hold':     'bg-red-50 text-red-700 border-red-200',
   'Rescheduled': 'bg-purple-50 text-purple-700 border-purple-200',
@@ -132,7 +137,9 @@ function GeneralTab({
   readOnly?: boolean;
 }) {
   // SC can edit all fields while the record is still Scheduled; Logistics can always edit Area + Address
-  const canEditFull = !readOnly && currentUserRole === 'Sales Coordinator' && record.status === 'Scheduled';
+  const canEditFull = !readOnly && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && (record.status === 'Scheduled' || isDraftRecord(record));
+  const canManageDraft = !readOnly && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && !record.time_in;
+  const [lifecycleRemarks, setLifecycleRemarks] = useState('');
   const canEditAreaAddress = !readOnly && currentUserRole === 'Logistics';
   const canEdit = canEditFull || canEditAreaAddress;
 
@@ -155,7 +162,7 @@ function GeneralTab({
     address: record.address ?? '',
     line_items: record.line_items || [],
   });
-  useWorkspaceDraft('general', editing, saving);
+  useWorkspaceDraft('general', editing || !!lifecycleRemarks, saving);
 
   // Re-sync draft when a different record is opened
   useEffect(() => {
@@ -199,7 +206,7 @@ function GeneralTab({
     setSaveError(null);
     setSaving(true);
     const updates = canEditFull
-      ? { ...draft }
+      ? { priority: draft.priority, reference: draft.reference, area: draft.area, vehicle: draft.vehicle, account_manager: draft.account_manager, delivery_date: draft.delivery_date, date_time: draft.date_time, item_type: draft.item_type, remarks: draft.remarks, item_description: draft.item_description, line_items: draft.line_items, address: draft.address }
       : { area: draft.area, address: draft.address, remarks: draft.remarks };
     try {
       await onUpdateRecord(record.id, {
@@ -245,6 +252,21 @@ function GeneralTab({
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Status Progression</p>
         <StatusStepper status={record.status} />
       </div>
+
+      {canManageDraft && selectableStatuses(record, currentUserRole).some(status => status === 'Draft' || status === 'Scheduled') && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+          <label className="block text-xs font-bold text-slate-700">Submission remarks *</label>
+          <textarea value={lifecycleRemarks} onChange={e => setLifecycleRemarks(e.target.value)} rows={2} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" placeholder="Reason for submitting or returning to draft" />
+          {selectableStatuses(record, currentUserRole).filter(status => isDraftRecord(record) ? status === 'Scheduled' : status === 'Draft').map(status => (
+            <button key={status} type="button" disabled={saving || !lifecycleRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+              onClick={async () => { setSaving(true); setSaveError(null); try { await onUpdateRecord(record.id, { status, remarks: lifecycleRemarks.trim() }); setLifecycleRemarks(''); } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not change submission status.'); } finally { setSaving(false); } }}>
+              {isDraftRecord(record) ? 'Submit' : 'Return to Draft'}
+            </button>
+          ))}
+          <p className="text-xs text-slate-500">Drafts retain existing assignments and stay hidden from drivers until submitted.</p>
+          {saveError && <p role="alert" className="text-xs text-red-700">{saveError}</p>}
+        </div>
+      )}
 
       {/* Fields grid / edit form */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
@@ -393,13 +415,7 @@ function GeneralTab({
                     <label className={labelCls}>Date &amp; Time</label>
                     <input type="datetime-local" value={draft.date_time} onChange={e => set('date_time', e.target.value)} className={inputCls} />
                   </div>
-                  <div className="space-y-1">
-                    <label className={labelCls}>Draft</label>
-                    <select value={draft.is_draft} onChange={e => set('is_draft', e.target.value as 'Yes' | 'No')} className={inputCls}>
-                      <option value="No">No</option>
-                      <option value="Yes">Yes</option>
-                    </select>
-                  </div>
+
                 </>
               )}
             </div>
@@ -783,13 +799,16 @@ function ActionsTab({
   const [remarksError, setRemarksError] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
   const { readiness: podReadiness } = usePodAttachments(record.id);
-  const photoError = deliveryPhotoError(record.category, selectedStatus, podReadiness);
+  const timeInMutation = useRecordTimeInMutation();
 
   const [selectedDriver, setSelectedDriver] = useState(record.driver);
   const [assistants, setAssistants] = useState<string[]>(record.driver_assistants ?? []);
-  const [timeIn, setTimeIn] = useState(record.time_in ?? '');
-  const [timeOut, setTimeOut] = useState(record.time_out ?? '');
+  const [timeIn, setTimeIn] = useState(manilaDateTimeInput(record.time_in));
+  const [timeOut, setTimeOut] = useState(manilaDateTimeInput(record.time_out));
   const [receivedBy, setReceivedBy] = useState(record.received_by ?? '');
+  const photoError = completionError(record, selectedStatus, receivedBy, podReadiness);
+  const draftRecord = isDraftRecord(record);
+  const statusOptions = selectableStatuses(record, currentUserRole);
   const [savingFields, setSavingFields] = useState(false);
   const [saveDriverError, setSaveDriverError] = useState<string | null>(null);
   const [driverFieldsRemarks, setDriverFieldsRemarks] = useState('');
@@ -799,13 +818,13 @@ function ActionsTab({
   useEffect(() => {
     setSelectedDriver(record.driver);
     setAssistants(record.driver_assistants ?? []);
-    setTimeIn(record.time_in ?? '');
-    setTimeOut(record.time_out ?? '');
+    setTimeIn(manilaDateTimeInput(record.time_in));
+    setTimeOut(manilaDateTimeInput(record.time_out));
     setReceivedBy(record.received_by ?? '');
     setDriverFieldsRemarks('');
     setDriverFieldsRemarksError(false);
     setSaveDriverError(null);
-  }, [record.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [record.id, record.time_in, record.time_out]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setSelectedStatus(record.status);
@@ -827,6 +846,7 @@ function ActionsTab({
     const updates: Partial<DeliveryRecord> & { status_remarks?: string } = {
       status: selectedStatus,
       status_remarks: statusRemarks.trim(),
+      ...(selectedStatus === "Delivered" ? { received_by: receivedBy.trim() } : {}),
       modified_by: `${currentUserName} (${currentUserRole})`,
       modified_at: now,
     };
@@ -856,8 +876,8 @@ function ActionsTab({
   const driverFieldsChanged =
     selectedDriver !== (record.driver ?? '') ||
     JSON.stringify(assistants.filter(a => a.trim())) !== JSON.stringify(record.driver_assistants ?? []) ||
-    (timeIn || '') !== (record.time_in ?? '') ||
-    (timeOut || '') !== (record.time_out ?? '') ||
+    timeIn !== manilaDateTimeInput(record.time_in) ||
+    timeOut !== manilaDateTimeInput(record.time_out) ||
     (receivedBy || '') !== (record.received_by ?? '');
   useWorkspaceDraft('dispatch', driverFieldsChanged || selectedStatus !== record.status || !!(statusRemarks || driverFieldsRemarks), applying || savingFields || podReadiness.uploading);
 
@@ -877,9 +897,9 @@ function ActionsTab({
     if (JSON.stringify(assistants.filter(a => a.trim())) !== JSON.stringify(record.driver_assistants ?? [])) {
       updates.driver_assistants = assistants.filter(a => a.trim());
     }
-    if ((timeIn || '') !== (record.time_in ?? '')) updates.time_in = timeIn || null;
-    if ((timeOut || '') !== (record.time_out ?? '')) updates.time_out = timeOut || null;
-    if ((receivedBy || '') !== (record.received_by ?? '')) updates.received_by = receivedBy || null;
+    if (timeIn !== manilaDateTimeInput(record.time_in)) updates.time_in = timeIn ? manilaInputToIso(timeIn) : null;
+    if (timeOut !== manilaDateTimeInput(record.time_out)) updates.time_out = timeOut ? manilaInputToIso(timeOut) : null;
+    if ((receivedBy || '') !== (record.received_by ?? '')) updates.received_by = receivedBy;
     if (remarks) updates.remarks = remarks;
     updates.modified_by = `${currentUserName} (${currentUserRole})`;
     updates.modified_at = new Date().toISOString();
@@ -898,7 +918,14 @@ function ActionsTab({
 
   return (
     <div className="space-y-6">
-      {record.category === 'Deliveries' && record.status !== 'Delivered' && <PodUploader key={record.id} recordId={record.id} required disabled={applying} />}
+      {record.status !== 'Delivered' && <PodUploader key={record.id} recordId={record.id} required disabled={applying} />}
+      {canRecordTimeIn(record) && (currentUserRole === 'Logistics' || currentUserRole === 'Admin') && <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-2">
+        <p className="text-xs text-blue-900">Record Time In to start this run. Enter remarks below before starting.</p>
+        <button type="button" disabled={applying || savingFields || !statusRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+          onClick={async () => { setApplying(true); setStatusError(null); try { await timeInMutation.mutateAsync({ id: record.id, remarks: statusRemarks.trim() }); setStatusRemarks(''); } catch (error) { setStatusError(error instanceof Error ? error.message : 'Could not record Time In.'); } finally { setApplying(false); } }}>
+          Record Time In
+        </button>
+      </div>}
       {/* Status update */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status Update</h4>
@@ -916,7 +943,7 @@ function ActionsTab({
           {remarksError && <p role="alert" className="text-[11px] text-red-600 font-semibold">Add a reason before saving the status change.</p>}
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {([...DELIVERY_STATUSES] as DeliveryStatus[]).map(s => (
+          {statusOptions.map(s => (
             <button
               type="button"
               key={s}
@@ -952,6 +979,7 @@ function ActionsTab({
         {statusError && <p role="alert" className="text-xs font-semibold text-red-700">{statusError}</p>}
       </div>
 
+      {draftRecord && <p className="text-xs text-slate-600">Submit this draft before changing its assignment. Existing assignments are retained.</p>}
       {/* Driver assignment + completion fields */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Driver &amp; Delivery Details</h4>
@@ -977,7 +1005,7 @@ function ActionsTab({
               const otherDrivers = DRIVERS.filter(d => !coveringDrivers.includes(d));
 
               // Same-day driver hint: other records in the same subregion, assigned today
-              const today = new Date().toISOString().slice(0, 10);
+              const today = manilaToday();
               const subregionAreas = record.area ? [record.area, ...nearbyAreas] : [];
               const sameDayHintMap: Record<string, number> = {};
               if (recordSubregion) {
@@ -993,6 +1021,7 @@ function ActionsTab({
                 <>
                   <select
                     value={selectedDriver}
+                    disabled={draftRecord || applying || savingFields}
                     onChange={e => setSelectedDriver(e.target.value)}
                     className={`w-full px-3 py-2 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${
                       !selectedDriver ? 'border-amber-400 bg-amber-50' : 'border-slate-300'
@@ -1043,6 +1072,7 @@ function ActionsTab({
               <label className="text-xs font-bold text-slate-700">Driver Assistants</label>
               <button
                 onClick={addAssistant}
+                disabled={draftRecord || savingFields}
                 className="text-[10px] font-bold text-[#0078C1] hover:underline cursor-pointer"
               >+ Add</button>
             </div>
@@ -1053,6 +1083,7 @@ function ActionsTab({
               <div key={i} className="flex gap-2">
                 <select
                   value={a}
+                  disabled={draftRecord || savingFields}
                   onChange={e => updateAssistant(i, e.target.value)}
                   className={inputCls}
                 >
@@ -1061,6 +1092,7 @@ function ActionsTab({
                 </select>
                 <button
                   onClick={() => removeAssistant(i)}
+                  disabled={draftRecord || savingFields}
                   className="px-2 py-1 text-slate-400 hover:text-red-500 border border-slate-200 rounded-lg hover:border-red-200 transition-colors text-xs cursor-pointer"
                   title="Remove"
                 >✕</button>
@@ -1070,25 +1102,27 @@ function ActionsTab({
 
           <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Time In</label>
+              <label className="text-xs font-bold text-slate-700">Time In (Manila)</label>
               <input
-                type="time"
+                type="datetime-local"
+                disabled={!record.time_in || savingFields || applying}
                 value={timeIn}
                 onChange={e => setTimeIn(e.target.value)}
                 className={inputCls}
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Time Out</label>
+              <label className="text-xs font-bold text-slate-700">Time Out (Manila)</label>
               <input
-                type="time"
+                type="datetime-local"
+                disabled={!record.time_out || savingFields || applying}
                 value={timeOut}
                 onChange={e => setTimeOut(e.target.value)}
                 className={inputCls}
               />
             </div>
             <div className="col-span-2 space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Received By</label>
+              <label className="text-xs font-bold text-slate-700">Received By *</label>
               <input
                 type="text"
                 value={receivedBy}
@@ -1098,6 +1132,7 @@ function ActionsTab({
               />
             </div>
           </div>
+          <p className="text-xs text-slate-500">Time In starts the run; Time Out is saved automatically on completion. Existing timestamps can be corrected above with remarks, using Manila time.</p>
 
           <div className="space-y-1.5 pt-2 border-t border-slate-100">
             <label className="text-xs font-bold text-slate-700">

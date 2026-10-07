@@ -82,7 +82,7 @@ export function fmtCurrency(n: number | null | undefined): string {
 
 // ─── CSV Export ───────────────────────────────────────────────────────────────
 
-const STATUS_ORDER = ['Scheduled', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'] as const;
+const STATUS_ORDER = ['Draft', 'Scheduled', 'In Transit', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'] as const;
 
 export function downloadCSV(
   rows: Record<string, string | number | null | undefined>[],

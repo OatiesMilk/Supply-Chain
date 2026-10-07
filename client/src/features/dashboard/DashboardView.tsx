@@ -1,3 +1,4 @@
+import { manilaToday } from '@/utils/recordLifecycle';
 import {
   AlertTriangle,
   Package,
@@ -95,7 +96,7 @@ export default function DashboardView({
   }
 
   // ── Sales Coordinator dashboard (default) ────────────────────────────────────
-  const today = new Date().toISOString().split("T")[0];
+  const today = manilaToday();
 
   const deliveriesScheduledToday =
     salesStats?.deliveries_scheduled_today ??

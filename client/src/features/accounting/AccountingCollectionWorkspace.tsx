@@ -1,3 +1,8 @@
+import { selectableStatuses, canRecordTimeIn, isDraftRecord } from '@/utils/recordLifecycle';
+import { completionError } from '@/utils/podRequirement';
+import { usePodAttachments } from '@/api/queries/usePodAttachments';
+import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
+import PodUploader from '@/components/PodUploader';
 import { useState, useEffect, useRef } from 'react';
 import {
   ArrowLeft, ChevronLeft, ChevronRight,
@@ -19,7 +24,7 @@ interface AccountingCollectionWorkspaceProps {
   onBack: () => void;
   onVerifyCollection: (id: string) => Promise<void>;
   onNavigateToRecord: (id: string) => void;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
 }
 
 type TabId = 'overview' | 'timeline' | 'verification' | 'documents';
@@ -471,21 +476,32 @@ function OverviewTab({
 }: {
   record: DeliveryRecord;
   currentUserRole: UserRole;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
 }) {
   const [updating, setUpdating] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [receivedBy, setReceivedBy] = useState(record.received_by ?? '');
+  const [draftReference, setDraftReference] = useState(record.reference);
+  useEffect(() => { setReceivedBy(record.received_by ?? ''); setDraftReference(record.reference); setStatusError(null); }, [record.id]);
+  const { readiness } = usePodAttachments(record.id);
+  const timeInMutation = useRecordTimeInMutation();
   const [statusRemarks, setStatusRemarks] = useState('');
   const [remarksError, setRemarksError] = useState(false);
   const canEdit = currentUserRole === 'Sales Coordinator' || currentUserRole === 'Logistics' || currentUserRole === 'Admin';
 
   const handleStatusChange = async (newStatus: DeliveryStatus) => {
     if (!canEdit || newStatus === record.status || updating) return;
+    const error = completionError(record, newStatus, receivedBy, readiness);
+    if (error) { setStatusError(error); return; }
+    setStatusError(null);
     if (!statusRemarks.trim()) { setRemarksError(true); return; }
     setRemarksError(false);
     setUpdating(true);
     try {
-      await onUpdateRecord(record.id, { status: newStatus, ...({ status_remarks: statusRemarks.trim() } as any) });
+      await onUpdateRecord(record.id, { status: newStatus, ...(newStatus === "Delivered" ? { received_by: receivedBy.trim() } : {}), ...({ status_remarks: statusRemarks.trim() } as any) });
       setStatusRemarks('');
+    } catch (error) {
+      setStatusError(error instanceof Error ? error.message : "Could not update the collection.");
     } finally {
       setUpdating(false);
     }
@@ -496,8 +512,23 @@ function OverviewTab({
       {/* Status Update card */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-3">
         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Collection Status</h4>
+        {statusError && <p role="alert" className="text-xs text-red-700">{statusError}</p>}
         {canEdit ? (
           <>
+            {isDraftRecord(record) && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-700">Reference (required to submit)</label>
+              <input value={draftReference} onChange={e => setDraftReference(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
+              <button type="button" disabled={updating || !statusRemarks.trim() || !draftReference.trim() || draftReference === record.reference} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold disabled:opacity-50"
+                onClick={async () => { setUpdating(true); setStatusError(null); try { await onUpdateRecord(record.id, { reference: draftReference.trim(), remarks: statusRemarks.trim() }); setStatusRemarks(''); } catch (error) { setStatusError(error instanceof Error ? error.message : 'Could not save the draft.'); } finally { setUpdating(false); } }}>Save Draft Reference</button>
+            </div>}
+            {record.status !== 'Delivered' && <>
+              <PodUploader recordId={record.id} required disabled={updating} />
+              <label className="block text-xs font-bold text-slate-700">Received By *</label>
+              <input value={receivedBy} onChange={e => setReceivedBy(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
+              {canRecordTimeIn(record) && (currentUserRole === 'Logistics' || currentUserRole === 'Admin') && <button type="button" disabled={updating || !statusRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs text-white disabled:opacity-50"
+                onClick={async () => { setUpdating(true); setStatusError(null); try { await timeInMutation.mutateAsync({ id: record.id, remarks: statusRemarks.trim() }); setStatusRemarks(''); } catch (error) { setStatusError(error instanceof Error ? error.message : 'Could not record Time In.'); } finally { setUpdating(false); } }}>Record Time In</button>}
+              {completionError(record, 'Delivered', receivedBy, readiness) && <p className="text-xs text-slate-600">{completionError(record, 'Delivered', receivedBy, readiness)}</p>}
+            </>}
             <div>
               <textarea
                 value={statusRemarks}
@@ -509,20 +540,20 @@ function OverviewTab({
               {remarksError && <p className="text-[11px] text-red-600 font-semibold mt-1">Remarks are required to change status.</p>}
             </div>
             <div className="flex flex-wrap gap-2">
-              {DELIVERY_STATUSES.map(s => {
+              {selectableStatuses(record, currentUserRole).map(s => {
                 const isActive = record.status === s;
                 return (
                   <button
                     key={s}
                     onClick={() => handleStatusChange(s)}
-                    disabled={isActive || updating}
+                    disabled={isActive || updating || !!completionError(record, s, receivedBy, readiness)}
                     className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all disabled:cursor-default ${
                       isActive
                         ? (STATUS_ACTIVE[s] ?? 'bg-slate-700 text-white border-slate-700')
                         : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50 hover:border-slate-400'
                     } ${updating && !isActive ? 'opacity-50' : ''}`}
                   >
-                    {acStatusLabel(s)}
+                    {s === "Scheduled" && isDraftRecord(record) ? "Submit" : s === "Draft" ? "Return to Draft" : acStatusLabel(s)}
                   </button>
                 );
               })}

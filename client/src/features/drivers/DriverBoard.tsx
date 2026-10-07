@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Truck, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { DeliveryRecord } from '@/types';
 import { DRIVERS, DRIVER_COVERAGE } from '@/data';
+import { isDraftRecord } from '@/utils/recordLifecycle';
 
 function splitDriversByArea(recordArea: string): { matched: string[]; others: string[] } {
   const area = recordArea.toLowerCase();
@@ -14,7 +15,7 @@ function splitDriversByArea(recordArea: string): { matched: string[]; others: st
 interface Props {
   records: DeliveryRecord[];
   onNavigate: (screen: string, item_id?: string) => void;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   currentUserName: string;
 }
 
@@ -27,6 +28,7 @@ const CATEGORY_SCREEN: Record<string, string> = {
 };
 
 const STATUS_COLOR: Record<string, string> = {
+  'In Transit': 'bg-cyan-100 text-cyan-700 border-cyan-200',
   Delivered:   'bg-emerald-100 text-emerald-700 border-emerald-200',
   Scheduled:   'bg-blue-100 text-blue-700 border-blue-200',
   Pending:     'bg-amber-100 text-amber-700 border-amber-200',
@@ -41,12 +43,14 @@ function initials(name: string) {
 interface CardProps {
   record: DeliveryRecord;
   onNavigate: (screen: string, id?: string) => void;
-  onAssign: (id: string, driver: string) => void;
+  onAssign: (id: string, driver: string) => Promise<void>;
   currentUserName: string;
 }
 
 const RecordCard: React.FC<CardProps> = function RecordCard({ record, onNavigate, onAssign, currentUserName }) {
   const [showAssign, setShowAssign] = useState(false);
+  const [assigning, setAssigning] = useState(false);
+  const [assignmentError, setAssignmentError] = useState<string | null>(null);
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-3 space-y-2 hover:shadow-md transition-shadow">
@@ -70,9 +74,19 @@ const RecordCard: React.FC<CardProps> = function RecordCard({ record, onNavigate
         {showAssign ? (
           <select
             autoFocus
+            disabled={assigning}
             defaultValue={record.driver}
             onBlur={() => setShowAssign(false)}
-            onChange={e => { onAssign(record.id, e.target.value); setShowAssign(false); }}
+            onChange={async e => {
+              setAssigning(true);
+              setAssignmentError(null);
+              try {
+                await onAssign(record.id, e.target.value);
+                setShowAssign(false);
+              } catch (error) {
+                setAssignmentError(error instanceof Error ? error.message : 'Could not save the driver assignment.');
+              } finally { setAssigning(false); }
+            }}
             className="flex-1 text-[11px] border border-slate-300 rounded px-1.5 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#0078C1]/30"
           >
             <option value="">-- Unassigned --</option>
@@ -101,6 +115,7 @@ const RecordCard: React.FC<CardProps> = function RecordCard({ record, onNavigate
             </span>
             <button
               onClick={() => setShowAssign(true)}
+              disabled={assigning}
               className="text-[9px] font-bold text-[#0078C1] hover:underline cursor-pointer"
             >
               Reassign
@@ -108,6 +123,7 @@ const RecordCard: React.FC<CardProps> = function RecordCard({ record, onNavigate
           </>
         )}
       </div>
+      {assignmentError && <p role="alert" className="text-xs text-red-700">{assignmentError}</p>}
     </div>
   );
 }
@@ -117,7 +133,7 @@ export default function DriverBoard({ records, onNavigate, onUpdateRecord, curre
   const [areaFilter, setAreaFilter] = useState<string>('All');
 
   // Active (non-Delivered) records only for the board
-  const activeRecords = records.filter(r => r.status !== 'Delivered');
+  const activeRecords = records.filter(r => r.status !== 'Delivered' && !isDraftRecord(r));
 
   // Collect distinct areas for filter chips
   const allAreas = ['All', ...Array.from(new Set(activeRecords.map(r => r.area).filter(Boolean))).sort()];
@@ -135,8 +151,8 @@ export default function DriverBoard({ records, onNavigate, onUpdateRecord, curre
     byDriver[r.driver].push(r);
   }
 
-  const handleAssign = (id: string, driver: string) => {
-    onUpdateRecord(id, {
+  const handleAssign = async (id: string, driver: string) => {
+    await onUpdateRecord(id, {
       driver,
       remarks: driver ? `Driver assigned: ${driver}` : 'Driver unassigned',
       modified_by: `${currentUserName} (Logistics)`,
