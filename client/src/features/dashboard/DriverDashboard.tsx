@@ -17,6 +17,7 @@ import { completionError, type PodReadiness } from "@/utils/podRequirement";
 
 import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
 import { canRecordTimeIn, isDraftRecord, manilaToday } from '@/utils/recordLifecycle';
+import DoneRecordModal from "./DoneRecordModal";
 
 interface DriverDashboardProps {
   records: DeliveryRecord[];
@@ -57,6 +58,8 @@ export default function DriverDashboard({
     day: "numeric",
     year: "numeric",
   });
+
+  const [selectedDoneRecord, setSelectedDoneRecord] = useState<DeliveryRecord | null>(null);
 
   const [pendingAction, setPendingAction] = useState<{
     rec: DeliveryRecord;
@@ -328,9 +331,11 @@ export default function DriverDashboard({
               <div className="flex-1 h-px bg-slate-200" />
             </div>
             {doneRecs.map((rec) => (
-              <div
+              <button
+                type="button"
                 key={rec.id}
-                className="bg-white rounded-2xl border border-emerald-200 px-4 py-3 flex items-start justify-between gap-3"
+                onClick={() => setSelectedDoneRecord(rec)}
+                className="w-full text-left bg-white rounded-2xl border border-emerald-200 px-4 py-3 flex items-start justify-between gap-3 hover:bg-emerald-50 transition-colors cursor-pointer"
               >
                 <div className="min-w-0">
                   <p className="font-mono text-[10px] text-slate-400">
@@ -368,7 +373,7 @@ export default function DriverDashboard({
                 <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full shrink-0">
                   Done
                 </span>
-              </div>
+              </button>
             ))}
           </div>
         )}
@@ -499,6 +504,13 @@ export default function DriverDashboard({
             </div>
           </div>
         </div>
+      )}
+
+      {selectedDoneRecord && (
+        <DoneRecordModal
+          record={selectedDoneRecord}
+          onClose={() => setSelectedDoneRecord(null)}
+        />
       )}
     </div>
   );
