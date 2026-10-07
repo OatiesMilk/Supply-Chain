@@ -711,7 +711,6 @@ export const CUSTOMER_COLUMNS: ExportColumn[] = [
   { header: 'Phone',          key: 'phone',          width: 18 },
   { header: 'City',           key: 'city',           width: 18 },
   { header: 'Address',        key: 'address',        width: 36 },
-  { header: 'Total Records',  key: 'total_records',  width: 16 },
 ];
 
 export const SUPPLIER_COLUMNS: ExportColumn[] = [

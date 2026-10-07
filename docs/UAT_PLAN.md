@@ -82,7 +82,8 @@ Before running any test case, confirm the database is ready.
 |---------|-----------|-------|-----------------|-------------|
 | A-4.1 | View customer list | Navigate to Customers page | List of existing customers is displayed | |
 | A-4.2 | Create a new customer | Click **+ Add Customer** → fill in Name + other required fields → Save | Customer appears in the list | |
-| A-4.3 | Customer linked to records | Click a customer name → check their delivery history | Associated delivery records are shown | |
+| A-4.3 | Customer workspace has no record history | Click a customer name → review the workspace tabs | Only Overview, Documents & Attachments and (Admin) Audit Trail are shown. There is no Record History tab, because Customers are not linked to delivery records | |
+| A-4.4 | Company delivery history shows linked records | Open any record → click the company name in the record summary | A Company history panel lists that Company's records you can access, newest first. Clicking a row opens it in its own module. A Customer with the same name as the Company is not included. As TASS, only RMA and Accounting Collection records appear | |
 
 ---
 

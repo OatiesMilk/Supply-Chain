@@ -21,6 +21,8 @@ import { usePodAttachments } from '@/api/queries/usePodAttachments';
 import { completionError } from '@/utils/podRequirement';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
 import DocumentSizeSelect from '@/components/DocumentSizeSelect';
+import { CompanyHistoryButton } from '@/components/CompanyHistoryPanel';
+import { useUIStore } from '@/store/uiStore';
 import WorkspaceTabs from './WorkspaceTabs';
 import { WorkspaceDraftProvider, useWorkspaceDraft, useWorkspaceNavigation } from './WorkspaceDrafts';
 
@@ -1687,6 +1689,7 @@ function RecordWorkspace({
   forceReadOnly = false,
 }: DeliveryRecordWorkspaceProps) {
   const { requestLeave, pending } = useWorkspaceNavigation();
+  const navigate = useUIStore(s => s.handleNavigate);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError]     = useState<string | null>(null);
   const [docSize, setDocSize]       = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
@@ -1833,7 +1836,14 @@ function RecordWorkspace({
 
       <section aria-label="Record summary" className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="font-bold text-slate-800">{record.company_name}</span>
+          <CompanyHistoryButton
+            companyId={record.company_id}
+            companyName={record.company_name}
+            currentRecordId={record.id}
+            disabled={pending}
+            className="font-bold text-slate-800"
+            onOpenRecord={(screen, id) => requestLeave(() => navigate(screen, id))}
+          />
           <span className="text-slate-500">{record.category}</span>
           <span className={`rounded-full border px-2 py-0.5 font-semibold ${STATUS_COLOR[record.status] ?? 'bg-slate-50 text-slate-700 border-slate-200'}`}>{record.status}</span>
           <span className={`rounded-full border px-2 py-0.5 ${PRIORITY_COLOR[record.priority] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}>Priority: {record.priority}</span>

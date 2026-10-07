@@ -57,6 +57,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** Optional server-side filters for GET /records; the server always applies the user's record scope. */
+export interface RecordListFilters {
+  company_id?: string;
+  category?: string;
+  limit?: number;
+  cursor?: string;
+}
+
 export interface ApiUser {
   id: string;
   name: string;
@@ -388,7 +396,14 @@ export const api = {
   logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
   me: () => request<ApiUser>('/auth/me'),
 
-  getRecords: () => request<any[]>('/records'),
+  getRecords: (filters: RecordListFilters = {}) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) {
+      if (value !== undefined && value !== '') params.set(key, String(value));
+    }
+    const query = params.toString();
+    return request<any[]>(`/records${query ? `?${query}` : ''}`);
+  },
   getRecord: (id: string) => request<any>(`/records/${id}`),
   getRecordAudit: (id: string) => request<ApiAuditEntry[]>(`/records/${id}/audit`),
   createRecord: (data: Record<string, unknown>) =>

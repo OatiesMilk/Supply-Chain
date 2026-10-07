@@ -1,4 +1,5 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../db';
 import { asyncRoute } from '../middleware/asyncRoute';
 import { assignmentError, withDriverDirectoryLock } from '../services/driverDirectory';
@@ -54,11 +55,49 @@ function generateRecordId(): string {
 }
 
 const TASS_CATEGORIES: string[] = ['ACCOUNTING_COLLECTION', 'RMA'];
+const LIST_ID_PATTERN = /^[\w-]{1,64}$/;
+const LIST_MAX_LIMIT = 100;
+
+// Optional filters for GET /records. Without any query params the endpoint
+// keeps returning every record the user can read, newest first.
+function parseListQuery(query: express.Request['query']) {
+  const { company_id, category, limit, cursor } = query;
+  const where: Prisma.DeliveryRecordWhereInput = {};
+  let take: number | undefined;
+
+  if (company_id !== undefined) {
+    if (typeof company_id !== 'string' || !LIST_ID_PATTERN.test(company_id)) return { error: 'company_id is invalid' };
+    where.companyId = company_id;
+  }
+  if (category !== undefined) {
+    const dbCategory = typeof category === 'string' ? CATEGORY_TO_DB[category] : undefined;
+    if (!dbCategory) return { error: 'category is invalid' };
+    where.category = dbCategory as Prisma.DeliveryRecordWhereInput['category'];
+  }
+  if (limit !== undefined) {
+    take = typeof limit === 'string' && /^\d+$/.test(limit) ? Number(limit) : NaN;
+    if (!(take >= 1 && take <= LIST_MAX_LIMIT)) return { error: `limit must be between 1 and ${LIST_MAX_LIMIT}` };
+  }
+  if (cursor !== undefined) {
+    if (typeof cursor !== 'string' || !LIST_ID_PATTERN.test(cursor)) return { error: 'cursor is invalid' };
+    if (take === undefined) return { error: 'cursor requires limit' };
+  }
+  return { where, take, cursor: cursor as string | undefined };
+}
+
 router.get('/', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
+  const parsed = parseListQuery(req.query);
+  if ('error' in parsed) return res.status(400).json({ error: parsed.error });
+
+  // recordScope stays in the AND list so filters can only narrow what the
+  // user is already allowed to read. An unknown or out-of-scope company
+  // returns an empty list rather than revealing whether it exists.
   const records = await prisma.deliveryRecord.findMany({
-    where: { deletedAt: null, AND: [recordScope(req.user!)] },
+    where: { deletedAt: null, ...parsed.where, AND: [recordScope(req.user!)] },
     include: recordInclude,
-    orderBy: { createdAt: 'desc' }
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    ...(parsed.take !== undefined ? { take: parsed.take } : {}),
+    ...(parsed.cursor ? { cursor: { id: parsed.cursor }, skip: 1 } : {}),
   });
   res.json(records.map(serializeRecord));
 });
