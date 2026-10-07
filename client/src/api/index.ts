@@ -15,9 +15,12 @@ export function apiUrl(path: string): string {
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  /** Per-field validation messages from the server, keyed by API field name. */
+  fields: Record<string, string>;
+  constructor(message: string, status: number, fields: Record<string, string> = {}) {
     super(message);
     this.status = status;
+    this.fields = fields;
   }
 }
 
@@ -44,13 +47,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
+    let fields: Record<string, string> = {};
     try {
       const body = await res.json();
       if (body?.error) message = body.error;
+      if (body?.fields && typeof body.fields === 'object') fields = body.fields;
     } catch {
       // ignore non-JSON error bodies
     }
-    throw new ApiError(message, res.status);
+    throw new ApiError(message, res.status, fields);
   }
 
   if (res.status === 204) return undefined as unknown as T;
@@ -133,6 +138,23 @@ export interface ApiCustomer {
   created_at: string;
   modified_by: string;
   modified_at: string;
+}
+
+export type CustomerEditableField = 'name' | 'contact_person' | 'email' | 'phone' | 'city' | 'address';
+
+export type CustomerUpdateInput = Partial<Record<CustomerEditableField, string>> & {
+  remarks: string;
+  /** The modified_at value the edit was based on; the server rejects stale edits with 409. */
+  expected_modified_at: string;
+};
+
+export interface ApiCustomerAuditEntry {
+  id: string;
+  action: string;
+  changed_by: string;
+  timestamp: string;
+  remarks: string;
+  changes: Array<{ field: string; label: string; from: string; to: string }>;
 }
 
 export interface ApiSupplier {
@@ -430,6 +452,9 @@ export const api = {
   getCustomers: () => request<ApiCustomer[]>('/customers'),
   createCustomer: (data: { name: string; contact_person?: string; email?: string; phone?: string; address?: string; city?: string }) =>
     request<ApiCustomer>('/customers', { method: 'POST', body: JSON.stringify(data) }),
+  updateCustomer: (id: string, data: CustomerUpdateInput) =>
+    request<ApiCustomer>(`/customers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  getCustomerAudit: (id: string) => request<ApiCustomerAuditEntry[]>(`/customers/${id}/audit`),
 
   getSuppliers: () => request<ApiSupplier[]>('/suppliers'),
   createSupplier: (data: { name: string; contact_person?: string; email?: string; phone?: string; address?: string; city?: string; category?: string }) =>
