@@ -254,6 +254,11 @@ router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResour
 }));
 
 router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'), asyncRoute(async (req, res) => {
+  const { remarks } = req.body ?? {};
+  if (typeof remarks !== 'string' || !remarks.trim()) {
+    return res.status(400).json({ error: 'Remarks are required to remove an attachment.' });
+  }
+
   const result = await prisma.$transaction(async tx => {
     await lockPodRecord(tx, req.params.id);
     const attachment = await tx.podAttachment.findFirst({ where: { id: req.params.attachmentId, recordId: req.params.id } });
@@ -270,6 +275,7 @@ router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('re
     }
     await tx.podAttachment.delete({ where: { id: attachment.id } });
     await tx.auditLog.create({ data: { recordId: req.params.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id, previousValue: JSON.stringify({ attachment: attachment.originalName, attachment_id: attachment.id }), newValue: JSON.stringify({ attachment_removed: attachment.id }) } });
+    await tx.remarkLog.create({ data: { recordId: req.params.id, body: `Removed attachment ${attachment.originalName}: ${remarks.trim()}`, context: 'GENERAL_EDIT', authorId: req.user!.id } });
     return null;
   });
   if (result) return res.status(result.status).json({ error: result.error });
@@ -320,6 +326,8 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
     return res.status(403).json({ error: 'Sales Coordinator cannot assign drivers — use the Logistics role' });
   }
 
+  if (!isDraft && !b.reference?.trim()) return res.status(400).json({ error: 'Reference is required' });
+  if (!isDraft && !b.delivery_date) return res.status(400).json({ error: 'Delivery Date is required' });
   if (b.status && !['Draft', 'Scheduled'].includes(b.status)) return res.status(400).json({ error: 'New records must be Draft or Scheduled.' });
   if ((b.driver && String(b.driver).trim()) || (Array.isArray(b.driver_assistants) && b.driver_assistants.length)) return res.status(400).json({ error: 'Assign drivers after submitting the record.' });
   const created = await prisma.$transaction(async tx => {
@@ -343,7 +351,7 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
         category: dbCategory as any,
         itemType: b.item_type ?? 'Small Item',
         draft: isDraft,
-        dateAndTime: b.date_time ?? new Date().toISOString(),
+        
         itemDescription: b.item_description ?? '',
         lineItems: Array.isArray(b.line_items) ? {
           create: b.line_items.map((li: any) => ({
@@ -472,7 +480,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (b.delivery_date !== undefined) data.deliveryDate = b.delivery_date;
     if (b.item_type !== undefined) data.itemType = b.item_type;
     if (b.is_draft !== undefined) data.draft = b.is_draft === 'Yes';
-    if (b.date_time !== undefined) data.dateAndTime = b.date_time;
+    
     if (b.item_description !== undefined) data.itemDescription = b.item_description;
     if (b.line_items !== undefined && Array.isArray(b.line_items)) {
       data.lineItems = {
@@ -490,7 +498,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
 
   // Admin can correct the same full metadata exposed by the staff editor.
   if (req.user!.role === 'ADMIN') {
-    const metadata: Record<string, string> = { company_id: 'companyId', reference: 'reference', account_manager: 'accountManager', delivery_date: 'deliveryDate', item_type: 'itemType', date_time: 'dateAndTime', item_description: 'itemDescription' };
+    const metadata: Record<string, string> = { company_id: 'companyId', reference: 'reference', account_manager: 'accountManager', delivery_date: 'deliveryDate', item_type: 'itemType', item_description: 'itemDescription' };
     for (const [input, field] of Object.entries(metadata)) if (b[input] !== undefined) data[field] = b[input];
     if (b.amount !== undefined) data.amount = b.amount != null ? parseFloat(String(b.amount)) : null;
     if (Array.isArray(b.attachments) && b.attachments.length > 0) data.documentAttachment = b.attachments[0];

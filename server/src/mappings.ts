@@ -73,7 +73,7 @@ export function serializeRecord(r: any) {
     category: CATEGORY_FROM_DB[r.category] ?? r.category,
     item_type: r.itemType,
     is_draft: r.draft ? 'Yes' : 'No',
-    date_time: r.dateAndTime,
+    
     item_description: r.itemDescription,
     line_items: r.lineItems?.map((li: any) => ({ id: li.id, sku: li.sku, quantity: li.quantity })) || [],
     address: r.address ?? '',

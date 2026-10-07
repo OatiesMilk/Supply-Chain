@@ -118,7 +118,7 @@ function ScaffoldTab({ icon: Icon, label, detail }: { icon: typeof FileText; lab
 
 type EditDraft = {
   priority: PriorityLevel; reference: string; area: string; vehicle: string;
-  account_manager: string; delivery_date: string; date_time: string;
+  account_manager: string; delivery_date: string;
   item_type: ItemType; is_draft: 'Yes' | 'No'; remarks: string; item_description: string; line_items: { sku: string, quantity: number }[];
   address: string;
 };
@@ -154,7 +154,7 @@ function GeneralTab({
     vehicle: record.vehicle || '(None)',
     account_manager: record.account_manager,
     delivery_date: record.delivery_date,
-    date_time: record.date_time ?? '',
+    
     item_type: record.item_type,
     is_draft: record.is_draft,
     remarks: record.remarks || '',
@@ -174,7 +174,7 @@ function GeneralTab({
       vehicle: record.vehicle || '(None)',
       account_manager: record.account_manager,
       delivery_date: record.delivery_date,
-      date_time: record.date_time ?? '',
+      
       item_type: record.item_type,
       is_draft: record.is_draft,
       remarks: record.remarks || '',
@@ -206,7 +206,7 @@ function GeneralTab({
     setSaveError(null);
     setSaving(true);
     const updates = canEditFull
-      ? { priority: draft.priority, reference: draft.reference, area: draft.area, vehicle: draft.vehicle, account_manager: draft.account_manager, delivery_date: draft.delivery_date, date_time: draft.date_time, item_type: draft.item_type, remarks: draft.remarks, item_description: draft.item_description, line_items: draft.line_items, address: draft.address }
+      ? { priority: draft.priority, reference: draft.reference, area: draft.area, vehicle: draft.vehicle, account_manager: draft.account_manager, delivery_date: draft.delivery_date, item_type: draft.item_type, remarks: draft.remarks, item_description: draft.item_description, line_items: draft.line_items, address: draft.address }
       : { area: draft.area, address: draft.address, remarks: draft.remarks };
     try {
       await onUpdateRecord(record.id, {
@@ -230,7 +230,7 @@ function GeneralTab({
       vehicle: record.vehicle || '(None)',
       account_manager: record.account_manager,
       delivery_date: record.delivery_date,
-      date_time: record.date_time ?? '',
+      
       item_type: record.item_type,
       is_draft: record.is_draft,
       remarks: record.remarks || '',
@@ -316,7 +316,7 @@ function GeneralTab({
                 { label: 'Received By',       value: record.received_by || '—' },
                 { label: 'Account Manager',   value: record.account_manager },
                 { label: 'Delivery Date',   value: record.delivery_date },
-                { label: 'Date & Time',     value: record.date_time ? formatTs(record.date_time) : '—' },
+                { label: 'Created At',      value: record.created_at ? formatTs(record.created_at) : '—' },
                 { label: 'Item Type',       value: record.item_type },
                 { label: 'Draft',           value: record.is_draft },
               ].map(row => (
@@ -413,7 +413,7 @@ function GeneralTab({
                   </div>
                   <div className="space-y-1">
                     <label className={labelCls}>Date &amp; Time</label>
-                    <input type="datetime-local" value={draft.date_time} onChange={e => set('date_time', e.target.value)} className={inputCls} />
+                    
                   </div>
 
                 </>
@@ -1476,15 +1476,18 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
   const uploading = readiness.uploading;
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [removeRemarks, setRemoveRemarks] = useState('');
+  const [removing, setRemoving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  useWorkspaceDraft('documents', false, uploading);
+  useWorkspaceDraft('documents', false, uploading || removing);
 
   useEffect(() => {
     setError(null);
   }, [record.id]);
 
   const addFiles = async (incoming: FileList | null) => {
-    if (!incoming || incoming.length === 0 || uploading) return;
+    if (!incoming || incoming.length === 0 || uploading || removing) return;
     const selectedFiles = Array.from(incoming);
     const validationError = validatePodAttachments(selectedFiles);
     if (validationError) {
@@ -1503,11 +1506,18 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
     }
   };
 
-  const removeFile = async (id: string) => {
+  const removeFile = async () => {
+    if (!confirmRemoveId) return;
+    setRemoving(true);
+    setError(null);
     try {
-      await deleteFile(id);
+      await deleteFile({ id: confirmRemoveId, remarks: removeRemarks });
+      setConfirmRemoveId(null);
+      setRemoveRemarks('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not remove attachment.');
+    } finally {
+      setRemoving(false);
     }
   };
 
@@ -1591,8 +1601,8 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
                       <FileText className="w-3.5 h-3.5" />
                     </a>
                   <button
-                    disabled={uploading}
-                    onClick={() => removeFile(f.id)}
+                    disabled={uploading || removing}
+                    onClick={() => setConfirmRemoveId(f.id)}
                     className="p-1.5 hover:bg-red-50 rounded text-slate-300 hover:text-red-500 transition-colors"
                     title="Remove"
                   >
@@ -1606,6 +1616,44 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
       ) : (
         <div className="text-center py-6 text-slate-400 text-xs">
           No documents attached yet. Upload files above.
+        </div>
+      )}
+
+      {/* Removal Confirmation Modal */}
+      {confirmRemoveId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="text-sm font-black text-slate-900">Remove Attachment</h3>
+            <p className="text-xs text-slate-600">
+              Are you sure you want to remove <span className="font-bold">{files.find(f => f.id === confirmRemoveId)?.name}</span>? This action cannot be undone and will be permanently recorded in the audit trail.
+            </p>
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-slate-700">Remarks <span className="text-red-500">*</span></label>
+              <textarea
+                value={removeRemarks}
+                onChange={e => setRemoveRemarks(e.target.value)}
+                rows={2}
+                placeholder="Reason for removal..."
+                className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:ring-[#0078C1] focus:border-[#0078C1]"
+              />
+            </div>
+            <div className="flex gap-2 justify-end pt-2">
+              <button
+                disabled={removing}
+                onClick={() => { setConfirmRemoveId(null); setRemoveRemarks(''); setError(null); }}
+                className="px-4 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={removing || !removeRemarks.trim()}
+                onClick={removeFile}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded-lg flex items-center gap-1.5"
+              >
+                {removing ? 'Removing...' : 'Remove'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
