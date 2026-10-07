@@ -54,7 +54,7 @@ export default function DriverView({
   const [remarks, setRemarks] = useState('');
   const [receiverInputs, setReceiverInputs] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [feedback, setFeedback] = useState<{message: string, type: 'success'|'error'|'info'} | null>(null);
   const lastTrigger = useRef<HTMLButtonElement | null>(null);
 
   const activeRecords = records.filter(isActive);
@@ -92,12 +92,12 @@ export default function DriverView({
     setSelectedDriver(name);
     setSelectedRecordId(null);
     setTab('active');
-    setError('');
+    setFeedback(null);
   };
   const chooseTab = (next: RunTab) => {
     setTab(next);
     setSelectedRecordId(null);
-    setError('');
+    setFeedback(null);
   };
   const closeStatus = () => {
     setPendingStatus(null);
@@ -106,12 +106,12 @@ export default function DriverView({
 
   const save = async (record: DeliveryRecord, updates: Partial<DeliveryRecord>, failureMessage: string) => {
     setSaving(true);
-    setError('');
+    setFeedback(null);
     try {
       await onUpdateRecord(record.id, updates);
       return true;
     } catch (error) {
-      setError(error instanceof Error ? error.message : failureMessage);
+      setFeedback({ message: error instanceof Error ? error.message : failureMessage, type: 'error' });
       return false;
     } finally {
       setSaving(false);
@@ -136,14 +136,22 @@ export default function DriverView({
   const confirmStatus = async () => {
     if (!selectedRecord || !pendingStatus || !remarks.trim()) return;
     if (completionError(selectedRecord, pendingStatus, receiverInputs[selectedRecord.id] ?? selectedRecord.received_by, podReadiness)) return;
+    
+    if (pendingStatus === selectedRecord.status) {
+      setFeedback({ message: 'Choose a different status before saving.', type: 'info' });
+      return;
+    }
+
     if (pendingStatus === "In Transit") {
       setSaving(true);
-      setError("");
+      setFeedback(null);
       try {
         await timeInMutation.mutateAsync({ id: selectedRecord.id, remarks: remarks.trim() });
         closeStatus();
+        setFeedback({ message: 'Status updated successfully.', type: 'success' });
+        setTimeout(() => setFeedback(null), 3000);
       } catch (error) {
-        setError(error instanceof Error ? error.message : "Could not record Time In.");
+        setFeedback({ message: error instanceof Error ? error.message : "Could not record Time In.", type: 'error' });
       } finally { setSaving(false); }
       return;
     }
@@ -157,6 +165,8 @@ export default function DriverView({
     const saved = await save(selectedRecord, updates, 'Could not update the run. Please try again.');
     if (!saved) return;
     closeStatus();
+    setFeedback({ message: 'Status updated successfully.', type: 'success' });
+    setTimeout(() => setFeedback(null), 3000);
     if (status === 'Delivered' && tab === 'active') setSelectedRecordId(null);
     const trigger = getOutputTrigger(selectedRecord.category, status);
     if (trigger) {
@@ -168,7 +178,7 @@ export default function DriverView({
           api,
         });
       } catch {
-        setError('The status was saved, but an output action could not finish. Check notifications before retrying.');
+        setFeedback({ message: 'The status was saved, but an output action could not finish. Check notifications before retrying.', type: 'error' });
       }
     }
   };
@@ -210,7 +220,7 @@ export default function DriverView({
         </section>
       )}
 
-      {error && !selectedRecord && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+      {feedback && !selectedRecord && <p role="alert" className={`rounded-lg border p-3 text-sm ${feedback.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : feedback.type === 'info' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-red-200 bg-red-50 text-red-800'}`}>{feedback.message}</p>}
 
       <div className="relative">
         <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
@@ -271,7 +281,7 @@ export default function DriverView({
                   {filteredRuns.length === 0 ? (
                     <p className="p-8 text-center text-sm text-slate-600">{term ? 'No matching runs for this driver.' : `No ${tab} runs for this driver.`}</p>
                   ) : filteredRuns.map(record => (
-                    <button key={record.id} type="button" onClick={() => { setSelectedRecordId(record.id); setError(''); }}
+                    <button key={record.id} type="button" onClick={() => { setSelectedRecordId(record.id); setFeedback(null); }}
                       aria-current={selectedRecord?.id === record.id ? 'true' : undefined}
                       className={`flex min-h-20 w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 sm:px-5 ${selectedRecord?.id === record.id ? 'bg-blue-50/70' : ''}`}>
                       <span className="min-w-0 space-y-1">
@@ -332,13 +342,13 @@ export default function DriverView({
                           onRemove={name => removeAssistant(selectedRecord, name)} />
                       </div>}
 
-                      {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+                      {feedback && <p role="alert" className={`rounded-lg border p-3 text-sm ${feedback.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : feedback.type === 'info' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-red-200 bg-red-50 text-red-800'}`}>{feedback.message}</p>}
 
                       {selectedRecord.category !== 'RMA' && selectedRecord.status !== 'Delivered' && (
                         <div className="space-y-4 border-t border-slate-200 pt-4">
                           {!selectedRecord.time_in ? (
                             <button type="button" disabled={saving || !canRecordTimeIn(selectedRecord)}
-                              onClick={event => { lastTrigger.current = event.currentTarget; setPendingStatus("In Transit"); setRemarks(""); setError(""); }}
+                              onClick={event => { lastTrigger.current = event.currentTarget; setPendingStatus("In Transit"); setRemarks(""); setFeedback(null); }}
                               className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white disabled:opacity-50">
                               <Clock3 aria-hidden="true" className="h-4 w-4" /> Record time in
                             </button>
@@ -360,7 +370,7 @@ export default function DriverView({
                           <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
                             {(['Delivered', 'Pending', 'Rescheduled'] as const).map(status => (
                               <button key={status} type="button" disabled={saving || !(selectedRecord.allowed_statuses ?? []).includes(status) || (status === 'Delivered' && (!!photoError || !selectedRecord.time_in || !(receiverInputs[selectedRecord.id]?.trim() || selectedRecord.received_by?.trim())))}
-                                onClick={event => { lastTrigger.current = event.currentTarget; setPendingStatus(status); setRemarks(''); setError(''); }}
+                                onClick={event => { lastTrigger.current = event.currentTarget; setPendingStatus(status); setRemarks(''); setFeedback(null); }}
                                 className={`min-h-11 rounded-lg px-2 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${status === 'Delivered' ? 'bg-emerald-700 text-white' : status === 'Pending' ? 'bg-amber-100 text-amber-900' : 'bg-violet-100 text-violet-900'}`}>
                                 {status === 'Delivered' ? 'Accomplish' : status === 'Rescheduled' ? 'Reschedule' : status}
                               </button>
@@ -413,7 +423,7 @@ export default function DriverView({
                 className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"><X aria-hidden="true" className="h-5 w-5" /></button>
             </div>
             {pendingStatus === 'Delivered' && photoError && <p role="alert" className="text-sm text-red-800">{photoError}</p>}
-            {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+            {feedback && <p role="alert" className={`rounded-lg p-3 text-sm ${feedback.type === 'success' ? 'bg-emerald-50 text-emerald-800' : feedback.type === 'info' ? 'bg-amber-50 text-amber-800' : 'bg-red-50 text-red-800'}`}>{feedback.message}</p>}
             <div>
               <label htmlFor="driver-status-remarks" className="mb-1 block text-sm font-semibold text-slate-700">Remarks — reason for change (required)</label>
               <p id="driver-status-remarks-help" className="mb-2 text-sm text-slate-600">Explain why you are making this change. The reason is saved with your name in the record history.</p>

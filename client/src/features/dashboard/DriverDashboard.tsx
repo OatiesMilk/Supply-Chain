@@ -72,7 +72,7 @@ export default function DriverDashboard({
 
   const [podStates, setPodStates] = useState<Record<string, PodReadiness>>({});
   const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveFeedback, setSaveFeedback] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const onPodReadinessChange = useCallback((id: string, state: PodReadiness) => {
     setPodStates(previous => ({ ...previous, [id]: state }));
   }, []);
@@ -88,7 +88,7 @@ export default function DriverDashboard({
   const handleTimeIn = (rec: DeliveryRecord) => {
     setPendingAction({ rec, status: "In Transit" });
     setRemarksInput("");
-    setSaveError(null);
+    setSaveFeedback(null);
   };
 
   const applyStatus = async (
@@ -177,6 +177,14 @@ export default function DriverDashboard({
           ))}
         </div>
       </div>
+
+      {saveFeedback && !pendingAction && (
+        <div className="px-4 py-3 pb-0">
+          <div role="alert" className={`rounded-xl border p-3 text-xs font-semibold shadow-sm ${saveFeedback.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : saveFeedback.type === 'info' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
+            {saveFeedback.message}
+          </div>
+        </div>
+      )}
 
       {/* Body */}
       <div className="flex-1 px-4 py-5 space-y-4 max-w-lg mx-auto w-full">
@@ -284,7 +292,7 @@ export default function DriverDashboard({
                       onClick={() => {
                         setPendingAction({ rec, status: "Delivered" });
                         setRemarksInput("");
-                        setSaveError(null);
+                        setSaveFeedback(null);
                       }}
                       disabled={saving || !(rec.allowed_statuses ?? []).includes("Delivered") || !!completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}
                       className="disabled:opacity-40 disabled:cursor-not-allowed py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-emerald-600 hover:bg-emerald-700 text-white transition-all flex flex-col items-center gap-1 cursor-pointer"
@@ -295,7 +303,7 @@ export default function DriverDashboard({
                       onClick={() => {
                         setPendingAction({ rec, status: "Pending" });
                         setRemarksInput("");
-                        setSaveError(null);
+                        setSaveFeedback(null);
                       }}
                       disabled={saving || !(rec.allowed_statuses ?? []).includes("Pending")}
                       className="disabled:opacity-40 py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-amber-500 hover:bg-amber-600 text-white transition-all flex flex-col items-center gap-1"
@@ -306,7 +314,7 @@ export default function DriverDashboard({
                       onClick={() => {
                         setPendingAction({ rec, status: "Rescheduled" });
                         setRemarksInput("");
-                        setSaveError(null);
+                        setSaveFeedback(null);
                       }}
                       disabled={saving || !(rec.allowed_statuses ?? []).includes("Rescheduled")}
                       className="disabled:opacity-40 py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-purple-500 hover:bg-purple-600 text-white transition-all flex flex-col items-center gap-1"
@@ -469,7 +477,7 @@ export default function DriverDashboard({
             </div>
 
             {photoError && <p role="alert" className="text-xs text-red-700">{photoError}</p>}
-            {saveError && <p role="alert" className="text-xs text-red-700">{saveError}</p>}
+            {saveFeedback && <p role="alert" className={`text-xs ${saveFeedback.type === 'success' ? 'text-emerald-700' : saveFeedback.type === 'info' ? 'text-amber-700' : 'text-red-700'}`}>{saveFeedback.message}</p>}
             <div className="flex gap-2 justify-end">
               <button
                 disabled={saving}
@@ -485,8 +493,12 @@ export default function DriverDashboard({
                 disabled={saving || !remarksInput.trim() || !!photoError}
                 onClick={async () => {
                   if (saving || !remarksInput.trim() || photoError) return;
+                  if (pendingAction.status === pendingAction.rec.status) {
+                    setSaveFeedback({ message: 'Choose a different status before saving.', type: 'info' });
+                    return;
+                  }
                   setSaving(true);
-                  setSaveError(null);
+                  setSaveFeedback(null);
                   try {
                     if (pendingAction.status === "In Transit") {
                       await timeInMutation.mutateAsync({ id: pendingAction.rec.id, remarks: remarksInput.trim() });
@@ -495,8 +507,10 @@ export default function DriverDashboard({
                     }
                     setPendingAction(null);
                     setRemarksInput("");
+                    setSaveFeedback({ message: 'Status updated successfully.', type: 'success' });
+                    setTimeout(() => setSaveFeedback(null), 3000);
                   } catch (error) {
-                    setSaveError(error instanceof Error ? error.message : 'Could not update the delivery. Please try again.');
+                    setSaveFeedback({ message: error instanceof Error ? error.message : 'Could not update the delivery. Please try again.', type: 'error' });
                   } finally {
                     setSaving(false);
                   }
