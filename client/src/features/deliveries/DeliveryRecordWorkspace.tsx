@@ -789,6 +789,8 @@ function ActionsTab({
   const [saveDriverError, setSaveDriverError] = useState<string | null>(null);
   const [driverFieldsRemarks, setDriverFieldsRemarks] = useState('');
   const [driverFieldsRemarksError, setDriverFieldsRemarksError] = useState(false);
+  const [statusSuccess, setStatusSuccess] = useState(false);
+  const [driverSuccess, setDriverSuccess] = useState(false);
 
   // Sync assistants / completion fields when navigating to a different record
   useEffect(() => {
@@ -800,6 +802,7 @@ function ActionsTab({
     setDriverFieldsRemarks('');
     setDriverFieldsRemarksError(false);
     setSaveDriverError(null);
+    setDriverSuccess(false);
   }, [record.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -807,10 +810,15 @@ function ActionsTab({
     setStatusRemarks('');
     setStatusError(null);
     setRemarksError(false);
+    setStatusSuccess(false);
   }, [record.id, record.status]);
 
   const handleStatusChange = async () => {
-    if (applying || selectedStatus === record.status) return;
+    if (applying) return;
+    if (selectedStatus === record.status) {
+      setStatusError('Choose a different status before saving.');
+      return;
+    }
     if (!statusRemarks.trim()) {
       setRemarksError(true);
       return;
@@ -818,6 +826,7 @@ function ActionsTab({
     setRemarksError(false);
     setStatusError(null);
     setApplying(true);
+    setStatusSuccess(false);
     const now = new Date().toISOString();
     const updates: Partial<DeliveryRecord> & { status_remarks?: string } = {
       status: selectedStatus,
@@ -829,6 +838,7 @@ function ActionsTab({
     try {
       await onUpdateRecord(record.id, updates);
       setStatusRemarks('');
+      setStatusSuccess(true);
       const trigger = getOutputTrigger(record.category, selectedStatus);
       if (trigger) {
         await runOutputActions(trigger, outputActionConfigs[trigger], {
@@ -864,9 +874,13 @@ function ActionsTab({
       return;
     }
     const remarks = driverFieldsRemarks.trim();
-    if (!driverFieldsChanged && !remarks) return;
+    if (!driverFieldsChanged && !remarks) {
+      setSaveDriverError('Change fields before saving.');
+      return;
+    }
 
     setSavingFields(true);
+    setDriverSuccess(false);
     const updates: Partial<DeliveryRecord> = {};
     if (selectedDriver !== (record.driver ?? '')) updates.driver = selectedDriver;
     if (JSON.stringify(assistants.filter(a => a.trim())) !== JSON.stringify(record.driver_assistants ?? [])) {
@@ -882,6 +896,7 @@ function ActionsTab({
       await onUpdateRecord(record.id, updates);
       setDriverFieldsRemarks('');
       setDriverFieldsRemarksError(false);
+      setDriverSuccess(true);
     } catch (error) {
       setSaveDriverError(error instanceof Error ? error.message : 'Could not save driver fields. Please try again.');
     } finally {
@@ -935,7 +950,7 @@ function ActionsTab({
           <button
             type="button"
             onClick={handleStatusChange}
-            disabled={applying || selectedStatus === record.status}
+            disabled={applying}
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#0078C1] px-4 text-xs font-semibold text-white hover:bg-[#1F3864] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {applying ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Check aria-hidden="true" className="h-4 w-4" />}
@@ -943,6 +958,7 @@ function ActionsTab({
           </button>
         </div>
         {statusError && <p role="alert" className="text-xs font-semibold text-red-700">{statusError}</p>}
+        {statusSuccess && !statusError && <p role="status" className="text-xs font-semibold text-emerald-700">Status successfully updated!</p>}
       </div>
 
       {/* Driver assignment + completion fields */}
@@ -1112,9 +1128,10 @@ function ActionsTab({
           </div>
 
           {saveDriverError && <p role="alert" className="text-[11px] text-red-600 font-semibold mb-2">{saveDriverError}</p>}
+          {driverSuccess && !saveDriverError && <p role="status" className="text-[11px] font-semibold text-emerald-700 mb-2">Driver and delivery details successfully saved!</p>}
           <button
             onClick={handleSaveDriverFields}
-            disabled={savingFields || (!driverFieldsChanged && !driverFieldsRemarks.trim())}
+            disabled={savingFields}
             className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-[#0078C1] hover:bg-[#1F3864] rounded-lg transition-colors cursor-pointer disabled:opacity-60"
           >
             {savingFields ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
