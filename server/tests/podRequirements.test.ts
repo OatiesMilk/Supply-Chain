@@ -30,7 +30,7 @@ const attachment = (overrides: Record<string, unknown> = {}) => ({ id: 'photo-1'
 const record = (overrides: Record<string, unknown> = {}) => ({ id: 'delivery-1', category: 'DELIVERY', status: 'IN_TRANSIT', draft: false, reference: 'REF', driverAssistants: '[]', priority: '2 - Moderate', driver: 'Assigned Driver', company: { name: 'Test Company' }, accountManager: 'Test AM', timeIn: '2026-10-06T01:00:00.000Z', receivedBy: 'Recipient', timeOut: null, deletedAt: null, ...overrides });
 
 function failClosed() {
-  for (const model of [prisma.user, prisma.company, prisma.deliveryRecord, prisma.podAttachment, prisma.auditLog, prisma.remarkLog, prisma.notification, prisma.notificationLog, prisma.driver]) {
+  for (const model of [prisma.user, prisma.company, prisma.deliveryRecord, prisma.podAttachment, prisma.auditLog, prisma.remarkLog, prisma.comment, prisma.notification, prisma.notificationLog, prisma.driver]) {
     for (const method of ['findFirst', 'findUnique', 'findUniqueOrThrow', 'findMany', 'create', 'createMany', 'upsert', 'update', 'updateMany', 'delete', 'deleteMany', 'count']) {
       stub(model, method, async () => { throw new Error('Unstubbed database operation: ' + method); });
     }
@@ -574,4 +574,30 @@ test('locked PUT retains draft role restrictions and timestamp chronology after 
   state.tx.deliveryRecord.findUnique = async () => record({ status: 'ACCOMPLISHED', timeIn: '2026-10-07T02:00:00.000Z', timeOut: '2026-10-07T03:00:00.000Z' });
   assert.equal((await request('put', '/:id', { role: 'ADMIN', body: { time_out: '2026-10-07T01:00:00.000Z', remarks: 'Correct clock' } })).status, 400);
   assert.deepEqual(state.events, ['lock']);
+});
+
+test('Logistics RMA discussion is readable but comment writes are denied without mutation', async () => {
+  const state = database(record({ category: 'RMA' }));
+  stub(prisma.comment, 'findMany', async () => [{ id: 'comment-1', body: 'Discussion', author: { name: 'Author' }, createdAt: new Date(), updatedAt: new Date() }] as any);
+  const create = stub(prisma.comment, 'create', async () => { throw new Error('Unexpected comment write'); });
+  assert.equal((await request('get', '/:id/comments', { role: 'LOGISTICS' })).status, 200);
+  assert.equal((await request('post', '/:id/comments', { role: 'LOGISTICS', body: { body: 'Discussion' } })).status, 403);
+  assert.equal(create.mock.callCount(), 0);
+  assert.deepEqual(state.events, []);
+});
+
+test('authorized RMA comments preserve the named actor without change remarks and reject blank discussion', async () => {
+  for (const role of ['SALES_COORDINATOR', 'ADMIN', 'DRIVER', 'TASS']) {
+    resetFixtures();
+    const state = database(record({ category: 'RMA' }));
+    const create = stub(prisma.comment, 'create', async ({ data }: any) => ({ ...data, id: 'comment-1', author: { name: 'Assigned Driver' }, createdAt: new Date(), updatedAt: new Date() }) as any);
+    assert.equal((await request('post', '/:id/comments', { role, body: { body: '   ' } })).status, 400);
+    assert.equal(create.mock.callCount(), 0);
+    const response = await request('post', '/:id/comments', { role, body: { body: ' Optional discussion ' } });
+    assert.equal(response.status, 201);
+    assert.equal(response.body.body, 'Optional discussion');
+    assert.equal(response.body.author, 'Assigned Driver');
+    assert.equal((create.mock.calls[0].arguments[0] as any).data.authorId, 'test-user');
+    assert.deepEqual(state.events, []);
+  }
 });
