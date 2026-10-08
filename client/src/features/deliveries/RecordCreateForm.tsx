@@ -7,7 +7,7 @@ import { runOutputActions } from '@/outputActions';
 import { ApiCompany } from '@/api';
 import OutputActionsPanel from '@/features/deliveries/OutputActionsPanel';
 import ComboboxField from '@/components/ComboboxField';
-import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
+import { POD_ATTACHMENT_ACCEPT, getPodAttachmentRejection } from '@/utils/attachmentValidation';
 import { selectDemoLocation } from '@/utils/demoLocations';
 import { notify } from '@/utils/notify';
 
@@ -217,9 +217,9 @@ export default function RecordCreateForm({
     input.value = '';
     if (selectedFiles.length === 0) return;
 
-    const validationError = validatePodAttachments(selectedFiles);
-    if (validationError) {
-      notify.error(validationError);
+    const rejection = getPodAttachmentRejection(selectedFiles);
+    if (rejection) {
+      notify.fileRejected(rejection.fileName, rejection.reason);
       return;
     }
 
