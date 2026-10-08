@@ -16,7 +16,7 @@ import ComboboxField from '@/components/ComboboxField';
 import { Pencil, X as XIcon, Save, Plus } from 'lucide-react';
 import { getOutputTrigger, runOutputActions } from '@/outputActions';
 import StatusStepper from '@/components/StatusStepper';
-import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
+import { POD_ATTACHMENT_ACCEPT, getPodAttachmentRejection } from '@/utils/attachmentValidation';
 import PodUploader from '@/components/PodUploader';
 import CommentComposer from '@/components/CommentComposer';
 import { PodAttachmentList } from '@/components/PodAttachmentPreview';
@@ -1583,9 +1583,9 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
   const addFiles = async (incoming: FileList | null) => {
     if (!incoming || incoming.length === 0 || busy) return;
     const selectedFiles = Array.from(incoming);
-    const validationError = validatePodAttachments(selectedFiles);
-    if (validationError) {
-      notify.error(validationError);
+    const rejection = getPodAttachmentRejection(selectedFiles);
+    if (rejection) {
+      notify.fileRejected(rejection.fileName, rejection.reason);
       if (inputRef.current) inputRef.current.value = '';
       return;
     }
