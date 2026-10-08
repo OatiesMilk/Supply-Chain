@@ -148,6 +148,42 @@ test.describe('A-2 Create a Delivery Record', () => {
 });
 
 test.describe('A-3 Edit a Record', () => {
+  test('A-3.9 SC can stage, save, and preview a photo from Documents', async ({ page }) => {
+    const photoName = `sc-preview-${Date.now()}.png`;
+    const onePixelPng = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64',
+    );
+
+    await page.goto(`${BASE_URL}/deliveries`);
+    await page.waitForLoadState('networkidle');
+    const firstRow = page.getByRole('row').nth(1);
+    await expect(firstRow).toBeVisible();
+    await firstRow.click();
+    await page.getByRole('tab', { name: /documents/i }).click();
+    await page.locator('input[type="file"]').last().setInputFiles({
+      name: photoName,
+      mimeType: 'image/png',
+      buffer: onePixelPng,
+    });
+
+    await expect(page.getByText('Waiting to upload', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: `Remove staged ${photoName}` })).toBeVisible();
+    await page.getByRole('button', { name: 'Save Files' }).click();
+
+    const preview = page.getByRole('button', { name: `Preview ${photoName}` });
+    await expect(preview).toBeVisible({ timeout: 15_000 });
+    await preview.click();
+    await expect(page.getByRole('dialog', { name: `Preview ${photoName}` })).toBeVisible();
+    await page.getByRole('button', { name: 'Close photo preview' }).click();
+
+    await page.getByRole('button', { name: `Remove ${photoName}` }).click();
+    const confirmation = page.getByRole('alertdialog', { name: 'Remove Attachment' });
+    await expect(confirmation.getByRole('textbox')).toHaveCount(0);
+    await confirmation.getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(preview).toHaveCount(0);
+  });
+
   test('A-3.6 Active Deliveries sidebar returns to the list and preserves filters', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');

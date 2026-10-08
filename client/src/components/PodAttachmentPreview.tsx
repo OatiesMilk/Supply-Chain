@@ -21,10 +21,11 @@ function documentType(file: ApiPodAttachment) {
   return extension || 'FILE';
 }
 
-function PhotoThumbnail({ file, onOpen, onRemove }: {
+function PhotoThumbnail({ file, onOpen, onRemove, removeDisabled = false }: {
   file: ApiPodAttachment;
   onOpen: () => void;
   onRemove?: () => void;
+  removeDisabled?: boolean;
 }) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -76,12 +77,13 @@ function PhotoThumbnail({ file, onOpen, onRemove }: {
       {onRemove && (
         <button
           type="button"
+          disabled={removeDisabled}
           onClick={event => {
             event.stopPropagation();
             onRemove();
           }}
           aria-label={`Remove ${file.name}`}
-          className="absolute right-1.5 top-1.5 flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-slate-700 shadow hover:bg-white hover:text-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          className="absolute right-1.5 top-1.5 flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-slate-700 shadow hover:bg-white hover:text-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <X aria-hidden="true" className="h-4 w-4" />
         </button>
@@ -240,9 +242,10 @@ export function PodPhotoLightbox({
   );
 }
 
-export function PodAttachmentList({ files, onRemove }: {
+export function PodAttachmentList({ files, onRemove, removeDisabled = false }: {
   files: readonly ApiPodAttachment[];
   onRemove?: (file: ApiPodAttachment) => void;
+  removeDisabled?: boolean;
 }) {
   const { photos, documents } = splitPodAttachments(files);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -257,6 +260,7 @@ export function PodAttachmentList({ files, onRemove }: {
               file={file}
               onOpen={() => setLightboxIndex(index)}
               onRemove={onRemove ? () => onRemove(file) : undefined}
+              removeDisabled={removeDisabled}
             />
           ))}
         </div>
@@ -288,9 +292,10 @@ export function PodAttachmentList({ files, onRemove }: {
                 {onRemove && (
                   <button
                     type="button"
+                    disabled={removeDisabled}
                     onClick={() => onRemove(file)}
                     aria-label={`Remove ${file.name}`}
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-red-50 hover:text-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-red-50 hover:text-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <X aria-hidden="true" className="h-4 w-4" />
                   </button>
