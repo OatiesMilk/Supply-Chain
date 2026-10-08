@@ -93,6 +93,8 @@ test.describe('C-1 Driver Dashboard', () => {
     await expect(page.getByText(/overdue · 2 days late/i)).toBeVisible();
     await expect(page.getByRole('button', { name: /record time in/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /upload photo|upload.*doc/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Pending$/i })).toBeDisabled();
+    await expect(page.getByRole('button', { name: /^Reschedule$/i })).toBeEnabled();
   });
 
   test('C-1.5 Logout works', async ({ page }) => {
