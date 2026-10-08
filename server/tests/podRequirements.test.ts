@@ -377,6 +377,24 @@ test('manual In Transit, early completion, early Pending and reopening Delivered
   }
 });
 
+test('assigned Driver cannot mark Pending before Time In and the rejected request makes no writes', async () => {
+  const state = database(record({ status: 'SCHEDULED', timeIn: null }));
+  const before = { ...state.saved() };
+
+  const result = await request('patch', '/:id/status', {
+    role: 'DRIVER',
+    body: { status: 'Pending', remarks: 'Customer unavailable before starting the run' },
+  });
+
+  assert.equal(result.status, 400);
+  assert.match(result.body.error, /time in/i);
+  assert.deepEqual(state.saved(), before);
+  assert.equal(state.events.includes('update'), false);
+  assert.equal(state.events.includes('audit'), false);
+  assert.equal(state.events.includes('remark'), false);
+  assert.equal(state.events.includes('notification'), false);
+});
+
 test('SC/Admin return pre-start run to Draft, retain assignment and audit; started run cannot revert', async () => {
   for (const role of ['SALES_COORDINATOR', 'ADMIN']) {
     resetFixtures();
