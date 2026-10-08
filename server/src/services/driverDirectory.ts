@@ -22,6 +22,8 @@ export function parseCoverageAreas(value: string) {
 }
 
 export class DriverConflictError extends Error {}
+// A roster change reserved for Admin (TSK-119).
+export class DriverPermissionError extends Error {}
 
 export function driverInputError(body: { name?: unknown; type?: unknown; coverage_areas?: unknown; is_active?: unknown }, creating = false) {
   if ((creating || body.name !== undefined) && (typeof body.name !== 'string' || !body.name.trim())) return 'A non-empty name is required.';
@@ -63,13 +65,23 @@ export function readDriverDirectory(db: Pick<PrismaClient, 'driver'>, includeIna
 
 export async function updateDriverDirectory(
   db: PrismaClient, id: string, data: Prisma.DriverUpdateInput,
-  actor: { id: string; name: string }, deactivate = false,
+  actor: { id: string; name: string }, deactivate = false, restrictIdentity = false,
 ) {
   return db.$transaction(async tx => {
     await lockDriverDirectory(tx);
     const existing = await tx.driver.findUnique({ where: { id } });
     if (!existing) return null;
     if (deactivate && !existing.isActive) return existing;
+    // Non-Admin roster edits keep coverage and status only: an entry cannot
+    // become (or stop being) a Driver, and a Driver cannot be renamed.
+    if (restrictIdentity) {
+      if (typeof data.type === 'string' && data.type !== existing.type) {
+        throw new DriverPermissionError('Only Admin can change whether an entry is a Driver or an Assistant.');
+      }
+      if (existing.type === 'DRIVER' && typeof data.name === 'string' && data.name !== existing.name) {
+        throw new DriverPermissionError('Only Admin can rename a Driver.');
+      }
+    }
     if (typeof data.name === 'string' || typeof data.type === 'string') {
       const duplicate = await tx.driver.findFirst({ where: {
         id: { not: id }, name: { equals: typeof data.name === 'string' ? data.name : existing.name, mode: 'insensitive' },

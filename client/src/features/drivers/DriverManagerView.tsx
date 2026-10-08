@@ -48,6 +48,10 @@ export default function DriverManagerView({
   };
 
   const canManage = currentUserRole === 'Logistics' || currentUserRole === 'Admin';
+  // TSK-119: only Admin adds or renames Drivers; Logistics adds Assistants and
+  // keeps coverage/status edits. The server enforces the same rules.
+  const isAdmin = currentUserRole === 'Admin';
+  const canRename = (d: ApiDriver) => isAdmin || d.type !== 'DRIVER';
   const typeFilter = tab === 'drivers' ? 'DRIVER' : 'ASSISTANT';
 
   const filtered = drivers
@@ -78,7 +82,7 @@ export default function DriverManagerView({
   const saveEdit = async (d: ApiDriver) => {
     const name = editForm.name.trim();
     if (!name || legacyCoverage(editForm.coverage_areas).length > 0) return;
-    if (!await runAction(() => onUpdateDriver(d.id, { name, coverage_areas: editForm.coverage_areas }))) return;
+    if (!await runAction(() => onUpdateDriver(d.id, { ...(canRename(d) ? { name } : {}), coverage_areas: editForm.coverage_areas }))) return;
     setEditingId(null);
   };
 
@@ -161,11 +165,11 @@ export default function DriverManagerView({
           {/* Add button */}
           {canManage && (
             <button
-              onClick={() => { setForm({ ...EMPTY_FORM, type: typeFilter }); setShowCreate(true); }}
+              onClick={() => { setForm({ ...EMPTY_FORM, type: isAdmin ? typeFilter : 'ASSISTANT' }); setShowCreate(true); }}
               className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-[#0078C1] text-white hover:bg-[#1F3864] transition-all border-2 border-transparent"
             >
               <Plus className="w-3.5 h-3.5" />
-              Add {tab === 'drivers' ? 'Driver' : 'Assistant'}
+              Add {isAdmin && tab === 'drivers' ? 'Driver' : 'Assistant'}
             </button>
           )}
         </div>
@@ -204,7 +208,7 @@ export default function DriverManagerView({
                 {filtered.map(d => (
                   <tr key={d.id} className={`transition-colors ${d.is_active ? 'hover:bg-slate-50' : 'bg-slate-50/50 opacity-60'}`}>
                     <td className="px-4 py-3">
-                      {editingId === d.id ? (
+                      {editingId === d.id && canRename(d) ? (
                         <input
                           type="text"
                           value={editForm.name}
@@ -368,15 +372,23 @@ export default function DriverManagerView({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Type</label>
+                <label htmlFor="create-type" className="block text-xs font-semibold text-slate-600 mb-1">Type</label>
                 <select
+                  id="create-type"
                   value={form.type}
+                  disabled={!isAdmin}
+                  aria-describedby="create-type-help"
                   onChange={e => setForm(f => ({ ...f, type: e.target.value as 'DRIVER' | 'ASSISTANT' }))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] disabled:bg-slate-50 disabled:text-slate-500"
                 >
-                  <option value="DRIVER">Driver</option>
+                  {isAdmin && <option value="DRIVER">Driver</option>}
                   <option value="ASSISTANT">Assistant</option>
                 </select>
+                <p id="create-type-help" className="text-[10px] text-slate-400 mt-1">
+                  {isAdmin
+                    ? form.type === 'DRIVER' && 'To let this Driver sign in, create a Driver login in Admin Panel → Users and link it to this profile.'
+                    : 'Only Admin can add drivers.'}
+                </p>
               </div>
 
               <div>
