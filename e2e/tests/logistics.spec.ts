@@ -155,6 +155,97 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
       await expect(page.getByText(/choose a different status|no change/i)).toBeVisible({ timeout: 5_000 });
     }
   });
+
+  test('B-2.7 Active Deliveries sidebar uses the existing discard guard for unsaved driver changes', async ({ page }) => {
+    await page.goto(`${BASE_URL}/deliveries`);
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('button', { name: 'Scheduled', exact: true }).click();
+
+    const firstRow = page.getByRole('row').nth(1);
+    await expect(firstRow).toBeVisible();
+    await firstRow.click();
+    await page.getByRole('tab', { name: /dispatch|logistics/i }).click();
+
+    const driverSelect = page.locator('select').first();
+    await expect(driverSelect).toBeEnabled();
+    const currentDriver = await driverSelect.inputValue();
+    const optionValues = await driverSelect.locator('option').evaluateAll(options =>
+      options.map(option => (option as HTMLOptionElement).value)
+    );
+    const replacementDriver = currentDriver
+      ? ''
+      : optionValues.find(value => value !== '');
+    test.skip(!currentDriver && !replacementDriver, 'No alternative driver option is available in the test data.');
+    await driverSelect.selectOption(replacementDriver ?? '');
+
+    const deliveriesLink = page.getByRole('navigation').getByRole('button', { name: /deliveries/i });
+    await deliveriesLink.click();
+    const discardDialog = page.getByRole('dialog', { name: 'Discard unfinished changes?' });
+    await expect(discardDialog).toBeVisible();
+    await discardDialog.getByRole('button', { name: 'Keep editing' }).click();
+    await expect(page.locator('[id^="delivery-record-workspace-"]')).toBeVisible();
+
+    await deliveriesLink.click();
+    await expect(discardDialog).toBeVisible();
+    await discardDialog.getByRole('button', { name: 'Discard and leave' }).click();
+    await expect(page.getByRole('table')).toBeVisible();
+    await expect(page.locator('[id^="delivery-record-workspace-"]')).toHaveCount(0);
+  });
+
+  test('B-2.8 Active Accounting Collection sidebar returns to the list and guards unsaved edits', async ({ page }) => {
+    await page.goto(`${BASE_URL}/accounting_collection`);
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('button', { name: 'Scheduled', exact: true }).click();
+
+    const firstRow = page.getByRole('row').nth(1);
+    await expect(firstRow).toBeVisible();
+    const recordId = (await firstRow.getByRole('cell').first().innerText()).trim();
+    const search = page.getByRole('textbox', { name: 'Search accounting collection records' });
+    await search.fill(recordId);
+    const filteredRow = page.getByRole('row').filter({ hasText: recordId }).first();
+    await expect(filteredRow).toBeVisible();
+    await filteredRow.click();
+    await expect(page.locator('#accounting-collection-workspace')).toBeVisible();
+    await page.locator('#accounting-change-remarks').fill('Unsubmitted navigation guard check');
+
+    const accountingLink = page.getByRole('navigation').getByRole('button', { name: /accounting collection/i });
+    await accountingLink.click();
+    const discardDialog = page.getByRole('dialog', { name: 'Discard unfinished changes?' });
+    await expect(discardDialog).toBeVisible();
+    await discardDialog.getByRole('button', { name: 'Discard and leave' }).click();
+
+    await expect(page.getByRole('table')).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Search accounting collection records' })).toHaveValue(recordId);
+    await expect(page.getByRole('button', { name: 'Scheduled', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('row').filter({ hasText: recordId }).first()).toBeVisible();
+  });
+
+  test('B-2.9 Active sidebar navigation returns to category lists without changing module behavior', async ({ page }) => {
+    const modules = [
+      { path: 'rma', sidebarName: /RMA/i },
+      { path: 'procurement_pickup', sidebarName: /Procurement Pick-up/i },
+      { path: 'sales_orders', sidebarName: /Sales Orders/i },
+    ];
+
+    for (const module of modules) {
+      await page.goto(`${BASE_URL}/${module.path}`);
+      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('table')).toBeVisible();
+
+      const firstRow = page.getByRole('row').nth(1);
+      await expect(firstRow).toBeVisible();
+      await firstRow.click();
+      await expect(page.locator('[id^="delivery-record-workspace-"]')).toBeVisible();
+
+      if (module.path === 'rma') {
+        await expect(page.getByRole('tab', { name: /dispatch|logistics/i })).not.toBeVisible();
+      }
+
+      await page.getByRole('navigation').getByRole('button', { name: module.sidebarName }).click();
+      await expect(page.getByRole('table')).toBeVisible();
+      await expect(page.locator('[id^="delivery-record-workspace-"]')).toHaveCount(0);
+    }
+  });
 });
 
 test.describe('B-3 Driver Board & Calendar', () => {

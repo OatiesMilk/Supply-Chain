@@ -26,6 +26,7 @@ import { CompanyHistoryButton } from '@/components/CompanyHistoryPanel';
 import { useUIStore } from '@/store/uiStore';
 import WorkspaceTabs from './WorkspaceTabs';
 import { WorkspaceDraftProvider, useWorkspaceDraft, useWorkspaceNavigation } from './WorkspaceDrafts';
+import { screenKeyForCategory } from '@/routes/screenRouting';
 
 import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
 import { selectableStatuses, canRecordTimeIn, isDraftRecord, manilaToday, manilaDateTimeInput, manilaInputToIso } from '@/utils/recordLifecycle';
@@ -1760,7 +1761,21 @@ function RecordWorkspace({
   forceReadOnly = false,
 }: DeliveryRecordWorkspaceProps) {
   const { requestLeave, pending } = useWorkspaceNavigation();
+  const navigationNonce = useUIStore(s => s.navigationNonce);
+  const currentScreen = useUIStore(s => s.currentScreen);
+  const selectedRecordId = useUIStore(s => s.selectedRecordId);
+  const initialNavigationNonce = useRef(navigationNonce);
+  const moduleScreen = screenKeyForCategory(record.category);
   const navigate = useUIStore(s => s.handleNavigate);
+
+  useEffect(() => {
+    if (navigationNonce === initialNavigationNonce.current) return;
+    initialNavigationNonce.current = navigationNonce;
+
+    if (currentScreen !== moduleScreen || selectedRecordId) return;
+    requestLeave(onBack);
+  }, [navigationNonce, currentScreen, selectedRecordId, moduleScreen, requestLeave, onBack]);
+
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError]     = useState<string | null>(null);
   const [docSize, setDocSize]       = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);

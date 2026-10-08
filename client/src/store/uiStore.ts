@@ -6,6 +6,7 @@ import { CATEGORY_SCREENS } from '@/routes/screenRouting';
 
 export interface UIState {
   currentScreen: string;
+  navigationNonce: number;
   isSidebarOpen: boolean;
   isSidebarCollapsed: boolean;
   zoomFactor: number;
@@ -39,6 +40,7 @@ export const useUIStore = create<UIStore>()(
   persist(
     subscribeWithSelector((set, get) => ({
       currentScreen: 'dashboard',
+      navigationNonce: 0,
       isSidebarOpen: false,
       isSidebarCollapsed: false,
       zoomFactor: 100,
@@ -98,6 +100,7 @@ export const useUIStore = create<UIStore>()(
 
         set({
           currentScreen: screen,
+          navigationNonce: get().navigationNonce + 1,
           isSidebarOpen: false,
           selectedProductId: screen === 'inventory' && item_id ? item_id : null,
           selectedRecordId: CATEGORY_SCREENS[screen] && item_id ? item_id : null,
