@@ -18,7 +18,9 @@ import { getOutputTrigger, runOutputActions } from '@/outputActions';
 import StatusStepper from '@/components/StatusStepper';
 import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
 import PodUploader from '@/components/PodUploader';
+import { PodAttachmentList } from '@/components/PodAttachmentPreview';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
+import type { StagedFile } from '@/utils/idbFiles';
 import { completionError } from '@/utils/podRequirement';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
 import DocumentSizeSelect from '@/components/DocumentSizeSelect';
@@ -1545,23 +1547,63 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
 
 // ─── Documents Tab ────────────────────────────────────────────────────────────
 
+function StagedAttachment({ staged, disabled, onRemove }: {
+  staged: StagedFile;
+  disabled: boolean;
+  onRemove: () => void;
+}) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const isPhoto = staged.file.type.startsWith('image/');
+
+  useEffect(() => {
+    if (!isPhoto) return;
+    const url = URL.createObjectURL(staged.file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [isPhoto, staged.file]);
+
+  return (
+    <div className="flex min-w-0 items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+      {previewUrl ? (
+        <img src={previewUrl} alt="" className="h-12 w-12 shrink-0 rounded-lg object-cover" />
+      ) : (
+        <FileText aria-hidden="true" className="h-5 w-5 shrink-0 text-amber-700" />
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-xs font-semibold text-slate-800">{staged.file.name}</p>
+        <p className="mt-0.5 text-[10px] font-bold text-amber-700">Waiting to upload</p>
+      </div>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onRemove}
+        aria-label={`Remove staged ${staged.file.name}`}
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-600 hover:bg-red-50 hover:text-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <XIcon aria-hidden="true" className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
 function DocumentsTab({ record }: { record: DeliveryRecord }) {
-  const { files, readiness, uploadDirect, removeFile: deleteFile } = usePodAttachments(record.id);
+  const { files, stagedFiles, readiness, stageFiles, unstageFile, uploadStaged, removeFile: deleteFile } = usePodAttachments(record.id);
   const uploading = readiness.uploading;
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
-  const [removeRemarks, setRemoveRemarks] = useState('');
+  const [staging, setStaging] = useState(false);
   const [removing, setRemoving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  useWorkspaceDraft('documents', false, uploading || removing);
+  const busy = uploading || staging || removing;
+  useWorkspaceDraft('documents', readiness.hasStagedFiles, busy);
 
   useEffect(() => {
     setError(null);
   }, [record.id]);
 
   const addFiles = async (incoming: FileList | null) => {
-    if (!incoming || incoming.length === 0 || uploading || removing) return;
+    if (!incoming || incoming.length === 0 || busy) return;
     const selectedFiles = Array.from(incoming);
     const validationError = validatePodAttachments(selectedFiles);
     if (validationError) {
@@ -1571,12 +1613,37 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
     }
 
     setError(null);
+    setStaging(true);
     try {
-      await uploadDirect(selectedFiles);
+      await stageFiles(selectedFiles);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not stage files.');
+    } finally {
+      setStaging(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  };
+
+  const saveFiles = async () => {
+    if (!readiness.hasStagedFiles || busy) return;
+    setError(null);
+    try {
+      await uploadStaged();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed.');
+    }
+  };
+
+  const removeStaged = async (id: string) => {
+    if (busy) return;
+    setStaging(true);
+    setError(null);
+    try {
+      await unstageFile(id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove staged file.');
     } finally {
-      if (inputRef.current) inputRef.current.value = '';
+      setStaging(false);
     }
   };
 
@@ -1585,30 +1652,13 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
     setRemoving(true);
     setError(null);
     try {
-      await deleteFile({ id: confirmRemoveId, remarks: removeRemarks });
+      await deleteFile({ id: confirmRemoveId, remarks: '' });
       setConfirmRemoveId(null);
-      setRemoveRemarks('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not remove attachment.');
     } finally {
       setRemoving(false);
     }
-  };
-
-  const formatSize = (bytes: number) => {
-    if (!bytes) return '';
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
-  const fileIcon = (type: string, name: string) => {
-    const ext = name.split('.').pop()?.toLowerCase() ?? '';
-    if (type.startsWith('image/')) return '🖼️';
-    if (type === 'application/pdf' || ext === 'pdf') return '📄';
-    if (['xlsx', 'xls', 'csv'].includes(ext)) return '📊';
-    if (['docx', 'doc'].includes(ext)) return '📝';
-    return '📎';
   };
 
   return (
@@ -1617,20 +1667,20 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
       <div
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
-        onDrop={e => { e.preventDefault(); setDragging(false); if (!uploading) addFiles(e.dataTransfer.files); }}
-        onClick={() => { if (!uploading) inputRef.current?.click(); }}
-        aria-busy={uploading}
+        onDrop={e => { e.preventDefault(); setDragging(false); if (!busy) addFiles(e.dataTransfer.files); }}
+        onClick={() => { if (!busy) inputRef.current?.click(); }}
+        aria-busy={busy}
         className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all ${
           dragging
             ? 'border-[#0078C1] bg-blue-50'
-            : uploading
+            : busy
               ? 'border-slate-200 bg-slate-50 cursor-wait'
               : 'border-slate-300 hover:border-[#0078C1] hover:bg-slate-50'
         }`}
       >
         <Paperclip className={`w-8 h-8 transition-colors ${dragging ? 'text-[#0078C1]' : 'text-slate-300'}`} />
         <div className="text-center">
-          <p className="text-sm font-bold text-slate-700">{uploading ? 'Uploading…' : 'Drop files here or click to upload'}</p>
+          <p className="text-sm font-bold text-slate-700">{staging ? 'Adding files…' : uploading ? 'Uploading…' : 'Drop files here or click to add'}</p>
             <p className="text-xs text-slate-400 mt-0.5">PDF, JPG, PNG, or DOC — up to 10 MB each</p>
         </div>
         <input
@@ -1639,88 +1689,89 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
           multiple
           accept={POD_ATTACHMENT_ACCEPT}
           className="hidden"
-          disabled={uploading}
+          disabled={busy}
           onChange={e => addFiles(e.target.files)}
         />
       </div>
 
       {readiness.loading && <p role="status" className="text-xs text-slate-600">Loading attachments…</p>}
       {readiness.loadFailed && <p role="alert" className="text-xs text-red-700">Could not load attachments.</p>}
-      {/* File list */}
+      {stagedFiles.length > 0 && (
+        <div className="space-y-2" aria-label="Files waiting to upload">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">
+              {stagedFiles.length} file{stagedFiles.length !== 1 ? 's' : ''} waiting to upload
+            </p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={saveFiles}
+              className="flex min-h-11 items-center gap-1.5 rounded-lg bg-[#0078C1] px-4 py-2 text-xs font-bold text-white hover:bg-[#1F3864] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {uploading ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Save aria-hidden="true" className="h-4 w-4" />}
+              {uploading ? 'Saving…' : 'Save Files'}
+            </button>
+          </div>
+          {stagedFiles.map(staged => (
+            <StagedAttachment
+              key={staged.id}
+              staged={staged}
+              disabled={busy}
+              onRemove={() => removeStaged(staged.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Persisted file list */}
       {files.length > 0 ? (
-        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+        <div className="space-y-2">
           <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
               {files.length} file{files.length !== 1 ? 's' : ''}
             </p>
           </div>
-          <div className="divide-y divide-slate-100">
-            {files.map(f => (
-              <div key={f.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 group">
-                <span className="text-xl shrink-0">{fileIcon(f.mime_type, f.name)}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-slate-800 truncate">{f.name}</p>
-                  <p className="text-[10px] text-slate-400 font-mono mt-0.5">
-                    {f.size ? formatSize(f.size) + ' · ' : ''}{formatTs(f.uploaded_at)}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <a
-                      href={f.download_url}
-                      download={f.name}
-                      className="p-1.5 hover:bg-slate-100 rounded text-slate-400 hover:text-[#0078C1] transition-colors"
-                      title="Download"
-                      onClick={e => e.stopPropagation()}
-                    >
-                      <FileText className="w-3.5 h-3.5" />
-                    </a>
-                  <button
-                    disabled={uploading || removing}
-                    onClick={() => setConfirmRemoveId(f.id)}
-                    className="p-1.5 hover:bg-red-50 rounded text-slate-300 hover:text-red-500 transition-colors"
-                    title="Remove"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+          <PodAttachmentList
+            files={files}
+            removeDisabled={busy}
+            onRemove={file => setConfirmRemoveId(file.id)}
+          />
         </div>
-      ) : (
+      ) : stagedFiles.length === 0 ? (
         <div className="text-center py-6 text-slate-400 text-xs">
           No documents attached yet. Upload files above.
         </div>
-      )}
+      ) : null}
 
       {/* Removal Confirmation Modal */}
       {confirmRemoveId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 space-y-4">
-            <h3 className="text-sm font-black text-slate-900">Remove Attachment</h3>
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="remove-attachment-title"
+            onKeyDown={event => {
+              if (event.key === 'Escape' && !removing) setConfirmRemoveId(null);
+            }}
+            className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 space-y-4"
+          >
+            <h3 id="remove-attachment-title" className="text-sm font-black text-slate-900">Remove Attachment</h3>
             <p className="text-xs text-slate-600">
               Are you sure you want to remove <span className="font-bold">{files.find(f => f.id === confirmRemoveId)?.name}</span>? This action cannot be undone and will be permanently recorded in the audit trail.
             </p>
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-slate-700">Remarks <span className="text-red-500">*</span></label>
-              <textarea
-                value={removeRemarks}
-                onChange={e => setRemoveRemarks(e.target.value)}
-                rows={2}
-                placeholder="Reason for removal..."
-                className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:ring-[#0078C1] focus:border-[#0078C1]"
-              />
-            </div>
             <div className="flex gap-2 justify-end pt-2">
               <button
+                type="button"
+                autoFocus
                 disabled={removing}
-                onClick={() => { setConfirmRemoveId(null); setRemoveRemarks(''); setError(null); }}
+                onClick={() => { setConfirmRemoveId(null); setError(null); }}
                 className="px-4 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg"
               >
                 Cancel
               </button>
               <button
-                disabled={removing || !removeRemarks.trim()}
+                type="button"
+                disabled={removing}
                 onClick={removeFile}
                 className="px-4 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded-lg flex items-center gap-1.5"
               >
