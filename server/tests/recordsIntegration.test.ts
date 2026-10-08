@@ -76,6 +76,102 @@ test('Sales Coordinator cannot assign drivers when creating a record', async () 
   }
 });
 
+test('record creation rejects mismatched Delivery Date and Date & Time values', async () => {
+  const { url, close } = await setupApp();
+  const row = createUser('SALES_COORDINATOR');
+  const originalUserLookup = prisma.user.findUnique;
+  prisma.user.findUnique = mock.fn(async () => row) as any;
+
+  try {
+    const headers = { ...(await loginAs(url, row)), 'Content-Type': 'application/json' };
+    const response = await fetch(`${url}/records`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        company_id: 'comp-1',
+        reference: 'REF-109',
+        category: 'Deliveries',
+        delivery_date: '2026-10-15',
+        date_time: '2026-10-08T07:05',
+        is_draft: 'No',
+      }),
+    });
+    assert.equal(response.status, 400);
+    assert.match((await response.json() as any).error, /same date as Delivery Date/);
+  } finally {
+    prisma.user.findUnique = originalUserLookup;
+    await close();
+  }
+});
+
+test('record updates reject mismatched Delivery Date and Date & Time values', async () => {
+  const { url, close } = await setupApp();
+  const row = createUser('LOGISTICS');
+  const originalUserLookup = prisma.user.findUnique;
+  const originalRecordLookup = prisma.deliveryRecord.findFirst;
+  prisma.user.findUnique = mock.fn(async () => row) as any;
+  prisma.deliveryRecord.findFirst = mock.fn(async () => ({
+    id: 'REC-109',
+    category: 'DELIVERY',
+    deliveryDate: '2026-10-15',
+    dateAndTime: '2026-10-15T07:05',
+    deletedAt: null,
+  })) as any;
+
+  try {
+    const headers = { ...(await loginAs(url, row)), 'Content-Type': 'application/json' };
+    const response = await fetch(`${url}/records/REC-109`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({
+        delivery_date: '2026-10-15',
+        date_time: '2026-10-08T07:05',
+        remarks: 'Check the schedule match',
+      }),
+    });
+    assert.equal(response.status, 400);
+    assert.match((await response.json() as any).error, /same date as Delivery Date/);
+  } finally {
+    prisma.user.findUnique = originalUserLookup;
+    prisma.deliveryRecord.findFirst = originalRecordLookup;
+    await close();
+  }
+});
+
+test('Driver cannot clear a Delivery Date & Time value', async () => {
+  const { url, close } = await setupApp();
+  const row = { ...createUser('DRIVER'), driverProfile: { id: 'profile-1', type: 'DRIVER' } };
+  const originalUserLookup = prisma.user.findUnique;
+  const originalRecordLookup = prisma.deliveryRecord.findFirst;
+  prisma.user.findUnique = mock.fn(async () => row) as any;
+  prisma.deliveryRecord.findFirst = mock.fn(async () => ({
+    id: 'REC-109',
+    category: 'DELIVERY',
+    driverId: 'profile-1',
+    draft: false,
+    deliveryDate: '2026-10-15',
+    dateAndTime: '2026-10-15T07:05',
+    deletedAt: null,
+  })) as any;
+
+  try {
+    const headers = { ...(await loginAs(url, row)), 'Content-Type': 'application/json' };
+    for (const dateTime of ['', null]) {
+      const response = await fetch(`${url}/records/REC-109`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ date_time: dateTime, remarks: 'Attempted unauthorized schedule edit' }),
+      });
+      assert.equal(response.status, 403);
+      assert.match((await response.json() as any).error, /cannot change Date & Time/);
+    }
+  } finally {
+    prisma.user.findUnique = originalUserLookup;
+    prisma.deliveryRecord.findFirst = originalRecordLookup;
+    await close();
+  }
+});
+
 test('Logistics has view-only access to RMA records on update', async () => {
   const { url, close } = await setupApp();
   const row = createUser('LOGISTICS');

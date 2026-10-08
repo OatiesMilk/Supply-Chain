@@ -12,7 +12,7 @@ import { podStorage, podUpload } from '../services/podStorage';
 import { DELIVERY_PHOTO_REQUIRED, hasStoredDeliveryPhoto, isPhotoMimeType, isVerifiedPodPhoto, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
 
 import { canWriteCategory, isAssignedDriver, recordScope } from '../services/recordAccess';
-import { deliveryScheduleState, driverDeliveryDateError, isValidDateOnly, isoTimestamp, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
+import { deliveryScheduleState, driverDeliveryDateError, isValidDateOnly, isValidDateTimeLocal, isoTimestamp, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
 
 const router = Router();
 const requireRecordAccess = asyncRoute(async (req, res, next) => {
@@ -382,6 +382,13 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
   if (!isDraft && !b.delivery_date) return res.status(400).json({ error: 'Delivery Date is required' });
   if (b.status && !['Draft', 'Scheduled'].includes(b.status)) return res.status(400).json({ error: 'New records must be Draft or Scheduled.' });
   if (requestsDriver || (Array.isArray(b.driver_assistants) && b.driver_assistants.length)) return res.status(400).json({ error: 'Assign drivers after submitting the record.' });
+  const hasDateTime = b.date_time !== undefined && b.date_time !== null && b.date_time !== '';
+  if (hasDateTime && dbCategory !== 'DELIVERY') return res.status(400).json({ error: 'Date & Time is only supported for Delivery records.' });
+  if (dbCategory === 'DELIVERY' && hasDateTime) {
+    if (!isValidDateTimeLocal(b.date_time)) return res.status(400).json({ error: 'Date & Time must be a valid local date and time.' });
+    if (!isValidDateOnly(b.delivery_date)) return res.status(400).json({ error: 'Date & Time requires a valid Delivery Date.' });
+    if (b.date_time.slice(0, 10) !== b.delivery_date) return res.status(400).json({ error: 'Date & Time must use the same date as Delivery Date.' });
+  }
   const created = await prisma.$transaction(async tx => {
     const created = await tx.deliveryRecord.create({
       data: {
@@ -400,6 +407,7 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
         receivedBy: null,
         accountManager: b.account_manager ?? '',
         deliveryDate: b.delivery_date ?? '',
+        dateAndTime: dbCategory === 'DELIVERY' && hasDateTime ? b.date_time : null,
         category: dbCategory as any,
         itemType: b.item_type ?? 'Small Item',
         draft: isDraft,
@@ -456,6 +464,38 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
 
   const b = req.body ?? {};
   if (b.status !== undefined) return res.status(400).json({ error: 'Use the status action to change status.' });
+  if (b.date_time !== undefined && b.date_time !== null && b.date_time !== '' && existing.category !== 'DELIVERY') {
+    return res.status(400).json({ error: 'Date & Time is only supported for Delivery records.' });
+  }
+  if (b.date_time !== undefined && !['SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'].includes(req.user!.role)) {
+    return res.status(403).json({ error: 'Your role cannot change Date & Time.' });
+  }
+  let dateTimeUpdate: string | null | undefined;
+  if (existing.category === 'DELIVERY') {
+    const nextDeliveryDate = b.delivery_date !== undefined ? b.delivery_date : existing.deliveryDate;
+    let nextDateTime: string | null = b.date_time !== undefined ? (b.date_time || null) : (existing.dateAndTime ?? null);
+    if (b.delivery_date !== undefined && !isValidDateOnly(b.delivery_date)) {
+      return res.status(400).json({ error: 'Delivery Date must be a valid YYYY-MM-DD date.' });
+    }
+    if (nextDateTime && !isValidDateTimeLocal(nextDateTime)) {
+      return res.status(400).json({ error: 'Date & Time must be a valid local date and time.' });
+    }
+    if (nextDateTime) {
+      if (!isValidDateOnly(nextDeliveryDate)) return res.status(400).json({ error: 'Date & Time requires a valid Delivery Date.' });
+      if (nextDateTime.slice(0, 10) !== nextDeliveryDate) {
+        if (b.delivery_date !== undefined && b.date_time === undefined) {
+          nextDateTime = `${nextDeliveryDate}${nextDateTime.slice(10)}`;
+          dateTimeUpdate = nextDateTime;
+        } else {
+          return res.status(400).json({ error: 'Date & Time must use the same date as Delivery Date.' });
+        }
+      } else if (b.date_time !== undefined) {
+        dateTimeUpdate = nextDateTime;
+      }
+    } else if (b.date_time !== undefined) {
+      dateTimeUpdate = null;
+    }
+  }
   const hasTimestamp = b.time_in !== undefined || b.time_out !== undefined;
   if (hasTimestamp && !['LOGISTICS', 'ADMIN'].includes(req.user!.role)) return res.status(403).json({ error: 'Only Logistics or Admin may correct recorded timestamps.' });
   for (const [field, current] of [['time_in', existing.timeIn], ['time_out', existing.timeOut]] as const) {
@@ -478,7 +518,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
   const substantiveFields = req.user!.role === 'ADMIN' ? [...LOGISTICS_SUBSTANTIVE_FIELDS, ...SC_SUBSTANTIVE_FIELDS] : (req.user!.role === 'LOGISTICS' || req.user!.role === 'TASS')
     ? LOGISTICS_SUBSTANTIVE_FIELDS
     : SC_SUBSTANTIVE_FIELDS;
-  const logisticsDeliveryDateChange = req.user!.role === 'LOGISTICS' && existing.category === 'DELIVERY' && b.delivery_date !== undefined;
+  const logisticsDeliveryDateChange = req.user!.role === 'LOGISTICS' && existing.category === 'DELIVERY' && (b.delivery_date !== undefined || b.date_time !== undefined);
   const hasSubstantiveChange = substantiveFields.some(f => f in b) || logisticsDeliveryDateChange;
 
   if ((hasSubstantiveChange || hasTimestamp || b.is_draft !== undefined || b.received_by !== undefined || b.remarks !== undefined) && (typeof b.remarks !== 'string' || !b.remarks.trim())) {
@@ -573,6 +613,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (Array.isArray(b.attachments) && b.attachments.length > 0) data.documentAttachment = b.attachments[0];
     if (Array.isArray(b.line_items)) data.lineItems = { deleteMany: {}, create: b.line_items.map((li: any) => ({ sku: li.sku || li.description || '', quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1 })) };
   }
+  if (dateTimeUpdate !== undefined) data.dateAndTime = dateTimeUpdate;
   if (b.is_draft !== undefined) data.draft = b.is_draft === 'Yes';
   if (b.remarks !== undefined) data.remarks = String(b.remarks).trim();
   if (b.received_by !== undefined && typeof b.received_by !== 'string') return res.status(400).json({ error: 'Received By must be a name.' });

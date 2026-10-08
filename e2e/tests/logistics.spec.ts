@@ -184,6 +184,27 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     }
   });
 
+  test('B-2.6a Delivery Date and Date & Time stay aligned in the Overview editor', async ({ page }) => {
+    await openFirstRecord(page);
+    await page.getByRole('tab', { name: 'Overview' }).click();
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+
+    const deliveryDate = page.getByLabel('Delivery Date', { exact: true });
+    const dateTime = page.getByLabel('Date & Time', { exact: true });
+    await expect(deliveryDate).toBeVisible();
+    await expect(dateTime).toBeVisible();
+
+    const existingDate = await deliveryDate.inputValue();
+    const selectedDate = existingDate || '2026-10-15';
+    await deliveryDate.fill(selectedDate);
+    await dateTime.fill('2026-10-08T07:05');
+    await expect(dateTime).toHaveValue(`${selectedDate}T07:05`);
+
+    const nextDate = selectedDate === '2026-10-15' ? '2026-10-16' : '2026-10-15';
+    await deliveryDate.fill(nextDate);
+    await expect(dateTime).toHaveValue(`${nextDate}T07:05`);
+  });
+
   test('B-2.7 Active Deliveries sidebar uses the existing discard guard for unsaved driver changes', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');

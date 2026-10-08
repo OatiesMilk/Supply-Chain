@@ -174,23 +174,28 @@ test('server rejects future unstarted Driver writes across execution, POD, recor
 test('Logistics can reschedule a Delivery with remarks and audit while preserving its Driver assignment', async () => {
   const future = shiftDate(manilaToday(), 2);
   const today = manilaToday();
-  const state = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: future }));
+  const state = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: future, dateAndTime: `${future}T07:05` }));
   const response = await request('put', '/:id', { role: 'LOGISTICS', body: { delivery_date: today, remarks: 'Client requested an urgent reschedule' } });
   assert.equal(response.status, 200);
   assert.equal(response.body.delivery_date, today);
+  assert.equal(response.body.date_time, `${today}T07:05`);
   assert.equal(state.saved().deliveryDate, today);
+  assert.equal(state.saved().dateAndTime, `${today}T07:05`);
   assert.equal(state.saved().driverId, 'profile-assigned');
   assert.equal(state.audit[0].changedById, 'test-user');
   assert.equal(JSON.parse(state.audit[0].previousValue).delivery_date, future);
   assert.equal(JSON.parse(state.audit[0].newValue).delivery_date, today);
+  assert.equal(JSON.parse(state.audit[0].previousValue).date_time, `${future}T07:05`);
+  assert.equal(JSON.parse(state.audit[0].newValue).date_time, `${today}T07:05`);
   assert.equal(state.remarks[0].body, 'Client requested an urgent reschedule');
   assert.equal(driverDeliveryDateError(state.saved() as any, 'DRIVER'), null);
 
   resetFixtures();
-  const pushedOut = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: today }));
+  const pushedOut = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: today, dateAndTime: `${today}T07:05` }));
   const futureResponse = await request('put', '/:id', { role: 'LOGISTICS', body: { delivery_date: future, remarks: 'Customer requested a later date' } });
   assert.equal(futureResponse.status, 200);
   assert.equal(futureResponse.body.delivery_date, future);
+  assert.equal(futureResponse.body.date_time, `${future}T07:05`);
   assert.equal(pushedOut.saved().driverId, 'profile-assigned');
   assert.match(driverDeliveryDateError(pushedOut.saved() as any, 'DRIVER') ?? '', /future date/);
 });

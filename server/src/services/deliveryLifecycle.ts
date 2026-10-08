@@ -29,6 +29,16 @@ export function isValidDateOnly(value: unknown): value is string {
   return dateOnlyEpochDay(value) !== null;
 }
 
+export function isValidDateTimeLocal(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value);
+  if (!match || !isValidDateOnly(match[1])) return false;
+  const hour = Number(match[2]);
+  const minute = Number(match[3]);
+  const second = match[4] === undefined ? 0 : Number(match[4]);
+  return hour <= 23 && minute <= 59 && second <= 59;
+}
+
 export function deliveryScheduleState(deliveryDate: unknown, now = new Date()): DeliveryScheduleState {
   const dateDay = dateOnlyEpochDay(deliveryDate);
   const todayDay = dateOnlyEpochDay(manilaToday(now));

@@ -32,6 +32,7 @@ import { screenKeyForCategory } from '@/routes/screenRouting';
 
 import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
 import { selectableStatuses, canRecordTimeIn, isDraftRecord, manilaToday, manilaDateTimeInput, manilaInputToIso } from '@/utils/recordLifecycle';
+import { deliveryDateFromDateTime, syncDateTimeToDeliveryDate } from '@/utils/deliveryScheduleDateTime';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -124,7 +125,7 @@ function ScaffoldTab({ icon: Icon, label, detail }: { icon: typeof FileText; lab
 
 type EditDraft = {
   priority: PriorityLevel; reference: string; area: string; vehicle: string;
-  account_manager: string; delivery_date: string;
+  account_manager: string; delivery_date: string; date_time: string;
   item_type: ItemType; is_draft: 'Yes' | 'No'; remarks: string; item_description: string; line_items: { sku: string, quantity: number }[];
   address: string;
 };
@@ -148,6 +149,7 @@ function GeneralTab({
   const [lifecycleRemarks, setLifecycleRemarks] = useState('');
   const canEditAreaAddress = !readOnly && currentUserRole === 'Logistics' && record.category !== 'RMA';
   const canEditDeliveryDate = !readOnly && currentUserRole === 'Logistics' && record.category === 'Deliveries';
+  const canEditDateTime = record.category === 'Deliveries' && (canEditFull || canEditDeliveryDate);
   const canEditPriority = !readOnly && ((currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') || (currentUserRole === 'Logistics' && record.category !== 'RMA'));
   const canEdit = canEditFull || canEditAreaAddress || canEditDeliveryDate || canEditPriority;
 
@@ -162,6 +164,7 @@ function GeneralTab({
     vehicle: record.vehicle || '(None)',
     account_manager: record.account_manager,
     delivery_date: record.delivery_date,
+    date_time: record.date_time ?? '',
     
     item_type: record.item_type,
     is_draft: record.is_draft,
@@ -182,6 +185,7 @@ function GeneralTab({
       vehicle: record.vehicle || '(None)',
       account_manager: record.account_manager,
       delivery_date: record.delivery_date,
+      date_time: record.date_time ?? '',
       
       item_type: record.item_type,
       is_draft: record.is_draft,
@@ -193,6 +197,23 @@ function GeneralTab({
   }, [record.id]);
 
   const set = <K extends keyof EditDraft>(k: K, v: EditDraft[K]) => setDraft(p => ({ ...p, [k]: v }));
+
+  const setDeliveryDate = (deliveryDate: string) => setDraft(previous => ({
+    ...previous,
+    delivery_date: deliveryDate,
+    date_time: deliveryDate ? syncDateTimeToDeliveryDate(previous.date_time, deliveryDate) : '',
+  }));
+
+  const setDateTime = (dateTime: string) => setDraft(previous => {
+    const selectedDate = deliveryDateFromDateTime(dateTime);
+    if (!dateTime || !selectedDate) return { ...previous, date_time: dateTime };
+    const deliveryDate = previous.delivery_date || selectedDate;
+    return {
+      ...previous,
+      delivery_date: deliveryDate,
+      date_time: syncDateTimeToDeliveryDate(dateTime, deliveryDate),
+    };
+  });
 
   const handleStartEdit = () => {
     setSaveError(null);
@@ -220,6 +241,7 @@ function GeneralTab({
       updates.vehicle = draft.vehicle;
       updates.account_manager = draft.account_manager;
       updates.delivery_date = draft.delivery_date;
+      if (canEditDateTime) updates.date_time = draft.date_time || null;
       updates.item_type = draft.item_type;
       updates.item_description = draft.item_description;
       updates.line_items = draft.line_items;
@@ -229,7 +251,10 @@ function GeneralTab({
         updates.area = draft.area;
         updates.address = draft.address;
       }
-      if (canEditDeliveryDate) updates.delivery_date = draft.delivery_date;
+      if (canEditDeliveryDate) {
+        updates.delivery_date = draft.delivery_date;
+        updates.date_time = draft.date_time || null;
+      }
       if (canEditPriority) {
         updates.priority = draft.priority;
       }
@@ -256,6 +281,7 @@ function GeneralTab({
       vehicle: record.vehicle || '(None)',
       account_manager: record.account_manager,
       delivery_date: record.delivery_date,
+      date_time: record.date_time ?? '',
       
       item_type: record.item_type,
       is_draft: record.is_draft,
@@ -323,9 +349,10 @@ function GeneralTab({
                 { label: 'Time In',           value: record.time_in || '—' },
                 { label: 'Time Out',          value: record.time_out || '—' },
                 { label: 'Received By',       value: record.received_by || '—' },
-                { label: 'Account Manager',   value: record.account_manager },
-                { label: 'Delivery Date',   value: record.delivery_date },
-                { label: 'Created At',      value: record.created_at ? formatTs(record.created_at) : '—' },
+                { label: 'Account Manager', value: record.account_manager },
+                { label: 'Delivery Date', value: record.delivery_date },
+                ...(record.category === 'Deliveries' ? [{ label: 'Date & Time', value: record.date_time ? formatTs(record.date_time) : '—' }] : []),
+                { label: 'Created At', value: record.created_at ? formatTs(record.created_at) : '—' },
                 { label: 'Item Type',       value: record.item_type },
                 { label: 'Draft',           value: record.is_draft },
               ].map(row => (
@@ -419,21 +446,33 @@ function GeneralTab({
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className={labelCls}>Delivery Date</label>
-                    <input type="date" value={draft.delivery_date} onChange={e => set('delivery_date', e.target.value)} className={inputCls} />
+                    <label htmlFor="workspace-delivery-date" className={labelCls}>Delivery Date</label>
+                    <input id="workspace-delivery-date" type="date" value={draft.delivery_date} onChange={e => setDeliveryDate(e.target.value)} className={inputCls} />
                   </div>
-                  <div className="space-y-1">
-                    <label className={labelCls}>Date &amp; Time</label>
-                    
-                  </div>
+                  {canEditDateTime && (
+                    <div className="space-y-1">
+                      <label htmlFor="workspace-date-time" className={labelCls}>Date &amp; Time</label>
+                      <input id="workspace-date-time" type="datetime-local" value={draft.date_time} onChange={e => setDateTime(e.target.value)} className={inputCls} />
+                      <p className="text-[10px] text-slate-500">The date stays aligned with Delivery Date.</p>
+                    </div>
+                  )}
 
                 </>
               )}
               {canEditDeliveryDate && (
-                <div className="space-y-1">
-                  <label className={labelCls}>Delivery Date</label>
-                  <input type="date" value={draft.delivery_date} onChange={e => set('delivery_date', e.target.value)} className={inputCls} />
-                </div>
+                <>
+                  <div className="space-y-1">
+                    <label htmlFor="workspace-delivery-date" className={labelCls}>Delivery Date</label>
+                    <input id="workspace-delivery-date" type="date" value={draft.delivery_date} onChange={e => setDeliveryDate(e.target.value)} className={inputCls} />
+                  </div>
+                  {canEditDateTime && (
+                    <div className="space-y-1">
+                      <label htmlFor="workspace-date-time" className={labelCls}>Date &amp; Time</label>
+                      <input id="workspace-date-time" type="datetime-local" value={draft.date_time} onChange={e => setDateTime(e.target.value)} className={inputCls} />
+                      <p className="text-[10px] text-slate-500">The date stays aligned with Delivery Date.</p>
+                    </div>
+                  )}
+                </>
               )}
             </div>
             <div className="space-y-1">

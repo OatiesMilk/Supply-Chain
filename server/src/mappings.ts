@@ -74,6 +74,7 @@ export function serializeRecord(r: any) {
     received_by: r.receivedBy ?? null,
     account_manager: r.accountManager,
     delivery_date: r.deliveryDate,
+    date_time: r.dateAndTime ?? null,
     ...(state ? {
       overdue: completed ? completedLate : state.overdue,
       days_late: completed ? (completedLate ? Number(r.daysLate ?? 0) : 0) : state.daysLate,

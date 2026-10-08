@@ -58,6 +58,7 @@ export interface DeliveryRecord extends AuditFields {
   received_by?: string | null;
   account_manager: string;
   delivery_date: string; // date, YYYY-MM-DD
+  date_time?: string | null; // local date-time, YYYY-MM-DDTHH:mm
   overdue?: boolean;
   days_late?: number;
   completed_late?: boolean;

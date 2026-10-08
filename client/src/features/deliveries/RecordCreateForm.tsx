@@ -1,4 +1,5 @@
 import { manilaToday, submissionErrors } from '@/utils/recordLifecycle';
+import { deliveryDateFromDateTime, syncDateTimeToDeliveryDate } from '@/utils/deliveryScheduleDateTime';
 import React, { useRef, useState } from 'react';
 import { Plus, X, Check, FileText, UploadCloud, Wand2 } from 'lucide-react';
 import { DeliveryRecord, DeliveryCategory, DeliveryStatus, OutputActionConfig, OutputActionTrigger } from '@/types';
@@ -104,6 +105,7 @@ interface RecordFormState {
   area: string;
   account_manager: string;
   delivery_date: string;
+  date_time: string;
   category: DeliveryCategory;
   item_type: string;
   is_draft: string;
@@ -126,6 +128,7 @@ const buildEmptyForm = (category: DeliveryCategory): RecordFormState => ({
   address: '',
   account_manager: '',
   delivery_date: '',
+  date_time: '',
   category,
   item_type: 'Small Item',
   is_draft: 'No',
@@ -176,6 +179,27 @@ export default function RecordCreateForm({
     setForm(prev => ({ ...prev, [key]: value }));
   }
 
+  const setDeliveryDate = (deliveryDate: string) => {
+    setForm(prev => ({
+      ...prev,
+      delivery_date: deliveryDate,
+      date_time: deliveryDate ? syncDateTimeToDeliveryDate(prev.date_time, deliveryDate) : '',
+    }));
+  };
+
+  const setDateTime = (dateTime: string) => {
+    setForm(prev => {
+      const selectedDate = deliveryDateFromDateTime(dateTime);
+      if (!dateTime || !selectedDate) return { ...prev, date_time: dateTime };
+      const deliveryDate = prev.delivery_date || selectedDate;
+      return {
+        ...prev,
+        delivery_date: deliveryDate,
+        date_time: syncDateTimeToDeliveryDate(dateTime, deliveryDate),
+      };
+    });
+  };
+
   const handleCategoryChange = (cat: DeliveryCategory) => {
     setForm(prev => ({ ...buildEmptyForm(cat), company_name: prev.company_name, company_id: prev.company_id }));
     setFormErrors({});
@@ -200,6 +224,7 @@ export default function RecordCreateForm({
       area: location.area,
       account_manager: afPick(ACCOUNT_MANAGERS),
       delivery_date: deliveryDate,
+      date_time: '',
       category: cat,
       item_type: afPick(ITEM_TYPES),
       is_draft: 'No',
@@ -410,10 +435,19 @@ export default function RecordCreateForm({
 
           {/* Delivery Date */}
           <div className="space-y-1.5">
-            <label className="font-bold text-slate-700">Delivery Date <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
-            <input type="date" value={form.delivery_date} onChange={e => updateField('delivery_date', e.target.value)}
+            <label htmlFor="record-delivery-date" className="font-bold text-slate-700">Delivery Date <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+            <input id="record-delivery-date" type="date" value={form.delivery_date} onChange={e => setDeliveryDate(e.target.value)}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
           </div>
+
+          {cat === 'Deliveries' && (
+            <div className="space-y-1.5">
+              <label htmlFor="record-date-time" className="font-bold text-slate-700">Date &amp; Time <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+              <input id="record-date-time" type="datetime-local" value={form.date_time} onChange={e => setDateTime(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
+              <p className="text-[10px] text-slate-500">The date stays aligned with Delivery Date.</p>
+            </div>
+          )}
 
           {/* Item Type */}
           <div className="space-y-1.5">

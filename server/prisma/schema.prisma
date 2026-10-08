@@ -122,6 +122,7 @@ model DeliveryRecord {
   daysLate           Int     @default(0)
   accountManager     String
   deliveryDate       String
+  dateAndTime        String?
   category           String // DELIVERY | RMA | ACCOUNTING_COLLECTION | PROCUREMENT_PICKUP | SALES_ORDERS
   itemType           String
   draft              Boolean @default(false)
