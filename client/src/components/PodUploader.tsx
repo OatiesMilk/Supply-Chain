@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { FileText, Loader2, Paperclip, X } from 'lucide-react';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
-import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
+import { POD_ATTACHMENT_ACCEPT, getPodAttachmentRejection } from '@/utils/attachmentValidation';
 import { notify } from '@/utils/notify';
 import type { PodReadiness } from '@/utils/podRequirement';
 export default function PodUploader({ recordId, required = false, disabled = false, onReadinessChange }: {
@@ -28,9 +28,9 @@ export default function PodUploader({ recordId, required = false, disabled = fal
     const selected = Array.from(event.target.files ?? []);
     event.target.value = '';
     if (!selected.length || uploading || disabled) return;
-    const validationError = validatePodAttachments(selected);
-    if (validationError) {
-      notify.error(validationError);
+    const rejection = getPodAttachmentRejection(selected);
+    if (rejection) {
+      notify.fileRejected(rejection.fileName, rejection.reason);
       return;
     }
     try {
