@@ -28,6 +28,7 @@ import { DELIVERY_STATUSES, AREA_HIERARCHY, getRegion, getSubregion } from '@/da
 import DeliveryRecordWorkspace from '@/features/deliveries/DeliveryRecordWorkspace';
 import RecordCreateForm from '@/features/deliveries/RecordCreateForm';
 import FilterPopover, { FilterCombobox } from '@/components/FilterPopover';
+import { dateRangeAfterFromChange, dateRangeState } from '@/utils/dateRange';
 
 interface DeliveryRecordsViewProps {
   category: DeliveryCategory;
@@ -99,6 +100,13 @@ export default function DeliveryRecordsView({
   const [amFilter, setAmFilter] = useState('');
   const [driverFilter, setDriverFilter] = useState('');
   const dateFromRef = useRef<HTMLInputElement>(null);
+  const enforceDeliveryDateRange = category === 'Deliveries' && currentUserRole === 'Logistics';
+  const {
+    error: dateRangeError,
+    dateToMin,
+    appliedDateFrom,
+    appliedDateTo,
+  } = dateRangeState(dateFrom, dateTo, enforceDeliveryDateRange);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [creationBanner, setCreationBanner] = useState<{ recordId: string; lines: string[] } | null>(null);
 
@@ -190,8 +198,8 @@ export default function DeliveryRecordsView({
       'Procurement Pick-up': 'PROCUREMENT_PICKUP', 'Sales Orders': 'SALES_ORDERS',
     };
     if (category) params.set('category', CATEGORY_TO_DB[category] ?? category);
-    if (dateFrom) params.set('dateFrom', dateFrom);
-    if (dateTo) params.set('dateTo', dateTo);
+    if (appliedDateFrom) params.set('dateFrom', appliedDateFrom);
+    if (appliedDateTo) params.set('dateTo', appliedDateTo);
     if (areaFilter !== 'All Areas') params.set('area', areaFilter);
     if (driverFilter) params.set('driver', driverFilter);
     if (statusFilter !== 'All') params.set('status', statusFilter);
@@ -200,7 +208,7 @@ export default function DeliveryRecordsView({
       .then(r => r.ok ? r.json() : null)
       .then(data => setStatusHistoryCounts(data ?? undefined))
       .catch(() => setStatusHistoryCounts(undefined));
-  }, [category, dateFrom, dateTo, areaFilter, driverFilter, statusFilter]);
+  }, [category, appliedDateFrom, appliedDateTo, areaFilter, driverFilter, statusFilter]);
 
 
 
@@ -244,14 +252,14 @@ export default function DeliveryRecordsView({
     if (statusFilter !== 'All' && r.status !== statusFilter) return false;
     if (amFilter && !r.account_manager.toLowerCase().includes(amFilter.toLowerCase())) return false;
     if (driverFilter && r.driver.toLowerCase() !== driverFilter.toLowerCase()) return false;
-    if (dateFrom && r.delivery_date) {
+    if (appliedDateFrom && r.delivery_date) {
       const rd = new Date(r.delivery_date);
-      const df = new Date(dateFrom);
+      const df = new Date(appliedDateFrom);
       if (rd < df) return false;
     }
-    if (dateTo && r.delivery_date) {
+    if (appliedDateTo && r.delivery_date) {
       const rd = new Date(r.delivery_date);
-      const dt = new Date(dateTo);
+      const dt = new Date(appliedDateTo);
       if (rd > dt) return false;
     }
     const q = searchQuery.toLowerCase();
@@ -290,7 +298,7 @@ export default function DeliveryRecordsView({
     : baseFiltered;
 
   const now = Date.now();
-  const activeDateSort = (dateFrom || dateTo) ? 'default' : dateSort;
+  const activeDateSort = (appliedDateFrom || appliedDateTo) ? 'default' : dateSort;
   const sortedFiltered = activeDateSort === 'default' ? filtered : [...filtered].sort((a, b) => {
     const da = a.delivery_date ? new Date(a.delivery_date + 'T12:00:00').getTime() : null;
     const db = b.delivery_date ? new Date(b.delivery_date + 'T12:00:00').getTime() : null;
@@ -470,7 +478,7 @@ export default function DeliveryRecordsView({
     ? {
       records: sortedFiltered,
       driverName: driverFilter,
-      date: dateFrom || manilaToday(),
+      date: appliedDateFrom || manilaToday(),
       preparedBy: currentUserName,
     }
     : undefined;
@@ -543,7 +551,7 @@ export default function DeliveryRecordsView({
             <RouteSlipMenu
               records={sortedFiltered}
               driverFilter={driverFilter}
-              dateFrom={dateFrom}
+              dateFrom={appliedDateFrom}
               preparedBy={currentUserName}
               filename={category.toLowerCase().replace(/\s+/g, '-')}
               onFocusDateFilter={() => {
@@ -652,7 +660,11 @@ export default function DeliveryRecordsView({
             ref={dateFromRef}
             type="date"
             value={dateFrom}
-            onChange={e => setDateFrom(e.target.value)}
+            onChange={e => {
+              const next = dateRangeAfterFromChange(e.target.value, dateTo, enforceDeliveryDateRange);
+              setDateFrom(next.dateFrom);
+              if (next.dateTo !== dateTo) setDateTo(next.dateTo);
+            }}
             title="Date from"
             className="w-full text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
           />
@@ -663,10 +675,14 @@ export default function DeliveryRecordsView({
             id="dateTo"
             type="date"
             value={dateTo}
+            min={dateToMin}
             onChange={e => setDateTo(e.target.value)}
             title="Date to"
-            className="w-full text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+            aria-invalid={dateRangeError ? 'true' : undefined}
+            aria-describedby={dateRangeError ? 'date-range-error' : undefined}
+            className={`w-full text-[11px] font-semibold border rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer ${dateRangeError ? 'border-red-400' : 'border-slate-200'}`}
           />
+          {dateRangeError && <p id="date-range-error" role="alert" className="text-[10px] font-semibold text-red-700">{dateRangeError}</p>}
         </div>
         <div className="space-y-1 flex-1 min-w-[150px]">
           <label htmlFor="dateSort" className="font-bold text-slate-700 block">Sort</label>

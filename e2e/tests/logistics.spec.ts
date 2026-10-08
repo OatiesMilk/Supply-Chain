@@ -63,6 +63,37 @@ test.describe('B-1 Login & Access Control', () => {
 });
 
 test.describe('B-2 Dispatch & Assign Driver', () => {
+  test('B-2.0 Delivery date range enforces chronological filters without losing focus', async ({ page }) => {
+    await page.goto(`${BASE_URL}/deliveries`);
+    await page.waitForLoadState('networkidle');
+
+    const dateFrom = page.getByLabel('Date From', { exact: true });
+    const dateTo = page.getByLabel('Date To', { exact: true });
+
+    await dateFrom.fill('2026-10-08');
+    await expect(dateTo).toHaveAttribute('min', '2026-10-08');
+
+    const unfilteredHistoryRequest = page.waitForRequest(request => {
+      const url = new URL(request.url());
+      return url.pathname.endsWith('/records/status-history-counts')
+        && !url.searchParams.has('dateFrom')
+        && !url.searchParams.has('dateTo');
+    });
+    await dateTo.fill('2026-10-01');
+    await expect(page.getByText('Date To cannot be earlier than Date From.', { exact: true })).toBeVisible();
+    await unfilteredHistoryRequest;
+
+    await dateTo.fill('2026-10-08');
+    await expect(page.getByText('Date To cannot be earlier than Date From.', { exact: true })).not.toBeVisible();
+
+    await dateFrom.fill('2026-10-09');
+    await expect(dateTo).toHaveValue('');
+    await expect(dateFrom).toBeFocused();
+
+    await dateFrom.fill('');
+    await expect(dateTo).not.toHaveAttribute('min');
+  });
+
   test('B-2.1 Dispatch & Logistics tab is visible', async ({ page }) => {
     await openFirstRecord(page);
     await expect(page.getByRole('tab', { name: /dispatch|logistics/i })).toBeVisible();
