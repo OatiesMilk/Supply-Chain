@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { FileText, Loader2, Paperclip, X } from 'lucide-react';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
 import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';

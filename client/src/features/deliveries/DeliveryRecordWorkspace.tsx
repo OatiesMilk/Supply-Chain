@@ -1221,7 +1221,7 @@ function ActionsTab({
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || (hasChanges && !actionRemarks.trim()) || !!photoError}
+            disabled={saving || !!photoError}
             className="px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
