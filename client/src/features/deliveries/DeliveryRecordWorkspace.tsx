@@ -1419,6 +1419,7 @@ function diffAuditEntry(oldVal: unknown, newVal: unknown): AuditDiffRow[] {
 function AuditTrailTab({ recordId }: { recordId: string }) {
   const [entries, setEntries] = useState<ApiAuditEntry[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -1572,7 +1573,6 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
   const { files, stagedFiles, readiness, stageFiles, unstageFile, uploadStaged, removeFile: deleteFile } = usePodAttachments(record.id);
   const uploading = readiness.uploading;
   const [dragging, setDragging] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [staging, setStaging] = useState(false);
   const [removing, setRemoving] = useState(false);
