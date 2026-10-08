@@ -134,6 +134,10 @@ Before running any test case, confirm the database is ready.
 | B-2.7 | Log Time In/Out manually | Enter a time in the Time In field → Save with remarks | Time In is saved on the record | |
 | B-2.8 | Set Priority | Change Priority to "3 - High" → Save with remarks | Priority badge changes on the record | |
 
+| Test ID | Test Case | Steps | Expected Result | Pass / Fail |
+|---------|-----------|-------|-----------------|-------------|
+| B-2.9 | Reschedule an assigned Delivery | In the existing General/Overview edit flow, change Delivery Date and enter remarks | Save preserves the Driver assignment; Audit Trail records actor, time and old/new dates. After refresh, the assigned Driver sees actionability recalculated from the saved date without reassignment | |
+
 ---
 
 ### B-3 Driver Board & Calendar
@@ -176,7 +180,7 @@ Before running any test case, confirm the database is ready.
 **Expected View:** Driver is sent directly to the **Field Mobile Dashboard** — there is no sidebar, no desktop workspace. It is a mobile-optimized fullscreen view.
 
 > [!IMPORTANT]
-> The Driver dashboard only shows records where `record.driver === driver.name` **and** `record.delivery_date === today`. If no records are assigned for today, you will see "No runs scheduled for today." Make sure Logistics has assigned the driver a record for today's date (Part B-2 above) before testing.
+> The Driver sees only assigned, non-draft records permitted by server-side ownership checks. For Deliveries, the latest saved Delivery Date is authoritative: today's and overdue runs are actionable, while future unstarted runs remain visible with details but read-only. Eligibility and overdue days use Asia/Manila. A run with Time In already recorded remains actionable if Logistics later moves its Delivery Date into the future. If no run is ready for execution today, the dashboard says "No runs ready for execution today." Make sure Logistics has assigned the Driver a submitted Delivery (Part B-2 above) before testing.
 
 ---
 
@@ -191,6 +195,11 @@ Before running any test case, confirm the database is ready.
 | C-1.5 | Logout | Click the Log Out button | Driver is returned to the login page | |
 
 ---
+
+| Test ID | Test Case | Steps | Expected Result | Pass / Fail |
+|---------|-----------|-------|-----------------|-------------|
+| C-1.6 | Overdue Delivery is actionable | Give the assigned Driver an unstarted Delivery with a Delivery Date before today in Asia/Manila | The run appears with an overdue/days-late marker and the normal Time In, POD and lifecycle actions | |
+| C-1.7 | Future Delivery is read-only | Give the assigned Driver an unstarted Delivery dated after today in Asia/Manila | The run and its details remain visible, with no execution or upload controls | |
 
 ### C-2 ePOD Flow (Full Workflow)
 
@@ -214,6 +223,11 @@ Before running any test case, confirm the database is ready.
 | C-2.13 | Cannot update other driver's record | Attempt to upload or complete a record belonging to another driver via URL/API manipulation | Backend returns **403**; assigned-driver access is enforced | |
 
 ---
+
+| Test ID | Test Case | Steps | Expected Result | Pass / Fail |
+|---------|-----------|-------|-----------------|-------------|
+| C-2.14 | Future Delivery rejects direct writes | As the assigned Driver, call Time In, status, POD upload, record edit or comment endpoints for an unstarted future Delivery | The server rejects each write until its saved Delivery Date is today or overdue | |
+| C-2.15 | Overdue completion is recorded | Complete an overdue Delivery through the normal flow, then inspect the record and Audit Trail | `completed_late` and `days_late` are persisted; overdue actions include the overdue marker and days late in the audit snapshot | |
 
 ### C-3 Accomplished Records View
 

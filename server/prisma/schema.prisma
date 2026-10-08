@@ -118,6 +118,8 @@ model DeliveryRecord {
   timeIn             String?
   timeOut            String?
   receivedBy         String?
+  completedLate      Boolean @default(false)
+  daysLate           Int     @default(0)
   accountManager     String
   deliveryDate       String
   category           String // DELIVERY | RMA | ACCOUNTING_COLLECTION | PROCUREMENT_PICKUP | SALES_ORDERS

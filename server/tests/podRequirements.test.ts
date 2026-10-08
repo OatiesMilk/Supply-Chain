@@ -8,7 +8,7 @@ import { podStorage } from '../src/services/podStorage';
 import sharp from 'sharp';
 import { PassThrough } from 'node:stream';
 import { isPodPhoto, isVerifiedPodPhoto } from '../src/services/podPhotos';
-import { allowedStatuses, isoTimestamp, manilaToday, timeInError, transitionError } from '../src/services/deliveryLifecycle';
+import { allowedStatuses, deliveryScheduleState, driverDeliveryDateError, isoTimestamp, manilaToday, timeInError, transitionError } from '../src/services/deliveryLifecycle';
 import { recordScope } from '../src/services/recordAccess';
 
 const photo = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWMwTpsJAAICATMDms/iAAAAAElFTkSuQmCC', 'base64');
@@ -29,7 +29,11 @@ const originalMailEnv = Object.fromEntries(['SMTP_HOST', 'AZURE_CLIENT_ID', 'AZU
 const user = (role = 'DRIVER') => ({ id: 'test-user', name: 'Assigned Driver', email: 'test@example.com', role, isActive: true, permissions: [], driverProfile: role === 'DRIVER' ? { id: 'profile-assigned', type: 'DRIVER' } : null, driverProfileId: role === 'DRIVER' ? 'profile-assigned' : null });
 const otherDriver = (name: string) => ({ driver: name, driverId: `profile-${name}` });
 const attachment = (overrides: Record<string, unknown> = {}) => ({ id: 'photo-1', recordId: 'delivery-1', originalName: 'photo.png', mimeType: 'image/png', storageKey: 'photo.png', size: photo.length, createdAt: new Date(), ...overrides });
-const record = (overrides: Record<string, unknown> = {}) => ({ id: 'delivery-1', category: 'DELIVERY', status: 'IN_TRANSIT', draft: false, reference: 'REF', driverAssistants: '[]', priority: '2 - Moderate', driver: 'Assigned Driver', driverId: 'profile-assigned', company: { name: 'Test Company' }, accountManager: 'Test AM', timeIn: '2026-10-06T01:00:00.000Z', receivedBy: 'Recipient', timeOut: null, deletedAt: null, ...overrides });
+const record = (overrides: Record<string, unknown> = {}) => ({ id: 'delivery-1', category: 'DELIVERY', status: 'IN_TRANSIT', draft: false, reference: 'REF', driverAssistants: '[]', priority: '2 - Moderate', driver: 'Assigned Driver', driverId: 'profile-assigned', company: { name: 'Test Company' }, accountManager: 'Test AM', deliveryDate: manilaToday(), timeIn: '2026-10-06T01:00:00.000Z', receivedBy: 'Recipient', timeOut: null, deletedAt: null, ...overrides });
+const shiftDate = (date: string, days: number) => {
+  const [year, month, day] = date.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+};
 
 function failClosed() {
   for (const model of [prisma.user, prisma.company, prisma.deliveryRecord, prisma.podAttachment, prisma.auditLog, prisma.remarkLog, prisma.comment, prisma.notification, prisma.notificationLog, prisma.driver]) {
@@ -124,6 +128,110 @@ test('image proof checks bytes, rejecting renamed, empty, mismatched and truncat
   assert.equal(isPodPhoto(Buffer.from('not a photo'), 'image/png'), false);
   assert.equal(isPodPhoto(Buffer.alloc(0), 'image/jpeg'), false);
   assert.equal(isPodPhoto(photo.subarray(0, 30), 'image/png'), false);
+});
+
+test('Delivery schedule eligibility uses valid Manila dates and leaves started/non-Delivery runs alone', () => {
+  const now = new Date('2026-10-08T03:00:00.000Z'); // 11:00 in Manila
+  assert.deepEqual(deliveryScheduleState('2026-10-06', new Date('2026-10-05T16:01:00.000Z')), { valid: true, future: false, overdue: false, daysLate: 0 });
+  assert.deepEqual(deliveryScheduleState('2026-10-06', new Date('2026-10-06T16:01:00.000Z')), { valid: true, future: false, overdue: true, daysLate: 1 });
+  assert.deepEqual(deliveryScheduleState('2026-10-06', now), { valid: true, future: false, overdue: true, daysLate: 2 });
+  assert.deepEqual(deliveryScheduleState('2026-10-08', now), { valid: true, future: false, overdue: false, daysLate: 0 });
+  assert.deepEqual(deliveryScheduleState('2026-10-09', now), { valid: true, future: true, overdue: false, daysLate: 0 });
+  assert.equal(driverDeliveryDateError(record({ deliveryDate: '2026-10-09', timeIn: null }), 'DRIVER', now), 'This delivery is scheduled for a future date and is read-only until that date.');
+  assert.equal(driverDeliveryDateError(record({ deliveryDate: '2026-10-06', timeIn: null }), 'DRIVER', now), null);
+  assert.equal(driverDeliveryDateError(record({ deliveryDate: '2026-10-09', timeIn: '2026-10-08T02:00:00.000Z' }), 'DRIVER', now), null);
+  assert.equal(driverDeliveryDateError(record({ category: 'RMA', deliveryDate: '2026-10-09', timeIn: null }), 'DRIVER', now), null);
+  assert.match(driverDeliveryDateError(record({ deliveryDate: '2026-02-30', timeIn: null }), 'DRIVER', now) ?? '', /valid Delivery Date/);
+});
+
+test('server rejects future unstarted Driver writes across execution, POD, record edit and comments', async () => {
+  const future = shiftDate(manilaToday(), 1);
+  const photoFile = { originalname: 'photo.png', mimetype: 'image/png', size: photo.length, buffer: photo };
+  for (const [method, path, options] of [
+    ['post', '/:id/time-in', { body: { remarks: 'Start early' } }],
+    ['patch', '/:id/status', { body: { status: 'On-Hold', remarks: 'Future run' } }],
+    ['put', '/:id', { body: { received_by: 'Recipient', remarks: 'Edit future run' } }],
+    ['post', '/:id/attachments', { file: photoFile }],
+    ['post', '/:id/comments', { body: { body: 'Future run comment' } }],
+  ] as const) {
+    resetFixtures();
+    const state = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: future }));
+    const before = { ...state.saved() };
+    const storage = stub(podStorage, 'save', async () => 'unexpected-photo.png');
+    const attachmentCreate = stub(prisma.podAttachment, 'create', async () => attachment() as any);
+    const response = await request(method, path, options);
+    assert.equal(response.status, 400, path);
+    assert.match(response.body.error, /future date|read-only/i, path);
+    assert.deepEqual(state.saved(), before, path);
+    assert.equal(state.events.includes('update'), false, path);
+    assert.equal(state.events.includes('remark'), false, path);
+    assert.equal(state.events.includes('audit'), false, path);
+    assert.equal(storage.mock.callCount(), 0, path);
+    assert.equal(attachmentCreate.mock.callCount(), 0, path);
+  }
+});
+
+test('Logistics can reschedule a Delivery with remarks and audit while preserving its Driver assignment', async () => {
+  const future = shiftDate(manilaToday(), 2);
+  const today = manilaToday();
+  const state = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: future }));
+  const response = await request('put', '/:id', { role: 'LOGISTICS', body: { delivery_date: today, remarks: 'Client requested an urgent reschedule' } });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.delivery_date, today);
+  assert.equal(state.saved().deliveryDate, today);
+  assert.equal(state.saved().driverId, 'profile-assigned');
+  assert.equal(state.audit[0].changedById, 'test-user');
+  assert.equal(JSON.parse(state.audit[0].previousValue).delivery_date, future);
+  assert.equal(JSON.parse(state.audit[0].newValue).delivery_date, today);
+  assert.equal(state.remarks[0].body, 'Client requested an urgent reschedule');
+  assert.equal(driverDeliveryDateError(state.saved() as any, 'DRIVER'), null);
+
+  resetFixtures();
+  const pushedOut = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: today }));
+  const futureResponse = await request('put', '/:id', { role: 'LOGISTICS', body: { delivery_date: future, remarks: 'Customer requested a later date' } });
+  assert.equal(futureResponse.status, 200);
+  assert.equal(futureResponse.body.delivery_date, future);
+  assert.equal(pushedOut.saved().driverId, 'profile-assigned');
+  assert.match(driverDeliveryDateError(pushedOut.saved() as any, 'DRIVER') ?? '', /future date/);
+});
+
+test('overdue Driver Time In and POD upload audit the effective date and days late', async () => {
+  const overdueDate = shiftDate(manilaToday(), -2);
+  const timeInState = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: overdueDate }));
+  const started = await request('post', '/:id/time-in', { body: { remarks: 'Starting late delivery' } });
+  assert.equal(started.status, 200);
+  const timeInSnapshot = JSON.parse(timeInState.audit[0].previousValue);
+  assert.equal(timeInSnapshot.overdue, true);
+  assert.equal(timeInSnapshot.days_late, 2);
+
+  resetFixtures();
+  const podState = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: overdueDate }));
+  stub(podStorage, 'save', async () => 'photo.png');
+  stub(prisma.podAttachment, 'create', async () => attachment() as any);
+  const upload = await request('post', '/:id/attachments', { file: { originalname: 'photo.png', mimetype: 'image/png', size: photo.length, buffer: photo } });
+  assert.equal(upload.status, 201);
+  const uploadSnapshot = JSON.parse(podState.audit[0].newValue);
+  assert.equal(uploadSnapshot.overdue, true);
+  assert.equal(uploadSnapshot.days_late, 2);
+});
+
+test('Delivery completion persists completedLate and daysLate from the effective Manila date', async () => {
+  const overdueDate = shiftDate(manilaToday(), -3);
+  const state = database(record({ deliveryDate: overdueDate }), [attachment()]);
+  const response = await request('patch', '/:id/status', { body: { status: 'Delivered', remarks: 'Late delivery completed', received_by: 'Recipient' } });
+  assert.equal(response.status, 200);
+  assert.equal(state.saved().completedLate, true);
+  assert.equal(state.saved().daysLate, 3);
+  const auditSnapshot = JSON.parse(state.audit[0].newValue);
+  assert.equal(auditSnapshot.completed_late, true);
+  assert.equal(auditSnapshot.days_late, 3);
+
+  resetFixtures();
+  const onTime = database(record(), [attachment()]);
+  const onTimeResponse = await request('patch', '/:id/status', { body: { status: 'Delivered', remarks: 'Completed on time', received_by: 'Recipient' } });
+  assert.equal(onTimeResponse.status, 200);
+  assert.equal(onTime.saved().completedLate, false);
+  assert.equal(onTime.saved().daysLate, 0);
 });
 
 test('assigned driver can upload a saved photo and list its verified photo flag', async () => {
@@ -550,6 +658,19 @@ test('upload compensates object storage on metadata and transaction commit failu
     assert.equal(remove.mock.callCount(), 1);
     assert.equal(remove.mock.calls[0].arguments[0], 'new-key');
   }
+});
+
+test('attachment removal does not require a reason and always writes an audit entry', async () => {
+  const state = database(record(), [attachment()]);
+  const remove = stub(podStorage, 'remove', async () => {});
+  const response = await request('delete', '/:id/attachments/:attachmentId', { role: 'LOGISTICS', body: {} });
+  assert.equal(response.status, 204);
+  assert.equal(remove.mock.callCount(), 1);
+  assert.deepEqual(state.events, ['lock', 'delete', 'audit']);
+  assert.equal(state.audit.length, 1);
+  assert.deepEqual(JSON.parse(state.audit[0].previousValue), { attachment: 'photo.png', attachment_id: 'photo-1' });
+  assert.deepEqual(JSON.parse(state.audit[0].newValue), { attachment_removed: 'photo-1' });
+  assert.equal(state.remarks.length, 0);
 });
 
 test('locked status, edit and upload checks reject a record newly returned to Draft or a newly denied category', async () => {

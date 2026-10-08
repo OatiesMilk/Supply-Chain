@@ -12,7 +12,7 @@ import { podStorage, podUpload } from '../services/podStorage';
 import { DELIVERY_PHOTO_REQUIRED, hasStoredDeliveryPhoto, isPhotoMimeType, isVerifiedPodPhoto, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
 
 import { canWriteCategory, isAssignedDriver, recordScope } from '../services/recordAccess';
-import { isoTimestamp, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
+import { deliveryScheduleState, driverDeliveryDateError, isValidDateOnly, isoTimestamp, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
 
 const router = Router();
 const requireRecordAccess = asyncRoute(async (req, res, next) => {
@@ -244,6 +244,8 @@ router.post(
         if (!canWriteCategory(req.user!, record.category) || (req.user!.role === 'LOGISTICS' && record.category === 'RMA')) {
           return { status: 403, error: 'Record access denied', attachment: null };
         }
+        const dateError = driverDeliveryDateError(record, req.user!.role);
+        if (dateError) return { status: 400, error: dateError, attachment: null };
         storageKey = await podStorage.save({
           originalName: req.file!.originalname, mimeType: req.file!.mimetype,
           size: req.file!.size, buffer: req.file!.buffer,
@@ -252,6 +254,19 @@ router.post(
           recordId: record.id, originalName: req.file!.originalname, storageKey,
           mimeType: req.file!.mimetype, size: req.file!.size, uploadedById: req.user!.id,
         } });
+        if (record.category === 'DELIVERY') {
+          const schedule = deliveryScheduleState(record.deliveryDate);
+          await tx.auditLog.create({ data: {
+            recordId: record.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id,
+            previousValue: JSON.stringify({ attachment_uploaded: null }),
+            newValue: JSON.stringify({
+              attachment_uploaded: { id: attachment.id, name: attachment.originalName },
+              delivery_date: record.deliveryDate,
+              overdue: schedule.overdue,
+              days_late: schedule.daysLate,
+            }),
+          } });
+        }
         return { status: 201, error: null, attachment };
       }, { timeout: 30_000 });
     } catch (error) {
@@ -293,10 +308,7 @@ router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResour
 }));
 
 router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'), asyncRoute(async (req, res) => {
-  const { remarks } = req.body ?? {};
-  if (typeof remarks !== 'string' || !remarks.trim()) {
-    return res.status(400).json({ error: 'Remarks are required to remove an attachment.' });
-  }
+  const remarks = typeof req.body?.remarks === 'string' ? req.body.remarks.trim() : '';
 
   const result = await prisma.$transaction(async tx => {
     await lockPodRecord(tx, req.params.id);
@@ -314,7 +326,7 @@ router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('re
     }
     await tx.podAttachment.delete({ where: { id: attachment.id } });
     await tx.auditLog.create({ data: { recordId: req.params.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id, previousValue: JSON.stringify({ attachment: attachment.originalName, attachment_id: attachment.id }), newValue: JSON.stringify({ attachment_removed: attachment.id }) } });
-    await tx.remarkLog.create({ data: { recordId: req.params.id, body: `Removed attachment ${attachment.originalName}: ${remarks.trim()}`, context: 'GENERAL_EDIT', authorId: req.user!.id } });
+    if (remarks) await tx.remarkLog.create({ data: { recordId: req.params.id, body: `Removed attachment ${attachment.originalName}: ${remarks}`, context: 'GENERAL_EDIT', authorId: req.user!.id } });
     return null;
   });
   if (result) return res.status(result.status).json({ error: result.error });
@@ -466,7 +478,8 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
   const substantiveFields = req.user!.role === 'ADMIN' ? [...LOGISTICS_SUBSTANTIVE_FIELDS, ...SC_SUBSTANTIVE_FIELDS] : (req.user!.role === 'LOGISTICS' || req.user!.role === 'TASS')
     ? LOGISTICS_SUBSTANTIVE_FIELDS
     : SC_SUBSTANTIVE_FIELDS;
-  const hasSubstantiveChange = substantiveFields.some(f => f in b);
+  const logisticsDeliveryDateChange = req.user!.role === 'LOGISTICS' && existing.category === 'DELIVERY' && b.delivery_date !== undefined;
+  const hasSubstantiveChange = substantiveFields.some(f => f in b) || logisticsDeliveryDateChange;
 
   if ((hasSubstantiveChange || hasTimestamp || b.is_draft !== undefined || b.received_by !== undefined || b.remarks !== undefined) && (typeof b.remarks !== 'string' || !b.remarks.trim())) {
     return res.status(400).json({ error: 'Remarks are required when editing a record.' });
@@ -482,6 +495,10 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
 
     if (b.received_by !== undefined) data.receivedBy = b.received_by ?? null;
   } else if (req.user!.role === 'LOGISTICS' || req.user!.role === 'ADMIN' || req.user!.role === 'TASS') {
+    if (req.user!.role === 'LOGISTICS' && existing.category === 'DELIVERY' && b.delivery_date !== undefined) {
+      if (!isValidDateOnly(b.delivery_date)) return res.status(400).json({ error: 'Delivery Date must be a valid YYYY-MM-DD date.' });
+      data.deliveryDate = b.delivery_date;
+    }
     if (b.priority !== undefined) data.priority = b.priority;
     // The stable profile id is resolved under the directory lock below.
     if (b.driver_id !== undefined) {
@@ -544,6 +561,10 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (b.address !== undefined) data.address = b.address;
   }
 
+  if (existing.category === 'DELIVERY' && (req.user!.role === 'SALES_COORDINATOR' || req.user!.role === 'ADMIN') && b.delivery_date !== undefined && !isValidDateOnly(b.delivery_date)) {
+    return res.status(400).json({ error: 'Delivery Date must be a valid YYYY-MM-DD date.' });
+  }
+
   // Admin can correct the same full metadata exposed by the staff editor.
   if (req.user!.role === 'ADMIN') {
     const metadata: Record<string, string> = { company_id: 'companyId', reference: 'reference', account_manager: 'accountManager', delivery_date: 'deliveryDate', item_type: 'itemType', item_description: 'itemDescription' };
@@ -560,6 +581,8 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     const current = await tx.deliveryRecord.findUnique({ where: { id: existing.id } });
     if (!current || current.deletedAt) return { error: 'Record not found', updated: null };
     if (!canWriteCategory(req.user!, current.category) || (req.user!.role === 'DRIVER' && !isAssignedDriver(req.user!, current))) return { error: 'Record access denied', updated: null };
+    const dateError = driverDeliveryDateError(current, req.user!.role);
+    if (dateError) return { error: dateError, updated: null };
     if (data.draft !== undefined && data.draft !== current.draft) {
       if (!['SALES_COORDINATOR', 'ADMIN'].includes(req.user!.role)) return { error: 'Only Sales Coordinator or Admin may submit or return drafts.', updated: null };
       const invalid = transitionError(current, data.draft ? 'Draft' : 'Scheduled', req.user!.role);
@@ -623,6 +646,8 @@ router.post('/:id/time-in', requireAuth, requireResource('records'), requireReco
     await lockPodRecord(tx, req.params.id);
     const current = await tx.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] }, include: recordInclude });
     if (!current) return { error: 'Record access denied', saved: null };
+    const dateError = driverDeliveryDateError(current, req.user!.role);
+    if (dateError) return { error: dateError, saved: null };
     const error = timeInError(current);
     if (error) return { error, saved: null };
     const saved = await tx.deliveryRecord.update({ where: { id: current.id }, data: {
@@ -653,12 +678,17 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     await lockPodRecord(tx, req.params.id);
     const current = await tx.deliveryRecord.findUnique({ where: { id: req.params.id }, include: recordInclude });
     if (!current || current.deletedAt || (req.user!.role === 'DRIVER' && !isAssignedDriver(req.user!, current)) || !canWriteCategory(req.user!, current.category)) return { error: 'Record access denied', saved: null, previous: null };
+    const dateError = driverDeliveryDateError(current, req.user!.role);
+    if (dateError) return { error: dateError, saved: null, previous: null };
     if (req.user!.role === 'TASS' && current.category !== 'RMA') return { error: 'TASS status updates are limited to RMA records', saved: null, previous: null };
     if (req.user!.role === 'SALES_COORDINATOR' && !(status === 'Draft' || current.draft && status === 'Scheduled')) return { error: 'Sales Coordinator may only submit or return drafts.', saved: null, previous: null };
     const statusChanged = runState(current) !== status;
     const priorityChanged = hasPriority && current.priority !== priority;
     if (!statusChanged && !priorityChanged) return { error: 'Choose a different status or priority before saving.', saved: null, previous: null };
     if (statusChanged) {
+      if (status === 'Delivered' && current.category === 'DELIVERY' && !deliveryScheduleState(current.deliveryDate).valid) {
+        return { error: 'A valid Delivery Date is required before completing this delivery.', saved: null, previous: null };
+      }
       if ((status === 'Delivered' || status === 'Pending') && !isoTimestamp(current.timeIn)) return { error: 'Record a valid Time In before completing or marking this run Pending.', saved: null, previous: null };
       const error = transitionError(current, status as RunState, req.user!.role);
       if (error) return { error, saved: null, previous: null };
@@ -673,7 +703,13 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
       if (!String(received_by ?? current.receivedBy ?? '').trim()) return { error: 'Received By is required before completing this run.', saved: null, previous: null };
       if (!await hasStoredDeliveryPhoto(tx, current.id)) return { error: DELIVERY_PHOTO_REQUIRED, saved: null, previous: null };
       data.receivedBy = String(received_by ?? current.receivedBy).trim();
-      data.timeOut = new Date().toISOString();
+      const completedAt = new Date();
+      data.timeOut = completedAt.toISOString();
+      if (current.category === 'DELIVERY') {
+        const schedule = deliveryScheduleState(current.deliveryDate, completedAt);
+        data.completedLate = schedule.valid && schedule.overdue;
+        data.daysLate = schedule.valid ? schedule.daysLate : 0;
+      }
     }
     if (statusChanged && status === 'Rescheduled') { data.timeIn = null; data.timeOut = null; data.receivedBy = null; }
     const saved = await tx.deliveryRecord.update({ where: { id: current.id }, data, include: recordInclude });
@@ -805,9 +841,11 @@ router.post('/:id/comments', requireAuth, requireResource('records'), requireRec
   }
 
   const record = await prisma.deliveryRecord.findFirst({
-    where: { id: req.params.id, deletedAt: null }
+    where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] }
   });
   if (!record) return res.status(404).json({ error: 'Record not found' });
+  const dateError = driverDeliveryDateError(record, req.user!.role);
+  if (dateError) return res.status(400).json({ error: dateError });
 
   const comment = await prisma.comment.create({
     data: {

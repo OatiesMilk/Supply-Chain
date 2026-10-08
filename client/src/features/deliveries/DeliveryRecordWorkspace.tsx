@@ -144,8 +144,9 @@ function GeneralTab({
   const canManageDraft = !readOnly && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && !record.time_in;
   const [lifecycleRemarks, setLifecycleRemarks] = useState('');
   const canEditAreaAddress = !readOnly && currentUserRole === 'Logistics' && record.category !== 'RMA';
+  const canEditDeliveryDate = !readOnly && currentUserRole === 'Logistics' && record.category === 'Deliveries';
   const canEditPriority = !readOnly && ((currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') || (currentUserRole === 'Logistics' && record.category !== 'RMA'));
-  const canEdit = canEditFull || canEditAreaAddress || canEditPriority;
+  const canEdit = canEditFull || canEditAreaAddress || canEditDeliveryDate || canEditPriority;
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -225,6 +226,7 @@ function GeneralTab({
         updates.area = draft.area;
         updates.address = draft.address;
       }
+      if (canEditDeliveryDate) updates.delivery_date = draft.delivery_date;
       if (canEditPriority) {
         updates.priority = draft.priority;
       }
@@ -423,6 +425,12 @@ function GeneralTab({
                   </div>
 
                 </>
+              )}
+              {canEditDeliveryDate && (
+                <div className="space-y-1">
+                  <label className={labelCls}>Delivery Date</label>
+                  <input type="date" value={draft.delivery_date} onChange={e => set('delivery_date', e.target.value)} className={inputCls} />
+                </div>
               )}
             </div>
             <div className="space-y-1">

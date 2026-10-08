@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { DeliveryRecord } from '../../types';
-import { canRecordTimeIn, isDraftRecord, selectableStatuses, manilaToday, manilaDateTimeInput, manilaInputToIso, submissionErrors } from '../recordLifecycle';
+import { canRecordTimeIn, dashboardRunDaysLate, deliveryScheduleState, hasValidRunTimeIn, isDashboardRunActionable, isDraftRecord, selectableStatuses, manilaToday, manilaDateTimeInput, manilaInputToIso, submissionErrors } from '../recordLifecycle';
 
 const record = (overrides: Partial<DeliveryRecord> = {}): DeliveryRecord => ({
   status: 'Scheduled', is_draft: 'No', driver: 'Assigned Driver', time_in: null,
@@ -49,4 +49,27 @@ test('today and corrections consistently use Manila around UTC day boundaries', 
   assert.equal(manilaDateTimeInput('2026-10-06T01:23:00Z'), '2026-10-06T09:23');
   assert.equal(manilaInputToIso('2026-10-06T09:23'), '2026-10-06T01:23:00.000Z');
   assert.equal(manilaDateTimeInput(null), '');
+});
+
+test('Delivery actionability uses the latest date, allows overdue runs, and keeps upcoming runs read-only', () => {
+  const today = '2026-10-08';
+  assert.deepEqual(deliveryScheduleState('2026-10-08', today), { valid: true, future: false, overdue: false, daysLate: 0 });
+  assert.deepEqual(deliveryScheduleState('2026-10-06', today), { valid: true, future: false, overdue: true, daysLate: 2 });
+  assert.equal(isDashboardRunActionable(record({ category: 'Deliveries', delivery_date: '2026-10-06' }), today), true);
+  assert.equal(dashboardRunDaysLate(record({ category: 'Deliveries', delivery_date: '2026-10-06' }), today), 2);
+  assert.equal(isDashboardRunActionable(record({ category: 'Deliveries', delivery_date: '2026-10-09' }), today), false);
+  assert.equal(isDashboardRunActionable(record({ category: 'Deliveries', delivery_date: '2026-10-09', time_in: '2026-10-09T01:00:00Z' }), today), true);
+  assert.equal(isDashboardRunActionable(record({ category: 'Accounting Collection', delivery_date: '2026-10-06' }), today), false);
+  assert.equal(isDashboardRunActionable(record({ category: 'Deliveries', delivery_date: '2026-02-30' }), today), false);
+});
+
+test('completed-late display uses the persisted completion value', () => {
+  assert.equal(dashboardRunDaysLate(record({ category: 'Deliveries', status: 'Delivered', delivery_date: '2026-10-06', completed_late: true, days_late: 2 }), '2026-10-12'), 2);
+  assert.equal(dashboardRunDaysLate(record({ category: 'Deliveries', status: 'Delivered', delivery_date: '2026-10-06', completed_late: false, days_late: 0 }), '2026-10-12'), 0);
+});
+
+test('started Delivery eligibility requires the server timestamp format', () => {
+  assert.equal(hasValidRunTimeIn('2026-10-08T01:00:00.000Z'), true);
+  assert.equal(hasValidRunTimeIn('2026-10-08 01:00:00'), false);
+  assert.equal(isDashboardRunActionable(record({ category: 'Deliveries', delivery_date: '2026-10-09', time_in: '2026-10-08 01:00:00' }), '2026-10-08'), false);
 });

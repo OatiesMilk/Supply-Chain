@@ -24,6 +24,42 @@ export function canRecordTimeIn(record: DeliveryRecord): boolean {
     (record.status === 'Scheduled' || record.status === 'Rescheduled');
 }
 
+export function deliveryScheduleState(deliveryDate: string, today = manilaToday()): { valid: boolean; future: boolean; overdue: boolean; daysLate: number } {
+  const epochDay = (value: string) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (!match) return null;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+    return Math.floor(date.getTime() / 86_400_000);
+  };
+  const dueDay = epochDay(deliveryDate);
+  const todayDay = epochDay(today);
+  if (dueDay === null || todayDay === null) return { valid: false, future: false, overdue: false, daysLate: 0 };
+  const daysLate = Math.max(0, todayDay - dueDay);
+  return { valid: true, future: dueDay > todayDay, overdue: daysLate > 0, daysLate };
+}
+
+export function hasValidRunTimeIn(value: unknown): boolean {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) return false;
+  return !Number.isNaN(new Date(value).getTime());
+}
+
+export function isDashboardRunActionable(record: DeliveryRecord, today = manilaToday()): boolean {
+  if (record.category !== 'Deliveries') return record.delivery_date === today;
+  const schedule = deliveryScheduleState(record.delivery_date, today);
+  const started = hasValidRunTimeIn(record.time_in);
+  return started || (schedule.valid && !schedule.future);
+}
+
+export function dashboardRunDaysLate(record: DeliveryRecord, today = manilaToday()): number {
+  if (record.category !== 'Deliveries') return 0;
+  if (record.status === 'Delivered') return record.completed_late ? Math.max(0, record.days_late ?? 0) : 0;
+  return deliveryScheduleState(record.delivery_date, today).daysLate;
+}
+
 export function manilaToday(now = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 }

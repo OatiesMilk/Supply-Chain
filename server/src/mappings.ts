@@ -4,7 +4,7 @@
 // and return the same strings the existing frontend already uses everywhere,
 // without forcing a UI rewrite of every label.
 
-import { allowedStatuses, runState } from './services/deliveryLifecycle';
+import { allowedStatuses, deliveryScheduleState, runState } from './services/deliveryLifecycle';
 
 export const CATEGORY_TO_DB: Record<string, string> = {
   'Sales Orders': 'SALES_ORDERS',
@@ -52,6 +52,9 @@ export function parseDriverAssistants(value: unknown): string[] {
 }
 
 export function serializeRecord(r: any) {
+  const state = r.category === 'DELIVERY' ? deliveryScheduleState(r.deliveryDate) : null;
+  const completed = runState(r) === 'Delivered';
+  const completedLate = r.category === 'DELIVERY' && completed && Boolean(r.completedLate);
   return {
     id: r.id,
     company_name: r.company?.name ?? '',
@@ -71,6 +74,11 @@ export function serializeRecord(r: any) {
     received_by: r.receivedBy ?? null,
     account_manager: r.accountManager,
     delivery_date: r.deliveryDate,
+    ...(state ? {
+      overdue: completed ? completedLate : state.overdue,
+      days_late: completed ? (completedLate ? Number(r.daysLate ?? 0) : 0) : state.daysLate,
+      completed_late: completedLate,
+    } : {}),
     category: CATEGORY_FROM_DB[r.category] ?? r.category,
     item_type: r.itemType,
     is_draft: r.draft ? 'Yes' : 'No',
