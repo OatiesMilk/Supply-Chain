@@ -13,7 +13,7 @@ import { AREAS, PRIORITIES, ITEM_TYPES, DELIVERY_STATUSES, ACCOUNT_MANAGERS, acS
 import { ApiCompany, apiUrl } from '@/api';
 import AccountingCollectionWorkspace from '@/features/accounting/AccountingCollectionWorkspace';
 import { WorkspaceDraftProvider } from '@/features/deliveries/WorkspaceDrafts';
-import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
+import { POD_ATTACHMENT_ACCEPT, getPodAttachmentRejection } from '@/utils/attachmentValidation';
 import { notify } from '@/utils/notify';
 
 interface AccountingCollectionViewProps {
@@ -195,9 +195,9 @@ export default function AccountingCollectionView({
     input.value = '';
     if (selectedFiles.length === 0) return;
 
-    const validationError = validatePodAttachments(selectedFiles);
-    if (validationError) {
-      notify.error(validationError);
+    const rejection = getPodAttachmentRejection(selectedFiles);
+    if (rejection) {
+      notify.fileRejected(rejection.fileName, rejection.reason);
       return;
     }
 
