@@ -247,11 +247,12 @@ export default function AccountingCollectionView({
       collection_verified_at: null,
       amount: parseFloat(form.amount.replace(/,/g, '')) || null,
     });
+    notify.success(isDraft ? 'Collection draft saved' : 'Collection submitted');
 
     setForm(buildEmptyForm());
     setAttachmentNames([]);
     setShowForm(false);
-    } catch (error) { setFormErrors({ submit: error instanceof Error ? error.message : "Could not create this record." }); } finally { setSaving(false); }
+    } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not create this record.'); } finally { setSaving(false); }
   };
 
   // Filter records
@@ -418,7 +419,6 @@ export default function AccountingCollectionView({
           </div>
 
           <form ref={formRef} onSubmit={handleSubmit} className="space-y-5 text-xs">
-            {formErrors.submit && <p role="alert" className="text-xs text-red-700">{formErrors.submit}</p>}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {/* Company Name */}
               <div className="space-y-1.5">
