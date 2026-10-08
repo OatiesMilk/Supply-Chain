@@ -3,7 +3,46 @@ import type { Role } from '../middleware/auth';
 export type RunState = 'Draft' | 'Scheduled' | 'In Transit' | 'Delivered' | 'Pending' | 'On-Hold' | 'Rescheduled';
 export interface RunRecord {
   draft?: boolean; status: string; timeIn?: string | null; timeOut?: string | null;
-  driver?: string; receivedBy?: string | null;
+  driver?: string; receivedBy?: string | null; category?: string; deliveryDate?: string | null;
+}
+
+export interface DeliveryScheduleState {
+  valid: boolean;
+  future: boolean;
+  overdue: boolean;
+  daysLate: number;
+}
+
+function dateOnlyEpochDay(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return Math.floor(date.getTime() / 86_400_000);
+}
+
+export function isValidDateOnly(value: unknown): value is string {
+  return dateOnlyEpochDay(value) !== null;
+}
+
+export function deliveryScheduleState(deliveryDate: unknown, now = new Date()): DeliveryScheduleState {
+  const dateDay = dateOnlyEpochDay(deliveryDate);
+  const todayDay = dateOnlyEpochDay(manilaToday(now));
+  if (dateDay === null || todayDay === null) return { valid: false, future: false, overdue: false, daysLate: 0 };
+  const daysLate = Math.max(0, todayDay - dateDay);
+  return { valid: true, future: dateDay > todayDay, overdue: daysLate > 0, daysLate };
+}
+
+export function driverDeliveryDateError(record: RunRecord, role: Role, now = new Date()): string | null {
+  if (role !== 'DRIVER' || record.category !== 'DELIVERY' || record.draft || isoTimestamp(record.timeIn)) return null;
+  const schedule = deliveryScheduleState(record.deliveryDate, now);
+  if (!schedule.valid) return 'This delivery has no valid Delivery Date. Contact Logistics before taking action.';
+  if (schedule.future) return 'This delivery is scheduled for a future date and is read-only until that date.';
+  return null;
 }
 
 // In Transit is exclusively entered through the dedicated Time In action.

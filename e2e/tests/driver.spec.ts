@@ -23,6 +23,39 @@ async function getFirstActiveCard(page: Page) {
   return page.getByRole('button', { name: /record time in/i }).first();
 }
 
+function manilaDateOffset(offset: number) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date());
+  const year = Number(parts.find(part => part.type === 'year')?.value);
+  const month = Number(parts.find(part => part.type === 'month')?.value);
+  const day = Number(parts.find(part => part.type === 'day')?.value);
+  return new Date(Date.UTC(year, month - 1, day + offset)).toISOString().slice(0, 10);
+}
+
+async function showAssignedRecord(page: Page, deliveryDate: string) {
+  await page.route('**/api/records**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/records/tsk99-date-fixture/attachments') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    }
+    if (url.pathname !== '/api/records') return route.continue();
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{
+        id: 'tsk99-date-fixture', category: 'Deliveries', status: 'Scheduled', is_draft: 'No',
+        driver: 'Current Driver', driver_id: 'driver-profile', reference: 'TSK99-DATE',
+        company_name: 'Scheduling Fixture Company', area: 'Makati', item_description: 'Date actionability fixture',
+        delivery_date: deliveryDate, time_in: null, time_out: null,
+        allowed_statuses: ['On-Hold', 'Rescheduled'], driver_assistants: [], attachments: [],
+      }]),
+    });
+  });
+  await page.goto(BASE_URL);
+  await page.waitForLoadState('networkidle');
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 test.describe('C-1 Driver Dashboard', () => {
@@ -44,6 +77,22 @@ test.describe('C-1 Driver Dashboard', () => {
     await expect(page.getByText(/today.*runs|runs.*today/i)).toBeVisible();
     await expect(page.getByText(/accomplished/i)).toBeVisible();
     await expect(page.getByText(/remaining/i)).toBeVisible();
+  });
+
+  test('C-1.3 Future assigned Delivery stays visible and read-only', async ({ page }) => {
+    await showAssignedRecord(page, manilaDateOffset(1));
+    await expect(page.getByText('TSK99-DATE')).toBeVisible();
+    await expect(page.getByText('Upcoming · read-only')).toBeVisible();
+    await expect(page.getByText('Date actionability fixture')).toBeVisible();
+    await expect(page.getByRole('button', { name: /record time in/i })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /upload photo|upload.*doc/i })).toHaveCount(0);
+  });
+
+  test('C-1.4 Overdue assigned Delivery shows lateness and execution controls', async ({ page }) => {
+    await showAssignedRecord(page, manilaDateOffset(-2));
+    await expect(page.getByText(/overdue · 2 days late/i)).toBeVisible();
+    await expect(page.getByRole('button', { name: /record time in/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /upload photo|upload.*doc/i })).toBeVisible();
   });
 
   test('C-1.5 Logout works', async ({ page }) => {

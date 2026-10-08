@@ -16,7 +16,7 @@ import PodUploader from "@/components/PodUploader";
 import { completionError, type PodReadiness } from "@/utils/podRequirement";
 
 import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
-import { canRecordTimeIn, isDraftRecord, manilaToday } from '@/utils/recordLifecycle';
+import { canRecordTimeIn, dashboardRunDaysLate, deliveryScheduleState, hasValidRunTimeIn, isDashboardRunActionable, isDraftRecord, manilaToday } from '@/utils/recordLifecycle';
 import DoneRecordModal from "./DoneRecordModal";
 import { uploadStagedFiles } from '@/api/queries/usePodAttachments';
 import { useQueryClient } from '@tanstack/react-query';
@@ -83,10 +83,16 @@ export default function DriverDashboard({
     ? completionError(pendingAction.rec, pendingAction.status, receivedByInputs[pendingAction.rec.id] ?? pendingAction.rec.received_by, podStates[pendingAction.rec.id])
     : null;
 
-  // Show all assigned records (backend already filters to this driver's records)
+  // The server returns all assigned non-draft records. Deliveries use the latest
+  // saved date: overdue runs are actionable, while future unstarted runs are read-only.
   const todayRecs = records.filter((r) => r.delivery_date === today);
-  const activeRecs = todayRecs.filter((r) => r.status !== "Delivered");
-  const doneRecs = todayRecs.filter((r) => r.status === "Delivered");
+  const actionableRecs = records.filter(record => isDashboardRunActionable(record, today));
+  const activeRecs = actionableRecs.filter((r) => r.status !== "Delivered");
+  const doneRecs = records.filter((r) => r.status === "Delivered" &&
+    (r.category === 'Deliveries'
+      ? r.delivery_date === today || !!r.completed_late || (deliveryScheduleState(r.delivery_date, today).future && hasValidRunTimeIn(r.time_in))
+      : r.delivery_date === today));
+  const runsInScope = activeRecs.length + doneRecs.length;
 
   const handleTimeIn = (rec: DeliveryRecord) => {
     setPendingAction({ rec, status: "In Transit" });
@@ -197,11 +203,11 @@ export default function DriverDashboard({
           </div>
         )}
 
-        {!dataLoading && todayRecs.length === 0 && (
+        {!dataLoading && runsInScope === 0 && (
           <div className="text-center py-16 text-slate-400">
             <CheckCircle className="w-10 h-10 mx-auto mb-3 text-emerald-400" />
             <p className="font-bold text-slate-600">
-              No runs scheduled for today.
+              No runs ready for execution today.
             </p>
             <p className="text-xs mt-1">
               Check back later or contact Logistics.
@@ -211,6 +217,8 @@ export default function DriverDashboard({
 
         {/* Active records */}
         {activeRecs.map((rec) => {
+          const daysLate = dashboardRunDaysLate(rec, today);
+          const futureStarted = rec.category === 'Deliveries' && deliveryScheduleState(rec.delivery_date, today).future && hasValidRunTimeIn(rec.time_in);
           return (
             <div
               key={rec.id}
@@ -226,11 +234,19 @@ export default function DriverDashboard({
                     {rec.company_name}
                   </p>
                 </div>
-                <span
-                  className={`px-2 py-0.5 rounded-full border text-[9px] font-bold uppercase tracking-wider ${statusBadge(rec.status)}`}
-                >
-                  {rec.status}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {daysLate > 0 && rec.category === 'Deliveries' && (
+                    <span className="px-2 py-0.5 rounded-full border border-rose-200 bg-rose-50 text-[9px] font-bold text-rose-700">
+                      Overdue · {daysLate} day{daysLate === 1 ? '' : 's'} late
+                    </span>
+                  )}
+                  {futureStarted && (
+                    <span className="px-2 py-0.5 rounded-full border border-blue-200 bg-blue-50 text-[9px] font-bold text-blue-700">Started</span>
+                  )}
+                  <span className={`px-2 py-0.5 rounded-full border text-[9px] font-bold uppercase tracking-wider ${statusBadge(rec.status)}`}>
+                    {rec.status}
+                  </span>
+                </div>
               </div>
 
               <div className="px-4 py-3 space-y-3">
@@ -355,6 +371,11 @@ export default function DriverDashboard({
                   <p className="font-bold text-sm text-slate-800 truncate">
                     {rec.company_name}
                   </p>
+                  {rec.completed_late && (
+                    <p className="text-[10px] font-bold text-rose-700 mt-0.5">
+                      Completed {rec.days_late ?? 0} day{rec.days_late === 1 ? '' : 's'} late
+                    </p>
+                  )}
                   <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
                     <MapPin className="w-3 h-3 text-red-400 shrink-0" />
                     {rec.area}
@@ -389,22 +410,20 @@ export default function DriverDashboard({
           </div>
         )}
 
-        {/* Other-day records (not today) */}
+        {/* Upcoming and other-date records stay visible without execution controls. */}
         {records.filter(
-          (r) => r.delivery_date !== today && r.status !== "Delivered",
+          (r) => !isDashboardRunActionable(r, today) && r.status !== "Delivered",
         ).length > 0 && (
           <div className="space-y-2">
             <div className="flex items-center gap-3">
               <div className="flex-1 h-px bg-slate-200" />
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                Other Dates
+                Upcoming / Other Dates
               </p>
               <div className="flex-1 h-px bg-slate-200" />
             </div>
             {records
-              .filter(
-                (r) => r.delivery_date !== today && r.status !== "Delivered",
-              )
+              .filter((r) => !isDashboardRunActionable(r, today) && r.status !== "Delivered")
               .map((rec) => (
                 <div
                   key={rec.id}
@@ -417,12 +436,20 @@ export default function DriverDashboard({
                     <p className="text-xs font-bold text-slate-700">
                       {rec.company_name}
                     </p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      {rec.area}{rec.item_description ? ` · ${rec.item_description}` : ''}
+                    </p>
                   </div>
-                  <span
-                    className={`text-[9px] font-bold border px-2 py-0.5 rounded-full ${statusBadge(rec.status)}`}
-                  >
-                    {rec.status}
-                  </span>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <span className="text-[9px] font-bold border border-slate-200 bg-slate-50 px-2 py-0.5 rounded-full text-slate-600">
+                      {rec.category === 'Deliveries'
+                        ? deliveryScheduleState(rec.delivery_date, today).valid ? 'Upcoming · read-only' : 'Delivery Date needed · read-only'
+                        : 'Other date · read-only'}
+                    </span>
+                    <span className={`text-[9px] font-bold border px-2 py-0.5 rounded-full ${statusBadge(rec.status)}`}>
+                      {rec.status}
+                    </span>
+                  </div>
                 </div>
               ))}
           </div>

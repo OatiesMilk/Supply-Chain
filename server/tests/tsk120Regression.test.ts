@@ -241,8 +241,8 @@ test('Logistics cannot assign a Draft and Driver B cannot read or mutate Driver 
     id, name, email, role, permissions: [], isActive: true, password: bcrypt.hashSync('test-password', 4),
   });
   const logistics = makeUser('logistics-121', 'Juan Santos', 'logistics-121@example.com', 'LOGISTICS');
-  const driverA = makeUser('driver-a-121', 'Leo Driver', 'driver-a-121@example.com', 'DRIVER');
-  const driverB = makeUser('driver-b-121', 'Manny Driver', 'driver-b-121@example.com', 'DRIVER');
+  const driverA = { ...makeUser('driver-a-121', 'Leo Driver', 'driver-a-121@example.com', 'DRIVER'), driverProfile: { id: 'profile-driver-a-121', type: 'DRIVER' } };
+  const driverB = { ...makeUser('driver-b-121', 'Manny Driver', 'driver-b-121@example.com', 'DRIVER'), driverProfile: { id: 'profile-driver-b-121', type: 'DRIVER' } };
   const users = [logistics, driverA, driverB];
   const records = new Map([
     ['REC-TSK120-DRAFT-ASSIGN', draftRecord('REC-TSK120-DRAFT-ASSIGN', 'DELIVERY', 'SAP-TSK120-DRAFT-ASSIGN')],
@@ -250,11 +250,12 @@ test('Logistics cannot assign a Draft and Driver B cannot read or mutate Driver 
       ...draftRecord('REC-TSK120-DRIVER-A', 'DELIVERY', 'SAP-TSK120-DRIVER-A'),
       draft: false,
       driver: driverA.name,
+      driverId: 'profile-driver-a-121',
     }],
   ]);
   const matchesRecordScope = (record: any, args: any) => {
     const scope = args.where?.AND?.[0];
-    return !scope || (scope.driver === undefined || record.driver === scope.driver) &&
+    return !scope || (scope.driverId === undefined || record.driverId === scope.driverId) &&
       (scope.draft === undefined || record.draft === scope.draft);
   };
   const updates = mock.fn(async ({ where, data }: any) => {
@@ -269,7 +270,7 @@ test('Logistics cannot assign a Draft and Driver B cannot read or mutate Driver 
       findUnique: mock.fn(async ({ where }: any) => records.get(where.id) ?? null),
       update: updates,
     },
-    driver: { findFirst: mock.fn(async () => ({ name: driverA.name, type: 'DRIVER', isActive: true })) },
+    driver: { findFirst: mock.fn(async () => ({ id: 'profile-driver-a-121', name: driverA.name, type: 'DRIVER', isActive: true })) },
     auditLog: { create: mock.fn(async () => ({})) },
     remarkLog: { create: mock.fn(async () => ({})) },
   };
