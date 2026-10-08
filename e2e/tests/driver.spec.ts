@@ -181,4 +181,34 @@ test.describe('C-3 Accomplished Records View', () => {
       test.skip(true, 'No accomplished records today');
     }
   });
+
+  test('C-3.2 POD photo opens in a lightbox and Escape closes it', async ({ page }) => {
+    await page.goto(BASE_URL);
+    await page.waitForLoadState('networkidle');
+
+    const accomplishedHeading = page.getByText(/^Accomplished \(\d+\)$/i).first();
+    const accomplishedRun = accomplishedHeading.locator('..').locator('..').getByRole('button').first();
+    if (!(await accomplishedRun.isVisible())) {
+      test.skip(true, 'No accomplished run available for POD preview');
+      return;
+    }
+    await accomplishedRun.click();
+
+    const details = page.getByRole('dialog', { name: /accomplished run details/i });
+    await expect(details).toBeVisible();
+    const thumbnail = details.getByRole('button', { name: /^preview /i }).first();
+    const hasThumbnail = await thumbnail.waitFor({ state: 'visible', timeout: 10_000 }).then(() => true).catch(() => false);
+    if (!hasThumbnail) {
+      test.skip(true, 'Accomplished run has no verified POD photo');
+      return;
+    }
+
+    await expect(thumbnail.locator('img')).toBeVisible();
+    await thumbnail.click();
+    const lightbox = page.getByRole('dialog', { name: /^preview /i });
+    await expect(lightbox).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(lightbox).not.toBeVisible();
+    await expect(thumbnail).toBeFocused();
+  });
 });

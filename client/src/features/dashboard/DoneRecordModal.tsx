@@ -1,6 +1,7 @@
-import { X, Clock, UserCheck, FileText } from 'lucide-react';
+import { X, Clock, UserCheck } from 'lucide-react';
 import { DeliveryRecord } from '@/types';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
+import { PodAttachmentList } from '@/components/PodAttachmentPreview';
 
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString([], {
@@ -8,13 +9,6 @@ function fmtTime(iso: string) {
     hour: '2-digit',
     minute: '2-digit',
   });
-}
-
-function formatSize(bytes: number) {
-  if (!bytes) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export default function DoneRecordModal({
@@ -31,11 +25,12 @@ export default function DoneRecordModal({
       <div
         role="dialog"
         aria-modal="true"
+        aria-labelledby="accomplished-run-details-title"
         className="max-h-[90dvh] w-full max-w-lg space-y-6 overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl sm:p-6"
       >
         <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-4">
           <div>
-            <h2 className="text-lg font-bold text-slate-900">Accomplished Run Details</h2>
+            <h2 id="accomplished-run-details-title" className="text-lg font-bold text-slate-900">Accomplished Run Details</h2>
             <p className="mt-1 font-mono text-xs text-slate-500">{record.reference} · {record.company_name}</p>
           </div>
           <button
@@ -81,28 +76,7 @@ export default function DoneRecordModal({
             ) : readiness.loadFailed ? (
               <p className="text-xs text-red-600">Could not load attachments.</p>
             ) : files.length > 0 ? (
-              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm divide-y divide-slate-100">
-                {files.map(f => (
-                  <div key={f.id} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50">
-                    <span className="shrink-0 text-lg">{f.mime_type?.startsWith('image/') ? '🖼️' : '📄'}</span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-semibold text-slate-800">{f.name}</p>
-                      <p className="mt-0.5 font-mono text-[10px] text-slate-400">
-                        {f.size ? formatSize(f.size) + ' · ' : ''}
-                        {new Date(f.uploaded_at).toLocaleString()}
-                      </p>
-                    </div>
-                    <a
-                      href={f.download_url}
-                      download={f.name}
-                      title="Download"
-                      className="rounded p-1.5 text-slate-400 hover:bg-slate-200 hover:text-blue-600"
-                    >
-                      <FileText className="h-4 w-4" />
-                    </a>
-                  </div>
-                ))}
-              </div>
+              <PodAttachmentList files={files} />
             ) : (
               <p className="text-xs text-slate-500 italic">No attachments found.</p>
             )}
