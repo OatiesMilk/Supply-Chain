@@ -156,7 +156,6 @@ function GeneralTab({
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [remarksError, setRemarksError] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [draft, setDraft] = useState<EditDraft>({
     priority: record.priority,
     reference: record.reference,
@@ -197,7 +196,6 @@ function GeneralTab({
   const set = <K extends keyof EditDraft>(k: K, v: EditDraft[K]) => setDraft(p => ({ ...p, [k]: v }));
 
   const handleStartEdit = () => {
-    setSaveError(null);
     setRemarksError(false);
     // A bulk priority change can update this record while the workspace stays open.
     setDraft(d => ({ ...d, priority: record.priority }));
@@ -212,7 +210,6 @@ function GeneralTab({
       return;
     }
     setRemarksError(false);
-    setSaveError(null);
     setSaving(true);
     const updates: any = { remarks: draft.remarks };
     if (canEditFull) {
@@ -243,8 +240,9 @@ function GeneralTab({
         modified_at: new Date().toISOString(),
       });
       setEditing(false);
+      notify.success('Record changes saved');
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'Could not save the record. Please try again.');
+      notify.error(error instanceof Error ? error.message : 'Could not save the record. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -288,12 +286,11 @@ function GeneralTab({
           <textarea id="submission-change-remarks" aria-describedby="submission-change-remarks-help" required value={lifecycleRemarks} onChange={e => setLifecycleRemarks(e.target.value)} rows={2} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" placeholder="Reason for submitting or returning to draft" />
           {selectableStatuses(record, currentUserRole).filter(status => isDraftRecord(record) ? status === 'Scheduled' : status === 'Draft').map(status => (
             <button key={status} type="button" disabled={saving || !lifecycleRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
-              onClick={async () => { setSaving(true); setSaveError(null); try { await onUpdateRecord(record.id, { status, remarks: lifecycleRemarks.trim() }); setLifecycleRemarks(''); } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not change submission status.'); } finally { setSaving(false); } }}>
+              onClick={async () => { setSaving(true); try { await onUpdateRecord(record.id, { status, remarks: lifecycleRemarks.trim() }); setLifecycleRemarks(''); notify.success(isDraftRecord(record) ? 'Record submitted' : 'Record returned to Draft'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not change submission status.'); } finally { setSaving(false); } }}>
               {isDraftRecord(record) ? 'Submit' : 'Return to Draft'}
             </button>
           ))}
           <p className="text-xs text-slate-500">Drafts retain existing assignments and stay hidden from drivers until submitted.</p>
-          {saveError && <p role="alert" className="text-xs text-red-700">{saveError}</p>}
         </div>
       )}
 
@@ -454,7 +451,6 @@ function GeneralTab({
                 className={`w-full px-2.5 py-1.5 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${remarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
               />
               {remarksError && <p className="text-[11px] text-red-600 font-semibold">Remarks are required to save changes.</p>}
-              {saveError && <p role="alert" className="text-[11px] text-red-600 font-semibold">{saveError}</p>}
             </div>
             {canEditFull && (
               <div className="space-y-1 mt-4 pt-4 border-t border-slate-100">
