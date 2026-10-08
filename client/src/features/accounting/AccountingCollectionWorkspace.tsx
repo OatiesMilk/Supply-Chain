@@ -17,6 +17,7 @@ import { acStatusLabel, DELIVERY_STATUSES } from '@/data';
 import { api, ApiAuditEntry, ApiComment } from '@/api';
 import ExportMenu from '@/components/ExportMenu';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, fmtDate, fmtDatetime, fmtStatus } from '@/utils/export';
+import { useWorkspaceDraft, useWorkspaceNavigation } from '@/features/deliveries/WorkspaceDrafts';
 
 interface AccountingCollectionWorkspaceProps {
   record: DeliveryRecord;
@@ -170,6 +171,7 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [commentError, setCommentError] = useState('');
   const [retry, setRetry] = useState(0);
+  useWorkspaceDraft('comments', !!commentBody, submitting);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -376,6 +378,7 @@ function VerificationTab({
 }) {
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useWorkspaceDraft('verification', false, verifying);
 
   const canVerify = currentUserRole === 'TASS' || currentUserRole === 'Admin';
 
@@ -502,6 +505,11 @@ function OverviewTab({
   const timeInMutation = useRecordTimeInMutation();
   const [statusRemarks, setStatusRemarks] = useState('');
   const [remarksError, setRemarksError] = useState(false);
+  useWorkspaceDraft(
+    'overview',
+    draftReference !== record.reference || !!statusRemarks || receivedBy !== (record.received_by ?? ''),
+    updating
+  );
   const canEdit = currentUserRole === 'Sales Coordinator' || currentUserRole === 'Logistics' || currentUserRole === 'Admin';
 
   const handleStatusChange = async (newStatus: DeliveryStatus) => {
@@ -722,6 +730,19 @@ export default function AccountingCollectionWorkspace({
   onUpdateRecord,
 }: AccountingCollectionWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const { requestLeave, pending } = useWorkspaceNavigation();
+  const navigationNonce = useUIStore(s => s.navigationNonce);
+  const currentScreen = useUIStore(s => s.currentScreen);
+  const selectedRecordId = useUIStore(s => s.selectedRecordId);
+  const initialNavigationNonce = useRef(navigationNonce);
+
+  useEffect(() => {
+    if (navigationNonce === initialNavigationNonce.current) return;
+    initialNavigationNonce.current = navigationNonce;
+
+    if (currentScreen !== 'accounting_collection' || selectedRecordId) return;
+    requestLeave(onBack);
+  }, [navigationNonce, currentScreen, selectedRecordId, requestLeave, onBack]);
 
   const currentIndex = allRecordIds.indexOf(record.id);
   const prevId = currentIndex > 0 ? allRecordIds[currentIndex - 1] : null;
@@ -754,7 +775,8 @@ export default function AccountingCollectionWorkspace({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
         <div className="flex items-center gap-3 min-w-0">
           <button
-            onClick={onBack}
+            onClick={() => requestLeave(onBack)}
+            disabled={pending}
             className="flex items-center gap-1.5 text-[#0078C1] hover:text-[#1F3864] text-xs font-semibold transition-colors shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />

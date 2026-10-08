@@ -12,6 +12,7 @@ import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus } from '@/ty
 import { AREAS, PRIORITIES, ITEM_TYPES, DELIVERY_STATUSES, ACCOUNT_MANAGERS, acStatusLabel } from '@/data';
 import { ApiCompany, apiUrl } from '@/api';
 import AccountingCollectionWorkspace from '@/features/accounting/AccountingCollectionWorkspace';
+import { WorkspaceDraftProvider } from '@/features/deliveries/WorkspaceDrafts';
 import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
 
 interface AccountingCollectionViewProps {
@@ -281,16 +282,18 @@ export default function AccountingCollectionView({
     const record = records.find(r => r.id === selectedRecordId);
     if (record) {
       return (
-        <AccountingCollectionWorkspace
-          record={record}
-          allRecordIds={sortedFiltered.map(r => r.id)}
-          currentUserRole={currentUserRole}
-          currentUserName={currentUserName}
-          onBack={() => setSelectedRecordId(null)}
-          onVerifyCollection={onVerifyCollection}
-          onNavigateToRecord={setSelectedRecordId}
-          onUpdateRecord={onUpdateRecord}
-        />
+        <WorkspaceDraftProvider key={`${record.id}-${currentUserRole}`}>
+          <AccountingCollectionWorkspace
+            record={record}
+            allRecordIds={sortedFiltered.map(r => r.id)}
+            currentUserRole={currentUserRole}
+            currentUserName={currentUserName}
+            onBack={() => setSelectedRecordId(null)}
+            onVerifyCollection={onVerifyCollection}
+            onNavigateToRecord={setSelectedRecordId}
+            onUpdateRecord={onUpdateRecord}
+          />
+        </WorkspaceDraftProvider>
       );
     }
   }

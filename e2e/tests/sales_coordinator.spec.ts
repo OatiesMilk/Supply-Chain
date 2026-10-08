@@ -148,6 +148,73 @@ test.describe('A-2 Create a Delivery Record', () => {
 });
 
 test.describe('A-3 Edit a Record', () => {
+  test('A-3.6 Active Deliveries sidebar returns to the list and preserves filters', async ({ page }) => {
+    await page.goto(`${BASE_URL}/deliveries`);
+    await page.waitForLoadState('networkidle');
+
+    const scheduledFilter = page.getByRole('button', { name: 'Scheduled', exact: true });
+    await scheduledFilter.click();
+
+    const firstRow = page.getByRole('row').nth(1);
+    await expect(firstRow).toBeVisible();
+    const recordId = (await firstRow.getByRole('cell').first().innerText()).trim();
+    const search = page.getByRole('textbox', { name: 'Search delivery records' });
+    await search.fill(recordId);
+
+    const filteredRow = page.getByRole('row').filter({ hasText: recordId }).first();
+    await expect(filteredRow).toBeVisible();
+    await filteredRow.click();
+    await expect(page.locator('[id^="delivery-record-workspace-"]')).toBeVisible();
+
+    await page.getByRole('navigation').getByRole('button', { name: /deliveries/i }).click();
+
+    await expect(page.getByRole('table')).toBeVisible();
+    await expect(page.locator('[id^="delivery-record-workspace-"]')).toHaveCount(0);
+    await expect(page.getByRole('textbox', { name: 'Search delivery records' })).toHaveValue(recordId);
+    await expect(page.getByRole('button', { name: 'Scheduled', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('A-3.7 Global search deep links still open and browser back/forward returns between workspace and list', async ({ page }) => {
+    await page.goto(`${BASE_URL}/deliveries`);
+    await page.waitForLoadState('networkidle');
+    const firstRow = page.getByRole('row').nth(1);
+    await expect(firstRow).toBeVisible();
+    const recordId = (await firstRow.getByRole('cell').first().innerText()).trim();
+
+    await page.keyboard.press('Control+k');
+    const globalSearch = page.getByPlaceholder(/Search records, companies, drivers, SKUs/);
+    await globalSearch.fill(recordId);
+    await page.locator('[data-result-item]').filter({ hasText: recordId }).click();
+    await expect(page.locator('[id^="delivery-record-workspace-"]')).toBeVisible();
+    await page.getByRole('navigation').getByRole('button', { name: /deliveries/i }).click();
+    await expect(page.getByRole('table')).toBeVisible();
+
+    await page.goBack();
+    await expect(page.locator('[id^="delivery-record-workspace-"]')).toBeVisible();
+    await page.goForward();
+    await expect(page.getByRole('table')).toBeVisible();
+  });
+
+  test('A-3.8 Active module navigation works with collapsed and mobile sidebars', async ({ page }) => {
+    await page.goto(`${BASE_URL}/deliveries`);
+    await page.waitForLoadState('networkidle');
+    await page.locator('#collapse-sidebar-button').click();
+
+    const firstRow = page.getByRole('row').nth(1);
+    await expect(firstRow).toBeVisible();
+    await firstRow.click();
+    await expect(page.locator('[id^="delivery-record-workspace-"]')).toBeVisible();
+    await page.getByRole('navigation').getByRole('button', { name: /deliveries/i }).click();
+    await expect(page.getByRole('table')).toBeVisible();
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.getByRole('row').nth(1).click();
+    await expect(page.locator('[id^="delivery-record-workspace-"]')).toBeVisible();
+    await page.locator('#mobile-sidebar-toggle').click();
+    await page.locator('#sidebar-panel').getByRole('button', { name: /deliveries/i }).click();
+    await expect(page.getByRole('table')).toBeVisible();
+  });
+
   test('A-3.3 Dispatch & Logistics tab NOT visible for SC', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
