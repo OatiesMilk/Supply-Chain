@@ -128,6 +128,7 @@ export default function AccountingCollectionView({
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [attachmentNames, setAttachmentNames] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
   // Deep-link: jump to a record from dashboard
   useEffect(() => {
@@ -215,6 +216,11 @@ export default function AccountingCollectionView({
 
     if (Object.keys(errors).length > 0) {
       setFormErrors(errors);
+      requestAnimationFrame(() => {
+        const firstInvalid = formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+        firstInvalid?.focus();
+        firstInvalid?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      });
       return;
     }
     setFormErrors({});
@@ -411,7 +417,7 @@ export default function AccountingCollectionView({
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5 text-xs">
+          <form ref={formRef} onSubmit={handleSubmit} className="space-y-5 text-xs">
             {formErrors.submit && <p role="alert" className="text-xs text-red-700">{formErrors.submit}</p>}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {/* Company Name */}
@@ -420,6 +426,7 @@ export default function AccountingCollectionView({
                 <select
                   value={form.company_name}
                   onChange={e => handleCompanySelect(e.target.value)}
+                  aria-invalid={!!formErrors.company_name}
                   className={`w-full px-3 py-2 border rounded-lg focus:outline-none bg-white ${formErrors.company_name ? 'border-red-500' : 'border-slate-300'}`}
                 >
                   <option value="">-- Select registered merchant / company --</option>
@@ -442,6 +449,7 @@ export default function AccountingCollectionView({
               <div className="space-y-1.5">
                 <label className="font-bold text-slate-700">Reference (SAP Number) <span className="text-red-500">*</span></label>
                 <input type="text" value={form.reference} onChange={e => updateField('reference', e.target.value)}
+                  aria-invalid={!!formErrors.reference}
                   placeholder="e.g., SAP-88231"
                   className={`w-full px-3 py-2 border rounded-lg focus:outline-none ${formErrors.reference ? 'border-red-500' : 'border-slate-300'}`} />
                 {formErrors.reference && <p className="text-red-500 text-[10px] font-semibold">{formErrors.reference}</p>}
@@ -458,6 +466,7 @@ export default function AccountingCollectionView({
                     step="0.01"
                     value={form.amount}
                     onChange={e => updateField('amount', e.target.value)}
+                    aria-invalid={!!formErrors.amount}
                     placeholder="25000.00"
                     className={`w-full pl-7 pr-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 ${formErrors.amount ? 'border-red-500' : 'border-slate-300'}`}
                   />
@@ -475,7 +484,7 @@ export default function AccountingCollectionView({
               {/* Area */}
               <div className="space-y-1.5">
                 <label className="font-bold text-slate-700">Area <span className="text-red-500">*</span></label>
-                <select value={form.area} onChange={e => updateField('area', e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">
+                <select value={form.area} onChange={e => updateField('area', e.target.value)} aria-invalid={!!formErrors.area} className={`w-full px-3 py-2 border rounded-lg bg-white ${formErrors.area ? 'border-red-500' : 'border-slate-300'}`}>
                   {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>
                 {formErrors.area && <p className="text-red-500 text-[10px] font-semibold">{formErrors.area}</p>}
@@ -485,6 +494,7 @@ export default function AccountingCollectionView({
               <div className="space-y-1.5">
                 <label className="font-bold text-slate-700">Account Manager <span className="text-red-500">*</span></label>
                 <select value={form.account_manager} onChange={e => updateField('account_manager', e.target.value)}
+                  aria-invalid={!!formErrors.account_manager}
                   className={`w-full px-3 py-2 border rounded-lg bg-white ${formErrors.account_manager ? 'border-red-500' : 'border-slate-300'}`}>
                   <option value="">-- Select account manager --</option>
                   {ACCOUNT_MANAGERS.map(m => <option key={m} value={m}>{m}</option>)}
@@ -496,6 +506,7 @@ export default function AccountingCollectionView({
               <div className="space-y-1.5">
                 <label className="font-bold text-slate-700">Delivery Date <span className="text-red-500">*</span></label>
                 <input type="date" value={form.delivery_date} onChange={e => updateField('delivery_date', e.target.value)}
+                  aria-invalid={!!formErrors.delivery_date}
                   className={`w-full px-3 py-2 border rounded-lg ${formErrors.delivery_date ? 'border-red-500' : 'border-slate-300'}`} />
                 {formErrors.delivery_date && <p className="text-red-500 text-[10px] font-semibold">{formErrors.delivery_date}</p>}
               </div>

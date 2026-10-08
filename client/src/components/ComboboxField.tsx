@@ -145,6 +145,7 @@ export default function ComboboxField({
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           autoComplete="off"
+          aria-invalid={!!error}
           className={`w-full px-3 py-2 pr-8 border rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] bg-white ${
             error ? 'border-red-500' : 'border-slate-300'
           }`}

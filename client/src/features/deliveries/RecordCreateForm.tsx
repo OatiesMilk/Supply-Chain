@@ -9,6 +9,7 @@ import OutputActionsPanel from '@/features/deliveries/OutputActionsPanel';
 import ComboboxField from '@/components/ComboboxField';
 import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
 import { selectDemoLocation } from '@/utils/demoLocations';
+import { notify } from '@/utils/notify';
 
 // ── Sample-data tables (moved here from DeliveryRecordsView) ──────────────────
 
@@ -168,8 +169,8 @@ export default function RecordCreateForm({
   const [saving, setSaving] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [attachmentNames, setAttachmentNames] = useState<string[]>([]);
-  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const updateField = <K extends keyof RecordFormState>(key: K, value: RecordFormState[K]) => {
     setFormErrors(prev => { const n = { ...prev }; delete n[key as string]; return n; });
@@ -218,11 +219,10 @@ export default function RecordCreateForm({
 
     const validationError = validatePodAttachments(selectedFiles);
     if (validationError) {
-      setAttachmentError(validationError);
+      notify.error(validationError);
       return;
     }
 
-    setAttachmentError(null);
     setAttachmentNames(prev => [...prev, ...selectedFiles.map(file => file.name)]);
   };
 
@@ -240,6 +240,11 @@ export default function RecordCreateForm({
 
     if (Object.keys(errors).length > 0) {
       setFormErrors(errors);
+      requestAnimationFrame(() => {
+        const firstInvalid = formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+        firstInvalid?.focus();
+        firstInvalid?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      });
       return;
     }
     setFormErrors({});
@@ -315,7 +320,7 @@ export default function RecordCreateForm({
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-5 text-xs">
+      <form ref={formRef} onSubmit={handleSubmit} className="space-y-5 text-xs">
         {formErrors.submit && (
           <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
             {formErrors.submit}
@@ -366,6 +371,7 @@ export default function RecordCreateForm({
               Reference (SAP Number){form.is_draft !== 'Yes' && <span className="text-red-500"> *</span>}
             </label>
             <input type="text" value={form.reference} onChange={e => updateField('reference', e.target.value)}
+              aria-invalid={!!formErrors.reference}
               placeholder="e.g., SAP-88231"
               className={`w-full px-3 py-2 border rounded-lg focus:outline-hidden ${formErrors.reference ? 'border-red-500' : 'border-slate-300'}`} />
             {formErrors.reference && <p className="text-red-500 text-[10px] font-semibold">{formErrors.reference}</p>}
@@ -412,7 +418,9 @@ export default function RecordCreateForm({
           <div className="space-y-1.5">
             <label className="font-bold text-slate-700">Delivery Date <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
             <input type="date" value={form.delivery_date} onChange={e => updateField('delivery_date', e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
+              aria-invalid={!!formErrors.delivery_date}
+              className={`w-full px-3 py-2 border rounded-lg ${formErrors.delivery_date ? 'border-red-500' : 'border-slate-300'}`} />
+            {formErrors.delivery_date && <p className="text-red-500 text-[10px] font-semibold">{formErrors.delivery_date}</p>}
           </div>
 
           {/* Item Type */}
@@ -495,7 +503,6 @@ export default function RecordCreateForm({
               <p className="text-[10px] text-slate-400">PDF, JPG/JPEG, PNG, or DOC up to 10 MB each</p>
               <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept={POD_ATTACHMENT_ACCEPT} multiple className="hidden" />
             </div>
-            {attachmentError && <p role="alert" className="text-xs text-red-600">{attachmentError}</p>}
             {attachmentNames.length > 0 && (
               <div className="mt-2 space-y-1">
                 {attachmentNames.map((name, idx) => (
