@@ -672,6 +672,15 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   });
   if (result.error) return res.status(result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' ? 403 : 400).json({ error: result.error });
   const updated = result.saved!;
+  if (result.previous!.draft && !updated.draft && updated.category === 'DELIVERY' && !String(updated.driver ?? '').trim()) {
+    await notifyRole(
+      'LOGISTICS',
+      'New DELIVERY record — driver needed',
+      `${updated.company.name} · ${updated.reference || '(no reference)'}${updated.deliveryDate ? ` on ${updated.deliveryDate}` : ''} requires driver assignment.`,
+      updated.id,
+      'DeliveryRecord'
+    );
+  }
   if (status === 'Delivered' && result.previous!.status !== 'ACCOMPLISHED') {
     await notifyAccomplished({
       id: updated.id, companyName: updated.company.name, deliveryDate: updated.deliveryDate,
