@@ -20,6 +20,7 @@ import { canRecordTimeIn, dashboardRunDaysLate, deliveryScheduleState, hasValidR
 import DoneRecordModal from "./DoneRecordModal";
 import { uploadStagedFiles } from '@/api/queries/usePodAttachments';
 import { useQueryClient } from '@tanstack/react-query';
+import { notify } from '@/utils/notify';
 
 interface DriverDashboardProps {
   records: DeliveryRecord[];
@@ -540,10 +541,9 @@ export default function DriverDashboard({
                     }
                     setPendingAction(null);
                     setRemarksInput("");
-                    setSaveFeedback({ message: 'Status updated successfully.', type: 'success' });
-                    setTimeout(() => setSaveFeedback(null), 3000);
+                    notify.success('Status updated successfully');
                   } catch (error) {
-                    setSaveFeedback({ message: error instanceof Error ? error.message : 'Could not update the delivery. Please try again.', type: 'error' });
+                    notify.error(error instanceof Error ? error.message : 'Could not update the delivery. Please try again.');
                   } finally {
                     setSaving(false);
                   }
