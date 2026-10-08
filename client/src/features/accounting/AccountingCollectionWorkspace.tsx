@@ -3,6 +3,7 @@ import { completionError } from '@/utils/podRequirement';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
 import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
 import PodUploader from '@/components/PodUploader';
+import CommentComposer from '@/components/CommentComposer';
 import { CompanyHistoryButton } from '@/components/CompanyHistoryPanel';
 import { useUIStore } from '@/store/uiStore';
 import { useState, useEffect, useRef } from 'react';
@@ -10,7 +11,7 @@ import {
   ArrowLeft, ChevronLeft, ChevronRight,
   ClipboardList, History, ShieldCheck, FolderOpen,
   FileText, Shield, Paperclip, Lock, Loader2, AlertTriangle,
-  CheckCircle2, Check, MessageSquare, Send
+  CheckCircle2, Check, MessageSquare
 } from 'lucide-react';
 import { DeliveryRecord, UserRole, DeliveryStatus } from '@/types';
 import { acStatusLabel, DELIVERY_STATUSES } from '@/data';
@@ -172,7 +173,6 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
   const [commentError, setCommentError] = useState('');
   const [retry, setRetry] = useState(0);
   useWorkspaceDraft('comments', !!commentBody, submitting);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -333,34 +333,16 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
         )}
 
         {/* New comment input */}
-        <label htmlFor="accounting-comment-body" className="mb-1 block px-2 text-sm font-medium text-slate-700">Comment (optional)</label>
-        <div className="flex items-end gap-2 px-2">
-          <textarea
-            id="accounting-comment-body"
-            aria-describedby="accounting-comment-help"
-            disabled={submitting}
-            ref={inputRef}
-            value={commentBody}
-            onChange={e => setCommentBody(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSubmitComment();
-            }}
-            placeholder="Add to the discussion… (Ctrl+Enter to send)"
-            rows={2}
-            className="min-w-0 flex-1 text-base border border-slate-300 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] placeholder:text-slate-400"
-          />
-          <button
-            type="button"
-            aria-label="Send comment"
-            onClick={handleSubmitComment}
-            disabled={!commentBody.trim() || submitting}
-            className="min-h-11 min-w-11 touch-manipulation p-2.5 bg-[#0078C1] text-white rounded-lg hover:bg-[#005fa3] disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 cursor-pointer shrink-0"
-            title="Send comment (Ctrl+Enter)"
-          >
-            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-          </button>
-        </div>
-        {commentError && <p role="alert" className="mt-2 px-2 text-sm text-red-700">{commentError}</p>}
+        <CommentComposer
+          id="accounting-comment-body"
+          describedBy="accounting-comment-help"
+          value={commentBody}
+          onChange={setCommentBody}
+          onSubmit={handleSubmitComment}
+          submitting={submitting}
+          error={commentError}
+          className="px-2"
+        />
       </div>
     </div>
   );

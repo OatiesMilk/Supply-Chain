@@ -3,7 +3,7 @@ import {
   ArrowLeft, ChevronLeft, ChevronRight,
   ClipboardList, History, UserPlus, MessagesSquare, FolderOpen,
   FileText, Shield, Settings, MessageSquare, Paperclip,
-  Loader2, AlertTriangle, Send, Check, Truck,
+  Loader2, AlertTriangle, Check, Truck,
   RotateCcw, PackageSearch, ShoppingCart, ListChecks, Download,
   ScrollText, Link2, X as XCircle
 } from 'lucide-react';
@@ -18,6 +18,7 @@ import { getOutputTrigger, runOutputActions } from '@/outputActions';
 import StatusStepper from '@/components/StatusStepper';
 import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
 import PodUploader from '@/components/PodUploader';
+import CommentComposer from '@/components/CommentComposer';
 import { PodAttachmentList } from '@/components/PodAttachmentPreview';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
 import type { StagedFile } from '@/utils/idbFiles';
@@ -1237,7 +1238,6 @@ function CommentsTab({ recordId, readOnly = false }: { recordId: string; readOnl
   const [loadError, setLoadError] = useState('');
   const [sendError, setSendError] = useState('');
   const [retry, setRetry] = useState(0);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
   useWorkspaceDraft('comments', !!commentBody, submitting);
 
   useEffect(() => {
@@ -1314,36 +1314,17 @@ function CommentsTab({ recordId, readOnly = false }: { recordId: string; readOnl
         </div>
       )}
 
-      {!readOnly && <div>
-      <label htmlFor="record-comment-body" className="mb-1 block text-sm font-medium text-slate-700">Comment (optional)</label>
-      <div className="flex items-end gap-2">
-        <textarea
+      {!readOnly && (
+        <CommentComposer
           id="record-comment-body"
-          aria-describedby="record-comment-help"
-          disabled={submitting}
-          ref={inputRef}
+          describedBy="record-comment-help"
           value={commentBody}
-          onChange={e => setCommentBody(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSubmit();
-          }}
-          placeholder="Add to the discussion… (Ctrl+Enter to send)"
-          rows={2}
-          className="min-w-0 flex-1 text-base border border-slate-300 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] placeholder:text-slate-400"
+          onChange={setCommentBody}
+          onSubmit={handleSubmit}
+          submitting={submitting}
+          error={sendError}
         />
-        <button
-          type="button"
-          aria-label="Send comment"
-          onClick={handleSubmit}
-          disabled={!commentBody.trim() || submitting}
-          className="min-h-11 min-w-11 touch-manipulation p-2.5 bg-[#0078C1] text-white rounded-lg hover:bg-[#005fa3] disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 cursor-pointer shrink-0"
-          title="Send comment (Ctrl+Enter)"
-        >
-          {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-        </button>
-      </div>
-      {sendError && <p role="alert" className="mt-2 text-sm text-red-700">{sendError}</p>}
-      </div>}
+      )}
     </div>
   );
 }
