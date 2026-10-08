@@ -504,8 +504,9 @@ function OverviewTab({
       await uploadStaged();
       await onUpdateRecord(record.id, { status: newStatus, ...(newStatus === "Delivered" ? { received_by: receivedBy.trim() } : {}), ...({ status_remarks: statusRemarks.trim() } as any) });
       setStatusRemarks('');
+      notify.success('Collection status updated');
     } catch (error) {
-      setStatusError(error instanceof Error ? error.message : "Could not update the collection.");
+      notify.error(error instanceof Error ? error.message : 'Could not update the collection.');
     } finally {
       setUpdating(false);
     }
@@ -523,14 +524,14 @@ function OverviewTab({
               <label className="block text-xs font-bold text-slate-700">Reference (required to submit)</label>
               <input value={draftReference} onChange={e => setDraftReference(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
               <button type="button" disabled={updating || !statusRemarks.trim() || !draftReference.trim() || draftReference === record.reference} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold disabled:opacity-50"
-                onClick={async () => { setUpdating(true); setStatusError(null); try { await onUpdateRecord(record.id, { reference: draftReference.trim(), remarks: statusRemarks.trim() }); setStatusRemarks(''); } catch (error) { setStatusError(error instanceof Error ? error.message : 'Could not save the draft.'); } finally { setUpdating(false); } }}>Save Draft Reference</button>
+                onClick={async () => { setUpdating(true); setStatusError(null); try { await onUpdateRecord(record.id, { reference: draftReference.trim(), remarks: statusRemarks.trim() }); setStatusRemarks(''); notify.success('Draft reference saved'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not save the draft.'); } finally { setUpdating(false); } }}>Save Draft Reference</button>
             </div>}
             {record.status !== 'Delivered' && <>
               <PodUploader recordId={record.id} required disabled={updating} />
               <label className="block text-xs font-bold text-slate-700">Received By *</label>
               <input value={receivedBy} onChange={e => setReceivedBy(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
               {canRecordTimeIn(record) && (currentUserRole === 'Logistics' || currentUserRole === 'Admin') && <button type="button" disabled={updating || !statusRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs text-white disabled:opacity-50"
-                onClick={async () => { setUpdating(true); setStatusError(null); try { await timeInMutation.mutateAsync({ id: record.id, remarks: statusRemarks.trim() }); setStatusRemarks(''); } catch (error) { setStatusError(error instanceof Error ? error.message : 'Could not record Time In.'); } finally { setUpdating(false); } }}>Record Time In</button>}
+                onClick={async () => { setUpdating(true); setStatusError(null); try { await timeInMutation.mutateAsync({ id: record.id, remarks: statusRemarks.trim() }); setStatusRemarks(''); notify.success('Time In recorded'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not record Time In.'); } finally { setUpdating(false); } }}>Record Time In</button>}
               {completionError(record, 'Delivered', receivedBy, readiness) && <p className="text-xs text-slate-600">{completionError(record, 'Delivered', receivedBy, readiness)}</p>}
             </>}
             <div>
