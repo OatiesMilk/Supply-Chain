@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db';
 import { requireScreen, requireResource, requireAuth, requireRole } from '../middleware/auth';
-import { createDriverDirectory, DriverConflictError, driverInputError, parseCoverageAreas, readDriverDirectory, updateDriverDirectory } from '../services/driverDirectory';
+import { canonicalCoverageList, createDriverDirectory, DriverConflictError, driverInputError, parseCoverageAreas, readDriverDirectory, updateDriverDirectory } from '../services/driverDirectory';
 
 import { asyncRoute } from '../middleware/asyncRoute';
 import type { Request, Response } from 'express';
@@ -55,7 +55,7 @@ router.post('/', requireAuth, requireResource('drivers'), requireScreen('driver_
   if (invalid) return res.status(400).json({ error: invalid });
   const created = await createDriverDirectory(prisma, {
     name: name.trim(), type: type ?? 'DRIVER',
-    coverageAreas: JSON.stringify(coverage_areas ?? []),
+    coverageAreas: JSON.stringify(canonicalCoverageList(coverage_areas ?? [])),
     createdBy: req.user!.name, modifiedBy: req.user!.name,
   }, req.user!);
   res.status(201).json(serialize(created, req.user!.role === 'ADMIN'));
@@ -70,7 +70,7 @@ router.put('/:id', requireAuth, requireResource('drivers'), requireScreen('drive
   const updated = await updateDriverDirectory(prisma, req.params.id, {
       ...(name !== undefined && { name: name.trim() }),
       ...(type !== undefined && { type: type === 'ASSISTANT' ? 'ASSISTANT' : 'DRIVER' }),
-      ...(coverage_areas !== undefined && { coverageAreas: JSON.stringify(coverage_areas) }),
+      ...(coverage_areas !== undefined && { coverageAreas: JSON.stringify(canonicalCoverageList(coverage_areas)) }),
       ...(is_active !== undefined && { isActive: is_active }),
     }, req.user!);
   if (!updated) return res.status(404).json({ error: 'Driver not found' });

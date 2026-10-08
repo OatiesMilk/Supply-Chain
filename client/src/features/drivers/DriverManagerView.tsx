@@ -1,6 +1,7 @@
 import { useState, useRef, FormEvent } from 'react';
 import { Plus, X, Truck, UserCheck, Search, ToggleLeft, ToggleRight, Edit3, Check, MapPin } from 'lucide-react';
 import { ApiDriver } from '@/api';
+import CoveragePicker, { legacyCoverage } from './CoveragePicker';
 
 interface DriverManagerViewProps {
   drivers: ApiDriver[];
@@ -13,7 +14,7 @@ interface DriverManagerViewProps {
 
 type Tab = 'drivers' | 'assistants';
 
-const EMPTY_FORM = { name: '', type: 'DRIVER' as 'DRIVER' | 'ASSISTANT', coverage_areas: '' };
+const EMPTY_FORM = { name: '', type: 'DRIVER' as 'DRIVER' | 'ASSISTANT', coverage_areas: [] as string[] };
 
 export default function DriverManagerView({
   drivers,
@@ -30,7 +31,7 @@ export default function DriverManagerView({
   const [search, setSearch] = useState('');
   const [showInactive, setShowInactive] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', coverage_areas: '' });
+  const [editForm, setEditForm] = useState({ name: '', coverage_areas: [] as string[] });
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -64,25 +65,20 @@ export default function DriverManagerView({
     const existing = drivers.find(d => d.name.toLowerCase() === name.toLowerCase() && d.type === form.type);
     if (existing) { setFormError(`A ${form.type === 'DRIVER' ? 'driver' : 'assistant'} with this name already exists`); return; }
     setFormError('');
-    const areas = form.coverage_areas
-      .split(',')
-      .map(a => a.trim())
-      .filter(Boolean);
-    if (!await runAction(() => onCreateDriver({ name, type: form.type, coverage_areas: areas }))) return;
+    if (!await runAction(() => onCreateDriver({ name, type: form.type, coverage_areas: form.coverage_areas }))) return;
     setForm(EMPTY_FORM);
     setShowCreate(false);
   };
 
   const startEdit = (d: ApiDriver) => {
     setEditingId(d.id);
-    setEditForm({ name: d.name, coverage_areas: d.coverage_areas.join(', ') });
+    setEditForm({ name: d.name, coverage_areas: d.coverage_areas });
   };
 
   const saveEdit = async (d: ApiDriver) => {
     const name = editForm.name.trim();
-    if (!name) return;
-    const areas = editForm.coverage_areas.split(',').map(a => a.trim()).filter(Boolean);
-    if (!await runAction(() => onUpdateDriver(d.id, { name, coverage_areas: areas }))) return;
+    if (!name || legacyCoverage(editForm.coverage_areas).length > 0) return;
+    if (!await runAction(() => onUpdateDriver(d.id, { name, coverage_areas: editForm.coverage_areas }))) return;
     setEditingId(null);
   };
 
@@ -233,17 +229,17 @@ export default function DriverManagerView({
                     </td>
                     <td className="px-4 py-3">
                       {editingId === d.id ? (
-                        <input
-                          type="text"
+                        <CoveragePicker
+                          id={`coverage-${d.id}`}
                           value={editForm.coverage_areas}
-                          onChange={e => setEditForm(f => ({ ...f, coverage_areas: e.target.value }))}
-                          placeholder="e.g. Makati, BGC, Taguig"
-                          className="px-2 py-1 border border-slate-300 rounded text-xs w-full focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30"
+                          onChange={coverage_areas => setEditForm(f => ({ ...f, coverage_areas }))}
+                          disabled={saving}
                         />
                       ) : d.coverage_areas.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
                           {d.coverage_areas.map((a, i) => (
-                            <span key={i} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] bg-blue-50 text-blue-700 border border-blue-200">
+                            <span key={i} title={legacyCoverage([a]).length ? 'Not in the area list — edit to replace it' : undefined}
+                              className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] border ${legacyCoverage([a]).length ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
                               <MapPin className="w-2.5 h-2.5" />{a}
                             </span>
                           ))}
@@ -269,7 +265,8 @@ export default function DriverManagerView({
                             <>
                               <button
                                 onClick={() => saveEdit(d)}
-                                className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors"
+                                disabled={saving || legacyCoverage(editForm.coverage_areas).length > 0}
+                                className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors disabled:opacity-40"
                                 title="Save"
                               >
                                 <Check className="w-3.5 h-3.5" />
@@ -383,16 +380,15 @@ export default function DriverManagerView({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Coverage Areas</label>
-                <input
-                  type="text"
+                <label htmlFor="create-coverage" className="block text-xs font-semibold text-slate-600 mb-1">Coverage Areas</label>
+                <CoveragePicker
+                  id="create-coverage"
                   value={form.coverage_areas}
-                  onChange={e => setForm(f => ({ ...f, coverage_areas: e.target.value }))}
-                  placeholder="e.g. Makati, BGC, Taguig (comma-separated)"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                  onChange={coverage_areas => setForm(f => ({ ...f, coverage_areas }))}
+                  disabled={saving}
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Comma-separated area keywords for smart driver assignment suggestions.
+                  Drivers covering a record's exact area are suggested first, then drivers covering its whole subregion.
                 </p>
               </div>
 

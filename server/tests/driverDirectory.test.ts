@@ -117,7 +117,10 @@ test('invalid types and coverage payloads are rejected; malformed legacy coverag
   assert.ok(driverInputError({ coverage_areas: 'Makati' }));
   assert.ok(driverInputError({ coverage_areas: [42] }));
   assert.ok(driverInputError({ is_active: 'false' }));
-  assert.equal(driverInputError({ coverage_areas: ['Makati'], is_active: false }), null);
+  assert.equal(driverInputError({ coverage_areas: ['Makati CBD', 'Ortigas Corridor'], is_active: false }), null);
+  // TSK-115: only canonical Areas / Subregions are accepted.
+  assert.match(driverInputError({ coverage_areas: ['Makati'] })!, /Not recognised: Makati/);
+  assert.match(driverInputError({ coverage_areas: ['Makati CBD', 'Makatii', 'Metro Manila'] })!, /Makatii, Metro Manila/);
   assert.deepEqual(parseCoverageAreas('malformed'), []);
   assert.deepEqual(parseCoverageAreas('null'), []);
   assert.deepEqual(parseCoverageAreas('["Makati", null, 42]'), ['Makati']);

@@ -2,14 +2,13 @@ import React, { useEffect, useId, useState } from 'react';
 import { Truck, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { DeliveryRecord } from '@/types';
 import { DRIVERS, DRIVER_COVERAGE, driverIdForName } from '@/data';
+import { rankDriversByCoverage } from '@/utils/driverCoverage';
 import { isDraftRecord } from '@/utils/recordLifecycle';
 
+// Same coverage rules as the Dispatch dropdown: exact Area first, then explicit Subregion.
 function splitDriversByArea(recordArea: string): { matched: string[]; others: string[] } {
-  const area = recordArea.toLowerCase();
-  const matched = DRIVERS.filter(d =>
-    (DRIVER_COVERAGE[d] ?? []).some(kw => area.includes(kw.toLowerCase()))
-  );
-  return { matched, others: DRIVERS.filter(d => !matched.includes(d)) };
+  const ranked = rankDriversByCoverage(DRIVERS, d => DRIVER_COVERAGE[d], recordArea);
+  return { matched: [...ranked.area, ...ranked.subregion], others: ranked.other };
 }
 
 interface Props {
