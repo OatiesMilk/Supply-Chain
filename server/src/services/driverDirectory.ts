@@ -1,4 +1,5 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
+import { canonicalCoverage } from '../areaHierarchy';
 
 // Directory mutations, login linking and new assignments share one short-lived
 // transaction lock so a profile cannot change while it is being assigned.
@@ -26,8 +27,17 @@ export function driverInputError(body: { name?: unknown; type?: unknown; coverag
   if ((creating || body.name !== undefined) && (typeof body.name !== 'string' || !body.name.trim())) return 'A non-empty name is required.';
   if (body.type !== undefined && body.type !== 'DRIVER' && body.type !== 'ASSISTANT') return 'Type must be DRIVER or ASSISTANT.';
   if (body.coverage_areas !== undefined && (!Array.isArray(body.coverage_areas) || body.coverage_areas.some(a => typeof a !== 'string' || !a.trim()))) return 'Coverage areas must be an array of non-empty strings.';
+  if (Array.isArray(body.coverage_areas)) {
+    const unknown = (body.coverage_areas as string[]).filter(a => canonicalCoverage(a) === null);
+    if (unknown.length) return `Coverage must use areas or subregions from the area list. Not recognised: ${unknown.join(', ')}.`;
+  }
   if (body.is_active !== undefined && typeof body.is_active !== 'boolean') return 'is_active must be a boolean.';
   return null;
+}
+
+// Stores coverage in canonical spelling without duplicates. Call after driverInputError.
+export function canonicalCoverageList(values: string[]): string[] {
+  return [...new Set(values.map(value => canonicalCoverage(value)!))];
 }
 
 export async function createDriverDirectory(db: PrismaClient, data: Prisma.DriverCreateInput, actor: { id: string; name: string }) {

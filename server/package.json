@@ -20,6 +20,7 @@
     "pod:reconcile": "tsx prisma/reconcile-pod-files.ts",
     "drivers:import": "tsx prisma/import-historical-drivers.ts",
     "drivers:identity-report": "tsx prisma/report-driver-identity.ts",
+    "drivers:migrate-coverage": "tsx prisma/migrate-driver-coverage.ts",
     "db:clean": "prisma migrate reset --force"
   },
   "dependencies": {

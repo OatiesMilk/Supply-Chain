@@ -10,7 +10,8 @@ import {
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel, ItemType } from '@/types';
 import { api, ApiAuditEntry, ApiComment, ApiCompany, ApiRemarkLog } from '@/api';
 import { printSingleManifest, ManifestDocumentationData } from '@/features/deliveries/DeliveryManifest';
-import { DRIVERS, driverIdForName, DRIVER_ASSISTANTS, DELIVERY_STATUSES, AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, ACCOUNT_MANAGERS, DRIVER_COVERAGE_AREAS, getSubregion, getNearbyAreas } from '@/data';
+import { rankDriversByCoverage } from '@/utils/driverCoverage';
+import { DRIVERS, driverIdForName,DRIVER_ASSISTANTS, DELIVERY_STATUSES, AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, ACCOUNT_MANAGERS, DRIVER_COVERAGE_AREAS, getSubregion, getNearbyAreas } from '@/data';
 import ComboboxField from '@/components/ComboboxField';
 import { Pencil, X as XIcon, Save, Plus } from 'lucide-react';
 import { getOutputTrigger, runOutputActions } from '@/outputActions';
@@ -1008,19 +1009,9 @@ function ActionsTab({
               const recordSubregion = getSubregion(record.area);
               const nearbyAreas = getNearbyAreas(record.area);
 
-              const coveringDrivers = DRIVERS.filter(d => {
-                const coverage = DRIVER_COVERAGE_AREAS[d] ?? [];
-                if (coverage.length === 0) return false;
-                const matchesSubregion = recordSubregion ? coverage.includes(recordSubregion) : false;
-                const matchesArea = record.area
-                  ? coverage.some(a =>
-                      record.area.toLowerCase().includes(a.toLowerCase()) ||
-                      a.toLowerCase().includes(record.area.toLowerCase())
-                    )
-                  : false;
-                return matchesSubregion || matchesArea;
-              });
-              const otherDrivers = DRIVERS.filter(d => !coveringDrivers.includes(d));
+              // Exact Area, then explicit Subregion, then every other active Driver.
+              const ranked = rankDriversByCoverage(DRIVERS, d => DRIVER_COVERAGE_AREAS[d], record.area);
+              const coveringCount = ranked.area.length + ranked.subregion.length;
 
               const today = manilaToday();
               const subregionAreas = record.area ? [record.area, ...nearbyAreas] : [];
@@ -1045,23 +1036,30 @@ function ActionsTab({
                     }`}
                   >
                     <option value="">-- Unassigned --</option>
-                    {coveringDrivers.length > 0 && (
-                      <optgroup label={`Covers ${recordSubregion ?? record.area}`}>
-                        {coveringDrivers.map(d => <option key={d} value={d}>{d}</option>)}
+                    {ranked.area.length > 0 && (
+                      <optgroup label={`Covers ${record.area}`}>
+                        {ranked.area.map(d => <option key={d} value={d}>{d}</option>)}
                       </optgroup>
                     )}
-                    <optgroup label={coveringDrivers.length > 0 ? 'Other Drivers' : 'All Drivers'}>
-                      {otherDrivers.map(d => <option key={d} value={d}>{d}</option>)}
-                    </optgroup>
+                    {ranked.subregion.length > 0 && (
+                      <optgroup label={`Covers ${ranked.subregionName} (subregion)`}>
+                        {ranked.subregion.map(d => <option key={d} value={d}>{d}</option>)}
+                      </optgroup>
+                    )}
+                    {ranked.other.length > 0 && (
+                      <optgroup label={coveringCount > 0 ? 'Other drivers' : 'All drivers'}>
+                        {ranked.other.map(d => <option key={d} value={d}>{d}</option>)}
+                      </optgroup>
+                    )}
                   </select>
-                  {coveringDrivers.length > 0 && (
+                  {coveringCount > 0 && (
                     <p className="text-[10px] text-emerald-600 font-semibold">
-                      {coveringDrivers.length} driver{coveringDrivers.length !== 1 ? 's' : ''} normally cover{coveringDrivers.length === 1 ? 's' : ''} the {recordSubregion} area — shown first.
+                      {coveringCount} driver{coveringCount !== 1 ? 's' : ''} cover{coveringCount === 1 ? 's' : ''} {record.area} — shown first.
                     </p>
                   )}
-                  {coveringDrivers.length === 0 && (
+                  {coveringCount === 0 && (
                     <p className="text-[10px] text-slate-400">
-                      No driver is mapped to {recordSubregion ?? record.area} yet — showing all drivers.
+                      No driver covers {record.area || 'this area'} yet — showing all drivers.
                     </p>
                   )}
                   {recordSubregion && nearbyAreas.length > 0 && (

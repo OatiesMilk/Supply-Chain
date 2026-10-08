@@ -133,7 +133,7 @@ export async function seedDriverDemo(prisma: PrismaClient, targetDate?: string) 
             remarks: 'Demo seeded run for Driver App',
             status: 'SCHEDULED',
             vehicle: 'Van-01 (L300)',
-            area: 'Metro Manila',
+            area: 'Quezon City - Diliman', // a real Area so coverage suggestions apply (TSK-115)
             driver: profile.name,
             driverId: profile.id,
             driverAssistants: assistantName ? JSON.stringify([assistantName]) : '[]',

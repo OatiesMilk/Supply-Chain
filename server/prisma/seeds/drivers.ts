@@ -1,20 +1,21 @@
 import { PrismaClient } from '@prisma/client';
 
+// Coverage uses canonical Area / Subregion names from src/areaHierarchy.ts (TSK-115).
 export const DRIVER_SEED_DATA = [
   {
     name: 'Lando Navarro',
     type: 'DRIVER',
-    areas: ['Makati', 'BGC', 'Taguig', 'Mandaluyong', 'San Juan', 'Pasig', 'Ortigas', 'Ortigas Corridor', 'Ortigas Center (Pasig)'],
+    areas: ['Makati CBD', 'BGC (Taguig)', 'Ortigas Corridor'],
   },
   {
     name: 'Manny Santos',
     type: 'DRIVER',
-    areas: ['Quezon City', 'Marikina', 'Caloocan', 'Valenzuela', 'Malabon', 'Bulacan', 'Cainta', 'Antipolo'],
+    areas: ['Quezon City - Fairview', 'Quezon City - Balintawak', 'Quezon City - Commonwealth', 'Quezon City - Diliman', 'Marikina', 'Caloocan', 'Valenzuela', 'Malabon', 'Bulacan', 'Cainta (Rizal)', 'Antipolo (Rizal)'],
   },
   {
     name: 'Ronald de la Cruz',
     type: 'DRIVER',
-    areas: ['Manila', 'Parañaque', 'Pasay', 'Las Piñas', 'Muntinlupa', 'Cavite', 'Laguna', 'Batangas'],
+    areas: ['Manila - Binondo', 'Manila - Ermita', 'Manila - Malate', 'Parañaque', 'Pasay', 'Las Piñas', 'Muntinlupa - Alabang', 'Cavite', 'Laguna', 'Batangas'],
   },
   {
     name: 'Jayson Reyes',
