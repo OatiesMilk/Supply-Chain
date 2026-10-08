@@ -5,7 +5,10 @@ export const POD_ATTACHMENT_ACCEPT = '.pdf,.jpg,.jpeg,.png,.doc,application/pdf,
 
 export function validatePodAttachments(files: readonly Pick<File, 'name' | 'size'>[]): string | null {
   const oversized = files.find(file => file.size > MAX_ATTACHMENT_SIZE);
-  if (oversized) return `${oversized.name} is too large. The maximum file size is 10 MB.`;
+  if (oversized) {
+    const sizeMb = (oversized.size / (1024 * 1024)).toFixed(1);
+    return `${oversized.name} is ${sizeMb} MB — maximum is 10 MB.`;
+  }
 
   const unsupported = files.find(file => {
     const extensionStart = file.name.lastIndexOf('.');
@@ -13,7 +16,7 @@ export function validatePodAttachments(files: readonly Pick<File, 'name' | 'size
     return !ALLOWED_ATTACHMENT_EXTENSIONS.has(extension);
   });
   if (unsupported) {
-    return `${unsupported.name} is not supported. Allowed formats: PDF, JPG, PNG, and DOC.`;
+    return `${unsupported.name} — file type not allowed. Use JPG, PNG, PDF or DOC.`;
   }
 
   return null;

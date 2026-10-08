@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { FileText, Loader2, Paperclip, X } from 'lucide-react';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
 import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
+import { notify } from '@/utils/notify';
 import type { PodReadiness } from '@/utils/podRequirement';
 export default function PodUploader({ recordId, required = false, disabled = false, onReadinessChange }: {
   recordId: string;
@@ -11,7 +12,6 @@ export default function PodUploader({ recordId, required = false, disabled = fal
 }) {
   const { files, stagedFiles, readiness, stageFiles, unstageFile, reload } = usePodAttachments(recordId);
   const { loading, uploading, hasPhoto, loadFailed } = readiness;
-  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const formatSize = (bytes: number) => {
@@ -29,12 +29,14 @@ export default function PodUploader({ recordId, required = false, disabled = fal
     event.target.value = '';
     if (!selected.length || uploading || disabled) return;
     const validationError = validatePodAttachments(selected);
-    setError(validationError);
-    if (validationError) return;
+    if (validationError) {
+      notify.error(validationError);
+      return;
+    }
     try {
       await stageFiles(selected);
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Could not stage files. Please try again.');
+      notify.error(error instanceof Error ? error.message : 'Could not stage files. Please try again.');
     }
   };
 
@@ -52,7 +54,6 @@ export default function PodUploader({ recordId, required = false, disabled = fal
       <input ref={inputRef} type="file" multiple accept={POD_ATTACHMENT_ACCEPT} className="hidden" disabled={uploading || disabled} onChange={selectFiles} />
       {loading && <p role="status" className="text-xs text-slate-500">Checking attachments…</p>}
       {loadFailed && <p role="alert" className="text-xs text-red-700">Could not load attachments. <button type="button" className="underline" onClick={() => void reload()}>Retry</button></p>}
-      {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
       {hasPhoto && !uploading && !loading && !loadFailed && <p role="status" className="text-xs font-semibold text-emerald-700">Delivery photo ready.</p>}
       
       {stagedFiles.length > 0 && (

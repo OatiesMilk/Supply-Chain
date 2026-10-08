@@ -14,6 +14,7 @@ import { ApiCompany, apiUrl } from '@/api';
 import AccountingCollectionWorkspace from '@/features/accounting/AccountingCollectionWorkspace';
 import { WorkspaceDraftProvider } from '@/features/deliveries/WorkspaceDrafts';
 import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
+import { notify } from '@/utils/notify';
 
 interface AccountingCollectionViewProps {
   records: DeliveryRecord[];
@@ -126,7 +127,6 @@ export default function AccountingCollectionView({
   const [saving, setSaving] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [attachmentNames, setAttachmentNames] = useState<string[]>([]);
-  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Deep-link: jump to a record from dashboard
@@ -196,11 +196,10 @@ export default function AccountingCollectionView({
 
     const validationError = validatePodAttachments(selectedFiles);
     if (validationError) {
-      setAttachmentError(validationError);
+      notify.error(validationError);
       return;
     }
 
-    setAttachmentError(null);
     setAttachmentNames(prev => [...prev, ...selectedFiles.map(file => file.name)]);
   };
 
@@ -528,7 +527,6 @@ export default function AccountingCollectionView({
                   <p className="text-[10px] text-slate-400">PDF, JPG/JPEG, PNG, or DOC up to 10 MB each</p>
                   <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept={POD_ATTACHMENT_ACCEPT} multiple className="hidden" />
                 </div>
-                {attachmentError && <p role="alert" className="text-xs text-red-600">{attachmentError}</p>}
                 {attachmentNames.length > 0 && (
                   <div className="mt-2 space-y-1">
                     {attachmentNames.map((name, idx) => (

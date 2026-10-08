@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
+import { Toaster } from 'sonner';
 import { createQueryClient } from '@/api/queryClient';
 import { useAuth, useUIStore } from '@/store';
 import { useAuthStore } from '@/store/authStore';
@@ -66,7 +67,12 @@ function SessionApp() {
   // A new cache for every login also isolates late requests from the old session.
   const [client] = useState(createQueryClient);
   useEffect(() => () => { client.clear(); }, [client]);
-  return <QueryClientProvider client={client}><AuthenticatedApp /></QueryClientProvider>;
+  return (
+    <QueryClientProvider client={client}>
+      <AuthenticatedApp />
+      <Toaster position="top-right" richColors closeButton duration={5000} />
+    </QueryClientProvider>
+  );
 }
 
 // Keep protected data hooks and application effects behind the session gate.

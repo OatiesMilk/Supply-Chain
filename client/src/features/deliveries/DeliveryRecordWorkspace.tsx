@@ -30,6 +30,7 @@ import { useUIStore } from '@/store/uiStore';
 import WorkspaceTabs from './WorkspaceTabs';
 import { WorkspaceDraftProvider, useWorkspaceDraft, useWorkspaceNavigation } from './WorkspaceDrafts';
 import { screenKeyForCategory } from '@/routes/screenRouting';
+import { notify } from '@/utils/notify';
 
 import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
 import { selectableStatuses, canRecordTimeIn, isDraftRecord, manilaToday, manilaDateTimeInput, manilaInputToIso } from '@/utils/recordLifecycle';
@@ -844,7 +845,8 @@ function ActionsTab({
 
   const [actionRemarks, setActionRemarks] = useState('');
   const [actionRemarksError, setActionRemarksError] = useState(false);
-  const [saveFeedback, setSaveFeedback] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
+  const actionRemarksRef = useRef<HTMLTextAreaElement>(null);
 
   const { readiness: podReadiness, uploadStaged } = usePodAttachments(record.id);
   const timeInMutation = useRecordTimeInMutation();
@@ -888,12 +890,16 @@ function ActionsTab({
     if (saving || photoError) return;
 
     if (!hasChanges && !actionRemarks.trim() && !podReadiness.hasStagedFiles) {
-      setSaveFeedback({ message: 'No changes detected to save.', type: 'info' });
+      setSaveFeedback('No changes detected to save.');
       return;
     }
 
     if (hasChanges && !actionRemarks.trim()) {
       setActionRemarksError(true);
+      requestAnimationFrame(() => {
+        actionRemarksRef.current?.focus();
+        actionRemarksRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      });
       return;
     }
 
@@ -944,8 +950,7 @@ function ActionsTab({
       }
 
       setActionRemarks('');
-      setSaveFeedback({ message: 'Dispatch & Logistics changes saved successfully.', type: 'success' });
-      setTimeout(() => setSaveFeedback(null), 3000);
+      notify.success('Dispatch & Logistics changes saved');
 
       if (statusChanged) {
         const trigger = getOutputTrigger(record.category, selectedStatus);
@@ -957,12 +962,11 @@ function ActionsTab({
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not save the changes. Please try again.';
-      setSaveFeedback({
-        message: detailsSaved && statusChanged
+      notify.error(
+        detailsSaved && statusChanged
           ? `Dispatch details were saved, but the status was not changed: ${message}`
-          : message,
-        type: 'error',
-      });
+          : message
+      );
     } finally {
       setSaving(false);
     }
@@ -976,7 +980,7 @@ function ActionsTab({
       {canRecordTimeIn(record) && (currentUserRole === 'Logistics' || currentUserRole === 'Admin') && <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-2">
         <p className="text-xs text-blue-900">Record Time In to start this run. Enter remarks below before starting.</p>
         <button type="button" disabled={saving || !actionRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
-          onClick={async () => { setSaving(true); setSaveFeedback(null); try { await timeInMutation.mutateAsync({ id: record.id, remarks: actionRemarks.trim() }); setActionRemarks(''); } catch (error) { setSaveFeedback({ message: error instanceof Error ? error.message : 'Could not record Time In.', type: 'error' }); } finally { setSaving(false); } }}>
+          onClick={async () => { setSaving(true); setSaveFeedback(null); try { await timeInMutation.mutateAsync({ id: record.id, remarks: actionRemarks.trim() }); setActionRemarks(''); notify.success('Time In recorded'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not record Time In.'); } finally { setSaving(false); } }}>
           Record Time In
         </button>
       </div>}
@@ -1185,6 +1189,7 @@ function ActionsTab({
             }
           </label>
           <textarea
+            ref={actionRemarksRef}
             value={actionRemarks}
             onChange={e => { setActionRemarks(e.target.value); if (actionRemarksError && e.target.value.trim()) setActionRemarksError(false); }}
             rows={3}
@@ -1194,7 +1199,7 @@ function ActionsTab({
           {actionRemarksError && <p className="text-[11px] text-red-600 font-semibold">A reason is required when making changes to dispatch or status fields.</p>}
         </div>
 
-        {saveFeedback && <p role="alert" className={`text-[11px] font-semibold ${saveFeedback.type === 'success' ? 'text-emerald-700' : saveFeedback.type === 'info' ? 'text-amber-700' : 'text-red-600'}`}>{saveFeedback.message}</p>}
+        {saveFeedback && <p role="status" className="text-[11px] font-semibold text-amber-700">{saveFeedback}</p>}
 
         <div className="flex gap-2 justify-end pt-4 border-t border-slate-200 mt-6">
           <button
@@ -1236,7 +1241,6 @@ function CommentsTab({ recordId, readOnly = false }: { recordId: string; readOnl
   const [commentBody, setCommentBody] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [loadError, setLoadError] = useState('');
-  const [sendError, setSendError] = useState('');
   const [retry, setRetry] = useState(0);
   useWorkspaceDraft('comments', !!commentBody, submitting);
 
@@ -1253,13 +1257,12 @@ function CommentsTab({ recordId, readOnly = false }: { recordId: string; readOnl
     const body = commentBody.trim();
     if (readOnly || !body || submitting) return;
     setSubmitting(true);
-    setSendError('');
     try {
       const created = await api.createRecordComment(recordId, body);
       setComments(prev => [...prev, created]);
       setCommentBody('');
     } catch {
-      setSendError('Could not send your comment. Your text is kept below; try again.');
+      notify.error('Could not send your comment. Your text is kept below; try again.');
     } finally {
       setSubmitting(false);
     }
@@ -1322,7 +1325,6 @@ function CommentsTab({ recordId, readOnly = false }: { recordId: string; readOnl
           onChange={setCommentBody}
           onSubmit={handleSubmit}
           submitting={submitting}
-          error={sendError}
         />
       )}
     </div>
@@ -1417,7 +1419,6 @@ function diffAuditEntry(oldVal: unknown, newVal: unknown): AuditDiffRow[] {
 function AuditTrailTab({ recordId }: { recordId: string }) {
   const [entries, setEntries] = useState<ApiAuditEntry[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -1579,26 +1580,21 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
   const busy = uploading || staging || removing;
   useWorkspaceDraft('documents', readiness.hasStagedFiles, busy);
 
-  useEffect(() => {
-    setError(null);
-  }, [record.id]);
-
   const addFiles = async (incoming: FileList | null) => {
     if (!incoming || incoming.length === 0 || busy) return;
     const selectedFiles = Array.from(incoming);
     const validationError = validatePodAttachments(selectedFiles);
     if (validationError) {
-      setError(validationError);
+      notify.error(validationError);
       if (inputRef.current) inputRef.current.value = '';
       return;
     }
 
-    setError(null);
     setStaging(true);
     try {
       await stageFiles(selectedFiles);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not stage files.');
+      notify.error(err instanceof Error ? err.message : 'Could not stage files.');
     } finally {
       setStaging(false);
       if (inputRef.current) inputRef.current.value = '';
@@ -1607,22 +1603,21 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
 
   const saveFiles = async () => {
     if (!readiness.hasStagedFiles || busy) return;
-    setError(null);
     try {
       await uploadStaged();
+      notify.success('Documents uploaded');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed.');
+      notify.error(err instanceof Error ? err.message : 'Upload failed.');
     }
   };
 
   const removeStaged = async (id: string) => {
     if (busy) return;
     setStaging(true);
-    setError(null);
     try {
       await unstageFile(id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not remove staged file.');
+      notify.error(err instanceof Error ? err.message : 'Could not remove staged file.');
     } finally {
       setStaging(false);
     }
@@ -1631,12 +1626,12 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
   const removeFile = async () => {
     if (!confirmRemoveId) return;
     setRemoving(true);
-    setError(null);
     try {
       await deleteFile({ id: confirmRemoveId, remarks: '' });
       setConfirmRemoveId(null);
+      notify.success('Attachment removed');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not remove attachment.');
+      notify.error(err instanceof Error ? err.message : 'Could not remove attachment.');
     } finally {
       setRemoving(false);
     }
@@ -1762,8 +1757,6 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
           </div>
         </div>
       )}
-
-      {error && <p role="alert" className="text-xs text-red-600 text-center">{error}</p>}
       <p className="text-[10px] text-slate-400 text-center">Files are stored in the local Docker volume and protected by record access permissions.</p>
     </div>
   );

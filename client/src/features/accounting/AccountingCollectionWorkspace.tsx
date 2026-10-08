@@ -19,6 +19,7 @@ import { api, ApiAuditEntry, ApiComment } from '@/api';
 import ExportMenu from '@/components/ExportMenu';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, fmtDate, fmtDatetime, fmtStatus } from '@/utils/export';
 import { useWorkspaceDraft, useWorkspaceNavigation } from '@/features/deliveries/WorkspaceDrafts';
+import { notify } from '@/utils/notify';
 
 interface AccountingCollectionWorkspaceProps {
   record: DeliveryRecord;
@@ -170,7 +171,6 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [commentBody, setCommentBody] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [commentError, setCommentError] = useState('');
   const [retry, setRetry] = useState(0);
   useWorkspaceDraft('comments', !!commentBody, submitting);
 
@@ -190,13 +190,12 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
     const body = commentBody.trim();
     if (!body || submitting) return;
     setSubmitting(true);
-    setCommentError('');
     try {
       const created = await api.createRecordComment(recordId, body);
       setComments(prev => [...prev, created]);
       setCommentBody('');
     } catch {
-      setCommentError('Could not send your comment. Your text is kept below; try again.');
+      notify.error('Could not send your comment. Your text is kept below; try again.');
     } finally {
       setSubmitting(false);
     }
@@ -340,7 +339,6 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
           onChange={setCommentBody}
           onSubmit={handleSubmitComment}
           submitting={submitting}
-          error={commentError}
           className="px-2"
         />
       </div>
