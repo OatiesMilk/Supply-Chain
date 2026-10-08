@@ -169,9 +169,10 @@ test('HTTP transaction reads enforce driver ownership, category, inventory denia
     user = account('LOGISTICS', [{ screen: 'deliveries', granted: false }]);
     assert.equal((await get('/api/transactions/delivery/own')).status, 404);
     assert.ok(!(await (await get('/api/transactions')).json() as any).transactions.some((txn: any) => txn.id === 'own'));
+    // TSK-118: without SKU Master, Logistics keeps read-only inventory transactions through
+    // Transaction Center; denying Transaction Center (below) removes them.
     user = account('LOGISTICS', [{ screen: 'inventory', granted: false }]);
-    assert.equal((await get('/api/transactions?source=inventory')).status, 403);
-    assert.equal((await get('/api/transactions/inventory/known')).status, 403);
+    assert.equal((await get('/api/transactions?source=inventory')).status, 200);
     user = account('LOGISTICS', [{ screen: 'transactions', granted: false }]);
     assert.equal((await get('/api/transactions')).status, 403);
     assert.equal((await get('/api/transactions/delivery/own')).status, 403);

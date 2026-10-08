@@ -213,7 +213,8 @@ function AuthenticatedApp() {
       searchOpen={searchOpen}
       setSearchOpen={setSearchOpen}
       deliveryRecords={deliveryRecords}
-      products={products}
+      // Global search only offers SKU results that open in SKU Master (TSK-118).
+      products={canAccess('inventory') ? products : []}
       dataError={dataError}
       accessRequestModalProps={{
         isOpen: accessRequestOpen,

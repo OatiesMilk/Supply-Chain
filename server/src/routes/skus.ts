@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../db';
-import { requireResource, requireAuth, requireRole } from '../middleware/auth';
+import { requireResource, requireAuth, requireRole, requireScreen } from '../middleware/auth';
 import { writeAuditLog } from '../services/audit';
 
 const router = Router();
@@ -181,7 +181,8 @@ router.post('/', requireAuth, requireResource('skus'), requireRole('ADMIN'), asy
 });
 
 // POST /api/skus/:id/adjust — Admin + Logistics, stock adjustment
-router.post('/:id/adjust', requireAuth, requireResource('skus'), requireRole('ADMIN', 'LOGISTICS'), async (req, res) => {
+// Stock adjustment is a SKU Master action: read-only SKU lookup is not enough (TSK-118).
+router.post('/:id/adjust', requireAuth, requireResource('skus'), requireScreen('inventory'), requireRole('ADMIN', 'LOGISTICS'), async (req, res) => {
   const product = await prisma.product.findFirst({
     where: { id: req.params.id, deletedAt: null },
     include: productInclude
