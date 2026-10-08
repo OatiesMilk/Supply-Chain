@@ -60,6 +60,7 @@ router.post('/', requireAuth, requireResource('users'), requireRole('ADMIN'), as
     });
   } catch (error) {
     if (error instanceof DriverLinkError) return res.status(error.status).json({ error: error.message });
+    if ((error as { code?: string })?.code === 'P2002') return res.status(409).json({ error: 'An account with this email already exists.' });
     throw error;
   }
 }));
