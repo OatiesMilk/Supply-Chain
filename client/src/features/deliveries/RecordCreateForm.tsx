@@ -275,10 +275,9 @@ export default function RecordCreateForm({
         attachments: attachmentNames,
         output_actions_log: outputActionLog
       });
+      notify.success(isDraft ? 'Draft saved' : 'Record submitted');
     } catch (error) {
-      setFormErrors({
-        submit: error instanceof Error ? error.message : 'Could not create the record. Please try again.',
-      });
+      notify.error(error instanceof Error ? error.message : 'Could not create the record. Please try again.');
       return;
     } finally {
       setSaving(false);
@@ -321,11 +320,6 @@ export default function RecordCreateForm({
       </div>
 
       <form ref={formRef} onSubmit={handleSubmit} className="space-y-5 text-xs">
-        {formErrors.submit && (
-          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
-            {formErrors.submit}
-          </p>
-        )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
 
           {/* ── REQUIRED FIELDS ─────────────────────────────────────── */}
