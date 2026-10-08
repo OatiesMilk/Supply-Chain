@@ -37,9 +37,19 @@ test('editor, login and restored sessions share defaults, overrides, catalog and
   assert.ok(!effectiveScreens('LOGISTICS', [{ screen: 'admin', granted: true }]).includes('admin'));
   assert.ok(effectiveScreens('ADMIN', [{ screen: 'admin', granted: false }]).includes('admin'));
   assert.deepEqual(effectiveScreens('DRIVER', [{ screen: 'driver_dashboard', granted: false }]), []);
-  for (const screen of ['rma', 'procurement_pickup', 'inventory', 'suppliers']) {
+  for (const screen of ['rma', 'procurement_pickup', 'suppliers', 'transactions']) {
     assert.ok(permissionEditor(account('TASS')).roleDefaults.includes(screen as any));
   }
+  // TSK-118: SKU Master is an Admin default only; others keep read-only SKU lookup via Transaction Center.
+  for (const role of ['SALES_COORDINATOR', 'LOGISTICS', 'TASS']) {
+    const session = sessionUser(account(role));
+    assert.ok(!permissionEditor(account(role)).roleDefaults.includes('inventory'), role);
+    assert.ok(!session.effectiveScreens.includes('inventory'), role);
+    assert.ok(session.resources.includes('skus'), role);
+  }
+  assert.ok(permissionEditor(account('ADMIN')).roleDefaults.includes('inventory'));
+  assert.ok(sessionUser(account('LOGISTICS', [{ screen: 'inventory', granted: true }])).effectiveScreens.includes('inventory'), 'Admin can grant SKU Master per user');
+  assert.ok(!sessionUser(account('LOGISTICS', [{ screen: 'transactions', granted: false }])).resources.includes('skus'));
 });
 
 test('invalid, unknown and duplicate permission inputs fail validation', () => {
@@ -138,7 +148,11 @@ test('HTTP login includes denials immediately; the same cookie enforces subseque
     assert.equal((await fetch(`${url}/drivers`, { method: 'POST', headers, body: '{}' })).status, 403);
     row = { ...row, permissions: [] };
     assert.equal((await fetch(`${url}/skus`, { headers })).status, 200);
+    // TSK-118: Logistics has no SKU Master by default, so stock adjustment is denied before any write.
+    assert.equal((await fetch(`${url}/skus/sku-1/adjust`, { method: 'POST', headers, body: JSON.stringify({ quantity: 1, remarks: 'x' }) })).status, 403);
     row = { ...row, permissions: [{ screen: 'inventory', granted: false }] };
+    assert.equal((await fetch(`${url}/skus`, { headers })).status, 200, 'Read-only SKU lookup comes with Transaction Center');
+    row = { ...row, permissions: [{ screen: 'inventory', granted: false }, { screen: 'transactions', granted: false }] };
     assert.equal((await fetch(`${url}/skus`, { headers })).status, 403);
     row = { ...row, permissions: permissionEditor(row).roleDefaults.map(screen => ({ screen, granted: false })) };
     assert.equal((await fetch(`${url}/records`, { headers })).status, 403);
