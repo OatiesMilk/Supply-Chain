@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useState } from 'react';
 import { Truck, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { DeliveryRecord } from '@/types';
-import { DRIVERS, DRIVER_COVERAGE } from '@/data';
+import { DRIVERS, DRIVER_COVERAGE, driverIdForName } from '@/data';
 import { isDraftRecord } from '@/utils/recordLifecycle';
 
 function splitDriversByArea(recordArea: string): { matched: string[]; others: string[] } {
@@ -187,8 +187,10 @@ export default function DriverBoard({ records, onNavigate, onUpdateRecord, curre
     if (assignments[recordId]?.pending) return;
     setAssignments(previous => ({ ...previous, [recordId]: { editing: true, pending: true, error: '' } }));
     try {
+      // Save the stable Driver profile id; the server copies the display name.
+      const driverId = driver ? driverIdForName(driver) : null;
       await onUpdateRecord(recordId, {
-        driver,
+        ...(driver && !driverId ? { driver } : { driver_id: driverId }),
         remarks: driver ? `Driver assigned: ${driver}` : 'Driver unassigned',
         modified_by: `${currentUserName} (Logistics)`,
         modified_at: new Date().toISOString()

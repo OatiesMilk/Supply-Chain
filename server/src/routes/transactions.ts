@@ -14,15 +14,9 @@ const router = Router();
 const requireTransactionAccess = asyncRoute(async (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
   if (!canAccessTransactions(req.user)) return res.status(403).json({ error: 'Module access denied' });
-  if (req.user.role === 'DRIVER') {
-    // Legacy assignments store names rather than account IDs. Never treat an
-    // ambiguous name as proof of ownership, including inactive driver accounts.
-    const identities = await prisma.user.findMany({
-      where: { role: 'DRIVER', name: req.user.name }, select: { id: true }, take: 2,
-    });
-    if (identities.length !== 1 || identities[0].id !== req.user.id) {
-      return res.status(403).json({ error: 'Driver identity cannot be verified' });
-    }
+  // Driver ownership comes from the Admin-linked Driver profile, never the display name.
+  if (req.user.role === 'DRIVER' && !req.user.driverProfileId) {
+    return res.status(403).json({ error: 'Driver identity cannot be verified' });
   }
   next();
 });

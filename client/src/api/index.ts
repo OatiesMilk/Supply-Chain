@@ -101,6 +101,7 @@ export interface ApiUserAdmin {
   is_active: boolean;
   microsoft_linked: boolean;
   created_at: string;
+  driver_profile?: { id: string; name: string } | null; // DRIVER logins: the linked Driver profile
 }
 
 export interface ApiIntegrationStatus {
@@ -178,6 +179,8 @@ export interface ApiDriver {
   type: 'DRIVER' | 'ASSISTANT';
   coverage_areas: string[];
   is_active: boolean;
+  is_linked?: boolean; // has a DRIVER login (linked by Admin)
+  linked_user?: { id: string; name: string; email: string } | null; // Admin responses only
   created_by: string;
   created_at: string;
   modified_by: string;
@@ -464,8 +467,11 @@ export const api = {
 
   // Admin user management
   getUsers: () => request<ApiUserAdmin[]>('/users'),
-  createUser: (data: { name: string; email: string; password: string; role: string }) =>
+  // DRIVER logins: driver_profile_id links an existing profile; omit it to create one.
+  createUser: (data: { name: string; email: string; password: string; role: string; driver_profile_id?: string }) =>
     request<ApiUserAdmin>('/users', { method: 'POST', body: JSON.stringify(data) }),
+  setUserDriverProfile: (userId: string, driverProfileId: string | null) =>
+    request<{ user_id: string; driver_profile: { id: string; name: string } | null }>(`/users/${userId}/driver-profile`, { method: 'PUT', body: JSON.stringify({ driver_profile_id: driverProfileId }) }),
   updateUser: (id: string, data: { name?: string; email?: string; role?: string }) =>
     request<ApiUserAdmin>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deactivateUser: (id: string) =>

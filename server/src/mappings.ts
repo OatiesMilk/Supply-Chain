@@ -64,6 +64,7 @@ export function serializeRecord(r: any) {
     vehicle: r.vehicle,
     area: r.area,
     driver: r.driver,
+    driver_id: r.driverId ?? null,
     driver_assistants: parseDriverAssistants(r.driverAssistants),
     time_in: r.timeIn ?? null,
     time_out: r.timeOut ?? null,

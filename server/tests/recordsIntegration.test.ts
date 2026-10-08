@@ -128,9 +128,9 @@ const loginAs = async (url: string, row: ReturnType<typeof createUser>) => {
   return { Cookie: login.headers.get('set-cookie')!.split(';')[0] };
 };
 
-const withListMocks = async (role: string, run: (url: string, headers: Record<string, string>, calls: any[]) => Promise<void>) => {
+const withListMocks = async (role: string, run: (url: string, headers: Record<string, string>, calls: any[]) => Promise<void>, driverProfile: { id: string; type: string } | null = { id: 'profile-1', type: 'DRIVER' }) => {
   const { url, close } = await setupApp();
-  const row = createUser(role);
+  const row = { ...createUser(role), driverProfile: role === 'DRIVER' ? driverProfile : null };
   const calls: any[] = [];
   const originalUserLookup = prisma.user.findUnique;
   const originalFindMany = prisma.deliveryRecord.findMany;
@@ -172,9 +172,20 @@ test('Company history for drivers only returns their own non-draft records', asy
     const res = await fetch(`${url}/records?company_id=comp-1`, { headers });
     assert.equal(res.status, 200);
     const scope = calls[0].where.AND[0];
-    assert.equal(scope.driver, 'Test User');
+    assert.equal(scope.driverId, 'profile-1');
+    assert.equal(scope.driver, undefined);
     assert.equal(scope.draft, false);
   });
+});
+
+test('a Driver login without a linked profile sees no records, even with a matching name', async () => {
+  await withListMocks('DRIVER', async (url, headers, calls) => {
+    const res = await fetch(`${url}/records`, { headers });
+    assert.equal(res.status, 200);
+    const scope = calls[0].where.AND[0];
+    assert.deepEqual(scope.id, { in: [] });
+    assert.equal(scope.driverId, undefined);
+  }, null);
 });
 
 test('Record list maps the category filter and paginates with a cursor', async () => {

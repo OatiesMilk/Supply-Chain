@@ -91,7 +91,13 @@ test('record scopes retain role limits and explicit denials even through shared 
   assert.equal(canWriteCategory(user, 'DELIVERY'), false);
   const tass = recordScope(sessionUser(account('TASS')) as AuthUser) as any;
   assert.deepEqual(tass.category.in, ['RMA', 'ACCOUNTING_COLLECTION']);
-  assert.equal(recordScope(sessionUser(account('DRIVER')) as AuthUser).driver, 'Test User');
+  // Drivers are scoped by their linked profile id; an unlinked Driver owns nothing.
+  const driver = sessionUser(account('DRIVER')) as AuthUser;
+  const linked = recordScope({ ...driver, driverProfileId: 'profile-1' }) as any;
+  assert.equal(linked.driverId, 'profile-1');
+  assert.equal(linked.draft, false);
+  assert.equal(linked.driver, undefined);
+  assert.deepEqual((recordScope(driver) as any).id, { in: [] });
 });
 
 test('HTTP login includes denials immediately; the same cookie enforces subsequent revocations', async () => {

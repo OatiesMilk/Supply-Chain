@@ -219,6 +219,17 @@ export default function DriverManagerView({
                       ) : (
                         <span className="font-semibold text-slate-800">{d.name}</span>
                       )}
+                      {/* Logins are linked by Admin in Admin Panel → Users; this is visibility only. */}
+                      {d.type === 'DRIVER' && (
+                        <span
+                          className={`mt-1 block w-max rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${
+                            d.is_linked ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'
+                          }`}
+                          title={d.is_linked ? 'This profile has a Driver login' : 'No Driver login yet — Admin links logins in Admin Panel → Users'}
+                        >
+                          {d.is_linked ? 'Login linked' : 'No login'}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       {editingId === d.id ? (

@@ -50,7 +50,8 @@ export interface DeliveryRecord extends AuditFields {
   allowed_statuses?: DeliveryStatus[]; // Authoritative transitions supplied by the server
   vehicle: string;
   area: string;
-  driver: string;
+  driver: string; // display name of the assigned Driver profile
+  driver_id?: string | null; // stable Driver profile id — what assignment saves and what decides Driver access
   driver_assistants: string[];
   time_in?: string | null;
   time_out?: string | null;

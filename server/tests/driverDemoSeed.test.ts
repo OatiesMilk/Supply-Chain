@@ -61,6 +61,16 @@ function fakePrisma(state: any, lockChecker?: () => void): PrismaClient {
         const newDriver = { id: 'new-id', ...data };
         state.drivers.push(newDriver);
         return newDriver;
+      },
+      findUnique: async ({ where }: any) => {
+        if (lockChecker) lockChecker();
+        return state.drivers.find((d: any) => (where.userId ? d.userId === where.userId : d.id === where.id)) || null;
+      },
+      update: async ({ where, data }: any) => {
+        if (lockChecker) lockChecker();
+        const driver = state.drivers.find((d: any) => d.id === where.id);
+        Object.assign(driver, data);
+        return driver;
       }
     },
     deliveryRecord: {
@@ -106,8 +116,11 @@ test('successful run, exact login name match when case differs, rerun test, and 
 
   assert.equal(count, 2); // Lando + LeO DriVer
 
-  const leoRuns = state.records.filter((r: any) => r.driver === 'LeO DriVer');
+  // The run is owned by the profile id; the login is linked to that profile.
+  const leoRuns = state.records.filter((r: any) => r.driverId === '2');
   assert.equal(leoRuns.length, 1);
+  assert.equal(leoRuns[0].driver, 'leo DRIVER');
+  assert.equal(state.drivers.find((d: any) => d.id === '2').userId, 'd1');
 
   // Actual rerun
   const count2 = await seedDriverDemo(prisma, '2026-10-02');
@@ -122,6 +135,18 @@ test('one fixture when account matches a seeded driver', async () => {
   const count = await seedDriverDemo(prisma, '2026-10-02');
 
   assert.equal(count, 1);
+  assert.equal(state.records[0].driverId, '1');
+  assert.equal(state.drivers[0].userId, 'd1');
+});
+
+test('never moves a profile link that belongs to another login', async () => {
+  const state = getBaseState();
+  state.drivers.push({ id: '2', name: 'Leo Driver', type: 'DRIVER', isActive: true, userId: 'other-login' } as any);
+
+  const count = await seedDriverDemo(fakePrisma(state), '2026-10-02');
+
+  assert.equal(count, 2);
+  assert.equal((state.drivers[1] as any).userId, 'other-login');
 });
 
 test('handles identical long name prefixes without ID collisions', async () => {

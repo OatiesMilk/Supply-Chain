@@ -2,7 +2,7 @@ import express, { Router } from 'express';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../db';
 import { asyncRoute } from '../middleware/asyncRoute';
-import { assignmentError, withDriverDirectoryLock } from '../services/driverDirectory';
+import { assignmentError, resolveDriverAssignment, withDriverDirectoryLock, type DriverChange } from '../services/driverDirectory';
 import { requireAuth, requireRole, requireResource } from '../middleware/auth';
 import { writeAuditLog } from '../services/audit';
 import { notifyAccomplished } from '../services/notify';
@@ -11,7 +11,7 @@ import { CATEGORY_TO_DB, STATUS_TO_DB, STATUS_FROM_DB, serializeRecord } from '.
 import { podStorage, podUpload } from '../services/podStorage';
 import { DELIVERY_PHOTO_REQUIRED, hasStoredDeliveryPhoto, isPhotoMimeType, isVerifiedPodPhoto, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
 
-import { canWriteCategory, recordScope } from '../services/recordAccess';
+import { canWriteCategory, isAssignedDriver, recordScope } from '../services/recordAccess';
 import { isoTimestamp, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
 
 const router = Router();
@@ -238,7 +238,7 @@ router.post(
         await lockPodRecord(tx, req.params.id);
         const record = await tx.deliveryRecord.findUnique({ where: { id: req.params.id } });
         if (!record || record.deletedAt) return { status: 404, error: 'Record not found', attachment: null };
-        if (req.user!.role === 'DRIVER' && (record.draft || record.driver !== req.user!.name)) {
+        if (req.user!.role === 'DRIVER' && !isAssignedDriver(req.user!, record)) {
           return { status: 403, error: 'Drivers may only upload to their own assigned records', attachment: null };
         }
         if (!canWriteCategory(req.user!, record.category) || (req.user!.role === 'LOGISTICS' && record.category === 'RMA')) {
@@ -358,9 +358,10 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
     return res.status(403).json({ error: 'Logistics has view-only access to RMA records' });
   }
 
+  const requestsDriver = (b.driver && String(b.driver).trim()) || (b.driver_id && String(b.driver_id).trim());
   if (
     req.user!.role === 'SALES_COORDINATOR' &&
-    ((b.driver && String(b.driver).trim()) || (Array.isArray(b.driver_assistants) && b.driver_assistants.some((a: string) => String(a).trim())))
+    (requestsDriver || (Array.isArray(b.driver_assistants) && b.driver_assistants.some((a: string) => String(a).trim())))
   ) {
     return res.status(403).json({ error: 'Sales Coordinator cannot assign drivers — use the Logistics role' });
   }
@@ -368,7 +369,7 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
   if (!isDraft && !b.reference?.trim()) return res.status(400).json({ error: 'Reference is required' });
   if (!isDraft && !b.delivery_date) return res.status(400).json({ error: 'Delivery Date is required' });
   if (b.status && !['Draft', 'Scheduled'].includes(b.status)) return res.status(400).json({ error: 'New records must be Draft or Scheduled.' });
-  if ((b.driver && String(b.driver).trim()) || (Array.isArray(b.driver_assistants) && b.driver_assistants.length)) return res.status(400).json({ error: 'Assign drivers after submitting the record.' });
+  if (requestsDriver || (Array.isArray(b.driver_assistants) && b.driver_assistants.length)) return res.status(400).json({ error: 'Assign drivers after submitting the record.' });
   const created = await prisma.$transaction(async tx => {
     const created = await tx.deliveryRecord.create({
       data: {
@@ -460,7 +461,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     }
   }
 
-  const LOGISTICS_SUBSTANTIVE_FIELDS = ['driver', 'vehicle', 'driver_assistants', 'time_in', 'time_out', 'received_by', 'linked_collection_id', 'area', 'address', 'priority'];
+  const LOGISTICS_SUBSTANTIVE_FIELDS = ['driver', 'driver_id', 'vehicle', 'driver_assistants', 'time_in', 'time_out', 'received_by', 'linked_collection_id', 'area', 'address', 'priority'];
   const SC_SUBSTANTIVE_FIELDS = ['company_id', 'priority', 'reference', 'area', 'address', 'account_manager', 'delivery_date', 'item_type', 'is_draft', 'date_time', 'item_description', 'line_items', 'attachments', 'amount'];
   const substantiveFields = req.user!.role === 'ADMIN' ? [...LOGISTICS_SUBSTANTIVE_FIELDS, ...SC_SUBSTANTIVE_FIELDS] : (req.user!.role === 'LOGISTICS' || req.user!.role === 'TASS')
     ? LOGISTICS_SUBSTANTIVE_FIELDS
@@ -472,16 +473,24 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
   }
 
   const data: any = { modifiedById: req.user!.id };
+  let driverChange: DriverChange | undefined;
 
   if (req.user!.role === 'DRIVER') {
-    if (existing.driver !== req.user!.name) {
+    if (!isAssignedDriver(req.user!, existing)) {
       return res.status(403).json({ error: 'Drivers may only update their own assigned records' });
     }
 
     if (b.received_by !== undefined) data.receivedBy = b.received_by ?? null;
   } else if (req.user!.role === 'LOGISTICS' || req.user!.role === 'ADMIN' || req.user!.role === 'TASS') {
     if (b.priority !== undefined) data.priority = b.priority;
-    if (b.driver !== undefined) data.driver = b.driver;
+    // The stable profile id is resolved under the directory lock below.
+    if (b.driver_id !== undefined) {
+      if (b.driver_id !== null && typeof b.driver_id !== 'string') return res.status(400).json({ error: 'driver_id must be a Driver profile id or null.' });
+      driverChange = { id: b.driver_id || null };
+    } else if (b.driver !== undefined) {
+      if (typeof b.driver !== 'string') return res.status(400).json({ error: 'Driver must be a name or an empty string.' });
+      driverChange = { name: b.driver };
+    }
     if (b.vehicle !== undefined) data.vehicle = b.vehicle;
     if (b.driver_assistants !== undefined) {
       if (!Array.isArray(b.driver_assistants)) return res.status(400).json({ error: 'Assistants must be an array of names.' });
@@ -550,7 +559,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     await lockPodRecord(tx, existing.id);
     const current = await tx.deliveryRecord.findUnique({ where: { id: existing.id } });
     if (!current || current.deletedAt) return { error: 'Record not found', updated: null };
-    if (!canWriteCategory(req.user!, current.category) || (req.user!.role === 'DRIVER' && (current.draft || current.driver !== req.user!.name))) return { error: 'Record access denied', updated: null };
+    if (!canWriteCategory(req.user!, current.category) || (req.user!.role === 'DRIVER' && !isAssignedDriver(req.user!, current))) return { error: 'Record access denied', updated: null };
     if (data.draft !== undefined && data.draft !== current.draft) {
       if (!['SALES_COORDINATOR', 'ADMIN'].includes(req.user!.role)) return { error: 'Only Sales Coordinator or Admin may submit or return drafts.', updated: null };
       const invalid = transitionError(current, data.draft ? 'Draft' : 'Scheduled', req.user!.role);
@@ -558,7 +567,13 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
       if (!data.draft && !String(data.reference ?? current.reference).trim()) return { error: 'Reference is required to submit the draft.', updated: null };
       data.status = 'SCHEDULED';
     }
-    if ((data.draft ?? current.draft) && (data.driver !== undefined && data.driver !== current.driver || data.driverAssistants !== undefined && data.driverAssistants !== current.driverAssistants)) return { error: 'New assignments to drafts are not allowed.', updated: null };
+    if (driverChange) {
+      const assignment = await resolveDriverAssignment(tx, current, driverChange);
+      if ('error' in assignment) return { error: assignment.error, updated: null };
+      data.driverId = assignment.driverId;
+      data.driver = assignment.driver;
+    }
+    if ((data.draft ?? current.draft) && (data.driverId !== undefined && data.driverId !== current.driverId || data.driverAssistants !== undefined && data.driverAssistants !== current.driverAssistants)) return { error: 'New assignments to drafts are not allowed.', updated: null };
     if (hasTimestamp) {
       if (current.draft || !current.timeIn || (b.time_out !== undefined && !current.timeOut)) return { error: 'The timestamps changed. Refresh and try again.', updated: null };
       const correctedIn = data.timeIn ?? current.timeIn;
@@ -585,14 +600,13 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
   // Notify the record creator (Sales Coordinator) when Logistics assigns a driver
   if (
     req.user!.role === 'LOGISTICS' &&
-    b.driver &&
-    String(b.driver).trim() &&
+    updated.driverId &&
     !existing.driver
   ) {
     await notifyUser(
       existing.createdById,
       'Driver assigned',
-      `${b.driver} has been assigned to ${existing.company.name} · ${existing.reference}.`,
+      `${updated.driver} has been assigned to ${existing.company.name} · ${existing.reference}.`,
       existing.id,
       'DeliveryRecord'
     );
@@ -638,7 +652,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   const result = await prisma.$transaction(async tx => {
     await lockPodRecord(tx, req.params.id);
     const current = await tx.deliveryRecord.findUnique({ where: { id: req.params.id }, include: recordInclude });
-    if (!current || current.deletedAt || (req.user!.role === 'DRIVER' && (current.draft || current.driver !== req.user!.name)) || !canWriteCategory(req.user!, current.category)) return { error: 'Record access denied', saved: null, previous: null };
+    if (!current || current.deletedAt || (req.user!.role === 'DRIVER' && !isAssignedDriver(req.user!, current)) || !canWriteCategory(req.user!, current.category)) return { error: 'Record access denied', saved: null, previous: null };
     if (req.user!.role === 'TASS' && current.category !== 'RMA') return { error: 'TASS status updates are limited to RMA records', saved: null, previous: null };
     if (req.user!.role === 'SALES_COORDINATOR' && !(status === 'Draft' || current.draft && status === 'Scheduled')) return { error: 'Sales Coordinator may only submit or return drafts.', saved: null, previous: null };
     const statusChanged = runState(current) !== status;
