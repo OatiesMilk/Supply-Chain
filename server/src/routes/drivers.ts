@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db';
 import { requireScreen, requireResource, requireAuth, requireRole } from '../middleware/auth';
-import { canonicalCoverageList, createDriverDirectory, DriverConflictError, driverInputError, parseCoverageAreas, readDriverDirectory, updateDriverDirectory } from '../services/driverDirectory';
+import { canonicalCoverageList, createDriverDirectory, DriverConflictError, driverInputError, DriverPermissionError, parseCoverageAreas, readDriverDirectory, updateDriverDirectory } from '../services/driverDirectory';
 
 import { asyncRoute } from '../middleware/asyncRoute';
 import type { Request, Response } from 'express';
@@ -11,6 +11,7 @@ const driverRoute = (handler: (req: Request, res: Response) => Promise<unknown>)
   try { return await handler(req, res); }
   catch (error) {
     if (error instanceof DriverConflictError) return res.status(409).json({ error: error.message });
+    if (error instanceof DriverPermissionError) return res.status(403).json({ error: error.message });
     throw error;
   }
 });
@@ -47,12 +48,15 @@ router.get('/', requireAuth, requireResource('drivers'), driverRoute(async (req,
   res.json(drivers.map(d => serialize(d, req.user!.role === 'ADMIN')));
 }));
 
-// Create a driver — Logistics + Admin only
+// Create a roster entry — Admin adds Drivers; Logistics adds Assistants only (TSK-119).
 router.post('/', requireAuth, requireResource('drivers'), requireScreen('driver_manager'), requireRole('LOGISTICS', 'ADMIN'), driverRoute(async (req, res) => {
   if (linkingFieldError(req, res)) return;
   const { name, type, coverage_areas } = req.body ?? {};
   const invalid = driverInputError(req.body ?? {}, true);
   if (invalid) return res.status(400).json({ error: invalid });
+  if ((type ?? 'DRIVER') === 'DRIVER' && req.user!.role !== 'ADMIN') {
+    return res.status(403).json({ error: 'Only Admin can add drivers. Logistics can add assistants.' });
+  }
   const created = await createDriverDirectory(prisma, {
     name: name.trim(), type: type ?? 'DRIVER',
     coverageAreas: JSON.stringify(canonicalCoverageList(coverage_areas ?? [])),
@@ -61,7 +65,8 @@ router.post('/', requireAuth, requireResource('drivers'), requireScreen('driver_
   res.status(201).json(serialize(created, req.user!.role === 'ADMIN'));
 }));
 
-// Update a driver — Logistics + Admin only
+// Update a roster entry — Logistics keeps coverage/status edits; type changes
+// and Driver renames are Admin only (TSK-119).
 router.put('/:id', requireAuth, requireResource('drivers'), requireScreen('driver_manager'), requireRole('LOGISTICS', 'ADMIN'), driverRoute(async (req, res) => {
   if (linkingFieldError(req, res)) return;
   const { name, type, coverage_areas, is_active } = req.body ?? {};
@@ -72,7 +77,7 @@ router.put('/:id', requireAuth, requireResource('drivers'), requireScreen('drive
       ...(type !== undefined && { type: type === 'ASSISTANT' ? 'ASSISTANT' : 'DRIVER' }),
       ...(coverage_areas !== undefined && { coverageAreas: JSON.stringify(canonicalCoverageList(coverage_areas)) }),
       ...(is_active !== undefined && { isActive: is_active }),
-    }, req.user!);
+    }, req.user!, false, req.user!.role !== 'ADMIN');
   if (!updated) return res.status(404).json({ error: 'Driver not found' });
   res.json(serialize(updated, req.user!.role === 'ADMIN'));
 }));
