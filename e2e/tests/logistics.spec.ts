@@ -305,6 +305,23 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     await expect(page.getByText(/drop files here|click to upload/i)).toBeVisible();
   });
 
+  test('B-4.1a Invalid upload shows a toast and no inline duplicate', async ({ page }) => {
+    const fileName = 'invoice.exe';
+    const filePath = path.join('/tmp', fileName);
+    fs.writeFileSync(filePath, 'not an allowed attachment');
+
+    await openFirstRecord(page);
+    const docsTab = page.getByRole('tab', { name: /documents/i });
+    await docsTab.click();
+
+    const fileInput = page.locator('input[type="file"]').last();
+    await fileInput.setInputFiles(filePath);
+
+    const message = 'invoice.exe — file type not allowed. Use JPG, PNG, PDF or DOC.';
+    await expect(page.getByText(message, { exact: true })).toBeVisible();
+    await expect(page.locator('p', { hasText: message })).toHaveCount(0);
+  });
+
   test('B-4.2 Stages a PDF until Save Files is clicked', async ({ page }) => {
     // Create a minimal valid PDF
     const pdfName = `uat-test-${Date.now()}.pdf`;
