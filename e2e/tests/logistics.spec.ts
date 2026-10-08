@@ -10,6 +10,7 @@
 import { test, expect, Page } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { DEMO_LOCATION_FIXTURES } from '../../client/src/utils/demoLocations';
 
 const BASE_URL = 'http://localhost:3000';
 
@@ -22,6 +23,11 @@ async function openFirstRecord(page: Page) {
   await firstRow.waitFor({ state: 'visible', timeout: 10_000 });
   await firstRow.click();
   await page.waitForTimeout(800);
+}
+
+function assertDemoLocationPair(area: string, address: string) {
+  const fixture = DEMO_LOCATION_FIXTURES.find(location => location.area === area && location.address === address);
+  expect(fixture, `Expected one demo-location fixture for ${area} / ${address}`).toBeTruthy();
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -63,6 +69,28 @@ test.describe('B-1 Login & Access Control', () => {
 });
 
 test.describe('B-2 Dispatch & Assign Driver', () => {
+  test('B-2.0a Auto Fill keeps Area and Address in one demo-location fixture', async ({ page }) => {
+    await page.goto(`${BASE_URL}/deliveries`);
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('button', { name: /new record/i }).click();
+
+    const areaInput = page.locator('label').filter({ hasText: /^Area/ }).locator('..').locator('input');
+    const addressInput = page.getByPlaceholder(/street, building, floor/i);
+    const autoFill = page.getByRole('button', { name: /auto fill/i });
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await autoFill.click();
+      const area = await areaInput.inputValue();
+      const address = await addressInput.inputValue();
+      assertDemoLocationPair(area, address);
+    }
+
+    await areaInput.fill('Makati CBD');
+    await addressInput.fill('Manually entered delivery address');
+    await expect(areaInput).toHaveValue('Makati CBD');
+    await expect(addressInput).toHaveValue('Manually entered delivery address');
+  });
+
   test('B-2.0 Delivery date range enforces chronological filters without losing focus', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');

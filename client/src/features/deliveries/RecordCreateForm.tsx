@@ -8,6 +8,7 @@ import { ApiCompany } from '@/api';
 import OutputActionsPanel from '@/features/deliveries/OutputActionsPanel';
 import ComboboxField from '@/components/ComboboxField';
 import { POD_ATTACHMENT_ACCEPT, validatePodAttachments } from '@/utils/attachmentValidation';
+import { selectDemoLocation } from '@/utils/demoLocations';
 
 // ── Sample-data tables (moved here from DeliveryRecordsView) ──────────────────
 
@@ -185,17 +186,18 @@ export default function RecordCreateForm({
     if (companies.length === 0) return;
     const cat = form.category;
     const company = afPick(companies);
+    const location = selectDemoLocation();
     const deliveryDate = afFutureDate(1, 14);
     setForm({
       company_name: company.name,
       company_id: company.id,
-      address: company.address ?? '',
+      address: location.address,
       priority: afPick(PRIORITIES),
       reference: `${AF_REF_PREFIX[cat] ?? 'SAP'}-${afRandInt(10000, 99999)}`,
       remarks: afPick(AF_REMARKS[cat] ?? ['']),
       status: 'Scheduled',
       vehicle: afPick(VEHICLES),
-      area: afPick(AREAS),
+      area: location.area,
       account_manager: afPick(ACCOUNT_MANAGERS),
       delivery_date: deliveryDate,
       category: cat,
