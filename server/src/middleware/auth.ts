@@ -15,6 +15,9 @@ export interface AuthUser {
   effectiveScreens: Screen[];
   resources: Resource[];
   permissionVersion: string;
+  // DRIVER only: the Admin-linked Driver profile that owns assigned runs.
+  // Null means no runs are visible; display names never decide ownership.
+  driverProfileId?: string | null;
 }
 
 declare global {
@@ -72,13 +75,16 @@ export const requireAuth = asyncRoute(async (req: Request, res: Response, next: 
   // or admin cleanup can wipe/recreate users while old browser sessions are
   // still around. Writes that reference req.user.id (createdById, etc.) would
   // otherwise fail a DB foreign-key check downstream instead of failing here.
-  const user = await prisma.user.findUnique({ where: { id: payload.id }, include: { permissions: true } });
+  const user = await prisma.user.findUnique({ where: { id: payload.id }, include: { permissions: true, driverProfile: { select: { id: true, type: true } } } });
   if (!user || !user.isActive) {
     clearSessionCookie(res);
     return res.status(401).json({ error: 'Session no longer valid — please log in again' });
   }
 
-  req.user = sessionUser(user) as AuthUser;
+  const session = sessionUser(user) as AuthUser;
+  req.user = user.role === 'DRIVER'
+    ? { ...session, driverProfileId: user.driverProfile?.type === 'DRIVER' ? user.driverProfile.id : null }
+    : session;
   res.setHeader('Cache-Control', 'no-store');
   next();
 });

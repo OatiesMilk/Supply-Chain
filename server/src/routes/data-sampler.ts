@@ -143,6 +143,16 @@ router.post('/generate', requireAuth, requireResource('dataSampler'), requireRol
       return res.status(400).json({ error: 'No companies found. Please seed the database first.' });
     }
 
+    // Sample runs reference Driver profiles by id, like real assignments.
+    const driverProfiles = await prisma.driver.findMany({ where: { type: 'DRIVER', isActive: true }, select: { id: true, name: true } });
+    const sampleDrivers = driverProfiles.filter(d => DRIVERS.includes(d.name));
+    const fieldDriver = typeof fields?.driver === 'string' && fields.driver.trim()
+      ? driverProfiles.find(d => d.name.toLowerCase() === fields.driver.trim().toLowerCase())
+      : undefined;
+    if (typeof fields?.driver === 'string' && fields.driver.trim() && !fieldDriver) {
+      return res.status(400).json({ error: `Driver "${fields.driver}" is inactive or not in the directory. Choose an active entry.` });
+    }
+
     const created = [];
 
     for (let i = 0; i < n; i++) {
@@ -152,8 +162,9 @@ router.post('/generate', requireAuth, requireResource('dataSampler'), requireRol
       const deliveryDate = generateDate(30, 14);
       const area = AREAS[Math.floor(Math.random() * AREAS.length)];
       const vehicle = VEHICLES[Math.floor(Math.random() * VEHICLES.length)];
-      const assignDriver = Math.random() > 0.4;
-      const driver = assignDriver ? DRIVERS[Math.floor(Math.random() * DRIVERS.length)] : '';
+      const assignDriver = sampleDrivers.length > 0 && Math.random() > 0.4;
+      const sampleDriver = assignDriver ? sampleDrivers[Math.floor(Math.random() * sampleDrivers.length)] : null;
+      const driver = sampleDriver?.name ?? '';
       const driverAssistants = driver && Math.random() > 0.5
         ? DRIVER_ASSISTANTS[Math.floor(Math.random() * DRIVER_ASSISTANTS.length)]
         : '';
@@ -197,7 +208,8 @@ router.post('/generate', requireAuth, requireResource('dataSampler'), requireRol
             status:          overrides.status         ?? status,
             vehicle:         overrides.vehicle        ?? vehicle,
             area:            overrides.area           ?? area,
-            driver:          overrides.driver         ?? driver,
+            driver:          fieldDriver ? fieldDriver.name : (overrides.driver === '' ? '' : driver),
+            driverId:        fieldDriver ? fieldDriver.id : (overrides.driver === '' ? null : sampleDriver?.id ?? null),
             driverAssistants: formattedAssistants,
             accountManager:  overrides.account_manager ?? accountManager,
             deliveryDate:    overrides.delivery_date  ?? deliveryDate,

@@ -19,7 +19,7 @@ export function canAccessTransactions(user: AuthUser): boolean {
   if (!transactionCategories(user.role).length) return false;
   // Driver access is scoped API access for the standalone driver application;
   // it does not grant the Transaction Center screen or any inventory resource.
-  if (user.role === 'DRIVER') return Boolean(user.name.trim()) && user.effectiveScreens.includes('driver_dashboard');
+  if (user.role === 'DRIVER') return Boolean(user.driverProfileId) && user.effectiveScreens.includes('driver_dashboard');
   return user.resources.includes('transactions');
 }
 

@@ -74,8 +74,19 @@ export async function seedDriverDemo(prisma: PrismaClient, targetDate?: string) 
       console.log(`Created Driver directory entry for ${driverUserName}`);
     }
 
+    // Link the demo login to its active profile by id (TSK-100) so it owns its
+    // runs. Never move a link that already belongs to another login.
+    const linkedProfile = await tx.driver.findUnique({ where: { userId: driverUser.id } });
+    if (!linkedProfile && !dirEntry.userId && dirEntry.isActive) {
+      dirEntry = await tx.driver.update({ where: { id: dirEntry.id }, data: { userId: driverUser.id, modifiedBy: admin.name } });
+    } else if (linkedProfile && linkedProfile.id !== dirEntry.id) {
+      console.log(`Driver login ${driverUserName} is already linked to profile ${linkedProfile.name}. Skipping link.`);
+    } else if (!linkedProfile && dirEntry.userId) {
+      console.log(`Driver profile ${dirEntry.name} is linked to another login. Skipping link.`);
+    }
+
     // 5. Collect active drivers to schedule runs for (deduplicate by case-insensitive name)
-    const driversToSeed = new Map<string, string>(); // lowercased name -> exact name to use in record
+    const driversToSeed = new Map<string, { name: string; id: string }>(); // lowercased name -> profile used in record
 
     // Add existing seeded drivers if active
     for (const d of DRIVER_SEED_DATA.filter(x => x.type === 'DRIVER')) {
@@ -88,13 +99,13 @@ export async function seedDriverDemo(prisma: PrismaClient, targetDate?: string) 
       if (inactiveMatch) {
         console.log(`Seed driver ${inactiveMatch.name} is inactive. Skipping.`);
       } else if (activeMatch) {
-        driversToSeed.set(activeMatch.name.toLowerCase(), activeMatch.name);
+        driversToSeed.set(activeMatch.name.toLowerCase(), { name: activeMatch.name, id: activeMatch.id });
       }
     }
 
     // Add the driver account if active
     if (dirEntry && dirEntry.isActive) {
-      driversToSeed.set(dirEntry.name.toLowerCase(), driverUserName);
+      driversToSeed.set(dirEntry.name.toLowerCase(), { name: dirEntry.name, id: dirEntry.id });
     }
 
     let createdCount = 0;
@@ -104,7 +115,7 @@ export async function seedDriverDemo(prisma: PrismaClient, targetDate?: string) 
     const assistantName = activeAssistant ? activeAssistant.name : null;
 
     // 7. Create demo runs deterministically
-    for (const [lowerName, exactName] of driversToSeed.entries()) {
+    for (const [lowerName, profile] of driversToSeed.entries()) {
       const hashName = crypto.createHash('sha256').update(lowerName).digest('hex').substring(0, 16).toUpperCase();
       const demoId = `REC-DEMO-${dateStr.replace(/-/g, '')}-${hashName}`;
 
@@ -123,7 +134,8 @@ export async function seedDriverDemo(prisma: PrismaClient, targetDate?: string) 
             status: 'SCHEDULED',
             vehicle: 'Van-01 (L300)',
             area: 'Metro Manila',
-            driver: exactName,
+            driver: profile.name,
+            driverId: profile.id,
             driverAssistants: assistantName ? JSON.stringify([assistantName]) : '[]',
             accountManager: 'Demo Account',
             deliveryDate: dateStr,

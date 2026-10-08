@@ -19,6 +19,7 @@
     "seed:accounts": "tsx prisma/seed-accounts-only.ts",
     "pod:reconcile": "tsx prisma/reconcile-pod-files.ts",
     "drivers:import": "tsx prisma/import-historical-drivers.ts",
+    "drivers:identity-report": "tsx prisma/report-driver-identity.ts",
     "db:clean": "prisma migrate reset --force"
   },
   "dependencies": {

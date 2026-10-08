@@ -25,9 +25,11 @@ function restoreStubs() {
   mock.restoreAll();
 }
 const originalMailEnv = Object.fromEntries(['SMTP_HOST', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET', 'AZURE_TENANT_ID'].map(key => [key, process.env[key]]));
-const user = (role = 'DRIVER') => ({ id: 'test-user', name: 'Assigned Driver', email: 'test@example.com', role, isActive: true, permissions: [] });
+// Drivers own runs through their Admin-linked Driver profile id (TSK-100), not their name.
+const user = (role = 'DRIVER') => ({ id: 'test-user', name: 'Assigned Driver', email: 'test@example.com', role, isActive: true, permissions: [], driverProfile: role === 'DRIVER' ? { id: 'profile-assigned', type: 'DRIVER' } : null, driverProfileId: role === 'DRIVER' ? 'profile-assigned' : null });
+const otherDriver = (name: string) => ({ driver: name, driverId: `profile-${name}` });
 const attachment = (overrides: Record<string, unknown> = {}) => ({ id: 'photo-1', recordId: 'delivery-1', originalName: 'photo.png', mimeType: 'image/png', storageKey: 'photo.png', size: photo.length, createdAt: new Date(), ...overrides });
-const record = (overrides: Record<string, unknown> = {}) => ({ id: 'delivery-1', category: 'DELIVERY', status: 'IN_TRANSIT', draft: false, reference: 'REF', driverAssistants: '[]', priority: '2 - Moderate', driver: 'Assigned Driver', company: { name: 'Test Company' }, accountManager: 'Test AM', timeIn: '2026-10-06T01:00:00.000Z', receivedBy: 'Recipient', timeOut: null, deletedAt: null, ...overrides });
+const record = (overrides: Record<string, unknown> = {}) => ({ id: 'delivery-1', category: 'DELIVERY', status: 'IN_TRANSIT', draft: false, reference: 'REF', driverAssistants: '[]', priority: '2 - Moderate', driver: 'Assigned Driver', driverId: 'profile-assigned', company: { name: 'Test Company' }, accountManager: 'Test AM', timeIn: '2026-10-06T01:00:00.000Z', receivedBy: 'Recipient', timeOut: null, deletedAt: null, ...overrides });
 
 function failClosed() {
   for (const model of [prisma.user, prisma.company, prisma.deliveryRecord, prisma.podAttachment, prisma.auditLog, prisma.remarkLog, prisma.comment, prisma.notification, prisma.notificationLog, prisma.driver]) {
@@ -83,15 +85,13 @@ function database(row = record(), files: any[] = []) {
   let saved = row;
   const events: string[] = [];
   const audit: any[] = []; const remarks: any[] = [];
-  stub(prisma.deliveryRecord, 'findFirst', async ({ where }: any) => {
-    const scopedDriver = where.AND?.[0]?.driver;
-    return scopedDriver && (scopedDriver !== saved.driver || saved.draft) ? null : saved as any;
-  });
+  const outOfScope = (scope: any) => !!scope?.id?.in || (scope?.driverId !== undefined && (scope.driverId !== saved.driverId || saved.draft));
+  stub(prisma.deliveryRecord, 'findFirst', async ({ where }: any) => outOfScope(where.AND?.[0]) ? null : saved as any);
   const tx = {
     $executeRaw: async () => {},
     $queryRaw: async () => { events.push('lock'); return [{ id: saved.id }]; },
     deliveryRecord: {
-      findFirst: async ({ where }: any) => { const scope = where.AND?.[0]; return scope?.driver && (saved.driver !== scope.driver || saved.draft) ? null : saved; },
+      findFirst: async ({ where }: any) => outOfScope(where.AND?.[0]) ? null : saved,
       findUnique: async () => saved,
       update: async ({ data }: any) => { events.push('update'); saved = { ...saved, ...data }; return saved; },
       updateMany: async ({ data }: any) => { events.push('update'); saved = { ...saved, ...data }; return { count: 1 }; },
@@ -102,6 +102,10 @@ function database(row = record(), files: any[] = []) {
       findMany: async ({ where }: any) => { events.push('photos'); return files.filter(file => file.id !== where.id?.not); },
       findFirst: async () => files[0] ?? null,
       delete: async () => { events.push('delete'); return files.shift(); },
+    },
+    driver: {
+      findUnique: async ({ where }: any) => ({ id: where.id, name: 'New Driver', type: 'DRIVER', isActive: true }),
+      findFirst: async ({ where }: any) => ({ id: 'profile-new-driver', name: where.name.equals, type: 'DRIVER', isActive: true }),
     },
     auditLog: { create: async ({ data }: any) => { events.push('audit'); audit.push(data); return {}; } },
     remarkLog: { create: async ({ data }: any) => { events.push('remark'); remarks.push(data); return {}; } },
@@ -136,7 +140,7 @@ test('assigned driver can upload a saved photo and list its verified photo flag'
 });
 
 test('driver cannot upload to another driver record and counterfeit image uploads are rejected before storage', async () => {
-  database(record({ driver: 'Another Driver' }));
+  database(record(otherDriver('Another Driver')));
   const save = stub(podStorage, 'save', async () => 'unexpected');
   const file = { originalname: 'photo.png', mimetype: 'image/png', size: photo.length, buffer: photo };
   assert.equal((await request('post', '/:id/attachments', { file })).status, 403);
@@ -247,7 +251,7 @@ test('Time In stamps once for an assigned actionable run, ignores client clock a
 });
 
 test('Time In rejects drafts, unassigned, held, completed and other-driver runs', async () => {
-  for (const overrides of [{ draft: true }, { driver: '' }, { status: 'ON_HOLD' }, { status: 'ACCOMPLISHED' }, { driver: 'Someone else' }]) {
+  for (const overrides of [{ draft: true }, { driver: '', driverId: null }, { status: 'ON_HOLD' }, { status: 'ACCOMPLISHED' }, otherDriver('Someone else')]) {
     resetFixtures();
     const state = database(record({ timeIn: null, ...overrides }));
     assert.notEqual((await request('post', '/:id/time-in', { body: { remarks: 'Start' } })).status, 200);
@@ -384,7 +388,7 @@ test('C-2.12 isolates missing photo with valid recipient, Time In and remarks fo
 test('C-2.13 status, edit and upload reject another driver with no mutations or storage writes', async () => {
   for (const [method, path] of [['patch', '/:id/status'], ['put', '/:id'], ['post', '/:id/attachments']]) {
     resetFixtures();
-    const state = database(record({ driver: 'Driver B' }), [attachment()]);
+    const state = database(record(otherDriver('Driver B')), [attachment()]);
     const before = { ...state.saved() };
     const storage = stub(podStorage, 'save', async () => { throw new Error('Unexpected storage write'); });
     const create = stub(prisma.podAttachment, 'create', async () => { throw new Error('Unexpected attachment write'); });
@@ -434,7 +438,7 @@ test('reassignment between access check and locked mutation is denied for status
   for (const [method, path] of [['patch', '/:id/status'], ['put', '/:id']]) {
     resetFixtures();
     const state = database(record(), [attachment()]);
-    state.tx.deliveryRecord.findUnique = async () => record({ driver: 'Driver B' });
+    state.tx.deliveryRecord.findUnique = async () => record(otherDriver('Driver B'));
     const result = await request(method, path, { body: { ...(method === 'patch' ? { status: 'Delivered' } : {}), remarks: 'Updated', received_by: 'Recipient' } });
     assert.equal(result.status, 403);
     assert.deepEqual(state.events, ['lock']);
@@ -524,7 +528,7 @@ test('real multipart middleware accepts genuine bytes and rejects counterfeit by
 
 test('upload rejects reassignment under the row lock before any storage or metadata write', async () => {
   const state = database();
-  state.tx.deliveryRecord.findUnique = async () => record({ driver: 'Driver B' });
+  state.tx.deliveryRecord.findUnique = async () => record(otherDriver('Driver B'));
   const save = stub(podStorage, 'save', async () => { throw new Error('Unexpected save'); });
   const create = stub(prisma.podAttachment, 'create', async () => { throw new Error('Unexpected metadata'); });
   const response = await request('post', '/:id/attachments', { file: { originalname: 'photo.png', mimetype: 'image/png', size: photo.length, buffer: photo } });
@@ -600,4 +604,41 @@ test('authorized RMA comments preserve the named actor without change remarks an
     assert.equal((create.mock.calls[0].arguments[0] as any).data.authorId, 'test-user');
     assert.deepEqual(state.events, []);
   }
+});
+
+// TSK-100: assignment ownership follows the stable Driver profile id.
+test('Logistics assigns and reassigns by profile id; ownership moves with the id, not the name', async () => {
+  const state = database(record({ status: 'SCHEDULED', timeIn: null, driver: '', driverId: null, createdById: 'creator-1' }));
+  const notices = stub(prisma.notification, 'create', async () => ({}) as any);
+  const assigned = await request('put', '/:id', { role: 'LOGISTICS', body: { driver_id: 'profile-assigned', remarks: 'Assign run' } });
+  assert.equal(assigned.status, 200);
+  assert.equal(state.saved().driverId, 'profile-assigned');
+  assert.equal(state.saved().driver, 'New Driver', 'Display name is copied from the profile');
+  assert.equal(assigned.body.driver_id, 'profile-assigned');
+  assert.equal(notices.mock.callCount(), 1, 'The record creator is notified on first assignment');
+  assert.ok(state.remarks.some(r => r.body === 'Assign run'));
+  assert.equal((await request('get', '/:id')).status, 200, 'The linked Driver sees the run');
+
+  const reassigned = await request('put', '/:id', { role: 'LOGISTICS', body: { driver_id: 'profile-driver-b', remarks: 'Reassign' } });
+  assert.equal(reassigned.status, 200);
+  assert.equal(state.saved().driverId, 'profile-driver-b');
+  assert.equal(notices.mock.callCount(), 1, 'Reassignment is not a first assignment');
+  const before = { ...state.saved() };
+  assert.equal((await request('get', '/:id')).status, 403, 'The previous Driver loses access immediately');
+  assert.equal((await request('patch', '/:id/status', { body: { status: 'Pending', remarks: 'Late' } })).status, 403);
+  assert.deepEqual(state.saved(), before);
+});
+
+test('a display name equal to the Driver login name grants nothing without the profile id', async () => {
+  database(record({ driver: 'Assigned Driver', driverId: 'profile-someone-else' }));
+  assert.equal((await request('get', '/:id')).status, 403);
+  assert.equal((await request('put', '/:id', { body: { received_by: 'Recipient', remarks: 'Edit' } })).status, 403);
+});
+
+test('Sales Coordinator cannot assign a Driver by profile id on create or edit', async () => {
+  const created = await request('post', '/', { role: 'SALES_COORDINATOR', body: { company_id: 'company-1', reference: 'REF', category: 'Deliveries', delivery_date: '2026-10-10', driver_id: 'profile-assigned' } });
+  assert.equal(created.status, 403);
+  const state = database(record({ status: 'SCHEDULED', timeIn: null, driver: '', driverId: null }));
+  const edited = await request('put', '/:id', { role: 'SALES_COORDINATOR', body: { driver_id: 'profile-assigned', remarks: 'Try' } });
+  assert.equal(state.saved().driverId, null, `SC edit must not assign (status ${edited.status})`);
 });

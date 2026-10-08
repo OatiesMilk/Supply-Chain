@@ -20,11 +20,20 @@ export function readableCategories(user: AuthUser): string[] {
   });
 }
 
+// Drivers own runs through the Admin-linked Driver profile id. A Driver without
+// a linked profile owns nothing (never `driverId: null`, which would match
+// every unassigned record).
 export function recordScope(user: AuthUser): Prisma.DeliveryRecordWhereInput {
   return {
     category: { in: readableCategories(user) },
-    ...(user.role === 'DRIVER' ? { driver: user.name, draft: false } : {}),
+    ...(user.role === 'DRIVER'
+      ? (user.driverProfileId ? { driverId: user.driverProfileId, draft: false } : { id: { in: [] } })
+      : {}),
   };
+}
+
+export function isAssignedDriver(user: AuthUser, record: { driverId?: string | null; draft: boolean }): boolean {
+  return user.role === 'DRIVER' && !!user.driverProfileId && record.driverId === user.driverProfileId && !record.draft;
 }
 
 export function canWriteCategory(user: AuthUser, category: string): boolean {

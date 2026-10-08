@@ -37,6 +37,7 @@ model User {
   permissions            UserPermission[]
   remarkLogs             RemarkLog[]
   podAttachmentsUploaded PodAttachment[]
+  driverProfile          Driver?          @relation("DriverLogin")
 }
 
 model UserPermission {
@@ -110,7 +111,9 @@ model DeliveryRecord {
   status             String // SCHEDULED | ACCOMPLISHED | ON_HOLD | RESCHEDULED | PENDING
   vehicle            String  @default("(None)")
   area               String
-  driver             String  @default("")
+  driver             String  @default("") // display snapshot of the assigned Driver profile name; never used for authorization
+  driverId           String? // stable assignment — the assigned Driver profile decides Driver ownership
+  assignedDriver     Driver? @relation("DriverAssignments", fields: [driverId], references: [id])
   driverAssistants   String  @default("[]")
   timeIn             String?
   timeOut            String?
@@ -146,6 +149,7 @@ model DeliveryRecord {
 
   @@index([deletedAt, category, status])
   @@index([driver])
+  @@index([driverId])
   @@index([deliveryDate])
   @@index([companyId])
   @@index([accountManager])
@@ -294,6 +298,9 @@ model Driver {
   type          String // DRIVER | ASSISTANT
   coverageAreas String   @default("[]") // JSON string[] of area keywords
   isActive      Boolean  @default(true)
+  userId        String?  @unique // DRIVER login linked by Admin; null for assistants and unlinked profiles
+  user          User?    @relation("DriverLogin", fields: [userId], references: [id], onDelete: SetNull)
+  assignments   DeliveryRecord[] @relation("DriverAssignments")
   createdBy     String
   createdAt     DateTime @default(now())
   modifiedBy    String

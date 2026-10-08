@@ -10,7 +10,7 @@ import {
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel, ItemType } from '@/types';
 import { api, ApiAuditEntry, ApiComment, ApiCompany, ApiRemarkLog } from '@/api';
 import { printSingleManifest, ManifestDocumentationData } from '@/features/deliveries/DeliveryManifest';
-import { DRIVERS, DRIVER_ASSISTANTS, DELIVERY_STATUSES, AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, ACCOUNT_MANAGERS, DRIVER_COVERAGE_AREAS, getSubregion, getNearbyAreas } from '@/data';
+import { DRIVERS, driverIdForName, DRIVER_ASSISTANTS, DELIVERY_STATUSES, AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, ACCOUNT_MANAGERS, DRIVER_COVERAGE_AREAS, getSubregion, getNearbyAreas } from '@/data';
 import ComboboxField from '@/components/ComboboxField';
 import { Pencil, X as XIcon, Save, Plus } from 'lucide-react';
 import { getOutputTrigger, runOutputActions } from '@/outputActions';
@@ -903,7 +903,12 @@ function ActionsTab({
           modified_by: `${currentUserName} (${currentUserRole})`,
           modified_at: now,
         };
-        if (selectedDriver !== (record.driver ?? '')) fieldUpdates.driver = selectedDriver;
+        if (selectedDriver !== (record.driver ?? '')) {
+          // Save the stable Driver profile id; the server copies the display name.
+          const driverId = selectedDriver ? driverIdForName(selectedDriver) : null;
+          if (selectedDriver && !driverId) fieldUpdates.driver = selectedDriver;
+          else fieldUpdates.driver_id = driverId;
+        }
         if (JSON.stringify(assistants.filter(a => a.trim())) !== JSON.stringify(record.driver_assistants ?? [])) {
           fieldUpdates.driver_assistants = assistants.filter(a => a.trim());
         }

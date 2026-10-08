@@ -186,7 +186,9 @@ export async function runSeed(force = false) {
   console.log(`Customer/Supplier seed: ${CUSTOMERS.length} customers, ${SUPPLIERS.length} suppliers.`);
 
   // ── Drivers ────────────────────────────────────────────────────────────────
-  await seedDrivers(prisma, users['ADMIN'].name);
+  const seededDrivers = await seedDrivers(prisma, users['ADMIN'].name);
+  // Seeded runs reference their Driver profile by id, like real assignments.
+  const driverIdByName = new Map(seededDrivers.filter(d => d.type === 'DRIVER').map(d => [d.name, d.id]));
 
   const sales     = users['SALES_COORDINATOR'];
   const logistics = users['LOGISTICS'];
@@ -315,6 +317,7 @@ export async function runSeed(force = false) {
         vehicle:            r.vehicle,
         area:               r.area,
         driver:             r.driver,
+        driverId:           driverIdByName.get(r.driver) ?? null,
         driverAssistants:    r.driverAssistants,
         accountManager:     r.accountManager,
         deliveryDate:       r.deliveryDate,

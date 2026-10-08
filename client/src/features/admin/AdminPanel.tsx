@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Users, ClipboardList, UserX, Plus, ChevronLeft, ChevronRight, Loader2, Check, ShieldCheck, RotateCcw, X, Settings2, Send, Pencil, Link2, Trash2 } from 'lucide-react';
-import { api, ApiPermissionEditor, ApiUserAdmin, ApiAdminAuditEntry, ApiIntegrationStatus, ApiError } from '@/api';
+import { api, ApiDriver, ApiPermissionEditor, ApiUserAdmin, ApiAdminAuditEntry, ApiIntegrationStatus, ApiError } from '@/api';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { ActionDialog } from '@/components/ActionDialog';
 
@@ -8,12 +8,13 @@ import { useAuthStore } from '@/store/authStore';
 
 type Tab = 'users' | 'audit' | 'integrations';
 
-const ROLE_OPTIONS = ['SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'ADMIN'] as const;
+const ROLE_OPTIONS = ['SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'ADMIN', 'DRIVER'] as const;
 const ROLE_LABELS: Record<string, string> = {
   SALES_COORDINATOR: 'Sales Coordinator',
   LOGISTICS: 'Logistics',
   TASS: 'TASS',
-  ADMIN: 'Admin'
+  ADMIN: 'Admin',
+  DRIVER: 'Driver'
 };
 
 interface PermissionsPanelProps {
@@ -193,7 +194,10 @@ export default function AdminPanel() {
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [createForm, setCreateForm] = useState({ name: '', email: '', password: '', role: 'SALES_COORDINATOR' });
+  const [createForm, setCreateForm] = useState({ name: '', email: '', password: '', role: 'SALES_COORDINATOR', driver_profile_id: '' });
+  // DRIVER logins own runs through a linked Driver profile (TSK-100).
+  const [driverProfiles, setDriverProfiles] = useState<ApiDriver[]>([]);
+  const [linkingUserId, setLinkingUserId] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [userAction, setUserAction] = useState<{ kind: 'deactivate' | 'activate' | 'delete'; user: ApiUserAdmin } | null>(null);
@@ -209,12 +213,31 @@ export default function AdminPanel() {
     setUsersLoading(true);
     setUsersError(null);
     try {
-      const list = await api.getUsers();
+      const [list, profiles] = await Promise.all([api.getUsers(), api.getDrivers(true)]);
       setUsers(list);
+      setDriverProfiles(profiles.filter(p => p.type === 'DRIVER'));
     } catch (err) {
       setUsersError(err instanceof ApiError ? err.message : 'Failed to load users');
     } finally {
       setUsersLoading(false);
+    }
+  };
+
+  // Profiles a DRIVER login may link to: unlinked ones, plus its current profile.
+  const linkableProfiles = (current?: string | null) =>
+    driverProfiles.filter(p => !p.is_linked || p.id === current);
+
+  const handleDriverLink = async (user: ApiUserAdmin, profileId: string) => {
+    setLinkingUserId(user.id);
+    setEditNotice(null);
+    try {
+      const { driver_profile } = await api.setUserDriverProfile(user.id, profileId || null);
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, driver_profile } : u));
+      setDriverProfiles((await api.getDrivers(true)).filter(p => p.type === 'DRIVER'));
+    } catch (err) {
+      setEditNotice(err instanceof ApiError ? err.message : 'Failed to update the Driver profile link');
+    } finally {
+      setLinkingUserId(null);
     }
   };
 
@@ -229,9 +252,14 @@ export default function AdminPanel() {
     }
     setCreateLoading(true);
     try {
-      const created = await api.createUser(createForm);
+      const { driver_profile_id, ...fields } = createForm;
+      const created = await api.createUser({
+        ...fields,
+        ...(fields.role === 'DRIVER' && driver_profile_id ? { driver_profile_id } : {}),
+      });
       setUsers(prev => [...prev, created]);
-      setCreateForm({ name: '', email: '', password: '', role: 'SALES_COORDINATOR' });
+      if (created.role === 'DRIVER') setDriverProfiles((await api.getDrivers(true)).filter(p => p.type === 'DRIVER'));
+      setCreateForm({ name: '', email: '', password: '', role: 'SALES_COORDINATOR', driver_profile_id: '' });
       setShowCreateForm(false);
     } catch (err) {
       setCreateError(err instanceof ApiError ? err.message : 'Failed to create user');
@@ -258,7 +286,8 @@ export default function AdminPanel() {
         const updated = kind === 'deactivate'
           ? await api.deactivateUser(user.id)
           : await api.activateUser(user.id);
-        setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
+        // Keep the Driver profile link, which this response does not include.
+        setUsers(prev => prev.map(u => u.id === updated.id ? { ...u, ...updated } : u));
       }
       setUserAction(null);
     } catch (err) {
@@ -277,7 +306,10 @@ export default function AdminPanel() {
     setEditLoading(true);
     try {
       const updated = await api.updateUser(userId, editForm);
-      setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
+      // Leaving the DRIVER role unlinks the profile on the server.
+      setUsers(prev => prev.map(u => u.id === updated.id
+        ? { ...u, ...updated, driver_profile: u.role === 'DRIVER' && updated.role === 'DRIVER' ? u.driver_profile : null }
+        : u));
       setEditingUserId(null);
     } catch (err) {
       setEditNotice(err instanceof ApiError ? err.message : 'Failed to update user');
@@ -450,6 +482,21 @@ export default function AdminPanel() {
                     {ROLE_OPTIONS.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
                   </select>
                 </div>
+                {createForm.role === 'DRIVER' && (
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <label htmlFor="create-driver-profile" className="font-bold text-slate-700">Driver profile</label>
+                    <select
+                      id="create-driver-profile"
+                      value={createForm.driver_profile_id}
+                      onChange={e => setCreateForm(f => ({ ...f, driver_profile_id: e.target.value }))}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none"
+                    >
+                      <option value="">Create a new profile named after this login</option>
+                      {linkableProfiles().map(p => <option key={p.id} value={p.id}>{p.name}{p.is_active ? '' : ' (inactive)'}</option>)}
+                    </select>
+                    <p className="text-[11px] text-slate-500">This login sees only runs assigned to the profile it is linked to.</p>
+                  </div>
+                )}
               </div>
               {createError && (
                 <p className="text-red-600 text-[11px] font-semibold bg-red-50 border border-red-200 rounded px-3 py-2">{createError}</p>
@@ -521,6 +568,22 @@ export default function AdminPanel() {
                             <span className="bg-blue-50 text-blue-700 border border-blue-100 text-[10px] px-2 py-0.5 rounded-full font-semibold">
                               {ROLE_LABELS[u.role] ?? u.role}
                             </span>
+                          )}
+                          {u.role === 'DRIVER' && editingUserId !== u.id && (
+                            <div className="mt-1.5 space-y-1">
+                              <label htmlFor={`driver-profile-${u.id}`} className="sr-only">Driver profile for {u.name}</label>
+                              <select
+                                id={`driver-profile-${u.id}`}
+                                value={u.driver_profile?.id ?? ''}
+                                disabled={linkingUserId === u.id}
+                                onChange={e => { void handleDriverLink(u, e.target.value); }}
+                                className={`w-full max-w-[12rem] px-2 py-1 border rounded text-[10px] bg-white disabled:opacity-50 ${u.driver_profile ? 'border-slate-300' : 'border-amber-400 bg-amber-50'}`}
+                              >
+                                <option value="">No Driver profile</option>
+                                {linkableProfiles(u.driver_profile?.id).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                              </select>
+                              {!u.driver_profile && <p className="text-[10px] text-amber-700">Sees no runs until linked.</p>}
+                            </div>
                           )}
                         </td>
                         <td className="px-4 py-3 text-center">

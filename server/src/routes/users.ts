@@ -4,13 +4,14 @@ import { prisma } from '../db';
 import { requireResource, requireAuth, requireRole } from '../middleware/auth';
 
 import { asyncRoute } from '../middleware/asyncRoute';
+import { DriverLinkError, linkDriverLogin, unlinkDriverLogin } from '../services/driverLogin';
 import { permissionEditor, permissionInputError, PermissionSaveError, replacePermissions } from '../services/permissions';
 
 const router = Router();
 
 // User management — ADMIN only.
 router.get('/', requireAuth, requireResource('users'), requireRole('ADMIN'), async (_req: Request, res: Response) => {
-  const users = await prisma.user.findMany({ orderBy: { name: 'asc' } });
+  const users = await prisma.user.findMany({ orderBy: { name: 'asc' }, include: { driverProfile: { select: { id: true, name: true } } } });
   res.json(users.map(u => ({
     id: u.id,
     name: u.name,
@@ -18,13 +19,16 @@ router.get('/', requireAuth, requireResource('users'), requireRole('ADMIN'), asy
     role: u.role,
     is_active: u.isActive,
     microsoft_linked: !!u.microsoftOid,
-    created_at: u.createdAt
+    created_at: u.createdAt,
+    driver_profile: u.driverProfile,
   })));
 });
 
-// Create user — ADMIN only.
-router.post('/', requireAuth, requireResource('users'), requireRole('ADMIN'), async (req: Request, res: Response) => {
-  const { name, email, password, role } = req.body ?? {};
+// Create user — ADMIN only. A DRIVER login is linked to a Driver profile in the
+// same transaction: `driver_profile_id` links an existing unlinked profile,
+// omitting it creates a new profile named after the login.
+router.post('/', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (req: Request, res: Response) => {
+  const { name, email, password, role, driver_profile_id } = req.body ?? {};
   if (!name || !email || !password || !role) {
     return res.status(400).json({ error: 'name, email, password, and role are required' });
   }
@@ -32,20 +36,54 @@ router.post('/', requireAuth, requireResource('users'), requireRole('ADMIN'), as
   if (!validRoles.includes(role)) {
     return res.status(400).json({ error: `role must be one of: ${validRoles.join(', ')}` });
   }
+  if (driver_profile_id !== undefined && (role !== 'DRIVER' || typeof driver_profile_id !== 'string' || !driver_profile_id)) {
+    return res.status(400).json({ error: 'driver_profile_id is only valid for a DRIVER login and must be a Driver profile id.' });
+  }
   const hashed = await bcrypt.hash(password, 10);
-  const created = await prisma.user.create({
-    data: { name, email: String(email).toLowerCase(), password: hashed, role, isActive: true }
-  });
-  res.status(201).json({
-    id: created.id,
-    name: created.name,
-    email: created.email,
-    role: created.role,
-    is_active: created.isActive,
-    microsoft_linked: false,
-    created_at: created.createdAt,
-  });
-});
+  try {
+    const { created, profile } = await prisma.$transaction(async tx => {
+      const created = await tx.user.create({
+        data: { name, email: String(email).toLowerCase(), password: hashed, role, isActive: true }
+      });
+      const profile = role === 'DRIVER' ? await linkDriverLogin(tx, created, driver_profile_id, req.user!) : null;
+      return { created, profile };
+    });
+    res.status(201).json({
+      id: created.id,
+      name: created.name,
+      email: created.email,
+      role: created.role,
+      is_active: created.isActive,
+      microsoft_linked: false,
+      created_at: created.createdAt,
+      driver_profile: profile ? { id: profile.id, name: profile.name } : null,
+    });
+  } catch (error) {
+    if (error instanceof DriverLinkError) return res.status(error.status).json({ error: error.message });
+    if ((error as { code?: string })?.code === 'P2002') return res.status(409).json({ error: 'An account with this email already exists.' });
+    throw error;
+  }
+}));
+
+// Link, relink or unlink a DRIVER login's Driver profile — ADMIN only.
+// Body: { driver_profile_id: string | null }.
+router.put('/:id/driver-profile', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (req: Request, res: Response) => {
+  const profileId = req.body?.driver_profile_id;
+  if (profileId !== null && (typeof profileId !== 'string' || !profileId)) {
+    return res.status(400).json({ error: 'driver_profile_id must be a Driver profile id or null.' });
+  }
+  try {
+    const profile = await prisma.$transaction(async tx => {
+      const user = await tx.user.findUnique({ where: { id: req.params.id } });
+      if (!user) throw new DriverLinkError('User not found', 404);
+      return linkDriverLogin(tx, user, profileId, req.user!);
+    });
+    res.json({ user_id: req.params.id, driver_profile: profile ? { id: profile.id, name: profile.name } : null });
+  } catch (error) {
+    if (error instanceof DriverLinkError) return res.status(error.status).json({ error: error.message });
+    throw error;
+  }
+}));
 
 // Update user details — ADMIN only.
 router.patch('/:id', requireAuth, requireResource('users'), requireRole('ADMIN'), async (req: Request, res: Response) => {
@@ -72,7 +110,11 @@ router.patch('/:id', requireAuth, requireResource('users'), requireRole('ADMIN')
     return res.status(400).json({ error: 'At least one field (name, email, role) is required' });
   }
 
-  const updated = await prisma.user.update({ where: { id }, data });
+  // A login that stops being a DRIVER also stops owning runs.
+  const updated = await prisma.$transaction(async tx => {
+    if (user.role === 'DRIVER' && role && role !== 'DRIVER') await unlinkDriverLogin(tx, id, req.user!);
+    return tx.user.update({ where: { id }, data });
+  });
   res.json({
     id: updated.id,
     name: updated.name,
