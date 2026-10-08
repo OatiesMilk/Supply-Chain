@@ -1740,7 +1740,7 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
                 type="button"
                 autoFocus
                 disabled={removing}
-                onClick={() => { setConfirmRemoveId(null); setError(null); }}
+                onClick={() => setConfirmRemoveId(null)}
                 className="px-4 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg"
               >
                 Cancel
