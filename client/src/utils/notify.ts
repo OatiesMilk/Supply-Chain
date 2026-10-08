@@ -17,6 +17,7 @@ export const notify = {
     toast.info(message);
   },
   fileRejected(fileName: string, reason: string) {
-    toast.error(`${fileName} — ${reason}`, { duration: ERROR_TOAST_DURATION_MS });
+    const separator = reason.startsWith('is ') ? ' ' : ' — ';
+    toast.error(`${fileName}${separator}${reason}`, { duration: ERROR_TOAST_DURATION_MS });
   },
 };
