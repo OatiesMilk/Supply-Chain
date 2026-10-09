@@ -234,7 +234,7 @@ test.describe('A-3 Edit a Record', () => {
   test('A-3.8 Active module navigation works with collapsed and mobile sidebars', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
-    await page.locator('#collapse-sidebar-button').click();
+    await page.getByRole('button', { name: 'Collapse menu' }).click();
 
     const firstRow = page.getByRole('row').nth(1);
     await expect(firstRow).toBeVisible();
