@@ -150,6 +150,40 @@ export async function seedDriverDemo(prisma: PrismaClient, targetDate?: string) 
           }
         });
         createdCount++;
+
+        // Add records for other categories so E2E tests for these modules have data
+        const extraCategories = ['RMA', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'];
+        for (const cat of extraCategories) {
+          const catDemoId = `REC-DEMO-${dateStr.replace(/-/g, '')}-${hashName}-${cat}`;
+          const existingCatRecord = await tx.deliveryRecord.findUnique({ where: { id: catDemoId } });
+          if (!existingCatRecord) {
+            await tx.deliveryRecord.create({
+              data: {
+                id: catDemoId,
+                companyId: company.id,
+                priority: '2 - Moderate',
+                reference: `SAP-DEMO-${hashName.substring(0, 8)}-${cat}`,
+                remarks: `Demo seeded run for ${cat}`,
+                status: 'SCHEDULED',
+                vehicle: 'Van-01 (L300)',
+                area: 'Quezon City - Diliman',
+                driver: profile.name,
+                driverId: profile.id,
+                driverAssistants: assistantName ? JSON.stringify([assistantName]) : '[]',
+                accountManager: 'Demo Account',
+                deliveryDate: dateStr,
+                category: cat,
+                itemType: 'Small Item',
+                draft: false,
+                itemDescription: `Demo item for ${cat}`,
+                collectionVerified: false,
+                createdById: sales.id,
+                modifiedById: logistics.id
+              }
+            });
+            createdCount++;
+          }
+        }
       } else {
         console.log(`Demo record ${demoId} already exists, skipping to preserve edits.`);
       }
