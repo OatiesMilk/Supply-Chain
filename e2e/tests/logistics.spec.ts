@@ -370,7 +370,8 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
   });
 
   test('B-2.8 Active Accounting Collection sidebar returns to the list and guards unsaved edits', async ({ page }) => {
-    await page.goto(`${BASE_URL}/accounting_collection`);
+    await page.goto(BASE_URL);
+    await page.getByRole('navigation').getByRole('button', { name: /accounting collection/i }).click();
     await page.waitForLoadState('networkidle');
     await page.getByRole('button', { name: 'Scheduled', exact: true }).click();
 
@@ -405,7 +406,8 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     ];
 
     for (const module of modules) {
-      await page.goto(`${BASE_URL}/${module.path}`);
+      await page.goto(BASE_URL);
+      await page.getByRole('navigation').getByRole('button', { name: module.sidebarName }).click();
       await page.waitForLoadState('networkidle');
       await expect(page.getByRole('table')).toBeVisible();
 
