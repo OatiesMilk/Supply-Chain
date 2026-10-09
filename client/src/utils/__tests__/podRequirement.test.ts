@@ -78,8 +78,15 @@ test('completion needs Time In and a nonblank receiver even with verified photos
   assert.equal(completionError(record, 'Pending', '', ready({ hasPhoto: false })), null);
 });
 
-test('supporting documents remain valid uploads while format and size limits still apply', () => {
+test('supporting documents remain valid while count, format and size limits apply', () => {
   assert.equal(validatePodAttachments([{ name: 'signed.pdf', size: 100 }, { name: 'form.doc', size: 100 }, { name: 'photo.JPG', size: 100 }]), null);
-  assert.match(validatePodAttachments([{ name: 'photo.jpg', size: 10 * 1024 * 1024 + 1 }])!, /too large/);
-  assert.match(validatePodAttachments([{ name: 'photo.svg', size: 100 }])!, /not supported/);
+  assert.match(validatePodAttachments([{ name: 'photo.jpg', size: 10 * 1024 * 1024 + 1 }])!, /^photo\.jpg is 10\.0 MB — maximum is 10 MB\.$/);
+  assert.equal(
+    validatePodAttachments([{ name: 'invoice.exe', size: 100 }]),
+    'invoice.exe — file type not allowed. Use JPG, PNG, PDF or DOC.'
+  );
+  assert.equal(
+    validatePodAttachments(Array.from({ length: 11 }, (_, index) => ({ name: `file-${index + 1}.pdf`, size: 100 }))),
+    '11 files selected — maximum is 10 files at a time.'
+  );
 });
