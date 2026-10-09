@@ -74,9 +74,9 @@ test.describe('C-1 Driver Dashboard', () => {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByText(/today.*runs|runs.*today/i)).toBeVisible();
-    await expect(page.getByText(/accomplished/i)).toBeVisible();
-    await expect(page.getByText(/remaining/i)).toBeVisible();
+    await expect(page.getByText(/today.*runs|runs.*today/i).first()).toBeVisible();
+    await expect(page.getByText(/accomplished/i).first()).toBeVisible();
+    await expect(page.getByText(/remaining/i).first()).toBeVisible();
   });
 
   test('C-1.3 Future assigned Delivery stays visible and read-only', async ({ page }) => {
@@ -85,14 +85,14 @@ test.describe('C-1 Driver Dashboard', () => {
     await expect(page.getByText('Upcoming · read-only')).toBeVisible();
     await expect(page.getByText('Date actionability fixture')).toBeVisible();
     await expect(page.getByRole('button', { name: /record time in/i })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /upload photo|upload.*doc/i })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /upload photo|upload.*doc|select photo/i })).toHaveCount(0);
   });
 
   test('C-1.4 Overdue assigned Delivery shows lateness and execution controls', async ({ page }) => {
     await showAssignedRecord(page, manilaDateOffset(-2));
     await expect(page.getByText(/overdue · 2 days late/i)).toBeVisible();
     await expect(page.getByRole('button', { name: /record time in/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /upload photo|upload.*doc/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /upload photo|upload.*doc|select photo/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /^Pending$/i })).toBeDisabled();
     await expect(page.getByRole('button', { name: /^Reschedule$/i })).toBeEnabled();
   });
@@ -105,7 +105,7 @@ test.describe('C-1 Driver Dashboard', () => {
     await page.waitForLoadState('networkidle');
 
     // Should be back on the login page
-    await expect(page.getByLabel(/email/i)).toBeVisible();
+    await expect(page.getByRole('button', { name: /sign in with microsoft/i })).toBeVisible();
   });
 });
 
@@ -118,7 +118,7 @@ test.describe('C-2 ePOD Flow', () => {
   test('C-2.1 Record Time In button is clickable', async ({ page }) => {
     const timeInBtn = await getFirstActiveCard(page);
 
-    if (!(await timeInBtn.isVisible())) {
+    try { await timeInBtn.waitFor({ state: "visible", timeout: 3000 }); } catch (e) {
       test.skip(true, 'No active record assigned to driver for today — skipping ePOD tests');
       return;
     }
@@ -131,19 +131,23 @@ test.describe('C-2 ePOD Flow', () => {
   });
 
   test('C-2.2 POD upload section is visible on an active delivery', async ({ page }) => {
-    const uploadButton = page.getByRole('button', { name: /upload photo|upload.*doc/i }).first();
-    if (!(await uploadButton.isVisible())) {
-      test.skip(true, 'No active record assigned to driver for today — skipping ePOD tests');
+    const uploadButton = page.getByRole('button', { name: /upload photo|upload.*doc|select photo/i }).first();
+    try {
+      await uploadButton.waitFor({ state: 'visible', timeout: 3000 });
+    } catch (e) {
+      test.skip(true, 'Element not visible');
       return;
     }
-    await expect(page.getByText(/proof of delivery/i)).toBeVisible();
+    await expect(page.getByText(/proof of delivery/i).first()).toBeVisible();
     await expect(uploadButton).toBeVisible();
   });
 
   test('C-2.4 Driver can upload a valid delivery photo', async ({ page }) => {
-    const podSection = page.getByRole('button', { name: /upload photo|upload.*doc/i }).first();
-    if (!(await podSection.isVisible())) {
-      test.skip(true, 'POD upload section not visible');
+    const podSection = page.getByRole('button', { name: /upload photo|upload.*doc|select photo/i }).first();
+    try {
+      await podSection.waitFor({ state: 'visible', timeout: 3000 });
+    } catch (e) {
+      test.skip(true, 'Element not visible');
       return;
     }
 
@@ -161,9 +165,11 @@ test.describe('C-2 ePOD Flow', () => {
   });
 
   test('C-2.3 Supporting documents upload but do not satisfy photo proof', async ({ page }) => {
-    const podSection = page.getByRole('button', { name: /upload photo|upload.*doc/i }).first();
-    if (!(await podSection.isVisible())) {
-      test.skip(true, 'POD upload section not visible');
+    const podSection = page.getByRole('button', { name: /upload photo|upload.*doc|select photo/i }).first();
+    try {
+      await podSection.waitFor({ state: 'visible', timeout: 3000 });
+    } catch (e) {
+      test.skip(true, 'Element not visible');
       return;
     }
 
@@ -176,8 +182,10 @@ test.describe('C-2 ePOD Flow', () => {
 
   test('C-2.7 Received By field accepts text', async ({ page }) => {
     const receivedByInput = page.getByPlaceholder(/received.*item|name of person/i).first();
-    if (!(await receivedByInput.isVisible())) {
-      test.skip(true, 'Received By input not visible');
+    try {
+      await receivedByInput.waitFor({ state: 'visible', timeout: 3000 });
+    } catch (e) {
+      test.skip(true, 'Element not visible');
       return;
     }
     await receivedByInput.fill('Juan dela Cruz (UAT)');
@@ -187,8 +195,10 @@ test.describe('C-2 ePOD Flow', () => {
   test('C-2.10 Confirm button is disabled without remarks', async ({ page }) => {
     // Click Accomplish
     const accomplishBtn = page.getByRole('button', { name: /accomplish/i }).first();
-    if (!(await accomplishBtn.isVisible())) {
-      test.skip(true, 'No active record to accomplish');
+    try {
+      await accomplishBtn.waitFor({ state: 'visible', timeout: 3000 });
+    } catch (e) {
+      test.skip(true, 'Element not visible');
       return;
     }
     await accomplishBtn.click();
@@ -201,8 +211,10 @@ test.describe('C-2 ePOD Flow', () => {
 
   test('C-2.8 Full Accomplish flow with remarks', async ({ page }) => {
     const accomplishBtn = page.getByRole('button', { name: /accomplish/i }).first();
-    if (!(await accomplishBtn.isVisible())) {
-      test.skip(true, 'No active record to accomplish');
+    try {
+      await accomplishBtn.waitFor({ state: 'visible', timeout: 3000 });
+    } catch (e) {
+      test.skip(true, 'Element not visible');
       return;
     }
 
@@ -239,8 +251,10 @@ test.describe('C-3 Accomplished Records View', () => {
 
     const accomplishedHeading = page.getByText(/^Accomplished \(\d+\)$/i).first();
     const accomplishedRun = accomplishedHeading.locator('..').locator('..').getByRole('button').first();
-    if (!(await accomplishedRun.isVisible())) {
-      test.skip(true, 'No accomplished run available for POD preview');
+    try {
+      await accomplishedRun.waitFor({ state: 'visible', timeout: 3000 });
+    } catch (e) {
+      test.skip(true, 'Element not visible');
       return;
     }
     await accomplishedRun.click();
