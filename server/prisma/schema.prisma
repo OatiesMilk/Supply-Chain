@@ -6,18 +6,17 @@ datasource db {
   provider = "postgresql"
 }
 
-// SQLite has no native enum support in Prisma, so the enums from the spec
-// (Role, RecordStatus, RecordCategory) are modeled as plain Strings here and
-// validated/constrained in the application layer (see server/src/mappings.ts
-// and the RBAC checks in server/src/middleware/auth.ts + routes). Valid
-// values are documented in the comments below.
+// The enums from the spec (Role, RecordStatus, RecordCategory) are modeled as
+// plain Strings here and validated/constrained in the application layer (see
+// server/src/mappings.ts and the RBAC checks in server/src/middleware/auth.ts
+// + routes). Valid values are documented in the comments below.
 
 model User {
   id           String   @id @default(cuid())
   name         String
   email        String   @unique
   password     String
-  role         String // SALES_COORDINATOR | LOGISTICS | TASS | ADMIN
+  role         String // SALES_COORDINATOR | LOGISTICS | TASS | ADMIN | DRIVER
   isActive     Boolean  @default(true)
   microsoftOid String?  @unique
   createdAt    DateTime @default(now())
