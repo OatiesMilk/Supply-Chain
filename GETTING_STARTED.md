@@ -113,14 +113,16 @@ The last command is destructive. It does not delete files in the POD upload
 directory because POD files are stored by the backend outside this
 PostgreSQL-only Compose service.
 
-## 4. Apply migrations and seed demo data
+## 4. Apply migrations and prepare demo data
 
 ```bash
 cd server
 npx prisma migrate dev
-npm run seed
 cd ..
 ```
+
+Use the guarded seed procedure below if this disposable local database needs
+demo data.
 
 For a clean database in a disposable local environment, use:
 
@@ -144,11 +146,11 @@ accepting an automatic reset.
 
 ### Secure local demo and UAT seeds (TSK-122)
 
-Anonymous demo/UAT seed HTTP endpoints and the portal's destructive reset
-buttons were removed. The remaining guarded reset API fails closed unless the
-backend verifies an opted-in disposable local sandbox. Deployed staging and
-production always deny resets. The login screen cannot trigger a destructive
-reset.
+Anonymous demo/UAT seed HTTP endpoints were removed. After an Admin signs in,
+the Navbar and Data Sampler reset controls appear only when the backend verifies
+an explicitly opted-in disposable local sandbox. Deployed staging and
+production always deny and hide these resets. The login screen cannot trigger a
+destructive reset; its demo-account Quick Switch remains available when enabled.
 
 On a **disposable local PostgreSQL database** named `*_sandbox` or `*_test`,
 set `DATABASE_URL` in `server/.env` to the local loopback PostgreSQL URL;

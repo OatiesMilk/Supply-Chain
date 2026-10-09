@@ -4,6 +4,7 @@ import { requireResource, requireAuth, requireRole } from '../middleware/auth';
 import { runSeed } from '../../prisma/seed';
 import { canResetLocalDemo } from '../services/localDemoReset';
 import { serializeRecord } from '../mappings';
+import type { Request, Response } from 'express';
 
 const router = Router();
 
@@ -245,34 +246,46 @@ router.post('/generate', requireAuth, requireResource('dataSampler'), requireRol
   }
 });
 
-router.post('/reset', requireAuth, requireResource('dataSampler'), requireRole('ADMIN'), async (req, res) => {
-  if (!canResetLocalDemo(req)) return res.status(403).json({ error: 'Demo reset is available only on a verified local disposable database' });
-  const { mode } = req.body ?? {};
-  if (mode !== 'full' && mode !== 'seed') {
-    return res.status(400).json({ error: 'mode must be "full" or "seed"' });
-  }
+export interface DataSamplerResetOperations {
+  countRecords: () => Promise<number>;
+  resetToSeed: () => Promise<void>;
+  fullReset: () => Promise<void>;
+}
 
-  const deleted = await prisma.deliveryRecord.count();
-
-  if (mode === 'seed') {
-    // Full wipe + re-seed restores the complete demo state (users, companies, records).
-    await runSeed(true);
-  } else {
-    // Delete only transactional records. AuditLog has a DB-level FK to DeliveryRecord
-    // (ON DELETE RESTRICT from the init migration), so audit entries must be removed first.
+const dataSamplerResetOperations: DataSamplerResetOperations = {
+  countRecords: () => prisma.deliveryRecord.count(),
+  resetToSeed: () => runSeed(true),
+  fullReset: async () => {
+    // AuditLog has a DB-level FK to DeliveryRecord (ON DELETE RESTRICT), so audit
+    // entries must be removed before the transactional records.
     await prisma.auditLog.deleteMany({ where: { recordType: 'DeliveryRecord' } });
     await prisma.comment.deleteMany({ where: { recordType: 'DeliveryRecord' } });
     await prisma.notification.deleteMany();
     await prisma.notificationLog.deleteMany();
     await prisma.deliveryRecord.deleteMany();
-  }
+  },
+};
 
-  // Cannot write to audit_log: the FK on recordId requires a valid DeliveryRecord.id
-  // which no longer exists after the reset. System events would need a schema change.
-  console.log(`[RESET] ${mode} reset performed by ${req.user!.name} — ${deleted} record(s) deleted`);
+export function createDataSamplerResetHandler(operations: DataSamplerResetOperations = dataSamplerResetOperations) {
+  return async (req: Request, res: Response) => {
+    if (!canResetLocalDemo(req)) return res.status(403).json({ error: 'Demo reset is available only on a verified local disposable database' });
+    const { mode } = req.body ?? {};
+    if (mode !== 'full' && mode !== 'seed') {
+      return res.status(400).json({ error: 'mode must be "full" or "seed"' });
+    }
 
-  res.json({ deleted, mode });
-});
+    const deleted = await operations.countRecords();
+    if (mode === 'seed') await operations.resetToSeed();
+    else await operations.fullReset();
+
+    // Cannot write to audit_log: the FK on recordId requires a valid DeliveryRecord.id
+    // which no longer exists after the reset. System events would need a schema change.
+    console.log(`[RESET] ${mode} reset performed by ${req.user!.name} — ${deleted} record(s) deleted`);
+    res.json({ deleted, mode });
+  };
+}
+
+router.post('/reset', requireAuth, requireResource('dataSampler'), requireRole('ADMIN'), createDataSamplerResetHandler());
 
 
 export default router;

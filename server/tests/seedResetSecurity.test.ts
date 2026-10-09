@@ -3,22 +3,35 @@ import assert from 'node:assert/strict';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import { prisma } from '../src/db';
-import { signToken } from '../src/middleware/auth';
-import devRoutes from '../src/routes/dev';
-import dataSamplerRoutes from '../src/routes/data-sampler';
+import { requireAuth, requireResource, requireRole, signToken } from '../src/middleware/auth';
+import devRoutes, { createDevRouter } from '../src/routes/dev';
+import dataSamplerRoutes, { createDataSamplerResetHandler, type DataSamplerResetOperations } from '../src/routes/data-sampler';
 import { assertDisposableSeedTarget } from '../prisma/seed-safety';
 import { runSeed } from '../prisma/seed';
 import { runUatSeed } from '../prisma/seed-uat';
 
 const admin = { id: 'seed-admin', name: 'Admin', email: 'admin@example.com', role: 'ADMIN' as const, isActive: true, permissions: [], driverProfile: null };
 const sales = { ...admin, id: 'seed-sales', role: 'SALES_COORDINATOR' as const };
+const logistics = { ...admin, id: 'seed-logistics', role: 'LOGISTICS' as const };
+const driver = { ...admin, id: 'seed-driver', role: 'DRIVER' as const };
+const tass = { ...admin, id: 'seed-tass', role: 'TASS' as const };
+const actors = [admin, sales, logistics, driver, tass];
 
-async function startApp() {
+async function startApp(options: {
+  resetSeed?: () => Promise<void>;
+  dataSamplerReset?: DataSamplerResetOperations;
+} = {}) {
   const app = express();
   app.use(express.json());
   app.use(cookieParser());
-  app.use('/api/dev', devRoutes);
-  app.use('/api/data-sampler', dataSamplerRoutes);
+  app.use('/api/dev', options.resetSeed ? createDevRouter(options.resetSeed) : devRoutes);
+  if (options.dataSamplerReset) {
+    const resetRouter = express.Router();
+    resetRouter.post('/reset', requireAuth, requireResource('dataSampler'), requireRole('ADMIN'), createDataSamplerResetHandler(options.dataSamplerReset));
+    app.use('/api/data-sampler', resetRouter);
+  } else {
+    app.use('/api/data-sampler', dataSamplerRoutes);
+  }
   const server = app.listen(0, '127.0.0.1');
   await new Promise<void>(resolve => server.on('listening', resolve));
   return {
@@ -83,7 +96,7 @@ test('removed public reset endpoints remain 404 regardless of role and environme
       process.env.NODE_ENV = mode;
       try {
         for (const endpoint of ['/api/dev/public-seed', '/api/dev/public-seed-uat']) {
-          for (const actor of [null, admin, sales]) {
+          for (const actor of [null, ...actors]) {
             const headers: Record<string, string> = {};
             if (actor) headers.Cookie = 'mg_session=' + signToken(actor);
             const response = await fetch(url + endpoint, { method: 'POST', headers });
@@ -106,12 +119,12 @@ test('local-demo reset endpoints reject anonymous, wrong-role, and hosted Admin 
   const previous = { ...process.env };
   let hits = 0;
   const dbCount = prisma.deliveryRecord.count;
-  prisma.user.findUnique = (async ({ where }: any) => where.id === admin.id ? admin : sales) as any;
+  prisma.user.findUnique = (async ({ where }: any) => actors.find(actor => actor.id === where.id) ?? null) as any;
   prisma.deliveryRecord.count = (async () => { hits++; throw Error('must not touch database'); }) as any;
   try {
     for (const mode of ['development', 'staging', 'production']) {
       Object.assign(process.env, sandbox, { NODE_ENV: mode, LOCAL_DESTRUCTIVE_SEED: 'false' });
-      for (const actor of [null, sales, admin]) {
+      for (const actor of [null, sales, logistics, driver, tass, admin]) {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (actor) headers.Cookie = 'mg_session=' + signToken(actor);
         for (const path of ['/api/dev/reset-seed', '/api/data-sampler/reset']) {
@@ -155,6 +168,51 @@ test('capability reports enabled only for authenticated Admin on a permitted loc
     assert.equal((await hosted.json() as { enabled: boolean }).enabled, false);
   } finally {
     prisma.user.findUnique = original;
+    for (const key of ['CI', 'RENDER', 'RENDER_SERVICE_ID', 'RENDER_EXTERNAL_URL', 'NODE_ENV', 'LOCAL_DESTRUCTIVE_SEED', 'LOCAL_SEED_DATABASE', 'DATABASE_URL']) {
+      if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key];
+    }
+    await close();
+  }
+});
+
+test('approved local Admin can run both reset APIs through safely mocked operations', async () => {
+  const previous = { ...process.env };
+  const findUser = prisma.user.findUnique;
+  let navbarResetCalls = 0;
+  const calls = { count: 0, seed: 0, full: 0 };
+  const resetOperations: DataSamplerResetOperations = {
+    countRecords: async () => { calls.count++; return 7; },
+    resetToSeed: async () => { calls.seed++; },
+    fullReset: async () => { calls.full++; },
+  };
+  const { url, close } = await startApp({
+    resetSeed: async () => { navbarResetCalls++; },
+    dataSamplerReset: resetOperations,
+  });
+  prisma.user.findUnique = (async ({ where }: any) => where.id === admin.id ? admin : null) as any;
+  try {
+    Object.assign(process.env, sandbox);
+    for (const key of ['CI', 'RENDER', 'RENDER_SERVICE_ID', 'RENDER_EXTERNAL_URL']) delete process.env[key];
+    const headers = { Cookie: 'mg_session=' + signToken(admin), 'Content-Type': 'application/json' };
+
+    const navbarReset = await fetch(url + '/api/dev/reset-seed', { method: 'POST', headers });
+    assert.equal(navbarReset.status, 200);
+    assert.equal(navbarResetCalls, 1);
+
+    const fullReset = await fetch(url + '/api/data-sampler/reset', {
+      method: 'POST', headers, body: JSON.stringify({ mode: 'full' })
+    });
+    assert.equal(fullReset.status, 200);
+    assert.deepEqual(await fullReset.json(), { deleted: 7, mode: 'full' });
+
+    const seedReset = await fetch(url + '/api/data-sampler/reset', {
+      method: 'POST', headers, body: JSON.stringify({ mode: 'seed' })
+    });
+    assert.equal(seedReset.status, 200);
+    assert.deepEqual(await seedReset.json(), { deleted: 7, mode: 'seed' });
+    assert.deepEqual(calls, { count: 2, seed: 1, full: 1 });
+  } finally {
+    prisma.user.findUnique = findUser;
     for (const key of ['CI', 'RENDER', 'RENDER_SERVICE_ID', 'RENDER_EXTERNAL_URL', 'NODE_ENV', 'LOCAL_DESTRUCTIVE_SEED', 'LOCAL_SEED_DATABASE', 'DATABASE_URL']) {
       if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key];
     }
