@@ -61,6 +61,10 @@ jobs:
       - name: Build Backend (Server)
         run: npm run build --workspace=server
 
+      # TSK-122: test HTTP reset denial and CLI guard without a real database.
+      - name: Test destructive seed safeguards
+        run: npx tsx --test server/tests/seedResetSecurity.test.ts
+
       # Step 8: Frontend static type checking (tsc --noEmit)
       - name: Typecheck Frontend (Client)
         run: npm run lint --workspace=client

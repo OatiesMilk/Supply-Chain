@@ -1,5 +1,5 @@
 import { manilaToday } from '@/utils/recordLifecycle';
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Menu,
   ZoomIn,
@@ -11,6 +11,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { NotificationBell } from "@/components";
+import { api } from "@/api";
 import { ActionDialog } from "@/components/ActionDialog";
 import { DeliveryRecord } from "@/types";
 
@@ -43,6 +44,15 @@ export const Navbar: React.FC<NavbarProps> = ({
   resetting,
   handleLogout,
 }) => {
+  const [canReset, setCanReset] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    if (currentUserRole === 'Admin') {
+      api.canResetDemo().then(result => { if (mounted) setCanReset(result.enabled); })
+        .catch(() => { if (mounted) setCanReset(false); });
+    }
+    return () => { mounted = false; };
+  }, [currentUserRole]);
   const [resetOpen, setResetOpen] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
 
@@ -134,7 +144,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           deliveryRecords={deliveryRecords}
         />
 
-        <button
+        {canReset && <button
           onClick={() => { setResetError(null); setResetOpen(true); }}
           disabled={resetting}
           className="p-1.5 bg-slate-100 hover:bg-red-50 border border-slate-200 hover:border-red-200 text-slate-500 hover:text-red-600 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
@@ -146,7 +156,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           ) : (
             <RotateCw className="w-3.5 h-3.5" />
           )}
-        </button>
+        </button>}
 
         <button
           onClick={handleLogout}
