@@ -12,7 +12,7 @@ import { podStorage, podUpload } from '../services/podStorage';
 import { DELIVERY_PHOTO_REQUIRED, hasStoredDeliveryPhoto, isPhotoMimeType, isVerifiedPodPhoto, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
 
 import { canWriteCategory, isAssignedDriver, recordScope } from '../services/recordAccess';
-import { deliveryScheduleState, driverDeliveryDateError, isValidDateOnly, isoTimestamp, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
+import { deliveryScheduleState, driverDeliveryDateError, isValidDateOnly, isoTimestamp, manilaToday, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
 
 const router = Router();
 const requireRecordAccess = asyncRoute(async (req, res, next) => {
@@ -674,6 +674,9 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   const hasPriority = priority !== undefined && priority !== '';
   if (hasPriority && !['LOGISTICS', 'ADMIN'].includes(req.user!.role)) return res.status(403).json({ error: 'Your role cannot change record priority.' });
   if (hasPriority && !['1 - Low', '2 - Moderate', '3 - High'].includes(priority)) return res.status(400).json({ error: 'Invalid record priority.' });
+  const newDeliveryDate = req.body.delivery_date;
+  const hasNewDeliveryDate = newDeliveryDate !== undefined && newDeliveryDate !== null && newDeliveryDate !== '';
+  if (hasNewDeliveryDate && !isValidDateOnly(newDeliveryDate)) return res.status(400).json({ error: 'New delivery date must be a valid YYYY-MM-DD date.' });
   const result = await prisma.$transaction(async tx => {
     await lockPodRecord(tx, req.params.id);
     const current = await tx.deliveryRecord.findUnique({ where: { id: req.params.id }, include: recordInclude });
@@ -685,6 +688,14 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     const statusChanged = runState(current) !== status;
     const priorityChanged = hasPriority && current.priority !== priority;
     if (!statusChanged && !priorityChanged) return { error: 'Choose a different status or priority before saving.', saved: null, previous: null };
+    // Logistics/Admin rescheduling a Delivery must set the new date in the same action (TSK-123).
+    const requiresNewDate = statusChanged && status === 'Rescheduled' && current.category === 'DELIVERY' && ['LOGISTICS', 'ADMIN'].includes(req.user!.role);
+    if (hasNewDeliveryDate && !requiresNewDate) return { error: 'Change the Delivery Date in Overview, or choose Rescheduled.', saved: null, previous: null };
+    if (requiresNewDate) {
+      if (!hasNewDeliveryDate) return { error: 'A new delivery date is required to reschedule a delivery.', saved: null, previous: null };
+      if (newDeliveryDate < manilaToday()) return { error: 'The new delivery date cannot be in the past.', saved: null, previous: null };
+      if (newDeliveryDate === current.deliveryDate) return { error: 'The new delivery date must be different from the current delivery date.', saved: null, previous: null };
+    }
     if (statusChanged) {
       if (status === 'Delivered' && current.category === 'DELIVERY' && !deliveryScheduleState(current.deliveryDate).valid) {
         return { error: 'A valid Delivery Date is required before completing this delivery.', saved: null, previous: null };
@@ -712,6 +723,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
       }
     }
     if (statusChanged && status === 'Rescheduled') { data.timeIn = null; data.timeOut = null; data.receivedBy = null; }
+    if (requiresNewDate) data.deliveryDate = newDeliveryDate;
     const saved = await tx.deliveryRecord.update({ where: { id: current.id }, data, include: recordInclude });
     await tx.auditLog.create({ data: {
       recordId: saved.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id,

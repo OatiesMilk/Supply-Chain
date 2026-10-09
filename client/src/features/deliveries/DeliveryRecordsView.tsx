@@ -765,10 +765,11 @@ export default function DeliveryRecordsView({
                 className="text-[11px] font-bold bg-white/10 border border-white/20 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
               >
                 <option value="" className="text-slate-900 bg-white">Keep unchanged</option>
-                {DELIVERY_STATUSES.filter(s => s !== 'In Transit' && s !== 'Delivered' && s !== 'Draft' && [...selectedBulkIds].every(id => { const record = categoryRecords.find(r => r.id === id); return record && (record.status === s || selectableStatuses(record, currentUserRole).includes(s)); })).map(s => (
+                {DELIVERY_STATUSES.filter(s => s !== 'In Transit' && s !== 'Delivered' && s !== 'Draft' && !(category === 'Deliveries' && s === 'Rescheduled') && [...selectedBulkIds].every(id => { const record = categoryRecords.find(r => r.id === id); return record && (record.status === s || selectableStatuses(record, currentUserRole).includes(s)); })).map(s => (
                   <option key={s} value={s} className="text-slate-900 bg-white">{s}</option>
                 ))}
               </select>
+              {category === 'Deliveries' && <span className="text-[10px] text-white/60 max-w-48 leading-tight">Reschedule deliveries one at a time to set each new date.</span>}
             </div>
           )}
           {canEdit && (

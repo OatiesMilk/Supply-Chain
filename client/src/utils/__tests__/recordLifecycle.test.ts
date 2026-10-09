@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { DeliveryRecord } from '../../types';
-import { canRecordTimeIn, dashboardRunDaysLate, deliveryScheduleState, hasValidRunTimeIn, isDashboardRunActionable, isDraftRecord, selectableStatuses, manilaToday, manilaDateTimeInput, manilaInputToIso, submissionErrors } from '../recordLifecycle';
+import { canRecordTimeIn, dashboardRunDaysLate, deliveryScheduleState, hasValidRunTimeIn, isDashboardRunActionable, isDraftRecord, selectableStatuses, manilaToday, manilaDateTimeInput, manilaInputToIso, rescheduleDateError, submissionErrors } from '../recordLifecycle';
 
 const record = (overrides: Partial<DeliveryRecord> = {}): DeliveryRecord => ({
   status: 'Scheduled', is_draft: 'No', driver: 'Assigned Driver', time_in: null,
@@ -72,4 +72,13 @@ test('started Delivery eligibility requires the server timestamp format', () => 
   assert.equal(hasValidRunTimeIn('2026-10-08T01:00:00.000Z'), true);
   assert.equal(hasValidRunTimeIn('2026-10-08 01:00:00'), false);
   assert.equal(isDashboardRunActionable(record({ category: 'Deliveries', delivery_date: '2026-10-09', time_in: '2026-10-08 01:00:00' }), '2026-10-08'), false);
+});
+
+test('TSK-123: reschedule date must be present, valid, not past and different from the current date', () => {
+  assert.match(rescheduleDateError('', '2026-10-09', '2026-10-09') ?? '', /Enter the new/);
+  assert.match(rescheduleDateError('2026-02-30', '2026-10-09', '2026-10-09') ?? '', /valid/);
+  assert.match(rescheduleDateError('2026-10-08', '2026-10-12', '2026-10-09') ?? '', /past/);
+  assert.match(rescheduleDateError('2026-10-12', '2026-10-12', '2026-10-09') ?? '', /different/);
+  assert.equal(rescheduleDateError('2026-10-09', '2026-10-05', '2026-10-09'), null);
+  assert.equal(rescheduleDateError('2026-10-10', '2026-10-09', '2026-10-09'), null);
 });
