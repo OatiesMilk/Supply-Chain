@@ -24,8 +24,20 @@ router.get('/audit-log', requireAuth, requireResource('admin'), requireRole('ADM
 
   if (req.query.from || req.query.to) {
     where.timestamp = {};
-    if (req.query.from) where.timestamp.gte = new Date(String(req.query.from));
-    if (req.query.to) where.timestamp.lte = new Date(String(req.query.to));
+    if (req.query.from) {
+      const from = String(req.query.from);
+      where.timestamp.gte = /^\d{4}-\d{2}-\d{2}$/.test(from)
+        ? new Date(`${from}T00:00:00+08:00`)
+        : new Date(from);
+    }
+    if (req.query.to) {
+      const to = String(req.query.to);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+        where.timestamp.lt = new Date(new Date(`${to}T00:00:00+08:00`).getTime() + 24 * 60 * 60 * 1000);
+      } else {
+        where.timestamp.lte = new Date(to);
+      }
+    }
   }
 
   const [entries, total] = await Promise.all([

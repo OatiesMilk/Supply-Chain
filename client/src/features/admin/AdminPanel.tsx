@@ -3,6 +3,9 @@ import { Users, ClipboardList, UserX, Plus, ChevronLeft, ChevronRight, Loader2, 
 import { api, ApiDriver, ApiPermissionEditor, ApiUserAdmin, ApiAdminAuditEntry, ApiIntegrationStatus, ApiError } from '@/api';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { ActionDialog } from '@/components/ActionDialog';
+import DashboardFilterChip from '@/components/DashboardFilterChip';
+import { DashboardFilterId } from '@/utils/dashboardFilters';
+import { manilaToday } from '@/utils/recordLifecycle';
 
 import { useAuthStore } from '@/store/authStore';
 
@@ -186,7 +189,13 @@ function PermissionsPanel({ user, onClose }: PermissionsPanelProps) {
   );
 }
 
-export default function AdminPanel() {
+interface AdminPanelProps {
+  dashboardFilterId: DashboardFilterId | null;
+  clearDashboardFilter: () => void;
+}
+
+export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: AdminPanelProps) {
+  const initialAuditDate = dashboardFilterId === 'admin-audit-today' ? manilaToday() : '';
   const [tab, setTab] = useState<Tab>('users');
 
   // ── User Management ──────────────────────────────────────────────────────────
@@ -242,6 +251,32 @@ export default function AdminPanel() {
   };
 
   useEffect(() => { if (tab === 'users') loadUsers(); }, [tab]);
+
+  useEffect(() => {
+    if (dashboardFilterId === 'admin-active-users') {
+      setTab('users');
+      setAuditAction('');
+      setAuditFrom('');
+      setAuditTo('');
+    } else if (dashboardFilterId === 'admin-audit-today') {
+      const today = manilaToday();
+      setTab('audit');
+      setAuditAction('');
+      setAuditFrom(today);
+      setAuditTo(today);
+      loadAudit(1, auditPageSize, { action: '', from: today, to: today });
+    } else {
+      setAuditFrom('');
+      setAuditTo('');
+      if (dashboardFilterId === null && tab === 'audit') {
+        loadAudit(1, auditPageSize, { action: auditAction, from: '', to: '' });
+      }
+    }
+  }, [dashboardFilterId]); // eslint-disable-line react-hooks/exhaustive-deps -- filter transitions intentionally fetch explicit preset/clear parameters once
+
+  const visibleUsers = dashboardFilterId === 'admin-active-users'
+    ? users.filter(user => user.is_active)
+    : users;
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -357,8 +392,8 @@ export default function AdminPanel() {
   // ── Audit Log ────────────────────────────────────────────────────────────────
   const [auditPage, setAuditPage] = useState(1);
   const [auditAction, setAuditAction] = useState('');
-  const [auditFrom, setAuditFrom] = useState('');
-  const [auditTo, setAuditTo] = useState('');
+  const [auditFrom, setAuditFrom] = useState(initialAuditDate);
+  const [auditTo, setAuditTo] = useState(initialAuditDate);
   const [auditEntries, setAuditEntries] = useState<ApiAdminAuditEntry[]>([]);
   const [auditTotal, setAuditTotal] = useState(0);
   const [auditPages, setAuditPages] = useState(1);
@@ -366,16 +401,20 @@ export default function AdminPanel() {
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
 
-  const loadAudit = async (page: number, size = auditPageSize) => {
+  const loadAudit = async (
+    page: number,
+    size = auditPageSize,
+    filters?: { action?: string; from?: string; to?: string },
+  ) => {
     setAuditLoading(true);
     setAuditError(null);
     try {
       const result = await api.getAuditLog({
         page,
         limit: size,
-        action: auditAction || undefined,
-        from: auditFrom || undefined,
-        to: auditTo || undefined
+        action: (filters ? filters.action : auditAction) || undefined,
+        from: (filters ? filters.from : auditFrom) || undefined,
+        to: (filters ? filters.to : auditTo) || undefined
       });
       setAuditEntries(result.entries);
       setAuditTotal(result.total);
@@ -388,7 +427,9 @@ export default function AdminPanel() {
     }
   };
 
-  useEffect(() => { if (tab === 'audit') loadAudit(1); }, [tab]);
+  useEffect(() => {
+    if (tab === 'audit' && dashboardFilterId !== 'admin-audit-today') loadAudit(1);
+  }, [tab]);
 
   const actionBadge = (action: string) => {
     if (action === 'CREATE') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
@@ -405,6 +446,10 @@ export default function AdminPanel() {
 
   return (
     <div className="space-y-4" id="admin-panel">
+      <DashboardFilterChip
+        filterId={dashboardFilterId}
+        onClear={clearDashboardFilter}
+      />
       {/* Tab bar */}
       <div className="flex border-b border-slate-200">
         <button className={tabClass('users')} onClick={() => setTab('users')}>
@@ -422,7 +467,7 @@ export default function AdminPanel() {
       {tab === 'users' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-xs text-slate-500 font-semibold">{users.length} registered account{users.length !== 1 ? 's' : ''}</p>
+            <p className="text-xs text-slate-500 font-semibold">{visibleUsers.length} {dashboardFilterId === 'admin-active-users' ? 'active account' : 'registered account'}{visibleUsers.length !== 1 ? 's' : ''}</p>
             <button
               onClick={() => setShowCreateForm(v => !v)}
               className="bg-[#1F3864] hover:bg-blue-900 text-white text-[11px] font-bold uppercase tracking-wider px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer"
@@ -528,9 +573,9 @@ export default function AdminPanel() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {users.length === 0 ? (
+                  {visibleUsers.length === 0 ? (
                     <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">No users found.</td></tr>
-                  ) : users.map(u => (
+                  ) : visibleUsers.map(u => (
                     <React.Fragment key={u.id}>
                       <tr className="hover:bg-slate-50 transition-all">
                         <td className="px-4 py-3">

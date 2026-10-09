@@ -2,12 +2,13 @@ import React from 'react';
 import DashboardView from '@/features/dashboard/DashboardView';
 import { Product, InventoryItem, DeliveryRecord, UserRole } from '@/types';
 import { ApiSku, ApiDashboardStats } from '@/api';
+import { DashboardFilterId } from '@/utils/dashboardFilters';
 
 export interface DashboardPageProps {
   products: ApiSku[];
   deliveryRecords: DeliveryRecord[];
   dashboardStats: ApiDashboardStats | null;
-  onNavigate: (screen: string, item_id?: string) => void;
+  onNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
   currentUserRole: UserRole;
   onRefresh: () => Promise<void>;
 }

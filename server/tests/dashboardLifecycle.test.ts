@@ -34,10 +34,38 @@ test('dashboard today uses Manila midnight and excludes drafts from assignment c
   const { queries, response } = await stats('LOGISTICS');
   assert.equal(response.role, 'LOGISTICS');
   assert.equal(queries[0].deliveryDate, '2026-10-06');
+  assert.equal(queries[0].category, 'DELIVERY');
   assert.equal(queries[0].draft, false);
+  assert.equal(queries[1].category, 'DELIVERY');
   assert.equal(queries[1].draft, false);
-  assert.equal(queries[2].updatedAt.gte.toISOString(), '2026-10-05T16:00:00.000Z');
-  assert.equal(queries[2].updatedAt.lt.toISOString(), '2026-10-06T16:00:00.000Z');
+  assert.equal(queries[2].category, 'DELIVERY');
+  assert.equal(queries[2].timeOut.gte, '2026-10-05T16:00:00.000Z');
+  assert.equal(queries[2].timeOut.lt, '2026-10-06T16:00:00.000Z');
+  assert.equal(queries[3].category, 'DELIVERY');
+});
+
+test('Sales Coordinator dashboard counts only Delivery records and completes by Time Out', async context => {
+  context.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-05T16:01:00Z').getTime() });
+  const { queries, response } = await stats('SALES_COORDINATOR');
+  assert.equal(response.role, 'SALES_COORDINATOR');
+  for (const query of queries) {
+    assert.equal(query.category, 'DELIVERY');
+    assert.equal(query.draft, false);
+  }
+  assert.equal(queries[4].timeOut.gte, '2026-10-05T16:00:00.000Z');
+  assert.equal(queries[4].timeOut.lt, '2026-10-06T16:00:00.000Z');
+  assert.equal(queries[4].updatedAt, undefined);
+});
+
+test('TASS dashboard count definitions remain category-specific', async context => {
+  context.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-05T16:01:00Z').getTime() });
+  const { queries, response } = await stats('TASS');
+  assert.equal(response.role, 'TASS');
+  assert.deepEqual(queries.map(query => query.category), [
+    'RMA', 'RMA', 'PROCUREMENT_PICKUP', 'ACCOUNTING_COLLECTION', 'ACCOUNTING_COLLECTION',
+  ]);
+  assert.equal(queries[3].collectionVerified, false);
+  assert.equal(queries[4].collectionVerified, true);
 });
 
 test('admin weekly statistics start at Sunday midnight in Manila', async context => {

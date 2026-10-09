@@ -13,6 +13,7 @@ import ServerUnavailableView from '@/features/auth/ServerUnavailableView';
 import { useServerAvailability } from '@/hooks/useServerAvailability';
 import DriverDashboard from '@/features/dashboard/DriverDashboard';
 import { DeliveryCategory } from '@/types';
+import { DashboardFilterId } from '@/utils/dashboardFilters';
 
 function AppContent() {
   const { authUser, authChecked, logoutPending, login, checkAuth } = useAuth();
@@ -164,13 +165,15 @@ function AuthenticatedApp() {
   const setSelectedProductId = useUIStore(s => s.setSelectedProductId);
   const selectedRecordId = useUIStore(s => s.selectedRecordId);
   const setSelectedRecordId = useUIStore(s => s.setSelectedRecordId);
+  const dashboardFilterId = useUIStore(s => s.dashboardFilterId);
+  const clearDashboardFilter = useUIStore(s => s.clearDashboardFilter);
   const navigate = useUIStore(s => s.handleNavigate);
-  const handleNavigate = useCallback((screen: string, itemId?: string) => {
+  const handleNavigate = useCallback((screen: string, itemId?: string, filterId?: DashboardFilterId) => {
     if (screen !== 'no-access' && !effectiveScreens.has(screen)) {
       openAccessRequest(screen);
       return;
     }
-    navigate(screen, itemId);
+    navigate(screen, itemId, filterId);
   }, [navigate, effectiveScreens, openAccessRequest]);
 
   // Client-side routing
@@ -300,6 +303,8 @@ function AuthenticatedApp() {
         handleUpdateOutputActionConfig={handleUpdateOutputActionConfig}
         selectedRecordId={selectedRecordId}
         setSelectedRecordId={setSelectedRecordId}
+        dashboardFilterId={dashboardFilterId}
+        clearDashboardFilter={clearDashboardFilter}
         selectedProductId={selectedProductId}
         setSelectedProductId={setSelectedProductId}
         handleCreateCustomer={handleCreateCustomer}

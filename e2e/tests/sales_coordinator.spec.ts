@@ -52,6 +52,47 @@ test.describe('A-1 Login & Access Control', () => {
   });
 });
 
+test.describe('TSK-126 dashboard card filters', () => {
+  test('SC On-Hold card opens the matching list, wraps at supported widths, and clears', async ({ page }) => {
+    await page.goto(BASE_URL);
+    await page.waitForLoadState('networkidle');
+    const card = page.locator('#kpi-on-hold');
+    await expect(card).toBeVisible();
+    const cardCount = Number((await card.locator('h3').innerText()).trim());
+    await card.click();
+
+    const chip = page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true });
+    await expect(chip).toBeVisible();
+    const clearButton = page.getByRole('button', { name: 'Clear dashboard filter: On-Hold Items' });
+    await expect(clearButton).toBeVisible();
+    const recordsInfo = page.getByTestId('pagination-records-info');
+    await expect(recordsInfo).toContainText(/of\s+\d+\s+records/i);
+    const rowCount = Number((await recordsInfo.innerText()).match(/of\s+(\d+)\s+records/i)?.[1]);
+    expect(rowCount).toBe(cardCount);
+
+    for (const width of [375, 768, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      const chipBox = await page.getByTestId('dashboard-filter-chip').boundingBox();
+      expect(chipBox).toBeTruthy();
+      expect((chipBox?.x ?? 0) + (chipBox?.width ?? 0)).toBeLessThanOrEqual(width);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    }
+
+    await clearButton.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true })).not.toBeVisible();
+    const unfilteredInfo = page.getByTestId('pagination-records-info');
+    const unfilteredCount = Number((await unfilteredInfo.innerText()).match(/of\s+(\d+)\s+records/i)?.[1]);
+    expect(unfilteredCount).toBeGreaterThanOrEqual(cardCount);
+
+    await page.getByRole('navigation').getByRole('button', { name: /^Dashboard/ }).click();
+    await page.locator('#kpi-on-hold').click();
+    await expect(page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true })).toBeVisible();
+    await page.getByRole('navigation').getByRole('button', { name: /^Deliveries/ }).click();
+    await expect(page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true })).not.toBeVisible();
+  });
+});
+
 test.describe('A-2 Create a Delivery Record', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);

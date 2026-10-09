@@ -12,11 +12,12 @@ import {
 import { DeliveryRecord } from "@/types";
 import { ApiDashboardStats } from "@/api";
 import { screenKeyForCategory } from "@/routes/screenRouting";
+import { DashboardFilterId, filterRecordsForDashboard } from '@/utils/dashboardFilters';
 
 interface Props {
   stats: Extract<ApiDashboardStats, { role: "LOGISTICS" }> | null;
   deliveryRecords: DeliveryRecord[];
-  onNavigate: (screen: string, item_id?: string) => void;
+  onNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
   onRefresh?: () => void;
 }
 
@@ -29,13 +30,10 @@ export default function LogisticsDashboard({
   const today = manilaToday();
 
   // Derive lists from deliveryRecords (already filtered to Logistics-visible records by API)
-  const unassignedRecords = deliveryRecords.filter(
-    (r) => !r.driver && r.status !== "Delivered",
-  );
-  const onHoldRecords = deliveryRecords.filter((r) => r.status === "On-Hold");
-  const rescheduledRecords = deliveryRecords.filter(
-    (r) => r.status === "Rescheduled",
-  );
+  const unassignedRecords = filterRecordsForDashboard(deliveryRecords, 'log-unassigned', today);
+  const onHoldRecords = filterRecordsForDashboard(deliveryRecords, 'log-on-hold', today);
+  const rescheduledRecords = filterRecordsForDashboard(deliveryRecords, 'log-rescheduled', today);
+  const flagsCount = filterRecordsForDashboard(deliveryRecords, 'log-flags', today).length;
 
   // Drivers currently out: assigned, today's date, not yet accomplished
   const driversOutMap: Record<
@@ -43,7 +41,7 @@ export default function LogisticsDashboard({
     { driver: string; records: DeliveryRecord[] }
   > = {};
   for (const r of deliveryRecords) {
-    if (r.driver && r.delivery_date === today && r.status !== "Delivered") {
+    if (r.category === 'Deliveries' && r.is_draft !== 'Yes' && r.status !== 'Draft' && r.driver && r.delivery_date === today && r.status !== "Delivered") {
       if (!driversOutMap[r.driver])
         driversOutMap[r.driver] = { driver: r.driver, records: [] };
       driversOutMap[r.driver].records.push(r);
@@ -53,14 +51,12 @@ export default function LogisticsDashboard({
 
   const assignedToday =
     stats?.assigned_today ??
-    deliveryRecords.filter(
-      (r) => r.driver && r.delivery_date === today && r.status !== "Delivered",
-    ).length;
+    filterRecordsForDashboard(deliveryRecords, 'log-assigned-today', today).length;
   const unassignedCount = stats?.unassigned_count ?? unassignedRecords.length;
-  const completedToday = stats?.completed_today ?? 0;
+  const completedToday = stats?.completed_today ?? filterRecordsForDashboard(deliveryRecords, 'log-completed-today', today).length;
   const onHoldRescheduled =
     stats?.on_hold_rescheduled ??
-    onHoldRecords.length + rescheduledRecords.length;
+    filterRecordsForDashboard(deliveryRecords, 'log-on-hold-rescheduled', today).length;
 
   return (
     <div className="space-y-6" id="logistics-dashboard">
@@ -69,7 +65,7 @@ export default function LogisticsDashboard({
         {/* Assigned Today */}
         <div
           className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-[#1F3864] transition-all cursor-pointer"
-          onClick={() => onNavigate("deliveries")}
+          onClick={() => onNavigate("deliveries", undefined, 'log-assigned-today')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -90,7 +86,8 @@ export default function LogisticsDashboard({
         {/* Unassigned (orange — needs attention) */}
         <div
           className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-amber-500 flex items-center justify-between gap-3 hover:border-amber-400 transition-all cursor-pointer"
-          onClick={() => onNavigate("deliveries")}
+          id="kpi-log-unassigned"
+          onClick={() => onNavigate("deliveries", undefined, 'log-unassigned')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -113,7 +110,7 @@ export default function LogisticsDashboard({
         {/* Completed Today */}
         <div
           className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-emerald-500 flex items-center justify-between gap-3 hover:border-emerald-400 transition-all cursor-pointer"
-          onClick={() => onNavigate("deliveries")}
+          onClick={() => onNavigate("deliveries", undefined, 'log-completed-today')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -134,7 +131,7 @@ export default function LogisticsDashboard({
         {/* On-Hold / Rescheduled */}
         <div
           className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-purple-500 flex items-center justify-between gap-3 hover:border-purple-400 transition-all cursor-pointer"
-          onClick={() => onNavigate("deliveries")}
+          onClick={() => onNavigate("deliveries", undefined, 'log-on-hold-rescheduled')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -227,12 +224,10 @@ export default function LogisticsDashboard({
             <AlertTriangle className="w-4 h-4 text-amber-500" /> Needs Attention
           </h4>
           <button
-            onClick={() => onNavigate("deliveries")}
+            onClick={() => onNavigate("deliveries", undefined, 'log-flags')}
             className="bg-amber-100 hover:bg-amber-200 text-amber-800 text-xs px-2.5 py-0.5 rounded font-extrabold uppercase tracking-wide cursor-pointer hover:underline transition-colors"
           >
-            {unassignedRecords.length +
-              onHoldRecords.length +
-              rescheduledRecords.length}{" "}
+            {flagsCount}{" "}
             Flags
           </button>
         </div>
@@ -251,7 +246,7 @@ export default function LogisticsDashboard({
               Records with no driver assigned yet.
             </p>
             <button
-              onClick={() => onNavigate("deliveries")}
+              onClick={() => onNavigate("deliveries", undefined, 'log-unassigned')}
               className="text-[10px] text-[#0078C1] hover:underline font-bold uppercase tracking-wide cursor-pointer text-left"
             >
               View records →
@@ -271,7 +266,7 @@ export default function LogisticsDashboard({
               Deliveries currently blocked.
             </p>
             <button
-              onClick={() => onNavigate("deliveries")}
+              onClick={() => onNavigate("deliveries", undefined, 'log-on-hold')}
               className="text-[10px] text-[#0078C1] hover:underline font-bold uppercase tracking-wide cursor-pointer text-left"
             >
               View records →
@@ -291,7 +286,7 @@ export default function LogisticsDashboard({
               Bumped to a new delivery date.
             </p>
             <button
-              onClick={() => onNavigate("deliveries")}
+              onClick={() => onNavigate("deliveries", undefined, 'log-rescheduled')}
               className="text-[10px] text-[#0078C1] hover:underline font-bold uppercase tracking-wide cursor-pointer text-left"
             >
               View records →
