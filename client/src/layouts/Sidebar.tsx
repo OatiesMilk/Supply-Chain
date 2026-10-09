@@ -1,8 +1,12 @@
-import React from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Layers,
   LayoutDashboard,
   Truck,
+  Route,
+  ContactRound,
+  ShieldCheck,
   RotateCcw,
   ShoppingCart,
   Users,
@@ -14,12 +18,13 @@ import {
   ArrowLeftRight,
   Boxes,
   Database,
-  Menu,
+  ChevronsLeft,
+  ChevronsRight,
   X,
-  Lock,
   Banknote,
   PackageSearch,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { UserRole } from '@/types';
 
 export interface SidebarProps {
@@ -40,6 +45,18 @@ export interface SidebarProps {
   onRequestAccess?: () => void;
 }
 
+interface SidebarTooltipState {
+  text: string;
+  left: number;
+  top: number;
+}
+
+function tooltipTarget(target: EventTarget | null): HTMLElement | null {
+  return target instanceof Element
+    ? target.closest<HTMLElement>('[data-sidebar-tooltip]')
+    : null;
+}
+
 export const Sidebar: React.FC<SidebarProps> = ({
   currentScreen,
   handleNavigate,
@@ -55,15 +72,200 @@ export const Sidebar: React.FC<SidebarProps> = ({
   salesOrdersActiveCount,
   accountingActiveCount,
   procurementActiveCount,
-  onRequestAccess,
 }) => {
-  const navItemClass = (screen: any) => {
-    const active = currentScreen === screen;
-    const base = 'w-full px-4 py-2.5 flex items-center justify-between text-left transition-colors relative cursor-pointer';
-    if (active) {
-      return `${base} bg-white/10 text-white font-semibold before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:bg-[#0078C1]`;
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
+  );
+  const [tooltip, setTooltip] = useState<SidebarTooltipState | null>(null);
+  const asideRef = useRef<HTMLElement | null>(null);
+  const tooltipTargetRef = useRef<HTMLElement | null>(null);
+  const tooltipTimerRef = useRef<number | null>(null);
+  const tooltipHasOpenedRef = useRef(false);
+  const tooltipId = useId();
+  const isCollapsed = isDesktop && isSidebarCollapsed;
+
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 1024px)');
+    const updateDesktopState = () => setIsDesktop(media.matches);
+    updateDesktopState();
+    media.addEventListener('change', updateDesktopState);
+    return () => media.removeEventListener('change', updateDesktopState);
+  }, []);
+
+  const clearTooltipTimer = useCallback(() => {
+    if (tooltipTimerRef.current !== null) {
+      window.clearTimeout(tooltipTimerRef.current);
+      tooltipTimerRef.current = null;
     }
-    return `${base} text-white/70 hover:bg-white/5 hover:text-white`;
+  }, []);
+
+  useEffect(() => () => clearTooltipTimer(), [clearTooltipTimer]);
+
+  const hideTooltip = useCallback((resetDelay = false) => {
+    clearTooltipTimer();
+    tooltipTargetRef.current = null;
+    setTooltip(null);
+    if (resetDelay) tooltipHasOpenedRef.current = false;
+  }, [clearTooltipTimer]);
+
+  const getTooltipLeft = useCallback((target: HTMLElement) => {
+    const targetRight = target.getBoundingClientRect().right + 8;
+    const railRight = asideRef.current?.getBoundingClientRect().right ?? targetRight;
+    return Math.min(Math.max(targetRight, railRight + 8), window.innerWidth - 248);
+  }, []);
+
+  const getTooltipTop = useCallback((target: HTMLElement) => {
+    const bounds = target.getBoundingClientRect();
+    return Math.min(Math.max(bounds.top + bounds.height / 2, 24), window.innerHeight - 24);
+  }, []);
+
+  const showTooltip = useCallback((target: HTMLElement) => {
+    if (!isCollapsed) return;
+    const text = target.dataset.sidebarTooltip;
+    if (!text) return;
+
+    clearTooltipTimer();
+    tooltipTargetRef.current = target;
+    tooltipTimerRef.current = window.setTimeout(() => {
+      if (tooltipTargetRef.current !== target || !target.isConnected) return;
+      setTooltip({
+        text,
+        left: getTooltipLeft(target),
+        top: getTooltipTop(target),
+      });
+      tooltipHasOpenedRef.current = true;
+      tooltipTimerRef.current = null;
+    }, tooltipHasOpenedRef.current ? 0 : 150);
+  }, [clearTooltipTimer, getTooltipLeft, getTooltipTop, isCollapsed]);
+
+  const repositionTooltip = useCallback(() => {
+    const target = tooltipTargetRef.current;
+    if (!target) return;
+    setTooltip(current => current ? {
+      ...current,
+      left: getTooltipLeft(target),
+      top: getTooltipTop(target),
+    } : null);
+  }, [getTooltipLeft, getTooltipTop]);
+
+  useEffect(() => {
+    if (!tooltip) return;
+    window.addEventListener('resize', repositionTooltip);
+    window.addEventListener('scroll', repositionTooltip, true);
+    return () => {
+      window.removeEventListener('resize', repositionTooltip);
+      window.removeEventListener('scroll', repositionTooltip, true);
+    };
+  }, [repositionTooltip, tooltip]);
+
+  useEffect(() => {
+    hideTooltip(true);
+  }, [hideTooltip, isCollapsed]);
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (!isDesktop || event.defaultPrevented || event.repeat || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'b') return;
+      const focusedField = event.target instanceof Element
+        ? event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')
+        : null;
+      if (focusedField) return;
+      event.preventDefault();
+      setIsSidebarCollapsed(!isSidebarCollapsed);
+    };
+
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, [isDesktop, isSidebarCollapsed, setIsSidebarCollapsed]);
+
+  const handleMouseOver = (event: React.MouseEvent<HTMLElement>) => {
+    const target = tooltipTarget(event.target);
+    if (!target || target === tooltipTarget(event.relatedTarget)) return;
+    showTooltip(target);
+  };
+
+  const handleMouseOut = (event: React.MouseEvent<HTMLElement>) => {
+    const from = tooltipTarget(event.target);
+    if (!from) return;
+    const to = tooltipTarget(event.relatedTarget);
+    if (from === to) return;
+    if (to) {
+      showTooltip(to);
+      return;
+    }
+    if (tooltipTarget(document.activeElement) !== from) hideTooltip(true);
+  };
+
+  const handleFocus = (event: React.FocusEvent<HTMLElement>) => {
+    const target = tooltipTarget(event.target);
+    if (target) showTooltip(target);
+  };
+
+  const handleBlur = (event: React.FocusEvent<HTMLElement>) => {
+    const target = tooltipTarget(event.relatedTarget);
+    if (target) showTooltip(target);
+    else hideTooltip();
+  };
+
+  const handleMouseLeave = () => {
+    const focusedTarget = tooltipTarget(document.activeElement);
+    if (focusedTarget && asideRef.current?.contains(focusedTarget)) return;
+    hideTooltip(true);
+  };
+
+  const navItemClass = (screen: string, special = false) => {
+    const active = currentScreen === screen;
+    const base = 'w-full px-4 py-2.5 flex items-center justify-between text-left transition-colors relative cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white';
+    const compact = isCollapsed ? ' lg:h-11 lg:w-11 lg:mx-auto lg:justify-center lg:px-0 lg:py-0 lg:rounded-lg' : '';
+    const activeStyle = isCollapsed
+      ? ' bg-white/10 text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-r before:bg-[#0078C1]'
+      : ' bg-white/10 text-white font-semibold before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:bg-[#0078C1]';
+    const normalStyle = special
+      ? ' text-amber-300/60 hover:text-amber-200 hover:bg-amber-400/10'
+      : ' text-white/70 hover:bg-white/5 hover:text-white';
+    const specialActiveStyle = ' bg-amber-400/20 text-amber-300 font-semibold border-l-2 border-amber-400';
+    return base + compact + (active ? (special && !isCollapsed ? specialActiveStyle : activeStyle) : normalStyle);
+  };
+
+  const renderNavItem = (
+    screen: string,
+    label: string,
+    Icon: LucideIcon,
+    activeCount?: number,
+    special = false,
+  ) => {
+    if (!canAccess(screen)) return null;
+    const countText = activeCount && activeCount > 0
+      ? (activeCount > 99 ? '99+' : String(activeCount)) + ' active'
+      : '';
+    const accessibleLabel = countText ? label + ' · ' + countText : label;
+    const badge = activeCount && activeCount > 0 ? (
+      <span
+        aria-hidden="true"
+        className={'bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full' + (isCollapsed
+          ? ' lg:absolute lg:-top-1 lg:-right-1 lg:min-w-4 lg:h-4 lg:px-1 lg:flex lg:items-center lg:justify-center lg:leading-none lg:z-10'
+          : '')}
+      >
+        {activeCount > 99 ? '99+' : activeCount}
+      </span>
+    ) : null;
+
+    return (
+      <button
+        key={screen}
+        type="button"
+        onClick={() => handleNavigate(screen)}
+        aria-label={accessibleLabel}
+        aria-describedby={isCollapsed ? tooltipId : undefined}
+        data-sidebar-tooltip={accessibleLabel}
+        className={navItemClass(screen, special)}
+      >
+        <span className={'flex items-center space-x-3' + (isCollapsed ? ' lg:space-x-0' : '')}>
+          <Icon className={'w-5 h-5 shrink-0' + (special ? ' text-amber-400' : '')} />
+          <span className={'text-xs font-medium truncate' + (isCollapsed ? ' lg:hidden' : '')}>{label}</span>
+        </span>
+        {badge}
+      </button>
+    );
   };
 
   return (
@@ -77,288 +279,114 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 bg-[#1F3864] text-white flex flex-col justify-between transition-all duration-300 lg:static lg:translate-x-0 lg:z-auto shrink-0 ${
-          isSidebarCollapsed ? 'lg:w-28' : 'lg:w-56'
-        } ${isSidebarOpen ? 'w-64 translate-x-0' : 'w-64 -translate-x-full lg:translate-x-0'}`}
+        ref={asideRef}
+        onMouseOverCapture={handleMouseOver}
+        onMouseOutCapture={handleMouseOut}
+        onMouseLeave={handleMouseLeave}
+        onFocusCapture={handleFocus}
+        onBlurCapture={handleBlur}
+        className={'fixed inset-y-0 left-0 z-50 bg-[#1F3864] text-white flex flex-col justify-between transition-transform duration-300 ease-out lg:transition-[width] lg:duration-200 lg:ease-out motion-reduce:transition-none lg:static lg:translate-x-0 lg:z-auto shrink-0 ' +
+          (isSidebarCollapsed ? 'lg:w-[72px]' : 'lg:w-56') +
+          ' ' + (isSidebarOpen ? 'w-64 translate-x-0' : 'w-64 -translate-x-full lg:translate-x-0')}
         id="sidebar-panel"
       >
-        {/* Brand Header */}
-        <div className="p-4 border-b border-white/10 relative">
+        <div className="p-4 min-h-[88px] border-b border-white/10 relative">
           <button
+            type="button"
             onClick={() => setIsSidebarOpen(false)}
-            className="absolute top-4 right-4 lg:hidden p-1 bg-white/10 hover:bg-white/20 text-white rounded transition-colors cursor-pointer"
+            className="absolute top-4 right-4 lg:hidden p-1 bg-white/10 hover:bg-white/20 text-white rounded transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             id="close-sidebar-button"
+            aria-label="Close menu"
             title="Close menu"
           >
             <X className="w-5 h-5" />
           </button>
 
-          {isSidebarCollapsed ? (
-            <div className="flex flex-col items-center gap-2">
-              <button
-                onClick={() => setIsSidebarCollapsed(false)}
-                className="hidden lg:flex p-1.5 bg-white/10 hover:bg-white/20 text-white rounded transition-colors cursor-pointer"
-                id="expand-sidebar-button"
-                title="Expand menu"
-              >
-                <Menu className="w-5 h-5" />
-              </button>
-
-              <div className="w-full px-1 flex items-center justify-center" title="Microgenesis">
-                <img src="/microgenesis_logo_white.png" alt="Microgenesis" className="w-full h-auto max-h-14 object-contain" />
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <button
-                  onClick={() => setIsSidebarCollapsed(true)}
-                  className="hidden lg:flex p-1.5 bg-white/10 hover:bg-white/20 text-white rounded transition-colors cursor-pointer"
-                  id="collapse-sidebar-button"
-                  title="Collapse menu"
-                >
-                  <Menu className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="w-full max-h-14 flex items-center">
-                <img src="/microgenesis_logo_white.png" alt="Microgenesis - Making It Easy For You!" className="w-full h-auto max-h-14 object-contain" />
-              </div>
-            </div>
-          )}
+          <div className="relative h-14 w-full flex items-center justify-center" role="img" aria-label="Microgenesis">
+            <img
+              src="/microgenesis_mark_white.png"
+              alt=""
+              className={'absolute h-8 w-8 object-contain transition-opacity duration-200 ease-out motion-reduce:transition-none' + (isCollapsed ? ' opacity-100' : ' opacity-0')}
+            />
+            <img
+              src="/microgenesis_logo_white.png"
+              alt=""
+              className={'absolute w-full h-auto max-h-14 object-contain transition-opacity duration-200 ease-out motion-reduce:transition-none' + (isCollapsed ? ' opacity-0' : ' opacity-100')}
+            />
+          </div>
         </div>
 
-        {/* Navigation Items */}
-        <nav className="flex-1 py-3 space-y-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]" id="sidebar-nav">
-          {/* 0. Main */}
+        <nav
+          className="flex-1 py-3 space-y-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+          id="sidebar-nav"
+          onScrollCapture={repositionTooltip}
+        >
           <div className="space-y-1">
-            {canAccess('main') && (<button onClick={() => handleNavigate('main')} title={isSidebarCollapsed ? 'Main' : ''} className={navItemClass('main')}>
-              <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                <Layers className="w-5 h-5 shrink-0" />
-                {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Main</span>}
-              </span>
-            </button>)}
-          </div>
-
-          {/* 1. Dashboard */}
-          <div className="space-y-1">
-            {canAccess('dashboard') && (<button onClick={() => handleNavigate('dashboard')} title={isSidebarCollapsed ? 'Dashboard' : ''} className={navItemClass('dashboard')}>
-              <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                <LayoutDashboard className="w-5 h-5 shrink-0" />
-                {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Dashboard</span>}
-              </span>
-            </button>)}
+            {renderNavItem('main', 'Main', Layers)}
           </div>
 
           <div className="space-y-1">
-            {!isSidebarCollapsed ? (
-              <span className="text-[10px] uppercase tracking-wider text-white/40 font-bold px-4 block">Operations</span>
-            ) : (
-              <div className="border-t border-white/10 my-2 mx-3" />
-            )}
-
-            {/* 2. Deliveries */}
-            {canAccess('deliveries') && (
-              <button onClick={() => handleNavigate('deliveries')} title={isSidebarCollapsed ? 'Deliveries' : ''} className={navItemClass('deliveries')}>
-                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                  <Truck className="w-5 h-5 shrink-0" />
-                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Deliveries</span>}
-                </span>
-                {deliveriesActiveCount > 0 && (
-                  isSidebarCollapsed
-                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                    : <span className="bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{deliveriesActiveCount}</span>
-                )}
-              </button>
-            )}
-
-            {/* 3. RMA */}
-            {canAccess('rma') && (
-              <button onClick={() => handleNavigate('rma')} title={isSidebarCollapsed ? 'RMA' : ''} className={navItemClass('rma')}>
-                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                  <RotateCcw className="w-5 h-5 shrink-0" />
-                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">RMA</span>}
-                </span>
-                {rmaActiveCount > 0 && (
-                  isSidebarCollapsed
-                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                    : <span className="bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{rmaActiveCount}</span>
-                )}
-              </button>
-            )}
-
-            {/* 4. Accounting Collection */}
-            {canAccess('accounting_collection') && (
-              <button onClick={() => handleNavigate('accounting_collection')} title={isSidebarCollapsed ? 'Accounting Collection' : ''} className={navItemClass('accounting_collection')}>
-                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                  <Banknote className="w-5 h-5 shrink-0" />
-                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Accounting Collection</span>}
-                </span>
-                {accountingActiveCount > 0 && (
-                  isSidebarCollapsed
-                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                    : <span className="bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{accountingActiveCount}</span>
-                )}
-              </button>
-            )}
-
-            {/* 5. Procurement Pick-up */}
-            {canAccess('procurement_pickup') && (
-              <button onClick={() => handleNavigate('procurement_pickup')} title={isSidebarCollapsed ? 'Procurement Pick-up' : ''} className={navItemClass('procurement_pickup')}>
-                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                  <PackageSearch className="w-5 h-5 shrink-0" />
-                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Procurement Pick-up</span>}
-                </span>
-                {procurementActiveCount > 0 && (
-                  isSidebarCollapsed
-                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                    : <span className="bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{procurementActiveCount}</span>
-                )}
-              </button>
-            )}
-
-            {/* 6. Sales Orders */}
-            {canAccess('sales_orders') && (
-              <button onClick={() => handleNavigate('sales_orders')} title={isSidebarCollapsed ? 'Sales Orders' : ''} className={navItemClass('sales_orders')}>
-                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                  <ShoppingCart className="w-5 h-5 shrink-0" />
-                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Sales Orders</span>}
-                </span>
-                {salesOrdersActiveCount > 0 && (
-                  isSidebarCollapsed
-                    ? <span className="absolute top-1.5 right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                    : <span className="bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full">{salesOrdersActiveCount}</span>
-                )}
-              </button>
-            )}
+            {renderNavItem('dashboard', 'Dashboard', LayoutDashboard)}
           </div>
 
-          {/* Master Data */}
           <div className="space-y-1">
-            {!isSidebarCollapsed ? (
-              <span className="text-[10px] uppercase tracking-wider text-white/40 font-bold px-4 block">Master Data</span>
-            ) : (
-              <div className="border-t border-white/10 my-2 mx-3" />
-            )}
+            <span className={'text-[10px] uppercase tracking-wider text-white/40 font-bold px-4 block' + (isCollapsed ? ' lg:hidden' : '')}>Operations</span>
+            {isCollapsed && <hr aria-hidden="true" className="hidden lg:block w-6 border-0 border-t border-white/10 my-3 mx-auto" />}
 
-            {canAccess('customers') && (<button onClick={() => handleNavigate('customers')} title={isSidebarCollapsed ? 'Customers' : ''} className={navItemClass('customers')}>
-              <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                <Users className="w-5 h-5 shrink-0" />
-                {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Customers</span>}
-              </span>
-            </button>)}
+            {renderNavItem('deliveries', 'Deliveries', Truck, deliveriesActiveCount)}
+            {renderNavItem('rma', 'RMA', RotateCcw, rmaActiveCount)}
+            {renderNavItem('accounting_collection', 'Accounting Collection', Banknote, accountingActiveCount)}
+            {renderNavItem('procurement_pickup', 'Procurement Pick-up', PackageSearch, procurementActiveCount)}
+            {renderNavItem('sales_orders', 'Sales Orders', ShoppingCart, salesOrdersActiveCount)}
+          </div>
 
-            {canAccess('suppliers') && (<button onClick={() => handleNavigate('suppliers')} title={isSidebarCollapsed ? 'Suppliers' : ''} className={navItemClass('suppliers')}>
-              <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                <Building2 className="w-5 h-5 shrink-0" />
-                {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Suppliers</span>}
-              </span>
-            </button>)}
+          <div className="space-y-1">
+            <span className={'text-[10px] uppercase tracking-wider text-white/40 font-bold px-4 block' + (isCollapsed ? ' lg:hidden' : '')}>Master Data</span>
+            {isCollapsed && <hr aria-hidden="true" className="hidden lg:block w-6 border-0 border-t border-white/10 my-3 mx-auto" />}
 
-            {canAccess('driver') && (
-              <button onClick={() => handleNavigate('driver')} title={isSidebarCollapsed ? 'Driver View' : ''} className={navItemClass('driver')}>
-                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                  <Truck className="w-5 h-5 shrink-0" />
-                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Driver View</span>}
-                </span>
-              </button>
-            )}
-
-            {canAccess('driver_manager') && (
-              <button onClick={() => handleNavigate('driver_manager')} title={isSidebarCollapsed ? 'Driver Manager' : ''} className={navItemClass('driver_manager')}>
-                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                  <Truck className="w-5 h-5 shrink-0" />
-                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Driver Manager</span>}
-                </span>
-              </button>
-            )}
-
-            {canAccess('admin') && (
-              <button onClick={() => handleNavigate('admin')} title={isSidebarCollapsed ? 'Admin Panel' : ''} className={navItemClass('admin')}>
-                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                  <Users className="w-5 h-5 shrink-0" />
-                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Admin Panel</span>}
-                </span>
-              </button>
-            )}
-
-            {canAccess('calendar') && (
-              <button onClick={() => handleNavigate('calendar')} title={isSidebarCollapsed ? 'Delivery Calendar' : ''} className={navItemClass('calendar')}>
-                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                  <Calendar className="w-5 h-5 shrink-0" />
-                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Delivery Calendar</span>}
-                </span>
-              </button>
-            )}
-
-            {canAccess('driver_board') && (
-              <button onClick={() => handleNavigate('driver_board')} title={isSidebarCollapsed ? 'Driver Board' : ''} className={navItemClass('driver_board')}>
-                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                  <Columns className="w-5 h-5 shrink-0" />
-                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Driver Board</span>}
-                </span>
-              </button>
-            )}
-
-            {canAccess('statistical_reports') && (
-              <button onClick={() => handleNavigate('statistical_reports')} title={isSidebarCollapsed ? 'Reports' : ''} className={navItemClass('statistical_reports')}>
-                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                  <BarChart3 className="w-5 h-5 shrink-0" />
-                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Reports</span>}
-                </span>
-              </button>
-            )}
-
-            {canAccess('am_directory') && (
-              <button onClick={() => handleNavigate('am_directory')} title={isSidebarCollapsed ? 'AM Directory' : ''} className={navItemClass('am_directory')}>
-                <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                  <BookOpen className="w-5 h-5 shrink-0" />
-                  {!isSidebarCollapsed && <span className="text-xs font-medium truncate">AM Directory</span>}
-                </span>
-              </button>
-            )}
-
-            {canAccess('transactions') && (<button onClick={() => handleNavigate('transactions')} title={isSidebarCollapsed ? 'Transaction Center' : ''} className={navItemClass('transactions')}>
-              <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                <ArrowLeftRight className="w-5 h-5 shrink-0" />
-                {!isSidebarCollapsed && <span className="text-xs font-medium truncate">Transaction Center</span>}
-              </span>
-            </button>)}
-
-            {canAccess('inventory') && (<button onClick={() => handleNavigate('inventory')} title={isSidebarCollapsed ? 'SKU Master' : ''} className={navItemClass('inventory')}>
-              <span className={`flex items-center ${isSidebarCollapsed ? '' : 'space-x-3'}`}>
-                <Boxes className="w-5 h-5 shrink-0" />
-                {!isSidebarCollapsed && <span className="text-xs font-medium truncate">SKU Master</span>}
-              </span>
-            </button>)}
-
-            {canAccess('data_sampler') && (
-              <button
-                onClick={() => handleNavigate('data_sampler')}
-                title={isSidebarCollapsed ? 'Data Sampler' : ''}
-                className={`w-full px-4 py-2 flex items-center transition-all cursor-pointer ${
-                  isSidebarCollapsed ? 'justify-center' : 'space-x-3'
-                } ${
-                  currentScreen === 'data_sampler'
-                    ? 'bg-amber-400/20 text-amber-300 font-semibold border-l-2 border-amber-400'
-                    : 'text-amber-300/60 hover:text-amber-200 hover:bg-amber-400/10'
-                }`}
-              >
-                <Database className="w-5 h-5 shrink-0 text-amber-400" />
-                {!isSidebarCollapsed && <span className="text-xs truncate font-medium">Data Sampler</span>}
-              </button>
-            )}
+            {renderNavItem('customers', 'Customers', Users)}
+            {renderNavItem('suppliers', 'Suppliers', Building2)}
+            {renderNavItem('driver', 'Driver View', Route)}
+            {renderNavItem('driver_manager', 'Driver Manager', ContactRound)}
+            {renderNavItem('admin', 'Admin Panel', ShieldCheck)}
+            {renderNavItem('calendar', 'Delivery Calendar', Calendar)}
+            {renderNavItem('driver_board', 'Driver Board', Columns)}
+            {renderNavItem('statistical_reports', 'Reports', BarChart3)}
+            {renderNavItem('am_directory', 'AM Directory', BookOpen)}
+            {renderNavItem('transactions', 'Transaction Center', ArrowLeftRight)}
+            {renderNavItem('inventory', 'SKU Master', Boxes)}
+            {renderNavItem('data_sampler', 'Data Sampler', Database, undefined, true)}
           </div>
         </nav>
 
-        {/* User Info Footer */}
         <div className="p-3 border-t border-white/10 bg-black/10">
+          <div className="mb-2 flex justify-center">
+            <button
+              type="button"
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              className="hidden lg:inline-flex h-11 w-11 items-center justify-center rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white cursor-pointer"
+              id="desktop-sidebar-toggle"
+              aria-label={isSidebarCollapsed ? 'Expand menu' : 'Collapse menu'}
+              aria-expanded={!isSidebarCollapsed}
+              aria-controls="sidebar-panel"
+            >
+              {isSidebarCollapsed ? <ChevronsRight className="w-5 h-5" /> : <ChevronsLeft className="w-5 h-5" />}
+            </button>
+          </div>
+
           <div className="bg-white/5 rounded-lg p-2">
-            <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'space-x-3'}`}>
-              <div className="w-8 h-8 rounded bg-[#0078C1] flex items-center justify-center font-bold text-white text-xs shrink-0" title={`${currentUser.name} (${currentUserRole})`}>
+            <div
+              className={'flex items-center rounded-md' + (isCollapsed ? ' lg:justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white' : ' space-x-3')}
+              role="img"
+              tabIndex={isCollapsed ? 0 : undefined}
+              aria-label={currentUser.name + ' (' + currentUserRole + ')'}
+              aria-describedby={isCollapsed ? tooltipId : undefined}
+              data-sidebar-tooltip={currentUser.name + ' · ' + currentUserRole}
+            >
+              <div className="w-8 h-8 rounded bg-[#0078C1] flex items-center justify-center font-bold text-white text-xs shrink-0">
                 {currentUser.initials}
               </div>
-              {!isSidebarCollapsed && (
+              {!isCollapsed && (
                 <div className="overflow-hidden">
                   <p className="text-xs text-white truncate font-medium">{currentUser.name}</p>
                   <p className="text-[9.5px] text-white/50 truncate font-semibold uppercase tracking-wider">{currentUserRole}</p>
@@ -368,6 +396,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
       </aside>
+
+      {isCollapsed && typeof document !== 'undefined' && createPortal(
+        <div
+          id={tooltipId}
+          role="tooltip"
+          aria-hidden={!tooltip}
+          hidden={!tooltip}
+          className="fixed z-[100] max-w-[240px] -translate-y-1/2 rounded-md border border-white/10 bg-[#122B4F] px-2.5 py-1.5 text-xs font-medium leading-5 text-white shadow-xl pointer-events-none"
+          style={tooltip ? { left: tooltip.left, top: tooltip.top } : undefined}
+        >
+          {tooltip?.text}
+        </div>,
+        document.body,
+      )}
     </>
   );
 };

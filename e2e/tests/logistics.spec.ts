@@ -66,6 +66,76 @@ test.describe('B-1 Login & Access Control', () => {
       await expect(page.getByText(/view.only|logistics.*rma|read.only/i)).toBeVisible({ timeout: 5_000 });
     }
   });
+
+  test('B-1.5 Collapsed sidebar rail supports keyboard access, persistence, and the mobile drawer', async ({ page }) => {
+    await page.goto(BASE_URL);
+    await page.waitForLoadState('networkidle');
+
+    const sidebar = page.locator('#sidebar-panel');
+    const mainContent = page.locator('#main-content-area');
+    const toggle = page.locator('#desktop-sidebar-toggle');
+    if (await sidebar.evaluate(element => getComputedStyle(element).width) === '72px') {
+      await page.getByRole('button', { name: 'Expand menu' }).click();
+    }
+    await expect(sidebar).toHaveCSS('width', '224px');
+    await expect(toggle).toHaveAttribute('aria-label', 'Collapse menu');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(toggle).toHaveAttribute('aria-controls', 'sidebar-panel');
+    const expandedToggleBox = await toggle.boundingBox();
+    const expandedMainLeft = (await mainContent.boundingBox())?.x ?? 0;
+
+    await toggle.click();
+    await expect(sidebar).toHaveCSS('width', '72px');
+    await expect(toggle).toHaveAttribute('aria-label', 'Expand menu');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    const collapsedToggleBox = await toggle.boundingBox();
+    expect(Math.abs((expandedToggleBox?.y ?? 0) - (collapsedToggleBox?.y ?? 0))).toBeLessThanOrEqual(1);
+    const collapsedMainLeft = (await mainContent.boundingBox())?.x ?? 0;
+    expect(expandedMainLeft - collapsedMainLeft).toBe(152);
+    await expect(page.locator('#sidebar-nav hr')).toHaveCount(2);
+
+    const activeDashboard = page.getByRole('navigation').getByRole('button', { name: 'Dashboard' });
+    const activeAccent = await activeDashboard.evaluate(element => getComputedStyle(element, '::before').backgroundColor);
+    expect(activeAccent).toBe('rgb(0, 120, 193)');
+
+    const deliveries = page.getByRole('navigation').getByRole('button', { name: /^Deliveries/ });
+    const deliveriesBox = await deliveries.boundingBox();
+    expect(deliveriesBox?.width).toBe(44);
+    expect(deliveriesBox?.height).toBe(44);
+    await deliveries.focus();
+    const tooltip = page.getByRole('tooltip');
+    await expect(tooltip).toContainText('Deliveries');
+    expect((await tooltip.boundingBox())?.x).toBeGreaterThan(72);
+
+    await page.keyboard.press('Control+b');
+    await expect(sidebar).toHaveCSS('width', '224px');
+    await toggle.click();
+    await expect(sidebar).toHaveCSS('width', '72px');
+
+    await page.locator('#global-search-button').click();
+    const searchInput = page.getByPlaceholder(/Search records, companies, drivers, SKUs/);
+    await expect(searchInput).toBeFocused();
+    await page.keyboard.press('Control+b');
+    await expect(sidebar).toHaveCSS('width', '72px');
+    await page.keyboard.press('Escape');
+    await expect(searchInput).not.toBeVisible();
+
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    await expect(sidebar).toHaveCSS('width', '72px');
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.locator('#mobile-sidebar-toggle').click();
+    await expect(sidebar).toBeVisible();
+    await expect(sidebar).toHaveCSS('width', '256px');
+    await expect(page.getByRole('navigation').getByText('Deliveries', { exact: true })).toBeVisible();
+    await expect(page.getByRole('img', { name: 'Microgenesis' })).toBeVisible();
+
+    // The shortcut is desktop-only and must not silently change persisted state on mobile.
+    await page.keyboard.press('Control+b');
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(sidebar).toHaveCSS('width', '72px');
+  });
 });
 
 test.describe('B-2 Dispatch & Assign Driver', () => {
