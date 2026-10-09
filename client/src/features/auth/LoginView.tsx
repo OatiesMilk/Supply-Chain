@@ -1,6 +1,6 @@
 import { FormEvent, useState, useEffect } from 'react';
 import { LogIn, Loader2, Mail, ChevronDown } from 'lucide-react';
-import { api, ApiUser } from '@/api';
+import { api, apiUrl, ApiUser } from '@/api';
 import { keepLoginRoute } from '@/routes/screenRouting';
 
 interface LoginViewProps {
