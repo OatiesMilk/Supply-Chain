@@ -65,7 +65,9 @@ test.describe('B-1 Login & Access Control', () => {
       await newBtn.click();
       await expect(page.getByText(/view.only|logistics.*rma|read.only/i)).toBeVisible({ timeout: 5_000 });
     }
-  });  test('B-1.5 Collapsed sidebar rail supports keyboard access, persistence, and the mobile drawer', async ({ page }) => {
+  });
+
+  test('B-1.5 Collapsed sidebar rail supports keyboard access, persistence, and the mobile drawer', async ({ page }) => {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
 
