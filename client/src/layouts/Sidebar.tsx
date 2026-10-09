@@ -285,7 +285,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         onMouseLeave={handleMouseLeave}
         onFocusCapture={handleFocus}
         onBlurCapture={handleBlur}
-        className={'fixed inset-y-0 left-0 z-50 bg-[#1F3864] text-white flex flex-col justify-between transition-transform duration-300 ease-out lg:transition-[width] lg:duration-200 lg:ease-out motion-reduce:transition-none lg:static lg:translate-x-0 lg:z-auto shrink-0 ' +
+        className={'fixed inset-y-0 left-0 z-50 bg-[#1F3864] text-white flex flex-col justify-between transition-transform duration-300 ease-out lg:transition-[width] lg:duration-200 lg:ease-out motion-reduce:transition-none lg:relative lg:translate-x-0 lg:z-auto shrink-0 ' +
           (isSidebarCollapsed ? 'lg:w-[72px]' : 'lg:w-56') +
           ' ' + (isSidebarOpen ? 'w-64 translate-x-0' : 'w-64 -translate-x-full lg:translate-x-0')}
         id="sidebar-panel"
@@ -359,21 +359,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </nav>
 
-        <div className="p-3 border-t border-white/10 bg-black/10">
-          <div className="mb-2 flex justify-center">
-            <button
-              type="button"
-              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              className="hidden lg:inline-flex h-11 w-11 items-center justify-center rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white cursor-pointer"
-              id="desktop-sidebar-toggle"
-              aria-label={isSidebarCollapsed ? 'Expand menu' : 'Collapse menu'}
-              aria-expanded={!isSidebarCollapsed}
-              aria-controls="sidebar-panel"
-            >
-              {isSidebarCollapsed ? <ChevronsRight className="w-5 h-5" /> : <ChevronsLeft className="w-5 h-5" />}
-            </button>
-          </div>
+        {/* Desktop collapse toggle: straddles the rail's right edge at mid-height and
+            follows the edge as the width animates between collapsed and expanded. */}
+        <button
+          type="button"
+          onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          className="hidden lg:flex absolute top-1/2 right-0 z-20 h-8 w-8 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-[#1F3864] shadow-md transition-colors hover:bg-slate-50 hover:text-[#0078C1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] cursor-pointer"
+          id="desktop-sidebar-toggle"
+          aria-label={isSidebarCollapsed ? 'Expand menu' : 'Collapse menu'}
+          aria-expanded={!isSidebarCollapsed}
+          aria-controls="sidebar-panel"
+          title={isSidebarCollapsed ? 'Expand menu (Ctrl+B)' : 'Collapse menu (Ctrl+B)'}
+        >
+          {isSidebarCollapsed ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
+        </button>
 
+        <div className="p-3 border-t border-white/10 bg-black/10">
           <div className="bg-white/5 rounded-lg p-2">
             <div
               className={'flex items-center rounded-md' + (isCollapsed ? ' lg:justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white' : ' space-x-3')}
