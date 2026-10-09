@@ -1,50 +1,30 @@
 import { Router } from 'express';
 import { runSeed } from '../../prisma/seed';
-import { runUatSeed } from '../../prisma/seed-uat';
-import { requireResource, requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requireResource, requireRole } from '../middleware/auth';
+import { canResetLocalDemo } from '../services/localDemoReset';
 
-const router = Router();
+export function createDevRouter(resetSeed: () => Promise<void> = () => runSeed(true)) {
+  const router = Router();
 
-// Dev-only convenience endpoint backing the frontend's "Reset Demo Data" button.
-// Guarded with Admin role check and strictly disabled in production environments.
-router.post('/reset-seed', requireAuth, requireResource('admin'), requireRole('ADMIN'), async (_req, res) => {
-  if (process.env.NODE_ENV === 'production') {
-    return res.status(403).json({ error: 'Endpoint disabled in production environment' });
-  }
+  // The former anonymous public-seed and public-seed-uat endpoints are removed.
+  router.get('/reset-capability', requireAuth, requireResource('admin'), requireRole('ADMIN'), (req, res) => {
+    res.json({ enabled: canResetLocalDemo(req) });
+  });
 
-  try {
-    await runSeed(true);
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('Reset seed failed:', err);
-    res.status(500).json({ error: 'Failed to reset seed data' });
-  }
-});
+  router.post('/reset-seed', requireAuth, requireResource('admin'), requireRole('ADMIN'), async (req, res) => {
+    if (!canResetLocalDemo(req)) {
+      return res.status(403).json({ error: 'Demo reset is available only on a verified local disposable database' });
+    }
+    try {
+      await resetSeed();
+      res.json({ ok: true });
+    } catch (error) {
+      console.error('Local demo reset failed:', error);
+      res.status(500).json({ error: 'Failed to reset local demo data' });
+    }
+  });
 
-// Public endpoint for demo seeding directly from the login page.
-// Be careful: this allows unauthenticated database resets!
-router.post('/public-seed', async (_req, res) => {
-  try {
-    await runSeed(true);
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('Public seed failed:', err);
-    res.status(500).json({ error: 'Failed to reset seed data' });
-  }
-});
+  return router;
+}
 
-router.post('/public-seed-uat', async (_req, res) => {
-  if (process.env.NODE_ENV === 'production' || process.env.UAT_SEED_ENABLED !== 'true') {
-    return res.status(403).json({ error: 'UAT seed is disabled in this environment' });
-  }
-
-  try {
-    const result = await runUatSeed();
-    res.json({ ok: true, ...result });
-  } catch (err) {
-    console.error('UAT seed failed:', err);
-    res.status(500).json({ error: 'Failed to prepare UAT data' });
-  }
-});
-
-export default router;
+export default createDevRouter();

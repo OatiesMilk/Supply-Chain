@@ -517,7 +517,7 @@ export const api = {
     request<ApiSku>(`/skus/${id}/adjust`, { method: 'POST', body: JSON.stringify(data) }),
 
   resetSeed: () => request<{ ok: boolean }>('/dev/reset-seed', { method: 'POST' }),
-  seedUat: () => request<{ ok: boolean; userCount: number; driverRecords: number }>('/dev/public-seed-uat', { method: 'POST' }),
+  canResetDemo: () => request<{ enabled: boolean }>('/dev/reset-capability'),
 
   // Data Sampler (Admin only)
   dataSampler: {

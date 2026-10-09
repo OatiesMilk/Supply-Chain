@@ -1,3 +1,4 @@
+import { assertDisposableSeedTarget } from './seed-safety';
 import { prisma } from '../src/db';
 import { seedAccounts } from './seeds/accounts';
 import { seedDrivers } from './seeds/drivers';
@@ -5,6 +6,7 @@ import { seedUsers } from './seeds/users';
 import { seedDriverDemo } from './seed-driver-demo';
 
 export async function runUatSeed() {
+  assertDisposableSeedTarget();
   const podTable = await prisma.$queryRaw<Array<{ exists: boolean }>>`
     SELECT to_regclass('public."PodAttachment"') IS NOT NULL AS exists
   `;

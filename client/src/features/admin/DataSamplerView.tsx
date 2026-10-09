@@ -105,6 +105,13 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [manualFields, setManualFields] = useState<Record<string, string>>({});
   const [savingManual, setSavingManual] = useState(false);
+  const [canReset, setCanReset] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    api.canResetDemo().then(result => { if (mounted) setCanReset(result.enabled); })
+      .catch(() => { if (mounted) setCanReset(false); });
+    return () => { mounted = false; };
+  }, []);
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetMode, setResetMode] = useState<'full' | 'seed'>('full');
   const [resetting, setResetting] = useState(false);
@@ -232,12 +239,12 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
               Populate modules with realistic test data for demos and development. Admin only.
             </p>
           </div>
-          <button
+          {canReset && <button
             onClick={() => { setShowResetModal(true); setResetMode('full'); }}
             className="flex items-center gap-1.5 px-3 py-2 bg-red-600 hover:bg-red-500 text-white text-[11px] font-bold rounded-lg transition-colors cursor-pointer shrink-0 mt-1"
           >
             <Trash2 className="w-3.5 h-3.5" /> Reset All Data
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -247,7 +254,7 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
         <div>
           <p className="text-xs font-black text-amber-800 uppercase tracking-wide">Generates real DB records</p>
           <p className="text-xs text-amber-700 mt-0.5">
-            All generated records are written to the live database, appear in audit logs attributed to <strong>{currentUserName}</strong>, and are fully visible to all roles. Use the demo reset button in the header to wipe all data and reseed.
+            All generated records are written to the live database, appear in audit logs attributed to <strong>{currentUserName}</strong>, and are fully visible to all roles. Local Admin can reset only an explicitly approved disposable demo database. Hosted staging/production resets are disabled.
           </p>
         </div>
       </div>

@@ -1,3 +1,4 @@
+import { assertDisposableSeedTarget } from './seed-safety';
 import { prisma } from '../src/db';
 import bcrypt from 'bcryptjs';
 
@@ -134,6 +135,7 @@ async function seedSkus(salesUserId: string) {
 
 
 export async function runSeed(force = false) {
+  assertDisposableSeedTarget();
   const userCount = await prisma.user.count();
 
   if (userCount > 0 && !force) {
