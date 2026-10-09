@@ -100,7 +100,7 @@ export default function LogisticsDashboard({
               {unassignedCount}
             </h3>
             <span className="text-xs text-amber-600 font-extrabold flex items-center gap-1 mt-2">
-              Needs driver <UserX className="w-3.5 h-3.5 shrink-0" />
+              Needs driver
             </span>
           </div>
           <div
@@ -123,7 +123,7 @@ export default function LogisticsDashboard({
               {completedToday}
             </h3>
             <span className="text-xs text-emerald-600 font-extrabold flex items-center gap-1 mt-2">
-              Accomplished <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+              Accomplished
             </span>
           </div>
           <div className="bg-emerald-50 p-3 rounded-lg text-emerald-600 shrink-0">
@@ -144,7 +144,7 @@ export default function LogisticsDashboard({
               {onHoldRescheduled}
             </h3>
             <span className="text-xs text-purple-600 font-extrabold flex items-center gap-1 mt-2">
-              Needs reassignment <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+              Needs reassignment
             </span>
           </div>
           <div className="bg-purple-50 p-3 rounded-lg text-purple-600 shrink-0">

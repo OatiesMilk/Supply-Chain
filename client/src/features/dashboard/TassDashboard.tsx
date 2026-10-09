@@ -131,8 +131,7 @@ export default function TassDashboard({
               {rmaOnHold}
             </h3>
             <span className="text-xs text-red-600 font-extrabold flex items-center gap-1 mt-2">
-              Blocked — needs action{" "}
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              Blocked — needs action
             </span>
           </div>
           <div
@@ -180,8 +179,7 @@ export default function TassDashboard({
             <span className="text-xs text-amber-600 font-extrabold flex items-center gap-1 mt-1">
               {verifiedToday > 0
                 ? `${verifiedToday} verified today`
-                : "Awaiting TASS sign-off"}{" "}
-              <Clock className="w-3.5 h-3.5 shrink-0" />
+                : "Awaiting TASS sign-off"}
             </span>
           </div>
           <div

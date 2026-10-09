@@ -203,7 +203,7 @@ export default function DashboardView({
                 {pendingDriverAssignment}
               </h3>
               <span className="text-xs text-amber-600 font-extrabold flex items-center gap-1 mt-2">
-                Needs a driver <UserX className="w-3.5 h-3.5 shrink-0" />
+                Needs a driver
               </span>
             </div>
             <div
@@ -226,7 +226,7 @@ export default function DashboardView({
                 {onHoldCount}
               </h3>
               <span className="text-xs text-red-600 font-extrabold flex items-center gap-1 mt-2">
-                Blocked <PauseCircle className="w-3.5 h-3.5 shrink-0" />
+                Blocked
               </span>
             </div>
             <div className="bg-red-50 p-3 rounded-lg text-red-600 shrink-0">
@@ -247,7 +247,7 @@ export default function DashboardView({
                 {rescheduledCount}
               </h3>
               <span className="text-xs text-purple-600 font-extrabold flex items-center gap-1 mt-2">
-                Needs follow-up <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                Needs follow-up
               </span>
             </div>
             <div className="bg-purple-50 p-3 rounded-lg text-purple-600 shrink-0">
