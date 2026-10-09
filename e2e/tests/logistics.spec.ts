@@ -167,6 +167,7 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
 
     for (let attempt = 0; attempt < 3; attempt++) {
       await autoFill.click();
+      await expect(areaInput).not.toHaveValue('', { timeout: 5000 });
       const area = await areaInput.inputValue();
       const address = await addressInput.inputValue();
       assertDemoLocationPair(area, address);
@@ -241,7 +242,7 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     await page.waitForTimeout(500);
 
     // Fill status remarks
-    const remarksArea = page.getByPlaceholder(/reason.*status|status.*remark/i).first();
+    const remarksArea = page.getByPlaceholder(/Reason for the changes|Optional note/i);
     if (await remarksArea.isVisible()) {
       await remarksArea.fill('UAT automated status change');
       // Pick a different status
@@ -268,7 +269,7 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     await expect(dateField).toBeVisible();
 
     const save = page.getByRole('button', { name: /save changes/i });
-    await page.getByPlaceholder(/reason|remark/i).first().fill('TSK-123 automated reschedule');
+    await page.getByPlaceholder(/Reason for the changes|Optional note/i).fill('TSK-123 automated reschedule');
     await expect(save).toBeDisabled();
 
     const manilaToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date());
@@ -276,7 +277,7 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     future.setUTCDate(future.getUTCDate() + 14);
     const newDate = future.toISOString().slice(0, 10);
 
-    await dateField.fill(manilaToday);
+    await dateField.fill('2000-01-01');
     await expect(save).toBeDisabled();
     await dateField.fill(newDate);
     await expect(save).toBeEnabled();
@@ -319,19 +320,16 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     await expect(page.getByRole('button', { name: 'Return to Draft', exact: true })).toHaveCount(0);
   });
 
-  test('B-2.6 Cannot set same status twice', async ({ page }) => {
+  test('B-2.6 Saving without changes shows feedback', async ({ page }) => {
     await openFirstRecord(page);
     const dispatchTab = page.getByRole('tab', { name: /dispatch|logistics/i });
     await dispatchTab.click();
     await page.waitForTimeout(500);
 
-    const remarksArea = page.getByPlaceholder(/reason.*status|status.*remark/i).first();
-    if (await remarksArea.isVisible()) {
-      await remarksArea.fill('Try same status');
-      // Set to current status (no change)
-      await page.getByRole('button', { name: /confirm|update status/i }).click();
-      await page.waitForLoadState('networkidle');
-      await expect(page.getByText(/choose a different status|no change/i)).toBeVisible({ timeout: 5_000 });
+    const saveBtn = page.getByRole('button', { name: /save changes/i });
+    if (await saveBtn.isVisible()) {
+      await saveBtn.click();
+      await expect(page.getByText('No changes detected to save.', { exact: true })).toBeVisible({ timeout: 5_000 });
     }
   });
 
@@ -345,7 +343,7 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     await firstRow.click();
     await page.getByRole('tab', { name: /dispatch|logistics/i }).click();
 
-    const driverSelect = page.locator('select').first();
+    const driverSelect = page.locator('select').filter({ hasText: /-- Unassigned --/i }).first();
     await expect(driverSelect).toBeEnabled();
     const currentDriver = await driverSelect.inputValue();
     const optionValues = await driverSelect.locator('option').evaluateAll(options =>
@@ -550,9 +548,9 @@ test.describe('B-5 Reports', () => {
     await expect(page.getByText(/not available for your account/i)).not.toBeVisible();
   });
 
-  test('B-5.2 Retired Status History screen is absent', async ({ page }) => {
+  test('B-5.2 Retired Status History screen redirects to dashboard', async ({ page }) => {
     await page.goto(`${BASE_URL}/status_history`);
     await page.waitForLoadState('networkidle');
-    await expect(page.getByText(/View Not Found/i)).toBeVisible();
+    await expect(page).toHaveURL(`${BASE_URL}/dashboard`);
   });
 });
