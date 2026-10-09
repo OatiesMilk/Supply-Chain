@@ -16,6 +16,7 @@ import {
   useDeleteDriverMutation,
   useSkusQuery,
   useDashboardStatsQuery,
+  useResetDemoDataMutation,
 } from '@/api/queries';
 
 const EMPTY_DRIVERS: ApiDriver[] = [];
@@ -52,6 +53,7 @@ export function useAppData(
   const createDriverMutation = useCreateDriverMutation();
   const updateDriverMutation = useUpdateDriverMutation();
   const deleteDriverMutation = useDeleteDriverMutation();
+  const resetDemoDataMutation = useResetDemoDataMutation();
 
   const refreshData = useCallback(async () => {
     await queryClient.invalidateQueries();
@@ -99,6 +101,10 @@ export function useAppData(
     await deleteDriverMutation.mutateAsync(id);
   };
 
+  const handleResetDemoData = async () => {
+    await resetDemoDataMutation.mutateAsync();
+  };
+
   return {
     deliveryRecords,
     setDeliveryRecords: () => {
@@ -112,11 +118,13 @@ export function useAppData(
     managedDrivers,
     dataLoading: recordsLoading,
     dataError: recordsError?.message ?? null,
+    resetting: resetDemoDataMutation.isPending,
     refreshData,
     handleCreateCustomer,
     handleCreateSupplier,
     handleCreateDriver,
     handleUpdateDriver,
     handleDeleteDriver,
+    handleResetDemoData,
   };
 }
