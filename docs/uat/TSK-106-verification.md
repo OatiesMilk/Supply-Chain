@@ -1,5 +1,7 @@
 # TSK-106: API completion proof and cross-driver access
 
+> Last verified: 2026-10-09 against commit `ccbf192` (`dev`).
+
 Scope: UAT C-2.12/C-2.13. The isolated suite exercises the actual JWT/role/access middleware and route handlers, including streamed multipart parsing. It fails closed on unstubbed database and object-storage operations. It does not connect to a database, write real files, send email, or start a listener.
 
 Run from `server/` with installed repository dependencies:
@@ -43,7 +45,7 @@ Limitations and follow-up prerequisites:
 
 - These tests simulate transaction interleavings and assert locked rechecks; they do **not** prove PostgreSQL isolation, actual concurrent connections, rollback behavior, or object-store availability. Run concurrency/rollback UAT against disposable PostgreSQL and storage after the prerequisite tickets settle.
 - Object storage and PostgreSQL are separate systems. Upload uses a row lock and transactional metadata, with compensating object removal on failure; this is not a distributed atomic transaction. The upload transaction allows up to 30 seconds for remote storage while retaining the ownership lock. A failed cleanup retains the existing recovery log and requires reconciliation.
-- Assignment still uses an exact driver/account name string. Stable driver↔user identity, collision/rename handling and its database migration remain a separate prerequisite; this ticket does not claim that migration is complete.
+- Update (TSK-100): assignment no longer uses the name string. Ownership is decided by the Admin-linked `Driver` profile id (`DeliveryRecord.driverId`, migration `20261008020000_link_driver_identity`). The TSK-106 tests above were written before that change; the identity behavior is covered by `tests/driverIdentity.test.ts` and `tests/driversRoute.test.ts`.
 - The merged dev lifecycle now includes Draft restrictions, dedicated server Time In / In Transit, and timestamp reset on rescheduling; these are covered by the combined suite. Future-run rules, overdue tracking and client staged uploads remain separate follow-ups. No schema or production environment changes are made here.
 
 Sharp API references: [pixel statistics](https://sharp.pixelplumbing.com/api-input/#stats), [untrusted-input failure and pixel limits](https://sharp.pixelplumbing.com/api-constructor/).

@@ -31,7 +31,7 @@ You write production-quality code — not prototypes. Every change you make is m
 - **Backend**: Node.js, Express, TypeScript, Prisma ORM, PostgreSQL
 - **Auth**: JWT signed tokens stored in `httpOnly` cookies (`mg_session`), validated via `requireAuth` + `requireRole` middleware in `server/src/middleware/auth.ts`
 - **Roles**: `SALES_COORDINATOR | LOGISTICS | TASS | ADMIN | DRIVER`
-- **Testing**: Vitest + React Testing Library (component tests in `client/src/**/__tests__/`)
+- **Testing**: Node built-in test runner (`node:test` via `tsx`); client tests in `client/tests/` and `client/src/**/__tests__/`, server tests in `server/tests/`
 - **Dev ports**: Frontend on `3000`, Backend on `4000`; Vite proxies `/api` → `localhost:4000`
 
 ### Key directories
@@ -76,7 +76,7 @@ You write production-quality code — not prototypes. Every change you make is m
 - **TypeScript**: Strict typing, generics, discriminated unions, type guards
 - **Security**: Cookie hygiene (httpOnly, sameSite, secure), input validation, RBAC auditing, injection prevention
 - **Modular architecture**: Feature-based folder structure, separation of concerns, thin controllers
-- **Testing**: Vitest unit tests, React Testing Library component tests
+- **Testing**: node:test unit and HTTP-level tests, Playwright E2E
 - **Notion API**: Reading and writing tickets via the REST API (token in `.env`)
 - **Git workflow**: Branch naming conventions per `docs/git-cheat-sheet.md` (`fix/<scope>-TSK-XX-<description>`, `feature/<scope>-TSK-XX-<description>`)
 
@@ -101,7 +101,7 @@ Follow this process for **every task**:
 5. **Self-validate** — After implementing, run the relevant checks:
    - Backend: `cd /home/marc/Supply-Chain/server && npx tsc --noEmit`
    - Frontend: `cd /home/marc/Supply-Chain/client && npx tsc --noEmit`
-   - Tests: `cd /home/marc/Supply-Chain/client && npx vitest run` if tests exist for the changed module
+   - Tests: `cd /home/marc/Supply-Chain/client && node --import tsx --test tests/*.test.ts` (or `cd ../server && node --import tsx --test tests/*.test.ts`) if tests exist for the changed module
    - Fix any type errors or test failures before returning
 
 6. **Report results** — Summarize what was changed, which files were touched, and confirm the self-validation passed. If a linked Notion ticket exists, note whether the ticket status should be updated.

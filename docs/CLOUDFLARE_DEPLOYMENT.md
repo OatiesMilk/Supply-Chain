@@ -1,15 +1,25 @@
 # Cloudflare Deployment
 
+> Last verified: 2026-10-09 against commit `ccbf192` (`dev`). The Cloudflare dashboard and the live Render service were not inspected; settings below come from the repository (`wrangler.json`, `worker.js`, `render.yaml`, `client/src/api/`).
+
 The production frontend is hosted at Cloudflare Workers and the API is hosted
 on Render. Cloudflare Workers Builds tracks the `staging` branch and uses
 `client/` as its project root.
 
+## How API requests reach the API
+
+The client calls relative `/api/...` URLs. `worker.js` forwards every `/api/*`
+request to `env.API_BASE_URL`, falling back to the currently coded Render URL.
+The health check is also relative when `VITE_API_BASE_URL` is unset, so it uses
+the same Worker proxy. This keeps browser requests and the session cookie on the
+Cloudflare origin.
+
 ## Frontend and API configuration
 
-Set the production client API base URL in Cloudflare:
+Set this Worker runtime variable in Cloudflare:
 
 ```env
-VITE_API_BASE_URL="https://supply-chain-9fnl.onrender.com"
+API_BASE_URL="https://supply-chain-9fnl.onrender.com"
 ```
 
 The Cloudflare Workers build configuration is:
@@ -20,12 +30,10 @@ Build command: npm run build
 Output directory: dist
 ```
 
-The API base URL is compiled into the Vite bundle at build time. A value
-changed in Cloudflare is not used by an already deployed bundle until a new
-Workers build completes. Requests made by the client, including
-`/api/health`, must use the Render base URL; otherwise the Cloudflare SPA
-fallback returns `index.html` instead of the JSON API response, and the client
-incorrectly reports that the server is unavailable.
+Do not set `VITE_API_BASE_URL` for the deployed frontend. It bypasses the Worker
+proxy and makes browser authentication cross-site, which is especially fragile
+on browsers that restrict third-party cookies. `ASSETS` is created from
+`wrangler.json`; it is not a secret or manually configured variable.
 
 The Render service must allow the exact frontend origin:
 
@@ -33,11 +41,11 @@ The Render service must allow the exact frontend origin:
 CLIENT_ORIGIN="https://supply-chain.mgenesis.workers.dev"
 ```
 
-The frontend uses `credentials: include`, so production authentication
-cookies must be configured as `HttpOnly`, `Secure`, and `SameSite=None`. This
-is required because the Cloudflare frontend and Render API are different
-sites. After changing cookie settings or deploying the production client,
-clear old cookies and sign in again.
+The frontend uses `credentials: include`. The browser receives the proxied
+response from the Cloudflare origin while the Worker forwards the request to
+Render. Keep the backend cookie `HttpOnly` and `Secure`, and set
+`CLIENT_ORIGIN` to the exact Cloudflare origin. After changing cookie settings
+or deploying the production client, clear old cookies and sign in again.
 
 ## Wrangler preview configuration
 

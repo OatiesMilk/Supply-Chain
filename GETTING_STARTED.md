@@ -1,8 +1,9 @@
 # Getting Started
 
-This guide sets up the Supply Chain Portal locally on **Linux** or
-**Windows**. The frontend runs on port `3000`, the backend runs on port
-`4000`, and PostgreSQL runs in Docker on port `5433`.
+The setup guide lives in [`docs/GETTING_STARTED.md`](./docs/GETTING_STARTED.md).
+It covers Linux and Windows PowerShell setup: Node/npm workspaces, Dockerized
+PostgreSQL, environment files, Prisma migrations and seeds, running the app,
+tests, POD storage and troubleshooting.
 
 ## Prerequisites
 
