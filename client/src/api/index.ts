@@ -437,7 +437,7 @@ export const api = {
     request<any>(`/records/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   recordTimeIn: (id: string, remarks: string) =>
     request<any>(`/records/${id}/time-in`, { method: 'POST', body: JSON.stringify({ remarks }) }),
-  patchStatus: (id: string, status: string, remarks?: string, extra?: { time_out?: string; received_by?: string; priority?: string }) =>
+  patchStatus: (id: string, status: string, remarks?: string, extra?: { time_out?: string; received_by?: string; priority?: string; delivery_date?: string }) =>
     request<any>(`/records/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, remarks: remarks ?? '', ...extra }) }),
   verifyCollection: (id: string) =>
     request<any>(`/records/${id}/verify-collection`, { method: 'PATCH' }),

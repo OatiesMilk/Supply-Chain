@@ -45,8 +45,9 @@ export function createUpdateRecordMutationOptions(queryClient: ReturnType<typeof
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<DeliveryRecord> }) => {
       if (updates.status) {
         const u = updates as any;
-        const extra: { received_by?: string; priority?: string } = {};
+        const extra: { received_by?: string; priority?: string; delivery_date?: string } = {};
         if (u.received_by) extra.received_by = u.received_by;
+        if (updates.status === 'Rescheduled' && u.delivery_date) extra.delivery_date = u.delivery_date;
         if (updates.status === 'Delivered') {
           const record = normalizeApiRecord(await api.getRecord(id));
           if (record.status !== 'Delivered') {

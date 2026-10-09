@@ -64,6 +64,15 @@ export function manilaToday(now = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 }
 
+/** Validation message for the "New delivery date" entered when rescheduling a Delivery, or null when valid. */
+export function rescheduleDateError(newDate: string, currentDate: string, today = manilaToday()): string | null {
+  if (!newDate) return 'Enter the new delivery date.';
+  if (!deliveryScheduleState(newDate, today).valid) return 'Enter a valid date.';
+  if (newDate < today) return 'The new delivery date cannot be in the past.';
+  if (newDate === currentDate) return 'The new delivery date must be different from the current delivery date.';
+  return null;
+}
+
 export function manilaDateTimeInput(iso: string | null | undefined): string {
   if (!iso || Number.isNaN(Date.parse(iso))) return '';
   return new Date(Date.parse(iso) + 8 * 60 * 60 * 1000).toISOString().slice(0, 16);

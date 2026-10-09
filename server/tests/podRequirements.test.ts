@@ -432,7 +432,7 @@ test('draft assignment blocked; ISO corrections are restricted, audited and cann
 
 test('rescheduling clears timestamps and preserves them and actor in audit for next attempt', async () => {
   const state = database(record({ timeOut: '2026-10-06T02:00:00.000Z' }));
-  const result = await request('patch', '/:id/status', { role: 'LOGISTICS', body: { status: 'Rescheduled', remarks: 'Try tomorrow' } });
+  const result = await request('patch', '/:id/status', { role: 'LOGISTICS', body: { status: 'Rescheduled', remarks: 'Try tomorrow', delivery_date: shiftDate(manilaToday(), 1) } });
   assert.equal(result.status, 200);
   assert.equal(result.body.time_in, null);
   assert.equal(result.body.time_out, null);
@@ -441,6 +441,84 @@ test('rescheduling clears timestamps and preserves them and actor in audit for n
   assert.equal(previous.time_out, '2026-10-06T02:00:00.000Z');
   assert.equal(state.audit[0].changedById, 'test-user');
   assert.equal((await request('post', '/:id/time-in', { role: 'LOGISTICS', body: { remarks: 'New attempt' } })).status, 200);
+});
+
+test('TSK-123: Logistics/Admin must send a valid new date when rescheduling a Delivery', async () => {
+  const today = manilaToday();
+  const tomorrow = shiftDate(today, 1);
+  const rejected: [string, Record<string, unknown>, RegExp][] = [
+    ['LOGISTICS', {}, /new delivery date is required/i],
+    ['LOGISTICS', { delivery_date: shiftDate(today, -1) }, /past/i],
+    ['LOGISTICS', { delivery_date: today }, /different/i],
+    ['ADMIN', { delivery_date: 'tomorrow' }, /valid/i],
+    ['ADMIN', { delivery_date: '2026-02-30' }, /valid/i],
+  ];
+  for (const [role, extra, message] of rejected) {
+    resetFixtures();
+    const state = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: today }));
+    const before = { ...state.saved() };
+    const result = await request('patch', '/:id/status', { role, body: { status: 'Rescheduled', remarks: 'Move it', ...extra } });
+    assert.equal(result.status, 400, JSON.stringify(extra));
+    assert.match(result.body.error, message);
+    assert.deepEqual(state.saved(), before);
+    assert.equal(state.audit.length, 0);
+    assert.equal(state.remarks.length, 0);
+  }
+
+  for (const role of ['LOGISTICS', 'ADMIN']) {
+    resetFixtures();
+    const state = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: today }));
+    const result = await request('patch', '/:id/status', { role, body: { status: 'Rescheduled', remarks: 'Customer asked for tomorrow', delivery_date: tomorrow } });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.status, 'Rescheduled');
+    assert.equal(result.body.delivery_date, tomorrow);
+    assert.equal(state.saved().deliveryDate, tomorrow);
+    assert.equal(state.saved().timeIn, null);
+    assert.equal(state.audit.length, 1);
+    assert.equal(JSON.parse(state.audit[0].previousValue).delivery_date, today);
+    assert.equal(JSON.parse(state.audit[0].newValue).delivery_date, tomorrow);
+    assert.equal(state.remarks.length, 1);
+    assert.equal(state.events.filter(event => event === 'update').length, 1);
+  }
+});
+
+test('TSK-123: delivery_date is rejected on any status change other than a Delivery reschedule', async () => {
+  const tomorrow = shiftDate(manilaToday(), 1);
+  for (const [role, status, row] of [
+    ['LOGISTICS', 'On-Hold', { status: 'SCHEDULED', timeIn: null }],
+    ['ADMIN', 'On-Hold', { status: 'SCHEDULED', timeIn: null }],
+    ['DRIVER', 'Rescheduled', { status: 'SCHEDULED' }],
+    ['LOGISTICS', 'Rescheduled', { status: 'SCHEDULED', category: 'ACCOUNTING_COLLECTION' }],
+  ] as const) {
+    resetFixtures();
+    const state = database(record(row));
+    const before = { ...state.saved() };
+    const result = await request('patch', '/:id/status', { role, body: { status, remarks: 'Try a date', delivery_date: tomorrow } });
+    assert.equal(result.status, 400, `${role} ${status}`);
+    assert.match(result.body.error, /Overview, or choose Rescheduled/);
+    assert.deepEqual(state.saved(), before);
+  }
+});
+
+test('TSK-123: Driver and non-Delivery reschedules still work without a date; Sales Coordinator cannot reschedule', async () => {
+  resetFixtures();
+  const driverRun = database(record({ status: 'SCHEDULED' }));
+  const today = driverRun.saved().deliveryDate;
+  const driver = await request('patch', '/:id/status', { role: 'DRIVER', body: { status: 'Rescheduled', remarks: 'Customer away' } });
+  assert.equal(driver.status, 200);
+  assert.equal(driverRun.saved().deliveryDate, today);
+
+  resetFixtures();
+  const collection = database(record({ category: 'ACCOUNTING_COLLECTION', status: 'SCHEDULED', timeIn: null }));
+  const collectionResult = await request('patch', '/:id/status', { role: 'LOGISTICS', body: { status: 'Rescheduled', remarks: 'Move collection' } });
+  assert.equal(collectionResult.status, 200);
+  assert.equal(collection.saved().deliveryDate, today);
+
+  resetFixtures();
+  const sc = database(record({ status: 'SCHEDULED', timeIn: null }));
+  const scResult = await request('patch', '/:id/status', { role: 'SALES_COORDINATOR', body: { status: 'Rescheduled', remarks: 'Move it', delivery_date: shiftDate(manilaToday(), 1) } });
+  assert.equal(scResult.status, 403);
+  assert.equal(sc.events.includes('update'), false);
 });
 
 test('record scope hides drafts in driver list/detail and related transactions; table omits manual In Transit', () => {

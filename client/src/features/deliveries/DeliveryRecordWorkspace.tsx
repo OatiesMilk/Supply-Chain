@@ -33,7 +33,7 @@ import { screenKeyForCategory } from '@/routes/screenRouting';
 import { notify } from '@/utils/notify';
 
 import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
-import { selectableStatuses, canRecordTimeIn, isDraftRecord, manilaToday, manilaDateTimeInput, manilaInputToIso } from '@/utils/recordLifecycle';
+import { selectableStatuses, canRecordTimeIn, isDraftRecord, manilaToday, manilaDateTimeInput, manilaInputToIso, rescheduleDateError } from '@/utils/recordLifecycle';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -852,12 +852,16 @@ function ActionsTab({
   const [timeIn, setTimeIn] = useState(manilaDateTimeInput(record.time_in));
   const [timeOut, setTimeOut] = useState(manilaDateTimeInput(record.time_out));
   const [receivedBy, setReceivedBy] = useState(record.received_by ?? '');
+  const [newDeliveryDate, setNewDeliveryDate] = useState('');
 
   const draftRecord = isDraftRecord(record);
   const statusOptions = selectableStatuses(record, currentUserRole);
 
   const statusChanged = selectedStatus !== record.status;
   const photoError = statusChanged ? completionError(record, selectedStatus, receivedBy, podReadiness) : null;
+  const needsNewDate = statusChanged && selectedStatus === 'Rescheduled' && record.category === 'Deliveries'
+    && (currentUserRole === 'Logistics' || currentUserRole === 'Admin');
+  const newDateError = needsNewDate ? rescheduleDateError(newDeliveryDate, record.delivery_date) : null;
   const driverFieldsChanged =
     selectedDriver !== (record.driver ?? '') ||
     JSON.stringify(assistants.filter(a => a.trim())) !== JSON.stringify(record.driver_assistants ?? []) ||
@@ -875,15 +879,16 @@ function ActionsTab({
     setTimeOut(manilaDateTimeInput(record.time_out));
     setReceivedBy(record.received_by ?? '');
     setSelectedStatus(record.status);
+    setNewDeliveryDate('');
     setActionRemarks('');
     setActionRemarksError(false);
     setSaveFeedback(null);
-  }, [record.id, record.time_in, record.time_out, record.status]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [record.id, record.time_in, record.time_out, record.status, record.delivery_date]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useWorkspaceDraft('dispatch', hasChanges || !!actionRemarks || podReadiness.hasStagedFiles, saving || podReadiness.uploading);
 
   const handleSave = async () => {
-    if (saving || photoError) return;
+    if (saving || photoError || newDateError) return;
 
     if (!hasChanges && !actionRemarks.trim() && !podReadiness.hasStagedFiles) {
       setSaveFeedback('No changes detected to save.');
@@ -941,6 +946,7 @@ function ActionsTab({
           modified_by: `${currentUserName} (${currentUserRole})`,
           modified_at: now,
           ...(selectedStatus === 'Delivered' ? { received_by: receivedBy.trim() } : {}),
+          ...(needsNewDate ? { delivery_date: newDeliveryDate } : {}),
         };
         await onUpdateRecord(record.id, statusUpdates);
       }
@@ -988,7 +994,7 @@ function ActionsTab({
             <button
               type="button"
               key={s}
-              onClick={() => { setSelectedStatus(s); setSaveFeedback(null); }}
+              onClick={() => { setSelectedStatus(s); setNewDeliveryDate(''); setSaveFeedback(null); }}
               disabled={saving}
               aria-pressed={selectedStatus === s}
               className={`min-h-10 rounded-lg border px-3 py-2.5 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] disabled:opacity-50 ${
@@ -1001,6 +1007,26 @@ function ActionsTab({
             </button>
           ))}
         </div>
+        {needsNewDate && (
+          <div className="space-y-1.5">
+            <label htmlFor="reschedule-new-date" className="text-xs font-bold text-slate-700">New delivery date <span className="text-red-600">*</span></label>
+            <input
+              id="reschedule-new-date"
+              type="date"
+              value={newDeliveryDate}
+              min={manilaToday()}
+              disabled={saving}
+              required
+              aria-invalid={!!newDateError}
+              aria-describedby="reschedule-new-date-help"
+              onChange={e => { setNewDeliveryDate(e.target.value); setSaveFeedback(null); }}
+              className={`w-full sm:max-w-xs px-3 py-2 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${newDateError ? 'border-red-400' : 'border-slate-300'}`}
+            />
+            <p id="reschedule-new-date-help" className={`text-[11px] ${newDateError ? 'font-semibold text-red-600' : 'text-slate-500'}`}>
+              {newDateError ?? 'The driver sees this run again on the new date.'}
+            </p>
+          </div>
+        )}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
           <p className="text-xs text-slate-600">
             Current status: <span className="font-semibold text-slate-800">{record.status}</span>
@@ -1201,6 +1227,7 @@ function ActionsTab({
           <button
             onClick={() => {
               setSelectedStatus(record.status);
+              setNewDeliveryDate('');
               setSelectedDriver(record.driver);
               setAssistants(record.driver_assistants ?? []);
               setTimeIn(manilaDateTimeInput(record.time_in));
@@ -1217,7 +1244,7 @@ function ActionsTab({
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || !!photoError}
+            disabled={saving || !!photoError || !!newDateError}
             className="px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}

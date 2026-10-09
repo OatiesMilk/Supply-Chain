@@ -238,6 +238,43 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     }
   });
 
+  test('B-2.5a TSK-123 Rescheduled requires a new delivery date saved with the status', async ({ page }) => {
+    await openFirstRecord(page);
+    await page.getByRole('tab', { name: /dispatch|logistics/i }).click();
+
+    const reschedule = page.getByRole('button', { name: 'Rescheduled', exact: true });
+    test.skip(!(await reschedule.isVisible()) || (await reschedule.getAttribute('aria-pressed')) === 'true', 'First delivery cannot be rescheduled');
+
+    const dateField = page.getByLabel(/new delivery date/i);
+    await expect(dateField).toHaveCount(0);
+    await reschedule.click();
+    await expect(dateField).toBeVisible();
+
+    const save = page.getByRole('button', { name: /save changes/i });
+    await page.getByPlaceholder(/reason|remark/i).first().fill('TSK-123 automated reschedule');
+    await expect(save).toBeDisabled();
+
+    const manilaToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date());
+    const future = new Date(`${manilaToday}T00:00:00Z`);
+    future.setUTCDate(future.getUTCDate() + 14);
+    const newDate = future.toISOString().slice(0, 10);
+
+    await dateField.fill(manilaToday);
+    await expect(save).toBeDisabled();
+    await dateField.fill(newDate);
+    await expect(save).toBeEnabled();
+
+    // Another status removes the date field again.
+    await page.getByRole('button', { name: 'On-Hold', exact: true }).click();
+    await expect(dateField).toHaveCount(0);
+    await reschedule.click();
+    await dateField.fill(newDate);
+    await save.click();
+    await expect(page.getByText(/changes saved/i).first()).toBeVisible({ timeout: 8_000 });
+    await page.getByRole('tab', { name: /overview|general/i }).click();
+    await expect(page.getByText(newDate).first()).toBeVisible();
+  });
+
   test('B-2.6 Cannot set same status twice', async ({ page }) => {
     await openFirstRecord(page);
     const dispatchTab = page.getByRole('tab', { name: /dispatch|logistics/i });
