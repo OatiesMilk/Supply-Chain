@@ -68,6 +68,7 @@ Created `docs/BUSINESS_REQUIREMENTS.md` (none existed). Rewrote the architecture
 | `CLAUDE.md` / `AGENTS.md` | `NOTION_API_KEY` presence in `.env` | `.env` was intentionally not read |
 | Issues report 5.2, 5.3, 6.1–6.3, 7.2, 7.3 | Visual/responsive/UX findings | Manual UI review |
 | UAT v1.1 Part D | Cases were written from code and tickets and then tightened against the code on 2026-10-09 (D-2.1, 2.3, 2.4, 3.4, 3.6); none have been executed | Run them on a staging environment |
+| Playwright UAT suite | Test discovery succeeds (56 tests), but live execution requires running servers plus isolated fixtures. `logistics.spec.ts` still expects the retired TASS sidebar label and Status History screen | Update those two stale cases, then run the suite against an approved disposable environment |
 
 ## 6. Duplicates and canonical files
 

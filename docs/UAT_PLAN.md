@@ -7,6 +7,9 @@
 > [!IMPORTANT]
 > Before starting, ensure both servers are running: `npm run dev` from the project root.
 > The test assumes your database is seeded with at least one user per role (Sales Coordinator, Logistics, Driver).
+> The Markdown cases below are canonical. Two corresponding Playwright cases
+> (`B-1.2` and `B-5.2`) still encode the pre-TSK-104/pre-TSK-103 behavior and
+> must be updated before treating an automated browser run as authoritative.
 
 ---
 
