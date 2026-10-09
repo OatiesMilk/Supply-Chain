@@ -1943,8 +1943,8 @@ function RecordWorkspace({
   return (
     <div className="space-y-4" id={`delivery-record-workspace-${record.id}`}>
       {/* Navigation bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-gray-100 pb-4">
+        <div className="flex min-w-[14rem] flex-1 items-center gap-3">
           <button
             onClick={() => requestLeave(onBack)}
             disabled={pending}
@@ -1958,7 +1958,8 @@ function RecordWorkspace({
           <span className="text-slate-400 text-xs truncate hidden sm:inline">— {record.company_name}</span>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+         <div className="flex items-center gap-1">
           <button
             onClick={() => { if (prevId) requestLeave(() => onNavigateToRecord(prevId)); }}
             disabled={!prevId || pending}
@@ -1980,6 +1981,7 @@ function RecordWorkspace({
             Next
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
+         </div>
           {(['Sales Coordinator', 'Logistics', 'Admin'] as UserRole[]).includes(currentUserRole) && (
             <div className="relative flex flex-wrap min-w-0 items-center gap-2">
               <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={pdfLoading} inline />

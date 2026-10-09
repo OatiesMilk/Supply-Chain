@@ -540,8 +540,8 @@ export default function DeliveryRecordsView({
         </div>
       )}
       {/* View Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4 print:hidden">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b border-gray-100 pb-4 print:hidden">
+        <div className="min-w-[16rem] flex-1">
           <h2 className="text-xl font-bold text-gray-900">{title}</h2>
           <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
         </div>
