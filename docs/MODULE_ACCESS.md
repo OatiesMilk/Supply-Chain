@@ -1,11 +1,51 @@
 # Module access (TSK-55)
 
+> Last verified: 2026-10-09 against commit `ccbf192` (`dev`).
+
 `server/src/services/permissions.ts` owns the screen catalog, role defaults,
 account overrides, resource dependencies and effective access calculation.
 Module Access edits one account, not the defaults of every account in a role.
 An explicit grant adds a module; an explicit denial removes it; resetting removes
 the overrides. Existing overrides continue to apply after a role change where
 the new role supports that module.
+
+## Default screens by role
+
+Generated from `ROLE_DEFAULTS` and `SCREEN_LABELS` in `services/permissions.ts`.
+`Y` = default grant. An Admin can grant or deny any non-privileged screen per
+account (see "Privileged modules" below).
+
+| Screen key (sidebar label) | SC | Logistics | TASS | Admin | Driver |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| `main` (Main) | Y | Y | Y | Y | |
+| `dashboard` (Dashboard) | Y | Y | Y | Y | |
+| `deliveries` (Deliveries) | Y | Y | | Y | |
+| `rma` (RMA) | Y | Y | Y | Y | |
+| `accounting_collection` (Accounting Collection) | Y | Y | Y | Y | |
+| `procurement_pickup` (Procurement Pick-up) | Y | Y | Y | Y | |
+| `sales_orders` (Sales Orders) | Y | Y | | Y | |
+| `customers` (Customers) | Y | Y | | Y | |
+| `suppliers` (Suppliers) | Y | Y | Y | Y | |
+| `driver` (Driver View) | | Y | | Y | |
+| `driver_manager` (Driver Manager) | | Y | | Y | |
+| `calendar` (Delivery Calendar) | | Y | | Y | |
+| `driver_board` (Driver Board) | | Y | | Y | |
+| `am_directory` (AM Directory) | Y | | | Y | |
+| `transactions` (Transaction Center) | Y | Y | Y | Y | |
+| `statistical_reports` (Reports) | | Y | | Y | |
+| `inventory` (SKU Master) | | | | Y | |
+| `data_sampler` (Data Sampler) | | | | Y | |
+| `admin` (Admin Panel) | | | | Y | |
+| `driver_dashboard` (Driver Dashboard) | | | | | Y |
+
+Notes:
+
+- SKU Master is an Admin-only default since TSK-118. Admin can grant it to another account.
+- Record visibility is narrower than the screen list: TASS reads only RMA and
+  Accounting Collection records even though it has the Procurement Pick-up screen
+  (`readableCategories` in `services/recordAccess.ts`; tracked in the project issues report).
+- Logistics cannot create or edit RMA records regardless of module grants.
+- There is no Status History screen (removed in TSK-103).
 
 ## Privileged modules and shared resources
 
@@ -64,12 +104,16 @@ npm run lint --workspace=client
 npm run lint --workspace=server
 npm run build
 Push-Location client
-node --import tsx --test tests/*.test.ts
+node --import tsx --test tests/*.test.ts src/components/__tests__/*.test.ts src/utils/__tests__/*.test.ts src/utils/tests/*.test.ts
 Pop-Location
 Push-Location server
 node --import tsx --test tests/*.test.ts
 Pop-Location
 ```
+
+Both workspaces use Node's built-in test runner through `tsx` (not Vitest).
+The permission suites are `client/tests/permissions.test.ts` and
+`server/tests/permissions.test.ts`.
 
 The server HTTP tests use the actual routers/middleware with database test
 doubles. Transaction tests simulate rollback and stale versions; they do not
@@ -87,7 +131,7 @@ Browser acceptance checks:
    as Admin. Focus that window or wait for the refresh; removed access and cached
    details must disappear. Direct API requests must already be denied.
 5. Grant an ordinary module, reset defaults, and repeat with TASS and Logistics.
-   Driver Manager, Status History and Statistical Reports must appear correctly
+   Driver Manager and Reports (Statistical Reports) must appear correctly
    in the editor. Admin Panel remains locked to Admin accounts.
 6. Deny all modules for a non-admin; verify the no-access page and sign out.
 7. Open Module Access in two admin sessions. Save one, then save the stale editor;
