@@ -180,7 +180,7 @@ export default function AdminDashboard({
               </p>
             )}
             <span className="text-xs text-amber-600 font-extrabold flex items-center gap-1 mt-1">
-              Awaiting TASS <Banknote className="w-3.5 h-3.5 shrink-0" />
+              Awaiting TASS
             </span>
           </div>
           <div
