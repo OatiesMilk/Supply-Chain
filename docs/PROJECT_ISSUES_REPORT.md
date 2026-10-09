@@ -1,18 +1,20 @@
 # Microgenesis Supply Chain Portal — Audit & Issues Report
 
 **Document Date:** September 9, 2026  
-**Last Updated:** September 23, 2026  
+**Last Updated:** October 9, 2026 (re-audited against commit `ccbf192` on `dev`)  
 **Audited Target:** Frontend (`client/src/`), Backend (`server/`), Database (`server/prisma/schema.prisma`), and Deployment Configuration (`render.yaml`)  
-**Status:** In Remediation — **Core Operational Portal ~85% Complete**, **Technical Health ~74%** (17 of 29 remediation items resolved)  
-**Companion Architecture Blueprint:** [`docs/SYSTEM_DESIGN_RECOMMENDATIONS.md`](./SYSTEM_DESIGN_RECOMMENDATIONS.md)
+**Status:** In Remediation. Of the 49 findings re-checked on 2026-10-09: 16 fixed, 2 no longer applicable, 1 mitigated, 11 partially fixed, 12 open and 7 not re-verified (visual items). Seven new findings are listed in section 13. The percentage scores in section 11 are the September 23 estimates and have not been recomputed.  
+**Companion Architecture Blueprint:** [`docs/archive/SYSTEM_DESIGN_RECOMMENDATIONS.md`](./archive/SYSTEM_DESIGN_RECOMMENDATIONS.md) (archived); current design in [`docs/SYSTEM_ARCHITECTURE.md`](./SYSTEM_ARCHITECTURE.md)
 
 ---
 
 ## Executive Summary
 
+> **Re-audit note (2026-10-09).** File paths and line numbers in the body below were captured on an earlier layout (`/home/marc/...`, September 2026) and may have moved; the status line under each heading reflects the current code. Evidence for the new items in section 13 uses current repo-relative paths.
+
 An architectural, code-level, and operational audit was performed on the **Microgenesis Supply Chain Portal**. While the application demonstrates solid foundation work—specifically its unified `DeliveryRecord` relational model, PostgreSQL database backing, and Prisma ORM integration—several **runtime bugs**, **security/authorization gaps**, **simulated/unwired features**, **scalability bottlenecks**, **missing testing/CI/CD pipelines**, and **fundamental business domain gaps** were identified.
 
-As of September 23, 2026, **17 of 29 critical and functional issues have been remediated**, including full database secondary indexing, state management modernization (TanStack Query + Zustand), RBAC enforcement, and API bug fixes. For live implementation metrics and roadmap progress, refer to [**Section 11: Implementation Progress & System Health Scorecard**](#implementation-progress--system-health-scorecard).
+As of September 23, 2026, **17 of 29 critical and functional issues have been remediated**, including full database secondary indexing, state management modernization (TanStack Query + Zustand), RBAC enforcement, and API bug fixes. For live implementation metrics and roadmap progress, refer to [**Section 11: Implementation Progress & System Health Scorecard**](#implementation-progress--system-health-scorecard). *(Re-audit 2026-10-09: superseded by the status lines under each finding and the table in the header; the 17/29 count is not recomputed)*
 
 ---
 
@@ -39,6 +41,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 - [9. Absence of Automated Testing (The Testing Pyramid) & CI/CD Quality Gates](#9-absence-of-automated-testing-the-testing-pyramid--cicd-quality-gates)
 - [10. Business Importance & Operational Risk Assessment](#10-business-importance--operational-risk-assessment)
 - [11. Comprehensive Remediation Roadmap](#11-comprehensive-remediation-roadmap)
+- [12. Additional Audit Findings (September 23, 2026)](#12-additional-audit-findings--september-23-2026)
+- [13. New Findings (October 9, 2026)](#13-new-findings--october-9-2026)
   - [Phase 1: Critical Security, Production Guardrails & CI Gate (P0)](#phase-1-critical-security-production-guardrails--ci-gate-p0--immediate)
   - [Phase 2: Functional Integrity, Data Indexing & Testing Base (P1)](#phase-2-functional-integrity-data-indexing--testing-base-p1--near-term)
   - [Phase 3: Core Domain Expansion & Operational Completeness (P2)](#phase-3-core-domain-expansion--operational-completeness-p2--strategic)
@@ -49,6 +53,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 ## 1. Critical & High-Priority Runtime Bugs
 
 ### 1.1 Data Sampler Crash in Dev Mode (`seed.js` vs `seed.ts`)
+
+> **Status (2026-10-09): FIXED.** `data-sampler.ts` imports `runSeed` statically from `../../prisma/seed`.
 
 - **File & Line:** [`server/src/routes/data-sampler.ts:240`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/data-sampler.ts#L240)
 - **Description:** The Data Sampler reset endpoint uses a hardcoded relative dynamic import pointing to `seed.js`:
@@ -64,6 +70,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 ---
 
 ### 1.2 Database Seed Reset Foreign Key Violation (`P2003`)
+
+> **Status (2026-10-09): FIXED.** `runSeed(true)` now clears `remarkLog`, `comment`, `notification`, `userPermission` and `driver` before `user`.
 
 - **File & Line:** [`server/prisma/seed.ts:247-258`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/prisma/seed.ts#L247-L258)
 - **Description:** When `runSeed(force = true)` executes, it truncates tables before re-populating demo data:
@@ -101,6 +109,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 1.3 Driver "Resurrection" on Delete
 
+> **Status (2026-10-09): FIXED.** `GET /api/drivers` no longer syncs from records; deactivation uses `isActive=false` (`DELETE /api/drivers/:id` returns 204).
+
 - **File & Line:** [`server/src/routes/drivers.ts:32-75, 95`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/drivers.ts#L32-L75)
 - **Description:** The `GET /api/drivers` endpoint unconditionally executes `await syncDriversFromRecords()` on every request. This helper scans historical `DeliveryRecord` rows for driver and assistant names and creates missing records in the `Driver` table.
 - **Impact:** If an administrator explicitly deletes a driver via `DELETE /api/drivers/:id`, but that driver is referenced in any past delivery record, the very next `GET /api/drivers` call automatically re-creates the driver. Deleting active or historical drivers is impossible without manually scrubbing historical records.
@@ -109,6 +119,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 ---
 
 ### 1.4 Data Sampler Driver Assistant Serialization Defect
+
+> **Status (2026-10-09): FIXED.** The data sampler stores assistants as a JSON array string.
 
 - **File & Line:** [`server/src/routes/data-sampler.ts:164-166, 194`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/data-sampler.ts#L164-L166) and [`server/src/mappings.ts:51`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/mappings.ts#L51)
 - **Description:** In `data-sampler.ts`, randomly generated driver assistants are saved as raw string scalars (e.g. `'Jayson Reyes'`) rather than JSON string arrays (e.g. `'["Jayson Reyes"]'`).
@@ -126,6 +138,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 1.5 Status History Date Range Truncation
 
+> **Status (2026-10-09): NOT APPLICABLE.** `GET /reports/daily-status-history` and the Status History screen were removed (TSK-103). Daily snapshots are still written at boot and by the 6 PM job. Only `GET /reports/summary` remains.
+
 - **File & Line:** [`server/src/routes/reports.ts:38-48`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/reports.ts#L38-L48)
 - **Description:** `GET /reports/daily-status-history` checks:
   ```typescript
@@ -140,6 +154,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 1.6 Account Manager Email Notification Lookup Failure
 
+> **Status (2026-10-09): FIXED.** `notifications.ts` falls back to a surname `contains` match after the exact name match.
+
 - **File & Line:** [`server/src/routes/notifications.ts:71-77`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/notifications.ts#L71-L77)
 - **Description:** When `resolveRecipients()` resolves the Account Manager for outbound emails, it executes:
   ```typescript
@@ -153,6 +169,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 ## 2. Security & RBAC Deficiencies
 
 ### 2.1 Status Update Role Check Bypass
+
+> **Status (2026-10-09): MITIGATED, DIFFERENT FROM THE NOTE BELOW.** `PATCH /records/:id/status` still lists SC and TASS in `requireRole`, but the handler restricts them (SC may only submit or return drafts; TASS only RMA records; Drivers only their own runs; priority only LOG/ADM). The earlier remediation note that SC was removed from the route is inaccurate.
 
 - **File & Line:** [`server/src/routes/records.ts:365`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/records.ts#L365)
 - **Specification:** `README.md` (Line 729) specifies that changing a delivery status is restricted to **Logistics**, **Admin**, and **Driver** (for assigned records).
@@ -170,6 +188,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 2.2 Unauthenticated Database Wipe Endpoint
 
+> **Status (2026-10-09): PARTIALLY FIXED.** `POST /api/dev/reset-seed` requires Admin and returns 403 in production. A different route, `POST /api/dev/public-seed`, is unauthenticated and not blocked in production: see 13.1.
+
 - **File & Line:** [`server/src/routes/dev.ts:10-18`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/dev.ts#L10-L18)
 - **Vulnerability:** `POST /api/dev/reset-seed` contains no `requireAuth` or `requireRole` middleware.
 - **Impact:** In any deployed environment (including production on Render if exposed), an unauthenticated third party can issue a POST request to `/api/dev/reset-seed` and wipe the database.
@@ -185,6 +205,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 2.3 Admin Role Blocked from Company Creation
 
+> **Status (2026-10-09): FIXED.** `POST /api/companies` allows SC and ADMIN.
+
 - **File & Line:** [`server/src/routes/companies.ts:21`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/companies.ts#L21)
 - **Issue:** `POST /api/companies` is guarded with `requireRole('SALES_COORDINATOR')` only.
 - **Impact:** System Administrators receive an HTTP 403 Forbidden error when attempting to add new companies to the master company list.
@@ -197,6 +219,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 2.4 Inventory Stock Adjustment Concurrency Race Condition
 
+> **Status (2026-10-09): FIXED.** Stock adjustments run in `prisma.$transaction` and reject a negative resulting balance.
+
 - **File & Line:** [`server/src/routes/skus.ts:201-211`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/skus.ts#L201-L211)
 - **Issue:** Stock adjustment reads `onHandQty`, computes `newQty = Math.max(0, currentQty + change)`, and updates `inventoryItem` in separate statements without a database transaction lock or atomic SQL operator (`increment`/`decrement`).
 - **Impact:** Concurrent adjustments to the same SKU result in lost updates. Furthermore, negative quantities are clamped to 0 without recording the unallocated discrepancy, corrupting ledger auditability.
@@ -205,6 +229,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 ---
 
 ### 2.5 Cross-Site Request Forgery (CSRF) via `sameSite: 'none'`
+
+> **Status (2026-10-09): OPEN.** Production cookies use `sameSite: 'none'` (`middleware/auth.ts`). The roadmap entry that says `sameSite: 'lax'` was applied is correct only for development. No CSRF token exists.
 
 - **File & Line:** [`server/src/middleware/auth.ts:31-37`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/middleware/auth.ts#L31-L37)
 - **Vulnerability:** In production, the session cookie is configured with `sameSite: 'none'`:
@@ -223,6 +249,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 2.6 Missing Rate Limiting on Authentication (`/api/auth/login`)
 
+> **Status (2026-10-09): OPEN.** No rate-limiting package is installed or used.
+
 - **File & Line:** [`server/src/routes/auth.ts:11-34`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/auth.ts#L11-L34)
 - **Vulnerability:** The login endpoint has no rate-limiting or brute-force throttling middleware.
 - **Impact:** User emails follow predictable patterns (`sales@microgenesis.com`, `logistics@microgenesis.com`), making the system vulnerable to automated password spraying and credential stuffing. Additionally, because `bcrypt.compare()` is CPU-intensive, flooding the endpoint can monopolize Node.js event-loop threads and trigger a Denial of Service (DoS).
@@ -231,6 +259,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 ---
 
 ### 2.7 Hardcoded Insecure Fallback JWT Secret
+
+> **Status (2026-10-09): FIXED FOR PRODUCTION.** The server throws at startup when `JWT_SECRET` is missing and `NODE_ENV=production`. Outside production it still falls back to a development secret.
 
 - **File & Line:** [`server/src/middleware/auth.ts:24`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/middleware/auth.ts#L24)
 - **Vulnerability:** If the `JWT_SECRET` environment variable is not set, the server defaults to `'dev-only-insecure-secret'`.
@@ -246,6 +276,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 2.8 Absence of Security Headers (`helmet`)
 
+> **Status (2026-10-09): OPEN.** `helmet` is not installed.
+
 - **File & Line:** [`server/src/index.ts:46-53`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/index.ts#L46-L53)
 - **Vulnerability:** The Express application initializes standard middleware without HTTP security header protection.
 - **Impact:** Missing standard defense-in-depth headers:
@@ -257,6 +289,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 ---
 
 ### 2.9 Unchecked Request Body Validation & Coercion (No Zod)
+
+> **Status (2026-10-09): OPEN.** `zod` is a server dependency but no route or service imports it. Validation is manual and per route, though more routes validate input than at the time of the original audit.
 
 - **File & Line:** Across [`server/src/routes/records.ts`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/records.ts), [`skus.ts`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/skus.ts), and [`users.ts`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/users.ts)
 - **Vulnerability:** Endpoints accept `req.body ?? {}` and perform manual `if (!field)` checks without type assertions or schema validation.
@@ -282,6 +316,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 4.1 In-Memory Merging and Pagination in Transaction Center
 
+> **Status (2026-10-09): OPEN (reduced).** `GET /transactions` now scopes by role and pages the merged result, but it still loads and sorts delivery and inventory rows in memory before slicing.
+
 - **File & Line:** [`server/src/routes/transactions.ts:76-156`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/transactions.ts#L76-L156)
 - **Risk:** The endpoint fetches **all** `DeliveryRecord` entries and **all** `InventoryTransaction` entries into Node.js heap memory, sorts them in RAM via JavaScript, and then slices them:
   ```typescript
@@ -297,6 +333,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 4.2 Timezone & Sleeping Container Impact on Scheduled Reminders
 
+> **Status (2026-10-09): PARTIALLY FIXED.** Schedules are computed against Asia/Manila (`scheduleDaily` uses `+08:00`). Jobs are still in-process `setTimeout`/`setInterval`, lost while the host sleeps and duplicated if the API is scaled out.
+
 - **File & Line:** [`server/src/index.ts:317-320`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/index.ts#L317-L320)
 - **Risk:** Daily notifications (4 PM AM alert, 6 PM EOD snapshot) rely on in-memory `setTimeout`/`setInterval` based on host system time.
 - **Impact:**
@@ -308,6 +346,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 4.3 Root TypeScript Configuration Lacks Workspace Boundary
 
+> **Status (2026-10-09): NOT APPLICABLE.** The repository has no root `tsconfig.json`; each workspace has its own.
+
 - **File & Line:** [`tsconfig.json:1-26`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/tsconfig.json#L1-L26)
 - **Risk:** Root `tsconfig.json` does not declare `"exclude": ["server"]` or define an explicit `"include"` scope.
 - **Impact:** Running `npm run lint` at root checks `server/` against frontend dependencies. If backend packages are not installed or Prisma client is not generated, root type-checking fails with spurious errors.
@@ -316,6 +356,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 ---
 
 ### 4.4 Inverted Monorepo & Asymmetric Directory Structure Anti-Pattern
+
+> **Status (2026-10-09): FIXED.** The repo is an npm-workspaces monorepo (`client/`, `server/`).
 
 - **Directory Structure:**
   ```
@@ -363,6 +405,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 ---
 
 ### 4.5 Total Absence of Database Secondary Indexes (PostgreSQL Sequential Scan Trap)
+
+> **Status (2026-10-09): FIXED.** Indexes are defined on `DeliveryRecord`, `AuditLog`, `RemarkLog`, `Notification`, `InventoryTransaction`, `Comment`.
 
 - **File & Line:** [`server/prisma/schema.prisma:1-271`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/prisma/schema.prisma#L1-L271)
 - **Critical Finding:** There is **not a single secondary index (`@@index`) defined on any operational table** in the entire database schema:
@@ -428,6 +472,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 4.6 Total Absence of Caching & Unbounded Re-fetching (Database Thrashing & Redundant Network Traffic)
 
+> **Status (2026-10-09): PARTIALLY FIXED.** TanStack Query provides client-side caching; there is no server-side cache.
+
 - **File & Line:** [`server/src/middleware/auth.ts:60`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/middleware/auth.ts#L60), [`server/src/routes/dashboard.ts:14-158`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/dashboard.ts#L14-L158), [`src/App.tsx:142-180, 246`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/src/App.tsx#L142-L180)
 - **Critical Finding:** The application contains **zero caching mechanisms across all architectural tiers** (no client query cache, no HTTP conditional caching / ETags, and no server-side in-memory or Redis caching).
 - **System Bottleneck Breakdown:**
@@ -462,12 +508,16 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 5.1 Destructive Actions Rely on Browser `alert()` / `confirm()`
 
+> **Status (2026-10-09): MOSTLY FIXED.** Sonner toasts and in-app dialogs replaced most prompts. Two `alert()` calls remain in `features/auth/LoginView.tsx` (demo seed and UAT seed confirmations).
+
 - **File & Line:** [`src/components/AdminPanel.tsx:266, 279, 297`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/src/components/AdminPanel.tsx#L266)
 - **Issue:** User deactivation, activation, and deletion invoke native browser `alert()` and `confirm()` dialogs.
 - **Impact:** Native dialogs block the main browser thread, cannot be styled or themed with the company's design system, and create an unpolished enterprise user experience.
 - **Remediation:** Replace with styled accessible modal dialogs (e.g. Radix UI or custom Tailwind modal primitives).
 
 ### 5.2 Flash of Empty State & Missing Skeleton Loaders
+
+> **Status (2026-10-09): NOT RE-VERIFIED.** Needs a visual review; not assessed in this docs audit.
 
 - **File & Line:** Across [`src/components/DeliveryRecordsView.tsx`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/src/components/DeliveryRecordsView.tsx), [`DashboardView.tsx`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/src/components/DashboardView.tsx)
 - **Issue:** During data refetching or filtering, tables and dashboards flash a small spinning icon (`Loader2`) or briefly show "No matching records found" before results load.
@@ -476,12 +526,16 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 5.3 Information Density Overload in Detail Workspace
 
+> **Status (2026-10-09): NOT RE-VERIFIED.** Needs a visual review; workspace tabs and staged saves (TSK-45, TSK-96) have since changed the detail view.
+
 - **File & Line:** [`src/components/DeliveryRecordWorkspace.tsx`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/src/components/DeliveryRecordWorkspace.tsx)
 - **Issue:** The drawer packs full delivery metadata, driver controls, time logs, remarks histories, audit logs, and collection links into a single continuous scrolling drawer.
 - **Impact:** Finding critical information (such as delivery contact or status timestamps) requires extensive vertical scrolling and cognitive effort.
 - **Remediation:** Implement tabbed navigation inside the workspace: `Overview`, `Dispatch & Logistics`, `Audit & Remarks`, `Billing / Linked Collection`.
 
 ### 5.4 Missing Accessibility (a11y) Annotations
+
+> **Status (2026-10-09): PARTIALLY ADDRESSED.** Sidebar items, tabs (`role=tablist`) and the collapse toggle carry ARIA attributes; a full a11y audit has not been done.
 
 - **File & Line:** Across [`src/components/NotificationBell.tsx`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/src/components/NotificationBell.tsx), [`ExportMenu.tsx`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/src/components/ExportMenu.tsx), [`App.tsx`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/src/App.tsx)
 - **Issue:** Icon-only interactive buttons lack `aria-label` or `aria-expanded` attributes, and color badges rely exclusively on color without text alternatives.
@@ -494,6 +548,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 6.1 Rigid Percentage-Width Tables on Sub-Desktop Screens
 
+> **Status (2026-10-09): NOT RE-VERIFIED.** Requires a responsive visual check.
+
 - **File & Line:** [`src/components/DeliveryRecordsView.tsx:806-816`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/src/components/DeliveryRecordsView.tsx#L806-L816)
 - **Issue:** The primary records table uses fixed column percentages (`col style={{ width: '4%' }}`, `width: colPct.company%`).
 - **Impact:** On tablet screens (768px - 1024px) or laptops with split-screen windows, text columns truncate aggressively into illegible ellipsis (`...`), forcing cumbersome horizontal scrolling.
@@ -501,12 +557,16 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 6.2 Workspace Drawers Squash Underlaying Tables
 
+> **Status (2026-10-09): NOT RE-VERIFIED.** Requires a responsive visual check.
+
 - **File & Line:** [`src/components/DeliveryRecordWorkspace.tsx`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/src/components/DeliveryRecordWorkspace.tsx)
 - **Issue:** When a record is clicked, the detail workspace opens as a side panel taking up 50% (`w-1/2`) of the screen.
 - **Impact:** On tablets and small screens, this reduces the underlying data table to an unusable 300px sliver.
 - **Remediation:** Make the drawer a full-width overlay modal or slide-over drawer on screens smaller than 1280px (`w-full sm:w-full lg:w-1/2`).
 
 ### 6.3 Multi-Row Filter Wrapping Pushes Data Off-Screen
+
+> **Status (2026-10-09): NOT RE-VERIFIED.** Requires a responsive visual check (filter popover work in TSK-85).
 
 - **File & Line:** [`src/components/DeliveryRecordsView.tsx:87-100`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/src/components/DeliveryRecordsView.tsx#L87-L100)
 - **Issue:** Filter bars contain 8 individual inputs (Date From, Date To, Status, Region, Subregion, Area, AM, Driver).
@@ -519,6 +579,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 7.1 Monolithic "God Components"
 
+> **Status (2026-10-09): PARTIALLY FIXED.** `App.tsx` is decomposed into layouts, routes and feature modules; several workspace components remain large (for example `DeliveryRecordWorkspace.tsx`).
+
 - **Code Smells Identified:**
   - [`src/App.tsx`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/src/App.tsx): **1,251 lines (58 KB)** — Combines routing, authentication, multi-entity data fetching, sidebar collapsing, badge counting, and giant inline JSX switch trees.
   - [`DeliveryRecordWorkspace.tsx`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/src/components/DeliveryRecordWorkspace.tsx): **1,600+ lines (73 KB)** — Single file managing editing forms, status stepper, remark histories, and audit timelines.
@@ -528,6 +590,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 7.2 Excessive Prop Drilling
 
+> **Status (2026-10-09): NOT RE-VERIFIED.** Zustand stores and TanStack hooks reduce drilling, but props are still passed through `AppRouter`.
+
 - **Issue:** State defined at the top level in `App.tsx` is passed down 3 to 4 component layers via dozens of explicit props.
 - **Impact:** Any change to record state triggers full application re-renders and makes intermediate components rigid and difficult to test in isolation.
 - **Remediation:** Introduce React Context or Zustand stores:
@@ -535,6 +599,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
   - `RecordsContext` (for `deliveryRecords`, `refreshData`, filtering state)
 
 ### 7.3 Duplicated Code Across Modules
+
+> **Status (2026-10-09): NOT RE-VERIFIED.** Not assessed in this docs audit.
 
 - **Issue:** Status badge styling, date formatting, region filtering logic, and export triggers are copy-pasted across `DeliveryRecordsView.tsx`, `AccountingCollectionView.tsx`, and `TransactionCenter.tsx`.
 - **Remediation:** Extract shared UI primitives into a shared component directory (`Badge`, `StatusBadge`, `DataTable`, `FilterBar`).
@@ -551,6 +617,8 @@ Even if every runtime bug and security issue in Sections 1–7 were resolved, **
 
 ### 8.1 The 5,000-Record Ceiling Paradox: Browser-Side Freeze via Unpaginated `GET /api/records`
 
+> **Status (2026-10-09): OPEN.** `GET /api/records` supports optional `limit`/`cursor` (max 100) but the main record lists still request every record; only Company history uses cursor paging.
+
 - **File & Line:** [`server/src/routes/records.ts:40-47`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/records.ts#L40-L47), [`src/components/DeliveryRecordsView.tsx:180-250`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/src/components/DeliveryRecordsView.tsx#L180-L250)
 - **The Business Promise:** The project documentation emphasizes solving SharePoint's 5,000-item list view threshold, which previously caused recurrent operational halts at Microgenesis.
 - **The Reality Gap:** While PostgreSQL has no 5,000-item ceiling, `GET /api/records` performs a bare `findMany({ where: { deletedAt: null } })` with **zero database pagination (`skip`/`take`)**.
@@ -560,6 +628,8 @@ Even if every runtime bug and security issue in Sections 1–7 were resolved, **
 ---
 
 ### 8.2 The Disconnected Inventory Siphon (Deliveries Do Not Touch Warehouse Stock)
+
+> **Status (2026-10-09): OPEN.** `LineItem.sku` is free text, not a foreign key to `Product`; deliveries, RMAs and pick-ups do not change stock.
 
 - **File & Line:** [`server/prisma/schema.prisma:95-137, 151-195`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/prisma/schema.prisma#L95-L137), [`server/src/routes/records.ts`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/records.ts)
 - **The Business Reality:** Microgenesis is a premier enterprise IT solutions provider delivering enterprise servers, networking switches, storage, and software licenses.
@@ -574,6 +644,8 @@ Even if every runtime bug and security issue in Sections 1–7 were resolved, **
 ---
 
 ### 8.3 Single-Item Schema vs. Multi-Line Item Delivery Reality
+
+> **Status (2026-10-09): PARTIALLY FIXED.** The `LineItem` model (SKU text and quantity per record) shipped in migration `20260930150000_add_line_items`. There is still no serial number, price or Product link.
 
 - **File & Line:** [`server/prisma/schema.prisma:113-116`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/prisma/schema.prisma#L113-L116)
 - **The Business Reality:** B2B IT purchase orders almost never consist of a single SKU. A single customer delivery package routinely includes:
@@ -590,6 +662,8 @@ Even if every runtime bug and security issue in Sections 1–7 were resolved, **
 
 ### 8.4 The Proof of Delivery (POD) Reality Gap (Mock Filename vs. Real File Uploads & Signatures)
 
+> **Status (2026-10-09): FIXED (photos); signatures still missing.** Proof-of-delivery files are really stored (local disk or Supabase), verified (JPG/PNG signature plus pixel decode), previewable and required for Delivered. S3/Azure were not used. Digital signature capture and PDC/2307 workflows are not built.
+
 - **File & Line:** [`server/prisma/schema.prisma:117`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/prisma/schema.prisma#L117), [`DONT_BREAK_THIS.md:73-78`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/DONT_BREAK_THIS.md#L73-L78), [`src/components/DriverDashboard.tsx`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/src/components/DriverDashboard.tsx)
 - **The Business Reality:** The #1 reason for building this portal was eliminating customer and internal disputes regarding delivery fulfillment, damaged goods, and payment handoffs.
 - **The Reality Gap:** In [`DONT_BREAK_THIS.md:75`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/DONT_BREAK_THIS.md#L75):
@@ -605,6 +679,8 @@ Even if every runtime bug and security issue in Sections 1–7 were resolved, **
 
 ### 8.5 Existential Production Data Wipe on Every Deploy/Restart (`render.yaml`)
 
+> **Status (2026-10-09): FIXED.** `render.yaml` starts with `npx prisma migrate deploy && npm run start`; the seed no longer runs on deploy.
+
 - **File & Line:** [`render.yaml:31`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/render.yaml#L31), [`README.md:721-722`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/README.md#L721-L722)
 - **The Problem:** The deployment specification defines:
   ```yaml
@@ -618,6 +694,8 @@ Even if every runtime bug and security issue in Sections 1–7 were resolved, **
 
 ### 8.6 The Provisional TASS Role & Accounting / Finance Governance Disconnect
 
+> **Status (2026-10-09): OPEN (business decision).** Collection verification is still TASS-only. See `docs/BUSINESS_REQUIREMENTS.md` section 9. The cited `docs/ROLES.md` now lives in `docs/archive/ROLES.md`.
+
 - **File & Line:** [`docs/ROLES.md:15-27`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/docs/ROLES.md#L15-L27), [`server/src/routes/records.ts:400-435`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/records.ts#L400-L435)
 - **The Business Reality:** In Philippine enterprise corporations like Microgenesis, the collection of payments, verification of post-dated checks (PDCs), and issuance of Official Receipts (OR) are strictly managed by the **Credit & Collection Department / Accounting & Finance Department**.
 - **The Reality Gap:** As admitted in [`docs/ROLES.md:19`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/docs/ROLES.md#L19):
@@ -629,6 +707,8 @@ Even if every runtime bug and security issue in Sections 1–7 were resolved, **
 
 ### 8.7 Fragmented Master Directories (`Company` vs. `Customer` Disconnect)
 
+> **Status (2026-10-09): OPEN.** `Company` and `Customer` remain separate tables. Customers can now be edited with an audit trail (TSK-101), and Company history shows linked records (TSK-102).
+
 - **File & Line:** [`server/prisma/schema.prisma:50-76`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/prisma/schema.prisma#L50-L76)
 - **The Reality Gap:** The system maintains two parallel client directories that do not synchronize:
   1. `Company` (`sapNumber`, `name`, `address`, `contactPerson`) — linked by foreign key to `DeliveryRecord`.
@@ -639,6 +719,8 @@ Even if every runtime bug and security issue in Sections 1–7 were resolved, **
 ---
 
 ### 8.8 Driver Field Usability & Offline Resilience in Low-Connectivity Zones
+
+> **Status (2026-10-09): OPEN.** No service worker or offline queue exists.
 
 - **File & Line:** [`src/components/DriverDashboard.tsx`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/src/components/DriverDashboard.tsx)
 - **The Operational Reality:** Drivers navigating Metro Manila traffic, basement loading bays (e.g. B2/B3 parking in Makati/BGC high-rises), or provincial delivery routes frequently experience zero cellular coverage.
@@ -655,6 +737,8 @@ Even if every runtime bug and security issue in Sections 1–7 were resolved, **
 An enterprise operational platform managing physical fleet operations, customer deliveries, and financial collections requires rigorous quality assurance. In this project, **automated testing and CI/CD quality gates are entirely absent**.
 
 ### 9.1 The Testing Void: 0 Unit Tests, 0 Integration Tests, 0 E2E Tests
+
+> **Status (2026-10-09): PARTIALLY FIXED.** Tests now exist: 15 server test files and 17 client test files run with Node's `node:test` through `tsx` (not Vitest/Supertest), plus a Playwright suite in `e2e/`. Coverage is still uneven and no live-PostgreSQL integration tests exist.
 
 - **File & Line:** Root [`package.json:6-12`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/package.json#L6-L12), Backend [`server/package.json:6-14`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/package.json#L6-L14)
 - **Critical Finding:** There is **not a single test file in the entire repository** (no `.test.ts`, `.spec.ts`, or test runners configured). Neither `package.json` defines a `test` command.
@@ -697,6 +781,8 @@ An enterprise operational platform managing physical fleet operations, customer 
 
 ### 9.2 Complete Absence of Continuous Integration (CI) Quality Gates
 
+> **Status (2026-10-09): PARTIALLY FIXED.** `.github/workflows/ci.yml` runs Prisma validate/generate, type checks and builds on pushes and PRs to main, dev and staging. It does not run the unit/HTTP tests, Playwright, or `npm audit`.
+
 - **File & Line:** Repository root (No `.github/workflows/` directory exists).
 - **Critical Finding:** There are no automated verification checks executed on pull requests or commits.
 - **Operational Impact:**
@@ -713,6 +799,8 @@ An enterprise operational platform managing physical fleet operations, customer 
 ---
 
 ### 9.3 Uncontrolled Continuous Deployment (CD) Risks
+
+> **Status (2026-10-09): PARTIALLY FIXED.** The seed and migration are no longer coupled to a re-seed, and `/api/health` verifies the database, mailer and env. However `render.yaml` has no `healthCheckPath` (the code comment says it does): see 13.2. Migrations still run at start.
 
 - **File & Line:** [`render.yaml:26-32`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/render.yaml#L26-L32)
 - **Critical Finding:** Deployment is tied directly to GitHub push events on `render.yaml` with **zero deployment approvals, zero health smoke tests, and an active database re-seed command**.
@@ -740,7 +828,7 @@ Addressing both technical vulnerabilities, business domain completeness, and CI/
 
 ## 11. Comprehensive Remediation Roadmap & Status Checklist
 
-### Implementation Progress & System Health Scorecard
+### Implementation Progress & System Health Scorecard *(Re-audit 2026-10-09: these percentages are the September 23 estimates and were not recomputed)*
 
 * **Core Functional Portal (MVP / Operational Feature Completeness):** **~85%**
 * **Technical Health & Remediation Checklist (Phases 1, 2 & 4):** **~78%**
@@ -792,19 +880,19 @@ pie title Roadmap Completion Breakdown
 ### Phase 1: Critical Security, Production Guardrails & CI Gate (P0 — Immediate)
 
 - [x] **1. Neutralize Auto-Seed on Deploy:** Decoupled `npx tsx prisma/seed.ts` from `render.yaml` `startCommand` to prevent production data wiping on restart.
-- [x] **2. Lock Down Dev Reset Endpoints:** Restricted `POST /api/dev/reset-seed` in [`server/src/routes/dev.ts`](file:///home/marc/Supply-Chain/server/src/routes/dev.ts) with strict `NODE_ENV !== 'production'` guard and `requireAuth` + `requireRole('ADMIN')`.
+- [ ] **2. Lock Down Dev Reset Endpoints:** Restricted `POST /api/dev/reset-seed` in [`server/src/routes/dev.ts`](file:///home/marc/Supply-Chain/server/src/routes/dev.ts) with strict `NODE_ENV !== 'production'` guard and `requireAuth` + `requireRole('ADMIN')`. *(Re-audit 2026-10-09: `reset-seed` is locked, but `POST /api/dev/public-seed` is still unauthenticated and unguarded in production; see 13.1)*
 - [x] **3. Establish CI Pipeline:** Created [`.github/workflows/ci.yml`](file:///home/marc/Supply-Chain/.github/workflows/ci.yml) validating Prisma schema, Prisma client generation, backend typecheck/build, and frontend typecheck/build.
-- [x] **4. Mitigate CSRF Vulnerability:** Configured `sameSite: 'lax'` for session cookies and protected production JWT secret in [`server/src/middleware/auth.ts`](file:///home/marc/Supply-Chain/server/src/middleware/auth.ts).
+- [ ] **4. Mitigate CSRF Vulnerability:** Configured `sameSite: 'lax'` for session cookies and protected production JWT secret in [`server/src/middleware/auth.ts`](file:///home/marc/Supply-Chain/server/src/middleware/auth.ts). *(Re-audit 2026-10-09: the `sameSite: 'lax'` setting applies to development only; production uses `'none'` and has no CSRF token. The production `JWT_SECRET` fail-fast part is done)*
 - [x] **5. Fix Seed Foreign Key Violation:** Deleted dependent relational tables (`UserPermission`, `RemarkLog`, `Comment`, `Notification`) before deleting users in [`server/prisma/seed.ts`](file:///home/marc/Supply-Chain/server/prisma/seed.ts).
 - [x] **6. Fix Dev Module Resolution:** Statically imported `runSeed` in [`server/src/routes/data-sampler.ts`](file:///home/marc/Supply-Chain/server/src/routes/data-sampler.ts) to eliminate `.js` runtime crash under `tsx`.
-- [x] **7. Enforce Status RBAC Boundaries:** Removed `SALES_COORDINATOR` from `PATCH /api/records/:id/status` in [`server/src/routes/records.ts`](file:///home/marc/Supply-Chain/server/src/routes/records.ts); status progression is restricted to Logistics, Admin, Driver, and TASS.
+- [x] **7. Enforce Status RBAC Boundaries:** Removed `SALES_COORDINATOR` from `PATCH /api/records/:id/status` in [`server/src/routes/records.ts`](file:///home/marc/Supply-Chain/server/src/routes/records.ts); status progression is restricted to Logistics, Admin, Driver, and TASS. *(Re-audit 2026-10-09: the route still lists SC and TASS; the handler enforces the boundaries instead (see 2.1))*
 - [x] **8. Admin Self-Lockout Prevention:** Guarded `PATCH /api/users/:id` in [`server/src/routes/users.ts`](file:///home/marc/Supply-Chain/server/src/routes/users.ts) to prevent an admin from removing their own admin role.
 
 ### Phase 2: Functional Integrity, Data Indexing & Testing Base (P1 — Near-Term)
 
 - [x] **1. Apply Database Indexes:** Defined `@@index` annotations across `DeliveryRecord`, `AuditLog`, `RemarkLog`, `Notification`, `InventoryTransaction`, and `Comment` in [`server/prisma/schema.prisma`](file:///home/marc/Supply-Chain/server/prisma/schema.prisma).
-- [ ] **2. Implement Unit & Integration Test Suites:** Install Vitest and Supertest; author unit tests for state transitions/mappings and integration tests for RBAC endpoints and atomic inventory transactions.
-- [ ] **3. Server-Side Record Pagination:** Update `GET /api/records` in [`server/src/routes/records.ts`](file:///home/marc/Supply-Chain/server/src/routes/records.ts) with `take`/`skip` query parameters to prevent browser freeze at 5,000 items.
+- [ ] **2. Implement Unit & Integration Test Suites:** Install Vitest and Supertest; author unit tests for state transitions/mappings and integration tests for RBAC endpoints and atomic inventory transactions. *(Re-audit 2026-10-09: partly done: Node's `node:test` suites (not Vitest/Supertest) cover server HTTP behavior with Prisma doubles and client logic; no live-database tests; CI does not run them)*
+- [ ] **3. Server-Side Record Pagination:** Update `GET /api/records` in [`server/src/routes/records.ts`](file:///home/marc/Supply-Chain/server/src/routes/records.ts) with `take`/`skip` query parameters to prevent browser freeze at 5,000 items. *(Re-audit 2026-10-09: the API accepts `limit`/`cursor`; the main client lists do not use it yet)*
 - [x] **4. Prevent Driver Resurrection:** Restricted `syncDriversFromRecords` in [`server/src/routes/drivers.ts`](file:///home/marc/Supply-Chain/server/src/routes/drivers.ts) to initial empty-table initialization and implemented soft-delete for drivers with historical records.
 - [x] **5. Fix Driver Assistant Serialization:** Ensured `driverAssistants` is saved as a JSON array string in [`server/src/routes/data-sampler.ts`](file:///home/marc/Supply-Chain/server/src/routes/data-sampler.ts).
 - [x] **6. Enable Atomic Stock Adjustments:** Wrapped stock updates in `prisma.$transaction` and enforced non-negative inventory balance validation in [`server/src/routes/skus.ts`](file:///home/marc/Supply-Chain/server/src/routes/skus.ts).
@@ -815,12 +903,12 @@ pie title Roadmap Completion Breakdown
 
 ### Phase 3: Core Domain Expansion & Operational Completeness (P2 — Strategic)
 
-- [ ] **1. Multi-Line Item Support:** Create a `DeliveryItem` line-item model in `schema.prisma` linking records to `Product`, quantities, and serial numbers.
+- [ ] **1. Multi-Line Item Support:** Create a `DeliveryItem` line-item model in `schema.prisma` linking records to `Product`, quantities, and serial numbers. *(Re-audit 2026-10-09: `LineItem` (SKU text, quantity) exists; no Product link, serials or prices)*
 - [ ] **2. Automated Inventory Movement on Fulfillment:** Deduct warehouse inventory automatically when deliveries are accomplished, and quarantine items upon RMA returns.
-- [ ] **3. Real Proof of Delivery (POD) Storage:** Implement cloud file storage (S3 / Azure Blob) for signed Delivery Receipts, PDC photos, and digital customer signatures.
+- [x] **3. Real Proof of Delivery (POD) Storage:** Implement cloud file storage (S3 / Azure Blob) for signed Delivery Receipts, PDC photos, and digital customer signatures. *(Re-audit 2026-10-09: done for photos and documents via local disk/Supabase with server-side verification; signatures and PDC photos are not built)*
 - [ ] **4. Consolidate Master Directories:** Merge `Company` and `Customer` into a unified client directory linked to SAP numbers.
 - [ ] **5. Driver Offline PWA Support:** Add IndexedDB queue and Service Worker to enable offline delivery completion in low-connectivity areas.
-- [ ] **6. End-to-End (E2E) Test Automation:** Implement Playwright test suites in CI covering the complete fulfillment and collection journeys.
+- [ ] **6. End-to-End (E2E) Test Automation:** Implement Playwright test suites in CI covering the complete fulfillment and collection journeys. *(Re-audit 2026-10-09: a Playwright suite exists in `e2e/` (Sales Coordinator, Logistics, Driver, integration) but does not run in CI)*
 
 ### Phase 4: Architectural Modernization & UI/UX Overhaul (P3 — Modernization)
 
@@ -835,7 +923,7 @@ pie title Roadmap Completion Breakdown
   - Simplify `RecordCreateForm.tsx` by hiding optional fields behind an "Advanced" toggle.
   - Elevate `GlobalSearch.tsx` to the top navigation for instant jump-to-record workflows.
   - Ensure `StatusStepper.tsx` is consistently used to display clear record progress.
-- [ ] **5. Standardize Server Timezones:** Configure explicit `Asia/Manila` timezones for scheduled dispatch jobs in `server/src/index.ts`.
+- [ ] **5. Standardize Server Timezones:** Configure explicit `Asia/Manila` timezones for scheduled dispatch jobs in `server/src/index.ts`. *(Re-audit 2026-10-09: schedule calculations use Asia/Manila; jobs are still in-process timers)*
 
 ---
 
@@ -845,12 +933,16 @@ The following issues were identified during a follow-up audit of frontend, backe
 
 ### 12.1 Driver/Role Record Detail IDOR Across Nested Endpoints
 
+> **Status (2026-10-09): FIXED.** `requireRecordAccess` and `recordScope` guard every `/records/:id/*` route, with Driver ownership by linked profile id.
+
 - **File & Line:** [`server/src/routes/records.ts:111`](file:///home/marc/Supply-Chain/server/src/routes/records.ts#L111), [`server/src/routes/records.ts:125`](file:///home/marc/Supply-Chain/server/src/routes/records.ts#L125), [`server/src/routes/records.ts:144`](file:///home/marc/Supply-Chain/server/src/routes/records.ts#L144), [`server/src/routes/records.ts:515`](file:///home/marc/Supply-Chain/server/src/routes/records.ts#L515), [`server/src/routes/records.ts:532`](file:///home/marc/Supply-Chain/server/src/routes/records.ts#L532)
 - **Issue:** `GET /api/records` correctly scopes drivers to their own assignments through `categoryFilterForRole()`, but direct record endpoints do not reuse that access policy. `GET /api/records/:id` only blocks TASS from unsupported categories; it does not block a Driver from loading another driver's record. The audit, remarks, and comments endpoints fetch by `recordId` directly and do not verify that the caller may view the parent delivery record.
 - **Impact:** Any authenticated driver or non-admin user who learns or guesses a record id can read operational details, audit history, remarks, and comments outside their assigned work queue. Comment creation also permits posting on any existing delivery record after only checking that the record exists.
 - **Remediation:** Centralize record visibility in a helper such as `canAccessRecord(user, record)` and require it for `/:id`, `/:id/audit`, `/:id/remarks`, `/:id/comments`, and comment creation. For drivers, require `record.driver === req.user.name`; for TASS and Logistics, enforce the same category boundaries used by list endpoints.
 
 ### 12.2 Transaction Center Leaks Delivery and Inventory Data to Driver Role
+
+> **Status (2026-10-09): FIXED.** `services/transactionAccess.ts` denies unknown roles and scopes Drivers and categories (covered by `tests/transactionAccess.test.ts`).
 
 - **File & Line:** [`server/src/routes/transactions.ts:11-23`](file:///home/marc/Supply-Chain/server/src/routes/transactions.ts#L11), [`server/src/routes/transactions.ts:26-29`](file:///home/marc/Supply-Chain/server/src/routes/transactions.ts#L26), [`server/src/routes/transactions.ts:45-79`](file:///home/marc/Supply-Chain/server/src/routes/transactions.ts#L45), [`server/src/routes/transactions.ts:161-238`](file:///home/marc/Supply-Chain/server/src/routes/transactions.ts#L161)
 - **Issue:** `allowedCategoriesForRole()` returns `null` for unhandled roles, which means unrestricted access. Because `DRIVER` is not handled, drivers receive all delivery transactions in `GET /api/transactions`. `canAccessInventory()` only excludes TASS, so drivers can also list and open inventory transactions.
@@ -859,12 +951,16 @@ The following issues were identified during a follow-up audit of frontend, backe
 
 ### 12.3 Frontend Offline Fallback Silently Converts Failed Mutations Into Local-Only Success
 
+> **Status (2026-10-09): FIXED.** The record mutations no longer write fallback results to `localStorage`. `client/src/utils/persistence.ts` is now dead code.
+
 - **File & Line:** [`client/src/api/queries/useRecordsQuery.ts:48-69`](file:///home/marc/Supply-Chain/client/src/api/queries/useRecordsQuery.ts#L48), [`client/src/api/queries/useRecordsQuery.ts:81-113`](file:///home/marc/Supply-Chain/client/src/api/queries/useRecordsQuery.ts#L81), [`client/src/api/queries/useRecordsQuery.ts:124-141`](file:///home/marc/Supply-Chain/client/src/api/queries/useRecordsQuery.ts#L124)
 - **Issue:** Create, update, status, and collection-verification mutations catch every API error and write a fallback result into `localStorage`. The catch block does not distinguish network outage from HTTP 400/403/500 responses.
 - **Impact:** Authorization failures, missing required remarks, validation errors, and server exceptions can look successful in the UI until the next refetch. For example, a bulk status update without remarks can be rejected by the backend while the local cache still shows the status as changed. This creates false operational confidence for dispatchers and drivers.
 - **Remediation:** Only enter offline fallback for actual network failures (`TypeError`, timeout, or `navigator.onLine === false`). Re-throw `ApiError` responses so the UI can show the backend error and avoid writing unauthorized or invalid local state.
 
 ### 12.4 Status History Export Counts Use `createdAt` While UI Filters Use `deliveryDate`
+
+> **Status (2026-10-09): OPEN.** `GET /records/status-history-counts` still filters on `createdAt`. The Status History screen was removed, so the impact is limited to exports that still call it.
 
 - **File & Line:** [`server/src/routes/records.ts:50-63`](file:///home/marc/Supply-Chain/server/src/routes/records.ts#L50), [`client/src/features/deliveries/DeliveryRecordsView.tsx:183-194`](file:///home/marc/Supply-Chain/client/src/features/deliveries/DeliveryRecordsView.tsx#L183), [`client/src/pages/MainView.tsx:96-107`](file:///home/marc/Supply-Chain/client/src/pages/MainView.tsx#L96)
 - **Issue:** The frontend sends `dateFrom` and `dateTo` from delivery-date filters, but `/api/records/status-history-counts` applies those parameters to `createdAt`. Main View also computes displayed rows using `delivery_date` while requesting status counts without sending the same date range at all.
@@ -873,12 +969,16 @@ The following issues were identified during a follow-up audit of frontend, backe
 
 ### 12.5 Bulk Status Update Cannot Satisfy Backend Remarks Requirement
 
+> **Status (2026-10-09): FIXED.** Bulk update (TSK-76) generates remarks, checks each record's allowed transition and reports per-record errors.
+
 - **File & Line:** [`client/src/features/deliveries/DeliveryRecordsView.tsx:283-290`](file:///home/marc/Supply-Chain/client/src/features/deliveries/DeliveryRecordsView.tsx#L283), [`client/src/api/queries/useRecordsQuery.ts:83-93`](file:///home/marc/Supply-Chain/client/src/api/queries/useRecordsQuery.ts#L83), [`server/src/routes/records.ts:382-384`](file:///home/marc/Supply-Chain/server/src/routes/records.ts#L382)
 - **Issue:** `handleBulkStatusUpdate()` calls `onUpdateRecord(id, { status })` with no remarks. The mutation maps any `updates.status` to `PATCH /api/records/:id/status` and sends an empty string when neither `status_remarks` nor `remarks` is present. The backend correctly rejects status changes without remarks.
 - **Impact:** Logistics users can select records and press **Apply**, but the server rejects each status update. Because the mutation catches errors and falls back to local storage, the UI can still clear the selection and appear to have completed the bulk operation.
 - **Remediation:** Require a bulk remarks field before enabling **Apply**, pass it as `status_remarks`, and surface per-record failures. Pair this with the mutation error-handling fix in 12.3.
 
 ### 12.6 Master Data Tables Permit Duplicate Business Identities
+
+> **Status (2026-10-09): OPEN.** `Company`, `Customer`, `Supplier` and `Driver` still have no uniqueness constraints on SAP number, email or name.
 
 - **File & Line:** [`server/prisma/schema.prisma:54-63`](file:///home/marc/Supply-Chain/server/prisma/schema.prisma#L54), [`server/prisma/schema.prisma:68-82`](file:///home/marc/Supply-Chain/server/prisma/schema.prisma#L68), [`server/prisma/schema.prisma:86-101`](file:///home/marc/Supply-Chain/server/prisma/schema.prisma#L86), [`server/prisma/schema.prisma:275-285`](file:///home/marc/Supply-Chain/server/prisma/schema.prisma#L275)
 - **Issue:** `Company.sapNumber`, `Company.name`, `Customer.email`, `Supplier.email`, and `Driver.name` have no uniqueness constraints or normalized lookup fields. The API create routes also do not check for existing rows before insertion.
@@ -887,7 +987,63 @@ The following issues were identified during a follow-up audit of frontend, backe
 
 ### 12.7 Delivery Scheduling Uses String Dates Instead of Typed Database Dates
 
+> **Status (2026-10-09): PARTIALLY FIXED.** The unused `dateAndTime` column was dropped (migration `20261007060000`). `deliveryDate`, `timeIn`, `timeOut` and snapshot dates are still strings; helpers in `deliveryLifecycle.ts` validate `YYYY-MM-DD` and ISO timestamps.
+
 - **File & Line:** [`server/prisma/schema.prisma:115-123`](file:///home/marc/Supply-Chain/server/prisma/schema.prisma#L115), [`server/prisma/schema.prisma:287-295`](file:///home/marc/Supply-Chain/server/prisma/schema.prisma#L287)
 - **Issue:** `DeliveryRecord.deliveryDate`, `DeliveryRecord.dateAndTime`, `timeIn`, `timeOut`, and `DailyStatusSnapshot.date` are stored as `String` values. Query correctness depends on every caller always sending perfectly zero-padded ISO-like strings.
 - **Impact:** Any malformed, localized, or non-padded date string sorts lexicographically rather than chronologically. This can corrupt dashboard counts, date-range filters, route slips, and status-history reports without triggering a database error.
 - **Remediation:** Migrate schedule fields to `DateTime` or `Date`-equivalent columns where supported, validate incoming payloads at the API boundary, and keep display formatting strictly in the frontend/export layer.
+
+---
+
+## 13. New Findings — October 9, 2026
+
+Found while reconciling the documentation with the code on `dev` (commit `ccbf192`). These were not in earlier sections. Code was not changed; each entry is a recommendation.
+
+### 13.1 Unauthenticated Demo Reseed Endpoint Is Live in Production
+
+- **Severity:** Critical
+- **Evidence:** `server/src/routes/dev.ts:26` — `router.post('/public-seed', ...)` has no `requireAuth`, no role check and no `NODE_ENV` guard, and calls `runSeed(true)`, which deletes every table (`server/prisma/seed.ts:164-179`) before inserting demo data. The route is mounted unconditionally in `server/src/index.ts` (`app.use('/api/dev', devRoutes)`). A code comment even warns "this allows unauthenticated database resets". The sibling `/public-seed-uat` is correctly guarded.
+- **Impact:** Anyone who can reach the API can wipe production data and recreate accounts with the documented demo passwords.
+- **Suggested fix:** Apply the same `NODE_ENV`/flag guard as `/public-seed-uat` (or remove the route and the login-page button that calls it), and require an explicit `ALLOW_PUBLIC_SEED=true` for local demos.
+
+### 13.2 Render Health Check Is Not Configured
+
+- **Severity:** Medium
+- **Evidence:** `server/src/index.ts:57-59` says Render polls `/api/health` via `healthCheckPath` in `render.yaml`, but `render.yaml` contains no `healthCheckPath`.
+- **Impact:** Render routes traffic to a new instance without waiting for the database/environment checks the endpoint performs.
+- **Suggested fix:** Add `healthCheckPath: /api/health` to the web service in `render.yaml`.
+
+### 13.3 TASS Default Screens Include Modules With No Visible Records
+
+- **Severity:** Medium
+- **Evidence:** `server/src/services/permissions.ts:21` gives TASS `procurement_pickup`, but `server/src/services/recordAccess.ts:17` limits TASS to `ACCOUNTING_COLLECTION` and `RMA` records.
+- **Impact:** TASS sees an empty Procurement Pick-up module; the role definition and record policy disagree. Because TASS scope is unconfirmed (8.6), the correct fix depends on the stakeholder decision.
+- **Suggested fix:** Either remove `procurement_pickup` from the TASS defaults or add the category to `readableCategories` once the business confirms it.
+
+### 13.4 Microsoft SSO Auto-Creates Accounts as Sales Coordinator
+
+- **Severity:** Medium (becomes relevant at company SSO rollout; SSO is not live yet)
+- **Evidence:** `server/src/routes/auth.ts:150-160` creates an active `SALES_COORDINATOR` user for any Microsoft identity not already in the database.
+- **Impact:** Any identity the Entra app registration allows gets a working account with Sales Coordinator access, without Admin approval.
+- **Suggested fix:** Require a pre-provisioned account (reject unknown emails), or create the account inactive with no role until an Admin approves it. Confirm the app registration is single-tenant.
+
+### 13.5 Duplicate and Unreachable Health Route
+
+- **Severity:** Low
+- **Evidence:** `server/src/index.ts:60` registers the real `/api/health`; `server/src/index.ts:126` registers a second, simpler `/api/health` after the error handler. Express serves the first, so the second is dead code.
+- **Suggested fix:** Delete the second route.
+
+### 13.6 Prisma Schema Comments Are Stale (fixed)
+
+- **Severity:** Low
+- **Evidence:** `server/prisma/schema.prisma:9` says the provider is SQLite ("SQLite has no native enum support"), but the datasource is PostgreSQL; `schema.prisma:20` lists roles without `DRIVER`.
+- **Impact:** Misleads readers.
+- **Status:** FIXED on 2026-10-09 (comment-only edits, no migration needed): the SQLite sentence was removed from the header comment and `DRIVER` was added to the `User.role` comment.
+
+### 13.7 Inconsistent API Base URL Handling in the Client
+
+- **Severity:** Low
+- **Evidence:** `client/src/api/index.ts:10` hard-codes `API_BASE = ''` (relative `/api`, relying on the Vite proxy or the Cloudflare Worker proxy), while `client/src/api/availability.ts:4` reads `VITE_API_BASE_URL` for the health check. `client/.env.example` says not to use `VITE_API_BASE_URL`, whereas `docs/CLOUDFLARE_DEPLOYMENT.md` instructs setting it.
+- **Impact:** The health check can target a different origin than every other request, so a misconfigured Worker proxy can look healthy (or the reverse).
+- **Suggested fix:** Pick one model (Worker proxy, or direct cross-origin calls) and use a single base for all requests and the health check.
