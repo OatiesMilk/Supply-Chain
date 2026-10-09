@@ -1,28 +1,53 @@
 # Microgenesis Supply Chain Portal
 
-An enterprise-grade, full-stack Supply Chain Management system replacing legacy SharePoint-based trackers. This portal unifies the procurement, logistics, and vendor management lifecycle into a single, centralized source of truth.
+> Last verified: 2026-10-09 against commit `ccbf192` (`dev`).
+
+An internal, full-stack Supply Chain Management portal that replaces legacy SharePoint-based trackers. It unifies deliveries, RMA/TASS, procurement pick-ups, accounting collections, sales orders, driver operations and SKU master data in one role-controlled source of truth.
 
 ## Overview
 
-The Supply Chain Portal provides role-based tracking for deliveries, inventory, purchase orders, and collections, minimizing disputes over fulfillment, damaged goods, and payment handoffs. 
+The portal provides role-based tracking from record creation through dispatch, field proof of delivery and collection verification, with an audit trail on every change.
 
 ### Key Features
-- **Centralized Dashboard & Operations:** Unified workspace for Sales, Logistics, and Accounting.
-- **Strict Role-Based Access Control (RBAC):** Distinct roles (Admin, Sales Coordinator, Logistics, TASS, Driver) ensure segregation of duties.
-- **Inventory & SKU Master:** Real-time visibility into stock levels, allocations, and transaction ledgers.
-- **Actionable Dispatch Board:** Mobile-friendly field driver capabilities.
-- **Output Actions & Notifications:** Configurable triggers (e.g. Accomplished, Rescheduled) that send automated emails (via SMTP or Microsoft Graph).
+- **Operational records:** Deliveries, RMA, Accounting Collection, Procurement Pick-up and Sales Orders in one model, with Draft, Scheduled, In Transit, Pending, On-Hold, Rescheduled and Delivered states enforced on the server.
+- **Dispatch and field execution:** Driver Manager, Driver Board, Delivery Calendar and a mobile-first Driver dashboard with server-stamped Time In/Out and verified JPG/PNG proof-of-delivery photos.
+- **Role-based access control:** Sales Coordinator, Logistics, TASS, Admin and Driver roles, plus per-user module access managed by Admin.
+- **Directories and SKU Master:** Companies, Customers, Suppliers, Drivers, Account Managers, and an Admin-managed SKU catalog with a stock ledger.
+- **Dashboards, reports and exports:** Role-specific dashboards, Transaction Center, Reports, and CSV/Excel/PDF/Word exports and route slips.
+- **Notifications:** In-app bell, email on Accomplished (Microsoft Graph, SMTP or a logged mock), and scheduled 4 PM / 6 PM / weekly jobs.
 
 ## Tech Stack
-- **Frontend:** React, Vite, TypeScript, Tailwind CSS, shadcn/ui
+- **Frontend:** React 19, TypeScript, Vite, Tailwind CSS v4, TanStack Query, Zustand, Recharts, Lucide, Sonner
 - **Backend:** Node.js, Express, TypeScript
 - **Database:** PostgreSQL, Prisma ORM
-- **Authentication:** Custom JWT sessions + optional Microsoft Azure AD SSO
-- **Monorepo:** npm workspaces (\`client/\` and \`server/\`)
+- **Authentication:** JWT in an `httpOnly` cookie, plus optional Microsoft Entra ID (Azure AD) SSO
+- **Storage:** Local disk (development) or Supabase Storage (staging/production) for proof-of-delivery files
+- **Testing:** Node's built-in test runner (`node:test` via `tsx`) and a Playwright E2E suite
+- **Hosting:** Render (API), Cloudflare Workers (frontend), Docker Compose (local PostgreSQL)
+- **Monorepo:** npm workspaces (`client/` and `server/`)
+
+## Quick Start
+
+```bash
+npm install
+cp .env.example .env && cp server/.env.example server/.env
+docker compose up -d
+cd server && npx prisma migrate deploy && npm run seed && cd ..
+npm run dev
+```
+
+Frontend: <http://localhost:3000> · API: <http://localhost:4000>. Full instructions (Windows PowerShell, seeded accounts, tests, troubleshooting) are in the [Getting Started guide](./docs/GETTING_STARTED.md).
 
 ## Documentation
-- [Getting Started Guide](./docs/GETTING_STARTED.md) - Local setup, database initialization, and usage instructions.
-- [Git Cheat Sheet](./docs/git-cheat-sheet.md) - Best practices and workflows for the development team.
-- [Project Issues Report](./docs/PROJECT_ISSUES_REPORT.md) - Active audit logs and identified vulnerabilities.
-- [Archive](./docs/archive) - Legacy documentation and previous architectural notes.
-
+- [Getting Started](./docs/GETTING_STARTED.md): local setup, database, seeds, tests.
+- [System Architecture](./docs/SYSTEM_ARCHITECTURE.md): stack, components, auth, data model, deployment.
+- [Business Requirements](./docs/BUSINESS_REQUIREMENTS.md): what the system does, by module and role, with status.
+- [API Contract](./docs/API_CONTRACT.md): every route, guard and payload.
+- [Module Access](./docs/MODULE_ACCESS.md): role defaults and per-user access rules.
+- [UAT Plan](./docs/UAT_PLAN.md) and [UAT verification notes](./docs/uat/TSK-106-verification.md)
+- [Project Issues Report](./docs/PROJECT_ISSUES_REPORT.md): audit findings and their current status.
+- [Cloudflare Deployment](./docs/CLOUDFLARE_DEPLOYMENT.md), [Driver demo seed](./docs/driver-demo-seed.md), [Historical driver import](./server/prisma/DRIVER_IMPORT.md), [Teams tab app](./teams/README.md)
+- [Git Cheat Sheet](./docs/git-cheat-sheet.md): branching and commit conventions.
+- [Don't Break This](./DONT_BREAK_THIS.md): fragile areas to read before changing code.
+- [Docs sync report](./docs/DOCS_SYNC_REPORT.md): what changed in the latest documentation audit.
+- [Archive](./docs/archive): superseded documentation kept for history.
