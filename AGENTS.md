@@ -45,7 +45,7 @@ Before writing a single line, the agent:
 1. **Reads the relevant source files** — routes, middleware, schema, components
 2. **Asks a clarifying question** if the request is underspecified
 3. **Implements** following all project conventions (see below)
-4. **Self-validates** by running `tsc --noEmit` and Vitest before returning
+4. **Self-validates** by running `tsc --noEmit` and the relevant `node:test` suites before returning
 5. **Reports** what was changed and whether validation passed
 
 ### How to invoke
@@ -58,7 +58,7 @@ Before writing a single line, the agent:
 ```
 @supply-chain-dev fix the Admin Panel permission check from TSK-55
 @supply-chain-dev add a GET /api/records/:id/comments endpoint, admin and sales only
-@supply-chain-dev write a vitest test for the Sidebar canAccess logic
+@supply-chain-dev write a node:test test for the Sidebar canAccess logic
 @supply-chain-dev why does refreshing the page redirect back to the dashboard?
 ```
 
@@ -78,7 +78,7 @@ schema updates, or test writing.
 | Bug fix | `fix/<subsystem>-TSK-XX-<description>` |
 | Hotfix | `hotfix/<subsystem>-TSK-XX-<description>` |
 | Refactor | `refactor/<subsystem>-TSK-XX-<description>` |
-| Docs | `docs/<subsystem>-<description>` |
+| Docs | `docs/<subsystem>-<description>` (CLAUDE.md uses `docs/<description>`) |
 | Chore | `chore/<description>` |
 
 Subsystems: `client`, `server`, `api`, `db`, `admin`
@@ -95,7 +95,7 @@ Commit message format: `<type>(<subsystem>): <message> (TSK-XX)`
 
 ### Frontend (React + TypeScript)
 
-- New screens must be registered in `client/src/screenRouting.ts`
+- New screens must be registered in `client/src/screenRouting.ts` (and wired in `client/src/routes/AppRouter.tsx` and `server/src/services/permissions.ts`)
 - Sidebar buttons use `canAccess(screen)` — new screens require a permission entry
 - API calls go through `client/src/api.ts` or TanStack Query hooks in `client/src/api/`
 - State is managed via Zustand stores in `client/src/store/`
@@ -103,8 +103,8 @@ Commit message format: `<type>(<subsystem>): <message> (TSK-XX)`
 
 ### Testing
 
-- Component tests: Vitest + React Testing Library, co-located in `__tests__/` folders
-- Run: `cd client && npx vitest run`
+- Tests use Node's built-in runner (`node:test` via `tsx`), not Vitest. Client tests live in `client/tests/` and in co-located `__tests__/` folders; server tests in `server/tests/`; Playwright E2E in `e2e/`
+- Run: `cd client && node --import tsx --test tests/*.test.ts src/components/__tests__/*.test.ts src/utils/__tests__/*.test.ts src/utils/tests/*.test.ts` and `cd server && node --import tsx --test tests/*.test.ts`
 - Do **not** spin up new dev servers in tests — frontend is on `3000`, backend on `4000`
 
 ### Security
@@ -125,8 +125,8 @@ Commit message format: `<type>(<subsystem>): <message> (TSK-XX)`
 
 Vite proxies `/api/*` → `http://localhost:4000` in development.
 
-`.env` is located at the project root and contains `DATABASE_URL`, `JWT_SECRET`,
-and `NOTION_API_KEY`.
+Root `.env` holds the Docker PostgreSQL settings; `server/.env` holds `DATABASE_URL`, `JWT_SECRET`
+and the other API settings (see `docs/GETTING_STARTED.md`). `NOTION_API_KEY` is only used for ticketing.
 
 ---
 

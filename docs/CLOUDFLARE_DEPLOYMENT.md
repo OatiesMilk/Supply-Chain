@@ -1,8 +1,19 @@
 # Cloudflare Deployment
 
+> Last verified: 2026-10-09 against commit `ccbf192` (`dev`). The Cloudflare dashboard and the live Render service were not inspected; settings below come from the repository (`wrangler.json`, `worker.js`, `render.yaml`, `client/src/api/`).
+
 The production frontend is hosted at Cloudflare Workers and the API is hosted
 on Render. Cloudflare Workers Builds tracks the `staging` branch and uses
 `client/` as its project root.
+
+## How API requests reach the API
+
+Two mechanisms exist in the code today:
+
+1. **Worker proxy (all normal requests).** The client calls relative `/api/...` URLs (`client/src/api/index.ts` hard-codes an empty base). `worker.js` forwards every `/api/*` request to `env.API_BASE_URL`, falling back to `https://supply-chain-9fnl.onrender.com`. Set `API_BASE_URL` as a Worker variable if the API moves.
+2. **Direct health check.** `client/src/api/availability.ts` calls `${VITE_API_BASE_URL}/api/health` (relative when the variable is empty). This is why `VITE_API_BASE_URL` is set at build time.
+
+`client/.env.example` advises against `VITE_API_BASE_URL` for iOS Safari cookie reasons, while this guide sets it. Keeping both a proxy and a direct base is tracked as issue 13.7 in the [project issues report](./PROJECT_ISSUES_REPORT.md). > UNVERIFIED: which of the two the live environment relies on.
 
 ## Frontend and API configuration
 

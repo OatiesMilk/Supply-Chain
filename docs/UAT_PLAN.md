@@ -1,6 +1,6 @@
 # User Acceptance Testing (UAT) Plan
 ## Microgenesis Supply Chain Portal
-**Version:** 1.0 · **Date:** 2026-10-06  
+**Version:** 1.1 · **Date:** 2026-10-09 (Last verified against commit `ccbf192` on `dev`)  
 **Roles Covered:** Sales Coordinator · Logistics · Driver  
 **Environment:** `http://localhost:3000` (Frontend) | `http://localhost:4000` (Backend)
 
@@ -26,14 +26,14 @@ Before running any test case, confirm the database is ready.
 ## Part A — Sales Coordinator
 
 **Login:** Use a Sales Coordinator account.  
-**Expected Sidebar Items:** Main, Dashboard, Deliveries, RMA, Accounting Collection, Procurement Pick-up, Customers, Suppliers, AM Directory, Transaction Center, SKU Master.
+**Expected Sidebar Items:** Main, Dashboard, Deliveries, RMA, Accounting Collection, Procurement Pick-up, Sales Orders, Customers, Suppliers, AM Directory, Transaction Center. (SKU Master is an Admin-only default since TSK-118.)
 
 ### A-1 Login & Access Control
 
 | Test ID | Test Case | Steps | Expected Result | Pass / Fail |
 |---------|-----------|-------|-----------------|-------------|
 | A-1.1 | Login with valid credentials | Enter SC email + password → click Sign In | Dashboard loads; sidebar shows SC-permitted screens only | |
-| A-1.2 | Blocked screens not visible | Inspect sidebar | **No** Driver View, Driver Manager, Driver Board, Statistical Reports, Status History, Admin Panel | |
+| A-1.2 | Blocked screens not visible | Inspect sidebar | **No** Driver View, Driver Manager, Delivery Calendar, Driver Board, Reports, SKU Master, Data Sampler, Admin Panel | |
 | A-1.3 | Logout and re-login | Click logout → return to login → re-login | Session is cleared; fresh dashboard loads | |
 | A-1.4 | Wrong password blocked | Enter wrong password | Error message shown; no login | |
 
@@ -105,16 +105,16 @@ Before running any test case, confirm the database is ready.
 ## Part B — Logistics
 
 **Login:** Log out of SC account. Log in with a Logistics account.  
-**Expected Sidebar Items:** Everything SC has, **plus** Driver View, Driver Manager, Delivery Calendar, Driver Board, Status History, Statistical Reports.
+**Expected Sidebar Items:** Main, Dashboard, Deliveries, RMA, Accounting Collection, Procurement Pick-up, Sales Orders, Customers, Suppliers, Transaction Center, **plus** Driver View, Driver Manager, Delivery Calendar, Driver Board, Reports. (Logistics does not have AM Directory or SKU Master by default.)
 
 ### B-1 Login & Access Control
 
 | Test ID | Test Case | Steps | Expected Result | Pass / Fail |
 |---------|-----------|-------|-----------------|-------------|
 | B-1.1 | Login as Logistics | Enter Logistics email + password → Sign In | Dashboard loads with expanded sidebar (Driver View, Driver Manager, etc.) | |
-| B-1.2 | RMA module shows as "TASS" | Look at sidebar label for the RMA item | Label reads **"TASS"** for Logistics users (confirmed from source code) | |
+| B-1.2 | RMA module is labelled "RMA" | Look at sidebar label for the RMA item | Label reads **"RMA"** for every role (standardized in TSK-104) | |
 | B-1.3 | Admin Panel is NOT visible | Inspect sidebar | No Admin Panel link is shown for Logistics | |
-| B-1.4 | RMA records are read-only | Open the TASS/RMA module → try to edit a record | Blocked with error: "Logistics has view-only access to RMA/TASS records" | |
+| B-1.4 | RMA records are read-only | Open the TASS/RMA module → try to edit a record | Blocked with error: "Logistics has view-only access to RMA records" | |
 
 ---
 
@@ -131,7 +131,7 @@ Before running any test case, confirm the database is ready.
 | B-2.4 | Add driver assistants | Type assistant names in the assistants field → Save with remarks | Assistants are saved and appear on the record | |
 | B-2.5 | Change Status | Select a different status (e.g. On-Hold) → enter remarks → click Confirm Status | Status updates on the record; badge color changes | |
 | B-2.6 | Cannot set same status twice | Set status to Pending → immediately try to set to Pending again | Error: "Choose a different status before saving." | |
-| B-2.7 | Log Time In/Out manually | Enter a time in the Time In field → Save with remarks | Time In is saved on the record | |
+| B-2.7 | Record Time In | On a Scheduled or Rescheduled run with a driver assigned, enter remarks → click **Record Time In** | Status becomes In Transit and the server-stamped Time In is shown. Time Out is only set automatically on completion. A later correction of Time In requires remarks and is audited | |
 | B-2.8 | Set Priority | Change Priority to "3 - High" → Save with remarks | Priority badge changes on the record | |
 
 | Test ID | Test Case | Steps | Expected Result | Pass / Fail |
@@ -165,12 +165,12 @@ Before running any test case, confirm the database is ready.
 
 ---
 
-### B-5 Statistical Reports & Status History
+### B-5 Reports
 
 | Test ID | Test Case | Steps | Expected Result | Pass / Fail |
 |---------|-----------|-------|-----------------|-------------|
-| B-5.1 | Statistical Reports loads | Navigate to Statistical Reports | Reports page renders without error | |
-| B-5.2 | Status History loads | Navigate to Status History | Table of historical status changes is displayed | |
+| B-5.1 | Reports loads | Navigate to Reports | Reports page renders without error and filters (date range, category, area, driver, status) update the summary | |
+| B-5.2 | Status History is retired | Inspect sidebar and try `/status_history` | No Status History screen exists (removed in TSK-103); the Audit Trail tab on each record remains | |
 
 ---
 
@@ -236,6 +236,49 @@ Before running any test case, confirm the database is ready.
 | C-3.1 | Accomplished section visible | After completing C-2.8, scroll to bottom of dashboard | An "Accomplished" divider section appears with completed record cards | |
 | C-3.2 | Time In/Out shown on done cards | Check the accomplished record card | Time In and Time Out timestamps are displayed | |
 | C-3.3 | Received By shown on done cards | Check accomplished record | The name entered in C-2.7 is displayed next to a checkmark icon | |
+
+---
+
+## Part D — Additional Coverage Added in v1.1
+
+These cases cover behavior shipped after v1.0 (TSK numbers refer to the Notion tickets). Run them with the roles named in each row.
+
+### D-1 Access and Administration
+
+| Test ID | Test Case | Steps | Expected Result | Pass / Fail |
+|---------|-----------|-------|-----------------|-------------|
+| D-1.1 | SKU Master is Admin-only by default (TSK-118) | Sign in as Sales Coordinator, then Logistics, then Admin; inspect sidebars | SKU Master appears only for Admin | |
+| D-1.2 | Module access takes effect without re-login (TSK-55) | As Admin, open Admin Panel → Users → Module access for the Sales Coordinator and deny Dashboard; keep the SC session open in another browser | Within about 30 seconds (or on window focus) the Dashboard link disappears; `/dashboard` falls back to an allowed screen; direct API calls are denied | |
+| D-1.3 | Stale module-access editor | Open the same user's Module access in two Admin sessions; save in one, then the other | The stale editor reports a conflict and does not overwrite | |
+| D-1.4 | Only Admin can add Drivers (TSK-119) | As Logistics, open Driver Manager and add a person of type Driver; then add an Assistant | The Driver is rejected ("Only Admin can add drivers. Logistics can add assistants."); the Assistant is created | |
+| D-1.5 | Driver login linking | As Admin create a DRIVER account without a linked profile and sign in as it; then link a profile and assign a run | Unlinked Driver sees no runs; after linking the Driver sees only runs assigned to that profile | |
+| D-1.6 | Admin cannot lock themselves out | As Admin, change your own role or deactivate your own account | Rejected with a self-lockout message | |
+
+### D-2 Workflow Behavior
+
+| Test ID | Test Case | Steps | Expected Result | Pass / Fail |
+|---------|-----------|-------|-----------------|-------------|
+| D-2.1 | Delivery date is required (TSK-97) | Try to create a non-draft record with no Delivery Date; then, as Logistics, edit a Delivery's date to an invalid value | Creation fails with "Delivery Date is required"; Drafts may omit it. An invalid date edit is rejected ("Delivery Date must be a valid YYYY-MM-DD date.") | |
+| D-2.2 | Draft submission notifies Logistics (TSK-120) | As SC, save a Draft Delivery without a driver, then submit it; sign in as Logistics | Logistics has a "driver needed" bell notification for the record | |
+| D-2.3 | Priority edit from Overview (TSK-98) | As SC, then as Logistics, change Priority in Overview with remarks; as TASS or Driver, try the same through the API | Saved and audited for SC, Logistics (and Admin); TASS and Driver get 403 "Your role cannot change record priority." | |
+| D-2.4 | Staged uploads (TSK-93) | Select a file for a record, remove it with the staged-file remove button, select another, then save | Staged files are listed before saving; only the remaining file is uploaded when you save | |
+| D-2.5 | Attachment removal is confirmed and audited (TSK-92) | Delete an attachment from the Documents tab | A confirmation appears; after confirming, the file is removed and the Audit Trail records it | |
+| D-2.6 | POD photo preview (TSK-111, TSK-112) | As Logistics, open the Documents tab of a Delivered record; as Driver open an accomplished run | The proof photo previews inline in both places | |
+| D-2.7 | Driver opens accomplished records (TSK-94) | As Driver, tap an accomplished run | Read-only details open, including Time In/Out and Received By | |
+| D-2.8 | Driver only sees assigned runs after reassignment (TSK-100) | Rename the Driver's account, then check the dashboard | Runs stay attached (assignment is by profile id, not display name) | |
+| D-2.9 | Completion rules are enforced server-side | With a PDF only, attempt Delivered through the API | `400` photo-required; see C-2.12 | |
+| D-2.10 | Lateness and day-of rules | Complete an overdue Delivery; try a future-dated one | See C-1.6, C-1.7, C-2.14, C-2.15 | |
+
+### D-3 Interface Behavior
+
+| Test ID | Test Case | Steps | Expected Result | Pass / Fail |
+|---------|-----------|-------|-----------------|-------------|
+| D-3.1 | Collapsible sidebar rail (TSK-117) | Click the collapse toggle on the sidebar edge, reload | The rail collapses to icons, the toggle is centered on the edge, labels remain available as accessible names | |
+| D-3.2 | Active sidebar item returns to the list (TSK-113) | Open a record, then click the highlighted sidebar item | The module returns to its list view | |
+| D-3.3 | Toasts do not cover header controls (TSK-114) | Save, upload and fail an action | Success/error toasts appear at the bottom right and header controls stay clickable | |
+| D-3.4 | Date range filters are validated (TSK-108) | Enter a "Date To" earlier than "Date From" in a record filter; then move "Date From" past an existing "Date To" | The message "Date To cannot be earlier than Date From." appears and the invalid range is not applied (the list is not filtered by it). Moving "Date From" past "Date To" clears "Date To" | |
+| D-3.5 | Dashboard KPI cards (TSK-83) | Open each role's Dashboard | KPI cards do not repeat the same icon | |
+| D-3.6 | Driver coverage matching (TSK-115) | Give one driver an exact Area and another a Subregion that contains the record's Area; open the record's driver assignment as Logistics | Both drivers are ranked as coverage matches (exact Area and Subregion). A driver covering only a neighbouring Area is not matched, and matching is never by substring. Coverage ranks drivers; it does not block assigning any driver | |
 
 ---
 
