@@ -15,6 +15,7 @@ import { canWriteCategory, isAssignedDriver, recordScope } from '../services/rec
 import { deliveryScheduleState, driverDeliveryDateError, isValidDateOnly, isoTimestamp, manilaToday, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
 
 const router = Router();
+const PRIORITY_LOCKED_ERROR = "Priority can't be changed after a record is Delivered.";
 const requireRecordAccess = asyncRoute(async (req, res, next) => {
   if (req.params.id) {
     const record = await prisma.deliveryRecord.findFirst({
@@ -583,6 +584,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (!canWriteCategory(req.user!, current.category) || (req.user!.role === 'DRIVER' && !isAssignedDriver(req.user!, current))) return { error: 'Record access denied', updated: null };
     const dateError = driverDeliveryDateError(current, req.user!.role);
     if (dateError) return { error: dateError, updated: null };
+    if (data.priority !== undefined && data.priority !== current.priority && runState(current) === 'Delivered') return { error: PRIORITY_LOCKED_ERROR, updated: null };
     if (data.draft !== undefined && data.draft !== current.draft) {
       if (!['SALES_COORDINATOR', 'ADMIN'].includes(req.user!.role)) return { error: 'Only Sales Coordinator or Admin may submit or return drafts.', updated: null };
       const invalid = transitionError(current, data.draft ? 'Draft' : 'Scheduled', req.user!.role);
@@ -687,6 +689,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     if (req.user!.role === 'SALES_COORDINATOR' && !(status === 'Draft' || current.draft && status === 'Scheduled')) return { error: 'Sales Coordinator may only submit or return drafts.', saved: null, previous: null };
     const statusChanged = runState(current) !== status;
     const priorityChanged = hasPriority && current.priority !== priority;
+    if (priorityChanged && runState(current) === 'Delivered') return { error: PRIORITY_LOCKED_ERROR, saved: null, previous: null };
     if (!statusChanged && !priorityChanged) return { error: 'Choose a different status or priority before saving.', saved: null, previous: null };
     // Logistics/Admin rescheduling a Delivery must set the new date in the same action (TSK-123).
     const requiresNewDate = statusChanged && status === 'Rescheduled' && current.category === 'DELIVERY' && ['LOGISTICS', 'ADMIN'].includes(req.user!.role);

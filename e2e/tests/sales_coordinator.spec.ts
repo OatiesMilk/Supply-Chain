@@ -284,6 +284,18 @@ test.describe('A-3 Edit a Record', () => {
       }
     }
   });
+
+  test('A-3.9 TSK-124 Priority is read-only on a Delivered record', async ({ page }) => {
+    await page.goto(`${BASE_URL}/deliveries`);
+    await page.waitForLoadState('networkidle');
+    const delivered = page.getByRole('row').filter({ hasText: /delivered/i }).first();
+    test.skip(!(await delivered.isVisible()), 'No Delivered delivery in the seeded data');
+    await delivered.click();
+
+    await expect(page.getByText('Priority is locked after delivery.')).toBeVisible();
+    // Sales Coordinator cannot edit a Delivered record, so there is no Edit button or Priority dropdown.
+    await expect(page.locator('select').filter({ has: page.locator('option[value="3 - High"]') })).toHaveCount(0);
+  });
 });
 
 test.describe('A-5 Transaction Center', () => {

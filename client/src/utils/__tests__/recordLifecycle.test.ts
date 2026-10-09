@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { DeliveryRecord } from '../../types';
-import { canRecordTimeIn, dashboardRunDaysLate, deliveryScheduleState, hasValidRunTimeIn, isDashboardRunActionable, isDraftRecord, selectableStatuses, manilaToday, manilaDateTimeInput, manilaInputToIso, rescheduleDateError, submissionErrors } from '../recordLifecycle';
+import { canRecordTimeIn, dashboardRunDaysLate, deliveryScheduleState, hasValidRunTimeIn, isDashboardRunActionable, isDraftRecord, selectableStatuses, manilaToday, manilaDateTimeInput, manilaInputToIso, rescheduleDateError, isPriorityLocked, submissionErrors } from '../recordLifecycle';
 
 const record = (overrides: Partial<DeliveryRecord> = {}): DeliveryRecord => ({
   status: 'Scheduled', is_draft: 'No', driver: 'Assigned Driver', time_in: null,
@@ -81,4 +81,11 @@ test('TSK-123: reschedule date must be present, valid, not past and different fr
   assert.match(rescheduleDateError('2026-10-12', '2026-10-12', '2026-10-09') ?? '', /different/);
   assert.equal(rescheduleDateError('2026-10-09', '2026-10-05', '2026-10-09'), null);
   assert.equal(rescheduleDateError('2026-10-10', '2026-10-09', '2026-10-09'), null);
+});
+
+test('TSK-124: Priority is locked only once a record is Delivered', () => {
+  assert.equal(isPriorityLocked({ status: 'Delivered' }), true);
+  for (const status of ['Draft', 'Scheduled', 'In Transit', 'On-Hold', 'Pending', 'Rescheduled'] as const) {
+    assert.equal(isPriorityLocked({ status }), false, status);
+  }
 });
