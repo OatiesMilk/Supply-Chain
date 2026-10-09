@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { prisma } from '../db';
 import { requireResource, requireAuth, requireRole } from '../middleware/auth';
 import { serializeRecord } from '../mappings';
-import { runSeed } from '../../prisma/seed';
 
 const router = Router();
 
@@ -244,32 +243,6 @@ router.post('/generate', requireAuth, requireResource('dataSampler'), requireRol
   }
 });
 
-router.post('/reset', requireAuth, requireResource('dataSampler'), requireRole('ADMIN'), async (req, res) => {
-  const { mode } = req.body ?? {};
-  if (mode !== 'full' && mode !== 'seed') {
-    return res.status(400).json({ error: 'mode must be "full" or "seed"' });
-  }
-
-  const deleted = await prisma.deliveryRecord.count();
-
-  if (mode === 'seed') {
-    // Full wipe + re-seed restores the complete demo state (users, companies, records).
-    await runSeed(true);
-  } else {
-    // Delete only transactional records. AuditLog has a DB-level FK to DeliveryRecord
-    // (ON DELETE RESTRICT from the init migration), so audit entries must be removed first.
-    await prisma.auditLog.deleteMany({ where: { recordType: 'DeliveryRecord' } });
-    await prisma.comment.deleteMany({ where: { recordType: 'DeliveryRecord' } });
-    await prisma.notification.deleteMany();
-    await prisma.notificationLog.deleteMany();
-    await prisma.deliveryRecord.deleteMany();
-  }
-
-  // Cannot write to audit_log: the FK on recordId requires a valid DeliveryRecord.id
-  // which no longer exists after the reset. System events would need a schema change.
-  console.log(`[RESET] ${mode} reset performed by ${req.user!.name} — ${deleted} record(s) deleted`);
-
-  res.json({ deleted, mode });
-});
+// TSK-122: destructive reset endpoint removed; only non-destructive Data Sampler routes remain.
 
 export default router;

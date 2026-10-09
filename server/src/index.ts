@@ -95,8 +95,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/skus', skusRoutes);
 app.use('/api/transactions', transactionsRoutes);
 app.use('/api/notifications', notificationsRoutes);
-// Demo reset endpoint — available in all environments since this is a demo app.
-// The route itself requires confirmation before wiping data.
+// TSK-122: deprecated dev router is empty. HTTP resets have been removed.
 app.use('/api/dev', devRoutes);
 app.use('/api/data-sampler', dataSamplerRoutes);
 app.use('/api/reports', reportsRoutes);
