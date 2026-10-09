@@ -142,6 +142,28 @@ Do not run `migrate reset` against a database containing data you need. If
 Prisma reports migration drift, stop and inspect the database rather than
 accepting an automatic reset.
 
+### Secure local demo and UAT seeds (TSK-122)
+
+Destructive seed/reset HTTP endpoints were removed. The login screen and Admin
+Data Sampler no longer offer a reset button. Only local CLI workflows are supported.
+
+On a **disposable local PostgreSQL database** named `*_sandbox` or `*_test`,
+set `DATABASE_URL` in `server/.env` to the local loopback PostgreSQL URL;
+verify that no port-forward or tunnel connects it to a remote database. Create
+the database and apply Prisma migrations before seeding.
+
+Only after verifying the database is safe to destroy, run from `server/`:
+
+```bash
+NODE_ENV=development LOCAL_DESTRUCTIVE_SEED=true LOCAL_SEED_DATABASE=mg_portal_sandbox npm run seed
+# Or for UAT demo runs on the same disposable local database:
+NODE_ENV=development LOCAL_DESTRUCTIVE_SEED=true LOCAL_SEED_DATABASE=mg_portal_sandbox npm run seed:uat
+```
+
+Both CLI commands can delete/recreate data and will refuse to run without all
+the local-only safeguards. Never run them on an existing/shared database or
+set the opt-ins on staging, production, CI or cloud services.
+
 ## 5. Run the application
 
 From the repository root:

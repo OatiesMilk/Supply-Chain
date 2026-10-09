@@ -1,17 +1,14 @@
 import { manilaToday } from '@/utils/recordLifecycle';
-import React, { useState } from "react";
+import React from "react";
 import {
   Menu,
   ZoomIn,
   ZoomOut,
   Clock,
   Search,
-  RotateCw,
   LogOut,
-  Loader2,
 } from "lucide-react";
 import { NotificationBell } from "@/components";
-import { ActionDialog } from "@/components/ActionDialog";
 import { DeliveryRecord } from "@/types";
 
 export interface NavbarProps {
@@ -24,8 +21,6 @@ export interface NavbarProps {
   setSearchOpen: (open: boolean) => void;
   deliveryRecords: DeliveryRecord[];
   handleNavigate: (screen: any) => void;
-  handleResetDemoData: () => Promise<void>;
-  resetting: boolean;
   handleLogout: () => void;
 }
 
@@ -39,24 +34,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   setSearchOpen,
   deliveryRecords,
   handleNavigate,
-  handleResetDemoData,
-  resetting,
   handleLogout,
 }) => {
-  const [resetOpen, setResetOpen] = useState(false);
-  const [resetError, setResetError] = useState<string | null>(null);
-
-  const confirmReset = async () => {
-    if (resetting) return;
-    setResetError(null);
-    try {
-      await handleResetDemoData();
-      setResetOpen(false);
-    } catch (error) {
-      setResetError(error instanceof Error ? error.message : 'Could not reset demo data');
-    }
-  };
-
   return (
     <>
     <header
@@ -135,20 +114,6 @@ export const Navbar: React.FC<NavbarProps> = ({
         />
 
         <button
-          onClick={() => { setResetError(null); setResetOpen(true); }}
-          disabled={resetting}
-          className="p-1.5 bg-slate-100 hover:bg-red-50 border border-slate-200 hover:border-red-200 text-slate-500 hover:text-red-600 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-          id="reset-demo-data-button"
-          title="Reset all data back to the original demo seed data (dev only)"
-        >
-          {resetting ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          ) : (
-            <RotateCw className="w-3.5 h-3.5" />
-          )}
-        </button>
-
-        <button
           onClick={handleLogout}
           className="p-1.5 bg-slate-100 hover:bg-red-50 border border-slate-200 hover:border-red-200 text-slate-500 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
           id="logout-button"
@@ -158,17 +123,6 @@ export const Navbar: React.FC<NavbarProps> = ({
         </button>
       </div>
     </header>
-    <ActionDialog
-      open={resetOpen}
-      title="Reset demo data?"
-      description="All Supply Chain Portal data will return to the original demo seed. Every change made on the server will be cleared. This cannot be undone."
-      confirmLabel="Reset all data"
-      destructive
-      pending={resetting}
-      error={resetError}
-      onConfirm={confirmReset}
-      onDismiss={() => { setResetOpen(false); setResetError(null); }}
-    />
     </>
   );
 };

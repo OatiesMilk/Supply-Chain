@@ -9,8 +9,7 @@ import {
   Layers,
   RotateCcw,
   PlusCircle,
-  Save,
-  Trash2
+  Save
 } from 'lucide-react';
 import { api, ApiCompany, ApiError } from '@/api';
 import { AREAS, VEHICLES, PRIORITIES, ITEM_TYPES, ACCOUNT_MANAGERS, DRIVERS } from '@/data';
@@ -105,10 +104,6 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [manualFields, setManualFields] = useState<Record<string, string>>({});
   const [savingManual, setSavingManual] = useState(false);
-  const [showResetModal, setShowResetModal] = useState(false);
-  const [resetMode, setResetMode] = useState<'full' | 'seed'>('full');
-  const [resetting, setResetting] = useState(false);
-  const [resetBanner, setResetBanner] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
   const loadCounts = useCallback(async () => {
     setCountsLoading(true);
@@ -189,32 +184,6 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
   const patch = (key: string, value: string) =>
     setManualFields(prev => ({ ...prev, [key]: value }));
 
-  const handleReset = async () => {
-    setResetting(true);
-    try {
-      const result = await api.dataSampler.reset(resetMode);
-      setShowResetModal(false);
-      setResetBanner({
-        type: 'success',
-        msg: resetMode === 'seed'
-          ? `Reset complete. ${result.deleted} record${result.deleted !== 1 ? 's' : ''} deleted. Seed data restored.`
-          : `Reset complete. ${result.deleted} record${result.deleted !== 1 ? 's' : ''} deleted.`
-      });
-      setSelectedModule(null);
-      clearMessages();
-      await loadCounts();
-      onRefresh();
-    } catch (err) {
-      setShowResetModal(false);
-      setResetBanner({
-        type: 'error',
-        msg: err instanceof ApiError ? err.message : 'Reset failed. Please try again.'
-      });
-    } finally {
-      setResetting(false);
-    }
-  };
-
   const isAC = selectedModule === 'accounting_collection';
 
   return (
@@ -232,12 +201,7 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
               Populate modules with realistic test data for demos and development. Admin only.
             </p>
           </div>
-          <button
-            onClick={() => { setShowResetModal(true); setResetMode('full'); }}
-            className="flex items-center gap-1.5 px-3 py-2 bg-red-600 hover:bg-red-500 text-white text-[11px] font-bold rounded-lg transition-colors cursor-pointer shrink-0 mt-1"
-          >
-            <Trash2 className="w-3.5 h-3.5" /> Reset All Data
-          </button>
+
         </div>
       </div>
 
@@ -247,7 +211,7 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
         <div>
           <p className="text-xs font-black text-amber-800 uppercase tracking-wide">Generates real DB records</p>
           <p className="text-xs text-amber-700 mt-0.5">
-            All generated records are written to the live database, appear in audit logs attributed to <strong>{currentUserName}</strong>, and are fully visible to all roles. Use the demo reset button in the header to wipe all data and reseed.
+            All generated records are written to the configured database and appear in audit logs attributed to <strong>{currentUserName}</strong>. Destructive HTTP reset is disabled; use the guarded CLI on a disposable local database.
           </p>
         </div>
       </div>
@@ -572,96 +536,7 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
         </div>
       )}
 
-      {/* Reset result banner — shown outside the action panel since module is deselected after reset */}
-      {resetBanner && (
-        <div className={`flex items-center gap-2 rounded-lg px-4 py-2.5 ${
-          resetBanner.type === 'success'
-            ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
-            : 'bg-red-50 border border-red-200 text-red-800'
-        }`}>
-          {resetBanner.type === 'success'
-            ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            : <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
-          }
-          <p className="text-xs font-bold">{resetBanner.msg}</p>
-        </div>
-      )}
 
-      {/* Reset confirmation modal */}
-      {showResetModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
-            {/* Modal header */}
-            <div className="bg-red-600 px-6 py-4 flex items-center gap-3">
-              <Trash2 className="w-5 h-5 text-white shrink-0" />
-              <h2 className="text-white font-black text-base">Reset All Data</h2>
-            </div>
-
-            {/* Modal body */}
-            <div className="px-6 py-5 space-y-4">
-              <p className="text-sm text-slate-700">
-                This action will permanently delete all delivery records, their audit history, comments, and notifications. Choose a reset mode:
-              </p>
-
-              {/* Mode options */}
-              <div className="space-y-2">
-                <label className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-colors ${resetMode === 'full' ? 'border-red-400 bg-red-50' : 'border-slate-200 hover:border-slate-300'}`}>
-                  <input
-                    type="radio"
-                    name="resetMode"
-                    value="full"
-                    checked={resetMode === 'full'}
-                    onChange={() => setResetMode('full')}
-                    className="mt-0.5 accent-red-600 cursor-pointer"
-                  />
-                  <div>
-                    <p className="text-xs font-black text-slate-800">Full Reset <span className="text-red-600">(default)</span></p>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Deletes all transactional records. Leaves an empty database. Users, companies, and inventory are preserved.</p>
-                  </div>
-                </label>
-
-                <label className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-colors ${resetMode === 'seed' ? 'border-amber-400 bg-amber-50' : 'border-slate-200 hover:border-slate-300'}`}>
-                  <input
-                    type="radio"
-                    name="resetMode"
-                    value="seed"
-                    checked={resetMode === 'seed'}
-                    onChange={() => setResetMode('seed')}
-                    className="mt-0.5 accent-amber-600 cursor-pointer"
-                  />
-                  <div>
-                    <p className="text-xs font-black text-slate-800">Reset to Seed Data</p>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Wipes everything and re-runs the original seed. Restores all demo records, users, and companies to their initial state. <span className="font-bold text-amber-700">You will be logged out.</span></p>
-                  </div>
-                </label>
-              </div>
-
-              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                <p className="text-[11px] text-amber-800 font-bold">This cannot be undone.</p>
-              </div>
-            </div>
-
-            {/* Modal footer */}
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
-              <button
-                onClick={() => setShowResetModal(false)}
-                disabled={resetting}
-                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleReset}
-                disabled={resetting}
-                className="flex items-center gap-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-              >
-                {resetting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                Yes, Reset Everything
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

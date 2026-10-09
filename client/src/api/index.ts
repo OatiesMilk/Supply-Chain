@@ -516,8 +516,6 @@ export const api = {
   adjustStock: (id: string, data: { type: string; qty_change: number; reference: string }) =>
     request<ApiSku>(`/skus/${id}/adjust`, { method: 'POST', body: JSON.stringify(data) }),
 
-  resetSeed: () => request<{ ok: boolean }>('/dev/reset-seed', { method: 'POST' }),
-  seedUat: () => request<{ ok: boolean; userCount: number; driverRecords: number }>('/dev/public-seed-uat', { method: 'POST' }),
 
   // Data Sampler (Admin only)
   dataSampler: {
@@ -527,11 +525,6 @@ export const api = {
       request<{ created: number; records: unknown[] }>('/data-sampler/generate', {
         method: 'POST',
         body: JSON.stringify(params)
-      }),
-    reset: (mode: 'full' | 'seed') =>
-      request<{ deleted: number; mode: string }>('/data-sampler/reset', {
-        method: 'POST',
-        body: JSON.stringify({ mode })
       }),
   },
 

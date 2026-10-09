@@ -9,4 +9,3 @@ export * from './useSuppliersQuery';
 export * from './useDriversQuery';
 export * from './useSkusQuery';
 export * from './useDashboardQuery';
-export * from './useAdminQuery';

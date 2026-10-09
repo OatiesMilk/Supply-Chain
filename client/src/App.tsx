@@ -120,14 +120,12 @@ function AuthenticatedApp() {
     managedDrivers,
     dataLoading,
     dataError,
-    resetting,
     refreshData,
     handleCreateCustomer,
     handleCreateSupplier,
     handleCreateDriver,
     handleUpdateDriver,
     handleDeleteDriver,
-    handleResetDemoData,
   } = useAppData(authUser, currentUser, currentUserRole);
 
   // TanStack Query mutation action workflows hook
@@ -274,8 +272,6 @@ function AuthenticatedApp() {
         setSearchOpen,
         deliveryRecords,
         handleNavigate,
-        handleResetDemoData,
-        resetting,
         handleLogout: logout,
       }}
     >
