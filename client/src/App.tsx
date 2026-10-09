@@ -71,7 +71,7 @@ function SessionApp() {
     <QueryClientProvider client={client}>
       <AuthenticatedApp />
       <Toaster
-        position="top-right"
+        position="bottom-right"
         richColors
         closeButton
         duration={5000}
