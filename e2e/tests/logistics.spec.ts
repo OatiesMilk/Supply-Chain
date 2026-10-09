@@ -42,11 +42,10 @@ test.describe('B-1 Login & Access Control', () => {
     await expect(nav.getByText(/calendar/i)).toBeVisible();
   });
 
-  test('B-1.2 RMA module labelled "TASS" for Logistics', async ({ page }) => {
+  test('B-1.2 RMA module is labelled "RMA" for Logistics', async ({ page }) => {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
-    // For Logistics role the RMA sidebar entry reads "TASS"
-    await expect(page.getByRole('navigation').getByText('TASS', { exact: true })).toBeVisible();
+    await expect(page.getByRole('navigation').getByText('RMA', { exact: true })).toBeVisible();
   });
 
   test('B-1.3 Admin Panel NOT visible for Logistics', async ({ page }) => {
@@ -551,9 +550,9 @@ test.describe('B-5 Reports', () => {
     await expect(page.getByText(/not available for your account/i)).not.toBeVisible();
   });
 
-  test('B-5.2 Status History renders', async ({ page }) => {
+  test('B-5.2 Retired Status History screen is absent', async ({ page }) => {
     await page.goto(`${BASE_URL}/status_history`);
     await page.waitForLoadState('networkidle');
-    await expect(page.getByText(/not available for your account/i)).not.toBeVisible();
+    await expect(page.getByText(/View Not Found/i)).toBeVisible();
   });
 });

@@ -104,7 +104,7 @@ Commit message format: `<type>(<subsystem>): <message> (TSK-XX)`
 ### Testing
 
 - Tests use Node's built-in runner (`node:test` via `tsx`), not Vitest. Client tests live in `client/tests/` and in co-located `__tests__/` folders; server tests in `server/tests/`; Playwright E2E in `e2e/`
-- Run: `cd client && node --import tsx --test tests/*.test.ts src/components/__tests__/*.test.ts src/utils/__tests__/*.test.ts src/utils/tests/*.test.ts` and `cd server && node --import tsx --test tests/*.test.ts`
+- Run: `npm run test:client` and `npm run test:server`
 - Do **not** spin up new dev servers in tests — frontend is on `3000`, backend on `4000`
 
 ### Security

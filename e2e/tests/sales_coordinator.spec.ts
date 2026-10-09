@@ -105,8 +105,8 @@ test.describe('A-2 Create a Delivery Record', () => {
     await newBtn.click();
     await page.waitForLoadState('networkidle');
 
-    // Click Save without filling anything
-    await page.getByRole('button', { name: /save|create|submit/i }).first().click();
+    // Submit without filling anything
+    await page.getByRole('button', { name: 'Submit', exact: true }).click();
 
     // Expect validation errors
     await expect(page.getByText(/company name is required/i)).toBeVisible();
@@ -117,7 +117,7 @@ test.describe('A-2 Create a Delivery Record', () => {
     await newBtn.click();
 
     // Type a garbage company name
-    const companyInput = page.getByPlaceholder(/company|customer/i).first();
+    const companyInput = page.locator('form').getByPlaceholder('Type to search or scroll to browse...').first();
     await companyInput.fill('ZZZZNOTACOMPANY');
     await page.getByRole('button', { name: /save|create|submit/i }).first().click();
 
@@ -130,13 +130,13 @@ test.describe('A-2 Create a Delivery Record', () => {
     await page.waitForLoadState('networkidle');
 
     // Fill company (pick first suggestion)
-    const companyInput = page.getByPlaceholder(/company|customer/i).first();
+    const companyInput = page.locator('form').getByPlaceholder('Type to search or scroll to browse...').first();
     await companyInput.fill('M'); // trigger dropdown
-    await page.waitForTimeout(500);
-    const firstOption = page.getByRole('option').first();
-    if (await firstOption.isVisible()) {
-      await firstOption.click();
-    }
+    const companyListbox = page.locator('form').getByRole('listbox').first();
+    const firstOption = companyListbox.getByRole('option').first();
+    await expect(firstOption).toBeVisible();
+    await firstOption.click();
+    await expect(companyInput).not.toHaveValue('M');
 
     // Fill reference
     const refInput = page.getByPlaceholder(/reference|sap/i).first();
@@ -144,10 +144,10 @@ test.describe('A-2 Create a Delivery Record', () => {
 
     // Set delivery date to today
     const today = new Date().toISOString().split('T')[0];
-    const dateInput = page.locator('input[type="date"]').first();
+    const dateInput = page.locator('form input[type="date"]').first();
     await dateInput.fill(today);
 
-    await page.getByRole('button', { name: /save|create|submit/i }).first().click();
+    await page.getByRole('button', { name: 'Submit', exact: true }).click();
     await page.waitForLoadState('networkidle');
 
     // Record should appear in the list — status badge shows Scheduled
@@ -167,7 +167,7 @@ test.describe('A-2 Create a Delivery Record', () => {
     const fileInput = page.locator('input[type="file"]').first();
     await fileInput.setInputFiles(bigFilePath);
 
-    await expect(page.getByText(/size|too large|10\s*mb/i)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('big_test_file.pdf is 11.0 MB — maximum is 10 MB.', { exact: true })).toBeVisible({ timeout: 5_000 });
 
     fs.unlinkSync(bigFilePath);
   });
@@ -182,7 +182,7 @@ test.describe('A-2 Create a Delivery Record', () => {
     const fileInput = page.locator('input[type="file"]').first();
     await fileInput.setInputFiles(badFilePath);
 
-    await expect(page.getByText(/unsupported|invalid|type|format/i)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('malicious.exe — file type not allowed. Use JPG, PNG, PDF or DOC.', { exact: true })).toBeVisible({ timeout: 5_000 });
 
     fs.unlinkSync(badFilePath);
   });
@@ -234,7 +234,7 @@ test.describe('A-3 Edit a Record', () => {
 
     const firstRow = page.getByRole('row').nth(1);
     await expect(firstRow).toBeVisible();
-    const recordId = (await firstRow.getByRole('cell').first().innerText()).trim();
+    const recordId = (await firstRow.getByRole('cell').nth(1).innerText()).trim();
     const search = page.getByRole('textbox', { name: 'Search delivery records' });
     await search.fill(recordId);
 
@@ -256,7 +256,7 @@ test.describe('A-3 Edit a Record', () => {
     await page.waitForLoadState('networkidle');
     const firstRow = page.getByRole('row').nth(1);
     await expect(firstRow).toBeVisible();
-    const recordId = (await firstRow.getByRole('cell').first().innerText()).trim();
+    const recordId = (await firstRow.getByRole('cell').nth(1).innerText()).trim();
 
     await page.keyboard.press('Control+k');
     const globalSearch = page.getByPlaceholder(/Search records, companies, drivers, SKUs/);
@@ -318,10 +318,11 @@ test.describe('A-3 Edit a Record', () => {
       const commentsTab = page.getByRole('tab', { name: /comments/i });
       if (await commentsTab.isVisible()) {
         await commentsTab.click();
-        const commentInput = page.getByPlaceholder(/comment|type/i);
+        const commentsPanel = page.getByRole('tabpanel', { name: 'Comments' });
+        const commentInput = commentsPanel.getByRole('textbox', { name: 'Comment (optional)' });
         await commentInput.fill('UAT automated comment test');
-        await page.getByRole('button', { name: /send|post|submit/i }).click();
-        await expect(page.getByText('UAT automated comment test')).toBeVisible({ timeout: 8_000 });
+        await commentsPanel.getByRole('button', { name: 'Send comment' }).click();
+        await expect(commentsPanel.getByText('UAT automated comment test', { exact: true })).toBeVisible({ timeout: 8_000 });
       }
     }
   });
@@ -355,7 +356,7 @@ test.describe('A-3 Edit a Record', () => {
     await confirm.click();
     await expect(page.getByText('Record returned to Draft').first()).toBeVisible({ timeout: 8_000 });
     await page.getByRole('tab', { name: /remarks history/i }).click();
-    await expect(page.getByText('TSK-125 automated return to draft')).toBeVisible();
+    await expect(page.getByRole('tabpanel', { name: 'Remarks History' }).getByText('TSK-125 automated return to draft', { exact: true })).toBeVisible();
 
     // Restore the record through the unchanged Submit flow.
     await page.getByRole('tab', { name: /overview/i }).click();

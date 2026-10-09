@@ -101,7 +101,7 @@ Follow this process for **every task**:
 5. **Self-validate** — After implementing, run the relevant checks:
    - Backend: `cd /home/marc/Supply-Chain/server && npx tsc --noEmit`
    - Frontend: `cd /home/marc/Supply-Chain/client && npx tsc --noEmit`
-   - Tests: `cd /home/marc/Supply-Chain/client && node --import tsx --test tests/*.test.ts` (or `cd ../server && node --import tsx --test tests/*.test.ts`) if tests exist for the changed module
+   - Tests: `npm run test:client` or `npm run test:server` if tests exist for the changed module
    - Fix any type errors or test failures before returning
 
 6. **Report results** — Summarize what was changed, which files were touched, and confirm the self-validation passed. If a linked Notion ticket exists, note whether the ticket status should be updated.

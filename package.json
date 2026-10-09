@@ -6,6 +6,8 @@
     "server"
   ],
   "scripts": {
+    "test:client": "npm run test --workspace=client",
+    "test:server": "npm run test --workspace=mg-portal-server",
     "dev": "concurrently -n \"CLIENT,SERVER\" -c \"cyan,magenta\" \"npm run dev --workspace=client\" \"npm run dev --workspace=server\"",
     "build": "npm run build --workspace=client",
     "start": "npm start --workspace=server",
@@ -24,6 +26,7 @@
     "e2e:sc": "npm run test:sc --prefix e2e",
     "e2e:logistics": "npm run test:logistics --prefix e2e",
     "e2e:driver": "npm run test:driver --prefix e2e",
+    "e2e:integration": "npm run test:integration --prefix e2e",
     "e2e:report": "npm run report --prefix e2e"
   },
   "devDependencies": {
