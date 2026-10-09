@@ -295,6 +295,13 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     await expect(page.getByText('Priority is locked after delivery.')).toBeVisible();
   });
 
+  test('B-2.5c TSK-125 Logistics has no Return to Draft action', async ({ page }) => {
+    await openFirstRecord(page);
+    await expect(page.getByRole('button', { name: 'Return to Draft', exact: true })).toHaveCount(0);
+    await page.getByRole('tab', { name: /dispatch|logistics/i }).click();
+    await expect(page.getByRole('button', { name: 'Return to Draft', exact: true })).toHaveCount(0);
+  });
+
   test('B-2.6 Cannot set same status twice', async ({ page }) => {
     await openFirstRecord(page);
     const dispatchTab = page.getByRole('tab', { name: /dispatch|logistics/i });
