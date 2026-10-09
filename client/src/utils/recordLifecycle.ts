@@ -19,6 +19,19 @@ export function selectableStatuses(record: DeliveryRecord, role: UserRole): Deli
     (status !== 'Draft' || ((role === 'Sales Coordinator' || role === 'Admin') && !record.time_in)));
 }
 
+/** Plain-language effects shown before a submitted record is returned to Draft. */
+export function returnToDraftConsequences(record: Pick<DeliveryRecord, 'driver' | 'category'>): string[] {
+  const driver = (record.driver ?? '').trim();
+  const hasDispatch = record.category !== 'RMA';
+  const lines: string[] = [];
+  if (driver) lines.push(`${driver} will no longer see this run until you submit it again.`);
+  if (hasDispatch) lines.push("Logistics can't change the driver or vehicle while it's a Draft.");
+  lines.push(hasDispatch
+    ? 'You can edit the order details, then press Submit to send it back to Logistics.'
+    : 'You can edit the details, then press Submit to send it again.');
+  return lines;
+}
+
 export function canRecordTimeIn(record: DeliveryRecord): boolean {
   return !isDraftRecord(record) && !!record.driver && !record.time_in &&
     (record.status === 'Scheduled' || record.status === 'Rescheduled');

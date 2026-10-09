@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { DeliveryRecord } from '../../types';
-import { canRecordTimeIn, dashboardRunDaysLate, deliveryScheduleState, hasValidRunTimeIn, isDashboardRunActionable, isDraftRecord, selectableStatuses, manilaToday, manilaDateTimeInput, manilaInputToIso, rescheduleDateError, isPriorityLocked, submissionErrors } from '../recordLifecycle';
+import { canRecordTimeIn, dashboardRunDaysLate, deliveryScheduleState, hasValidRunTimeIn, isDashboardRunActionable, isDraftRecord, selectableStatuses, manilaToday, manilaDateTimeInput, manilaInputToIso, rescheduleDateError, isPriorityLocked, returnToDraftConsequences, submissionErrors } from '../recordLifecycle';
 
 const record = (overrides: Partial<DeliveryRecord> = {}): DeliveryRecord => ({
   status: 'Scheduled', is_draft: 'No', driver: 'Assigned Driver', time_in: null,
@@ -88,4 +88,21 @@ test('TSK-124: Priority is locked only once a record is Delivered', () => {
   for (const status of ['Draft', 'Scheduled', 'In Transit', 'On-Hold', 'Pending', 'Rescheduled'] as const) {
     assert.equal(isPriorityLocked({ status }), false, status);
   }
+});
+
+test('TSK-125: Return to Draft consequences name the driver only when assigned and mention Logistics only with dispatch', () => {
+  const assigned = returnToDraftConsequences({ driver: 'Ronald de la Cruz', category: 'Deliveries' });
+  assert.deepEqual(assigned, [
+    'Ronald de la Cruz will no longer see this run until you submit it again.',
+    "Logistics can't change the driver or vehicle while it's a Draft.",
+    'You can edit the order details, then press Submit to send it back to Logistics.',
+  ]);
+
+  const unassigned = returnToDraftConsequences({ driver: '', category: 'Sales Orders' });
+  assert.equal(unassigned.some(line => /will no longer see/.test(line)), false);
+  assert.equal(unassigned.some(line => /Logistics can't change/.test(line)), true);
+
+  const rma = returnToDraftConsequences({ driver: '  ', category: 'RMA' });
+  assert.deepEqual(rma, ['You can edit the details, then press Submit to send it again.']);
+  assert.equal(returnToDraftConsequences({ driver: 'Leo Driver', category: 'RMA' }).some(line => /Logistics/.test(line)), false);
 });

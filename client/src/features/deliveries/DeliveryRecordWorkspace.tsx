@@ -33,6 +33,7 @@ import { screenKeyForCategory } from '@/routes/screenRouting';
 import { notify } from '@/utils/notify';
 
 import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
+import { ReturnToDraftDialog } from './ReturnToDraftDialog';
 import { selectableStatuses, canRecordTimeIn, isDraftRecord, manilaToday, manilaDateTimeInput, manilaInputToIso, rescheduleDateError, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -148,6 +149,7 @@ function GeneralTab({
   const canEditFull = !readOnly && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && (record.status === 'Scheduled' || isDraftRecord(record));
   const canManageDraft = !readOnly && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && !record.time_in;
   const [lifecycleRemarks, setLifecycleRemarks] = useState('');
+  const [returnToDraftOpen, setReturnToDraftOpen] = useState(false);
   const canEditAreaAddress = !readOnly && currentUserRole === 'Logistics' && record.category !== 'RMA';
   const canEditDeliveryDate = !readOnly && currentUserRole === 'Logistics' && record.category === 'Deliveries';
   const priorityLocked = isPriorityLocked(record);
@@ -280,7 +282,23 @@ function GeneralTab({
         <StatusStepper status={record.status} />
       </div>
 
-      {canManageDraft && selectableStatuses(record, currentUserRole).some(status => status === 'Draft' || status === 'Scheduled') && (
+      {canManageDraft && !isDraftRecord(record) && selectableStatuses(record, currentUserRole).includes('Draft') && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+          <button type="button" onClick={() => setReturnToDraftOpen(true)}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1]">
+            Return to Draft
+          </button>
+          <p className="text-xs text-slate-500">Takes this record back out of dispatch so you can edit it and submit it again.</p>
+        </div>
+      )}
+      <ReturnToDraftDialog
+        record={record}
+        open={returnToDraftOpen}
+        onDismiss={() => setReturnToDraftOpen(false)}
+        onSubmit={async reason => { await onUpdateRecord(record.id, { status: 'Draft', remarks: reason }); notify.success('Record returned to Draft'); }}
+      />
+
+      {canManageDraft && isDraftRecord(record) && selectableStatuses(record, currentUserRole).some(status => status === 'Draft' || status === 'Scheduled') && (
         <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
           <label htmlFor="submission-change-remarks" className="block text-xs font-bold text-slate-700">Remarks — reason for change (required)</label>
           <p id="submission-change-remarks-help" className="text-xs text-slate-600">Explain why you are submitting or returning this record to Draft. The reason is saved with your name in Remarks History.</p>
@@ -868,6 +886,7 @@ function ActionsTab({
   const [timeOut, setTimeOut] = useState(manilaDateTimeInput(record.time_out));
   const [receivedBy, setReceivedBy] = useState(record.received_by ?? '');
   const [newDeliveryDate, setNewDeliveryDate] = useState('');
+  const [returnToDraftOpen, setReturnToDraftOpen] = useState(false);
 
   const draftRecord = isDraftRecord(record);
   const statusOptions = selectableStatuses(record, currentUserRole);
@@ -1009,19 +1028,26 @@ function ActionsTab({
             <button
               type="button"
               key={s}
-              onClick={() => { setSelectedStatus(s); setNewDeliveryDate(''); setSaveFeedback(null); }}
+              onClick={() => { if (s === 'Draft') { setReturnToDraftOpen(true); return; } setSelectedStatus(s); setNewDeliveryDate(''); setSaveFeedback(null); }}
               disabled={saving}
-              aria-pressed={selectedStatus === s}
+              aria-pressed={s === 'Draft' ? undefined : selectedStatus === s}
+              aria-haspopup={s === 'Draft' ? 'dialog' : undefined}
               className={`min-h-10 rounded-lg border px-3 py-2.5 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] disabled:opacity-50 ${
                 selectedStatus === s
                   ? 'border-[#1F3864] bg-[#1F3864] text-white'
                   : 'border-slate-200 bg-white text-slate-700 hover:border-[#0078C1] hover:text-[#0078C1]'
               }`}
             >
-              {s}
+              {s === 'Draft' ? 'Return to Draft' : s}
             </button>
           ))}
         </div>
+        <ReturnToDraftDialog
+          record={record}
+          open={returnToDraftOpen}
+          onDismiss={() => setReturnToDraftOpen(false)}
+          onSubmit={async reason => { await onUpdateRecord(record.id, { status: 'Draft', remarks: reason }); notify.success('Record returned to Draft'); }}
+        />
         {needsNewDate && (
           <div className="space-y-1.5">
             <label htmlFor="reschedule-new-date" className="text-xs font-bold text-slate-700">New delivery date <span className="text-red-600">*</span></label>
@@ -1917,8 +1943,8 @@ function RecordWorkspace({
   return (
     <div className="space-y-4" id={`delivery-record-workspace-${record.id}`}>
       {/* Navigation bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-gray-100 pb-4">
+        <div className="flex min-w-[14rem] flex-1 items-center gap-3">
           <button
             onClick={() => requestLeave(onBack)}
             disabled={pending}
@@ -1932,7 +1958,8 @@ function RecordWorkspace({
           <span className="text-slate-400 text-xs truncate hidden sm:inline">— {record.company_name}</span>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+         <div className="flex items-center gap-1">
           <button
             onClick={() => { if (prevId) requestLeave(() => onNavigateToRecord(prevId)); }}
             disabled={!prevId || pending}
@@ -1954,6 +1981,7 @@ function RecordWorkspace({
             Next
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
+         </div>
           {(['Sales Coordinator', 'Logistics', 'Admin'] as UserRole[]).includes(currentUserRole) && (
             <div className="relative flex flex-wrap min-w-0 items-center gap-2">
               <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={pdfLoading} inline />

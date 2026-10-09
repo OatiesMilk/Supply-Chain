@@ -1,3 +1,4 @@
+import { ReturnToDraftDialog } from '@/features/deliveries/ReturnToDraftDialog';
 import { selectableStatuses, canRecordTimeIn, isDraftRecord, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
 import { completionError } from '@/utils/podRequirement';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
@@ -492,8 +493,11 @@ function OverviewTab({
   );
   const canEdit = currentUserRole === 'Sales Coordinator' || currentUserRole === 'Logistics' || currentUserRole === 'Admin';
 
+  const [returnToDraftOpen, setReturnToDraftOpen] = useState(false);
+
   const handleStatusChange = async (newStatus: DeliveryStatus) => {
     if (!canEdit || newStatus === record.status || updating) return;
+    if (newStatus === 'Draft') { setReturnToDraftOpen(true); return; }
     const error = completionError(record, newStatus, receivedBy, readiness);
     if (error) { setStatusError(error); return; }
     setStatusError(null);
@@ -568,6 +572,12 @@ function OverviewTab({
                 );
               })}
             </div>
+            <ReturnToDraftDialog
+              record={record}
+              open={returnToDraftOpen}
+              onDismiss={() => setReturnToDraftOpen(false)}
+              onSubmit={async reason => { await onUpdateRecord(record.id, { status: 'Draft', remarks: reason }); notify.success('Record returned to Draft'); }}
+            />
           </>
         ) : (
           <span className={`inline-flex px-2.5 py-1 rounded-full border text-[10px] font-semibold tracking-wide ${STATUS_COLOR[record.status] ?? 'bg-slate-50 text-slate-700 border-slate-200'}`}>

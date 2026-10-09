@@ -285,6 +285,44 @@ test.describe('A-3 Edit a Record', () => {
     }
   });
 
+  test('A-3.10 TSK-125 Return to Draft uses a confirmation dialog with a required reason', async ({ page }) => {
+    await page.goto(`${BASE_URL}/deliveries`);
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('row').filter({ hasText: /scheduled/i }).first().click();
+
+    const returnButton = page.getByRole('button', { name: 'Return to Draft', exact: true });
+    test.skip(!(await returnButton.isVisible()), 'First Scheduled delivery has already started');
+
+    // No page-level "required" remarks box any more.
+    await expect(page.getByText('Remarks — reason for change (required)')).toHaveCount(0);
+
+    // Keep as is changes nothing.
+    await returnButton.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('heading', { name: 'Return this record to Draft?' })).toBeVisible();
+    const confirm = dialog.getByRole('button', { name: 'Return to Draft' });
+    await expect(confirm).toBeDisabled();
+    await dialog.getByLabel('Reason (required)').fill('Typed but not confirmed');
+    await expect(confirm).toBeEnabled();
+    await dialog.getByRole('button', { name: 'Keep as is' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(returnButton).toBeVisible();
+
+    // Confirming returns the record to Draft and records the reason.
+    await returnButton.click();
+    await dialog.getByLabel('Reason (required)').fill('TSK-125 automated return to draft');
+    await confirm.click();
+    await expect(page.getByText('Record returned to Draft').first()).toBeVisible({ timeout: 8_000 });
+    await page.getByRole('tab', { name: /remarks history/i }).click();
+    await expect(page.getByText('TSK-125 automated return to draft')).toBeVisible();
+
+    // Restore the record through the unchanged Submit flow.
+    await page.getByRole('tab', { name: /overview/i }).click();
+    await page.locator('#submission-change-remarks').fill('TSK-125 automated resubmit');
+    await page.getByRole('button', { name: 'Submit', exact: true }).click();
+    await expect(page.getByText('Record submitted').first()).toBeVisible({ timeout: 8_000 });
+  });
+
   test('A-3.9 TSK-124 Priority is read-only on a Delivered record', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
