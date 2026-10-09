@@ -229,6 +229,129 @@ test('Logistics can still create an unassigned submitted Delivery', async () => 
   }
 });
 
+test('Logistics assignment persists and notifies the creator while SC dispatch edits leave the Driver unchanged', async () => {
+  const { url, close } = await setupApp();
+  const logistics = {
+    ...account,
+    id: 'logistics-120-assign',
+    name: 'Juan Santos',
+    email: 'logistics-120-assign@example.com',
+    role: 'LOGISTICS',
+  };
+  const driver = {
+    id: 'driver-120-assign',
+    name: 'Leo Driver',
+    email: 'driver-120-assign@example.com',
+    role: 'DRIVER',
+    permissions: [],
+    isActive: true,
+    password: bcrypt.hashSync('test-password', 4),
+    driverProfile: { id: 'profile-driver-120-assign', type: 'DRIVER' },
+  };
+  const scheduled = {
+    ...draftRecord('REC-TSK120-ASSIGN', 'DELIVERY', 'SAP-TSK120-ASSIGN'),
+    draft: false,
+    status: 'SCHEDULED',
+    createdById: account.id,
+    createdBy: { name: account.name },
+  };
+  const records = new Map([[scheduled.id, scheduled]]);
+  const original = {
+    userFindUnique: prisma.user.findUnique,
+    recordFindFirst: prisma.deliveryRecord.findFirst,
+    transaction: prisma.$transaction,
+    notificationCreate: prisma.notification.create,
+  };
+  const updates = mock.fn(async ({ where, data }: any) => {
+    const updated = { ...records.get(where.id)!, ...data, updatedAt: new Date() };
+    records.set(where.id, updated);
+    return updated;
+  });
+  const creatorNotification = mock.fn(async () => ({}));
+  const remarkCreate = mock.fn(async () => ({}));
+  const tx = {
+    $queryRaw: mock.fn(async () => []),
+    $executeRaw: mock.fn(async () => []),
+    deliveryRecord: {
+      findUnique: mock.fn(async ({ where }: any) => records.get(where.id) ?? null),
+      update: updates,
+    },
+    driver: { findFirst: mock.fn(async () => ({
+      id: driver.driverProfile.id,
+      name: driver.name,
+      type: 'DRIVER',
+      isActive: true,
+    })) },
+    auditLog: { create: mock.fn(async () => ({})) },
+    remarkLog: { create: remarkCreate },
+  };
+  const users = [account, logistics, driver];
+
+  prisma.user.findUnique = mock.fn(async ({ where }: any) => users.find(user =>
+    where.id ? user.id === where.id : user.email === where.email
+  ) ?? null) as any;
+  prisma.deliveryRecord.findFirst = mock.fn(async ({ where }: any) => records.get(where.id) ?? null) as any;
+  prisma.$transaction = mock.fn(async (work: any) => work(tx)) as any;
+  prisma.notification.create = creatorNotification as any;
+
+  const loginAs = async (user: typeof account) => {
+    const response = await fetch(`${url}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: user.email, password: 'test-password' }),
+    });
+    assert.equal(response.status, 200);
+    return { Cookie: response.headers.get('set-cookie')!.split(';')[0], 'Content-Type': 'application/json' };
+  };
+
+  try {
+    const logisticsHeaders = await loginAs(logistics);
+    const assignment = await fetch(`${url}/records/${scheduled.id}`, {
+      method: 'PUT',
+      headers: logisticsHeaders,
+      body: JSON.stringify({ driver: driver.name, remarks: 'Assigning the submitted Delivery to Leo Driver.' }),
+    });
+    assert.equal(assignment.status, 200);
+    const assigned = await assignment.json() as any;
+    assert.equal(assigned.status, 'Scheduled');
+    assert.equal(assigned.driver, driver.name);
+    assert.equal(assigned.driver_id, driver.driverProfile.id);
+    assert.equal(records.get(scheduled.id)!.driver, driver.name);
+    assert.equal(records.get(scheduled.id)!.driverId, driver.driverProfile.id);
+    assert.equal(updates.mock.callCount(), 1);
+    assert.ok(remarkCreate.mock.calls.some(call =>
+      (call.arguments[0] as any).data.body === 'Assigning the submitted Delivery to Leo Driver.'
+    ));
+    assert.deepEqual((creatorNotification.mock.calls[0].arguments[0] as any).data, {
+      userId: account.id,
+      title: 'Driver assigned',
+      message: 'Leo Driver has been assigned to TSK-120 Test Company · SAP-TSK120-ASSIGN.',
+      recordId: scheduled.id,
+      recordType: 'DeliveryRecord',
+    });
+
+    const salesHeaders = await loginAs(account);
+    const salesAssignmentAttempt = await fetch(`${url}/records/${scheduled.id}`, {
+      method: 'PUT',
+      headers: salesHeaders,
+      body: JSON.stringify({ driver: 'Another Driver', remarks: 'Sales Coordinator assignment denial check.' }),
+    });
+    assert.equal(salesAssignmentAttempt.status, 200);
+    const afterSalesAttempt = await salesAssignmentAttempt.json() as any;
+    assert.equal(afterSalesAttempt.driver, driver.name);
+    assert.equal(afterSalesAttempt.driver_id, driver.driverProfile.id);
+    assert.equal(records.get(scheduled.id)!.driver, driver.name);
+    assert.equal(records.get(scheduled.id)!.driverId, driver.driverProfile.id);
+    assert.equal(creatorNotification.mock.callCount(), 1, 'SC dispatch edits do not create assignment notifications.');
+  } finally {
+    prisma.user.findUnique = original.userFindUnique;
+    prisma.deliveryRecord.findFirst = original.recordFindFirst;
+    prisma.$transaction = original.transaction;
+    prisma.notification.create = original.notificationCreate;
+    await close();
+  }
+});
+
 test('Logistics cannot assign a Draft and Driver B cannot read or mutate Driver A records', async () => {
   const { url, close } = await setupApp();
   const original = {
