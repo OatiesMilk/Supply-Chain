@@ -60,6 +60,13 @@ export function dashboardRunDaysLate(record: DeliveryRecord, today = manilaToday
   return deliveryScheduleState(record.delivery_date, today).daysLate;
 }
 
+export const PRIORITY_LOCKED_NOTE = 'Priority is locked after delivery.';
+
+/** Delivered is the only state with no further transitions, so its Priority is read-only for every role. */
+export function isPriorityLocked(record: Pick<DeliveryRecord, 'status'>): boolean {
+  return record.status === 'Delivered';
+}
+
 export function manilaToday(now = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 }

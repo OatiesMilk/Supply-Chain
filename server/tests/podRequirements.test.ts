@@ -530,8 +530,9 @@ test('record scope hides drafts in driver list/detail and related transactions; 
 
 
 test('same-status priority changes remain audited without resetting timestamps', async () => {
-  const state = database(record({ status: 'ACCOMPLISHED', timeOut: '2026-10-06T02:00:00.000Z' }));
-  const result = await request('patch', '/:id/status', { role: 'ADMIN', body: { status: 'Delivered', priority: '3 - High', remarks: 'Adjust priority' } });
+  // Delivered records are locked (TSK-124), so the same-status priority path is exercised on a Pending record.
+  const state = database(record({ status: 'PENDING', timeOut: '2026-10-06T02:00:00.000Z' }));
+  const result = await request('patch', '/:id/status', { role: 'ADMIN', body: { status: 'Pending', priority: '3 - High', remarks: 'Adjust priority' } });
   assert.equal(result.status, 200);
   assert.equal(result.body.priority, '3 - High');
   assert.equal(result.body.time_out, '2026-10-06T02:00:00.000Z');
@@ -661,11 +662,65 @@ test('client Time Out cannot be spoofed through driver PUT or status actions', a
   assert.equal(state.saved().timeOut, null);
 });
 
-test('a priority-only save on an accomplished record preserves its original Time Out', async () => {
+test('a priority-only save on an accomplished record is rejected and preserves its original Time Out', async () => {
   const timeOut = '2026-10-07T02:00:00.000Z';
   const state = database(record({ status: 'ACCOMPLISHED', timeOut }), [attachment()]);
-  assert.equal((await request('patch', '/:id/status', { role: 'ADMIN', body: { status: 'Delivered', priority: '3 - High', remarks: 'Priority corrected' } })).status, 200);
+  const response = await request('patch', '/:id/status', { role: 'ADMIN', body: { status: 'Delivered', priority: '3 - High', remarks: 'Priority corrected' } });
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error, "Priority can't be changed after a record is Delivered.");
   assert.equal(state.saved().timeOut, timeOut);
+  assert.equal(state.saved().priority, '2 - Moderate');
+  assert.equal(state.events.includes('update'), false);
+});
+
+test('TSK-124: a changed Priority on a Delivered record is rejected for every role and route without writes', async () => {
+  for (const [method, path, role, body] of [
+    ['put', '/:id', 'SALES_COORDINATOR', { priority: '3 - High', remarks: 'Escalate' }],
+    ['put', '/:id', 'LOGISTICS', { priority: '3 - High', remarks: 'Escalate' }],
+    ['put', '/:id', 'ADMIN', { priority: '3 - High', remarks: 'Escalate' }],
+    ['patch', '/:id/status', 'LOGISTICS', { status: 'Delivered', priority: '3 - High', remarks: 'Escalate' }],
+    ['patch', '/:id/status', 'ADMIN', { status: 'Delivered', priority: '1 - Low', remarks: 'Lower' }],
+  ] as const) {
+    resetFixtures();
+    const state = database(record({ status: 'ACCOMPLISHED', timeOut: '2026-10-07T02:00:00.000Z' }), [attachment()]);
+    const before = { ...state.saved() };
+    const response = await request(method, path, { role, body });
+    assert.equal(response.status, 400, `${method} ${role}`);
+    assert.equal(response.body.error, "Priority can't be changed after a record is Delivered.");
+    assert.deepEqual(state.saved(), before);
+    assert.equal(state.events.includes('update'), false);
+    assert.equal(state.audit.length, 0);
+    assert.equal(state.remarks.length, 0);
+  }
+});
+
+test('TSK-124: re-sending the same Priority, or editing other fields, on a Delivered record still works', async () => {
+  const timeOut = '2026-10-07T02:00:00.000Z';
+  const state = database(record({ status: 'ACCOMPLISHED', timeOut }), [attachment()]);
+  const same = await request('put', '/:id', { role: 'LOGISTICS', body: { priority: '2 - Moderate', address: 'Corrected address', remarks: 'Address correction' } });
+  assert.equal(same.status, 200);
+  assert.equal(state.saved().address, 'Corrected address');
+  assert.equal(state.saved().priority, '2 - Moderate');
+  assert.equal(state.audit.length, 1);
+
+  resetFixtures();
+  const other = database(record({ status: 'ACCOMPLISHED', timeOut }), [attachment()]);
+  assert.equal((await request('put', '/:id', { role: 'LOGISTICS', body: { address: 'Another correction', remarks: 'No priority sent' } })).status, 200);
+  assert.equal(other.saved().address, 'Another correction');
+});
+
+test('TSK-124: Priority on non-Delivered records is still editable', async () => {
+  for (const status of ['SCHEDULED', 'ON_HOLD', 'PENDING', 'RESCHEDULED']) {
+    resetFixtures();
+    const state = database(record({ status, timeIn: null }));
+    const response = await request('put', '/:id', { role: 'SALES_COORDINATOR', body: { priority: '3 - High', remarks: 'Escalate' } });
+    assert.equal(response.status, 200, status);
+    assert.equal(state.saved().priority, '3 - High');
+  }
+  resetFixtures();
+  const state = database(record({ status: 'SCHEDULED', timeIn: null }));
+  assert.equal((await request('patch', '/:id/status', { role: 'LOGISTICS', body: { status: 'On-Hold', priority: '1 - Low', remarks: 'Hold and lower' } })).status, 200);
+  assert.equal(state.saved().priority, '1 - Low');
 });
 
 test('Logistics and Admin retain audited ISO Time Out corrections', async () => {

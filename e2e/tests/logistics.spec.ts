@@ -275,6 +275,26 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     await expect(page.getByText(newDate).first()).toBeVisible();
   });
 
+  test('B-2.5b TSK-124 Priority is locked on Delivered records, including in bulk edit', async ({ page }) => {
+    await page.goto(`${BASE_URL}/deliveries`);
+    await page.waitForLoadState('networkidle');
+    const delivered = page.getByRole('row').filter({ hasText: /delivered/i }).first();
+    test.skip(!(await delivered.isVisible()), 'No Delivered delivery in the seeded data');
+
+    // Bulk: a Delivered-only selection disables the Priority select with the explanation.
+    await delivered.getByRole('checkbox').check();
+    await expect(page.locator('#bulk-priority-select')).toBeDisabled();
+    await expect(page.locator('#bulk-action-bar')).toContainText('Priority is locked after delivery.');
+    await delivered.getByRole('checkbox').uncheck();
+
+    // Overview: Priority is plain text with the note, even while editing; Area/Address stay editable.
+    await delivered.click();
+    await expect(page.getByText('Priority is locked after delivery.')).toBeVisible();
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await expect(page.locator('select').filter({ has: page.locator('option[value="3 - High"]') })).toHaveCount(0);
+    await expect(page.getByText('Priority is locked after delivery.')).toBeVisible();
+  });
+
   test('B-2.6 Cannot set same status twice', async ({ page }) => {
     await openFirstRecord(page);
     const dispatchTab = page.getByRole('tab', { name: /dispatch|logistics/i });

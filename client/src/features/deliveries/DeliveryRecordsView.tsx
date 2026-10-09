@@ -1,4 +1,4 @@
-import { selectableStatuses, manilaToday } from '@/utils/recordLifecycle';
+import { selectableStatuses, manilaToday, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Plus,
@@ -345,15 +345,23 @@ export default function DeliveryRecordsView({
 
   const activeRecord = records.find(r => r.id === selectedId);
 
+  // Delivered records keep their Priority, so a bulk Priority never applies to them (TSK-124).
+  const allSelectedPriorityLocked = selectedBulkIds.size > 0 && [...selectedBulkIds].every(id => {
+    const record = categoryRecords.find(r => r.id === id);
+    return !!record && isPriorityLocked(record);
+  });
+  const effectiveBulkPriority: PriorityLevel | '' = allSelectedPriorityLocked ? '' : bulkPriority;
+
   const handleBulkUpdate = async () => {
     if (selectedBulkIds.size === 0 || bulkApplying ||
-      !((canAssignDriver && bulkStatus) || (canEdit && bulkPriority))) return;
+      !((canAssignDriver && bulkStatus) || (canEdit && effectiveBulkPriority))) return;
     setBulkApplying(true);
     setBulkResult(null);
     const failedIds = new Set<string>();
     let firstError = '';
     let savedCount = 0;
     let unchangedCount = 0;
+    let lockedCount = 0;
     const ids = [...selectedBulkIds];
     try {
       for (const id of ids) {
@@ -367,12 +375,14 @@ export default function DeliveryRecordsView({
             updates.status = bulkStatus;
             remarks.push(`Status set to ${bulkStatus}`);
           }
-          if (canEdit && bulkPriority && record.priority !== bulkPriority) {
-            updates.priority = bulkPriority;
-            remarks.push(`Priority set to ${bulkPriority}`);
+          const priorityLocked = canEdit && !!effectiveBulkPriority && isPriorityLocked(record);
+          if (priorityLocked) lockedCount++;
+          if (canEdit && effectiveBulkPriority && !priorityLocked && record.priority !== effectiveBulkPriority) {
+            updates.priority = effectiveBulkPriority;
+            remarks.push(`Priority set to ${effectiveBulkPriority}`);
           }
           if (remarks.length === 0) {
-            unchangedCount++;
+            if (!priorityLocked) unchangedCount++;
             continue;
           }
           updates.remarks = remarks.join('; ');
@@ -387,7 +397,7 @@ export default function DeliveryRecordsView({
       const messages: string[] = [];
       if (savedCount > 0) {
         const savedRecords = `${savedCount} record${savedCount === 1 ? '' : 's'}`;
-        if (canAssignDriver && bulkStatus && canEdit && bulkPriority) {
+        if (canAssignDriver && bulkStatus && canEdit && effectiveBulkPriority) {
           messages.push(`Status and priority changes applied to ${savedRecords}.`);
         } else if (canAssignDriver && bulkStatus) {
           messages.push(`Status updated for ${savedRecords}.`);
@@ -399,6 +409,9 @@ export default function DeliveryRecordsView({
       }
       if (unchangedCount > 0) {
         messages.push(`${unchangedCount} record${unchangedCount === 1 ? '' : 's'} already matched the selected values.`);
+      }
+      if (lockedCount > 0) {
+        messages.push(`${lockedCount} Delivered record${lockedCount === 1 ? ' was' : 's were'} skipped — ${PRIORITY_LOCKED_NOTE.charAt(0).toLowerCase()}${PRIORITY_LOCKED_NOTE.slice(1)}`);
       }
       if (failedIds.size > 0) {
         messages.push(`${failedIds.size} record${failedIds.size === 1 ? '' : 's'} failed to update and ${failedIds.size === 1 ? 'remains' : 'remain'} selected for retry.`);
@@ -777,9 +790,10 @@ export default function DeliveryRecordsView({
               <span className="text-xs text-white/60">Set priority:</span>
               <select
                 id="bulk-priority-select"
-                value={bulkPriority}
+                value={effectiveBulkPriority}
                 onChange={e => setBulkPriority(e.target.value as PriorityLevel | '')}
-                disabled={bulkApplying}
+                disabled={bulkApplying || allSelectedPriorityLocked}
+                aria-describedby={allSelectedPriorityLocked ? 'bulk-priority-locked-hint' : undefined}
                 className="text-[11px] font-bold bg-white/10 border border-white/20 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
               >
                 <option value="" className="text-slate-900 bg-white">Keep unchanged</option>
@@ -787,11 +801,12 @@ export default function DeliveryRecordsView({
                   <option key={p} value={p} className="text-slate-900 bg-white">{p}</option>
                 ))}
               </select>
+              {allSelectedPriorityLocked && <span id="bulk-priority-locked-hint" className="text-[10px] text-white/60 max-w-48 leading-tight">{PRIORITY_LOCKED_NOTE}</span>}
             </div>
           )}
           <button
             onClick={handleBulkUpdate}
-            disabled={bulkApplying || !((canAssignDriver && bulkStatus) || (canEdit && bulkPriority))}
+            disabled={bulkApplying || !((canAssignDriver && bulkStatus) || (canEdit && effectiveBulkPriority))}
             className="px-4 py-1.5 bg-[#0078C1] hover:bg-blue-500 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
           >
             {bulkApplying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Apply

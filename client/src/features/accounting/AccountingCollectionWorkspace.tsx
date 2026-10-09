@@ -1,4 +1,4 @@
-import { selectableStatuses, canRecordTimeIn, isDraftRecord } from '@/utils/recordLifecycle';
+import { selectableStatuses, canRecordTimeIn, isDraftRecord, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
 import { completionError } from '@/utils/podRequirement';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
 import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
@@ -589,6 +589,7 @@ function OverviewTab({
           <span className={`px-2.5 py-1 rounded-full border text-[10px] font-semibold ${PRIORITY_COLOR[record.priority] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}>
             Priority: {record.priority}
           </span>
+          {isPriorityLocked(record) && <span className="text-[11px] text-slate-500">{PRIORITY_LOCKED_NOTE}</span>}
         </div>
         <div className="text-sm font-bold text-slate-700 mb-3">
           <CompanyHistoryButton

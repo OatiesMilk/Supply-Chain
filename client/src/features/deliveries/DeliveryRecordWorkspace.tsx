@@ -33,7 +33,7 @@ import { screenKeyForCategory } from '@/routes/screenRouting';
 import { notify } from '@/utils/notify';
 
 import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
-import { selectableStatuses, canRecordTimeIn, isDraftRecord, manilaToday, manilaDateTimeInput, manilaInputToIso, rescheduleDateError } from '@/utils/recordLifecycle';
+import { selectableStatuses, canRecordTimeIn, isDraftRecord, manilaToday, manilaDateTimeInput, manilaInputToIso, rescheduleDateError, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -150,7 +150,8 @@ function GeneralTab({
   const [lifecycleRemarks, setLifecycleRemarks] = useState('');
   const canEditAreaAddress = !readOnly && currentUserRole === 'Logistics' && record.category !== 'RMA';
   const canEditDeliveryDate = !readOnly && currentUserRole === 'Logistics' && record.category === 'Deliveries';
-  const canEditPriority = !readOnly && ((currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') || (currentUserRole === 'Logistics' && record.category !== 'RMA'));
+  const priorityLocked = isPriorityLocked(record);
+  const canEditPriority = !readOnly && !priorityLocked && ((currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') || (currentUserRole === 'Logistics' && record.category !== 'RMA'));
   const canEdit = canEditFull || canEditAreaAddress || canEditDeliveryDate || canEditPriority;
 
   const [editing, setEditing] = useState(false);
@@ -333,6 +334,13 @@ function GeneralTab({
                   <span className="font-semibold text-slate-800">{row.value}</span>
                 </div>
               ))}
+              {priorityLocked && (
+                <div className="flex flex-col gap-0.5">
+                  <span className={labelCls}>Priority</span>
+                  <span className="font-semibold text-slate-800">{record.priority}</span>
+                  <span className="text-[11px] text-slate-500">{PRIORITY_LOCKED_NOTE}</span>
+                </div>
+              )}
             </div>
             {record.remarks && (
               <div className="mt-4 pt-4 border-t border-slate-100">
@@ -369,6 +377,13 @@ function GeneralTab({
                   <select value={draft.priority} onChange={e => set('priority', e.target.value as PriorityLevel)} className={inputCls}>
                     {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
+                </div>
+              )}
+              {priorityLocked && (
+                <div className="space-y-1">
+                  <span className={labelCls}>Priority</span>
+                  <p className="font-semibold text-slate-800">{record.priority}</p>
+                  <p className="text-[11px] text-slate-500">{PRIORITY_LOCKED_NOTE}</p>
                 </div>
               )}
               {canEditFull && (
