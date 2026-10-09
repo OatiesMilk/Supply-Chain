@@ -404,18 +404,9 @@ export default function AdminPanel() {
     }`;
 
   return (
-    <div className="space-y-6" id="admin-panel">
-      <div className="border-b border-slate-200 pb-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-            Admin Panel
-          </h2>
-          <p className="text-xs text-gray-500 mt-0.5">User management and system audit log.</p>
-        </div>
-      </div>
-
+    <div className="space-y-4" id="admin-panel">
       {/* Tab bar */}
-      <div className="flex border-b border-slate-200 -mt-2">
+      <div className="flex border-b border-slate-200">
         <button className={tabClass('users')} onClick={() => setTab('users')}>
           <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> User Management</span>
         </button>

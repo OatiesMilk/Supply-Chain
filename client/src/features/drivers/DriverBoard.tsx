@@ -265,15 +265,12 @@ export default function DriverBoard({ records, onNavigate, onUpdateRecord, curre
   ));
 
   return (
-    <div className="min-w-0 space-y-5" id="driver-board-view">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900">Driver Assignment Board</h2>
-          <p className="text-sm text-slate-600 mt-1">
-            Active records grouped by driver — {unassigned.length} unassigned, {filteredRecords.length} shown
-            {areaFilter !== 'All' ? ` (${activeRecords.length} total)` : ''}
-          </p>
-        </div>
+    <div className="min-w-0 space-y-4" id="driver-board-view">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-600">
+          Active records grouped by driver — {unassigned.length} unassigned, {filteredRecords.length} shown
+          {areaFilter !== 'All' ? ` (${activeRecords.length} total)` : ''}
+        </p>
         {unassigned.length > 0 && (
           <div className="flex items-center gap-1.5 text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg text-[11px] font-bold">
             <AlertTriangle className="w-3.5 h-3.5" />

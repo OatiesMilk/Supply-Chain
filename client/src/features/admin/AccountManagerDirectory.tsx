@@ -65,16 +65,9 @@ export default function AccountManagerDirectory({ records, onNavigate }: Props) 
   const totalOnHold    = ams.reduce((s, a) => s + a.onHold, 0);
 
   return (
-    <div className="space-y-6" id="am-directory-view">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900">Account Manager Directory</h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {totalAMs} active account managers · derived from current delivery records
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+    <div className="space-y-4" id="am-directory-view">
+      {/* Sort Controls */}
+      <div className="flex items-center justify-end gap-2 flex-wrap">
           <span className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">Sort by:</span>
           {(['total', 'delivered', 'name'] as const).map(s => (
             <button
@@ -89,7 +82,6 @@ export default function AccountManagerDirectory({ records, onNavigate }: Props) 
               {s}
             </button>
           ))}
-        </div>
       </div>
 
       {/* Summary KPIs */}

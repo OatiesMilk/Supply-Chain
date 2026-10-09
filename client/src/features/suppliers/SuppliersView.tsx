@@ -82,46 +82,39 @@ export default function SuppliersView({ suppliers, deliveryRecords, currentUserR
   }));
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">Supplier Directory</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Registered suppliers linked to Procurement Pick-up records. Click any row to open the supplier workspace.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {canCreate && (
-            <button
-              onClick={() => { setForm(EMPTY_FORM); setFormError(''); setShowCreateForm(true); }}
-              className="flex items-center gap-1.5 bg-[#1F3864] hover:bg-blue-900 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition-all shadow-xs cursor-pointer"
-            >
-              <Plus className="w-4 h-4" /> New Supplier
-            </button>
-          )}
-          <ExportMenu
-            rows={exportRows}
-            columns={SUPPLIER_COLUMNS}
-            sheetName="Suppliers"
-            filename="suppliers"
-            pdfTitle="Supplier Directory"
-            showPdf={true}
-            pdfPortrait={false}
-            meta={{
-              reportName: 'Supplier Directory Export',
-              generatedByName: currentUserName,
-              generatedByRole: currentUserRole,
-            }}
-          />
-        </div>
-      </div>
-
+    <div className="space-y-4">
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-        <div className="p-4 border-b border-slate-200">
-          <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Supplier Registry</h4>
-          <p className="text-xs text-slate-500 font-medium mt-0.5">
-            {suppliers.length} registered supplier{suppliers.length !== 1 ? 's' : ''}
-          </p>
+        <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Supplier Registry</h4>
+            <p className="text-xs text-slate-500 font-medium mt-0.5">
+              {suppliers.length} registered supplier{suppliers.length !== 1 ? 's' : ''}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {canCreate && (
+              <button
+                onClick={() => { setForm(EMPTY_FORM); setFormError(''); setShowCreateForm(true); }}
+                className="flex items-center gap-1.5 bg-[#1F3864] hover:bg-blue-900 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition-all shadow-xs cursor-pointer"
+              >
+                <Plus className="w-4 h-4" /> New Supplier
+              </button>
+            )}
+            <ExportMenu
+              rows={exportRows}
+              columns={SUPPLIER_COLUMNS}
+              sheetName="Suppliers"
+              filename="suppliers"
+              pdfTitle="Supplier Directory"
+              showPdf={true}
+              pdfPortrait={false}
+              meta={{
+                reportName: 'Supplier Directory Export',
+                generatedByName: currentUserName,
+                generatedByRole: currentUserRole,
+              }}
+            />
+          </div>
         </div>
 
         <div className="overflow-x-auto">

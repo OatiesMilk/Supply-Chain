@@ -85,12 +85,15 @@ export default function DeliveryCalendar({ records, onNavigate }: Props) {
   ];
 
   return (
-    <div className="space-y-5" id="delivery-calendar-view">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900">Delivery Calendar</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Monthly view of scheduled deliveries across all categories</p>
+    <div className="space-y-4" id="delivery-calendar-view">
+      {/* Month Navigation & Legend */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-3">
+          {Object.entries(STATUS_COLOR).map(([s, c]) => (
+            <div key={s} className="flex items-center gap-1.5 text-[10px] font-bold text-slate-600">
+              <span className={`w-2.5 h-2.5 rounded-full ${c}`} /> {s}
+            </div>
+          ))}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -107,15 +110,6 @@ export default function DeliveryCalendar({ records, onNavigate }: Props) {
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>
-      </div>
-
-      {/* Legend */}
-      <div className="flex flex-wrap gap-3">
-        {Object.entries(STATUS_COLOR).map(([s, c]) => (
-          <div key={s} className="flex items-center gap-1.5 text-[10px] font-bold text-slate-600">
-            <span className={`w-2.5 h-2.5 rounded-full ${c}`} /> {s}
-          </div>
-        ))}
       </div>
 
       {/* Calendar grid */}

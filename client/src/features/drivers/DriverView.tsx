@@ -188,12 +188,8 @@ export default function DriverView({
   };
 
   return (
-    <div className="space-y-5" id="driver-view-container">
-      <header className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Logistics</p>
-          <h1 className="text-2xl font-bold text-slate-900">Driver View</h1>
-        </div>
+    <div className="space-y-4" id="driver-view-container">
+      <header className="flex flex-wrap items-center justify-end gap-2">
         <p className="text-sm text-slate-600">
           <strong className="text-slate-900">{activeRecords.length}</strong> active runs
           <span aria-hidden="true"> · </span>
