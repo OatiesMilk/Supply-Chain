@@ -15,6 +15,8 @@ import AccountingCollectionWorkspace from '@/features/accounting/AccountingColle
 import { WorkspaceDraftProvider } from '@/features/deliveries/WorkspaceDrafts';
 import { POD_ATTACHMENT_ACCEPT, getPodAttachmentRejection } from '@/utils/attachmentValidation';
 import { notify } from '@/utils/notify';
+import { DashboardFilterId, matchesDashboardFilter } from '@/utils/dashboardFilters';
+import DashboardFilterChip from '@/components/DashboardFilterChip';
 
 interface AccountingCollectionViewProps {
   records: DeliveryRecord[];
@@ -28,6 +30,8 @@ interface AccountingCollectionViewProps {
   onVerifyCollection: (id: string) => Promise<void>;
   selectedRecordIdFromDashboard?: string | null;
   clearSelectedRecordId?: () => void;
+  dashboardFilterId: DashboardFilterId | null;
+  clearDashboardFilter: () => void;
 }
 
 const CATEGORY: DeliveryCategory = 'Accounting Collection';
@@ -112,7 +116,9 @@ export default function AccountingCollectionView({
   onUpdateRecord,
   onVerifyCollection,
   selectedRecordIdFromDashboard,
-  clearSelectedRecordId
+  clearSelectedRecordId,
+  dashboardFilterId,
+  clearDashboardFilter,
 }: AccountingCollectionViewProps) {
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -121,8 +127,11 @@ export default function AccountingCollectionView({
   const [dateSort, setDateSort] = useState<'default' | 'nearest' | 'oldest' | 'furthest'>('default');
   const [amFilter, setAmFilter] = useState('');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const activeFilterCount = [!!searchQuery, statusFilter !== 'All', !!amFilter, dateSort !== 'default'].filter(Boolean).length;
-  const clearAllFilters = () => { setSearchQuery(''); setStatusFilter('All'); setAmFilter(''); setDateSort('default'); };
+  const activeFilterCount = [!!searchQuery, statusFilter !== 'All', !!amFilter, dateSort !== 'default', !!dashboardFilterId].filter(Boolean).length;
+  const clearAllFilters = () => {
+    setSearchQuery(''); setStatusFilter('All'); setAmFilter(''); setDateSort('default');
+    clearDashboardFilter();
+  };
   const [form, setForm] = useState<RecordFormState>(buildEmptyForm());
   const [saving, setSaving] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -138,6 +147,16 @@ export default function AccountingCollectionView({
       clearSelectedRecordId?.();
     }
   }, [selectedRecordIdFromDashboard]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    setSearchQuery('');
+    setStatusFilter('All');
+    setDateSort('default');
+    setAmFilter('');
+    if (dashboardFilterId === 'tass-pending-verification' || dashboardFilterId === 'admin-unverified-collections') {
+      setStatusFilter('Delivered');
+    }
+  }, [dashboardFilterId]);
 
   const [statusHistoryCounts, setStatusHistoryCounts] = useState<StatusHistoryCounts | undefined>(undefined);
 
@@ -257,6 +276,7 @@ export default function AccountingCollectionView({
 
   // Filter records
   const filtered = records.filter(r => {
+    if (dashboardFilterId && !matchesDashboardFilter(r, dashboardFilterId)) return false;
     const q = searchQuery.toLowerCase();
     const matchesSearch = !q || (
       r.id.toLowerCase().includes(q) ||
@@ -356,6 +376,10 @@ export default function AccountingCollectionView({
 
   return (
     <div className="space-y-4" id="accounting-collection-view">
+      <DashboardFilterChip
+        filterId={dashboardFilterId}
+        onClear={clearAllFilters}
+      />
       {/* CREATE FORM */}
       {showForm && canEdit && (
         <div className="bg-white border border-slate-200 shadow-sm rounded-xl p-5 sm:p-7 space-y-6">

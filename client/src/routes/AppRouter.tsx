@@ -32,6 +32,7 @@ import {
   ApiDashboardStats,
 } from '@/api';
 import { CATEGORY_SCREENS } from './screenRouting';
+import { DashboardFilterId } from '@/utils/dashboardFilters';
 
 export interface AppRouterProps {
   currentScreen: string;
@@ -46,7 +47,7 @@ export interface AppRouterProps {
   currentUserName: string;
   effectiveScreens: Set<string>;
   canAccess: (screen: string) => boolean;
-  handleNavigate: (screen: string, item_id?: string) => void;
+  handleNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
   handleCreateRecord: (data: any) => Promise<void>;
   handleUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   handleVerifyCollection: (id: string) => Promise<void>;
@@ -54,6 +55,8 @@ export interface AppRouterProps {
   handleUpdateOutputActionConfig: (trigger: OutputActionTrigger, patch: Partial<OutputActionConfig>) => void;
   selectedRecordId: string | null;
   setSelectedRecordId: (id: string | null) => void;
+  dashboardFilterId: DashboardFilterId | null;
+  clearDashboardFilter: () => void;
   selectedProductId: string | null;
   setSelectedProductId: (id: string | null) => void;
   handleCreateCustomer: (data: any) => Promise<void>;
@@ -85,6 +88,8 @@ export const AppRouter: React.FC<AppRouterProps> = ({
   handleUpdateOutputActionConfig,
   selectedRecordId,
   setSelectedRecordId,
+  dashboardFilterId,
+  clearDashboardFilter,
   selectedProductId,
   setSelectedProductId,
   handleCreateCustomer,
@@ -112,6 +117,8 @@ export const AppRouter: React.FC<AppRouterProps> = ({
         onVerifyCollection={handleVerifyCollection}
         selectedRecordIdFromDashboard={selectedRecordId}
         clearSelectedRecordId={() => setSelectedRecordId(null)}
+        dashboardFilterId={dashboardFilterId}
+        clearDashboardFilter={clearDashboardFilter}
       />
     );
   }
@@ -133,6 +140,8 @@ export const AppRouter: React.FC<AppRouterProps> = ({
         onUpdateOutputActionConfig={handleUpdateOutputActionConfig}
         selectedRecordIdFromDashboard={selectedRecordId}
         clearSelectedRecordId={() => setSelectedRecordId(null)}
+        dashboardFilterId={dashboardFilterId}
+        clearDashboardFilter={clearDashboardFilter}
         onRefresh={refreshData}
       />
     );
@@ -213,11 +222,13 @@ export const AppRouter: React.FC<AppRouterProps> = ({
         <TransactionCenterPage
           currentUserRole={currentUserRole}
           currentUserName={currentUserName}
+          dashboardFilterId={dashboardFilterId}
+          clearDashboardFilter={clearDashboardFilter}
         />
       );
 
     case 'admin':
-      return <AdminPage />;
+      return <AdminPage dashboardFilterId={dashboardFilterId} clearDashboardFilter={clearDashboardFilter} />;
 
     case 'main':
       return (

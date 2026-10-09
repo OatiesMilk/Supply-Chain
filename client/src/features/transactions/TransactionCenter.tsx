@@ -5,10 +5,14 @@ import { api, ApiTransaction, ApiTransactionList } from '@/api';
 import TransactionDetail from '@/features/transactions/TransactionDetail';
 import ExportMenu from '@/components/ExportMenu';
 import { TXN_COLUMNS, fmtDate, fmtStatus } from '@/utils/export';
+import { DashboardFilterId, getManilaWeekRange } from '@/utils/dashboardFilters';
+import DashboardFilterChip from '@/components/DashboardFilterChip';
 
 interface TransactionCenterProps {
   currentUserRole: string;
   currentUserName: string;
+  dashboardFilterId: DashboardFilterId | null;
+  clearDashboardFilter: () => void;
 }
 
 const showExportForRole = (role: string) => role === 'Admin' || role === 'Sales Coordinator';
@@ -80,13 +84,19 @@ interface Filters {
   to:       string;
 }
 
-function defaultFilters(role: string): Filters {
-  return {
-    source:   canViewInventory(role) ? 'all' : 'delivery',
+function defaultFilters(role: string, dashboardFilterId: DashboardFilterId | null = null): Filters {
+  const base: Filters = {
+    source: canViewInventory(role) ? 'all' : 'delivery',
     category: '',
-    status:   '',
-    from:     '',
-    to:       ''
+    status: '',
+    from: '',
+    to: '',
+  };
+  if (dashboardFilterId === 'admin-records-this-week') {
+    return { ...base, source: 'delivery', ...getManilaWeekRange() };
+  }
+  return {
+    ...base,
   };
 }
 
@@ -106,15 +116,15 @@ function SourceBadge({ source }: { source: 'delivery' | 'inventory' }) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function TransactionCenter({ currentUserRole, currentUserName }: TransactionCenterProps) {
+export default function TransactionCenter({ currentUserRole, currentUserName, dashboardFilterId, clearDashboardFilter }: TransactionCenterProps) {
   const [data,    setData]    = useState<ApiTransactionList | null>(null);
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
 
   const [page,    setPage]    = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [filters, setFilters] = useState<Filters>(() => defaultFilters(currentUserRole));
-  const [pendingFilters, setPendingFilters] = useState<Filters>(() => defaultFilters(currentUserRole));
+  const [filters, setFilters] = useState<Filters>(() => defaultFilters(currentUserRole, dashboardFilterId));
+  const [pendingFilters, setPendingFilters] = useState<Filters>(() => defaultFilters(currentUserRole, dashboardFilterId));
   const [filtersOpen, setFiltersOpen] = useState(true);
 
   // Selected transaction for detail view
@@ -123,6 +133,14 @@ export default function TransactionCenter({ currentUserRole, currentUserName }: 
   const isTass = currentUserRole === 'TASS';
   const inventoryAllowed = canViewInventory(currentUserRole);
   const categoryOptions = getCategoryOptions(currentUserRole);
+
+  useEffect(() => {
+    const fresh = defaultFilters(currentUserRole, dashboardFilterId);
+    setFilters(fresh);
+    setPendingFilters(fresh);
+    setPage(1);
+    setSelected(null);
+  }, [currentUserRole, dashboardFilterId]);
 
   // Only show category/status filters when source includes delivery records
   const showCategoryFilter = pendingFilters.source !== 'inventory' && !isTass;
@@ -161,6 +179,7 @@ export default function TransactionCenter({ currentUserRole, currentUserName }: 
     setPendingFilters(fresh);
     setFilters(fresh);
     setPage(1);
+    clearDashboardFilter();
   };
 
   // If detail view is active, render TransactionDetail instead
@@ -195,6 +214,12 @@ export default function TransactionCenter({ currentUserRole, currentUserName }: 
 
   return (
     <div className="space-y-4" id="transaction-center">
+      <DashboardFilterChip filterId={dashboardFilterId} onClear={handleClear} />
+      {dashboardFilterId === 'admin-records-this-week' && (
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          Transaction Center filters delivery date for this week; the dashboard total is based on record creation date.
+        </p>
+      )}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
         {/* Filters bar */}
         <div className="border-b border-slate-200">

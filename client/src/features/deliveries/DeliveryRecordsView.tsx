@@ -29,6 +29,8 @@ import DeliveryRecordWorkspace from '@/features/deliveries/DeliveryRecordWorkspa
 import RecordCreateForm from '@/features/deliveries/RecordCreateForm';
 import FilterPopover, { FilterCombobox } from '@/components/FilterPopover';
 import { dateRangeAfterFromChange, dateRangeState } from '@/utils/dateRange';
+import { DashboardFilterId, matchesDashboardFilter } from '@/utils/dashboardFilters';
+import DashboardFilterChip from '@/components/DashboardFilterChip';
 
 interface DeliveryRecordsViewProps {
   category: DeliveryCategory;
@@ -45,6 +47,8 @@ interface DeliveryRecordsViewProps {
   onUpdateOutputActionConfig: (trigger: OutputActionTrigger, patch: Partial<OutputActionConfig>) => void;
   selectedRecordIdFromDashboard?: string | null;
   clearSelectedRecordId?: () => void;
+  dashboardFilterId: DashboardFilterId | null;
+  clearDashboardFilter: () => void;
   onRefresh?: () => void;
 }
 
@@ -85,6 +89,8 @@ export default function DeliveryRecordsView({
   onUpdateOutputActionConfig,
   selectedRecordIdFromDashboard,
   clearSelectedRecordId,
+  dashboardFilterId,
+  clearDashboardFilter,
   onRefresh
 }: DeliveryRecordsViewProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -189,6 +195,44 @@ export default function DeliveryRecordsView({
     }
   }, [category, selectedRecordIdFromDashboard, clearSelectedRecordId]);
 
+  useEffect(() => {
+    setSearchQuery('');
+    setStatusFilter('All');
+    setRegionFilter('All Regions');
+    setSubregionFilter('All Subregions');
+    setAreaFilter('All Areas');
+    setDateFrom('');
+    setDateTo('');
+    setDateSort('default');
+    setAmFilter('');
+    setDriverFilter('');
+    setTassDateFrom('');
+    setTassDateTo('');
+    setTassStatusFilter('');
+    setTassAccountManager('');
+
+    if (category === 'Deliveries') {
+      if (dashboardFilterId === 'sc-scheduled-today') {
+        const today = manilaToday();
+        setStatusFilter('Scheduled');
+        setDateFrom(today);
+        setDateTo(today);
+      } else if (dashboardFilterId === 'sc-on-hold' || dashboardFilterId === 'log-on-hold') {
+        setStatusFilter('On-Hold');
+      } else if (dashboardFilterId === 'sc-rescheduled' || dashboardFilterId === 'log-rescheduled') {
+        setStatusFilter('Rescheduled');
+      } else if (dashboardFilterId === 'log-assigned-today') {
+        const today = manilaToday();
+        setDateFrom(today);
+        setDateTo(today);
+      } else if (dashboardFilterId === 'sc-completed-today' || dashboardFilterId === 'log-completed-today') {
+        setStatusFilter('Delivered');
+      }
+    } else if (category === 'RMA' && dashboardFilterId === 'tass-rma-on-hold') {
+      setStatusFilter('On-Hold');
+    }
+  }, [dashboardFilterId, category]);
+
   const [statusHistoryCounts, setStatusHistoryCounts] = useState<StatusHistoryCounts | undefined>(undefined);
 
   useEffect(() => {
@@ -246,6 +290,7 @@ export default function DeliveryRecordsView({
   ];
 
   const baseFiltered = categoryRecords.filter(r => {
+    if (dashboardFilterId && !matchesDashboardFilter(r, dashboardFilterId)) return false;
     if (regionFilter !== 'All Regions' && getRegion(r.area) !== regionFilter) return false;
     if (subregionFilter !== 'All Subregions' && getSubregion(r.area) !== subregionFilter) return false;
     if (areaFilter !== 'All Areas' && r.area !== areaFilter) return false;
@@ -503,6 +548,7 @@ export default function DeliveryRecordsView({
     !!amFilter, !!driverFilter, !!dateFrom, !!dateTo, dateSort !== 'default',
     statusFilter !== 'All', !!searchQuery,
     ...(showTassFilters ? [!!tassDateFrom, !!tassDateTo, !!tassStatusFilter, !!tassAccountManager] : []),
+    !!dashboardFilterId,
   ].filter(Boolean).length;
 
   const clearAllFilters = () => {
@@ -510,6 +556,7 @@ export default function DeliveryRecordsView({
     setSubregionFilter('All Subregions'); setAreaFilter('All Areas');
     setAmFilter(''); setDriverFilter(''); setDateFrom(''); setDateTo(''); setDateSort('default');
     setTassDateFrom(''); setTassDateTo(''); setTassStatusFilter(''); setTassAccountManager('');
+    clearDashboardFilter();
   };
 
 
@@ -534,6 +581,10 @@ export default function DeliveryRecordsView({
 
   return (
     <div className="space-y-3 print:space-y-2" id={`records-view-${category.toLowerCase().replace(/\s+/g, '-')}`}>
+      <DashboardFilterChip
+        filterId={dashboardFilterId}
+        onClear={clearAllFilters}
+      />
       {bulkResult && (
         <div role={bulkResult.ok ? 'status' : 'alert'} className={`rounded-lg border px-4 py-3 text-sm ${bulkResult.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
           {bulkResult.message}

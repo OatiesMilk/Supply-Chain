@@ -8,6 +8,7 @@ import {
   OutputActionTrigger,
 } from '@/types';
 import { ApiCompany } from '@/api';
+import { DashboardFilterId } from '@/utils/dashboardFilters';
 
 export interface DeliveriesPageProps {
   category?: DeliveryCategory;
@@ -22,6 +23,8 @@ export interface DeliveriesPageProps {
   onUpdateOutputActionConfig: (trigger: OutputActionTrigger, patch: Partial<OutputActionConfig>) => void;
   selectedRecordIdFromDashboard: string | null;
   clearSelectedRecordId: () => void;
+  dashboardFilterId: DashboardFilterId | null;
+  clearDashboardFilter: () => void;
   onRefresh: () => Promise<void>;
 }
 
@@ -61,6 +64,8 @@ export const DeliveriesPage: React.FC<DeliveriesPageProps> = ({
   onUpdateOutputActionConfig,
   selectedRecordIdFromDashboard,
   clearSelectedRecordId,
+  dashboardFilterId,
+  clearDashboardFilter,
   onRefresh,
 }) => {
   const baseMeta = TITLE_MAP[category] || {
@@ -93,6 +98,8 @@ export const DeliveriesPage: React.FC<DeliveriesPageProps> = ({
       onUpdateOutputActionConfig={onUpdateOutputActionConfig}
       selectedRecordIdFromDashboard={selectedRecordIdFromDashboard}
       clearSelectedRecordId={clearSelectedRecordId}
+      dashboardFilterId={dashboardFilterId}
+      clearDashboardFilter={clearDashboardFilter}
       onRefresh={onRefresh}
     />
   );
