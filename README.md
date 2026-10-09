@@ -32,11 +32,11 @@ The portal provides role-based tracking from record creation through dispatch, f
 npm install
 cp .env.example .env && cp server/.env.example server/.env
 docker compose up -d
-cd server && npx prisma migrate deploy && npm run seed && cd ..
+cd server && npx prisma migrate deploy && cd ..
 npm run dev
 ```
 
-Frontend: <http://localhost:3000> · API: <http://localhost:4000>. Full instructions (Windows PowerShell, seeded accounts, tests, troubleshooting) are in the [Getting Started guide](./docs/GETTING_STARTED.md).
+Frontend: <http://localhost:3000> · API: <http://localhost:4000>. Demo seeding is intentionally omitted from this short sequence because it requires explicit disposable-local-database safeguards. Follow the [Getting Started guide](./docs/GETTING_STARTED.md) for guarded seed setup, Windows PowerShell, accounts, tests and troubleshooting.
 
 ## Documentation
 - [Getting Started](./docs/GETTING_STARTED.md): local setup, database, seeds, tests.

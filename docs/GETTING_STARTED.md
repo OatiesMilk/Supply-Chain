@@ -57,8 +57,8 @@ Copy-Item server/.env.example server/.env
 | File | Purpose | Variables (names only) |
 | :--- | :--- | :--- |
 | `.env` (root) | Docker Compose PostgreSQL container | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`, `POSTGRES_BIND_IP` |
-| `server/.env` | Backend API | `DATABASE_URL`, `JWT_SECRET`, `PORT`, `CLIENT_ORIGIN`, `POD_UPLOAD_DIR`, `POD_STORAGE_PROVIDER`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET`, optional `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` / `AZURE_TENANT_ID` / `APP_URL` (Microsoft SSO and Graph mail), optional `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM`, `RENDER_EXTERNAL_URL` (self-ping), `UAT_SEED_ENABLED` (UAT seed endpoint) |
-| `client/.env` (optional) | Frontend build flags | `VITE_SHOW_DEMO_ACCOUNTS` (shows demo-account and UAT setup controls on the login screen), `VITE_API_BASE_URL` (see [Cloudflare deployment](./CLOUDFLARE_DEPLOYMENT.md)) |
+| `server/.env` | Backend API | `DATABASE_URL`, `JWT_SECRET`, `PORT`, `CLIENT_ORIGIN`, `POD_UPLOAD_DIR`, `POD_STORAGE_PROVIDER`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET`, optional `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` / `AZURE_TENANT_ID` / `APP_URL` (Microsoft SSO and Graph mail), optional `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM`, `RENDER_EXTERNAL_URL` (self-ping), and the local-only reset opt-ins described below |
+| `client/.env` (optional) | Frontend build flags | `VITE_SHOW_DEMO_ACCOUNTS` (shows demo-account Quick Switch; it does not authorize or expose a destructive reset) |
 
 Notes:
 
@@ -94,13 +94,12 @@ The database is available at `127.0.0.1:5433`.
 
 Root shortcuts `npm run docker:up` / `npm run docker:down` call `docker-compose`.
 
-## 4. Apply migrations and seed demo data
+## 4. Apply migrations and prepare demo data
 
 ```bash
 cd server
 npx prisma generate
 npx prisma migrate deploy
-npm run seed
 cd ..
 ```
 
@@ -114,17 +113,50 @@ Do not run `npm run db:reset` or `npx prisma migrate reset` against a database
 that holds data you need. If Prisma reports migration drift, stop and inspect the
 database rather than accepting an automatic reset.
 
-### Seed commands
+### Secure local seed and reset policy (TSK-122)
+
+Anonymous `POST /api/dev/public-seed` and `POST /api/dev/public-seed-uat`
+endpoints do not exist. Destructive seed/reset operations are always denied in
+staging, production, CI and recognized cloud deployments.
+
+To prepare demo data, create a disposable local PostgreSQL database whose name
+ends in `_sandbox` or `_test`. Its `DATABASE_URL` must use `localhost`,
+`127.0.0.1` or `::1`. Verify that this loopback port is not forwarded or
+tunneled to a remote database. Then set matching values in `server/.env`:
+
+```env
+NODE_ENV=development
+LOCAL_DESTRUCTIVE_SEED=true
+LOCAL_SEED_DATABASE=mg_portal_sandbox
+DATABASE_URL=postgresql://USER:PASSWORD@127.0.0.1:5433/mg_portal_sandbox?schema=public
+```
+
+After applying migrations, run from the repository root:
+
+```bash
+npm run seed
+# Or prepare the local UAT fixture:
+npm run seed:uat
+```
+
+Both commands fail closed before Prisma access when any safeguard is missing.
+When the API runs with the same approved configuration, an authenticated active
+Admin sees the Navbar **Reset Demo Data** control and the Data Sampler **Full
+Reset** / **Reset to Seed Data** controls. The frontend capability response only
+controls visibility; the backend repeats every authorization and safety check.
+Normal Data Sampler record generation remains available without enabling reset.
+
+### Seed and maintenance commands
 
 Run from the repository root (each forwards to the `server` workspace):
 
 | Command | What it does |
 | :--- | :--- |
-| `npm run seed` | Full demo dataset (users, companies, customers, suppliers, SKUs, records, drivers). Safe on an existing database: it returns early if data exists |
+| `npm run seed` | Full demo dataset. Destructive-capable and allowed only for the explicitly opted-in disposable local database described above |
 | `npm run seed:users-only` | Only the standard accounts (use after `npm run db:clean` for an otherwise empty database) |
 | `npm run seed:accounts` | Companies, customers and suppliers only |
 | `npm run seed:driver-demo` | Adds today's demo runs for the seeded drivers, idempotent. See [driver-demo-seed.md](./driver-demo-seed.md) |
-| `npm run seed:uat` | Controlled UAT dataset (accounts + today's driver run). Also reachable from the login screen when `VITE_SHOW_DEMO_ACCOUNTS=true` and `UAT_SEED_ENABLED=true` |
+| `npm run seed:uat` | Destructive local UAT dataset preparation; uses the same disposable-database safeguards and is not exposed on the login screen |
 | `npm run db:clean` / `npm run db:reset` | **Destructive:** `prisma migrate reset --force`, wipes the database |
 | `npm run pod:reconcile` | Removes untracked local POD files and reports metadata whose file is missing |
 

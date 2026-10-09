@@ -10,14 +10,19 @@
 
 ---
 
-## Pre-Test: Seed Verification
-Before running any test case, confirm the database is ready.
+## Pre-Test: Test-data verification
+
+Before running any test case, confirm the environment already contains isolated
+test fixtures. Do not reset or seed staging/production through the browser, API,
+or CLI. The destructive local seed procedure in
+[`GETTING_STARTED.md`](./GETTING_STARTED.md#secure-local-seed-and-reset-policy-tsk-122)
+is permitted only for a disposable loopback database.
 
 | Step | Action | Expected Result |
 |------|--------|-----------------|
-| P-1 | Set `VITE_SHOW_DEMO_ACCOUNTS=true` in the frontend and `UAT_SEED_ENABLED=true` in the backend staging environment | The login screen shows the demo-account and **Prepare UAT Data** controls |
-| P-1.1 | Click **Prepare UAT Data (Accounts + Today’s Driver Run)** | Existing data is reset; demo accounts, companies, and a driver-assigned delivery for today are created |
-| P-1.2 | Alternatively run `npm run seed:uat --workspace=mg-portal-server` from root | The same UAT dataset is created from the command line |
+| P-1 | Confirm staging uses its own database and POD storage and that the required fixture accounts/records were provisioned through the approved environment process | Test data exists without changing any shared, development or production data |
+| P-1.1 | Optionally set `VITE_SHOW_DEMO_ACCOUNTS=true` for the staging frontend | The login screen shows demo-account Quick Switch only; it does not show a seed/reset action |
+| P-1.2 | Confirm `POST /api/dev/public-seed` and `/api/dev/public-seed-uat` return 404, and an authenticated Admin reset in staging returns 403 | No destructive operation runs and the existing fixtures remain unchanged |
 | P-2 | Open `http://localhost:3000` in browser | Login page is visible |
 | P-3 | Check that you have one user per role: **Sales Coordinator**, **Logistics**, **Driver** | All three accounts are accessible |
 

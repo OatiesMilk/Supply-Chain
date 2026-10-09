@@ -2,14 +2,14 @@
 
 > Last verified: 2026-10-09 against commit `ccbf192` (`dev`).
 
-> Current practice: tickets use the Notion `TSK-XX` prefix (older examples below used `SC-XX`), branch names use `feature/`, `fix/`, `hotfix/`, `refactor/`, `docs/` and `chore/` prefixes, and `origin/HEAD` is `dev`; pull requests are opened against `dev`. `staging` receives merges from `dev` for UAT and the Cloudflare build. > UNVERIFIED: whether `main` is still used as a release branch; ask the team before following the `main`-based examples.
+> Current practice: tickets use the Notion `TSK-XX` prefix, ordinary branches start from and target `dev`, and `staging` receives reviewed merges from `dev` for UAT and the Cloudflare build. The repository identifies `main` as the production/release branch, but the exceptional direct-to-`main` hotfix procedure still requires team confirmation before use.
 
 A reference guide for developers on the Microgenesis Supply Chain team. Use this cheat sheet for daily branch management, rebasing, and troubleshooting.
 
 > [!IMPORTANT] Core rules for the team
-> - **All features must be tested in `dev`:** Before any branch goes to `main`, it should first be merged into the `dev` branch for testing.
-> - **`git pull` is only for updating `main`:** Run `git pull --ff-only` exclusively while on `main` with clean files.
-> - **Never run `git pull` on a feature branch:** When syncing your feature branch with `main`, always use `git fetch origin && git rebase origin/main` to keep commit history linear.
+> - **Ordinary work starts from `dev`:** Feature, fix, refactor and docs pull requests target `dev`.
+> - **Update `dev` only with a clean worktree:** Use `git pull --ff-only` while on `dev`.
+> - **Never run `git pull` on a task branch:** Sync it with `git fetch origin && git rebase origin/dev`.
 > - **If you have uncommitted edits:** Always stash first (`git stash`), fetch and rebase, then restore (`git stash pop`).
 
 ---
@@ -17,11 +17,11 @@ A reference guide for developers on the Microgenesis Supply Chain team. Use this
 ## Daily development cycle
 
 ```text
-1. Update main:    git switch main && git pull --ff-only
-2. Start task:     git switch -c feature/<subsystem>-TSK-XX-<topic>  (or hotfix/<subsystem>-TSK-XX-<topic>)
+1. Update dev:     git switch dev && git pull --ff-only
+2. Start task:     git switch -c feature/<subsystem>-TSK-XX-<topic>
 3. Inspect edits:  git status && git diff
 4. Save progress:  git add <file> && git commit -m "<type>(<subsystem>): <message> (TSK-XX)"
-5. Sync upstream:  git fetch origin && git rebase origin/main
+5. Sync upstream:  git fetch origin && git rebase origin/dev
 6. Push branch:    git push -u origin <branch-name>
 ```
 
@@ -30,9 +30,9 @@ A reference guide for developers on the Microgenesis Supply Chain team. Use this
 ## 1. Starting a new task
 
 ### Create and switch to a new branch
-Always branch from the latest `main`:
+For ordinary work, branch from the latest `dev`:
 ```bash
-git switch main
+git switch dev
 git pull --ff-only
 git switch -c feature/<subsystem>-TSK-XX-<description>
 ```
@@ -41,15 +41,15 @@ git switch -c feature/<subsystem>-TSK-XX-<description>
 git switch -c feature/client-TSK-14-delivery-manifest
 ```
 
-*Shortcut (branch directly off fresh origin/main without switching to local main):*
+*Shortcut (branch directly off fresh `origin/dev` without switching to local `dev`):*
 ```bash
 git fetch origin
-git switch -c feature/<subsystem>-TSK-XX-<description> origin/main
+git switch -c feature/<subsystem>-TSK-XX-<description> origin/dev
 ```
 
 ### Switch between existing branches
 ```bash
-git switch main
+git switch dev
 git switch feature/client-TSK-14-delivery-manifest
 ```
 
@@ -154,16 +154,16 @@ git stash list
 
 ---
 
-## 4. Syncing with teammates (rebasing on main)
+## 4. Syncing with teammates (rebasing on dev)
 
-Whenever a teammate merges a PR to `main`, update your branch to avoid divergence:
+Whenever a teammate merges a PR to `dev`, update your task branch to avoid divergence:
 
 ```bash
 # 1. Download newest commits without touching your files
 git fetch origin
 
-# 2. Replay your feature branch commits on top of newest main
-git rebase origin/main
+# 2. Replay your task-branch commits on top of newest dev
+git rebase origin/dev
 ```
 
 ### If conflicts occur
@@ -324,7 +324,7 @@ git reset --hard origin/main
 git switch feature/<subsystem>-TSK-XX-<topic>
 ```
 
-### Scenario C: You have uncommitted edits and need to sync with main
+### Scenario C: You have uncommitted edits and need to sync with dev
 ```bash
 # 1. Shelve your uncommitted work
 git stash
@@ -332,8 +332,8 @@ git stash
 # 2. Download newest commits
 git fetch origin
 
-# 3. Replay your branch commits on top of main
-git rebase origin/main
+# 3. Replay your branch commits on top of dev
+git rebase origin/dev
 
 # 4. Restore your uncommitted edits
 git stash pop
@@ -350,8 +350,8 @@ git switch <teammate-branch-name>
 
 ### Scenario E: Cleaning up branches after your PR is merged
 ```bash
-# 1. Switch back to main and get the merged code
-git switch main
+# 1. Switch back to dev and get the merged code
+git switch dev
 git pull --ff-only
 
 # 2. Delete your local feature branch

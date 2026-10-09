@@ -121,7 +121,7 @@ Out of scope today: automatic stock movement from deliveries, customer signature
 | BR-ADM-02 | Per-user module access (grant/deny/reset) with version conflict protection and immediate effect | Implemented | See [Module access](./MODULE_ACCESS.md) |
 | BR-ADM-03 | System audit log and per-entity audit trails | Implemented | |
 | BR-ADM-04 | Integration status and test email | Implemented | Admin |
-| BR-ADM-05 | Data Sampler for generating or resetting demo data | Implemented | Admin; not for real data |
+| BR-ADM-05 | Data Sampler for generating demo data and resetting an approved disposable local sandbox | Implemented | Generation: Admin. Reset: authenticated Admin only after server-side local-environment and database-target validation; always denied in staging/production |
 | BR-ADM-06 | Local email/password login plus optional Microsoft SSO | Implemented (login); SSO planned for company rollout | SSO is intended for company use once the system is complete and has not been rolled out. Before rollout, decide how unknown Microsoft users are provisioned: today they are auto-created as Sales Coordinator (issues report 13.4) |
 | BR-ADM-07 | Microsoft Teams tab packaging | Partial | Manifest and script in `teams/`; not verified in a live tenant |
 

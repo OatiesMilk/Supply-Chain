@@ -1,12 +1,12 @@
 # Docs Sync Report
 
-> Date: 2026-10-09 · Branch: `dev` · Commit audited: `ccbf192` · Scope: documentation only, plus comment-only edits to `server/prisma/schema.prisma` (stale SQLite comment removed and `DRIVER` added to the role comment, at the owner's request). No other source, config, migration or `.env` files were changed.
+> Date: 2026-10-09 · Base audited: `dev` at `ccbf192` · TSK-122 reconciliation: prepared against PR #132 at `2da3cb1`. PR #132 is not yet merged, so this documentation PR must be synchronized with `dev` after #132 merges and must not be merged first. Scope: documentation and example configuration only; no runtime source or migration files changed.
 
 ## 1. Result in brief
 
 The existing docs were written for earlier versions of the system and disagreed with the code in many places. The largest gaps: the architecture doc said the system had **no tests**, the getting-started guide had a garbled section and wrong seed passwords, `DONT_BREAK_THIS.md` said every deploy re-seeds the database, the issues report predated ~60 merged tickets, and `CLAUDE.md`/`AGENTS.md` told contributors to run Vitest, which is not installed.
 
-Created `docs/BUSINESS_REQUIREMENTS.md` (none existed). Rewrote the architecture, getting-started and API contract docs from the code. Re-verified every finding in the issues report and added seven new ones, one of them critical (13.1).
+Created `docs/BUSINESS_REQUIREMENTS.md` (none existed). Rewrote the architecture, getting-started and API contract docs from the code. Re-verified every finding in the issues report and added seven new ones. Critical finding 13.1 is addressed by TSK-122/PR #132; the documentation now describes the guarded local Admin workflow without treating the still-unmerged PR as deployed or UAT-approved.
 
 ## 2. Files changed
 
@@ -21,7 +21,7 @@ Created `docs/BUSINESS_REQUIREMENTS.md` (none existed). Rewrote the architecture
 | `docs/MODULE_ACCESS.md` | Edited | Added the generated role × screen default matrix; fixed test commands (no `client/tests` glob covered co-located tests) and a removed "Status History" reference |
 | `docs/PROJECT_ISSUES_REPORT.md` | Edited | Status line on all 49 findings, corrected header, scorecard caveat, roadmap corrections, new section 13 |
 | `docs/UAT_PLAN.md` | Edited | v1.1: sidebar expectations, RMA label, Time In flow, retired Status History, new Part D for shipped tickets |
-| `docs/CLOUDFLARE_DEPLOYMENT.md` | Edited | Documents the Worker `/api/*` proxy and why `VITE_API_BASE_URL` exists; flags the contradiction |
+| `docs/CLOUDFLARE_DEPLOYMENT.md` | Edited | Documents the Worker `/api/*` proxy and the runtime `API_BASE_URL`; warns against bypassing it with `VITE_API_BASE_URL` |
 | `DONT_BREAK_THIS.md` | Edited | Sections 3, 4, 6, 7, 8, 10 corrected (seed not run on deploy, Graph mailer, real POD storage, archived ROLES.md, Warehouses routing) |
 | `README.md` | Rewritten | Escaped backticks rendered literally, stack listed unused shadcn/ui, missing links, no quick start |
 | `CLAUDE.md`, `AGENTS.md`, `.gemini/agents/supply-chain-dev.md` | Facts only | Vitest → `node:test`; `.env` layout; `screenRouting.ts` description. **No rules or conventions were changed** (one clarifying annotation was added to the docs branch row in `AGENTS.md`) |
@@ -62,7 +62,7 @@ Created `docs/BUSINESS_REQUIREMENTS.md` (none existed). Rewrote the architecture
 | :--- | :--- | :--- |
 | `SYSTEM_ARCHITECTURE.md` §12 | Microsoft SSO behavior in a live tenant (SSO is planned for company rollout, not live) | Test with Azure credentials before rollout |
 | `SYSTEM_ARCHITECTURE.md` §12 | Live Render/Supabase/Cloudflare settings | Check dashboards |
-| `CLOUDFLARE_DEPLOYMENT.md` | Whether production uses the Worker proxy, `VITE_API_BASE_URL`, or both | Inspect the deployed build and Worker variables |
+| `CLOUDFLARE_DEPLOYMENT.md` | Whether the live Worker has the expected `API_BASE_URL` binding | Inspect the deployed Worker variables |
 | `git-cheat-sheet.md` | Whether `main` remains a release branch | Confirm with the team |
 | `teams/README.md` | Teams tab packaging end-to-end | Run `build.sh` and upload to a tenant |
 | `CLAUDE.md` / `AGENTS.md` | `NOTION_API_KEY` presence in `.env` | `.env` was intentionally not read |
@@ -82,19 +82,19 @@ Created `docs/BUSINESS_REQUIREMENTS.md` (none existed). Rewrote the architecture
 
 Added to [`PROJECT_ISSUES_REPORT.md` section 13](./PROJECT_ISSUES_REPORT.md#13-new-findings--october-9-2026):
 
-1. **13.1 (Critical)** `POST /api/dev/public-seed` is unauthenticated, unguarded in production and wipes all tables.
+1. **13.1 (Critical, fix pending review in PR #132)** `POST /api/dev/public-seed` was unauthenticated, unguarded in production and wiped all tables. TSK-122 removes both anonymous seed endpoints and adds fail-closed local-only safeguards.
 2. **13.2 (Medium)** `render.yaml` has no `healthCheckPath`.
 3. **13.3 (Medium)** TASS defaults include Procurement Pick-up, but TASS cannot see those records.
 4. **13.4 (Medium)** Microsoft SSO auto-creates unknown users as Sales Coordinator.
 5. **13.5 (Low)** Duplicate, unreachable `/api/health` route.
-6. **13.6 (Low)** Stale SQLite/role comments in `schema.prisma`. Fixed at your request with comment-only edits: the SQLite comment was removed and `DRIVER` was added to the `User.role` comment.
+6. **13.6 (Low)** Stale SQLite/role comments in `schema.prisma`. Left as a documented issue so this documentation PR does not modify production schema source.
 7. **13.7 (Low)** Inconsistent client API base handling and a `client/.env.example` comment that points to a `functions/api/[[catchall]].js` file that does not exist.
 
 Also noted in the docs but not given their own entry: CI does not run any tests; the `CLAUDE.md` rule "register new screens in `client/src/screenRouting.ts`" no longer matches where screens are wired (`routes/AppRouter.tsx` and `services/permissions.ts`). The rule was left as written; a clarification was appended.
 
 ## 8. Decisions for you
 
-- Whether `/api/dev/public-seed` and its login-page button should exist at all (13.1). This is the most urgent item.
+- Review and merge PR #132 before this documentation PR; then rebase this branch on the resulting `dev` and re-run link/source validation.
 - Whether to delete the stale `.docx` UAT plan or regenerate it from `docs/UAT_PLAN.md`.
 - Whether `main` is still a release branch (cheat sheet).
 - Business ownership of collection verification (TASS vs Finance).
@@ -121,4 +121,4 @@ A single commit also works: `docs(admin): sync documentation with current system
 - Schema models, migrations, package scripts, `render.yaml`, `docker-compose.yml`, `wrangler.json`, `worker.js`, `.env.example` files (variable names only) and the CI workflow were read.
 - Internal relative links in all changed `.md` files resolve.
 - `git status` was reviewed: only `.md` files were changed by this audit. The pre-existing modification to `package-lock.json` and the untracked `PR-TSK-*.md` files were left as they were.
-- No tests, type checks or dev servers were run; this was a documentation-only change.
+- Documentation links and source claims were checked locally. The repository quality gates are re-run before handoff; staging UAT remains unexecuted.

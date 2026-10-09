@@ -62,7 +62,8 @@ The database schema lives in `server/prisma/schema.prisma`. You should never man
 
 **Don't:** write a migration you haven't tested locally first.
 **Don't:** add `seed` back to `startCommand`. `runSeed(true)` deletes every table.
-**Don't:** leave `POST /api/dev/public-seed` reachable in production. It is unauthenticated and calls `runSeed(true)` (see issue 13.1 in [the issues report](docs/PROJECT_ISSUES_REPORT.md)). Only `/api/dev/reset-seed` (Admin, blocked in production) and `/api/dev/public-seed-uat` (blocked in production, needs `UAT_SEED_ENABLED=true`) are guarded.
+**Don't:** restore the removed anonymous `POST /api/dev/public-seed` or `POST /api/dev/public-seed-uat` routes. The remaining reset routes require an authenticated, active Admin with the relevant resource permission and a server-verified local disposable database. They must remain denied in staging, production, CI and cloud deployments.
+**Do:** keep normal Data Sampler generation available. For an intentional local reset, use only a loopback PostgreSQL database named `*_sandbox` or `*_test`, set the explicit local opt-ins, and verify that the loopback port is not a tunnel to a remote database.
 
 ## 7. TASS's role is not finalized — treat it as a guess, not a spec
 

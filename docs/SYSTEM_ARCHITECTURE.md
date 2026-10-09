@@ -126,7 +126,7 @@ sequenceDiagram
 
 ## 6. Authentication and authorization
 
-1. `POST /api/auth/login` verifies the bcrypt hash, signs an 8-hour JWT and sets the `mg_session` cookie (`httpOnly`; `sameSite=lax` in development, `sameSite=none` + `secure` in production because the frontend and API are different sites). The server refuses to start in production without `JWT_SECRET`.
+1. `POST /api/auth/login` verifies the bcrypt hash, signs an 8-hour JWT and sets the `mg_session` cookie (`httpOnly`; `sameSite=lax` in development, `sameSite=none` + `secure` in production). Normal browser API calls remain relative and pass through the Cloudflare Worker proxy. The server refuses to start in production without `JWT_SECRET`.
 2. Optional SSO (planned for company rollout once the system is complete; local email/password login is used until then): `POST /api/auth/microsoft` (returns 501 when not configured), `GET /api/auth/microsoft/callback`, `GET /api/auth/microsoft/status`. The callback matches `User.microsoftOid`, then email; an unknown Microsoft user is auto-created as an active `SALES_COORDINATOR` (see issue 13.4 in the project issues report).
 3. **Every protected request reloads the user and permissions**, so revoking access takes effect on the next call even with an old cookie.
 4. Authorization is layered:
@@ -199,9 +199,9 @@ States: `Draft → Scheduled → In Transit → Delivered`, with `Pending`, `On-
 
 ## 11. Security posture
 
-In place: `httpOnly` session cookie, per-request account reload, layered RBAC with deny-by-default for unknown roles in transaction access, audited admin actions, server-side POD byte verification and 10 MB upload limit, production `JWT_SECRET` fail-fast, dev reset endpoint restricted to Admin and disabled in production.
+In place: `httpOnly` session cookie, per-request account reload, layered RBAC with deny-by-default for unknown roles in transaction access, audited admin actions, server-side POD byte verification and 10 MB upload limit, production `JWT_SECRET` fail-fast, and destructive reset routes restricted to an authenticated Admin on an explicitly opted-in local disposable database.
 
-Open gaps (details and evidence in [project issues](./PROJECT_ISSUES_REPORT.md)): no login rate limiting, no `helmet` headers, production cookie is `sameSite=none` with no CSRF token, `POST /api/dev/public-seed` is unauthenticated and not disabled in production, in-process scheduled jobs, string-typed dates.
+The anonymous destructive seed routes are removed, and staging/production resets are denied before Prisma access. Open gaps (details and evidence in [project issues](./PROJECT_ISSUES_REPORT.md)): no login rate limiting, no `helmet` headers, production cookie is `sameSite=none` with no CSRF token, in-process scheduled jobs, and string-typed dates. The local database check cannot detect a loopback port that a developer has manually tunneled to a remote database, so setup also requires human verification that no tunnel is active.
 
 ## 12. Known documentation limits
 

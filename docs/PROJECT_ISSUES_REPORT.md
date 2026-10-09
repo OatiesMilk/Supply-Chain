@@ -188,7 +188,7 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 2.2 Unauthenticated Database Wipe Endpoint
 
-> **Status (2026-10-09): PARTIALLY FIXED.** `POST /api/dev/reset-seed` requires Admin and returns 403 in production. A different route, `POST /api/dev/public-seed`, is unauthenticated and not blocked in production: see 13.1.
+> **Status (2026-10-09): FIX PENDING REVIEW.** TSK-122 / PR #132 removes the anonymous reset routes and adds local-only, disposable-database safeguards to the remaining Admin routes. It is not treated as deployed or UAT-approved until merged and verified; see 13.1.
 
 - **File & Line:** [`server/src/routes/dev.ts:10-18`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/server/src/routes/dev.ts#L10-L18)
 - **Vulnerability:** `POST /api/dev/reset-seed` contains no `requireAuth` or `requireRole` middleware.
@@ -508,7 +508,7 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 
 ### 5.1 Destructive Actions Rely on Browser `alert()` / `confirm()`
 
-> **Status (2026-10-09): MOSTLY FIXED.** Sonner toasts and in-app dialogs replaced most prompts. Two `alert()` calls remain in `features/auth/LoginView.tsx` (demo seed and UAT seed confirmations).
+> **Status (2026-10-09): FIX PENDING REVIEW.** Sonner toasts and in-app dialogs replaced most prompts. TSK-122 / PR #132 removes the two anonymous demo/UAT seed actions and their `alert()` calls; this is awaiting merge.
 
 - **File & Line:** [`src/components/AdminPanel.tsx:266, 279, 297`](file:///home/marc/Supply-Chain-Draft/Desktop/Supply%20Chain/src/components/AdminPanel.tsx#L266)
 - **Issue:** User deactivation, activation, and deletion invoke native browser `alert()` and `confirm()` dialogs.
@@ -816,7 +816,7 @@ Addressing both technical vulnerabilities, business domain completeness, and CI/
 
 | Business Dimension                          | Real-World Risk & Operational Impact                                                                                                                                                                                                                                                 |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Catastrophic Data Loss**                  | The `render.yaml` auto-seed command (`npx tsx prisma/seed.ts`) and unauthenticated reset endpoint (`/api/dev/reset-seed`) create an existential risk: any deploy, restart, or unauthorized HTTP request permanently wipes live company records, customer accounts, and audit trails. |
+| **Catastrophic Data Loss**                  | The deploy-time seed has been removed. TSK-122 / PR #132 addresses the remaining reset exposure with removed public routes and fail-closed local-only safeguards; the risk remains a release blocker until that PR is merged and verified. |
 | **System Freeze at Scale (The 5,000 Wall)** | Without database indexes and server-side pagination, the portal will freeze user browsers at 5,000 records, resurrecting the exact SharePoint operational halt it was built to solve.                                                                                                |
 | **Unchecked Regressions (Zero Tests & CI)** | Without automated tests or CI gates, any code edit or dependency update can silently break status progression, driver assignments, or billing calculations in production without detection until field staff report failures.                                                        |
 | **Physical Stock Discrepancies**            | Because `DeliveryRecord` does not deduct or reserve inventory from the SKU Master, warehouse staff and sales coordinators will sell and dispatch ghost inventory, leading to unfulfilled customer commitments and severe stock audit penalties.                                      |
@@ -836,7 +836,7 @@ Addressing both technical vulnerabilities, business domain completeness, and CI/
 
 ```mermaid
 pie title Roadmap Completion Breakdown
-    "Phase 1: Security & Guardrails (P0)" : 100
+    "Phase 1: Security & Guardrails (P0)" : 88
     "Phase 2: Integrity & Indexing (P1)" : 70
     "Phase 3: Domain Expansion (P2)" : 0
     "Phase 4: Architecture & Caching (P3)" : 60
@@ -844,7 +844,7 @@ pie title Roadmap Completion Breakdown
 
 | Phase | Priority | Status | Progress | Key Completed Deliverables |
 | :--- | :--- | :---: | :---: | :--- |
-| **Phase 1: Critical Security & Guardrails** | **P0 (Immediate)** | **100%** | **8 / 8** | Auto-seed deploy wipe neutralized, dev reset locked with admin auth, CI pipeline established (`.github/workflows/ci.yml`), CSRF `sameSite: 'lax'` + JWT secret fail-fast, foreign key deletion order fixed, static imports, status RBAC strictly enforced, admin self-lockout prevented. |
+| **Phase 1: Critical Security & Guardrails** | **P0 (Immediate)** | **88%** | **7 / 8; TSK-122 pending** | Auto-seed deploy wipe neutralized, CI pipeline established, JWT secret fail-fast, foreign key deletion order fixed, static imports, status RBAC enforced and admin self-lockout prevented. PR #132 addresses the remaining destructive-reset exposure but is awaiting merge/review. |
 | **Phase 2: Functional Integrity & Indexing** | **P1 (Near-Term)** | **70%** | **7 / 10** | Database secondary composite indexes added across all core tables, driver resurrection bug fixed, driver assistant JSON array serialization fixed, atomic SKU stock adjustments wrapped in `prisma.$transaction`, Admin company creation enabled, AM fuzzy email lookup, daily reports hybrid aggregation. |
 | **Phase 3: Core Domain Expansion** | **P2 (Strategic)** | **0%** | **0 / 6** | *Upcoming enterprise features:* Multi-line item schema (`DeliveryItem`), automatic warehouse stock deduction on delivery, real cloud POD file uploads (S3/Azure Blob), unified company/customer directory, driver offline PWA queue. |
 | **Phase 4: Architectural Modernization** | **P3 (Modernization)**| **60%** | **3 / 5** | Monorepo decoupling, modular component and layout decomposition, modern **TanStack Query** server state and **Zustand** client stores. |
@@ -880,7 +880,7 @@ pie title Roadmap Completion Breakdown
 ### Phase 1: Critical Security, Production Guardrails & CI Gate (P0 — Immediate)
 
 - [x] **1. Neutralize Auto-Seed on Deploy:** Decoupled `npx tsx prisma/seed.ts` from `render.yaml` `startCommand` to prevent production data wiping on restart.
-- [ ] **2. Lock Down Dev Reset Endpoints:** Restricted `POST /api/dev/reset-seed` in [`server/src/routes/dev.ts`](file:///home/marc/Supply-Chain/server/src/routes/dev.ts) with strict `NODE_ENV !== 'production'` guard and `requireAuth` + `requireRole('ADMIN')`. *(Re-audit 2026-10-09: `reset-seed` is locked, but `POST /api/dev/public-seed` is still unauthenticated and unguarded in production; see 13.1)*
+- [ ] **2. Lock Down Dev Reset Endpoints:** TSK-122 / PR #132 removes both anonymous seed endpoints and makes the remaining Admin reset routes fail closed outside an opted-in local disposable database. Pending merge, review and environment verification; see 13.1.
 - [x] **3. Establish CI Pipeline:** Created [`.github/workflows/ci.yml`](file:///home/marc/Supply-Chain/.github/workflows/ci.yml) validating Prisma schema, Prisma client generation, backend typecheck/build, and frontend typecheck/build.
 - [ ] **4. Mitigate CSRF Vulnerability:** Configured `sameSite: 'lax'` for session cookies and protected production JWT secret in [`server/src/middleware/auth.ts`](file:///home/marc/Supply-Chain/server/src/middleware/auth.ts). *(Re-audit 2026-10-09: the `sameSite: 'lax'` setting applies to development only; production uses `'none'` and has no CSRF token. The production `JWT_SECRET` fail-fast part is done)*
 - [x] **5. Fix Seed Foreign Key Violation:** Deleted dependent relational tables (`UserPermission`, `RemarkLog`, `Comment`, `Notification`) before deleting users in [`server/prisma/seed.ts`](file:///home/marc/Supply-Chain/server/prisma/seed.ts).
@@ -1000,12 +1000,12 @@ The following issues were identified during a follow-up audit of frontend, backe
 
 Found while reconciling the documentation with the code on `dev` (commit `ccbf192`). These were not in earlier sections. Code was not changed; each entry is a recommendation.
 
-### 13.1 Unauthenticated Demo Reseed Endpoint Is Live in Production
+### 13.1 Unauthenticated Demo Reseed Endpoint — Fix Pending Review
 
 - **Severity:** Critical
-- **Evidence:** `server/src/routes/dev.ts:26` — `router.post('/public-seed', ...)` has no `requireAuth`, no role check and no `NODE_ENV` guard, and calls `runSeed(true)`, which deletes every table (`server/prisma/seed.ts:164-179`) before inserting demo data. The route is mounted unconditionally in `server/src/index.ts` (`app.use('/api/dev', devRoutes)`). A code comment even warns "this allows unauthenticated database resets". The sibling `/public-seed-uat` is correctly guarded.
+- **Evidence on audited `dev` (`ccbf192`):** `server/src/routes/dev.ts:26` exposed `/public-seed` without authentication or an environment guard and called `runSeed(true)`. `/public-seed-uat` was also anonymous.
 - **Impact:** Anyone who can reach the API can wipe production data and recreate accounts with the documented demo passwords.
-- **Suggested fix:** Apply the same `NODE_ENV`/flag guard as `/public-seed-uat` (or remove the route and the login-page button that calls it), and require an explicit `ALLOW_PUBLIC_SEED=true` for local demos.
+- **TSK-122 status:** PR #132 removes both anonymous routes; requires an authenticated active Admin and relevant resource permission; validates an explicit local opt-in, loopback request and matching `*_sandbox`/`*_test` database before any Prisma operation; and denies staging, production, CI and recognized cloud environments. Positive tests use mocks. This remains **awaiting review/merge and staging verification**, not Done.
 
 ### 13.2 Render Health Check Is Not Configured
 
@@ -1034,16 +1034,16 @@ Found while reconciling the documentation with the code on `dev` (commit `ccbf19
 - **Evidence:** `server/src/index.ts:60` registers the real `/api/health`; `server/src/index.ts:126` registers a second, simpler `/api/health` after the error handler. Express serves the first, so the second is dead code.
 - **Suggested fix:** Delete the second route.
 
-### 13.6 Prisma Schema Comments Are Stale (fixed)
+### 13.6 Prisma Schema Comments Are Stale
 
 - **Severity:** Low
 - **Evidence:** `server/prisma/schema.prisma:9` says the provider is SQLite ("SQLite has no native enum support"), but the datasource is PostgreSQL; `schema.prisma:20` lists roles without `DRIVER`.
 - **Impact:** Misleads readers.
-- **Status:** FIXED on 2026-10-09 (comment-only edits, no migration needed): the SQLite sentence was removed from the header comment and `DRIVER` was added to the `User.role` comment.
+- **Suggested fix:** Remove the SQLite sentence and add `DRIVER` to the `User.role` comment in a focused maintenance change. No migration is required because these are comments only.
 
 ### 13.7 Inconsistent API Base URL Handling in the Client
 
 - **Severity:** Low
-- **Evidence:** `client/src/api/index.ts:10` hard-codes `API_BASE = ''` (relative `/api`, relying on the Vite proxy or the Cloudflare Worker proxy), while `client/src/api/availability.ts:4` reads `VITE_API_BASE_URL` for the health check. `client/.env.example` says not to use `VITE_API_BASE_URL`, whereas `docs/CLOUDFLARE_DEPLOYMENT.md` instructs setting it.
+- **Evidence:** `client/src/api/index.ts:10` hard-codes `API_BASE = ''` (relative `/api`, relying on the Vite proxy or the Cloudflare Worker proxy), while `client/src/api/availability.ts:4` still permits an optional `VITE_API_BASE_URL` for the health check. The deployment guide and `client/.env.example` now consistently require the Worker runtime `API_BASE_URL` and tell operators not to set the Vite variable.
 - **Impact:** The health check can target a different origin than every other request, so a misconfigured Worker proxy can look healthy (or the reverse).
-- **Suggested fix:** Pick one model (Worker proxy, or direct cross-origin calls) and use a single base for all requests and the health check.
+- **Suggested fix:** Remove the optional Vite health-check base in a focused code change so configuration cannot make health checks use a different origin from normal API requests.

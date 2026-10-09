@@ -143,10 +143,15 @@ All `/users` routes use `Auth` + `Res:users` + ADM.
 | :--- | :--- | :--- | :--- |
 | GET | `/data-sampler/counts` | Res:dataSampler; ADM | Row counts |
 | POST | `/data-sampler/generate` | Res:dataSampler; ADM | `{ module, count, fields }` generate sample records |
-| POST | `/data-sampler/reset` | Res:dataSampler; ADM | `{ mode }` reset or reseed |
-| POST | `/dev/reset-seed` | Res:admin; ADM | Re-run the demo seed; `403` when `NODE_ENV=production` |
-| POST | `/dev/public-seed` | **Public** | Re-runs the demo seed with `force`; no auth and no production guard. See issues report 13.1 |
-| POST | `/dev/public-seed-uat` | **Public** | UAT dataset; `403` unless `NODE_ENV!=production` and `UAT_SEED_ENABLED=true` |
+| GET | `/dev/reset-capability` | Res:admin; ADM | `{ enabled }`; true only for an approved local disposable sandbox |
+| POST | `/data-sampler/reset` | Res:dataSampler; ADM | `{ mode: "full" | "seed" }`; `403` unless the same local sandbox policy passes |
+| POST | `/dev/reset-seed` | Res:admin; ADM | Re-run the demo seed; local disposable sandbox only |
+
+The former anonymous `/dev/public-seed` and `/dev/public-seed-uat` routes are
+removed. All reset authorization and environment/database validation occurs on
+the server before seed code or Prisma operations run. Staging and production
+always deny destructive resets. Normal `/data-sampler/generate` remains
+available to authorized Admin users.
 
 ## 8. Module access session contract (TSK-55)
 
