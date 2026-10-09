@@ -84,47 +84,39 @@ export default function CustomersView({
   }));
 
   return (
-    <div className="space-y-6" id="customers-view-container">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">Merchant Directory &amp; Relations</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Registered merchant accounts used as the validated Company Name lookup on every delivery record.
-            Click any row to open the customer workspace.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {canCreate && (
-            <button
-              onClick={() => { setForm(EMPTY_FORM); setFormError(''); setSaveError(''); setShowCreateForm(true); }}
-              className="flex items-center gap-1.5 bg-[#1F3864] hover:bg-blue-900 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition-all shadow-xs cursor-pointer"
-            >
-              <Plus className="w-4 h-4" /> New Customer
-            </button>
-          )}
-          <ExportMenu
-            rows={exportRows}
-            columns={CUSTOMER_COLUMNS}
-            sheetName="Customers"
-            filename="customers"
-            pdfTitle="Merchant Customer Registry"
-            showPdf={true}
-            pdfPortrait={false}
-            meta={{
-              reportName: 'Merchant Customer Export',
-              generatedByName: currentUserName,
-              generatedByRole: currentUserRole,
-            }}
-          />
-        </div>
-      </div>
-
+    <div className="space-y-4" id="customers-view-container">
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-        <div className="p-4 border-b border-slate-200">
-          <h4 className="text-sm sm:text-base font-bold text-slate-800 uppercase tracking-wider">Merchant Customer Registry</h4>
-          <p className="text-xs sm:text-sm text-slate-500 font-medium">
-            Total record volume across all categories for each registered merchant
-          </p>
+        <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h4 className="text-sm sm:text-base font-bold text-slate-800 uppercase tracking-wider">Merchant Customer Registry</h4>
+            <p className="text-xs sm:text-sm text-slate-500 font-medium">
+              Total record volume across all categories for each registered merchant
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {canCreate && (
+              <button
+                onClick={() => { setForm(EMPTY_FORM); setFormError(''); setSaveError(''); setShowCreateForm(true); }}
+                className="flex items-center gap-1.5 bg-[#1F3864] hover:bg-blue-900 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition-all shadow-xs cursor-pointer"
+              >
+                <Plus className="w-4 h-4" /> New Customer
+              </button>
+            )}
+            <ExportMenu
+              rows={exportRows}
+              columns={CUSTOMER_COLUMNS}
+              sheetName="Customers"
+              filename="customers"
+              pdfTitle="Merchant Customer Registry"
+              showPdf={true}
+              pdfPortrait={false}
+              meta={{
+                reportName: 'Merchant Customer Export',
+                generatedByName: currentUserName,
+                generatedByRole: currentUserRole,
+              }}
+            />
+          </div>
         </div>
 
         <div className="overflow-x-auto">

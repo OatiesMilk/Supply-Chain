@@ -196,30 +196,21 @@ export default function StatisticalReportView({ currentUserName = '', currentUse
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">
-            <BarChart2 className="w-5 h-5 text-[#0078C1]" />
-            Statistical Report
-          </h2>
-          <p className="text-xs text-slate-400 mt-0.5">On-demand delivery record summary with filters</p>
-        </div>
-        {data && (
-          <StatReportExportMenu
-            data={data}
-            dateFrom={dateFrom}
-            dateTo={dateTo}
-            currentUserName={currentUserName}
-            currentUserRole={currentUserRole}
-          />
-        )}
-      </div>
-
+    <div className="space-y-4">
       {/* Filter bar */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Filters</p>
+      <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-3.5 flex-wrap gap-2">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Filters</p>
+          {data && (
+            <StatReportExportMenu
+              data={data}
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              currentUserName={currentUserName}
+              currentUserRole={currentUserRole}
+            />
+          )}
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
           <div>
             <label className={labelCls}>Date From</label>

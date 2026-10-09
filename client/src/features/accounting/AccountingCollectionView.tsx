@@ -355,45 +355,7 @@ export default function AccountingCollectionView({
   const colPct = { id: 10, company: 28, reference: 18, priority: 10, status: 12, date: 10, amount: 12 };
 
   return (
-    <div className="space-y-6" id="accounting-collection-view">
-      {/* View Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">Accounting Collection</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Track billing statement and payment collection runs. Click any row to open the full record workspace.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {(currentUserRole === 'TASS' || currentUserRole === 'Admin') && (
-            <ExportMenu
-              rows={exportRows}
-              columns={[...DELIVERY_COLUMNS, ...AC_EXTRA_COLUMNS]}
-              pdfColumns={PDF_AC_COLUMNS}
-              sheetName="Accounting Collection"
-              filename="accounting-collection"
-              pdfTitle="Accounting Collection records"
-              showPdf={true}
-              meta={{
-                reportName: 'Accounting Collection Export',
-                generatedByName: currentUserName,
-                generatedByRole: currentUserRole,
-              }}
-              summary={exportSummary}
-              statusHistoryCounts={statusHistoryCounts}
-            />
-          )}
-          {canEdit && (
-            <button
-              onClick={() => { setShowForm(true); setSelectedRecordId(null); }}
-              className="bg-[#1F3864] hover:bg-blue-900 text-white text-[12px] font-bold px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition-all shadow-xs cursor-pointer self-start"
-            >
-              <Plus className="w-4 h-4" /> New Record
-            </button>
-          )}
-        </div>
-      </div>
-
+    <div className="space-y-4" id="accounting-collection-view">
       {/* CREATE FORM */}
       {showForm && canEdit && (
         <div className="bg-white border border-slate-200 shadow-sm rounded-xl p-5 sm:p-7 space-y-6">
@@ -619,6 +581,32 @@ export default function AccountingCollectionView({
                     </select>
                   </label>
                 </FilterPopover>
+                {(currentUserRole === 'TASS' || currentUserRole === 'Admin') && (
+                  <ExportMenu
+                    rows={exportRows}
+                    columns={[...DELIVERY_COLUMNS, ...AC_EXTRA_COLUMNS]}
+                    pdfColumns={PDF_AC_COLUMNS}
+                    sheetName="Accounting Collection"
+                    filename="accounting-collection"
+                    pdfTitle="Accounting Collection records"
+                    showPdf={true}
+                    meta={{
+                      reportName: 'Accounting Collection Export',
+                      generatedByName: currentUserName,
+                      generatedByRole: currentUserRole,
+                    }}
+                    summary={exportSummary}
+                    statusHistoryCounts={statusHistoryCounts}
+                  />
+                )}
+                {canEdit && (
+                  <button
+                    onClick={() => { setShowForm(true); setSelectedRecordId(null); }}
+                    className="bg-[#1F3864] hover:bg-blue-900 text-white text-[12px] font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
+                  >
+                    <Plus className="w-4 h-4" /> New Record
+                  </button>
+                )}
                 <span className="text-[11px] font-bold text-slate-400 tabular-nums shrink-0">{sortedFiltered.length}</span>
               </div>
             </div>

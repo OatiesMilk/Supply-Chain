@@ -99,7 +99,7 @@ export default function MainView({
     if (activeFilter !== "all" && activeFilter !== "draft")
       params.set("status", activeFilter);
 
-    fetch(`${apiUrl('/records/status-history-counts')}?${params}`, {
+    fetch(`${apiUrl("/records/status-history-counts")}?${params}`, {
       credentials: "include",
     })
       .then((r) => (r.ok ? r.json() : null))
@@ -177,35 +177,7 @@ export default function MainView({
   };
 
   return (
-    <div className="space-y-5">
-      {/* Page header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-base font-black text-slate-900 leading-tight">
-            Main
-          </h1>
-          <p className="text-[11px] text-slate-400">
-            All delivery records across every module, newest first.
-          </p>
-        </div>
-        <AllOpsExportMenu
-          records={displayRecords}
-          meta={{
-            reportName: "All Operations",
-            generatedByName: currentUserName,
-            generatedByRole: currentUserRole,
-          }}
-          activeFilterLabel={
-            activeFilter !== "all"
-              ? activeFilter === "draft"
-                ? "Draft Records"
-                : activeFilter + " Records"
-              : undefined
-          }
-          statusHistoryCounts={statusHistoryCounts}
-        />
-      </div>
-
+    <div className="space-y-3">
       {/* Filter shortcut buttons + New Delivery */}
       <div className="flex flex-wrap gap-2 items-center">
         {/* New Delivery — separate, not part of the active filter group */}
@@ -273,6 +245,7 @@ export default function MainView({
           <option value="oldest">Oldest First</option>
           <option value="furthest">Furthest Future First</option>
         </select>
+
         {(dateFrom || dateTo || sortMode !== "nearest") && (
           <button
             onClick={() => {
@@ -285,6 +258,25 @@ export default function MainView({
             Clear
           </button>
         )}
+
+        <div className="flex flex-wrap items-center justify-end gap-3 ml-auto">
+          <AllOpsExportMenu
+            records={displayRecords}
+            meta={{
+              reportName: "All Operations",
+              generatedByName: currentUserName,
+              generatedByRole: currentUserRole,
+            }}
+            activeFilterLabel={
+              activeFilter !== "all"
+                ? activeFilter === "draft"
+                  ? "Draft Records"
+                  : activeFilter + " Records"
+                : undefined
+            }
+            statusHistoryCounts={statusHistoryCounts}
+          />
+        </div>
       </div>
 
       {/* Record count */}

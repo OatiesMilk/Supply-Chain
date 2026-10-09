@@ -194,32 +194,7 @@ export default function TransactionCenter({ currentUserRole, currentUserName }: 
   }));
 
   return (
-    <div className="space-y-6" id="transaction-center">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">Transaction Center</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Unified view of all operational transactions across delivery records and inventory movements.
-          </p>
-        </div>
-        {showExportForRole(currentUserRole) && (
-          <ExportMenu
-            rows={exportRows}
-            columns={TXN_COLUMNS}
-            sheetName="Transactions"
-            filename={`transactions-p${page}`}
-            pdfTitle="Transaction Center Report"
-            showPdf={false}
-            meta={{
-              reportName: 'Transaction Center Export',
-              generatedByName: currentUserName,
-              generatedByRole: currentUserRole,
-            }}
-          />
-        )}
-      </div>
-
+    <div className="space-y-4" id="transaction-center">
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
         {/* Filters bar */}
         <div className="border-b border-slate-200">
@@ -230,7 +205,26 @@ export default function TransactionCenter({ currentUserRole, currentUserName }: 
             <span className="flex items-center gap-1.5 text-[10px] font-black text-slate-400 uppercase tracking-widest">
               <Filter className="w-3.5 h-3.5" /> Filters
             </span>
-            <span className="text-[10px] text-slate-400">{filtersOpen ? 'Collapse ▲' : 'Expand ▼'}</span>
+            <div className="flex items-center gap-3">
+              {showExportForRole(currentUserRole) && (
+                <div onClick={e => e.stopPropagation()}>
+                  <ExportMenu
+                    rows={exportRows}
+                    columns={TXN_COLUMNS}
+                    sheetName="Transactions"
+                    filename={`transactions-p${page}`}
+                    pdfTitle="Transaction Center Report"
+                    showPdf={false}
+                    meta={{
+                      reportName: 'Transaction Center Export',
+                      generatedByName: currentUserName,
+                      generatedByRole: currentUserRole,
+                    }}
+                  />
+                </div>
+              )}
+              <span className="text-[10px] text-slate-400">{filtersOpen ? 'Collapse ▲' : 'Expand ▼'}</span>
+            </div>
           </div>
 
           {filtersOpen && (

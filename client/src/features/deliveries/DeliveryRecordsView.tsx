@@ -32,8 +32,8 @@ import { dateRangeAfterFromChange, dateRangeState } from '@/utils/dateRange';
 
 interface DeliveryRecordsViewProps {
   category: DeliveryCategory;
-  title: string;
-  subtitle: string;
+  title?: string;
+  subtitle?: string;
   records: DeliveryRecord[];
   companies: ApiCompany[];
   currentUserRole: UserRole;
@@ -533,19 +533,15 @@ export default function DeliveryRecordsView({
       : { id: 13, company: 26, area: 13, date: 22, driver: 13, status: 13 };
 
   return (
-    <div className="space-y-6 print:space-y-2" id={`records-view-${category.toLowerCase().replace(/\s+/g, '-')}`}>
+    <div className="space-y-3 print:space-y-2" id={`records-view-${category.toLowerCase().replace(/\s+/g, '-')}`}>
       {bulkResult && (
         <div role={bulkResult.ok ? 'status' : 'alert'} className={`rounded-lg border px-4 py-3 text-sm ${bulkResult.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
           {bulkResult.message}
         </div>
       )}
-      {/* View Header */}
-      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b border-gray-100 pb-4 print:hidden">
-        <div className="min-w-[16rem] flex-1">
-          <h2 className="text-xl font-bold text-gray-900">{title}</h2>
-          <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-3 print:hidden" id="records-toolbar">
+        {/* View Actions */}
+        <div className="flex items-center justify-end gap-2 flex-wrap">
           {showExports && (
             <ExportMenu
               rows={exportRows}
@@ -662,10 +658,9 @@ export default function DeliveryRecordsView({
             </button>
           )}
         </div>
-      </div>
 
-      {/* Date Range Controls (Always mounted) */}
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap gap-3 items-end text-xs print:hidden" id="date-range-filters">
+        {/* Date Range Controls (Always mounted) */}
+        <div className="flex flex-wrap gap-3 items-end text-xs" id="date-range-filters">
         <div className="space-y-1 flex-1 min-w-[120px]">
           <label htmlFor="dateFrom" className="font-bold text-slate-700 block">Date From</label>
           <input
@@ -723,6 +718,7 @@ export default function DeliveryRecordsView({
             <X className="w-3.5 h-3.5" /> Clear
           </button>
         )}
+        </div>
       </div>
 
       {/* TASS filter controls */}

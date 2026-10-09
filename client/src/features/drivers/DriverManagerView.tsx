@@ -96,18 +96,9 @@ export default function DriverManagerView({
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {actionError && <div role="alert" className="p-3 bg-red-50 text-red-700 rounded">{actionError}</div>}
       {saving && <div role="status">Saving changes...</div>}
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-base font-black text-slate-900 leading-tight">Driver Manager</h1>
-          <p className="text-[11px] text-slate-400">
-            Manage drivers and assistants. Changes here reflect across all modules.
-          </p>
-        </div>
-      </div>
 
       {/* Tabs + Controls */}
       <div className="flex flex-wrap gap-2 items-center justify-between">
