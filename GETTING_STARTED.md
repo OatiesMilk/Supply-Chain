@@ -144,10 +144,11 @@ accepting an automatic reset.
 
 ### Secure local demo and UAT seeds (TSK-122)
 
-Anonymous demo/UAT seed HTTP endpoints were removed. The Admin-only Navbar and
-Data Sampler reset buttons remain available **only** when the backend verifies
-an opted-in disposable local sandbox. Deployed staging and production always
-deny resets. The login screen cannot trigger a destructive reset.
+Anonymous demo/UAT seed HTTP endpoints and the portal's destructive reset
+buttons were removed. The remaining guarded reset API fails closed unless the
+backend verifies an opted-in disposable local sandbox. Deployed staging and
+production always deny resets. The login screen cannot trigger a destructive
+reset.
 
 On a **disposable local PostgreSQL database** named `*_sandbox` or `*_test`,
 set `DATABASE_URL` in `server/.env` to the local loopback PostgreSQL URL;
