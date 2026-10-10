@@ -286,7 +286,7 @@ test.describe('X Cross-Role Integration', () => {
       const dispatchTab2 = logisticsPage2.getByRole('tab', { name: /dispatch|logistics/i });
       if (await dispatchTab2.isVisible()) {
         await dispatchTab2.click();
-        await expect(logisticsPage2.getByText(/time in/i)).toBeVisible({ timeout: 8_000 });
+        await expect(logisticsPage2.getByText(/time in/i).first()).toBeVisible({ timeout: 8_000 });
       }
     }
 
