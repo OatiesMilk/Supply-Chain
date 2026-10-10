@@ -197,7 +197,18 @@ test.describe('C-2 ePOD Flow', () => {
   });
 
   test('C-2.10 Confirm button is disabled without remarks', async ({ page }) => {
-    // Click Accomplish
+    // 1. Upload Photo
+    const pngPath = path.join('/tmp', 'uat_pod.png');
+    fs.writeFileSync(pngPath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'));
+    const fileInput = page.locator('input[type="file"]').first();
+    await fileInput.setInputFiles(pngPath);
+    await expect(page.getByText('uat_pod.png')).toBeVisible({ timeout: 15_000 });
+    fs.unlinkSync(pngPath);
+
+    // 2. Fill Received By
+    await page.getByPlaceholder(/received.*item|name of person/i).first().fill('Juan dela Cruz (UAT)');
+
+    // 3. Click Accomplish
     const accomplishBtn = page.getByRole('button', { name: /accomplish/i }).first();
     try {
       await accomplishBtn.waitFor({ state: 'visible', timeout: 3000 });
@@ -214,6 +225,18 @@ test.describe('C-2 ePOD Flow', () => {
   });
 
   test('C-2.8 Full Accomplish flow with remarks', async ({ page }) => {
+    // 1. Upload Photo
+    const pngPath = path.join('/tmp', 'uat_pod.png');
+    fs.writeFileSync(pngPath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'));
+    const fileInput = page.locator('input[type="file"]').first();
+    await fileInput.setInputFiles(pngPath);
+    await expect(page.getByText('uat_pod.png')).toBeVisible({ timeout: 15_000 });
+    fs.unlinkSync(pngPath);
+
+    // 2. Fill Received By
+    await page.getByPlaceholder(/received.*item|name of person/i).first().fill('Juan dela Cruz (UAT)');
+
+    // 3. Click Accomplish
     const accomplishBtn = page.getByRole('button', { name: /accomplish/i }).first();
     try {
       await accomplishBtn.waitFor({ state: 'visible', timeout: 3000 });
