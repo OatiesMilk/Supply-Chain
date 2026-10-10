@@ -159,7 +159,7 @@ test.describe('C-2 ePOD Flow', () => {
     const pngBuf = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
     fs.writeFileSync(pngPath, pngBuf);
 
-    const fileInput = page.locator('input[type="file"]').last();
+    const fileInput = page.locator('input[type="file"]').first();
     await fileInput.setInputFiles(pngPath);
 
     await expect(page.getByText('uat_pod.png')).toBeVisible({ timeout: 15_000 });
@@ -179,7 +179,7 @@ test.describe('C-2 ePOD Flow', () => {
 
     const pdfPath = path.join('/tmp', 'uat_supporting_document.pdf');
     fs.writeFileSync(pdfPath, '%PDF-1.4 UAT supporting document');
-    await page.locator('input[type="file"]').last().setInputFiles(pdfPath);
+    await page.locator('input[type="file"]').first().setInputFiles(pdfPath);
     await expect(page.getByText('uat_supporting_document.pdf')).toBeVisible({ timeout: 15_000 });
     fs.unlinkSync(pdfPath);
   });
