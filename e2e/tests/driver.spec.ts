@@ -126,6 +126,10 @@ test.describe('C-2 ePOD Flow', () => {
     await timeInBtn.click();
     await page.waitForTimeout(1000);
 
+    // Enter remarks in modal
+    await page.getByPlaceholder(/remarks/i).fill('Started run via mobile app');
+    await page.getByRole('button', { name: /^confirm$/i }).click();
+
     // Time In button should be gone, replaced by a confirmation banner
     await expect(page.getByText(/time in recorded/i)).toBeVisible({ timeout: 8_000 });
   });
@@ -159,7 +163,7 @@ test.describe('C-2 ePOD Flow', () => {
     await fileInput.setInputFiles(pngPath);
 
     await expect(page.getByText('uat_pod.png')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText(/delivery photo saved/i)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/delivery photo ready/i)).toBeVisible({ timeout: 15_000 });
 
     fs.unlinkSync(pngPath);
   });
