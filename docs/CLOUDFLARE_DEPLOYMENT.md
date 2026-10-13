@@ -22,6 +22,20 @@ Set this Worker runtime variable in Cloudflare:
 API_BASE_URL="https://supply-chain-9fnl.onrender.com"
 ```
 
+Also set these for request security (AUD-003):
+
+- **Worker secret `PROXY_SHARED_SECRET`** and the same value as the Render
+  environment variable `PROXY_SHARED_SECRET`. The Worker then forwards the
+  visitor's address (`CF-Connecting-IP`) to the API, which uses it for rate
+  limits. Without it every visitor is counted as one address.
+- **Render `CLIENT_ORIGIN`** (and `APP_URL` if SSO is configured) must be the
+  public Cloudflare origin, for example `https://portal.microgenesis.com`. The
+  API refuses writes whose `Origin` is not one of these.
+
+The Worker also adds the Content-Security-Policy and related headers to the
+HTML it serves. The policy string in `worker.js` must match the one in
+`server/src/middleware/security.ts`; `npm run test:server` fails if they differ.
+
 The Cloudflare Workers build configuration is:
 
 ```text

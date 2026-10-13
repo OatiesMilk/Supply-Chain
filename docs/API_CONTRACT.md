@@ -164,3 +164,31 @@ Both `POST /api/auth/login` and `GET /api/auth/me` return `id`, `name`, `email`,
 ## 9. Microsoft SSO pre-approval (AUD-002)
 
 Only a configured corporate tenant GUID is accepted. Unknown/unapproved users cannot sign in. Existing `microsoftOid` values inherited from historical auto-provisioning are explicitly unapproved (the new `microsoftApprovedAt` column starts NULL). An authorized Admin must link/reapprove the specific tenant's user object ID using `PUT /api/users/:id/microsoft-identity` with `{ "microsoft_oid": "<the Entra user object GUID>" }`; send `null` to revoke. The operation is audited and rejects duplicate OIDs; password login is unchanged. Check the UPN/email and the Entra tenant before approval. No user is auto-created from a Microsoft callback. OAuth state is stored only as a digest, expires after five minutes and is consumed with an atomic delete before token redemption.
+
+## 10. Request security (AUD-003)
+
+Applied to every `/api` request by `applySecurity()` in `server/src/middleware/security.ts`, before any route handler.
+
+**CSRF.** The production session cookie is `SameSite=None` (required for the Microsoft Teams tab), so writes are checked explicitly:
+
+| Check | Applies to | Failure |
+| :--- | :--- | :--- |
+| Origin: `Sec-Fetch-Site: same-origin`, or an `Origin` that is in `CLIENT_ORIGIN` / `APP_URL` / `TRUSTED_ORIGINS` or matches the request host | All `POST`, `PUT`, `PATCH`, `DELETE` | `403 { "error": "Cross-site request blocked" }`, header `X-CSRF-Error: origin` |
+| Token: `X-CSRF-Token` request header equal to the session's token | The same methods when a valid session cookie is sent, except `/auth/login`, `/auth/logout`, `/auth/microsoft` | `403`, header `X-CSRF-Error: token` |
+
+The token is returned in the `X-CSRF-Token` **response header** of a successful login and of every authenticated response (for example `GET /auth/me`). It is bound to one sign-in and is never placed in a cookie or response body. The web client stores it in memory and adds it automatically; other clients must read it from `/auth/me` and send it back on writes. Requests with neither `Origin` nor `Sec-Fetch-Site` (non-browser clients) pass the origin check but still need the token when they send a session cookie.
+
+**Rate limits.** Exceeding a limit returns `429 { "error": "Too many requests. Please wait and try again." }` with `Retry-After` and `RateLimit` headers. Defaults are in `server/src/middleware/rateLimits.ts`.
+
+| Scope | Counted per | Limit |
+| :--- | :--- | :--- |
+| `POST /auth/login`, failed attempts only | client address + email | 5 / 15 min |
+| `POST /auth/login`, failed attempts only | client address | 20 / 15 min |
+| `/auth/microsoft*` | client address | 60 / 15 min |
+| `POST /notifications/send-email`, `POST /admin/test-email` | user | 10 / min |
+| `POST /records/:id/attachments` | user | 30 / 10 min |
+| All `/api` except `/health` | user, or client address when signed out | 600 / min |
+
+Counters are in process memory (single API instance) and reset on restart. The client address is the socket peer unless the request carries the Worker's `PROXY_SHARED_SECRET` headers or `TRUST_PROXY` is set; `X-Forwarded-For` is otherwise ignored.
+
+**Response headers.** Helmet defaults plus a Content-Security-Policy that allows only same-origin scripts and connections and limits framing (`frame-ancestors`) to the portal itself and Microsoft Teams hosts. `X-Frame-Options` is intentionally not sent because it cannot allow Teams. `worker.js` sends the same policy with the frontend HTML.

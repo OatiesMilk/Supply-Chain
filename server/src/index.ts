@@ -27,6 +27,7 @@ import dataSamplerRoutes from './routes/data-sampler';
 import reportsRoutes from './routes/reports';
 import driversRoutes from './routes/drivers';
 import { uploadErrorHandler } from './middleware/uploadErrors';
+import { applySecurity } from './middleware/security';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -53,6 +54,8 @@ app.use(cors({ origin: CLIENT_ORIGIN, credentials: true }));
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(cookieParser());
+// AUD-003: must stay ahead of every route below.
+applySecurity(app);
 
 // Render polls this before routing live traffic to a new instance (see
 // `healthCheckPath` in render.yaml), so it must actually verify the service
