@@ -30,6 +30,9 @@ export * from './DriverManagerPage';
 export { default as DriverBoardPage } from './DriverBoardPage';
 export * from './DriverBoardPage';
 
+export { default as DriversPage } from './DriversPage';
+export * from './DriversPage';
+
 export { default as CalendarPage } from './CalendarPage';
 export * from './CalendarPage';
 

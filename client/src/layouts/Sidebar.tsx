@@ -4,7 +4,6 @@ import {
   Layers,
   LayoutDashboard,
   Truck,
-  Route,
   ContactRound,
   ShieldCheck,
   RotateCcw,
@@ -12,7 +11,6 @@ import {
   Users,
   Building2,
   Calendar,
-  Columns,
   BarChart3,
   BookOpen,
   ArrowLeftRight,
@@ -26,6 +24,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { UserRole } from '@/types';
+import { driverLandingScreen, isDriverScreen } from '@/routes/screenRouting';
 
 export interface SidebarProps {
   currentScreen: string;
@@ -212,8 +211,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     hideTooltip(true);
   };
 
-  const navItemClass = (screen: string, special = false) => {
-    const active = currentScreen === screen;
+  const navItemClass = (screen: string, special = false, active = currentScreen === screen) => {
     const base = 'w-full px-4 py-2.5 flex items-center justify-between text-left transition-colors relative cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white';
     const compact = isCollapsed ? ' lg:h-11 lg:w-11 lg:mx-auto lg:justify-center lg:px-0 lg:py-0 lg:rounded-lg' : '';
     const activeStyle = isCollapsed
@@ -226,12 +224,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return base + compact + (active ? (special && !isCollapsed ? specialActiveStyle : activeStyle) : normalStyle);
   };
 
+  // One entry for the three driver screens; it opens the last tab the user had
+  // open, or the first one they are granted.
+  const driversScreen = driverLandingScreen(canAccess);
+
   const renderNavItem = (
     screen: string,
     label: string,
     Icon: LucideIcon,
     activeCount?: number,
     special = false,
+    active = currentScreen === screen,
   ) => {
     if (!canAccess(screen)) return null;
     const countText = activeCount && activeCount > 0
@@ -257,7 +260,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         aria-label={accessibleLabel}
         aria-describedby={isCollapsed ? tooltipId : undefined}
         data-sidebar-tooltip={accessibleLabel}
-        className={navItemClass(screen, special)}
+        className={navItemClass(screen, special, active)}
       >
         <span className={'flex items-center space-x-3' + (isCollapsed ? ' lg:space-x-0' : '')}>
           <Icon className={'w-5 h-5 shrink-0' + (special ? ' text-amber-400' : '')} />
@@ -346,11 +349,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             {renderNavItem('customers', 'Customers', Users)}
             {renderNavItem('suppliers', 'Suppliers', Building2)}
-            {renderNavItem('driver', 'Driver View', Route)}
-            {renderNavItem('driver_manager', 'Driver Manager', ContactRound)}
+            {driversScreen && renderNavItem(driversScreen, 'Drivers', ContactRound, undefined, false, isDriverScreen(currentScreen))}
             {renderNavItem('admin', 'Admin Panel', ShieldCheck)}
             {renderNavItem('calendar', 'Delivery Calendar', Calendar)}
-            {renderNavItem('driver_board', 'Driver Board', Columns)}
             {renderNavItem('statistical_reports', 'Reports', BarChart3)}
             {renderNavItem('am_directory', 'AM Directory', BookOpen)}
             {renderNavItem('transactions', 'Transaction Center', ArrowLeftRight)}
