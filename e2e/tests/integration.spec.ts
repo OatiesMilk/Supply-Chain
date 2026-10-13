@@ -31,6 +31,13 @@ async function getNotifications(context: BrowserContext) {
   return await response.json() as { record_id: string | null; title: string; message: string }[];
 }
 
+// AUD-003: direct API writes must echo the signed-in session's CSRF token.
+async function csrfHeaders(context: BrowserContext) {
+  const session = await context.request.get(`${BASE_URL}/api/auth/me`);
+  expect(session.ok(), 'the session should be available to read its CSRF token').toBeTruthy();
+  return { 'X-CSRF-Token': session.headers()['x-csrf-token'] };
+}
+
 function manilaToday() {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -101,6 +108,7 @@ test.describe('X Cross-Role Integration', () => {
       await expect(salesPage.getByRole('tab', { name: /dispatch & logistics/i })).not.toBeVisible();
       console.log('TSK-120: Testing assignment denial');
       const salesAssignmentAttempt = await salesCtx.request.put(`${BASE_URL}/api/records/${recordId}`, {
+        headers: await csrfHeaders(salesCtx),
         data: { driver: 'John Doe', remarks: 'Sales Coordinator assignment denial check.' },
       });
       expect(salesAssignmentAttempt.ok()).toBeTruthy();
@@ -120,6 +128,7 @@ test.describe('X Cross-Role Integration', () => {
       await expect(draftDriverSelect).toBeDisabled();
 
       const draftAssignmentAttempt = await logisticsCtx.request.put(`${BASE_URL}/api/records/${recordId}`, {
+        headers: await csrfHeaders(logisticsCtx),
         data: { driver: 'John Doe', remarks: 'Draft assignment denial check.' },
       });
       expect(draftAssignmentAttempt.status()).toBe(400);
@@ -170,7 +179,7 @@ test.describe('X Cross-Role Integration', () => {
     } finally {
       if (recordId && salesCtx) {
         try {
-          const cleanup = await salesCtx.request.delete(`${BASE_URL}/api/records/${recordId}`);
+          const cleanup = await salesCtx.request.delete(`${BASE_URL}/api/records/${recordId}`, { headers: await csrfHeaders(salesCtx) });
           if (!cleanup.ok() && cleanup.status() !== 404) console.warn(`TSK-120 cleanup returned ${cleanup.status()} for ${recordId}`);
         } catch (error) {
           console.warn(`TSK-120 cleanup failed for ${recordId}:`, error);

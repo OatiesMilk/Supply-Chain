@@ -32,16 +32,36 @@ export class ApiError extends Error {
   }
 }
 
+// AUD-003: the server hands every authenticated response the session's
+// anti-CSRF token in this header and requires it back on writes. It is kept in
+// memory only; a reload gets a fresh copy from the session check.
+const CSRF_HEADER = 'X-CSRF-Token';
+let csrfToken: string | null = null;
+
+async function send(path: string, options: RequestInit): Promise<Response> {
+  const res = await fetch(apiUrl(path), {
+    credentials: 'include',
+    ...options,
+    headers: {
+      ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+      ...(csrfToken ? { [CSRF_HEADER]: csrfToken } : {}),
+      ...(options.headers || {}),
+    },
+  });
+  csrfToken = res.headers.get(CSRF_HEADER) ?? csrfToken;
+  return res;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(apiUrl(path), {
-      credentials: 'include',
-      headers: options.body instanceof FormData
-        ? { ...(options.headers || {}) }
-        : { 'Content-Type': 'application/json', ...(options.headers || {}) },
-      ...options
-    });
+    res = await send(path, options);
+    // The token is tied to the current sign-in, so one from before a re-login
+    // (for example in another tab) is refused. Fetch the current one and retry once.
+    if (res.status === 403 && res.headers.get('X-CSRF-Error') === 'token') {
+      await send('/auth/me', {});
+      res = await send(path, options);
+    }
   } catch (error) {
     if (!(error instanceof DOMException && error.name === 'AbortError')) requestServerCheck();
     throw error;

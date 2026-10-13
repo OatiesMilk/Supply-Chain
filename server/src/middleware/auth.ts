@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
+import { createHmac } from 'node:crypto';
 import { prisma } from '../db';
 import { asyncRoute } from './asyncRoute';
 import { sessionUser, type Screen, type Resource, type Permission } from '../services/permissions';
@@ -40,8 +41,34 @@ export function signToken(user: Pick<AuthUser, 'id' | 'name' | 'email' | 'role'>
   return jwt.sign(user, JWT_SECRET, { expiresIn: '8h' });
 }
 
+// The session JWT as issued: the fields CSRF and rate-limit checks need
+// without a database read.
+export type SessionClaims = Pick<AuthUser, 'id'> & { iat?: number };
+
+// Signature-checked session from the cookie, or null. This does not confirm the
+// account still exists or is active; requireAuth does that.
+export function readSession(req: Request): SessionClaims | null {
+  const token = req.cookies?.[COOKIE_NAME];
+  if (!token) return null;
+  try {
+    return jwt.verify(token, JWT_SECRET) as SessionClaims;
+  } catch {
+    return null;
+  }
+}
+
+// AUD-003: anti-CSRF token bound to one signed session (user + issue time).
+// The browser receives it in a response header that only same-origin script
+// can read, and must echo it on every cookie-authenticated write.
+export const CSRF_HEADER = 'X-CSRF-Token';
+
+export function csrfToken(session: SessionClaims): string {
+  return createHmac('sha256', JWT_SECRET).update(`csrf:${session.id}:${session.iat ?? 0}`).digest('base64url');
+}
+
 export function setSessionCookie(res: Response, token: string) {
   const isProd = process.env.NODE_ENV === 'production';
+  res.setHeader(CSRF_HEADER, csrfToken(jwt.decode(token) as SessionClaims));
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: isProd ? 'none' : 'lax',
@@ -64,9 +91,9 @@ export const requireAuth = asyncRoute(async (req: Request, res: Response, next: 
   if (!token) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
-  let payload: AuthUser;
+  let payload: AuthUser & SessionClaims;
   try {
-    payload = jwt.verify(token, JWT_SECRET) as AuthUser;
+    payload = jwt.verify(token, JWT_SECRET) as AuthUser & SessionClaims;
   } catch {
     return res.status(401).json({ error: 'Invalid or expired session' });
   }
@@ -86,6 +113,7 @@ export const requireAuth = asyncRoute(async (req: Request, res: Response, next: 
     ? { ...session, driverProfileId: user.driverProfile?.type === 'DRIVER' ? user.driverProfile.id : null }
     : session;
   res.setHeader('Cache-Control', 'no-store');
+  res.setHeader(CSRF_HEADER, csrfToken(payload));
   next();
 });
 
