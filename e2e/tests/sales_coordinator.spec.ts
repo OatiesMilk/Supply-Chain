@@ -368,8 +368,8 @@ test.describe('A-3 Edit a Record', () => {
   test('A-3.9 TSK-124 Priority is read-only on a Delivered record', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
-    const delivered = page.getByRole('row').filter({ hasText: /delivered/i }).first();
-    test.skip(!(await delivered.isVisible()), 'No Delivered delivery in the seeded data');
+    const delivered = page.getByRole('row').filter({ hasText: 'REC-UAT-DELIVERED-' }).first();
+    await expect(delivered, 'The UAT seed must provide its completed delivery fixture').toBeVisible();
     await delivered.click();
 
     await expect(page.getByText('Priority is locked after delivery.')).toBeVisible();
