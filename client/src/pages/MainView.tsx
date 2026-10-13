@@ -24,7 +24,7 @@ interface MainViewProps {
       | "modified_at"
       | "email_notification_sent"
     >,
-  ) => Promise<void>;
+  ) => Promise<DeliveryRecord>;
   effectiveScreens: Set<string>;
 }
 

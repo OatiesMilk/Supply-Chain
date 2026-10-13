@@ -4,12 +4,13 @@ import { Plus, X, Check, FileText, UploadCloud, Wand2 } from 'lucide-react';
 import { DeliveryRecord, DeliveryCategory, DeliveryStatus, OutputActionConfig, OutputActionTrigger } from '@/types';
 import { AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, ACCOUNT_MANAGERS } from '@/data';
 import { runOutputActions } from '@/outputActions';
-import { ApiCompany } from '@/api';
+import { api, ApiCompany } from '@/api';
 import OutputActionsPanel from '@/features/deliveries/OutputActionsPanel';
 import ComboboxField from '@/components/ComboboxField';
 import { POD_ATTACHMENT_ACCEPT, getPodAttachmentRejection } from '@/utils/attachmentValidation';
 import { selectDemoLocation } from '@/utils/demoLocations';
 import { notify } from '@/utils/notify';
+import { uploadPendingRecordAttachments, type StagedRecordAttachment } from '@/utils/recordAttachments';
 
 // ── Sample-data tables (moved here from DeliveryRecordsView) ──────────────────
 
@@ -143,12 +144,12 @@ export interface RecordCreateFormProps {
   availableCategories?: DeliveryCategory[];
   onCategoryChange?: (cat: DeliveryCategory) => void;
   companies: ApiCompany[];
-  onSubmit: (data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>) => Promise<void>;
+  onSubmit: (data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>) => Promise<DeliveryRecord>;
   onCancel: () => void;
   // Optional: output action integration — only provided by DeliveryRecordsView
   outputActionConfigs?: Record<OutputActionTrigger, OutputActionConfig>;
   onUpdateOutputActionConfig?: (trigger: OutputActionTrigger, patch: Partial<OutputActionConfig>) => void;
-  onAfterSubmit?: (bannerData: { referenceLabel: string; lines: string[] }) => void;
+  onAfterSubmit?: (bannerData: { recordId: string; referenceLabel: string; lines: string[] }) => void;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -168,7 +169,8 @@ export default function RecordCreateForm({
   const [form, setForm] = useState<RecordFormState>(() => buildEmptyForm(category));
   const [saving, setSaving] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
-  const [attachmentNames, setAttachmentNames] = useState<string[]>([]);
+  const [stagedAttachments, setStagedAttachments] = useState<StagedRecordAttachment[]>([]);
+  const [createdRecordInfo, setCreatedRecordInfo] = useState<{ id: string; referenceLabel: string; lines: string[]; isDraft: boolean } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -217,13 +219,21 @@ export default function RecordCreateForm({
     input.value = '';
     if (selectedFiles.length === 0) return;
 
-    const rejection = getPodAttachmentRejection(selectedFiles);
+    const rejection = getPodAttachmentRejection([...stagedAttachments.map(attachment => attachment.file), ...selectedFiles]);
     if (rejection) {
       notify.fileRejected(rejection.fileName, rejection.reason);
       return;
     }
 
-    setAttachmentNames(prev => [...prev, ...selectedFiles.map(file => file.name)]);
+    const batchId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setStagedAttachments(prev => [
+      ...prev,
+      ...selectedFiles.map((file, index) => ({
+        id: `${batchId}-${index}`,
+        file,
+        status: 'pending' as const,
+      })),
+    ]);
   };
 
   const handleCompanySelect = (name: string) => {
@@ -232,9 +242,46 @@ export default function RecordCreateForm({
     setForm(prev => ({ ...prev, company_name: name, company_id: company?.id || '' }));
   };
 
+  const updateAttachmentStatus = (id: string, status: StagedRecordAttachment['status'], error?: string) => {
+    setStagedAttachments(prev => prev.map(attachment => {
+      if (attachment.id !== id) return attachment;
+      const next = { ...attachment, status };
+      if (error) next.error = error;
+      else delete next.error;
+      return next;
+    }));
+  };
+
+  const uploadAttachments = (recordId: string, attachments = stagedAttachments) =>
+    uploadPendingRecordAttachments(recordId, attachments, api, updateAttachmentStatus);
+
+  const finishCreatedRecord = (info: NonNullable<typeof createdRecordInfo>) => {
+    onAfterSubmit?.({ recordId: info.id, referenceLabel: info.referenceLabel, lines: info.lines });
+    setForm(buildEmptyForm(form.category));
+    setStagedAttachments([]);
+    setCreatedRecordInfo(null);
+    onCancel();
+  };
+
+  const handleRetryAttachments = async () => {
+    if (!createdRecordInfo || saving) return;
+    setSaving(true);
+    try {
+      const complete = await uploadAttachments(createdRecordInfo.id);
+      if (!complete) {
+        notify.error(`Record ${createdRecordInfo.id} is saved. Some attachments still need to be uploaded; retry them here.`);
+        return;
+      }
+      notify.success('All record attachments uploaded');
+      finishCreatedRecord(createdRecordInfo);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (saving) return;
+    if (saving || createdRecordInfo) return;
     const isDraft = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "draft";
     const errors = submissionErrors(form, isDraft);
 
@@ -253,16 +300,18 @@ export default function RecordCreateForm({
     let bannerLines: string[] = [];
 
     setSaving(true);
+    let createdRecord: DeliveryRecord;
+    let createdInfo: { id: string; referenceLabel: string; lines: string[]; isDraft: boolean };
     try {
       if (!isDraft && outputActionConfigs) {
         const creationOutput = await runOutputActions('Record Created', outputActionConfigs['Record Created'], { amName: form.account_manager });
         outputActionLog = creationOutput.newEntries;
         bannerLines = creationOutput.banners.length > 0
           ? creationOutput.banners
-          : creationOutput.newEntries.map((e: any) => e.message);
+          : creationOutput.newEntries.map((entry: any) => entry.message);
       }
 
-      await onSubmit({
+      createdRecord = await onSubmit({
         ...form,
         driver: '',
         driver_assistants: [],
@@ -271,10 +320,22 @@ export default function RecordCreateForm({
         status: isDraft ? 'Draft' : 'Scheduled',
         item_type: form.item_type as DeliveryRecord['item_type'],
         is_draft: isDraft ? 'Yes' : 'No',
-        line_items: form.line_items,
-        attachments: attachmentNames,
-        output_actions_log: outputActionLog
+        attachments: [],
+        output_actions_log: outputActionLog,
       });
+      createdInfo = {
+        id: createdRecord.id,
+        referenceLabel: form.reference || form.company_name,
+        lines: bannerLines,
+        isDraft,
+      };
+      setCreatedRecordInfo(createdInfo);
+
+      const allUploaded = await uploadAttachments(createdRecord.id);
+      if (!allUploaded) {
+        notify.error(`Record ${createdRecord.id} was created. Some attachments still need to be uploaded; retry them below.`);
+        return;
+      }
       notify.success(isDraft ? 'Draft saved' : 'Record submitted');
     } catch (error) {
       notify.error(error instanceof Error ? error.message : 'Could not create the record. Please try again.');
@@ -283,17 +344,38 @@ export default function RecordCreateForm({
       setSaving(false);
     }
 
-    if (onAfterSubmit) {
-      onAfterSubmit({ referenceLabel: form.reference || form.company_name, lines: bannerLines });
-    }
-
-    // Reset and close
-    setForm(buildEmptyForm(form.category));
-    setAttachmentNames([]);
-    onCancel();
+    finishCreatedRecord(createdInfo);
   };
 
   const cat = form.category;
+
+  if (createdRecordInfo) {
+    return (
+      <div className="bg-white border border-amber-200 shadow-sm rounded-xl p-5 sm:p-7 space-y-4 print:hidden" role="status">
+        <div>
+          <h3 className="text-base font-bold text-slate-900">Record created: {createdRecordInfo.referenceLabel}</h3>
+          <p className="text-xs text-slate-600 mt-1">Record ID: <span className="font-mono font-bold">{createdRecordInfo.id}</span></p>
+          <p className="text-xs text-amber-800 mt-2">The record is saved. Retry the remaining file uploads here; this will not create another record.</p>
+        </div>
+        <div className="space-y-2">
+          {stagedAttachments.map(attachment => (
+            <div key={attachment.id} className="flex items-start gap-2 bg-slate-50 border border-slate-200 rounded px-3 py-2">
+              <FileText className="w-4 h-4 text-[#1F3864] mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <p className="font-mono text-xs text-slate-700 break-all">{attachment.file.name}</p>
+                <p className={`text-[10px] font-semibold ${attachment.status === 'uploaded' ? 'text-emerald-700' : attachment.status === 'failed' ? 'text-red-600' : 'text-amber-700'}`}>
+                  {attachment.status === 'uploaded' ? 'Uploaded' : attachment.status === 'uploading' ? 'Uploading…' : attachment.status === 'failed' ? `Upload failed: ${attachment.error ?? 'Please retry.'}` : 'Waiting to upload'}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+        <button type="button" onClick={handleRetryAttachments} disabled={saving} className="px-5 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg disabled:opacity-50">
+          {saving ? 'Uploading…' : 'Retry incomplete uploads'}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white border border-slate-200 shadow-sm rounded-xl p-5 sm:p-7 space-y-6 print:hidden">
@@ -493,16 +575,17 @@ export default function RecordCreateForm({
               className="border-2 border-dashed border-slate-300 rounded-xl p-5 text-center flex flex-col items-center justify-center gap-2 cursor-pointer bg-slate-50/50 hover:bg-slate-50 transition-all"
             >
               <UploadCloud className="w-8 h-8 text-slate-400" />
-              <p className="font-bold text-slate-600">Click to upload (mock, no file is actually stored)</p>
+              <p className="font-bold text-slate-600">Click to select files</p>
               <p className="text-[10px] text-slate-400">PDF, JPG/JPEG, PNG, or DOC up to 10 MB each</p>
               <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept={POD_ATTACHMENT_ACCEPT} multiple className="hidden" />
             </div>
-            {attachmentNames.length > 0 && (
+            {stagedAttachments.length > 0 && (
               <div className="mt-2 space-y-1">
-                {attachmentNames.map((name, idx) => (
-                  <div key={idx} className="flex items-center gap-2 bg-slate-100 border border-slate-200 rounded px-2 py-1">
+                {stagedAttachments.map(attachment => (
+                  <div key={attachment.id} className="flex items-center gap-2 bg-slate-100 border border-slate-200 rounded px-2 py-1">
                     <FileText className="w-3.5 h-3.5 text-[#1F3864]" />
-                    <span className="font-mono text-[10px] text-slate-700">{name}</span>
+                    <span className="font-mono text-[10px] text-slate-700">{attachment.file.name}</span>
+                    <span className="ml-auto text-[10px] text-slate-500">Ready to upload</span>
                   </div>
                 ))}
               </div>
