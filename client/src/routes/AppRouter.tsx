@@ -45,7 +45,7 @@ export interface AppRouterProps {
   effectiveScreens: Set<string>;
   canAccess: (screen: string) => boolean;
   handleNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
-  handleCreateRecord: (data: any) => Promise<void>;
+  handleCreateRecord: (data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>) => Promise<DeliveryRecord>;
   handleUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   handleVerifyCollection: (id: string) => Promise<void>;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;

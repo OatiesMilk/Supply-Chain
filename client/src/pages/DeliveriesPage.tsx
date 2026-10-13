@@ -16,7 +16,7 @@ export interface DeliveriesPageProps {
   companies: ApiCompany[];
   currentUserRole: UserRole;
   currentUserName: string;
-  onCreateRecord: (data: any) => Promise<void>;
+  onCreateRecord: (data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>) => Promise<DeliveryRecord>;
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   onVerifyCollection?: (id: string) => Promise<void>;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;

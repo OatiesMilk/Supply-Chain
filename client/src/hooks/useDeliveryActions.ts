@@ -38,7 +38,7 @@ export function useDeliveryActions({
       'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'
     >
   ) => {
-    await createRecordMutation.mutateAsync(data);
+    return createRecordMutation.mutateAsync(data);
   };
 
   const handleUpdateRecord = async (id: string, updates: Partial<DeliveryRecord>) => {

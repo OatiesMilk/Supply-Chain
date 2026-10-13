@@ -40,7 +40,7 @@ interface DeliveryRecordsViewProps {
   companies: ApiCompany[];
   currentUserRole: UserRole;
   currentUserName: string;
-  onCreateRecord: (data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>) => Promise<void>;
+  onCreateRecord: (data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>) => Promise<DeliveryRecord>;
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   onVerifyCollection: (id: string) => Promise<void>;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;
@@ -114,7 +114,7 @@ export default function DeliveryRecordsView({
     appliedDateTo,
   } = dateRangeState(dateFrom, dateTo, enforceDeliveryDateRange);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [creationBanner, setCreationBanner] = useState<{ recordId: string; lines: string[] } | null>(null);
+  const [creationBanner, setCreationBanner] = useState<{ recordId: string; referenceLabel: string; lines: string[] } | null>(null);
 
 
   // Bulk selection (Logistics only)
@@ -872,14 +872,18 @@ export default function DeliveryRecordsView({
       {creationBanner && (
         <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg p-3 flex items-start justify-between gap-3 print:hidden" id="record-created-banner">
           <div className="space-y-1">
-            <p className="font-bold text-[11px] uppercase tracking-wider">Record Created — Output Actions Fired</p>
+            <p className="font-bold text-[11px] uppercase tracking-wider">Record Created</p>
+            <p className="text-xs font-semibold">{creationBanner.referenceLabel} · <span className="font-mono">{creationBanner.recordId}</span></p>
             {creationBanner.lines.map((line, i) => (
               <span key={i} className="flex items-center gap-1.5 font-semibold text-xs">
                 {outputLineIcon(line)} {line}
               </span>
             ))}
           </div>
-          <button onClick={() => setCreationBanner(null)} className="text-emerald-700 hover:bg-emerald-100 p-1 rounded shrink-0"><X className="w-4 h-4" /></button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button onClick={() => { setSelectedId(creationBanner.recordId); setCreationBanner(null); }} className="text-emerald-800 hover:bg-emerald-100 px-2 py-1 rounded text-xs font-bold">View record</button>
+            <button onClick={() => setCreationBanner(null)} className="text-emerald-700 hover:bg-emerald-100 p-1 rounded"><X className="w-4 h-4" /></button>
+          </div>
         </div>
       )}
 
@@ -893,8 +897,8 @@ export default function DeliveryRecordsView({
           onCancel={() => setShowForm(false)}
           outputActionConfigs={outputActionConfigs}
           onUpdateOutputActionConfig={onUpdateOutputActionConfig}
-          onAfterSubmit={({ referenceLabel, lines }) =>
-            setCreationBanner({ recordId: referenceLabel, lines })
+          onAfterSubmit={({ recordId, referenceLabel, lines }) =>
+            setCreationBanner({ recordId, referenceLabel, lines })
           }
         />
       ) : selectedId && activeRecord ? (

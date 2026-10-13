@@ -10,13 +10,14 @@ import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, PDF_AC_COLUMNS, fmtDate, fmtDatetim
 import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus } from '@/types';
 import { AREAS, PRIORITIES, ITEM_TYPES, DELIVERY_STATUSES, ACCOUNT_MANAGERS, acStatusLabel } from '@/data';
-import { ApiCompany, apiUrl } from '@/api';
+import { ApiCompany, api, apiUrl } from '@/api';
 import AccountingCollectionWorkspace from '@/features/accounting/AccountingCollectionWorkspace';
 import { WorkspaceDraftProvider } from '@/features/deliveries/WorkspaceDrafts';
 import { POD_ATTACHMENT_ACCEPT, getPodAttachmentRejection } from '@/utils/attachmentValidation';
 import { notify } from '@/utils/notify';
 import { DashboardFilterId, matchesDashboardFilter } from '@/utils/dashboardFilters';
 import DashboardFilterChip from '@/components/DashboardFilterChip';
+import { uploadPendingRecordAttachments, type StagedRecordAttachment } from '@/utils/recordAttachments';
 
 interface AccountingCollectionViewProps {
   records: DeliveryRecord[];
@@ -25,7 +26,7 @@ interface AccountingCollectionViewProps {
   currentUserName: string;
   onCreateRecord: (
     data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>
-  ) => Promise<void>;
+  ) => Promise<DeliveryRecord>;
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   onVerifyCollection: (id: string) => Promise<void>;
   selectedRecordIdFromDashboard?: string | null;
@@ -135,7 +136,8 @@ export default function AccountingCollectionView({
   const [form, setForm] = useState<RecordFormState>(buildEmptyForm());
   const [saving, setSaving] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
-  const [attachmentNames, setAttachmentNames] = useState<string[]>([]);
+  const [stagedAttachments, setStagedAttachments] = useState<StagedRecordAttachment[]>([]);
+  const [createdRecordInfo, setCreatedRecordInfo] = useState<{ id: string; referenceLabel: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -214,18 +216,63 @@ export default function AccountingCollectionView({
     input.value = '';
     if (selectedFiles.length === 0) return;
 
-    const rejection = getPodAttachmentRejection(selectedFiles);
+    const rejection = getPodAttachmentRejection([...stagedAttachments.map(attachment => attachment.file), ...selectedFiles]);
     if (rejection) {
       notify.fileRejected(rejection.fileName, rejection.reason);
       return;
     }
 
-    setAttachmentNames(prev => [...prev, ...selectedFiles.map(file => file.name)]);
+    const batchId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setStagedAttachments(prev => [
+      ...prev,
+      ...selectedFiles.map((file, index) => ({
+        id: `${batchId}-${index}`,
+        file,
+        status: 'pending' as const,
+      })),
+    ]);
+  };
+
+  const updateAttachmentStatus = (id: string, status: StagedRecordAttachment['status'], error?: string) => {
+    setStagedAttachments(prev => prev.map(attachment => {
+      if (attachment.id !== id) return attachment;
+      const next = { ...attachment, status };
+      if (error) next.error = error;
+      else delete next.error;
+      return next;
+    }));
+  };
+
+  const uploadAttachments = (recordId: string, attachments = stagedAttachments) =>
+    uploadPendingRecordAttachments(recordId, attachments, api, updateAttachmentStatus);
+
+  const finishCreatedRecord = (recordId: string) => {
+    setForm(buildEmptyForm());
+    setStagedAttachments([]);
+    setCreatedRecordInfo(null);
+    setSelectedRecordId(recordId);
+    setShowForm(false);
+  };
+
+  const handleRetryAttachments = async () => {
+    if (!createdRecordInfo || saving) return;
+    setSaving(true);
+    try {
+      const complete = await uploadAttachments(createdRecordInfo.id);
+      if (!complete) {
+        notify.error(`Record ${createdRecordInfo.id} is saved. Some attachments still need to be uploaded; retry them here.`);
+        return;
+      }
+      notify.success('All collection attachments uploaded');
+      finishCreatedRecord(createdRecordInfo.id);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (saving) return;
+    if (saving || createdRecordInfo) return;
     const isDraft = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "draft";
     const errors = submissionErrors(form, isDraft);
     if (!isDraft && !form.account_manager.trim()) errors.account_manager = 'Account Manager is required';
@@ -245,33 +292,46 @@ export default function AccountingCollectionView({
     setFormErrors({});
 
     setSaving(true);
+    let createdRecord: DeliveryRecord;
     try {
-      await onCreateRecord({
-      ...form,
-      driver: '',
-      driver_assistants: [],
-      // Vehicle isn't a user-facing field for Accounting Collection (it's a
-      // billing/collection run, not a shipment) — but the shared DeliveryRecord
-      // schema requires it, so submit a fixed default rather than exposing it.
-      vehicle: '(None)',
-      category: CATEGORY,
-      priority: form.priority as DeliveryRecord['priority'],
-      status: isDraft ? 'Draft' : 'Scheduled',
-      item_type: form.item_type as DeliveryRecord['item_type'],
-      is_draft: isDraft ? 'Yes' : 'No',
-      attachments: attachmentNames,
-      output_actions_log: [],
-      collection_verified: false,
-      collection_verified_by: null,
-      collection_verified_at: null,
-      amount: parseFloat(form.amount.replace(/,/g, '')) || null,
-    });
-    notify.success(isDraft ? 'Collection draft saved' : 'Collection submitted');
+      createdRecord = await onCreateRecord({
+        ...form,
+        driver: '',
+        driver_assistants: [],
+        // Vehicle isn't a user-facing field for Accounting Collection (it's a
+        // billing/collection run, not a shipment) — but the shared DeliveryRecord
+        // schema requires it, so submit a fixed default rather than exposing it.
+        vehicle: '(None)',
+        category: CATEGORY,
+        priority: form.priority as DeliveryRecord['priority'],
+        status: isDraft ? 'Draft' : 'Scheduled',
+        item_type: form.item_type as DeliveryRecord['item_type'],
+        is_draft: isDraft ? 'Yes' : 'No',
+        attachments: [],
+        output_actions_log: [],
+        collection_verified: false,
+        collection_verified_by: null,
+        collection_verified_at: null,
+        amount: parseFloat(form.amount.replace(/,/g, '')) || null,
+      });
+      setCreatedRecordInfo({
+        id: createdRecord.id,
+        referenceLabel: form.reference || form.company_name,
+      });
+      const allUploaded = await uploadAttachments(createdRecord.id);
+      if (!allUploaded) {
+        notify.error(`Collection ${createdRecord.id} was created. Some attachments still need to be uploaded; retry them below.`);
+        return;
+      }
+      notify.success(isDraft ? 'Collection draft saved' : 'Collection submitted');
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : 'Could not create this record.');
+      return;
+    } finally {
+      setSaving(false);
+    }
 
-    setForm(buildEmptyForm());
-    setAttachmentNames([]);
-    setShowForm(false);
-    } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not create this record.'); } finally { setSaving(false); }
+    finishCreatedRecord(createdRecord.id);
   };
 
   // Filter records
@@ -381,7 +441,31 @@ export default function AccountingCollectionView({
         onClear={clearAllFilters}
       />
       {/* CREATE FORM */}
-      {showForm && canEdit && (
+      {showForm && canEdit && (createdRecordInfo ? (
+        <div className="bg-white border border-amber-200 shadow-sm rounded-xl p-5 space-y-4" role="status">
+          <div>
+            <h3 className="text-base font-bold text-slate-900">Collection created: {createdRecordInfo.referenceLabel}</h3>
+            <p className="text-xs text-slate-600 mt-1">Record ID: <span className="font-mono font-bold">{createdRecordInfo.id}</span></p>
+            <p className="text-xs text-amber-800 mt-2">The record is saved. Retry the remaining file uploads here; this will not create another record.</p>
+          </div>
+          <div className="space-y-2">
+            {stagedAttachments.map(attachment => (
+              <div key={attachment.id} className="flex items-start gap-2 bg-slate-50 border border-slate-200 rounded px-3 py-2">
+                <FileText className="w-4 h-4 text-[#1F3864] mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-mono text-xs text-slate-700 break-all">{attachment.file.name}</p>
+                  <p className={`text-[10px] font-semibold ${attachment.status === 'uploaded' ? 'text-emerald-700' : attachment.status === 'failed' ? 'text-red-600' : 'text-amber-700'}`}>
+                    {attachment.status === 'uploaded' ? 'Uploaded' : attachment.status === 'uploading' ? 'Uploading…' : attachment.status === 'failed' ? `Upload failed: ${attachment.error ?? 'Please retry.'}` : 'Waiting to upload'}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <button type="button" onClick={handleRetryAttachments} disabled={saving} className="px-5 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg disabled:opacity-50">
+            {saving ? 'Uploading…' : 'Retry incomplete uploads'}
+          </button>
+        </div>
+      ) : (
         <div className="bg-white border border-slate-200 shadow-sm rounded-xl p-5 sm:p-7 space-y-6">
           <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
             <div>
@@ -520,16 +604,17 @@ export default function AccountingCollectionView({
                   className="border-2 border-dashed border-slate-300 rounded-xl p-5 text-center flex flex-col items-center justify-center gap-2 cursor-pointer bg-slate-50/50 hover:bg-slate-50 transition-all"
                 >
                   <UploadCloud className="w-8 h-8 text-slate-400" />
-                  <p className="font-bold text-slate-600">Click to upload (mock, no file is actually stored)</p>
+                  <p className="font-bold text-slate-600">Click to select files</p>
                   <p className="text-[10px] text-slate-400">PDF, JPG/JPEG, PNG, or DOC up to 10 MB each</p>
                   <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept={POD_ATTACHMENT_ACCEPT} multiple className="hidden" />
                 </div>
-                {attachmentNames.length > 0 && (
+                {stagedAttachments.length > 0 && (
                   <div className="mt-2 space-y-1">
-                    {attachmentNames.map((name, idx) => (
-                      <div key={idx} className="flex items-center gap-2 bg-slate-100 border border-slate-200 rounded px-2 py-1">
+                    {stagedAttachments.map(attachment => (
+                      <div key={attachment.id} className="flex items-center gap-2 bg-slate-100 border border-slate-200 rounded px-2 py-1">
                         <FileText className="w-3.5 h-3.5 text-[#1F3864]" />
-                        <span className="font-mono text-[10px] text-slate-700">{name}</span>
+                        <span className="font-mono text-[10px] text-slate-700">{attachment.file.name}</span>
+                        <span className="ml-auto text-[10px] text-slate-500">Ready to upload</span>
                       </div>
                     ))}
                   </div>
@@ -548,7 +633,7 @@ export default function AccountingCollectionView({
             </div>
           </form>
         </div>
-      )}
+      ))}
 
       {/* List */}
       {!showForm && (
