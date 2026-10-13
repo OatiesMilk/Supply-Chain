@@ -1,4 +1,4 @@
-import React, { Component, lazy, Suspense, useContext, useState, type ComponentType, type ReactNode } from 'react';
+import React, { Component, lazy, Suspense, useContext, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react';
 
 import { PageLoading } from './PageLoading';
 import { PageDataContext, PageDataGate } from './PageDataGate';
@@ -23,8 +23,8 @@ export class PageErrorBoundary extends Component<{
   }
 }
 
-/** Recreate React.lazy after a rejection; resetting an error boundary alone
- * would keep throwing the rejected promise cached by React.lazy. */
+/** Retain downloaded pages across visits, but discard rejected lazy imports
+ * so retries and later navigation can request the module again. */
 export function lazyPage<P extends object>(load: () => Promise<{ default: ComponentType<P> }>, options: { gateData?: boolean } = {}): ComponentType<P> {
   const loadWithDataGate = async () => {
     const module = await load();
@@ -34,10 +34,26 @@ export function lazyPage<P extends object>(load: () => Promise<{ default: Compon
       return state && options.gateData !== false ? <PageDataGate {...state}><Page {...props} /></PageDataGate> : <Page {...props} />;
     } };
   };
+  let cachedPage: LazyExoticComponent<ComponentType<P>> | undefined;
+  const getPage = () => {
+    if (!cachedPage) {
+      const candidate = lazy(async () => {
+        try {
+          return await loadWithDataGate();
+        } catch (error) {
+          // An older failed request cannot discard a newer attempt.
+          if (cachedPage === candidate) cachedPage = undefined;
+          throw error;
+        }
+      });
+      cachedPage = candidate;
+    }
+    return cachedPage;
+  };
   return function LazyPage(props: P) {
-    const [attempt, setAttempt] = useState(() => ({ number: 0, Page: lazy(loadWithDataGate) }));
+    const [attempt, setAttempt] = useState(() => ({ number: 0, Page: getPage() }));
     const Page = attempt.Page;
-    return <PageErrorBoundary key={attempt.number} onRetry={() => setAttempt(previous => ({ number: previous.number + 1, Page: lazy(loadWithDataGate) }))}>
+    return <PageErrorBoundary key={attempt.number} onRetry={() => setAttempt(previous => ({ number: previous.number + 1, Page: getPage() }))}>
       <Suspense fallback={<PageLoading />}><Page {...props} /></Suspense>
     </PageErrorBoundary>;
   };

@@ -85,6 +85,12 @@ test('failed lazy imports can retry successfully and navigation remounts a faile
     assert.equal(calls, 2, 'Retry invokes a fresh lazy importer');
     assert.match(dom.window.document.body.textContent!, /Page loaded/);
 
+    await act(async () => { root.render(React.createElement('p', null, 'Another page')); });
+    await act(async () => { root.render(React.createElement(Page)); });
+    assert.equal(calls, 2, 'Returning to a downloaded page reuses its resolved lazy component');
+    assert.match(dom.window.document.body.textContent!, /Page loaded/);
+    assert.doesNotMatch(dom.window.document.body.textContent!, /Loading view/);
+
     let routeCalls = 0;
     const SharedPage = lazyPage(async () => {
       if (++routeCalls === 1) throw new Error('Chunk unavailable');
