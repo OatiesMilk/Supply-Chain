@@ -296,8 +296,8 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
   test('B-2.5b TSK-124 Priority is locked on Delivered records, including in bulk edit', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
-    const delivered = page.getByRole('row').filter({ hasText: /delivered/i }).first();
-    test.skip(!(await delivered.isVisible()), 'No Delivered delivery in the seeded data');
+    const delivered = page.getByRole('row').filter({ hasText: 'REC-UAT-DELIVERED-' }).first();
+    await expect(delivered, 'The UAT seed must provide its completed delivery fixture').toBeVisible();
 
     // Bulk: a Delivered-only selection disables the Priority select with the explanation.
     await delivered.getByRole('checkbox').check();
