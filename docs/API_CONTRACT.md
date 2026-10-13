@@ -44,7 +44,7 @@ All record routes use `Auth` + `Res:records` + `Rec`. Responses use display stri
 | GET | `/records` | any with access | List records in caller's scope, ordered `createdAt desc, id desc`. Supports unpaginated array (legacy) or `{ rows, nextCursor, hasMore, total, page, limit }` when `paged=true`. Filters: `company_id`, `category`, `status`, `dateFrom`, `dateTo`, `search`, `driver`, `area`, `account_manager`, `priority`, `dashboard_filter`, `limit` (1-100), `cursor`, `page`. See [AUD-008 Spec](./CONSUMER_INVENTORY_AUD_008.md). |
 | GET | `/records/active-counts` | any with access | Grouped active counts `{ deliveries, rma, sales_orders, accounting_collection, procurement_pickup }` |
 | GET | `/records/am-summary` | any with access | Account Manager summary `{ name, total, delivered, pending, onHold, rescheduled, scheduled, companies }[]` |
-| GET | `/records/status-history-counts` | any with access | Status counts by day (`dateFrom`/`dateTo`, applied to `createdAt`) |
+| GET | `/records/status-history-counts` | any with access | Current and lifetime-ever-held status counts for records in scope. Operational filters: `deliveryDateFrom`/`deliveryDateTo`; creation cohort filters: `createdAtFrom`/`createdAtTo`. Legacy `dateFrom`/`dateTo` aliases use `createdAt`. Date-only values are `YYYY-MM-DD` in `Asia/Manila`; timestamp ranges use half-open UTC bounds. Response identifies `date_basis`, `history_basis: lifetime`, and `time_zone`. |
 | GET | `/records/:id` | any with access | One record |
 | GET | `/records/:id/audit` | any with access | Audit entries |
 | GET | `/records/:id/remarks` | any with access | Append-only remark history |
@@ -130,7 +130,7 @@ All `/users` routes use `Auth` + `Res:users` + ADM.
 | Method | Path | Guards / roles | Purpose |
 | :--- | :--- | :--- | :--- |
 | GET | `/dashboard/stats` | Auth, Res:dashboard | Role-specific KPI payload (SC, LOG, TASS, ADM, DRV variants) |
-| GET | `/reports/summary` | Auth, Screen:statistical_reports | Summary; filters `dateFrom`, `dateTo`, `category`, `area`, `driver`, `status` |
+| GET | `/reports/summary` | Auth, Screen:statistical_reports | Record-scoped summary. `deliveryDateFrom`/`deliveryDateTo` filter the scheduled-operation cohort; legacy `dateFrom`/`dateTo` aliases remain accepted. `completed_in_range` uses the same Manila calendar range against completion `timeOut`, independently of the delivery-date cohort. Response identifies both bases. |
 | GET | `/notifications` | Auth | The caller's bell notifications |
 | GET | `/notifications/unread-count` | Auth | Unread count |
 | PATCH | `/notifications/read-all` | Auth | Mark all read |

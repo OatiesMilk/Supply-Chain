@@ -1,18 +1,12 @@
 import { Router } from 'express';
 import { prisma } from '../db';
 import { requireResource, requireAuth } from '../middleware/auth';
-import { manilaToday } from '../services/deliveryLifecycle';
+import { manilaTodayRange, manilaWeekStart } from '../services/dateSemantics';
 
 const router = Router();
 
-function todayRangeManila() {
-  const dateStr = manilaToday();
-  const start = new Date(`${dateStr}T00:00:00+08:00`);
-  return { start, end: new Date(start.getTime() + 24 * 60 * 60 * 1000), dateStr };
-}
-
 router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res) => {
-  const { start, end, dateStr } = todayRangeManila();
+  const { start, end, dateStr } = manilaTodayRange();
   const role = req.user!.role;
 
   // ── SALES_COORDINATOR ────────────────────────────────────────────────────────
@@ -96,8 +90,7 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
 
   // ── ADMIN ─────────────────────────────────────────────────────────────────────
   if (role === 'ADMIN') {
-    const localDay = new Date(start.getTime() + 8 * 60 * 60 * 1000).getUTCDay();
-    const weekStart = new Date(start.getTime() - localDay * 24 * 60 * 60 * 1000);
+    const weekStart = manilaWeekStart(dateStr);
 
     const [
       activeUsers,

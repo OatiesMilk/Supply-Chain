@@ -326,9 +326,11 @@ export interface ApiPodAttachment {
 export interface ApiReportSummary {
   total: number;
   accomplished: number;
+  completed_in_range: number;
   on_hold: number;
   pending: number;
   completion_rate: number;
+  date_basis: { cohort: 'deliveryDate'; completion: 'timeOut'; time_zone: 'Asia/Manila' };
   by_status:   { status: string;   count: number }[];
   by_category: { category: string; count: number }[];
   by_area:     { area: string;     count: number }[];
@@ -645,8 +647,10 @@ export const api = {
   getRecordRemarks: (id: string) => request<ApiRemarkLog[]>(`/records/${id}/remarks`),
 
   // Statistical report summary
-  getReportSummary: (params: { dateFrom?: string; dateTo?: string; category?: string; area?: string; driver?: string; status?: string }) => {
+  getReportSummary: (params: { deliveryDateFrom?: string; deliveryDateTo?: string; dateFrom?: string; dateTo?: string; category?: string; area?: string; driver?: string; status?: string }) => {
     const qs = new URLSearchParams();
+    if (params.deliveryDateFrom) qs.set('deliveryDateFrom', params.deliveryDateFrom);
+    if (params.deliveryDateTo)   qs.set('deliveryDateTo', params.deliveryDateTo);
     if (params.dateFrom)  qs.set('dateFrom',  params.dateFrom);
     if (params.dateTo)    qs.set('dateTo',    params.dateTo);
     if (params.category)  qs.set('category',  params.category);

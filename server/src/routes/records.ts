@@ -16,6 +16,7 @@ import { ATTACHMENT_QUOTA_EXCEEDED, attachmentQuotaError } from '../services/att
 
 import { canWriteCategory, isAssignedDriver, recordScope } from '../services/recordAccess';
 import { deliveryScheduleState, driverDeliveryDateError, isValidDateOnly, isoTimestamp, manilaToday, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
+import { manilaDateRange } from '../services/dateSemantics';
 
 const router = Router();
 const PRIORITY_LOCKED_ERROR = "Priority can't be changed after a record is Delivered.";
@@ -468,7 +469,46 @@ router.get('/calendar-summary', requireAuth, requireResource('records'), require
 
 // Must be before /:id to avoid "status-history-counts" matching as an ID
 router.get('/status-history-counts', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
-  const { category, dateFrom, dateTo, area, driver, status } = req.query as Record<string, string>;
+  const queryValue = (key: string): string | undefined => {
+    const value = req.query[key];
+    return typeof value === 'string' ? value : undefined;
+  };
+  const category = queryValue('category');
+  const area = queryValue('area');
+  const driver = queryValue('driver');
+  const status = queryValue('status');
+  const legacyFrom = queryValue('dateFrom');
+  const legacyTo = queryValue('dateTo');
+  const deliveryFrom = queryValue('deliveryDateFrom');
+  const deliveryTo = queryValue('deliveryDateTo');
+  const createdFrom = queryValue('createdAtFrom');
+  const createdTo = queryValue('createdAtTo');
+  const explicitBasis = queryValue('dateBasis');
+  const hasLegacy = req.query.dateFrom !== undefined || req.query.dateTo !== undefined;
+  const hasDelivery = req.query.deliveryDateFrom !== undefined || req.query.deliveryDateTo !== undefined;
+  const hasCreated = req.query.createdAtFrom !== undefined || req.query.createdAtTo !== undefined;
+
+  if ([req.query.dateFrom, req.query.dateTo, req.query.deliveryDateFrom, req.query.deliveryDateTo, req.query.createdAtFrom, req.query.createdAtTo, req.query.dateBasis]
+    .some(value => value !== undefined && typeof value !== 'string')) {
+    return res.status(400).json({ error: 'Date filters must be single string values.' });
+  }
+  if (Number(hasLegacy) + Number(hasDelivery) + Number(hasCreated) > 1) {
+    return res.status(400).json({ error: 'Use one date filter basis per request.' });
+  }
+
+  const dateBasis = hasDelivery ? 'deliveryDate'
+    : hasCreated ? 'createdAt'
+    : hasLegacy ? (explicitBasis ?? 'createdAt')
+    : (explicitBasis ?? 'deliveryDate');
+  if (dateBasis !== 'deliveryDate' && dateBasis !== 'createdAt') {
+    return res.status(400).json({ error: 'dateBasis must be deliveryDate or createdAt.' });
+  }
+  if ((hasDelivery && explicitBasis && explicitBasis !== 'deliveryDate')
+    || (hasCreated && explicitBasis && explicitBasis !== 'createdAt')) {
+    return res.status(400).json({ error: 'dateBasis must match the named date filter fields.' });
+  }
+  const dateFrom = hasDelivery ? deliveryFrom : hasCreated ? createdFrom : legacyFrom;
+  const dateTo = hasDelivery ? deliveryTo : hasCreated ? createdTo : legacyTo;
 
   const where: any = {
     deletedAt: null,
@@ -477,9 +517,19 @@ router.get('/status-history-counts', requireAuth, requireResource('records'), re
 
   if (category) where.category = CATEGORY_TO_DB[category] ?? category;
   if (dateFrom || dateTo) {
-    where.createdAt = {};
-    if (dateFrom) where.createdAt.gte = new Date(`${dateFrom}T00:00:00`);
-    if (dateTo)   where.createdAt.lte = new Date(`${dateTo}T23:59:59`);
+    try {
+      const range = manilaDateRange(dateFrom, dateTo);
+      if (dateBasis === 'deliveryDate') {
+        where.deliveryDate = {
+          ...(dateFrom ? { gte: dateFrom } : {}),
+          ...(dateTo ? { lte: dateTo } : {}),
+        };
+      } else {
+        where.createdAt = range;
+      }
+    } catch (error) {
+      return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid date range.' });
+    }
   }
   if (area)   where.area   = area;
   if (driver) where.driver = driver;
@@ -489,7 +539,7 @@ router.get('/status-history-counts', requireAuth, requireResource('records'), re
   });
   // Draft shares its stored enum with Scheduled; legacy started runs can also
   // still carry SCHEDULED. Filter the same effective state returned to clients.
-  const filteredStatus = STATUS_FROM_DB[status] ?? status;
+  const filteredStatus = status ? (STATUS_FROM_DB[status] ?? status) : undefined;
   const records = status ? candidates.filter(record => runState(record) === filteredStatus) : candidates;
 
   const STATUSES = ['Draft', 'Scheduled', 'In Transit', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'];
@@ -530,7 +580,14 @@ router.get('/status-history-counts', requireAuth, requireResource('records'), re
     }
   }
 
-  res.json({ ever_held, current, total_records: records.length });
+  res.json({
+    ever_held,
+    current,
+    total_records: records.length,
+    date_basis: dateBasis,
+    history_basis: 'lifetime',
+    time_zone: 'Asia/Manila',
+  });
 });
 
 router.get('/:id', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {

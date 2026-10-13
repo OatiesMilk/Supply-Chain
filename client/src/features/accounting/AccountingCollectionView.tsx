@@ -165,7 +165,7 @@ export default function AccountingCollectionView({
   const [statusHistoryCounts, setStatusHistoryCounts] = useState<StatusHistoryCounts | undefined>(undefined);
 
   useEffect(() => {
-    const params = new URLSearchParams({ category: 'ACCOUNTING_COLLECTION' });
+    const params = new URLSearchParams({ category: 'ACCOUNTING_COLLECTION', dateBasis: 'deliveryDate' });
     if (statusFilter !== 'All') params.set('status', statusFilter);
 
     fetch(`${apiUrl('/records/status-history-counts')}?${params}`, { credentials: 'include' })
@@ -787,6 +787,8 @@ export default function AccountingCollectionView({
                     showPdf={true}
                     meta={{
                       reportName: 'Accounting Collection Export',
+                      dateRange: 'All dates',
+                      dateBasis: 'Delivery Date (Asia/Manila)',
                       generatedByName: currentUserName,
                       generatedByRole: currentUserRole,
                     }}

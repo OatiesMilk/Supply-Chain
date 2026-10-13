@@ -3,29 +3,74 @@ import { prisma } from '../db';
 import { requireAuth, requireScreen } from '../middleware/auth';
 import { CATEGORY_TO_DB, CATEGORY_FROM_DB, STATUS_FROM_DB } from '../mappings';
 import { runState } from '../services/deliveryLifecycle';
+import { recordScope } from '../services/recordAccess';
+import { manilaDateRange } from '../services/dateSemantics';
 
 const router = Router();
 
-
-// GET /reports/summary — on-demand statistical summary with optional filters.
-// Reads live from DeliveryRecord (not the snapshot table).
+// GET /reports/summary — delivery-date cohort with a distinct Time Out count.
+// Legacy dateFrom/dateTo aliases remain supported for existing API clients.
 router.get('/summary', requireAuth, requireScreen('statistical_reports'), async (req, res) => {
-  const { dateFrom, dateTo, category, area, driver, status } = req.query as Record<string, string>;
+  const queryValue = (key: string): string | undefined => {
+    const value = req.query[key];
+    return typeof value === 'string' ? value : undefined;
+  };
+  const deliveryDateFrom = queryValue('deliveryDateFrom') ?? queryValue('dateFrom');
+  const deliveryDateTo = queryValue('deliveryDateTo') ?? queryValue('dateTo');
+  const category = queryValue('category');
+  const area = queryValue('area');
+  const driver = queryValue('driver');
+  const status = queryValue('status');
 
-  const where: any = { deletedAt: null };
-  if (dateFrom || dateTo) {
-    where.deliveryDate = {};
-    if (dateFrom) where.deliveryDate.gte = dateFrom;
-    if (dateTo)   where.deliveryDate.lte = dateTo;
+  if ([req.query.deliveryDateFrom, req.query.deliveryDateTo, req.query.dateFrom, req.query.dateTo,
+    req.query.category, req.query.area, req.query.driver, req.query.status]
+    .some(value => value !== undefined && typeof value !== 'string')) {
+    return res.status(400).json({ error: 'Report filters must be single string values.' });
   }
-  if (category) where.category = CATEGORY_TO_DB[category] ?? category;
-  if (area)     where.area     = area;
-  if (driver)   where.driver   = driver;
-  const foundRecords = await prisma.deliveryRecord.findMany({
-    where,
-    select: { category: true, status: true, draft: true, timeIn: true, area: true, driver: true, deliveryDate: true }
-  });
-  const records = foundRecords.filter(record => !status || runState(record) === status);
+  if ((req.query.deliveryDateFrom !== undefined || req.query.deliveryDateTo !== undefined)
+    && (req.query.dateFrom !== undefined || req.query.dateTo !== undefined)) {
+    return res.status(400).json({ error: 'Use deliveryDateFrom/deliveryDateTo or the legacy dateFrom/dateTo aliases, not both.' });
+  }
+
+  let completionRange: ReturnType<typeof manilaDateRange>;
+  try {
+    completionRange = manilaDateRange(deliveryDateFrom, deliveryDateTo);
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid delivery date range.' });
+  }
+
+  const filters: any = {
+    deletedAt: null,
+    AND: [recordScope(req.user!)],
+  };
+  if (category) filters.category = CATEGORY_TO_DB[category] ?? category;
+  if (area) filters.area = area;
+  if (driver) filters.driver = driver;
+
+  const cohortWhere: any = { ...filters };
+  if (deliveryDateFrom || deliveryDateTo) {
+    cohortWhere.deliveryDate = {
+      ...(deliveryDateFrom ? { gte: deliveryDateFrom } : {}),
+      ...(deliveryDateTo ? { lte: deliveryDateTo } : {}),
+    };
+  }
+
+  const completionWhere: any = {
+    ...filters,
+    draft: false,
+    status: 'ACCOMPLISHED',
+    timeOut: Object.keys(completionRange).length > 0 ? completionRange : { not: null },
+  };
+
+  const [foundRecords, completedInRange] = await Promise.all([
+    prisma.deliveryRecord.findMany({
+      where: cohortWhere,
+      select: { category: true, status: true, draft: true, timeIn: true, area: true, driver: true, deliveryDate: true },
+    }),
+    prisma.deliveryRecord.count({ where: completionWhere }),
+  ]);
+  const normalizedStatus = status ? (STATUS_FROM_DB[status] ?? status) : undefined;
+  const records = foundRecords.filter(record => !normalizedStatus || runState(record) === normalizedStatus);
 
   const total = records.length;
   const byStatus:   Record<string, number> = {};
@@ -47,13 +92,19 @@ router.get('/summary', requireAuth, requireScreen('statistical_reports'), async 
   res.json({
     total,
     accomplished,
+    completed_in_range: completedInRange,
     on_hold:         byStatus['On-Hold']  ?? 0,
     pending:         byStatus['Pending']  ?? 0,
     completion_rate: total > 0 ? Math.round((accomplished / total) * 100) : 0,
+    date_basis: {
+      cohort: 'deliveryDate',
+      completion: 'timeOut',
+      time_zone: 'Asia/Manila',
+    },
     by_status:    Object.entries(byStatus).map(([s, count]) => ({ status: s, count })),
     by_category:  Object.entries(byCategory).map(([c, count]) => ({ category: c, count })),
     by_area:      Object.entries(byArea).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([a, count]) => ({ area: a, count })),
-    by_driver:    Object.entries(byDriver).sort((a, b) => b[1] - a[1]).map(([d, count]) => ({ driver: d, count }))
+    by_driver:    Object.entries(byDriver).sort((a, b) => b[1] - a[1]).map(([d, count]) => ({ driver: d, count })),
   });
 });
 
