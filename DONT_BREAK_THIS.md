@@ -1,6 +1,6 @@
 # Don't Break This
 
-> Last verified: 2026-10-09 against commit `ccbf192` (`dev`).
+> Source-reviewed: 2026-10-13 against commit `e90986a` (`dev`). This is a snapshot, **not an immutable specification or a staging/production configuration audit**. Recheck current code, tests, approved requirements and deployment settings before applying any guidance below.
 
 A short list of things in this codebase that look editable — and are, technically — but will quietly break something important if you change them without knowing why they're built this way. If you're using AI tools to make changes ("vibe coding"), it's worth pasting this whole file into your prompt as context before asking for a change in one of these areas.
 
@@ -12,8 +12,8 @@ If you're not sure whether something you want to change is on this list, ask bef
 
 Deliveries, RMA, Sales Orders, Procurement Pick-up, and Accounting Collection all live in the **same** database table (`DeliveryRecord`). A field called `category` is what tells them apart. This is intentional — the export system, audit trail, daily status snapshots, and reporting all rely on there being one table.
 
-**Don't:** split this into separate tables per category, or create a new table for a "new" record type that's really just another category.
-**Do:** if you need a new kind of record that behaves like the existing five, add it as a new `category` value instead.
+**Don't:** split this into separate tables per category or introduce a second record model just for a new operational record category without an approved architecture change.
+**Do:** follow the existing one-model design. Adding a category requires updating category mappings, server validation, record scope/role permissions, frontend routes, exports, reports, lifecycle handling and regression tests—not merely writing a new string value. See `server/src/services/recordAccess.ts`, `server/src/mappings.ts` and the business requirements.
 
 ## 2. Permissions are checked in TWO places, and both must agree
 
@@ -32,15 +32,15 @@ shared-resource rules, session refresh and the test checklist.
 
 ---
 
-## 3. Most "Output Actions" are simulated, on purpose
+## 3. Output Actions are mixed real and simulated behavior—inspect the call path
 
-The Output Actions panel (the one with "Notify Logistics", "Notify TASS", "Export to PDF" toggles) only *actually* does something for one trigger: when a delivery is marked **Accomplished**. That one sends an email (real if Microsoft Graph or SMTP is configured, otherwise logged to the terminal) and writes a `NotificationLog` row. The other triggers only show a confirmation banner from this panel.
+`client/src/outputActions.ts` supports **Record Created, Accomplished, Rescheduled, On-Hold, RMA Completed, and Collection Verified**. When a caller supplies **both** an existing `recordId` and an API client, selected email-recipient toggles can call the real, authenticated `POST /api/notifications/send-email` endpoint in `server/src/routes/notifications.ts`; that route resolves recipients, invokes Graph/SMTP/**mock** transport and writes `NotificationLog` entries. Status-change callers in `DeliveryRecordWorkspace.tsx` and `DriverView.tsx` can supply that context. These email side effects are **not limited to Accomplished**.
 
-Real in-app (bell) notifications and the scheduled 4 PM / 6 PM / weekly jobs are separate from this panel and are implemented (`server/src/services/inAppNotify.ts`, `server/src/index.ts`).
+Other portions remain simulated or incomplete: the **Export to PDF** toggle reports a banner but does not itself generate a file; the creation form invokes `runOutputActions('Record Created', ...)` **without** the saved record ID or API client, so that invocation displays feedback but does not send its configured email. A banner such as "Email sent" is **not proof** that an email was sent, delivered, or even attempted; verify the API call, resolved recipients and `NotificationLog` status. Separately, `server/src/services/notify.ts` implements the dedicated Accomplished notification, and the in-app bell / scheduled reminders are separate workflows.
 
-**Don't:** assume a toggle in that panel is doing something just because the UI shows a checkmark or confirmation message.
-**Don't:** "fix" the other triggers to fake it further, or remove them thinking they're dead code — they're deliberately simulated to demonstrate the intended behavior without wiring up real automation yet.
-**Do:** if you're asked to make one of these real, look at `server/src/services/notify.ts` — that's the one real example to copy the pattern from.
+**Don't:** disable real email behavior assuming all non-Accomplished triggers are mock-only; do not expose unthrottled or CSRF-vulnerable notification endpoints (AUD-003).
+**Don't:** interpret confirmation banners as storage, email or PDF evidence, or silently change trigger semantics without stakeholder approval.
+**Do:** trace the actual caller → `runOutputActions` → `/api/notifications/send-email` → mailer + audit log, test both real and no-context paths, and preserve intentional simulations unless the ticket explicitly authorizes replacing them.
 
 ## 4. Emails are only delivered when a mail provider is configured
 
@@ -78,18 +78,21 @@ The database schema lives in `server/prisma/schema.prisma`. You should never man
 
 **Don't:** delete these files assuming they're abandoned junk, or re-enable them without checking why they were retired first (the inventory data model doesn't currently support multiple warehouse locations per item, which is part of why this was shelved).
 
-## 9. Record IDs are generated in specific number ranges — don't let them collide
+## 9. Record IDs use multiple namespaces—do not assume all IDs are numeric
 
-Human-readable record IDs (`REC-XXXXX`) are generated from different number ranges depending on where the record came from: seed data (4001–4999), normal user-created records (10000–49999), and Admin's Data Sampler tool (50000–99999).
+Standard numeric `REC-XXXXX` IDs are generally assigned in different ranges: the default demo dataset occupies values around **4001–4999**, normal record creation draws random integers in **10000–49999** (`server/src/routes/records.ts`), and the Admin Data Sampler draws random integers in **50000–99999** (`server/src/routes/data-sampler.ts`). These are **conventions, not globally enforced disjoint schemas**; the database unique key still matters.
 
-**Don't:** hardcode a new ID range, or generate IDs randomly, without checking existing ranges — you could create duplicate IDs.
+There are also intentional nonnumeric identifiers: the disposable UAT fixture uses `REC-UAT-DELIVERED-<date>` (`server/prisma/seed-uat.ts`) and driver-demo fixtures use `REC-DEMO-...` (`server/prisma/seed-driver-demo.ts`). Their existence does **not** authorize arbitrary production ID formats.
+
+**Don't:** assume every record ID matches `REC-[0-9]+`, reuse a demo namespace for live records, or add an unchecked random ID generator. Treat uniqueness conflicts and retries explicitly.
+**Do:** inspect the generator, unique constraint, import/fixture behavior and references before changing formats or creating new record kinds; preserve existing IDs and historical links.
 
 ## 10. Uploaded documents are real files; the old filename field is not
 
-Proof-of-delivery files are stored for real (local disk in development, Supabase Storage in staging/production) and tracked in the PodAttachment table. They are served only through authenticated record routes (/api/records/:id/attachments). Delivered requires a server-verified JPG/PNG photo.
+Proof-of-delivery files are stored as **real private files** through the `PodAttachment` table and authenticated `/api/records/:id/attachments` routes; Delivered requires a server-verified JPG/PNG photo. The backend chooses the **Supabase** provider **only** when `POD_STORAGE_PROVIDER=supabase`; otherwise it uses the **local disk** provider (`server/src/services/podStorage.ts`). The current `render.yaml` declares a `/data` persistent disk but does **not** itself set `POD_STORAGE_PROVIDER=supabase`. A production/staging environment might use Supabase through external environment settings, so **inspect the effective deployed configuration**, not just this document, before making operational assumptions.
 
-The older DeliveryRecord.documentAttachment column is a legacy filename string only; there is no file behind it.
+The older `DeliveryRecord.documentAttachment` column is a legacy filename string only; there is no corresponding stored file behind it.
 
 **Do not** treat documentAttachment as proof of delivery, or accept client claims that a photo exists. The server decodes the stored image at completion.
-**Do not** serve uploaded files from a public path; keep them behind the authenticated routes.
-**Do** run npm run pod:reconcile if an upload or delete was interrupted.
+**Do not** serve uploaded files from a public path or expose a Supabase service-role key to the client; keep files behind authenticated routes. Do not assume production storage is durable merely because a provider or disk is configured—verify it.
+**Do** run `npm run pod:reconcile` (from the repo root) if an upload or delete was interrupted, using the correct environment and without destructive reset.
