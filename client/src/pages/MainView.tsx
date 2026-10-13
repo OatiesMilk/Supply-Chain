@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
 import { Layers, Plus } from "lucide-react";
 import { DeliveryRecord, DeliveryCategory, UserRole } from "@/types";
-import { ApiCompany, apiUrl } from "@/api";
+import { ApiCompany, apiUrl, api } from "@/api";
+import { normalizeApiRecord } from "@/api/queries/useRecordsQuery";
 import RecordCreateForm from "@/features/deliveries/RecordCreateForm";
 import AllOpsExportMenu from "@/components/AllOpsExportMenu";
 import { StatusHistoryCounts } from "@/utils/export";
@@ -176,6 +177,16 @@ export default function MainView({
     setShowCreateForm(true);
   };
 
+  const fetchExportData = async () => {
+    const raw = await api.getAllRecordsForExport({
+      status: activeFilter !== "all" && activeFilter !== "draft" ? activeFilter : undefined,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
+    });
+    const normalized = raw.map(normalizeApiRecord);
+    return dateFrom || dateTo ? normalized : sortRecordsByDate(normalized, sortMode);
+  };
+
   return (
     <div className="space-y-3">
       {/* Filter shortcut buttons + New Delivery */}
@@ -275,6 +286,7 @@ export default function MainView({
                 : undefined
             }
             statusHistoryCounts={statusHistoryCounts}
+            fetchExportData={fetchExportData}
           />
         </div>
       </div>

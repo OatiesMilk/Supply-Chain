@@ -1,5 +1,5 @@
 import { manilaToday, submissionErrors } from '@/utils/recordLifecycle';
-import React, { useRef, useState } from 'react';
+import React, { useId, useRef, useState } from 'react';
 import { Plus, X, Check, FileText, UploadCloud, Wand2 } from 'lucide-react';
 import { DeliveryRecord, DeliveryCategory, DeliveryStatus, OutputActionConfig, OutputActionTrigger } from '@/types';
 import { AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, ACCOUNT_MANAGERS } from '@/data';
@@ -166,6 +166,7 @@ export default function RecordCreateForm({
   onUpdateOutputActionConfig,
   onAfterSubmit,
 }: RecordCreateFormProps) {
+  const deliveryDateId = useId();
   const [form, setForm] = useState<RecordFormState>(() => buildEmptyForm(category));
   const [saving, setSaving] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -492,8 +493,8 @@ export default function RecordCreateForm({
 
           {/* Delivery Date */}
           <div className="space-y-1.5">
-            <label className="font-bold text-slate-700">Delivery Date <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
-            <input type="date" value={form.delivery_date} onChange={e => updateField('delivery_date', e.target.value)}
+            <label htmlFor={deliveryDateId} className="font-bold text-slate-700">Delivery Date <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+            <input id={deliveryDateId} type="date" value={form.delivery_date} onChange={e => updateField('delivery_date', e.target.value)}
               aria-invalid={!!formErrors.delivery_date}
               className={`w-full px-3 py-2 border rounded-lg ${formErrors.delivery_date ? 'border-red-500' : 'border-slate-300'}`} />
             {formErrors.delivery_date && <p className="text-red-500 text-[10px] font-semibold">{formErrors.delivery_date}</p>}

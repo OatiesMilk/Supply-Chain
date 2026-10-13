@@ -41,7 +41,9 @@ All record routes use `Auth` + `Res:records` + `Rec`. Responses use display stri
 
 | Method | Path | Roles | Purpose |
 | :--- | :--- | :--- | :--- |
-| GET | `/records` | any with access | List records in the caller's scope, newest first. Optional `company_id`, `category`, `limit` (1-100) and `cursor` (record id; requires `limit`) |
+| GET | `/records` | any with access | List records in caller's scope, ordered `createdAt desc, id desc`. Supports unpaginated array (legacy) or `{ rows, nextCursor, hasMore, total, page, limit }` when `paged=true`. Filters: `company_id`, `category`, `status`, `dateFrom`, `dateTo`, `search`, `driver`, `area`, `account_manager`, `priority`, `dashboard_filter`, `limit` (1-100), `cursor`, `page`. See [AUD-008 Spec](./CONSUMER_INVENTORY_AUD_008.md). |
+| GET | `/records/active-counts` | any with access | Grouped active counts `{ deliveries, rma, sales_orders, accounting_collection, procurement_pickup }` |
+| GET | `/records/am-summary` | any with access | Account Manager summary `{ name, total, delivered, pending, onHold, rescheduled, scheduled, companies }[]` |
 | GET | `/records/status-history-counts` | any with access | Status counts by day (`dateFrom`/`dateTo`, applied to `createdAt`) |
 | GET | `/records/:id` | any with access | One record |
 | GET | `/records/:id/audit` | any with access | Audit entries |

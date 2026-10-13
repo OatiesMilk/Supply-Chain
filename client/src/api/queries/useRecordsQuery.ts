@@ -31,6 +31,49 @@ export function useRecordsQuery(enabled = true) {
   });
 }
 
+export interface PagedRecordResult {
+  rows: DeliveryRecord[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export function usePagedRecordsQuery(filters: import('@/api').RecordListFilters = {}, enabled = true) {
+  return useQuery<PagedRecordResult, Error>({
+    queryKey: ['records', 'paged', filters] as const,
+    queryFn: async () => {
+      const res = await api.getPagedRecords(filters);
+      return {
+        ...res,
+        rows: res.rows.map(normalizeApiRecord),
+      };
+    },
+    enabled,
+  });
+}
+
+export const AM_SUMMARY_QUERY_KEY = ['records', 'am-summary'] as const;
+export function useAmSummaryQuery(enabled = true) {
+  return useQuery({
+    queryKey: AM_SUMMARY_QUERY_KEY,
+    queryFn: api.getAmSummary,
+    enabled,
+  });
+}
+
+export function useCalendarSummaryQuery(dateFrom?: string, dateTo?: string, enabled = true) {
+  return useQuery<DeliveryRecord[], Error>({
+    queryKey: ['records', 'calendar-summary', dateFrom, dateTo] as const,
+    queryFn: async () => {
+      const res = await api.getCalendarSummary(dateFrom, dateTo);
+      return res.map(normalizeApiRecord);
+    },
+    enabled,
+  });
+}
+
 export function useCreateRecordMutation(currentUser: { name: string; role: string }) {
   const queryClient = useQueryClient();
 

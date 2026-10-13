@@ -60,50 +60,305 @@ function generateRecordId(): string {
 
 const TASS_CATEGORIES: string[] = ['ACCOUNTING_COLLECTION', 'RMA'];
 const LIST_ID_PATTERN = /^[\w-]{1,64}$/;
+const CURSOR_PATTERN = /^[\w=-]{1,128}$/;
 const LIST_MAX_LIMIT = 100;
+const ALLOWED_STATUSES = new Set([
+  'Draft', 'Scheduled', 'In Transit', 'Delivered', 'On-Hold', 'Rescheduled', 'Pending',
+  'SCHEDULED', 'IN_TRANSIT', 'ACCOMPLISHED', 'ON_HOLD', 'RESCHEDULED', 'PENDING'
+]);
+const ALLOWED_PRIORITIES = new Set(['1 - Low', '2 - Moderate', '3 - High']);
+
+export function encodeCursor(record: { createdAt: Date | string; id: string }): string {
+  const c = typeof record.createdAt === 'string' ? record.createdAt : record.createdAt.toISOString();
+  return `c_${Buffer.from(JSON.stringify({ c, id: record.id })).toString('base64url')}`;
+}
+
+export async function decodeCursor(
+  cursorStr: string,
+  prismaClient: typeof prisma = prisma
+): Promise<{ createdAt: Date; id: string } | null> {
+  if (cursorStr.startsWith('c_')) {
+    try {
+      const json = JSON.parse(Buffer.from(cursorStr.slice(2), 'base64url').toString('utf8'));
+      if (json && typeof json.c === 'string' && typeof json.id === 'string') {
+        const date = new Date(json.c);
+        if (!Number.isNaN(date.getTime())) {
+          return { createdAt: date, id: json.id };
+        }
+      }
+    } catch {
+      return null;
+    }
+  }
+  try {
+    const record = await prismaClient.deliveryRecord.findUnique({
+      where: { id: cursorStr },
+      select: { createdAt: true, id: true },
+    });
+    if (record) {
+      return { createdAt: record.createdAt, id: record.id };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function statusFilterToWhere(status: string): Prisma.DeliveryRecordWhereInput {
+  const norm = STATUS_FROM_DB[status] ?? status;
+  switch (norm) {
+    case 'Draft':
+      return { draft: true };
+    case 'Scheduled':
+      return { draft: false, status: 'SCHEDULED', timeIn: null };
+    case 'In Transit':
+      return {
+        draft: false,
+        OR: [{ status: 'IN_TRANSIT' }, { status: 'SCHEDULED', NOT: { timeIn: null } }],
+      };
+    case 'Delivered':
+      return { status: 'ACCOMPLISHED' };
+    case 'On-Hold':
+      return { status: 'ON_HOLD' };
+    case 'Rescheduled':
+      return { status: 'RESCHEDULED' };
+    case 'Pending':
+      return { status: 'PENDING' };
+    default:
+      return {};
+  }
+}
+
+function dashboardPresetWhere(filterId: string): Prisma.DeliveryRecordWhereInput | { error: string } {
+  const today = manilaToday();
+  const startOfDay = new Date(`${today}T00:00:00+08:00`);
+  const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+  switch (filterId) {
+    case 'sc-scheduled-today':
+      return { category: 'DELIVERY', draft: false, status: 'SCHEDULED', deliveryDate: today, timeIn: null };
+    case 'sc-pending-assignment':
+    case 'log-unassigned':
+      return { category: 'DELIVERY', draft: false, driver: '', status: { not: 'ACCOMPLISHED' } };
+    case 'sc-on-hold':
+    case 'log-on-hold':
+      return { category: 'DELIVERY', draft: false, status: 'ON_HOLD' };
+    case 'sc-rescheduled':
+    case 'log-rescheduled':
+      return { category: 'DELIVERY', draft: false, status: 'RESCHEDULED' };
+    case 'sc-completed-today':
+    case 'log-completed-today':
+      return { category: 'DELIVERY', draft: false, status: 'ACCOMPLISHED', timeOut: { gte: startOfDay.toISOString(), lt: endOfDay.toISOString() } };
+    case 'log-assigned-today':
+      return { category: 'DELIVERY', draft: false, NOT: { driver: '' }, deliveryDate: today, status: { not: 'ACCOMPLISHED' } };
+    case 'log-on-hold-rescheduled':
+    case 'sc-attention-on-hold-rescheduled':
+      return { category: 'DELIVERY', draft: false, status: { in: ['ON_HOLD', 'RESCHEDULED'] } };
+    case 'tass-open-rma':
+      return { category: 'RMA', status: { in: ['SCHEDULED', 'PENDING'] } };
+    case 'tass-rma-on-hold':
+      return { category: 'RMA', status: 'ON_HOLD' };
+    case 'tass-pending-pickups':
+      return { category: 'PROCUREMENT_PICKUP', status: { in: ['SCHEDULED', 'PENDING'] } };
+    case 'tass-pending-verification':
+    case 'admin-unverified-collections':
+      return { category: 'ACCOUNTING_COLLECTION', status: 'ACCOMPLISHED', collectionVerified: false };
+    case 'sc-attention-pending-confirmation':
+      return { category: 'DELIVERY', draft: false, status: { in: ['PENDING', 'SCHEDULED'] } };
+    default:
+      return { error: 'dashboard_filter is invalid' };
+  }
+}
 
 // Optional filters for GET /records. Without any query params the endpoint
 // keeps returning every record the user can read, newest first.
 function parseListQuery(query: express.Request['query']) {
-  const { company_id, category, limit, cursor } = query;
+  const {
+    company_id, category, limit, cursor, page,
+    status, dateFrom, dateTo, search, driver, area, account_manager, priority, dashboard_filter,
+    paged
+  } = query;
   const where: Prisma.DeliveryRecordWhereInput = {};
+  const andConditions: Prisma.DeliveryRecordWhereInput[] = [];
+  const isPaged = paged === 'true' || paged === '1';
   let take: number | undefined;
+  let pageNum: number | undefined;
 
   if (company_id !== undefined) {
     if (typeof company_id !== 'string' || !LIST_ID_PATTERN.test(company_id)) return { error: 'company_id is invalid' };
     where.companyId = company_id;
   }
   if (category !== undefined) {
-    const dbCategory = typeof category === 'string' ? CATEGORY_TO_DB[category] : undefined;
-    if (!dbCategory) return { error: 'category is invalid' };
-    where.category = dbCategory as Prisma.DeliveryRecordWhereInput['category'];
+    if (category !== 'All' && category !== '') {
+      const dbCategory = typeof category === 'string' ? CATEGORY_TO_DB[category] : undefined;
+      if (!dbCategory) return { error: 'category is invalid' };
+      where.category = dbCategory as Prisma.DeliveryRecordWhereInput['category'];
+    }
+  }
+  if (status !== undefined) {
+    if (typeof status !== 'string') return { error: 'status is invalid' };
+    if (status !== 'All' && status !== '') {
+      if (!ALLOWED_STATUSES.has(status)) return { error: 'status is invalid' };
+      andConditions.push(statusFilterToWhere(status));
+    }
+  }
+  if (dateFrom !== undefined) {
+    if (typeof dateFrom !== 'string' || !isValidDateOnly(dateFrom)) return { error: 'dateFrom is invalid' };
+  }
+  if (dateTo !== undefined) {
+    if (typeof dateTo !== 'string' || !isValidDateOnly(dateTo)) return { error: 'dateTo is invalid' };
+  }
+  if (dateFrom !== undefined && dateTo !== undefined && dateFrom > dateTo) {
+    return { error: 'dateFrom cannot be after dateTo' };
+  }
+  if (dateFrom !== undefined || dateTo !== undefined) {
+    andConditions.push({
+      deliveryDate: {
+        ...(dateFrom ? { gte: dateFrom as string } : {}),
+        ...(dateTo ? { lte: dateTo as string } : {}),
+      }
+    });
+  }
+  if (search !== undefined) {
+    if (typeof search !== 'string') return { error: 'search is invalid' };
+    const s = search.trim();
+    if (s.length > 100) return { error: 'search query is too long' };
+    if (s.length > 0) {
+      andConditions.push({
+        OR: [
+          { id: { contains: s, mode: 'insensitive' } },
+          { reference: { contains: s, mode: 'insensitive' } },
+          { company: { name: { contains: s, mode: 'insensitive' } } },
+          { driver: { contains: s, mode: 'insensitive' } },
+          { area: { contains: s, mode: 'insensitive' } },
+          { accountManager: { contains: s, mode: 'insensitive' } },
+        ]
+      });
+    }
+  }
+  if (driver !== undefined) {
+    if (typeof driver !== 'string' || driver.length > 100) return { error: 'driver is invalid' };
+    if (driver.trim()) {
+      andConditions.push({ driver: { equals: driver.trim(), mode: 'insensitive' } });
+    }
+  }
+  if (area !== undefined) {
+    if (typeof area !== 'string' || area.length > 100) return { error: 'area is invalid' };
+    if (area !== 'All Areas' && area.trim()) {
+      andConditions.push({ area: area.trim() });
+    }
+  }
+  if (account_manager !== undefined) {
+    if (typeof account_manager !== 'string' || account_manager.length > 100) return { error: 'account_manager is invalid' };
+    if (account_manager.trim()) {
+      andConditions.push({ accountManager: { equals: account_manager.trim(), mode: 'insensitive' } });
+    }
+  }
+  if (priority !== undefined) {
+    if (typeof priority !== 'string' || !ALLOWED_PRIORITIES.has(priority)) return { error: 'priority is invalid' };
+    andConditions.push({ priority });
+  }
+  if (dashboard_filter !== undefined) {
+    if (typeof dashboard_filter !== 'string') return { error: 'dashboard_filter is invalid' };
+    const preset = dashboardPresetWhere(dashboard_filter);
+    if ('error' in preset) return { error: preset.error };
+    andConditions.push(preset);
   }
   if (limit !== undefined) {
     take = typeof limit === 'string' && /^\d+$/.test(limit) ? Number(limit) : NaN;
     if (!(take >= 1 && take <= LIST_MAX_LIMIT)) return { error: `limit must be between 1 and ${LIST_MAX_LIMIT}` };
+  } else if (isPaged) {
+    take = 25;
+  }
+  if (page !== undefined) {
+    pageNum = typeof page === 'string' && /^\d+$/.test(page) ? Number(page) : NaN;
+    if (!(pageNum >= 1)) return { error: 'page must be greater than or equal to 1' };
   }
   if (cursor !== undefined) {
-    if (typeof cursor !== 'string' || !LIST_ID_PATTERN.test(cursor)) return { error: 'cursor is invalid' };
-    if (take === undefined) return { error: 'cursor requires limit' };
+    if (typeof cursor !== 'string' || !CURSOR_PATTERN.test(cursor)) return { error: 'cursor is invalid' };
+    if (!isPaged && take === undefined) return { error: 'cursor requires limit' };
   }
-  return { where, take, cursor: cursor as string | undefined };
+  return {
+    where,
+    andConditions,
+    take,
+    cursor: cursor as string | undefined,
+    page: pageNum,
+    isPaged
+  };
 }
 
 router.get('/', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
   const parsed = parseListQuery(req.query);
   if ('error' in parsed) return res.status(400).json({ error: parsed.error });
 
-  // recordScope stays in the AND list so filters can only narrow what the
-  // user is already allowed to read. An unknown or out-of-scope company
-  // returns an empty list rather than revealing whether it exists.
-  const records = await prisma.deliveryRecord.findMany({
-    where: { deletedAt: null, ...parsed.where, AND: [recordScope(req.user!)] },
-    include: recordInclude,
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    ...(parsed.take !== undefined ? { take: parsed.take } : {}),
-    ...(parsed.cursor ? { cursor: { id: parsed.cursor }, skip: 1 } : {}),
+  const baseWhere: Prisma.DeliveryRecordWhereInput = {
+    deletedAt: null,
+    ...parsed.where,
+    AND: [recordScope(req.user!), ...parsed.andConditions],
+  };
+
+  if (!parsed.isPaged) {
+    // Unpaginated / legacy client contract: returns DeliveryRecord[]
+    const records = await prisma.deliveryRecord.findMany({
+      where: baseWhere,
+      include: recordInclude,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...(parsed.take !== undefined ? { take: parsed.take } : {}),
+      ...(parsed.cursor ? { cursor: { id: parsed.cursor }, skip: 1 } : {}),
+    });
+    return res.json(records.map(serializeRecord));
+  }
+
+  // Paged contract: { rows, nextCursor, hasMore, total, page, limit }
+  const take = parsed.take ?? 25;
+  let decodedCursor: { createdAt: Date; id: string } | null = null;
+  if (parsed.cursor) {
+    decodedCursor = await decodeCursor(parsed.cursor, prisma);
+    if (!decodedCursor) {
+      return res.status(400).json({ error: 'cursor is invalid or expired' });
+    }
+  }
+
+  const queryWhere: Prisma.DeliveryRecordWhereInput = {
+    deletedAt: null,
+    ...parsed.where,
+    AND: [
+      recordScope(req.user!),
+      ...parsed.andConditions,
+      ...(decodedCursor ? [{
+        OR: [
+          { createdAt: { lt: decodedCursor.createdAt } },
+          { createdAt: decodedCursor.createdAt, id: { lt: decodedCursor.id } },
+        ],
+      }] : []),
+    ],
+  };
+
+  const skip = (!decodedCursor && parsed.page && parsed.page > 1) ? (parsed.page - 1) * take : undefined;
+
+  const [records, total] = await Promise.all([
+    prisma.deliveryRecord.findMany({
+      where: queryWhere,
+      include: recordInclude,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...(skip !== undefined ? { skip } : {}),
+      take: take + 1,
+    }),
+    prisma.deliveryRecord.count({ where: baseWhere }),
+  ]);
+
+  const hasMore = records.length > take;
+  const rows = hasMore ? records.slice(0, take) : records;
+  const nextCursor = hasMore ? encodeCursor(rows[rows.length - 1]) : null;
+
+  res.json({
+    rows: rows.map(serializeRecord),
+    nextCursor,
+    hasMore,
+    total,
+    page: parsed.page ?? 1,
+    limit: take,
   });
-  res.json(records.map(serializeRecord));
 });
 
 // Bounded, permission-scoped aggregate for sidebar badges. Do not fetch
@@ -121,6 +376,94 @@ router.get('/active-counts', requireAuth, requireResource('records'), requireRec
   });
   res.setHeader('Cache-Control', 'no-store');
   res.json(recordActiveCounts(groups));
+}));
+
+// Purpose-built summary for Account Manager Directory. Returns grouped metrics per AM
+// within the caller's recordScope, without transmitting raw line items or full records.
+router.get('/am-summary', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
+  const records = await prisma.deliveryRecord.findMany({
+    where: { deletedAt: null, AND: [recordScope(req.user!)] },
+    select: {
+      id: true,
+      accountManager: true,
+      status: true,
+      draft: true,
+      timeIn: true,
+      company: { select: { name: true } },
+    },
+  });
+
+  const amMap: Record<string, {
+    name: string;
+    total: number;
+    delivered: number;
+    pending: number;
+    onHold: number;
+    rescheduled: number;
+    scheduled: number;
+    companies: Set<string>;
+  }> = {};
+
+  for (const r of records) {
+    const am = r.accountManager || 'Unknown';
+    if (!amMap[am]) {
+      amMap[am] = {
+        name: am, total: 0, delivered: 0, pending: 0, onHold: 0,
+        rescheduled: 0, scheduled: 0, companies: new Set<string>()
+      };
+    }
+    const s = amMap[am];
+    s.total++;
+    if (r.company?.name) s.companies.add(r.company.name);
+    const st = runState(r);
+    if (st === 'Delivered') s.delivered++;
+    else if (st === 'Pending') s.pending++;
+    else if (st === 'On-Hold') s.onHold++;
+    else if (st === 'Rescheduled') s.rescheduled++;
+    else if (st === 'Scheduled' || st === 'Draft') s.scheduled++;
+  }
+
+  const result = Object.values(amMap).map(am => ({
+    name: am.name,
+    total: am.total,
+    delivered: am.delivered,
+    pending: am.pending,
+    onHold: am.onHold,
+    rescheduled: am.rescheduled,
+    scheduled: am.scheduled,
+    companies: Array.from(am.companies).sort(),
+  }));
+
+  res.json(result);
+}));
+
+// Purpose-built summary for Calendar view. Returns records bounded by the active
+// calendar viewing window (dateFrom, dateTo) within caller's recordScope.
+router.get('/calendar-summary', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
+  const { dateFrom, dateTo } = req.query as Record<string, string>;
+  const where: Prisma.DeliveryRecordWhereInput = {
+    deletedAt: null,
+    AND: [recordScope(req.user!)],
+  };
+  if (dateFrom && !isValidDateOnly(dateFrom)) return res.status(400).json({ error: 'dateFrom is invalid' });
+  if (dateTo && !isValidDateOnly(dateTo)) return res.status(400).json({ error: 'dateTo is invalid' });
+  if (dateFrom && dateTo && dateFrom > dateTo) return res.status(400).json({ error: 'dateFrom cannot be after dateTo' });
+
+  if (dateFrom || dateTo) {
+    where.deliveryDate = {
+      ...(dateFrom ? { gte: dateFrom } : {}),
+      ...(dateTo ? { lte: dateTo } : {}),
+    };
+  }
+
+  const records = await prisma.deliveryRecord.findMany({
+    where,
+    include: recordInclude,
+    orderBy: [{ deliveryDate: 'asc' }, { id: 'asc' }],
+    take: 500,
+  });
+
+  res.json(records.map(serializeRecord));
 }));
 
 // Must be before /:id to avoid "status-history-counts" matching as an ID

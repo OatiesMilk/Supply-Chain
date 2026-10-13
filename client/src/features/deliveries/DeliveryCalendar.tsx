@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { ChevronLeft, ChevronRight, Truck, X } from 'lucide-react';
 import { DeliveryRecord } from '@/types';
 
+import { useCalendarSummaryQuery } from '@/api/queries/useRecordsQuery';
+
 interface Props {
   records: DeliveryRecord[];
   onNavigate: (screen: string, item_id?: string) => void;
@@ -58,9 +60,14 @@ export default function DeliveryCalendar({ records, onNavigate }: Props) {
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
+  const startStr = isoDate(year, month, 1);
+  const endStr = isoDate(year, month, daysInMonth);
+  const { data: calendarRecords } = useCalendarSummaryQuery(startStr, endStr);
+  const effectiveRecords = calendarRecords ?? records;
+
   // Build a lookup: dateStr -> records
   const byDate: Record<string, DeliveryRecord[]> = {};
-  for (const r of records) {
+  for (const r of effectiveRecords) {
     if (!byDate[r.delivery_date]) byDate[r.delivery_date] = [];
     byDate[r.delivery_date].push(r);
   }

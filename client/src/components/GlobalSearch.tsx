@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, X, Truck, Package, ArrowRight } from 'lucide-react';
+import { Search, X, Truck, Package, ArrowRight, Loader2 } from 'lucide-react';
 import { DeliveryRecord } from '../types';
-import { ApiSku } from '../api';
+import { ApiSku, api } from '../api';
+import { normalizeApiRecord } from '../api/queries/useRecordsQuery';
 
 interface Props {
   isOpen: boolean;
@@ -30,6 +31,8 @@ const STATUS_DOT: Record<string, string> = {
 export default function GlobalSearch({ isOpen, onClose, deliveryRecords, products, onNavigate }: Props) {
   const [query, setQuery] = useState('');
   const [cursor, setCursor] = useState(-1);
+  const [serverRecords, setServerRecords] = useState<DeliveryRecord[]>([]);
+  const [searching, setSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -37,6 +40,7 @@ export default function GlobalSearch({ isOpen, onClose, deliveryRecords, product
     if (isOpen) {
       setQuery('');
       setCursor(-1);
+      setServerRecords([]);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [isOpen]);
@@ -51,14 +55,45 @@ export default function GlobalSearch({ isOpen, onClose, deliveryRecords, product
 
   const q = query.toLowerCase().trim();
 
-  const matchedRecords = q.length < 2 ? [] : deliveryRecords.filter(r =>
-    r.id.toLowerCase().includes(q) ||
-    r.company_name.toLowerCase().includes(q) ||
-    r.reference.toLowerCase().includes(q) ||
-    (r.driver && r.driver.toLowerCase().includes(q)) ||
-    r.account_manager.toLowerCase().includes(q) ||
-    r.area.toLowerCase().includes(q)
-  ).slice(0, 8);
+  useEffect(() => {
+    if (q.length < 2) {
+      setServerRecords([]);
+      setSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await api.getPagedRecords({ search: q, limit: 8, paged: true });
+        if (!cancelled) {
+          setServerRecords(res.rows.map(normalizeApiRecord));
+        }
+      } catch {
+        if (!cancelled && deliveryRecords?.length) {
+          const fallback = deliveryRecords.filter(r =>
+            r.id.toLowerCase().includes(q) ||
+            r.company_name.toLowerCase().includes(q) ||
+            r.reference.toLowerCase().includes(q) ||
+            (r.driver && r.driver.toLowerCase().includes(q)) ||
+            r.account_manager.toLowerCase().includes(q) ||
+            r.area.toLowerCase().includes(q)
+          ).slice(0, 8);
+          setServerRecords(fallback);
+        }
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 150);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [q, deliveryRecords]);
+
+  const matchedRecords = q.length < 2 ? [] : serverRecords;
 
   const matchedSkus = q.length < 2 ? [] : products.filter(p =>
     p.sku_code.toLowerCase().includes(q) ||
@@ -133,6 +168,7 @@ export default function GlobalSearch({ isOpen, onClose, deliveryRecords, product
             className="flex-1 text-sm text-slate-800 placeholder:text-slate-400 outline-none bg-transparent"
           />
           <div className="flex items-center gap-2">
+            {searching && <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-500 shrink-0" />}
             <kbd className="hidden sm:inline-flex text-[10px] font-mono bg-slate-100 border border-slate-200 text-slate-500 px-1.5 py-0.5 rounded">Esc</kbd>
             <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded text-slate-400 cursor-pointer">
               <X className="w-4 h-4" />

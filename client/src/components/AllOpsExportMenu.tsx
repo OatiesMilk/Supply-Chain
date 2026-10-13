@@ -20,13 +20,15 @@ interface Props {
   meta: ExportMeta;
   activeFilterLabel?: string;
   statusHistoryCounts?: StatusHistoryCounts;
+  totalCount?: number;
+  fetchExportData?: () => Promise<DeliveryRecord[]>;
 }
 
 type Format = 'csv' | 'excel' | 'pdf' | 'docx';
 type Variant = 'current' | 'trail';
 type LoadingKey = `${Format}-${Variant}`;
 
-export default function AllOpsExportMenu({ records, meta, activeFilterLabel, statusHistoryCounts }: Props) {
+export default function AllOpsExportMenu({ records, meta, activeFilterLabel, statusHistoryCounts, totalCount, fetchExportData }: Props) {
   const [open,    setOpen]    = useState(false);
   const [loading, setLoading] = useState<LoadingKey | null>(null);
   const [docSize, setDocSize] = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
@@ -47,8 +49,9 @@ export default function AllOpsExportMenu({ records, meta, activeFilterLabel, sta
     setLoading(`${fmt}-${variant}`);
     const hist = variant === 'trail' ? statusHistoryCounts : undefined;
     try {
-      const rows        = records.map(serializeAllOpsRow);
-      const summary     = computeAllOpsSummary(records, 'nearest');
+      const targetRecords = fetchExportData ? await fetchExportData() : records;
+      const rows        = targetRecords.map(serializeAllOpsRow);
+      const summary     = computeAllOpsSummary(targetRecords, 'nearest');
       const reportTitle = activeFilterLabel
         ? `${activeFilterLabel} — Comprehensive Report`
         : 'All Operations — Comprehensive Report';
