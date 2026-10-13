@@ -276,7 +276,7 @@ test.describe('C-3 Accomplished Records View', () => {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
 
-    const accomplishedHeading = page.getByText(/^Accomplished \\(\\d+\\)$/i).first();
+    const accomplishedHeading = page.getByText(/^Accomplished \(\d+\)$/i).first();
     await expect(accomplishedHeading, 'The UAT seed must provide a completed run').toBeVisible();
     const accomplishedRun = accomplishedHeading.locator('..').locator('..')
       .getByRole('button').filter({ hasText: 'SAP-UAT-DELIVERED-PRIORITY' });
