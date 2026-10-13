@@ -71,6 +71,7 @@ function fmtCreatedAt(ts: string): string {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "Asia/Manila",
   });
 }
 
@@ -97,8 +98,10 @@ export default function MainView({
 
   useEffect(() => {
     const params = new URLSearchParams();
-    if (activeFilter !== "all" && activeFilter !== "draft")
-      params.set("status", activeFilter);
+    if (activeFilter !== "all")
+      params.set("status", activeFilter === "draft" ? "Draft" : activeFilter);
+    if (dateFrom) params.set("deliveryDateFrom", dateFrom);
+    if (dateTo) params.set("deliveryDateTo", dateTo);
 
     fetch(`${apiUrl("/records/status-history-counts")}?${params}`, {
       credentials: "include",
@@ -106,7 +109,7 @@ export default function MainView({
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => setStatusHistoryCounts(data ?? undefined))
       .catch(() => setStatusHistoryCounts(undefined));
-  }, [activeFilter]);
+  }, [activeFilter, dateFrom, dateTo]);
 
   const availableCategories = useMemo<DeliveryCategory[]>(
     () =>
@@ -275,6 +278,10 @@ export default function MainView({
             records={displayRecords}
             meta={{
               reportName: "All Operations",
+              dateRange: dateFrom || dateTo
+                ? `${dateFrom || "earliest"} to ${dateTo || "latest"}`
+                : "All dates",
+              dateBasis: "Delivery Date (Asia/Manila)",
               generatedByName: currentUserName,
               generatedByRole: currentUserRole,
             }}

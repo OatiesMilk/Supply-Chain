@@ -84,19 +84,21 @@ test.describe('X Cross-Role Integration', () => {
       
       await salesPage.getByRole('button', { name: /new record/i }).first().click();
 
-      const companyInput = salesPage.locator('input[placeholder="Type to search or scroll to browse..."]').first();
+      const createForm = salesPage.locator('form').filter({
+        has: salesPage.getByRole('button', { name: 'Save as Draft', exact: true }),
+      });
+      const companyInput = createForm.locator('input[placeholder="Type to search or scroll to browse..."]').first();
       await companyInput.fill('M'); // trigger dropdown properly
       const companyOption = salesPage.locator('[role="listbox"]').getByRole('option').first();
       await expect(companyOption).toBeVisible();
       await companyOption.click();
-      await salesPage.getByPlaceholder('e.g., SAP-88231').fill(reference);
       const deliveryDate = manilaToday();
-      const createForm = salesPage.locator('form');
+      await createForm.getByPlaceholder('e.g., SAP-88231').fill(reference);
       await createForm.getByLabel(/^Delivery Date/).fill(deliveryDate);
       await expect(salesPage.getByLabel('Date From', { exact: true })).toHaveValue('');
       const createResponsePromise = salesPage.waitForResponse(response =>
         new URL(response.url()).pathname === '/api/records' && response.request().method() === 'POST');
-      await salesPage.getByRole('button', { name: 'Save as Draft', exact: true }).click();
+      await createForm.getByRole('button', { name: 'Save as Draft', exact: true }).click();
       const createResponse = await createResponsePromise;
       expect(createResponse.status(), 'saving the Draft must finish successfully').toBe(201);
       const saved = await createResponse.json() as ApiRecord;
@@ -114,6 +116,7 @@ test.describe('X Cross-Role Integration', () => {
 
       console.log('TSK-120: Clicking salesRow');
       const salesRow = salesPage.getByRole('row').filter({ hasText: recordId });
+      await expect(salesRow).toBeVisible();
       await salesRow.click();
 
       console.log('TSK-120: Asserting no dispatch tab');

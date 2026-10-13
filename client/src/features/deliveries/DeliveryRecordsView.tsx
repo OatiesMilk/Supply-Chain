@@ -243,8 +243,8 @@ export default function DeliveryRecordsView({
       'Procurement Pick-up': 'PROCUREMENT_PICKUP', 'Sales Orders': 'SALES_ORDERS',
     };
     if (category) params.set('category', CATEGORY_TO_DB[category] ?? category);
-    if (appliedDateFrom) params.set('dateFrom', appliedDateFrom);
-    if (appliedDateTo) params.set('dateTo', appliedDateTo);
+    if (appliedDateFrom) params.set('deliveryDateFrom', appliedDateFrom);
+    if (appliedDateTo) params.set('deliveryDateTo', appliedDateTo);
     if (areaFilter !== 'All Areas') params.set('area', areaFilter);
     if (driverFilter) params.set('driver', driverFilter);
     if (statusFilter !== 'All') params.set('status', statusFilter);
@@ -298,16 +298,8 @@ export default function DeliveryRecordsView({
     if (statusFilter !== 'All' && r.status !== statusFilter) return false;
     if (amFilter && !r.account_manager.toLowerCase().includes(amFilter.toLowerCase())) return false;
     if (driverFilter && r.driver.toLowerCase() !== driverFilter.toLowerCase()) return false;
-    if (appliedDateFrom && r.delivery_date) {
-      const rd = new Date(r.delivery_date);
-      const df = new Date(appliedDateFrom);
-      if (rd < df) return false;
-    }
-    if (appliedDateTo && r.delivery_date) {
-      const rd = new Date(r.delivery_date);
-      const dt = new Date(appliedDateTo);
-      if (rd > dt) return false;
-    }
+    if (appliedDateFrom && (!r.delivery_date || r.delivery_date < appliedDateFrom)) return false;
+    if (appliedDateTo && (!r.delivery_date || r.delivery_date > appliedDateTo)) return false;
     const q = searchQuery.toLowerCase();
     if (!q) return true;
     return (
@@ -346,8 +338,8 @@ export default function DeliveryRecordsView({
   const now = Date.now();
   const activeDateSort = (appliedDateFrom || appliedDateTo) ? 'default' : dateSort;
   const sortedFiltered = activeDateSort === 'default' ? filtered : [...filtered].sort((a, b) => {
-    const da = a.delivery_date ? new Date(a.delivery_date + 'T12:00:00').getTime() : null;
-    const db = b.delivery_date ? new Date(b.delivery_date + 'T12:00:00').getTime() : null;
+    const da = a.delivery_date ? new Date(a.delivery_date + 'T12:00:00Z').getTime() : null;
+    const db = b.delivery_date ? new Date(b.delivery_date + 'T12:00:00Z').getTime() : null;
     if (!da && !db) return 0;
     if (!da) return 1;
     if (!db) return -1;
@@ -551,6 +543,10 @@ export default function DeliveryRecordsView({
 
   const exportMeta = {
     reportName: `${category} Records Export`,
+    dateRange: appliedDateFrom || appliedDateTo
+      ? `${appliedDateFrom || 'earliest'} to ${appliedDateTo || 'latest'}`
+      : 'All dates',
+    dateBasis: 'Delivery Date (Asia/Manila)',
     generatedByName: currentUserName,
     generatedByRole: currentUserRole
   };

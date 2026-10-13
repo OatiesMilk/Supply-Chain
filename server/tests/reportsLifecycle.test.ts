@@ -22,7 +22,7 @@ const records = [
 async function invoke(path: string, query: Record<string, string>) {
   const route = (reports as any).stack.find((layer: any) => layer.route?.path === path).route;
   let body: any;
-  await route.stack.at(-1).handle({ query }, { json(value: any) { body = value; } });
+  await route.stack.at(-1).handle({ query, user: { role: 'ADMIN', name: 'Admin', permissions: [], effectiveScreens: ['statistical_reports'] } }, { json(value: any) { body = value; } });
   return body;
 }
 
@@ -30,11 +30,35 @@ async function invoke(path: string, query: Record<string, string>) {
 
 test('statistical summary uses the same draft and started-run states as records', async () => {
   stub(prisma.deliveryRecord, 'findMany', async () => records);
+  stub(prisma.deliveryRecord, 'count', async () => 0);
   const all = await invoke('/summary', {});
   assert.deepEqual(all.by_status, [{ status: 'Draft', count: 1 }, { status: 'Scheduled', count: 1 }, { status: 'In Transit', count: 1 }]);
   const started = await invoke('/summary', { status: 'In Transit' });
   assert.equal(started.total, 1);
   assert.deepEqual(started.by_status, [{ status: 'In Transit', count: 1 }]);
+});
+
+test('statistical report applies Manila Delivery Date filters and counts completion by Time Out separately', async () => {
+  let cohortQuery: any;
+  let completionQuery: any;
+  stub(prisma.deliveryRecord, 'findMany', async (query: any) => { cohortQuery = query; return records; });
+  stub(prisma.deliveryRecord, 'count', async (query: any) => { completionQuery = query; return 2; });
+
+  const summary = await invoke('/summary', {
+    deliveryDateFrom: '2026-10-06', deliveryDateTo: '2026-10-06', category: 'Deliveries',
+  });
+  assert.deepEqual(cohortQuery.where.deliveryDate, { gte: '2026-10-06', lte: '2026-10-06' });
+  assert.equal(cohortQuery.where.AND[0].category.in.includes('DELIVERY'), true);
+  assert.deepEqual(completionQuery.where.timeOut, {
+    gte: new Date('2026-10-05T16:00:00.000Z'),
+    lt: new Date('2026-10-06T16:00:00.000Z'),
+  });
+  assert.equal(completionQuery.where.status, 'ACCOMPLISHED');
+  assert.equal(completionQuery.where.AND[0].category.in.includes('DELIVERY'), true);
+  assert.equal(summary.completed_in_range, 2);
+  assert.deepEqual(summary.date_basis, {
+    cohort: 'deliveryDate', completion: 'timeOut', time_zone: 'Asia/Manila',
+  });
 });
 
 test('snapshot rollups keep Draft distinct and atomically replace today to remove stale counts', async context => {
