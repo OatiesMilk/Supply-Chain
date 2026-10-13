@@ -180,7 +180,7 @@ test.describe('A-2 Create a Delivery Record', () => {
     const fileInput = page.locator('input[type="file"]').first();
     await fileInput.setInputFiles(badFilePath);
 
-    await expect(page.getByText('malicious.exe — file type not allowed. Use JPG, PNG, PDF or DOC.', { exact: true })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('malicious.exe — file type not allowed. Use JPG, PNG, PDF, DOC or DOCX.', { exact: true })).toBeVisible({ timeout: 5_000 });
 
     fs.unlinkSync(badFilePath);
   });

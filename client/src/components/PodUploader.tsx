@@ -45,7 +45,7 @@ export default function PodUploader({ recordId, required = false, disabled = fal
       <p className="flex items-center gap-1 text-xs font-bold text-slate-600">
         <Paperclip aria-hidden="true" className="h-4 w-4" /> Proof of Delivery {required && <span>(photo required)</span>}
       </p>
-      {required && <p className="text-xs text-slate-600">Upload at least one JPG or PNG delivery photo before completing this delivery. PDF and DOC files are optional supporting documents.</p>}
+      {required && <p className="text-xs text-slate-600">Upload at least one JPG or PNG delivery photo before completing this delivery. PDF, DOC and DOCX files are optional supporting documents.</p>}
       <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading || disabled}
         className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50">
         <Paperclip aria-hidden="true" className="h-4 w-4" />

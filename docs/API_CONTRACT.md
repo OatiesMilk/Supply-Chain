@@ -49,8 +49,8 @@ All record routes use `Auth` + `Res:records` + `Rec`. Responses use display stri
 | GET | `/records/:id/comments` | any with access | Comments |
 | POST | `/records/:id/comments` | SC, LOG, ADM, DRV, TASS | Add a comment `{ "body": "..." }` |
 | GET | `/records/:id/attachments` | any with access | POD attachment metadata |
-| POST | `/records/:id/attachments` | SC, LOG, ADM, DRV | Upload one file (multipart field `file`, 10 MB max). Photos must be genuine JPG/PNG. Drivers: assigned runs only |
-| GET | `/records/:id/attachments/:attachmentId/download` | any with access | Download through the API |
+| POST | `/records/:id/attachments` | SC, LOG, ADM, DRV | Upload one file (multipart field `file`, 10 MB max). Content is verified and a per-record quota applies; see [Attachment rules](#11-attachment-rules-sec-07--sec-08). Drivers: assigned runs only |
+| GET | `/records/:id/attachments/:attachmentId/download` | any with access | Download through the API (streamed, always `Content-Disposition: attachment`) |
 | DELETE | `/records/:id/attachments/:attachmentId` | SC, LOG, ADM | Remove an attachment (audited) |
 | POST | `/records` | SC, LOG, ADM | Create. LOG cannot create RMA; SC cannot assign drivers. Required: `company_id`, `category`, `reference` (Drafts: `company_id`, `category`) |
 | PUT | `/records/:id` | SC, LOG, ADM, DRV, TASS | Edit fields; remarks required; field and category limits per role (TASS: RMA only; LOG: not RMA; DRV: own runs) |
@@ -192,3 +192,26 @@ The token is returned in the `X-CSRF-Token` **response header** of a successful 
 Counters are in process memory (single API instance) and reset on restart. The client address is the socket peer unless the request carries the Worker's `PROXY_SHARED_SECRET` headers or `TRUST_PROXY` is set; `X-Forwarded-For` is otherwise ignored.
 
 **Response headers.** Helmet defaults plus a Content-Security-Policy that allows only same-origin scripts and connections and limits framing (`frame-ancestors`) to the portal itself and Microsoft Teams hosts. `X-Frame-Options` is intentionally not sent because it cannot allow Teams. `worker.js` sends the same policy with the frontend HTML.
+
+## 11. Attachment rules (SEC-07 / SEC-08)
+
+Enforced by `POST /records/:id/attachments`. Limits are constants in `server/src/services/attachmentRules.ts`.
+
+| Rule | Value | Response when broken |
+| :--- | :--- | :--- |
+| Single file size | 10 MB | `413` |
+| Accepted types | PDF, JPG/JPEG, PNG, DOC (legacy Word), DOCX. Macro-enabled Word files (`.docm`) are not accepted | `400` |
+| Content must match the type | See below | `400` `{ "error": "This file is not a valid ... " }` |
+| Attachments per record | 10 | `409` `{ "error": "...", "code": "ATTACHMENT_QUOTA_EXCEEDED" }` |
+| Total attachment size per record | 50 MB | `409`, same `code` |
+
+**Content verification.** The file extension only selects which format the bytes must prove to be; the browser's `Content-Type` is never trusted and the stored type comes from the server's allow-list.
+
+- **JPG / PNG:** framing check plus a real pixel decode (unchanged).
+- **PDF:** `%PDF-1.x` or `%PDF-2.x` at byte 0, and the file must end with its `startxref` pointer and `%%EOF` marker with only whitespace after it. Anything prepended or appended is rejected.
+- **DOC:** a valid OLE compound file header that contains a `WordDocument` stream entry. Other OLE files (spreadsheets, installers) are rejected.
+- **DOCX:** the whole file must be one well-formed ZIP archive with nothing before, between or after its parts and no archive comment. Its index must list `[Content_Types].xml`, `_rels/.rels` and `word/document.xml`, and the content-type manifest must declare an ordinary Word document. Rejected: other ZIP-based files (spreadsheets, Java archives, plain archives), macro content (`vbaProject.bin` or a macro-enabled manifest), encrypted entries, entry paths that escape the package, more than 1000 entries, or more than 200 MB of declared unpacked size. Only the manifest is ever decompressed.
+
+**Quota.** Counted inside the same transaction that holds the record row lock, before anything is written to storage, so parallel uploads cannot exceed it and a refusal leaves no file or database row. Records that already hold more than the limit are grandfathered: their files remain listed, downloadable and deletable, and new uploads are refused until the record is back under both limits.
+
+**Memory and temporary files.** Uploads are written to a private quarantine folder (`POD_TEMP_DIR`, default the OS temp folder) under a random name, never buffered in memory. At most three whole files are held in memory at once for content checks, across uploads, photo verification and listings. The quarantined file is deleted when the request ends, whatever the outcome, and files left by a crash are removed at startup. Downloads are streamed.

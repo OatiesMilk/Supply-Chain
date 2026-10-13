@@ -7,11 +7,24 @@ import { signToken } from '../src/middleware/auth';
 import { podStorage } from '../src/services/podStorage';
 import sharp from 'sharp';
 import { PassThrough } from 'node:stream';
+import { docx, oleFile, pdf, zipOf } from './attachmentFixtures';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
 import { isPodPhoto, isVerifiedPodPhoto } from '../src/services/podPhotos';
 import { allowedStatuses, deliveryScheduleState, driverDeliveryDateError, isoTimestamp, manilaToday, timeInError, transitionError } from '../src/services/deliveryLifecycle';
 import { recordScope } from '../src/services/recordAccess';
 
 const photo = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWMwTpsJAAICATMDms/iAAAAAElFTkSuQmCC', 'base64');
+const uploadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mg-pod-test-'));
+process.on('exit', () => fs.rmSync(uploadDir, { recursive: true, force: true }));
+// What Multer hands the route after writing an upload to its quarantine folder.
+function uploaded(bytes: Buffer = photo, originalname = 'photo.png', mimetype = 'image/png') {
+  const filePath = path.join(uploadDir, crypto.randomUUID());
+  fs.writeFileSync(filePath, bytes);
+  return { originalname, mimetype, size: bytes.length, path: filePath };
+}
 const restorers: (() => void)[] = [];
 function stub(target: any, key: string, implementation: (...args: any[]) => any) {
   const original = target[key];
@@ -103,6 +116,7 @@ function database(row = record(), files: any[] = []) {
     },
     podAttachment: {
       create: async (args: any) => prisma.podAttachment.create(args),
+      aggregate: async () => ({ _count: { _all: files.length }, _sum: { size: files.reduce((total, file) => total + file.size, 0) } }),
       findMany: async ({ where }: any) => { events.push('photos'); return files.filter(file => file.id !== where.id?.not); },
       findFirst: async () => files[0] ?? null,
       delete: async () => { events.push('delete'); return files.shift(); },
@@ -146,7 +160,7 @@ test('Delivery schedule eligibility uses valid Manila dates and leaves started/n
 
 test('server rejects future unstarted Driver writes across execution, POD, record edit and comments', async () => {
   const future = shiftDate(manilaToday(), 1);
-  const photoFile = { originalname: 'photo.png', mimetype: 'image/png', size: photo.length, buffer: photo };
+  const photoFile = uploaded();
   for (const [method, path, options] of [
     ['post', '/:id/time-in', { body: { remarks: 'Start early' } }],
     ['patch', '/:id/status', { body: { status: 'On-Hold', remarks: 'Future run' } }],
@@ -208,7 +222,7 @@ test('overdue Driver Time In and POD upload audit the effective date and days la
   const podState = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: overdueDate }));
   stub(podStorage, 'save', async () => 'photo.png');
   stub(prisma.podAttachment, 'create', async () => attachment() as any);
-  const upload = await request('post', '/:id/attachments', { file: { originalname: 'photo.png', mimetype: 'image/png', size: photo.length, buffer: photo } });
+  const upload = await request('post', '/:id/attachments', { file: uploaded() });
   assert.equal(upload.status, 201);
   const uploadSnapshot = JSON.parse(podState.audit[0].newValue);
   assert.equal(uploadSnapshot.overdue, true);
@@ -238,7 +252,7 @@ test('assigned driver can upload a saved photo and list its verified photo flag'
   database();
   const save = stub(podStorage, 'save', async () => 'photo.png');
   stub(prisma.podAttachment, 'create', async () => attachment() as any);
-  const result = await request('post', '/:id/attachments', { file: { originalname: 'photo.png', mimetype: 'image/png', size: photo.length, buffer: photo } });
+  const result = await request('post', '/:id/attachments', { file: uploaded() });
   assert.equal(result.status, 201);
   assert.equal(result.body.is_photo, true);
   assert.equal(save.mock.callCount(), 1);
@@ -250,10 +264,10 @@ test('assigned driver can upload a saved photo and list its verified photo flag'
 test('driver cannot upload to another driver record and counterfeit image uploads are rejected before storage', async () => {
   database(record(otherDriver('Another Driver')));
   const save = stub(podStorage, 'save', async () => 'unexpected');
-  const file = { originalname: 'photo.png', mimetype: 'image/png', size: photo.length, buffer: photo };
+  const file = uploaded();
   assert.equal((await request('post', '/:id/attachments', { file })).status, 403);
   stub(prisma.deliveryRecord, 'findFirst', async () => record() as any);
-  assert.equal((await request('post', '/:id/attachments', { file: { ...file, buffer: Buffer.from('not a photo') } })).status, 400);
+  assert.equal((await request('post', '/:id/attachments', { file: uploaded(Buffer.from('not a photo')) })).status, 400);
   assert.equal(save.mock.callCount(), 0);
 });
 
@@ -599,7 +613,7 @@ test('C-2.13 status, edit and upload reject another driver with no mutations or 
     const create = stub(prisma.podAttachment, 'create', async () => { throw new Error('Unexpected attachment write'); });
     const response = await request(method, path, {
       body: { status: 'Delivered', remarks: 'Completion', received_by: 'Recipient' },
-      file: { originalname: 'photo.png', mimetype: 'image/png', size: photo.length, buffer: photo },
+      file: uploaded(),
     });
     assert.equal(response.status, 403, path);
     assert.deepEqual(state.saved(), before);
@@ -790,7 +804,7 @@ test('upload rejects reassignment under the row lock before any storage or metad
   state.tx.deliveryRecord.findUnique = async () => record(otherDriver('Driver B'));
   const save = stub(podStorage, 'save', async () => { throw new Error('Unexpected save'); });
   const create = stub(prisma.podAttachment, 'create', async () => { throw new Error('Unexpected metadata'); });
-  const response = await request('post', '/:id/attachments', { file: { originalname: 'photo.png', mimetype: 'image/png', size: photo.length, buffer: photo } });
+  const response = await request('post', '/:id/attachments', { file: uploaded() });
   assert.equal(response.status, 403);
   assert.deepEqual(state.events, ['lock']);
   assert.equal(save.mock.callCount(), 0);
@@ -805,7 +819,7 @@ test('upload compensates object storage on metadata and transaction commit failu
     const remove = stub(podStorage, 'remove', async () => {});
     stub(prisma.podAttachment, 'create', async () => { if (failure === 'metadata') throw new Error('metadata failed'); return attachment() as any; });
     if (failure === 'commit') stub(prisma, '$transaction', async (fn: any) => { await fn(state.tx); throw new Error('commit failed'); });
-    await assert.rejects(request('post', '/:id/attachments', { file: { originalname: 'photo.png', mimetype: 'image/png', size: photo.length, buffer: photo } }), new RegExp(`${failure} failed`));
+    await assert.rejects(request('post', '/:id/attachments', { file: uploaded() }), new RegExp(`${failure} failed`));
     assert.equal(remove.mock.callCount(), 1);
     assert.equal(remove.mock.calls[0].arguments[0], 'new-key');
   }
@@ -832,7 +846,7 @@ test('locked status, edit and upload checks reject a record newly returned to Dr
       state.tx.deliveryRecord.findUnique = async () => record(role === 'DRIVER' ? { draft: true } : { category: 'RMA' });
       const response = await request(method, path, { role,
         body: { ...(method === 'patch' ? { status: 'Delivered' } : {}), received_by: 'Recipient', remarks: 'Update' },
-        file: { originalname: 'photo.png', mimetype: 'image/png', size: photo.length, buffer: photo },
+        file: uploaded(),
       });
       assert.equal(response.status, 403, `${role}/${path}`);
       assert.deepEqual(state.events, ['lock']);
@@ -913,4 +927,136 @@ test('Sales Coordinator cannot assign a Driver by profile id on create or edit',
   const state = database(record({ status: 'SCHEDULED', timeIn: null, driver: '', driverId: null }));
   const edited = await request('put', '/:id', { role: 'SALES_COORDINATOR', body: { driver_id: 'profile-assigned', remarks: 'Try' } });
   assert.equal(state.saved().driverId, null, `SC edit must not assign (status ${edited.status})`);
+});
+
+// ── SEC-07 / SEC-08: content checks, per-record quota and quarantine cleanup ──
+const MEBIBYTE = 1024 * 1024;
+
+test('document uploads are verified by content and stored under the server-derived type', async () => {
+  database();
+  const save = stub(podStorage, 'save', async () => 'stored.pdf');
+  const create = stub(prisma.podAttachment, 'create', async ({ data }: any) => attachment({ ...data, id: 'pdf-1' }) as any);
+
+  const genuine = uploaded(pdf(), 'Scan.PDF', 'application/pdf');
+  const stored = await request('post', '/:id/attachments', { file: genuine });
+  assert.equal(stored.status, 201);
+  assert.equal(stored.body.is_photo, false);
+  assert.equal(stored.body.mime_type, 'application/pdf');
+  // Storage receives the quarantined file, not an in-memory copy.
+  const savedFile = save.mock.calls[0].arguments[0];
+  assert.equal(savedFile.path, genuine.path);
+  assert.equal('buffer' in savedFile, false);
+
+  // The browser's declared type is not what gets stored.
+  const mislabelled = await request('post', '/:id/attachments', { file: uploaded(pdf(), 'scan.pdf', 'image/png') });
+  assert.equal(mislabelled.status, 201);
+  assert.equal(create.mock.calls[1].arguments[0].data.mimeType, 'application/pdf');
+
+  // Word documents, modern and legacy, are accepted on their content too.
+  const wordType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  for (const [bytes, name, type] of [[docx(), 'Letter.DOCX', wordType], [oleFile('WordDocument'), 'letter.doc', 'application/msword']] as const) {
+    const word = await request('post', '/:id/attachments', { file: uploaded(bytes, name, type) });
+    assert.equal(word.status, 201, name);
+    assert.equal(create.mock.calls.at(-1)!.arguments[0].data.mimeType, type);
+  }
+
+  const rejected: Array<[string, Buffer, string, string]> = [
+    ['archive renamed to DOCX', zipOf([{ name: 'setup.exe', content: 'MZ' }]), 'invoice.docx', wordType],
+    ['macro-enabled document', zipOf([{ name: 'word/vbaProject.bin', content: 'macro' }]), 'invoice.docx', wordType],
+    ['legacy DOC renamed to DOCX', oleFile('WordDocument'), 'letter.docx', wordType],
+    ['DOCX renamed to DOC', docx(), 'letter.doc', 'application/msword'],
+    ['PDF header only', Buffer.from('%PDF-1.4 UAT supporting document'), 'fake.pdf', 'application/pdf'],
+    ['photo renamed to PDF', photo, 'photo.pdf', 'application/pdf'],
+    ['PDF renamed to DOC', pdf(), 'letter.doc', 'application/msword'],
+    ['executable renamed to DOC', Buffer.concat([Buffer.from('MZ'), Buffer.alloc(2000)]), 'setup.doc', 'application/msword'],
+    ['PDF renamed to PNG', pdf(), 'photo.png', 'image/png'],
+    ['PDF with a script appended', Buffer.concat([pdf(), Buffer.from('<script>alert(1)</script>')]), 'page.pdf', 'application/pdf'],
+    ['type outside the allow-list', docx(), 'macro.docm', wordType],
+  ];
+  for (const [name, bytes, originalname, mimetype] of rejected) {
+    const file = uploaded(bytes, originalname, mimetype);
+    const response = await request('post', '/:id/attachments', { file });
+    assert.equal(response.status, 400, name);
+    assert.match(response.body.error, /not a valid|Unsupported file type/, name);
+    assert.equal(fs.existsSync(file.path), false, `${name}: quarantined file removed`);
+  }
+  assert.equal(save.mock.callCount(), 4);
+  assert.equal(create.mock.callCount(), 4);
+});
+
+test('a record at its attachment quota refuses another file before anything is stored', async () => {
+  const save = () => stub(podStorage, 'save', async () => { throw new Error('Unexpected storage write'); });
+  const create = () => stub(prisma.podAttachment, 'create', async () => { throw new Error('Unexpected metadata write'); });
+
+  // Count: ten stored files, including a legacy record that is already over.
+  for (const count of [10, 14]) {
+    resetFixtures();
+    const state = database(record(), Array.from({ length: count }, (_unused, index) => attachment({ id: `file-${index}`, size: 1000 })));
+    const storage = save();
+    const metadata = create();
+    const file = uploaded();
+    const response = await request('post', '/:id/attachments', { file });
+    assert.equal(response.status, 409, `${count} files`);
+    assert.equal(response.body.code, 'ATTACHMENT_QUOTA_EXCEEDED');
+    assert.match(response.body.error, new RegExp(`already has ${count} attachments; the limit is 10`));
+    assert.equal(storage.mock.callCount() + metadata.mock.callCount(), 0);
+    assert.equal(state.audit.length, 0);
+    assert.equal(fs.existsSync(file.path), false);
+  }
+
+  // Total size: one byte over is refused, exactly at the limit is accepted.
+  for (const [storedBytes, status] of [[50 * MEBIBYTE - photo.length + 1, 409], [50 * MEBIBYTE - photo.length, 201]] as const) {
+    resetFixtures();
+    database(record(), [attachment({ size: storedBytes })]);
+    stub(podStorage, 'save', async () => 'photo.png');
+    stub(prisma.podAttachment, 'create', async () => attachment() as any);
+    const response = await request('post', '/:id/attachments', { file: uploaded() });
+    assert.equal(response.status, status, `${storedBytes} bytes stored`);
+    if (status === 409) {
+      assert.equal(response.body.code, 'ATTACHMENT_QUOTA_EXCEEDED');
+      assert.match(response.body.error, /over its 50 MB attachment limit/);
+    }
+  }
+});
+
+test('parallel uploads to one record cannot take it past the quota', async () => {
+  const files = Array.from({ length: 8 }, (_unused, index) => attachment({ id: `file-${index}`, size: 1000 }));
+  const state = database(record(), files);
+  // Transactions on one record run one at a time, as the record row lock makes them in PostgreSQL.
+  let queue: Promise<unknown> = Promise.resolve();
+  stub(prisma, '$transaction', (work: any) => {
+    const run = queue.then(() => work(state.tx));
+    queue = run.catch(() => {});
+    return run;
+  });
+  const save = stub(podStorage, 'save', async () => { await new Promise(resolve => setTimeout(resolve, 5)); return `stored-${files.length}`; });
+  stub(prisma.podAttachment, 'create', async ({ data }: any) => {
+    const row = attachment({ ...data, id: `new-${files.length}` });
+    files.push(row);
+    return row as any;
+  });
+
+  const responses = await Promise.all(Array.from({ length: 6 }, () => request('post', '/:id/attachments', { file: uploaded() })));
+  assert.deepEqual(responses.map(response => response.status).sort(), [201, 201, 409, 409, 409, 409]);
+  assert.equal(files.length, 10);
+  assert.equal(save.mock.callCount(), 2, 'refused uploads never reach storage');
+});
+
+test('the quarantined upload is removed after success, refusal, storage failure and database failure', async () => {
+  for (const outcome of ['stored', 'refused', 'storage failure', 'database failure']) {
+    resetFixtures();
+    const state = database();
+    if (outcome === 'refused') state.tx.deliveryRecord.findUnique = async () => record(otherDriver('Driver B'));
+    stub(podStorage, 'save', async () => { if (outcome === 'storage failure') throw new Error('storage failure'); return 'new-key'; });
+    const remove = stub(podStorage, 'remove', async () => {});
+    stub(prisma.podAttachment, 'create', async () => { if (outcome === 'database failure') throw new Error('database failure'); return attachment() as any; });
+
+    const file = uploaded();
+    const pending = request('post', '/:id/attachments', { file });
+    if (outcome.endsWith('failure')) await assert.rejects(pending, new RegExp(outcome));
+    else assert.equal((await pending).status, outcome === 'stored' ? 201 : 403);
+    assert.equal(fs.existsSync(file.path), false, outcome);
+    // Only a file that reached storage needs compensating.
+    assert.equal(remove.mock.callCount(), outcome === 'database failure' ? 1 : 0, outcome);
+  }
 });

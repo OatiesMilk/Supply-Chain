@@ -222,7 +222,7 @@ is permitted only for a disposable loopback database.
 |---------|-----------|-------|-----------------|-------------|
 | C-2.1 | Record Time In | Click **Record Time In** button on an active record card | Button disappears; replaced by a blue confirmation banner showing the recorded time | |
 | C-2.2 | POD upload section is visible | Open an active delivery card, before or after Time In | A **"Proof of Delivery (photo required)"** section with an **Upload Photo / Document** button is visible | |
-| C-2.3 | Upload a supporting document | Click **Upload Photo / Document** → select a PDF or DOC file | File name appears below the button; upload completes, but it does **not** satisfy the photo requirement | |
+| C-2.3 | Upload a supporting document | Click **Upload Photo / Document** → select a PDF, DOC or DOCX file | File name appears below the button; upload completes, but it does **not** satisfy the photo requirement | |
 | C-2.4 | Upload a valid delivery photo | Select a real JPG or PNG image and wait for the saved confirmation | The photo appears as saved/verified; **Accomplish** becomes eligible once the other requirements are met | |
 | C-2.5 | PDF/DOC alone cannot accomplish | With only PDF/DOC attachments saved, attempt to open or submit Accomplish | Accomplish remains disabled or the backend rejects completion with the photo-required message | |
 | C-2.6 | POD upload rejected if wrong type | Select a non-JPG/PNG/PDF/DOC file | Error message shown; file is not uploaded | |

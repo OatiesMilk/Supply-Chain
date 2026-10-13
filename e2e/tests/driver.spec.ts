@@ -178,7 +178,8 @@ test.describe('C-2 ePOD Flow', () => {
     }
 
     const pdfPath = path.join('/tmp', 'uat_supporting_document.pdf');
-    fs.writeFileSync(pdfPath, '%PDF-1.4 UAT supporting document');
+    // The server verifies PDF structure (SEC-08), so this must be a real, if empty, PDF.
+    fs.writeFileSync(pdfPath, '%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\nxref\n0 2\n0000000000 65535 f \n0000000009 00000 n \ntrailer<</Size 2/Root 1 0 R>>\nstartxref\n39\n%%EOF\n');
     await page.locator('input[type="file"]').first().setInputFiles(pdfPath);
     await expect(page.getByText('uat_supporting_document.pdf')).toBeVisible({ timeout: 15_000 });
     fs.unlinkSync(pdfPath);

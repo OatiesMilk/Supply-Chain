@@ -1721,7 +1721,7 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
         <Paperclip className={`w-8 h-8 transition-colors ${dragging ? 'text-[#0078C1]' : 'text-slate-300'}`} />
         <div className="text-center">
           <p className="text-sm font-bold text-slate-700">{staging ? 'Adding files…' : uploading ? 'Uploading…' : 'Drop files here or click to add'}</p>
-            <p className="text-xs text-slate-400 mt-0.5">PDF, JPG, PNG, or DOC — up to 10 MB each</p>
+            <p className="text-xs text-slate-400 mt-0.5">PDF, JPG, PNG, DOC or DOCX — up to 10 MB each</p>
         </div>
         <input
           ref={inputRef}
