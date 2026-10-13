@@ -276,24 +276,17 @@ test.describe('C-3 Accomplished Records View', () => {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
 
-    const accomplishedHeading = page.getByText(/^Accomplished \(\d+\)$/i).first();
-    const accomplishedRun = accomplishedHeading.locator('..').locator('..').getByRole('button').first();
-    try {
-      await accomplishedRun.waitFor({ state: 'visible', timeout: 3000 });
-    } catch (e) {
-      test.skip(true, 'Element not visible');
-      return;
-    }
+    const accomplishedHeading = page.getByText(/^Accomplished \\(\\d+\\)$/i).first();
+    await expect(accomplishedHeading, 'The UAT seed must provide a completed run').toBeVisible();
+    const accomplishedRun = accomplishedHeading.locator('..').locator('..')
+      .getByRole('button').filter({ hasText: 'SAP-UAT-DELIVERED-PRIORITY' });
+    await expect(accomplishedRun).toBeVisible();
     await accomplishedRun.click();
 
     const details = page.getByRole('dialog', { name: /accomplished run details/i });
     await expect(details).toBeVisible();
     const thumbnail = details.getByRole('button', { name: /^preview /i }).first();
-    const hasThumbnail = await thumbnail.waitFor({ state: 'visible', timeout: 10_000 }).then(() => true).catch(() => false);
-    if (!hasThumbnail) {
-      test.skip(true, 'Accomplished run has no verified POD photo');
-      return;
-    }
+    await expect(thumbnail, 'The UAT completed run must have a real stored POD thumbnail').toBeVisible({ timeout: 10_000 });
 
     await expect(thumbnail.locator('img')).toBeVisible();
     await thumbnail.click();
