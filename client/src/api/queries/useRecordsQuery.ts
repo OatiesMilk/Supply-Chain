@@ -1,9 +1,18 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/api';
+import { api, type RecordActiveCounts } from '@/api';
 import { DeliveryRecord } from '@/types';
 import { completionError, hasSavedPodPhoto } from '@/utils/podRequirement';
 
 export const RECORDS_QUERY_KEY = ['records'] as const;
+export const RECORD_ACTIVE_COUNTS_KEY = ['records', 'active-counts'] as const;
+// Existing ['records'] invalidations also refresh the sidebar aggregates.
+export function useRecordActiveCountsQuery(enabled = true) {
+  return useQuery<RecordActiveCounts, Error>({
+    queryKey: RECORD_ACTIVE_COUNTS_KEY,
+    queryFn: api.getRecordActiveCounts,
+    enabled,
+  });
+}
 
 export function normalizeApiRecord(r: any): DeliveryRecord {
   return {

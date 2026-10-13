@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { api, ApiNotification } from "../api";
 import { DeliveryRecord } from "../types";
-import { screenKeyForCategory } from "../screenRouting";
+import { notificationScreen } from "../utils/notificationNavigation";
 
 interface Props {
   onNavigate: (screen: string, item_id?: string) => void;
@@ -87,24 +87,10 @@ export default function NotificationBell({
     setMarkingAll(false);
   };
 
-  // Resolve screen key from notification — look up the record's category
-  // to navigate to the correct module workspace, not just generic 'deliveries'
-  const resolveScreen = (n: ApiNotification): string => {
-    if (!n.record_id || !n.record_type) return "dashboard";
-    if (n.record_type === "DeliveryRecord") {
-      const record = deliveryRecords.find((r) => r.id === n.record_id);
-      if (record) return screenKeyForCategory(record.category);
-      // Fallback if record not yet loaded
-      return "deliveries";
-    }
-    if (n.record_type === "Sku") return "inventory";
-    return "dashboard";
-  };
-
   const handleClickNotification = async (n: ApiNotification) => {
     if (!n.is_read) handleMarkOne(n.id);
     if (n.record_id && n.record_type) {
-      const screen = resolveScreen(n);
+      const screen = await notificationScreen(n, deliveryRecords, api.getRecord);
       onNavigate(screen, n.record_id);
     }
     setOpen(false);
