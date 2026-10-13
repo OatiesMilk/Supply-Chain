@@ -192,7 +192,7 @@ Open <http://localhost:3000> and use a seeded account (demo values from
 | `sales@microgenesis.com` | `password123` | Sales Coordinator |
 | `logistics@microgenesis.com` | `password123` | Logistics |
 | `tass@microgenesis.com` | `password123` | TASS |
-| `driver@microgenesis.com` | `password123` | Driver (Leo Driver) |
+| `driver@microgenesis.com` | `password123` | Driver (Leo) |
 
 `seed:users-only` creates the same accounts. An Admin can create more accounts,
 link a Driver login to a driver profile, and edit per-user module access from
