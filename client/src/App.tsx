@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties, lazy, Suspense } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties, Suspense } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { createQueryClient } from '@/api/queryClient';
@@ -8,11 +8,14 @@ import { useAppData, useDeliveryActions, usePermissions } from '@/hooks';
 import { MainLayout } from '@/layouts';
 import { AppRouter } from '@/routes';
 import { syncAuthenticatedRoute } from '@/routes/screenRouting';
-import LoginView from '@/features/auth/LoginView';
-import ServerUnavailableView from '@/features/auth/ServerUnavailableView';
+import { lazyPage } from '@/routes/lazyPage';
+import { PageDataContext } from '@/routes/PageDataGate';
 import { useServerAvailability } from '@/hooks/useServerAvailability';
-const DriverDashboard = lazy(() => import('@/features/dashboard/DriverDashboard'));
 import { DashboardFilterId } from '@/utils/dashboardFilters';
+
+const LoginView = lazyPage(() => import('@/features/auth/LoginView'));
+const ServerUnavailableView = lazyPage(() => import('@/features/auth/ServerUnavailableView'));
+const DriverDashboard = lazyPage(() => import('@/features/dashboard/DriverDashboard'));
 
 function AppContent() {
   const { authUser, authChecked, logoutPending, login, checkAuth } = useAuth();
@@ -125,6 +128,7 @@ function AuthenticatedApp() {
     managedDrivers,
     dataLoading,
     dataError,
+    retryPageData,
     resetting,
     refreshData,
     handleCreateCustomer,
@@ -133,7 +137,7 @@ function AuthenticatedApp() {
     handleUpdateDriver,
     handleDeleteDriver,
     handleResetDemoData,
-  } = useAppData(authUser, currentUser, currentUserRole, currentScreen, searchOpen);
+  } = useAppData(authUser, currentUser, currentUserRole, authUser.role === 'DRIVER' && authUser.effectiveScreens.includes('driver_dashboard') ? 'driver_dashboard' : currentScreen, searchOpen);
 
   // TanStack Query mutation action workflows hook
   const {
@@ -235,13 +239,15 @@ function AuthenticatedApp() {
           </div>
         }
       >
-        <DriverDashboard
-          records={deliveryRecords}
-          currentUserName={currentUser.name}
-          onUpdateRecord={handleUpdateRecord}
-          onLogout={logout}
-          dataLoading={dataLoading}
-        />
+        <PageDataContext.Provider value={{ loading: dataLoading, error: dataError, onRetry: retryPageData }}>
+          <DriverDashboard
+            records={deliveryRecords}
+            currentUserName={currentUser.name}
+            onUpdateRecord={handleUpdateRecord}
+            onLogout={logout}
+            dataLoading={dataLoading}
+          />
+        </PageDataContext.Provider>
       </Suspense>
     );
   }
@@ -292,38 +298,40 @@ function AuthenticatedApp() {
         handleLogout: logout,
       }}
     >
-      <AppRouter
-        currentScreen={currentScreen}
-        deliveryRecords={deliveryRecords}
-        companies={companies}
-        customers={customers}
-        suppliers={suppliers}
-        products={products}
-        managedDrivers={managedDrivers}
-        dashboardStats={dashboardStats}
-        currentUserRole={currentUserRole}
-        currentUserName={currentUser.name}
-        effectiveScreens={effectiveScreens}
-        canAccess={canAccess}
-        handleNavigate={handleNavigate}
-        handleCreateRecord={handleCreateRecord}
-        handleUpdateRecord={handleUpdateRecord}
-        handleVerifyCollection={handleVerifyCollection}
-        outputActionConfigs={outputActionConfigs}
-        handleUpdateOutputActionConfig={handleUpdateOutputActionConfig}
-        selectedRecordId={selectedRecordId}
-        setSelectedRecordId={setSelectedRecordId}
-        dashboardFilterId={dashboardFilterId}
-        clearDashboardFilter={clearDashboardFilter}
-        selectedProductId={selectedProductId}
-        setSelectedProductId={setSelectedProductId}
-        handleCreateCustomer={handleCreateCustomer}
-        handleCreateSupplier={handleCreateSupplier}
-        handleCreateDriver={handleCreateDriver}
-        handleUpdateDriver={handleUpdateDriver}
-        handleDeleteDriver={handleDeleteDriver}
-        refreshData={refreshData}
-      />
+      <PageDataContext.Provider value={{ loading: canAccess(currentScreen) && dataLoading, error: canAccess(currentScreen) ? dataError : null, onRetry: retryPageData }}>
+        <AppRouter
+          currentScreen={currentScreen}
+          deliveryRecords={deliveryRecords}
+          companies={companies}
+          customers={customers}
+          suppliers={suppliers}
+          products={products}
+          managedDrivers={managedDrivers}
+          dashboardStats={dashboardStats}
+          currentUserRole={currentUserRole}
+          currentUserName={currentUser.name}
+          effectiveScreens={effectiveScreens}
+          canAccess={canAccess}
+          handleNavigate={handleNavigate}
+          handleCreateRecord={handleCreateRecord}
+          handleUpdateRecord={handleUpdateRecord}
+          handleVerifyCollection={handleVerifyCollection}
+          outputActionConfigs={outputActionConfigs}
+          handleUpdateOutputActionConfig={handleUpdateOutputActionConfig}
+          selectedRecordId={selectedRecordId}
+          setSelectedRecordId={setSelectedRecordId}
+          dashboardFilterId={dashboardFilterId}
+          clearDashboardFilter={clearDashboardFilter}
+          selectedProductId={selectedProductId}
+          setSelectedProductId={setSelectedProductId}
+          handleCreateCustomer={handleCreateCustomer}
+          handleCreateSupplier={handleCreateSupplier}
+          handleCreateDriver={handleCreateDriver}
+          handleUpdateDriver={handleUpdateDriver}
+          handleDeleteDriver={handleDeleteDriver}
+          refreshData={refreshData}
+        />
+      </PageDataContext.Provider>
     </MainLayout>
   );
 }
