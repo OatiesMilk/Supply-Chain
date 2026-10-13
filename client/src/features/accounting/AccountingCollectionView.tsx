@@ -5,12 +5,14 @@ import {
   Loader2, Wand2
 } from 'lucide-react';
 import ExportMenu from '@/components/ExportMenu';
+import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import FilterPopover, { FilterCombobox } from '@/components/FilterPopover';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, PDF_AC_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
 import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus } from '@/types';
 import { AREAS, PRIORITIES, ITEM_TYPES, DELIVERY_STATUSES, ACCOUNT_MANAGERS, acStatusLabel } from '@/data';
 import { ApiCompany, api, apiUrl } from '@/api';
+import { usePagedRecordsQuery, normalizeApiRecord } from '@/api/queries/useRecordsQuery';
 import AccountingCollectionWorkspace from '@/features/accounting/AccountingCollectionWorkspace';
 import { WorkspaceDraftProvider } from '@/features/deliveries/WorkspaceDrafts';
 import { POD_ATTACHMENT_ACCEPT, getPodAttachmentRejection } from '@/utils/attachmentValidation';
@@ -334,6 +336,25 @@ export default function AccountingCollectionView({
     finishCreatedRecord(createdRecord.id);
   };
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+
+  const { data: pagedData, isLoading: pagedLoading } = usePagedRecordsQuery({
+    category: CATEGORY,
+    page: currentPage,
+    limit: pageSize,
+    status: statusFilter !== 'All' ? statusFilter : undefined,
+    search: searchQuery || undefined,
+    account_manager: amFilter || undefined,
+    dashboard_filter: dashboardFilterId || undefined,
+    paged: true,
+  });
+
+  // Automatically reset to page 1 whenever any filter or search query changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter, amFilter, dateSort, dashboardFilterId]);
+
   // Filter records
   const filtered = records.filter(r => {
     if (dashboardFilterId && !matchesDashboardFilter(r, dashboardFilterId)) return false;
@@ -363,15 +384,28 @@ export default function AccountingCollectionView({
     return 0;
   });
 
+  const displayTotalCount = pagedData ? pagedData.total : sortedFiltered.length;
+  const displayTotalPages = pagedData
+    ? Math.max(1, Math.ceil(pagedData.total / pageSize))
+    : Math.max(1, Math.ceil(sortedFiltered.length / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), displayTotalPages);
+
+  const paginatedRecords = useMemo(() => {
+    const startIndex = (safeCurrentPage - 1) * pageSize;
+    return sortedFiltered.slice(startIndex, startIndex + pageSize);
+  }, [sortedFiltered, safeCurrentPage, pageSize]);
+
+  const displayRecords = pagedData ? pagedData.rows : paginatedRecords;
+
   // If a record is selected, render full-page workspace
   if (selectedRecordId) {
-    const record = records.find(r => r.id === selectedRecordId);
+    const record = (pagedData?.rows ?? []).find(r => r.id === selectedRecordId) || records.find(r => r.id === selectedRecordId);
     if (record) {
       return (
         <WorkspaceDraftProvider key={`${record.id}-${currentUserRole}`}>
           <AccountingCollectionWorkspace
             record={record}
-            allRecordIds={sortedFiltered.map(r => r.id)}
+            allRecordIds={(displayRecords.length > 0 ? displayRecords : sortedFiltered).map(r => r.id)}
             currentUserRole={currentUserRole}
             currentUserName={currentUserName}
             onBack={() => setSelectedRecordId(null)}
@@ -412,6 +446,58 @@ export default function AccountingCollectionView({
     sortedFiltered,
     dateSort === 'default' ? 'nearest' : dateSort
   );
+
+  const fetchExportData = async () => {
+    const rawAll = await api.getAllRecordsForExport({
+      category: CATEGORY,
+      status: statusFilter !== 'All' ? statusFilter : undefined,
+      search: searchQuery || undefined,
+      account_manager: amFilter || undefined,
+      dashboard_filter: dashboardFilterId || undefined,
+    });
+    const allRecords = rawAll.map(normalizeApiRecord);
+    const sortedAll = dateSort === 'default' ? allRecords : [...allRecords].sort((a, b) => {
+      const da = a.delivery_date ? new Date(a.delivery_date + 'T12:00:00').getTime() : null;
+      const db = b.delivery_date ? new Date(b.delivery_date + 'T12:00:00').getTime() : null;
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      if (dateSort === 'nearest') return Math.abs(da - _now) - Math.abs(db - _now);
+      if (dateSort === 'oldest') return da - db;
+      if (dateSort === 'furthest') return db - da;
+      return 0;
+    });
+
+    const rows = sortedAll.map(r => ({
+      id: r.id,
+      company_name: r.company_name,
+      reference: r.reference,
+      category: r.category,
+      priority: r.priority,
+      area: r.area,
+      delivery_date_fmt: fmtDate(r.delivery_date),
+      driver: r.driver || '',
+      driver_assistants: r.driver_assistants?.join(', ') || '',
+      account_manager: r.account_manager,
+      vehicle: r.vehicle || '',
+      item_type: r.item_type || '',
+      status_fmt: fmtStatus(r.status),
+      remarks: r.remarks || '',
+      created_by: r.created_by,
+      created_at_fmt: fmtDatetime(r.created_at),
+      collection_verified_fmt: r.collection_verified ? 'Yes' : 'No',
+      collection_verified_by: r.collection_verified_by || '',
+      collection_verified_at_fmt: fmtDatetime(r.collection_verified_at),
+      amount_fmt: r.amount != null ? `₱${r.amount.toLocaleString('en-PH', { minimumFractionDigits: 2 })}` : '',
+    }));
+
+    const summary = computeAllOpsSummary(
+      sortedAll,
+      dateSort === 'default' ? 'nearest' : dateSort
+    );
+
+    return { rows, summary };
+  };
 
   // Same approach as the Procurement Pick-up / Deliveries / RMA / Sales Orders
   // table (DeliveryRecordsView.tsx): a plain w-full table-fixed with a
@@ -706,6 +792,8 @@ export default function AccountingCollectionView({
                     }}
                     summary={exportSummary}
                     statusHistoryCounts={statusHistoryCounts}
+                    totalCount={displayTotalCount}
+                    fetchExportData={fetchExportData}
                   />
                 )}
                 {canEdit && (
@@ -716,7 +804,7 @@ export default function AccountingCollectionView({
                     <Plus className="w-4 h-4" /> New Record
                   </button>
                 )}
-                <span className="text-[11px] font-bold text-slate-400 tabular-nums shrink-0">{sortedFiltered.length}</span>
+                <span className="text-[11px] font-bold text-slate-400 tabular-nums shrink-0">{displayTotalCount}</span>
               </div>
             </div>
 
@@ -747,13 +835,13 @@ export default function AccountingCollectionView({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {sortedFiltered.length === 0 ? (
+                {displayRecords.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-4 py-3.5 text-center text-slate-400">
-                      No matching records found.
+                      {pagedLoading ? 'Loading records…' : 'No matching records found.'}
                     </td>
                   </tr>
-                ) : sortedFiltered.map(rec => (
+                ) : displayRecords.map(rec => (
                   <tr
                     key={rec.id}
                     onClick={() => setSelectedRecordId(rec.id)}
@@ -784,20 +872,35 @@ export default function AccountingCollectionView({
             </table>
           </div>
 
+          <div className="border-t border-slate-200 print:hidden">
+            <Pagination
+              currentPage={safeCurrentPage}
+              totalPages={displayTotalPages}
+              totalItems={displayTotalCount}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={(newSize) => {
+                setPageSize(newSize);
+                setCurrentPage(1);
+              }}
+              pageSizeOptions={[10, 25, 50, 100]}
+            />
+          </div>
+
           {/* Summary footer */}
-          {sortedFiltered.length > 0 && (() => {
-            const total = sortedFiltered.reduce((sum, r) => sum + (r.amount ?? 0), 0);
+          {displayRecords.length > 0 && (() => {
+            const total = displayRecords.reduce((sum, r) => sum + (r.amount ?? 0), 0);
             return (
               <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
                 <span className="text-[11px] text-slate-400">
-                  Total Accounting Collection records: {records.length}
+                  Total Accounting Collection records: {displayTotalCount}
                 </span>
                 <span className="text-xs font-black text-slate-700 tabular-nums">
-                  Total:{' '}
+                  Page Total:{' '}
                   <span className="text-emerald-700">
                     ₱{total.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
                   </span>
-                  <span className="text-slate-400 font-normal ml-1">across {sortedFiltered.length} record{sortedFiltered.length !== 1 ? 's' : ''}</span>
+                  <span className="text-slate-400 font-normal ml-1">across {displayRecords.length} record{displayRecords.length !== 1 ? 's' : ''} on this page</span>
                 </span>
               </div>
             );

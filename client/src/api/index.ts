@@ -94,8 +94,28 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export interface RecordListFilters {
   company_id?: string;
   category?: string;
+  status?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  search?: string;
+  driver?: string;
+  area?: string;
+  account_manager?: string;
+  priority?: string;
+  dashboard_filter?: string;
   limit?: number;
   cursor?: string;
+  page?: number;
+  paged?: boolean;
+}
+
+export interface PagedRecordResponse {
+  rows: any[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  total: number;
+  page: number;
+  limit: number;
 }
 
 export interface ApiUser {
@@ -458,6 +478,47 @@ export const api = {
     return request<any[]>(`/records${query ? `?${query}` : ''}`);
   },
   getRecordActiveCounts: () => request<RecordActiveCounts>('/records/active-counts'),
+  getPagedRecords: (filters: RecordListFilters = {}) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries({ ...filters, paged: true })) {
+      if (value !== undefined && value !== '') params.set(key, String(value));
+    }
+    return request<PagedRecordResponse>(`/records?${params.toString()}`);
+  },
+  getAllRecordsForExport: async (filters: Omit<RecordListFilters, 'paged' | 'page' | 'cursor'> = {}) => {
+    const allRows: any[] = [];
+    let cursor: string | undefined = undefined;
+    let hasMore = true;
+    while (hasMore) {
+      const pageRes = await api.getPagedRecords({
+        ...filters,
+        limit: 100,
+        cursor,
+      });
+      allRows.push(...pageRes.rows);
+      hasMore = pageRes.hasMore;
+      cursor = pageRes.nextCursor || undefined;
+      if (!cursor) break;
+    }
+    return allRows;
+  },
+  getAmSummary: () => request<Array<{
+    name: string;
+    total: number;
+    delivered: number;
+    pending: number;
+    onHold: number;
+    rescheduled: number;
+    scheduled: number;
+    companies: string[];
+  }>>('/records/am-summary'),
+  getCalendarSummary: (dateFrom?: string, dateTo?: string) => {
+    const params = new URLSearchParams();
+    if (dateFrom) params.set('dateFrom', dateFrom);
+    if (dateTo) params.set('dateTo', dateTo);
+    const qs = params.toString();
+    return request<any[]>(`/records/calendar-summary${qs ? `?${qs}` : ''}`);
+  },
   getRecord: (id: string) => request<any>(`/records/${id}`),
   getRecordAudit: (id: string) => request<ApiAuditEntry[]>(`/records/${id}/audit`),
   createRecord: (data: Record<string, unknown>) =>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Users, TrendingUp, CheckCircle2, Clock, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { DeliveryRecord } from '@/types';
+import { useAmSummaryQuery } from '@/api/queries/useRecordsQuery';
 
 interface Props {
   records: DeliveryRecord[];
@@ -35,22 +36,46 @@ export default function AccountManagerDirectory({ records, onNavigate }: Props) 
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'name' | 'total' | 'delivered'>('total');
 
-  // Aggregate per AM
+  const { data: serverSummary } = useAmSummaryQuery();
+
+  // Aggregate per AM (using server-side aggregation when available)
   const amMap: Record<string, AmStats> = {};
-  for (const r of records) {
-    const am = r.account_manager || 'Unknown';
-    if (!amMap[am]) {
-      amMap[am] = { name: am, total: 0, delivered: 0, pending: 0, onHold: 0, rescheduled: 0, scheduled: 0, companies: new Set(), records: [] };
+  if (serverSummary && serverSummary.length > 0) {
+    for (const item of serverSummary) {
+      amMap[item.name] = {
+        name: item.name,
+        total: item.total,
+        delivered: item.delivered,
+        pending: item.pending,
+        onHold: item.onHold,
+        rescheduled: item.rescheduled,
+        scheduled: item.scheduled,
+        companies: new Set(item.companies),
+        records: [],
+      };
     }
-    const s = amMap[am];
-    s.total++;
-    s.records.push(r);
-    s.companies.add(r.company_name);
-    if (r.status === 'Delivered')    s.delivered++;
-    else if (r.status === 'Pending') s.pending++;
-    else if (r.status === 'On-Hold') s.onHold++;
-    else if (r.status === 'Rescheduled') s.rescheduled++;
-    else if (r.status === 'Scheduled')   s.scheduled++;
+    for (const r of records) {
+      const am = r.account_manager || 'Unknown';
+      if (amMap[am]) {
+        amMap[am].records.push(r);
+      }
+    }
+  } else {
+    for (const r of records) {
+      const am = r.account_manager || 'Unknown';
+      if (!amMap[am]) {
+        amMap[am] = { name: am, total: 0, delivered: 0, pending: 0, onHold: 0, rescheduled: 0, scheduled: 0, companies: new Set(), records: [] };
+      }
+      const s = amMap[am];
+      s.total++;
+      s.records.push(r);
+      s.companies.add(r.company_name);
+      if (r.status === 'Delivered')    s.delivered++;
+      else if (r.status === 'Pending') s.pending++;
+      else if (r.status === 'On-Hold') s.onHold++;
+      else if (r.status === 'Rescheduled') s.rescheduled++;
+      else if (r.status === 'Scheduled')   s.scheduled++;
+    }
   }
 
   const ams = Object.values(amMap).sort((a, b) => {

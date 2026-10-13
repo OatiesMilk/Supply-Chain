@@ -40,6 +40,12 @@ interface Props {
   summary?: AllOpsSummary;
   routeSlipProps?: RouteSlipProps;
   statusHistoryCounts?: StatusHistoryCounts;
+  totalCount?: number;
+  fetchExportData?: () => Promise<{
+    rows: Record<string, string | number | null | undefined>[];
+    summary?: AllOpsSummary;
+    routeSlipProps?: RouteSlipProps;
+  }>;
 }
 
 type Format = 'csv' | 'excel' | 'pdf' | 'docx';
@@ -59,6 +65,8 @@ export default function ExportMenu({
   summary,
   routeSlipProps,
   statusHistoryCounts,
+  totalCount,
+  fetchExportData,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState<LoadingKey | null>(null);
@@ -81,22 +89,32 @@ export default function ExportMenu({
     setLoading(key);
     const hist = variant === 'trail' ? statusHistoryCounts : undefined;
     try {
-      if (routeSlipProps && fmt !== 'csv') {
-        const rsParams = { ...routeSlipProps, filename, documentSize: docSize };
+      let exportRows = rows;
+      let exportSummary = summary;
+      let exportRouteSlip = routeSlipProps;
+      if (fetchExportData) {
+        const fetched = await fetchExportData();
+        exportRows = fetched.rows;
+        if (fetched.summary) exportSummary = fetched.summary;
+        if (fetched.routeSlipProps) exportRouteSlip = fetched.routeSlipProps;
+      }
+
+      if (exportRouteSlip && fmt !== 'csv') {
+        const rsParams = { ...exportRouteSlip, filename, documentSize: docSize };
         if (fmt === 'excel') await downloadRouteSlipExcel(rsParams);
         if (fmt === 'pdf')   await downloadRouteSlipPDF(rsParams);
         if (fmt === 'docx')  await downloadRouteSlipDocx(rsParams);
-      } else if (summary) {
+      } else if (exportSummary) {
         const summaryTitle = pdfTitle.replace(/ records?$/i, '') + ' — Comprehensive Report';
-        if (fmt === 'csv')   downloadAllOpsCSV(rows, columns, filename, meta, summary, summaryTitle, hist);
-        if (fmt === 'excel') await downloadAllOpsExcel(rows, columns, filename, meta, summary, summaryTitle, hist, docSize);
-        if (fmt === 'pdf')   await downloadAllOpsPDF(rows, pdfColumns ?? columns, filename, meta, summary, summaryTitle, hist, docSize);
-        if (fmt === 'docx')  await downloadDocx(rows, columns, pdfTitle, filename, meta, summary, summaryTitle, hist, docSize);
+        if (fmt === 'csv')   downloadAllOpsCSV(exportRows, columns, filename, meta, exportSummary, summaryTitle, hist);
+        if (fmt === 'excel') await downloadAllOpsExcel(exportRows, columns, filename, meta, exportSummary, summaryTitle, hist, docSize);
+        if (fmt === 'pdf')   await downloadAllOpsPDF(exportRows, pdfColumns ?? columns, filename, meta, exportSummary, summaryTitle, hist, docSize);
+        if (fmt === 'docx')  await downloadDocx(exportRows, columns, pdfTitle, filename, meta, exportSummary, summaryTitle, hist, docSize);
       } else {
-        if (fmt === 'csv')   downloadCSV(rows, columns, filename, meta, hist);
-        if (fmt === 'excel') await downloadExcel(rows, columns, sheetName, filename, meta, hist, docSize);
-        if (fmt === 'pdf')   await downloadPDF(rows, pdfColumns ?? columns, pdfTitle, filename, meta, !pdfPortrait, hist, docSize);
-        if (fmt === 'docx')  await downloadDocx(rows, columns, pdfTitle, filename, meta, undefined, undefined, hist, docSize);
+        if (fmt === 'csv')   downloadCSV(exportRows, columns, filename, meta, hist);
+        if (fmt === 'excel') await downloadExcel(exportRows, columns, sheetName, filename, meta, hist, docSize);
+        if (fmt === 'pdf')   await downloadPDF(exportRows, pdfColumns ?? columns, pdfTitle, filename, meta, !pdfPortrait, hist, docSize);
+        if (fmt === 'docx')  await downloadDocx(exportRows, columns, pdfTitle, filename, meta, undefined, undefined, hist, docSize);
       }
     } catch (err) {
       console.error('Export failed:', err);
@@ -185,7 +203,7 @@ export default function ExportMenu({
           )}
           </div>
           <div className="mx-3 mt-1 pt-1 border-t border-slate-100 text-[9px] text-slate-400 pb-1">
-            {rows.length} record{rows.length !== 1 ? 's' : ''} will be exported
+            {totalCount !== undefined ? totalCount : rows.length} record{(totalCount !== undefined ? totalCount : rows.length) !== 1 ? 's' : ''} will be exported
           </div>
         </div>
       )}

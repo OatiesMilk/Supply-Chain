@@ -24,6 +24,7 @@ import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, PDF_DELIVERY_COLUMNS, PDF_AC_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel } from '@/types';
 import { ApiCompany, api, apiUrl, ApiError } from '@/api';
+import { usePagedRecordsQuery, normalizeApiRecord } from '@/api/queries/useRecordsQuery';
 import { DELIVERY_STATUSES, AREA_HIERARCHY, getRegion, getSubregion } from '@/data';
 import DeliveryRecordWorkspace from '@/features/deliveries/DeliveryRecordWorkspace';
 import RecordCreateForm from '@/features/deliveries/RecordCreateForm';
@@ -359,6 +360,27 @@ export default function DeliveryRecordsView({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
+  const effectiveStatusFilter = tassStatusFilter || (statusFilter !== 'All' ? statusFilter : undefined);
+  const effectiveAmFilter = tassAccountManager || amFilter || undefined;
+  const effectiveDateFrom = tassDateFrom || appliedDateFrom || undefined;
+  const effectiveDateTo = tassDateTo || appliedDateTo || undefined;
+  const effectiveAreaFilter = areaFilter !== 'All Areas' ? areaFilter : undefined;
+
+  const { data: pagedData, isLoading: pagedLoading } = usePagedRecordsQuery({
+    category,
+    page: currentPage,
+    limit: pageSize,
+    status: effectiveStatusFilter,
+    search: searchQuery || undefined,
+    driver: driverFilter || undefined,
+    area: effectiveAreaFilter,
+    account_manager: effectiveAmFilter,
+    dateFrom: effectiveDateFrom,
+    dateTo: effectiveDateTo,
+    dashboard_filter: dashboardFilterId || undefined,
+    paged: true,
+  }, Boolean(category));
+
   // Automatically reset to page 1 whenever any filter or search query changes
   useEffect(() => {
     setCurrentPage(1);
@@ -378,17 +400,23 @@ export default function DeliveryRecordsView({
     tassDateTo,
     tassStatusFilter,
     tassAccountManager,
+    dashboardFilterId,
   ]);
 
-  const totalPages = Math.max(1, Math.ceil(sortedFiltered.length / pageSize));
-  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const displayTotalCount = pagedData ? pagedData.total : sortedFiltered.length;
+  const displayTotalPages = pagedData
+    ? Math.max(1, Math.ceil(pagedData.total / pageSize))
+    : Math.max(1, Math.ceil(sortedFiltered.length / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), displayTotalPages);
 
   const paginatedRecords = useMemo(() => {
     const startIndex = (safeCurrentPage - 1) * pageSize;
     return sortedFiltered.slice(startIndex, startIndex + pageSize);
   }, [sortedFiltered, safeCurrentPage, pageSize]);
 
-  const activeRecord = records.find(r => r.id === selectedId);
+  const displayRecords = pagedData ? pagedData.rows : paginatedRecords;
+
+  const activeRecord = (pagedData?.rows ?? []).find(r => r.id === selectedId) || records.find(r => r.id === selectedId);
 
   // Delivered records keep their Priority, so a bulk Priority never applies to them (TSK-124).
   const allSelectedPriorityLocked = selectedBulkIds.size > 0 && [...selectedBulkIds].every(id => {
@@ -541,6 +569,72 @@ export default function DeliveryRecordsView({
     }
     : undefined;
 
+  const fetchExportData = async () => {
+    const rawAll = await api.getAllRecordsForExport({
+      category,
+      status: effectiveStatusFilter,
+      search: searchQuery || undefined,
+      driver: driverFilter || undefined,
+      area: effectiveAreaFilter,
+      account_manager: effectiveAmFilter,
+      dateFrom: effectiveDateFrom,
+      dateTo: effectiveDateTo,
+      dashboard_filter: dashboardFilterId || undefined,
+    });
+    const allRecords = rawAll.map(normalizeApiRecord);
+    const sortedAll = activeDateSort === 'default' ? allRecords : [...allRecords].sort((a, b) => {
+      const da = a.delivery_date ? new Date(a.delivery_date + 'T12:00:00').getTime() : null;
+      const db = b.delivery_date ? new Date(b.delivery_date + 'T12:00:00').getTime() : null;
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      if (activeDateSort === 'nearest') return Math.abs(da - now) - Math.abs(db - now);
+      if (activeDateSort === 'oldest') return da - db;
+      if (activeDateSort === 'furthest') return db - da;
+      return 0;
+    });
+
+    const rows = sortedAll.map(r => ({
+      id: r.id,
+      company_name: r.company_name,
+      reference: r.reference,
+      category: r.category,
+      priority: r.priority,
+      area: r.area,
+      delivery_date_fmt: fmtDate(r.delivery_date),
+      driver: r.driver || '',
+      driver_assistants: r.driver_assistants?.join(', ') || '',
+      account_manager: r.account_manager,
+      vehicle: r.vehicle,
+      item_type: r.item_type,
+      status_fmt: fmtStatus(r.status),
+      remarks: r.remarks || '',
+      created_by: r.created_by,
+      created_at_fmt: fmtDatetime(r.created_at),
+      ...(isAC ? {
+        collection_verified_fmt: r.collection_verified ? 'Verified' : 'Pending',
+        collection_verified_by: r.collection_verified_by || '',
+        collection_verified_at_fmt: r.collection_verified_at ? fmtDatetime(r.collection_verified_at) : ''
+      } : {})
+    }));
+
+    const summary = computeAllOpsSummary(
+      sortedAll,
+      activeDateSort === 'default' ? 'nearest' : activeDateSort
+    );
+
+    const rsProps = driverFilter
+      ? {
+        records: sortedAll,
+        driverName: driverFilter,
+        date: appliedDateFrom || manilaToday(),
+        preparedBy: currentUserName,
+      }
+      : undefined;
+
+    return { rows, summary, routeSlipProps: rsProps };
+  };
+
   const showTassFilters = currentUserRole === 'TASS';
 
   const activeFilterCount = [
@@ -605,6 +699,8 @@ export default function DeliveryRecordsView({
               summary={exportSummary}
               routeSlipProps={routeSlipProps}
               statusHistoryCounts={statusHistoryCounts}
+              totalCount={displayTotalCount}
+              fetchExportData={fetchExportData}
             />
           )}
           {showExports && (
@@ -1032,9 +1128,11 @@ export default function DeliveryRecordsView({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {paginatedRecords.length === 0 ? (
-                    <tr><td colSpan={10} className="px-4 py-3.5 text-center text-gray-400">No matching records found.</td></tr>
-                  ) : paginatedRecords.map(rec => {
+                  {displayRecords.length === 0 ? (
+                    <tr><td colSpan={10} className="px-4 py-3.5 text-center text-gray-400">
+                      {pagedLoading ? 'Loading records…' : 'No matching records found.'}
+                    </td></tr>
+                  ) : displayRecords.map(rec => {
                     const isSelected = selectedId === rec.id;
                     return (
                       <tr key={rec.id} onClick={() => { setSelectedId(rec.id); setShowForm(false); }}
@@ -1078,8 +1176,8 @@ export default function DeliveryRecordsView({
             <div className="border-t border-slate-200 print:hidden">
               <Pagination
                 currentPage={safeCurrentPage}
-                totalPages={totalPages}
-                totalItems={sortedFiltered.length}
+                totalPages={displayTotalPages}
+                totalItems={displayTotalCount}
                 pageSize={pageSize}
                 onPageChange={setCurrentPage}
                 onPageSizeChange={(newSize) => {
