@@ -2,10 +2,14 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import { uploadErrorHandler } from '../src/middleware/uploadErrors';
-import { podUpload } from '../src/services/podStorage';
+import { discardUpload, podUpload } from '../src/services/podStorage';
 
 const app = express();
-app.post('/upload', podUpload.single('file'), (_req, res) => res.status(201).json({ ok: true }));
+// Accepted uploads are files on disk (SEC-07); remove them as the real route does.
+app.post('/upload', podUpload.single('file'), async (req, res) => {
+  await discardUpload(req.file?.path);
+  res.status(201).json({ ok: true });
+});
 app.use(uploadErrorHandler);
 app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   res.status(500).json({ error: error.message });
@@ -26,13 +30,14 @@ async function postFile(name: string, type: string, size: number) {
   return fetch(`http://127.0.0.1:${address.port}/upload`, { method: 'POST', body: form });
 }
 
-test('PDF, JPG, JPEG, PNG, and DOC uploads with matching MIME types are accepted', async () => {
+test('PDF, JPG, JPEG, PNG, DOC and DOCX uploads with matching MIME types are accepted', async () => {
   const allowed = [
     ['file.pdf', 'application/pdf'],
     ['photo.jpg', 'image/jpeg'],
     ['photo.jpeg', 'image/jpeg'],
     ['photo.png', 'image/png'],
     ['document.doc', 'application/msword'],
+    ['document.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
   ];
 
   for (const [name, type] of allowed) {
@@ -44,7 +49,8 @@ test('PDF, JPG, JPEG, PNG, and DOC uploads with matching MIME types are accepted
 test('unsupported formats and extension/MIME mismatches return actionable 400 responses', async () => {
   const rejected = [
     ['payload.exe', 'application/x-msdownload'],
-    ['document.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+    ['macro.docm', 'application/vnd.ms-word.document.macroEnabled.12'],
+    ['document.docx', 'application/zip'],
     ['spreadsheet.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
     ['file.pdf', 'image/jpeg'],
     ['photo.png', 'application/pdf'],
@@ -54,7 +60,7 @@ test('unsupported formats and extension/MIME mismatches return actionable 400 re
     const response = await postFile(name, type, 32);
     assert.equal(response.status, 400, `${name} (${type}) should be rejected`);
     assert.deepEqual(await response.json(), {
-      error: 'Unsupported file type. Allowed formats: PDF, JPG, PNG, and DOC.',
+      error: 'Unsupported file type. Allowed formats: PDF, JPG, PNG, DOC, and DOCX.',
     });
   }
 });

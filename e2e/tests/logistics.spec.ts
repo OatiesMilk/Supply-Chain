@@ -475,16 +475,16 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     const fileInput = page.locator('input[type="file"]').last();
     await fileInput.setInputFiles(filePath);
 
-    const message = 'invoice.exe — file type not allowed. Use JPG, PNG, PDF or DOC.';
+    const message = 'invoice.exe — file type not allowed. Use JPG, PNG, PDF, DOC or DOCX.';
     await expect(page.getByText(message, { exact: true })).toBeVisible();
     await expect(page.locator('p', { hasText: message })).toHaveCount(0);
   });
 
   test('B-4.2 Stages a PDF until Save Files is clicked', async ({ page }) => {
-    // Create a minimal valid PDF
+    // Create a minimal valid PDF: the server verifies its structure (SEC-08).
     const pdfName = `uat-test-${Date.now()}.pdf`;
     const pdfPath = path.join('/tmp', pdfName);
-    fs.writeFileSync(pdfPath, '%PDF-1.4 UAT test file');
+    fs.writeFileSync(pdfPath, '%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\nxref\n0 2\n0000000000 65535 f \n0000000009 00000 n \ntrailer<</Size 2/Root 1 0 R>>\nstartxref\n39\n%%EOF\n');
 
     await openFirstRecord(page);
     const docsTab = page.getByRole('tab', { name: /documents/i });

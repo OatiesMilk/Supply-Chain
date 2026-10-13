@@ -1,5 +1,5 @@
 import express, { Router } from 'express';
-import type { Prisma } from '@prisma/client';
+import type { PodAttachment, Prisma } from '@prisma/client';
 import { prisma } from '../db';
 import { asyncRoute } from '../middleware/asyncRoute';
 import { assignmentError, resolveDriverAssignment, withDriverDirectoryLock, type DriverChange } from '../services/driverDirectory';
@@ -9,8 +9,10 @@ import { notifyAccomplished } from '../services/notify';
 import { notifyRole, notifyUser } from '../services/inAppNotify';
 import { CATEGORY_TO_DB, STATUS_TO_DB, STATUS_FROM_DB, serializeRecord } from '../mappings';
 import { recordActiveCounts } from '../services/activeRecordCounts';
-import { podStorage, podUpload } from '../services/podStorage';
-import { DELIVERY_PHOTO_REQUIRED, hasStoredDeliveryPhoto, isPhotoMimeType, isVerifiedPodPhoto, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
+import { pipeline } from 'node:stream/promises';
+import { discardUpload, podStorage, podUpload } from '../services/podStorage';
+import { DELIVERY_PHOTO_REQUIRED, hasStoredDeliveryPhoto, inspectUpload, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
+import { ATTACHMENT_QUOTA_EXCEEDED, attachmentQuotaError } from '../services/attachmentRules';
 
 import { canWriteCategory, isAssignedDriver, recordScope } from '../services/recordAccess';
 import { deliveryScheduleState, driverDeliveryDateError, isValidDateOnly, isoTimestamp, manilaToday, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
@@ -246,13 +248,20 @@ router.post(
   podUpload.single('file'),
   asyncRoute(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'A file is required.' });
-    const isPhoto = await isVerifiedPodPhoto(req.file.buffer, req.file.mimetype);
-    if (isPhotoMimeType(req.file.mimetype) && !isPhoto) {
-      return res.status(400).json({ error: 'This file is not a valid JPG or PNG photo. Choose a photo and try again.' });
-    }
+    // The upload is a quarantined file on disk (SEC-07). It is removed below
+    // however the request ends: rejected, failed or stored.
+    const upload = req.file;
     let storageKey: string | undefined;
-    let result;
+    let result: { status: number; error: string | null; code?: string; attachment: PodAttachment | null };
+    let isPhoto = false;
     try {
+      const inspection = await inspectUpload(upload.path, upload.originalname);
+      if ('error' in inspection) {
+        // Remove the rejected file before answering, not after.
+        await discardUpload(upload.path);
+        return res.status(400).json({ error: inspection.error });
+      }
+      isPhoto = inspection.isPhoto;
       result = await prisma.$transaction(async tx => {
         await lockPodRecord(tx, req.params.id);
         const record = await tx.deliveryRecord.findUnique({ where: { id: req.params.id } });
@@ -265,13 +274,18 @@ router.post(
         }
         const dateError = driverDeliveryDateError(record, req.user!.role);
         if (dateError) return { status: 400, error: dateError, attachment: null };
+        // Counted under the record lock taken above, so parallel uploads to one
+        // record cannot both slip past the quota. Nothing is stored on refusal.
+        const usage = await tx.podAttachment.aggregate({ where: { recordId: record.id }, _count: { _all: true }, _sum: { size: true } });
+        const quotaError = attachmentQuotaError(usage._count._all, usage._sum.size ?? 0, inspection.size);
+        if (quotaError) return { status: 409, error: quotaError, code: ATTACHMENT_QUOTA_EXCEEDED, attachment: null };
         storageKey = await podStorage.save({
-          originalName: req.file!.originalname, mimeType: req.file!.mimetype,
-          size: req.file!.size, buffer: req.file!.buffer,
+          originalName: upload.originalname, mimeType: inspection.mimeType,
+          size: inspection.size, path: upload.path,
         });
         const attachment = await tx.podAttachment.create({ data: {
-          recordId: record.id, originalName: req.file!.originalname, storageKey,
-          mimeType: req.file!.mimetype, size: req.file!.size, uploadedById: req.user!.id,
+          recordId: record.id, originalName: upload.originalname, storageKey,
+          mimeType: inspection.mimeType, size: inspection.size, uploadedById: req.user!.id,
         } });
         if (record.category === 'DELIVERY') {
           const schedule = deliveryScheduleState(record.deliveryDate);
@@ -295,8 +309,10 @@ router.post(
         console.error('[POD] Failed to clean up storage after metadata failure', cleanupError);
       });
       throw error;
+    } finally {
+      await discardUpload(upload.path);
     }
-    if (result.error) return res.status(result.status).json({ error: result.error });
+    if (result.error) return res.status(result.status).json({ error: result.error, ...(result.code ? { code: result.code } : {}) });
     const attachment = result.attachment!;
     res.status(201).json({
       id: attachment.id,
@@ -316,10 +332,12 @@ router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResour
   });
   if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
   try {
-    const content = await podStorage.read(attachment.storageKey);
+    // Streamed from storage, so a download never holds the whole file in memory.
+    const content = await podStorage.open(attachment.storageKey);
     res.setHeader('Content-Type', attachment.mimeType);
+    res.setHeader('Content-Length', String(attachment.size));
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(attachment.originalName)}"`);
-    res.send(content);
+    await pipeline(content, res);
   } catch (error) {
     if (!res.headersSent) res.status(404).json({ error: 'Attachment file not found' });
     else console.error('[POD] Failed to read attachment', error);

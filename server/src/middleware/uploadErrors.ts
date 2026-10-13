@@ -1,10 +1,11 @@
 import type { NextFunction, Request, Response } from 'express';
+import { UNSUPPORTED_FILE_TYPE } from '../services/attachmentRules';
 
 /** Error passed to Multer's fileFilter callback when a file type is rejected. */
 export class UnsupportedUploadTypeError extends Error {
   readonly code = 'UNSUPPORTED_FILE_TYPE';
 
-  constructor(message = 'Unsupported file type. Allowed formats: PDF, JPG, PNG, and DOC.') {
+  constructor(message = UNSUPPORTED_FILE_TYPE) {
     super(message);
     this.name = 'UnsupportedUploadTypeError';
   }
