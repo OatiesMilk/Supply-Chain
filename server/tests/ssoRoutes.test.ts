@@ -10,8 +10,8 @@ import { createSsoState } from '../src/services/ssoState';
 
 const GUID = 'ce7af71e-cdd0-4be6-93a9-ec280e1c10df';
 const TENANT = '7411f7e0-fb01-415c-8136-f9c30b06393f';
-const admin = { id: 'admin-1', name: 'Admin', email: 'admin@example.com', role: 'ADMIN', isActive: true, permissions: [], driverProfile: null };
-const sales = { ...admin, id: 'sales-1', role: 'SALES_COORDINATOR' };
+const admin = { id: 'admin-1', name: 'Admin', email: 'admin@example.com', role: 'ADMIN' as const, isActive: true, permissions: [], driverProfile: null };
+const sales = { ...admin, id: 'sales-1', role: 'SALES_COORDINATOR' as const };
 const target = { ...sales, id: 'target-1', email: 'approved@example.com', microsoftOid: null as string | null };
 afterEach(() => mock.restoreAll());
 
@@ -29,7 +29,7 @@ async function appServer() {
     close: async () => { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve())); }
   };
 }
-const cookieFor = (user: typeof admin) => 'mg_session=' + signToken(user);
+const cookieFor = (user: typeof admin | typeof sales) => 'mg_session=' + signToken(user);
 
 test('Microsoft callback rejects missing and mismatched browser state before contacting Microsoft/DB', async () => {
   const previous = { ...process.env };
