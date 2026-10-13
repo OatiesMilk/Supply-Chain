@@ -1,19 +1,6 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense } from 'react';
+import { lazyPage } from './lazyPage';
 
-const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
-const DeliveriesPage = lazy(() => import('@/pages/DeliveriesPage'));
-const AccountingCollectionPage = lazy(() => import('@/pages/AccountingCollectionPage'));
-const InventoryPage = lazy(() => import('@/pages/InventoryPage'));
-const CustomersPage = lazy(() => import('@/pages/CustomersPage'));
-const SuppliersPage = lazy(() => import('@/pages/SuppliersPage'));
-const DriversPage = lazy(() => import('@/pages/DriversPage'));
-const CalendarPage = lazy(() => import('@/pages/CalendarPage'));
-const TransactionCenterPage = lazy(() => import('@/pages/TransactionCenterPage'));
-const AdminPage = lazy(() => import('@/pages/AdminPage'));
-const DataSamplerPage = lazy(() => import('@/pages/DataSamplerPage'));
-const StatisticalReportsPage = lazy(() => import('@/pages/StatisticalReportsPage'));
-const AccountManagerDirectoryPage = lazy(() => import('@/pages/AccountManagerDirectoryPage'));
-const MainView = lazy(() => import('@/pages/MainView'));
 import {
   DeliveryRecord,
   UserRole,
@@ -30,6 +17,21 @@ import {
 } from '@/api';
 import { CATEGORY_SCREENS } from './screenRouting';
 import { DashboardFilterId } from '@/utils/dashboardFilters';
+
+const DashboardPage = lazyPage(() => import('@/pages/DashboardPage'));
+const DeliveriesPage = lazyPage(() => import('@/pages/DeliveriesPage'));
+const AccountingCollectionPage = lazyPage(() => import('@/pages/AccountingCollectionPage'));
+const InventoryPage = lazyPage(() => import('@/pages/InventoryPage'));
+const CustomersPage = lazyPage(() => import('@/pages/CustomersPage'));
+const SuppliersPage = lazyPage(() => import('@/pages/SuppliersPage'));
+const DriversPage = lazyPage(() => import('@/pages/DriversPage'), { gateData: false });
+const CalendarPage = lazyPage(() => import('@/pages/CalendarPage'));
+const TransactionCenterPage = lazyPage(() => import('@/pages/TransactionCenterPage'));
+const AdminPage = lazyPage(() => import('@/pages/AdminPage'));
+const DataSamplerPage = lazyPage(() => import('@/pages/DataSamplerPage'));
+const StatisticalReportsPage = lazyPage(() => import('@/pages/StatisticalReportsPage'));
+const AccountManagerDirectoryPage = lazyPage(() => import('@/pages/AccountManagerDirectoryPage'));
+const MainView = lazyPage(() => import('@/pages/MainView'));
 
 export interface AppRouterProps {
   currentScreen: string;
@@ -278,7 +280,7 @@ export const AppRouter: React.FC<AppRouterProps> = ({
   };
 
   return (
-    <Suspense
+    <Suspense key={currentScreen}
       fallback={
         <div role="status" aria-live="polite" className="flex items-center justify-center py-24 text-slate-500">
           <div className="flex flex-col items-center gap-3">

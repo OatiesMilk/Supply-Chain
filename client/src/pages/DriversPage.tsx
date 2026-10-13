@@ -1,8 +1,12 @@
 import React, { useEffect } from 'react';
-import { DriverPage, DriverPageProps } from './DriverPage';
-import { DriverBoardPage } from './DriverBoardPage';
-import { DriverManagerPage, DriverManagerPageProps } from './DriverManagerPage';
+import type { DriverPageProps } from './DriverPage';
+import { lazyPage } from '@/routes/lazyPage';
+import type { DriverManagerPageProps } from './DriverManagerPage';
 import { DRIVER_TABS, rememberDriverTab } from '@/routes/screenRouting';
+
+const DriverPage = lazyPage(() => import('./DriverPage'));
+const DriverBoardPage = lazyPage(() => import('./DriverBoardPage'));
+const DriverManagerPage = lazyPage(() => import('./DriverManagerPage'));
 
 export interface DriversPageProps extends DriverPageProps, DriverManagerPageProps {
   activeScreen: string;

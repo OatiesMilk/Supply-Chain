@@ -1,9 +1,22 @@
 import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
-import { renderToString } from 'react-dom/server';
+import { renderToPipeableStream } from 'react-dom/server';
+import { PassThrough } from 'node:stream';
 import { DriversPage, type DriversPageProps } from '../src/pages/DriversPage';
 import { driverLandingScreen, isDriverScreen, rememberDriverTab } from '../src/routes/screenRouting';
+
+function renderLoadedPage(element: React.ReactElement): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const output = new PassThrough();
+    const chunks: Buffer[] = [];
+    output.on('data', chunk => chunks.push(Buffer.from(chunk)));
+    output.on('end', () => resolve(Buffer.concat(chunks).toString()));
+    const stream = renderToPipeableStream(element, {
+      onAllReady() { stream.pipe(output); }, onError: reject,
+    });
+  });
+}
 
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
 afterEach(() => {
@@ -55,8 +68,8 @@ test('the Drivers item reopens the last tab only while it is still granted', () 
   assert.equal(isDriverScreen('driver_dashboard'), false);
 });
 
-test('Drivers page shows a tab per granted screen and marks the current one', () => {
-  const html = renderToString(React.createElement(DriversPage, pageProps({
+test('Drivers page shows a tab per granted screen and marks the current one', async () => {
+  const html = await renderLoadedPage(React.createElement(DriversPage, pageProps({
     canAccess: screen => screen !== 'driver_manager',
   })));
   assert.match(html, /aria-label="Driver sections"/);
@@ -66,8 +79,8 @@ test('Drivers page shows a tab per granted screen and marks the current one', ()
   assert.match(html, /id="driver-board-view"/);
 });
 
-test('Drivers page hides the tab bar when only one screen is granted', () => {
-  const html = renderToString(React.createElement(DriversPage, pageProps({
+test('Drivers page hides the tab bar when only one screen is granted', async () => {
+  const html = await renderLoadedPage(React.createElement(DriversPage, pageProps({
     canAccess: screen => screen === 'driver_board',
   })));
   assert.doesNotMatch(html, /aria-label="Driver sections"/);

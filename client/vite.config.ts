@@ -2,6 +2,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
+import { vendorChunk } from './config/vendorChunks';
 
 export default defineConfig(() => {
   return {
@@ -14,22 +15,7 @@ export default defineConfig(() => {
     build: {
       rollupOptions: {
         output: {
-          manualChunks(id) {
-            if (id.includes('node_modules')) {
-              if (id.includes('react') || id.includes('react-dom') || id.includes('scheduler')) {
-                return 'vendor-react';
-              }
-              if (id.includes('@tanstack/react-query') || id.includes('@tanstack/query-core')) {
-                return 'vendor-query';
-              }
-              if (id.includes('lucide-react')) {
-                return 'vendor-lucide';
-              }
-              if (id.includes('recharts') || id.includes('d3-')) {
-                return 'vendor-charts';
-              }
-            }
-          },
+          manualChunks: vendorChunk,
         },
       },
     },
