@@ -8,6 +8,7 @@ import { writeAuditLog } from '../services/audit';
 import { notifyAccomplished } from '../services/notify';
 import { notifyRole, notifyUser } from '../services/inAppNotify';
 import { CATEGORY_TO_DB, STATUS_TO_DB, STATUS_FROM_DB, serializeRecord } from '../mappings';
+import { recordActiveCounts } from '../services/activeRecordCounts';
 import { podStorage, podUpload } from '../services/podStorage';
 import { DELIVERY_PHOTO_REQUIRED, hasStoredDeliveryPhoto, isPhotoMimeType, isVerifiedPodPhoto, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
 
@@ -102,6 +103,23 @@ router.get('/', requireAuth, requireResource('records'), requireRecordAccess, as
   });
   res.json(records.map(serializeRecord));
 });
+
+// Bounded, permission-scoped aggregate for sidebar badges. Do not fetch
+// the entire records collection merely to display the five counters.
+router.get('/active-counts', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
+  const groups = await prisma.deliveryRecord.groupBy({
+    by: ['category', 'status'],
+    where: {
+      deletedAt: null,
+      draft: false,
+      status: { in: ['SCHEDULED', 'IN_TRANSIT', 'PENDING', 'ON_HOLD'] },
+      AND: [recordScope(req.user!)],
+    },
+    _count: { _all: true },
+  });
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(recordActiveCounts(groups));
+}));
 
 // Must be before /:id to avoid "status-history-counts" matching as an ID
 router.get('/status-history-counts', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {

@@ -13,6 +13,14 @@ export function apiUrl(path: string): string {
   return `${API_BASE}/api${path}`;
 }
 
+export interface RecordActiveCounts {
+  deliveries: number;
+  rma: number;
+  sales_orders: number;
+  accounting_collection: number;
+  procurement_pickup: number;
+}
+
 export class ApiError extends Error {
   status: number;
   /** Per-field validation messages from the server, keyed by API field name. */
@@ -429,6 +437,7 @@ export const api = {
     const query = params.toString();
     return request<any[]>(`/records${query ? `?${query}` : ''}`);
   },
+  getRecordActiveCounts: () => request<RecordActiveCounts>('/records/active-counts'),
   getRecord: (id: string) => request<any>(`/records/${id}`),
   getRecordAudit: (id: string) => request<ApiAuditEntry[]>(`/records/${id}/audit`),
   createRecord: (data: Record<string, unknown>) =>

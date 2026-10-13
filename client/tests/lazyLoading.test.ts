@@ -60,7 +60,7 @@ test('isResourceQueryEnabled scopes queries to active screens while keeping glob
   const user = mockUser('ADMIN');
 
   // When on "customers" screen:
-  assert.equal(isResourceQueryEnabled('records', user, 'customers'), true, 'records stay enabled for badge counters');
+  assert.equal(isResourceQueryEnabled('records', user, 'customers'), false, 'Customers only needs lightweight counts, not all records');
   assert.equal(isResourceQueryEnabled('companies', user, 'customers'), true, 'companies stay enabled');
   assert.equal(isResourceQueryEnabled('customers', user, 'customers'), true, 'customers enabled');
   assert.equal(isResourceQueryEnabled('suppliers', user, 'customers'), false, 'suppliers disabled');
@@ -85,4 +85,25 @@ test('isResourceQueryEnabled scopes queries to active screens while keeping glob
   // When user lacks resource, always disabled:
   const restrictedUser: ApiUser = { ...user, resources: ['records'] };
   assert.equal(isResourceQueryEnabled('customers', restrictedUser, 'customers'), false);
+});
+
+test('record lists load for operational screens but not unrelated directories', () => {
+  const user = mockUser('ADMIN');
+  for (const screen of ['main','dashboard','deliveries','rma','accounting_collection','procurement_pickup','sales_orders','calendar','driver','driver_board','suppliers','am_directory']) {
+    assert.equal(isResourceQueryEnabled('records', user, screen), true, screen);
+  }
+  for (const screen of ['customers','inventory','admin','data_sampler','transactions','statistical_reports','driver_manager']) {
+    assert.equal(isResourceQueryEnabled('records', user, screen), false, screen);
+  }
+});
+
+test('driver directory loads on every operational creation and assignment screen', () => {
+  const user = mockUser('ADMIN');
+  for (const screen of ['main','deliveries','rma','accounting_collection','procurement_pickup','sales_orders','calendar','dashboard','data_sampler','driver','driver_board','driver_manager']) {
+    assert.equal(isResourceQueryEnabled('drivers', user, screen), true, screen);
+  }
+  assert.equal(isResourceQueryEnabled('drivers', user, 'customers'), false);
+  assert.equal(isResourceQueryEnabled('drivers', { ...user, resources: ['records'] }, 'deliveries'), false);
+  const driver: ApiUser = { ...user, role: 'DRIVER', effectiveScreens: ['driver_dashboard'] };
+  assert.equal(isResourceQueryEnabled('records', driver, 'dashboard'), true);
 });

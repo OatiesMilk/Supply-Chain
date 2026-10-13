@@ -12,7 +12,6 @@ import LoginView from '@/features/auth/LoginView';
 import ServerUnavailableView from '@/features/auth/ServerUnavailableView';
 import { useServerAvailability } from '@/hooks/useServerAvailability';
 const DriverDashboard = lazy(() => import('@/features/dashboard/DriverDashboard'));
-import { DeliveryCategory } from '@/types';
 import { DashboardFilterId } from '@/utils/dashboardFilters';
 
 function AppContent() {
@@ -112,10 +111,12 @@ function AuthenticatedApp() {
 
   // Zustand UI Store state and actions
   const currentScreen = useUIStore(s => s.currentScreen);
+  const searchOpen = useUIStore(s => s.searchOpen);
 
   // TanStack Query synchronized application data hook
   const {
     deliveryRecords,
+    activeRecordCounts,
     companies,
     customers,
     suppliers,
@@ -132,7 +133,7 @@ function AuthenticatedApp() {
     handleUpdateDriver,
     handleDeleteDriver,
     handleResetDemoData,
-  } = useAppData(authUser, currentUser, currentUserRole, currentScreen);
+  } = useAppData(authUser, currentUser, currentUserRole, currentScreen, searchOpen);
 
   // TanStack Query mutation action workflows hook
   const {
@@ -156,7 +157,6 @@ function AuthenticatedApp() {
   const setIsSidebarCollapsed = useUIStore(s => s.setIsSidebarCollapsed);
   const zoomFactor = useUIStore(s => s.zoomFactor);
   const setZoomFactor = useUIStore(s => s.setZoomFactor);
-  const searchOpen = useUIStore(s => s.searchOpen);
   const setSearchOpen = useUIStore(s => s.setSearchOpen);
   const accessRequestOpen = useUIStore(s => s.accessRequestOpen);
   const accessRequestScreen = useUIStore(s => s.accessRequestScreen);
@@ -206,15 +206,13 @@ function AuthenticatedApp() {
     return () => document.removeEventListener('keydown', handler);
   }, [searchOpen, setSearchOpen]);
 
-  // Dynamic counts for sidebar badges
-  const countByCategory = (cat: DeliveryCategory, statuses: string[]) =>
-    deliveryRecords.filter(r => r.category === cat && statuses.includes(r.status)).length;
-
-  const deliveriesActiveCount = countByCategory('Deliveries', ['Scheduled', 'In Transit', 'Pending']);
-  const rmaActiveCount = countByCategory('RMA', ['Scheduled', 'In Transit', 'Pending', 'On-Hold']);
-  const salesOrdersActiveCount = countByCategory('Sales Orders', ['Scheduled', 'In Transit', 'Pending']);
-  const accountingActiveCount = countByCategory('Accounting Collection', ['Scheduled', 'In Transit', 'Pending']);
-  const procurementActiveCount = countByCategory('Procurement Pick-up', ['Scheduled', 'In Transit', 'Pending']);
+  // Small, server-scoped aggregates keep badge counts correct even when
+  // Customers/Inventory/Admin do not download the complete records list.
+  const deliveriesActiveCount = activeRecordCounts?.deliveries ?? 0;
+  const rmaActiveCount = activeRecordCounts?.rma ?? 0;
+  const salesOrdersActiveCount = activeRecordCounts?.sales_orders ?? 0;
+  const accountingActiveCount = activeRecordCounts?.accounting_collection ?? 0;
+  const procurementActiveCount = activeRecordCounts?.procurement_pickup ?? 0;
 
   // Driver role gets standalone mobile-first dashboard
   if (effectiveScreens.size === 0) {

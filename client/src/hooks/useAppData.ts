@@ -3,8 +3,10 @@ import { setManagedDriverList, subscribeManagedDrivers, getManagedDriverVersion 
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiUser, ApiDriver } from '@/api';
 import { UserRole } from '@/types';
+import { CATEGORY_SCREENS } from '@/routes/screenRouting';
 import {
   useRecordsQuery,
+  useRecordActiveCountsQuery,
   useCompaniesQuery,
   useCustomersQuery,
   useCreateCustomerMutation,
@@ -30,6 +32,12 @@ export function isResourceQueryEnabled(
   if (!currentScreen) return true;
   switch (resource) {
     case 'records':
+      // Full lists belong on operational screens; global badges use aggregates.
+      return (
+        Boolean(CATEGORY_SCREENS[currentScreen]) ||
+        ['main', 'dashboard', 'calendar', 'driver', 'driver_board', 'suppliers', 'am_directory'].includes(currentScreen) ||
+        (user.role === 'DRIVER' && user.effectiveScreens.includes('driver_dashboard'))
+      );
     case 'companies':
       return true;
     case 'customers':
@@ -41,7 +49,9 @@ export function isResourceQueryEnabled(
     case 'drivers':
       return (
         currentScreen.startsWith('driver') ||
-        currentScreen === 'deliveries' ||
+        Boolean(CATEGORY_SCREENS[currentScreen]) ||
+        currentScreen === 'main' ||
+        currentScreen === 'calendar' ||
         currentScreen === 'dashboard' ||
         currentScreen === 'data_sampler'
       );
@@ -56,10 +66,17 @@ export function useAppData(
   authUser: ApiUser | null,
   currentUser: { name: string; initials: string },
   currentUserRole: UserRole,
-  currentScreen?: string
+  currentScreen?: string,
+  searchOpen = false
 ) {
   const queryClient = useQueryClient();
-  const allowed = (resource: string) => isResourceQueryEnabled(resource, authUser, currentScreen);
+  // A forbidden screen cannot initiate protected data loading.
+  const routeAllowed = !currentScreen || Boolean(authUser?.effectiveScreens.includes(currentScreen));
+  const allowed = (resource: string) =>
+    routeAllowed && (isResourceQueryEnabled(resource, authUser, currentScreen) ||
+      // Opening global search explicitly requests its data; normal visits do not.
+      (searchOpen && authUser?.resources.includes(resource) === true &&
+        (resource === 'records' || (resource === 'skus' && authUser.effectiveScreens.includes('inventory')))));
 
   const {
     data: deliveryRecords = [],
@@ -67,6 +84,7 @@ export function useAppData(
     error: recordsError,
   } = useRecordsQuery(allowed('records'));
 
+  const { data: activeRecordCounts = null } = useRecordActiveCountsQuery(Boolean(authUser?.resources.includes('records')));
   const { data: companies = [] } = useCompaniesQuery(allowed('companies'));
   const { data: customers = [] } = useCustomersQuery(allowed('customers'));
   const { data: suppliers = [] } = useSuppliersQuery(allowed('suppliers'));
@@ -139,6 +157,7 @@ export function useAppData(
 
   return {
     deliveryRecords,
+    activeRecordCounts,
     setDeliveryRecords: () => {
       // Maintained for backward compatibility; TanStack Query manages cache invalidation
     },
