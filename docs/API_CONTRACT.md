@@ -19,7 +19,7 @@ This document describes the REST API of the Microgenesis Supply Chain Portal. Al
 | POST | `/auth/logout` | Public | Clears the cookie |
 | GET | `/auth/me` | Auth | Current session user (same shape as login), `Cache-Control: no-store` |
 | POST | `/auth/microsoft` | Public | Starts Microsoft SSO (501 if not configured) |
-| GET | `/auth/microsoft/callback` | Public | SSO callback; matches `microsoftOid` then email; unknown users are created as `SALES_COORDINATOR` |
+| GET | `/auth/microsoft/callback` | Public | SSO callback: browser-bound state consumed atomically (5-min expiry), tenant verified; only Admin-prelinked active `microsoftOid` accounts may sign in; unknown identities denied |
 | GET | `/auth/microsoft/status` | Public | `{ configured: boolean }` |
 
 `POST /auth/login` request: `{ "email": "...", "password": "..." }`.
@@ -116,6 +116,7 @@ All `/users` routes use `Auth` + `Res:users` + ADM.
 | GET | `/users` | List accounts |
 | POST | `/users` | Create `{ name, email, password, role, driver_profile_id? }` (`409` on duplicate email) |
 | PUT | `/users/:id/driver-profile` | Link/unlink a Driver login `{ driver_profile_id: string \| null }` |
+| PUT | `/users/:id/microsoft-identity` | Admin | Pre-link or unlink Entra object GUID `{ microsoft_oid: uuid or null }` (audited, rejects duplicates) |
 | PATCH | `/users/:id` | Update details/role (an admin cannot remove their own admin role) |
 | PATCH | `/users/:id/deactivate`, `/activate` | Toggle (not for yourself) |
 | DELETE | `/users/:id` | Delete (not yourself) |

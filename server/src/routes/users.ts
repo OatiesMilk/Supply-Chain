@@ -6,6 +6,7 @@ import { requireResource, requireAuth, requireRole } from '../middleware/auth';
 import { asyncRoute } from '../middleware/asyncRoute';
 import { DriverLinkError, linkDriverLogin, unlinkDriverLogin } from '../services/driverLogin';
 import { permissionEditor, permissionInputError, PermissionSaveError, replacePermissions } from '../services/permissions';
+import { isMicrosoftGuid } from '../services/ssoState';
 
 const router = Router();
 
@@ -81,6 +82,40 @@ router.put('/:id/driver-profile', requireAuth, requireResource('users'), require
     res.json({ user_id: req.params.id, driver_profile: profile ? { id: profile.id, name: profile.name } : null });
   } catch (error) {
     if (error instanceof DriverLinkError) return res.status(error.status).json({ error: error.message });
+    throw error;
+  }
+}));
+
+// An Admin explicitly pre-provisions the tenant-scoped Microsoft object ID;
+// never let SSO email claims implicitly take over an existing account.
+// A null OID deliberately unlinks the identity; relinking is audited.
+router.put('/:id/microsoft-identity', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (req: Request, res: Response) => {
+  const oid = req.body?.microsoft_oid;
+  if (oid !== null && !isMicrosoftGuid(oid)) {
+    return res.status(400).json({ error: 'microsoft_oid must be a Microsoft Entra object GUID or null' });
+  }
+  try {
+    const updated = await prisma.$transaction(async tx => {
+      const user = await tx.user.findUnique({ where: { id: req.params.id } });
+      if (!user) return null;
+      const result = await tx.user.update({
+        where: { id: user.id },
+        data: { microsoftOid: oid?.toLowerCase() ?? null }
+      });
+      await tx.auditLog.create({
+        data: {
+          recordId: user.id, recordType: 'User', action: 'UPDATE',
+          changedById: req.user!.id,
+          previousValue: JSON.stringify({ microsoft_linked: !!user.microsoftOid, microsoft_oid: user.microsoftOid }),
+          newValue: JSON.stringify({ microsoft_linked: !!result.microsoftOid, microsoft_oid: result.microsoftOid })
+        }
+      });
+      return result;
+    });
+    if (!updated) return res.status(404).json({ error: 'User not found' });
+    res.json({ user_id: updated.id, microsoft_linked: !!updated.microsoftOid });
+  } catch (error) {
+    if ((error as { code?: string })?.code === 'P2002') return res.status(409).json({ error: 'Microsoft identity is already linked to another account' });
     throw error;
   }
 }));

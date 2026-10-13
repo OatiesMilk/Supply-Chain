@@ -1,12 +1,12 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import crypto from 'node:crypto';
 import { prisma } from '../db';
 import { clearSessionCookie, requireAuth, setSessionCookie, signToken, Role } from '../middleware/auth';
 
 import { asyncRoute } from '../middleware/asyncRoute';
 import { sessionUser } from '../services/permissions';
-import { createSsoState, validateSsoState, SSO_STATE_COOKIE, SSO_STATE_MAX_AGE_MS } from '../services/ssoState';
+import { createSsoState, validateSsoState, registerSsoState, consumeSsoState, getMsalConfig, SSO_STATE_COOKIE, SSO_STATE_MAX_AGE_MS } from '../services/ssoState';
+import { approvedMicrosoftUser } from '../services/ssoIdentity';
 
 const router = Router();
 
@@ -49,18 +49,7 @@ router.get('/me', requireAuth, (req: Request, res: Response) => {
 
 // ─── Microsoft Azure AD SSO ─────────────────────────────────────────────────
 
-function getMsalConfig() {
-  const clientId     = process.env.AZURE_CLIENT_ID;
-  const clientSecret = process.env.AZURE_CLIENT_SECRET;
-  const tenantId     = process.env.AZURE_TENANT_ID || 'common';
-  const appUrl       = process.env.APP_URL || 'http://localhost:3000';
-
-  if (!clientId || !clientSecret) return null;
-
-  return { clientId, clientSecret, tenantId, appUrl };
-}
-
-router.post('/microsoft', async (_req: Request, res: Response) => {
+router.post('/microsoft', asyncRoute(async (_req: Request, res: Response) => {
   const cfg = getMsalConfig();
   if (!cfg) {
     return res.status(501).json({ error: 'Microsoft login is not configured' });
@@ -86,6 +75,7 @@ router.post('/microsoft', async (_req: Request, res: Response) => {
       redirectUri,
       responseMode: 'query' as any,
     });
+    await registerSsoState(prisma, state);
     res.cookie(SSO_STATE_COOKIE, state, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -99,9 +89,9 @@ router.post('/microsoft', async (_req: Request, res: Response) => {
     console.error('MSAL getAuthCodeUrl error:', err);
     res.status(500).json({ error: 'Failed to initiate Microsoft login' });
   }
-});
+}));
 
-router.get('/microsoft/callback', async (req: Request, res: Response) => {
+router.get('/microsoft/callback', asyncRoute(async (req: Request, res: Response) => {
   const cfg = getMsalConfig();
   if (!cfg) {
     return res.redirect('/?error=sso_not_configured');
@@ -117,7 +107,11 @@ router.get('/microsoft/callback', async (req: Request, res: Response) => {
     sameSite: 'lax',
     path: '/api/auth/microsoft/callback',
   });
+  res.setHeader('Cache-Control', 'no-store');
   if (!validateSsoState(req.query.state, expectedState)) {
+    return res.redirect('/?error=sso_invalid_state');
+  }
+  if (!await consumeSsoState(prisma, req.query.state)) {
     return res.redirect('/?error=sso_invalid_state');
   }
 
@@ -125,8 +119,8 @@ router.get('/microsoft/callback', async (req: Request, res: Response) => {
   const errorParam = req.query.error as string | undefined;
 
   if (errorParam || !code) {
-    const desc = req.query.error_description || 'Microsoft login failed';
-    console.error('Azure AD callback error:', errorParam, desc);
+    // The provider's error_description may contain sensitive details.
+    console.warn('Microsoft SSO provider rejected the sign-in');
     return res.redirect(`/?error=sso_failed`);
   }
 
@@ -150,45 +144,9 @@ router.get('/microsoft/callback', async (req: Request, res: Response) => {
     });
 
     const claims = result.idTokenClaims as Record<string, unknown> | undefined;
-    const oid   = (claims?.oid as string) || '';
-    const email = ((claims?.preferred_username as string) || (claims?.email as string) || '').toLowerCase();
-    const name  = (claims?.name as string) || email.split('@')[0] || 'Microsoft User';
-
-    if (!email) {
-      return res.redirect('/?error=sso_no_email');
-    }
-
-    // Look up user: prefer microsoftOid match, then email match
-    let user = oid
-      ? await prisma.user.findUnique({ where: { microsoftOid: oid } })
-      : null;
-
-    if (!user) {
-      user = await prisma.user.findUnique({ where: { email } });
-    }
-
-    if (user && !user.isActive) {
-      return res.redirect('/?error=account_deactivated');
-    }
-
-    if (!user) {
-      const randomPass = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
-      user = await prisma.user.create({
-        data: {
-          name,
-          email,
-          password: randomPass,
-          role: 'SALES_COORDINATOR',
-          isActive: true,
-          microsoftOid: oid || null,
-        },
-      });
-    } else if (oid && !user.microsoftOid) {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { microsoftOid: oid },
-      });
-    }
+    const approval = await approvedMicrosoftUser(prisma, claims, cfg.tenantId);
+    if ('error' in approval) return res.redirect(`/?error=${approval.error}`);
+    const user = approval.user;
 
     const token = signToken({
       id: user.id,
@@ -199,15 +157,16 @@ router.get('/microsoft/callback', async (req: Request, res: Response) => {
     setSessionCookie(res, token);
     res.redirect('/');
   } catch (err) {
-    console.error('MSAL token exchange error:', err);
+    // Do not log authorization codes, state, tokens or claim payloads.
+    console.error('Microsoft SSO callback failed');
     res.redirect('/?error=sso_failed');
   }
-});
+}));
 
 // ─── SSO status (lets frontend know if Microsoft login is available) ────────
 
 router.get('/microsoft/status', (_req: Request, res: Response) => {
-  const configured = !!(process.env.AZURE_CLIENT_ID && process.env.AZURE_CLIENT_SECRET);
+  const configured = !!getMsalConfig();
   res.json({ configured });
 });
 

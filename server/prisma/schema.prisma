@@ -12,6 +12,15 @@ datasource db {
 // and the RBAC checks in server/src/middleware/auth.ts + routes). Valid
 // values are documented in the comments below.
 
+// Short-lived OAuth state digests prevent replay across multiple API instances.
+model OAuthLoginState {
+  id        String   @id // SHA-256 of the random browser-bound state
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
 model User {
   id           String   @id @default(cuid())
   name         String
