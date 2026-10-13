@@ -37,9 +37,16 @@ test.describe('B-1 Login & Access Control', () => {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
     const nav = page.getByRole('navigation');
-    await expect(nav.getByText(/driver view|driver/i).first()).toBeVisible();
-    await expect(nav.getByText(/driver manager/i)).toBeVisible();
+    // Driver View, Board and Manager share one sidebar item and open as tabs.
+    const drivers = nav.getByRole('button', { name: 'Drivers', exact: true });
+    await expect(drivers).toBeVisible();
     await expect(nav.getByText(/calendar/i)).toBeVisible();
+
+    await drivers.click();
+    const tabs = page.getByRole('navigation', { name: 'Driver sections' });
+    for (const tab of ['View', 'Board', 'Manager']) {
+      await expect(tabs.getByRole('button', { name: tab, exact: true })).toBeVisible();
+    }
   });
 
   test('B-1.2 RMA module is labelled "RMA" for Logistics', async ({ page }) => {
@@ -167,10 +174,10 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
 
     for (let attempt = 0; attempt < 3; attempt++) {
       await autoFill.click();
-      await expect(areaInput).not.toHaveValue('', { timeout: 5000 });
-      const area = await areaInput.inputValue();
-      const address = await addressInput.inputValue();
-      assertDemoLocationPair(area, address);
+      // Area and Address render one after the other, so retry until both settle.
+      await expect(async () => {
+        assertDemoLocationPair(await areaInput.inputValue(), await addressInput.inputValue());
+      }).toPass({ timeout: 5000 });
     }
 
     await areaInput.fill('Makati CBD');
