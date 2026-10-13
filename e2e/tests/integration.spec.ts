@@ -17,7 +17,7 @@ const CREDS = {
   driver:    { email: 'driver@microgenesis.com',    password: 'password123' },
 };
 
-type ApiRecord = { id: string; reference: string; status: string; is_draft: string; driver: string };
+type ApiRecord = { id: string; reference: string; status: string; is_draft: string; driver: string; delivery_date: string };
 
 async function getRecords(context: BrowserContext): Promise<ApiRecord[]> {
   const response = await context.request.get(`${BASE_URL}/api/records`);
@@ -90,13 +90,17 @@ test.describe('X Cross-Role Integration', () => {
       await expect(companyOption).toBeVisible();
       await companyOption.click();
       await salesPage.getByPlaceholder('e.g., SAP-88231').fill(reference);
-      await salesPage.locator('input[type="date"]').first().fill(manilaToday());
+      const deliveryDate = manilaToday();
+      const createForm = salesPage.locator('form');
+      await createForm.getByLabel(/^Delivery Date/).fill(deliveryDate);
+      await expect(salesPage.getByLabel('Date From', { exact: true })).toHaveValue('');
       await salesPage.getByRole('button', { name: 'Save as Draft', exact: true }).click();
 
       console.log('TSK-120: Created draft');
       await expect(salesPage.getByText(/Record Created/i)).toBeVisible({ timeout: 10_000 });
       const created = (await getRecords(salesCtx)).find(record => !existingIds.has(record.id) && record.reference === reference);
       expect(created, 'the uniquely referenced Draft should be returned by the SC records API').toBeTruthy();
+      expect(created!.delivery_date, 'the Draft must retain its form delivery date').toBe(deliveryDate);
       recordId = created!.id;
       console.log('TSK-120: Found created id', recordId);
 
