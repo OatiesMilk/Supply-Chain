@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
 import { prisma } from '../db';
 import { clearSessionCookie, requireAuth, setSessionCookie, signToken, Role } from '../middleware/auth';
 
 import { asyncRoute } from '../middleware/asyncRoute';
 import { sessionUser } from '../services/permissions';
+import { createSsoState, validateSsoState, SSO_STATE_COOKIE, SSO_STATE_MAX_AGE_MS } from '../services/ssoState';
 
 const router = Router();
 
@@ -78,11 +78,21 @@ router.post('/microsoft', async (_req: Request, res: Response) => {
   const redirectUri = `${cfg.appUrl}/api/auth/microsoft/callback`;
 
   try {
+    const state = createSsoState();
     const authUrl = await msalApp.getAuthCodeUrl({
+      state,
       scopes: ['openid', 'profile', 'email', 'User.Read'],
       redirectUri,
       responseMode: 'query' as any,
     });
+    res.cookie(SSO_STATE_COOKIE, state, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/api/auth/microsoft/callback',
+      maxAge: SSO_STATE_MAX_AGE_MS,
+    });
+    res.setHeader('Cache-Control', 'no-store');
     res.json({ url: authUrl });
   } catch (err) {
     console.error('MSAL getAuthCodeUrl error:', err);
@@ -94,6 +104,20 @@ router.get('/microsoft/callback', async (req: Request, res: Response) => {
   const cfg = getMsalConfig();
   if (!cfg) {
     return res.redirect('/?error=sso_not_configured');
+  }
+
+  // Consume the initiating browser's state cookie before any token exchange.
+  // SameSite=Lax permits the Microsoft top-level GET redirect, while preventing
+  // an unrelated browser session from completing a callback started elsewhere.
+  const expectedState = req.cookies?.[SSO_STATE_COOKIE];
+  res.clearCookie(SSO_STATE_COOKIE, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/api/auth/microsoft/callback',
+  });
+  if (!validateSsoState(req.query.state, expectedState)) {
+    return res.redirect('/?error=sso_invalid_state');
   }
 
   const code = req.query.code as string | undefined;
