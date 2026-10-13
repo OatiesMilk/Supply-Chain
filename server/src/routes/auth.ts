@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import crypto from 'node:crypto';
 import { prisma } from '../db';
 import { clearSessionCookie, requireAuth, setSessionCookie, signToken, Role } from '../middleware/auth';
 
