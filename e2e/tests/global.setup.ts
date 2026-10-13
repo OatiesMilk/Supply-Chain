@@ -26,11 +26,16 @@ async function loginAndSave(email: string, password: string, filePath: string) {
   await page.goto(BASE_URL);
   await page.waitForLoadState('networkidle');
 
-  await page.getByLabel(/email/i).fill(email);
-  await page.getByLabel(/password/i).fill(password);
-  await page.getByRole('button', { name: /sign in|log in/i }).click();
+  const showEmailBtn = page.getByRole('button', { name: 'Sign in with email instead' });
+  if (await showEmailBtn.isVisible()) {
+    await showEmailBtn.click();
+  }
+
+  await page.locator('#login-email').fill(email);
+  await page.locator('#login-password').fill(password);
+  await page.getByRole('button', { name: /^sign in$|^log in$/i }).click();
   await page.waitForLoadState('networkidle');
-  await expect(page.getByLabel(/email/i)).not.toBeVisible();
+  await expect(page.locator('#login-email')).not.toBeVisible();
 
   await context.storageState({ path: filePath });
   await browser.close();

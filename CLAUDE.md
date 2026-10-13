@@ -48,10 +48,10 @@ cd client && npx tsc --noEmit
 cd server && npx tsc --noEmit
 
 # Run client tests (node:test, not Vitest)
-cd client && node --import tsx --test tests/*.test.ts src/components/__tests__/*.test.ts src/utils/__tests__/*.test.ts src/utils/tests/*.test.ts
+npm run test:client
 
 # Run server tests
-cd server && node --import tsx --test tests/*.test.ts
+npm run test:server
 
 # Prisma migration
 cd server && npx prisma migrate dev --name <migration-name>

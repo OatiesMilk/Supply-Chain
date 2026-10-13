@@ -4,6 +4,7 @@
   "version": "0.0.1",
   "type": "commonjs",
   "scripts": {
+    "test": "node --import tsx --test tests/*.test.ts",
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/index.js",

@@ -103,12 +103,8 @@ From the repository root:
 npm run lint --workspace=client
 npm run lint --workspace=server
 npm run build
-Push-Location client
-node --import tsx --test tests/*.test.ts src/components/__tests__/*.test.ts src/utils/__tests__/*.test.ts src/utils/tests/*.test.ts
-Pop-Location
-Push-Location server
-node --import tsx --test tests/*.test.ts
-Pop-Location
+npm run test:client
+npm run test:server
 ```
 
 Both workspaces use Node's built-in test runner through `tsx` (not Vitest).

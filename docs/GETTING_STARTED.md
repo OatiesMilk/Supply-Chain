@@ -206,14 +206,15 @@ link a Driver login to a driver profile, and edit per-user module access from
 | Type check backend | `npm run lint --workspace=server` (or `cd server && npx tsc --noEmit`) |
 | Validate Prisma schema | `npm run prisma:validate --workspace=mg-portal-server` |
 | Production build | `npm run build` (client build); `npm run build --workspace=mg-portal-server` for the API |
-| Server tests | `cd server && node --import tsx --test tests/*.test.ts` |
-| Client tests | `cd client && node --import tsx --test tests/*.test.ts src/components/__tests__/*.test.ts src/utils/__tests__/*.test.ts src/utils/tests/*.test.ts` |
-| End-to-end (Playwright) | `npm run e2e`, `npm run e2e:sc`, `npm run e2e:logistics`, `npm run e2e:driver` (servers must already be running; `npm run e2e:report` opens the report) |
+| Server tests | `npm run test:server` |
+| Client tests | `npm run test:client` |
+| End-to-end (Playwright) | `npm run e2e`, `npm run e2e:sc`, `npm run e2e:logistics`, `npm run e2e:driver`, `npm run e2e:integration` (servers must already be running; `npm run e2e:report` opens the report) |
 
 Both workspaces use Node's built-in test runner (`node:test`) through `tsx`, not
 Vitest. Server tests use the real routers and middleware with Prisma test
 doubles; they do not need a database. CI (`.github/workflows/ci.yml`) runs
-schema validation, type checks and builds; it does not run the test suites.
+schema validation, type checks, builds, both complete `node:test` suites, and
+the role plus cross-role Playwright projects against an isolated seeded database.
 
 ## POD file storage
 

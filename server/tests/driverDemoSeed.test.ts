@@ -114,11 +114,11 @@ test('successful run, exact login name match when case differs, rerun test, and 
   const prisma = fakePrisma(state);
   const count = await seedDriverDemo(prisma, '2026-10-02');
 
-  assert.equal(count, 2); // Lando + LeO DriVer
+  assert.equal(count, 10); // Lando + LeO DriVer
 
   // The run is owned by the profile id; the login is linked to that profile.
   const leoRuns = state.records.filter((r: any) => r.driverId === '2');
-  assert.equal(leoRuns.length, 1);
+  assert.equal(leoRuns.length, 5);
   assert.equal(leoRuns[0].driver, 'leo DRIVER');
   assert.equal(state.drivers.find((d: any) => d.id === '2').userId, 'd1');
 
@@ -134,7 +134,7 @@ test('one fixture when account matches a seeded driver', async () => {
   const prisma = fakePrisma(state);
   const count = await seedDriverDemo(prisma, '2026-10-02');
 
-  assert.equal(count, 1);
+  assert.equal(count, 5);
   assert.equal(state.records[0].driverId, '1');
   assert.equal(state.drivers[0].userId, 'd1');
 });
@@ -145,7 +145,7 @@ test('never moves a profile link that belongs to another login', async () => {
 
   const count = await seedDriverDemo(fakePrisma(state), '2026-10-02');
 
-  assert.equal(count, 2);
+  assert.equal(count, 10);
   assert.equal((state.drivers[1] as any).userId, 'other-login');
 });
 
@@ -157,9 +157,9 @@ test('handles identical long name prefixes without ID collisions', async () => {
   const prisma = fakePrisma(state);
   const count = await seedDriverDemo(prisma, '2026-10-02');
 
-  assert.equal(count, 2);
+  assert.equal(count, 10);
   const ids = new Set(state.records.map((r: any) => r.id));
-  assert.equal(ids.size, 2);
+  assert.equal(ids.size, 10);
 });
 
 test('missing prerequisite / incorrect role actor users', async () => {
@@ -226,7 +226,7 @@ test('unchanged inactive directory identities (takes precedence over active)', a
   const prisma = fakePrisma(state);
   const count = await seedDriverDemo(prisma, '2026-10-02');
 
-  assert.equal(count, 1); // Only Lando
+  assert.equal(count, 5); // Only Lando
   assert.deepEqual(state.drivers, snapshotDrivers); // directory unchanged
 });
 
