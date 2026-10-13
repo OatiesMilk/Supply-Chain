@@ -45,7 +45,7 @@ is permitted only for a disposable loopback database.
 | Test ID | Test Case | Steps | Expected Result | Pass / Fail |
 |---------|-----------|-------|-----------------|-------------|
 | A-1.1 | Login with valid credentials | Enter SC email + password → click Sign In | Dashboard loads; sidebar shows SC-permitted screens only | |
-| A-1.2 | Blocked screens not visible | Inspect sidebar | **No** Driver View, Driver Manager, Delivery Calendar, Driver Board, Reports, SKU Master, Data Sampler, Admin Panel | |
+| A-1.2 | Blocked screens not visible | Inspect sidebar | **No** Drivers, Delivery Calendar, Reports, SKU Master, Data Sampler, Admin Panel | |
 | A-1.3 | Logout and re-login | Click logout → return to login → re-login | Session is cleared; fresh dashboard loads | |
 | A-1.4 | Wrong password blocked | Enter wrong password | Error message shown; no login | |
 
@@ -117,13 +117,13 @@ is permitted only for a disposable loopback database.
 ## Part B — Logistics
 
 **Login:** Log out of SC account. Log in with a Logistics account.  
-**Expected Sidebar Items:** Main, Dashboard, Deliveries, RMA, Accounting Collection, Procurement Pick-up, Sales Orders, Customers, Suppliers, Transaction Center, **plus** Driver View, Driver Manager, Delivery Calendar, Driver Board, Reports. (Logistics does not have AM Directory or SKU Master by default.)
+**Expected Sidebar Items:** Main, Dashboard, Deliveries, RMA, Accounting Collection, Procurement Pick-up, Sales Orders, Customers, Suppliers, Transaction Center, **plus** Drivers (with View, Board and Manager tabs), Delivery Calendar, Reports. (Logistics does not have AM Directory or SKU Master by default.)
 
 ### B-1 Login & Access Control
 
 | Test ID | Test Case | Steps | Expected Result | Pass / Fail |
 |---------|-----------|-------|-----------------|-------------|
-| B-1.1 | Login as Logistics | Enter Logistics email + password → Sign In | Dashboard loads with expanded sidebar (Driver View, Driver Manager, etc.) | |
+| B-1.1 | Login as Logistics | Enter Logistics email + password → Sign In | Dashboard loads with expanded sidebar (Drivers, Delivery Calendar, etc.) | |
 | B-1.2 | RMA module is labelled "RMA" | Look at sidebar label for the RMA item | Label reads **"RMA"** for every role (standardized in TSK-104) | |
 | B-1.3 | Admin Panel is NOT visible | Inspect sidebar | No Admin Panel link is shown for Logistics | |
 | B-1.4 | RMA records are read-only | Open the TASS/RMA module → try to edit a record | Blocked with error: "Logistics has view-only access to RMA records" | |
@@ -156,9 +156,9 @@ is permitted only for a disposable loopback database.
 
 | Test ID | Test Case | Steps | Expected Result | Pass / Fail |
 |---------|-----------|-------|-----------------|-------------|
-| B-3.1 | Driver Board loads | Navigate to Driver Board in sidebar | Board view shows drivers with their assigned records for today | |
+| B-3.1 | Driver Board loads | Open Drivers in the sidebar → Board tab | Board view shows drivers with their assigned records for today | |
 | B-3.2 | Calendar loads | Navigate to Delivery Calendar | Calendar view shows delivery records plotted on correct dates | |
-| B-3.3 | Driver Manager | Navigate to Driver Manager → click Add Driver | Can create a new driver profile | |
+| B-3.3 | Driver Manager | Open Drivers in the sidebar → Manager tab → click Add Driver | Can create a new driver profile | |
 
 ---
 
@@ -262,7 +262,7 @@ These cases cover behavior shipped after v1.0 (TSK numbers refer to the Notion t
 | D-1.1 | SKU Master is Admin-only by default (TSK-118) | Sign in as Sales Coordinator, then Logistics, then Admin; inspect sidebars | SKU Master appears only for Admin | |
 | D-1.2 | Module access takes effect without re-login (TSK-55) | As Admin, open Admin Panel → Users → Module access for the Sales Coordinator and deny Dashboard; keep the SC session open in another browser | Within about 30 seconds (or on window focus) the Dashboard link disappears; `/dashboard` falls back to an allowed screen; direct API calls are denied | |
 | D-1.3 | Stale module-access editor | Open the same user's Module access in two Admin sessions; save in one, then the other | The stale editor reports a conflict and does not overwrite | |
-| D-1.4 | Only Admin can add Drivers (TSK-119) | As Logistics, open Driver Manager and add a person of type Driver; then add an Assistant | The Driver is rejected ("Only Admin can add drivers. Logistics can add assistants."); the Assistant is created | |
+| D-1.4 | Only Admin can add Drivers (TSK-119) | As Logistics, open Drivers → Manager tab and add a person of type Driver; then add an Assistant | The Driver is rejected ("Only Admin can add drivers. Logistics can add assistants."); the Assistant is created | |
 | D-1.5 | Driver login linking | As Admin create a DRIVER account without a linked profile and sign in as it; then link a profile and assign a run | Unlinked Driver sees no runs; after linking the Driver sees only runs assigned to that profile | |
 | D-1.6 | Admin cannot lock themselves out | As Admin, change your own role or deactivate your own account | Rejected with a self-lockout message | |
 

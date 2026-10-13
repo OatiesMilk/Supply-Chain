@@ -6,9 +6,7 @@ import {
   InventoryPage,
   CustomersPage,
   SuppliersPage,
-  DriverPage,
-  DriverManagerPage,
-  DriverBoardPage,
+  DriversPage,
   CalendarPage,
   TransactionCenterPage,
   AdminPage,
@@ -174,22 +172,19 @@ export const AppRouter: React.FC<AppRouterProps> = ({
       );
 
     case 'driver':
+    case 'driver_board':
+    case 'driver_manager':
       return (
-        <DriverPage
+        <DriversPage
+          activeScreen={currentScreen}
+          canAccess={canAccess}
           records={deliveryRecords}
           onUpdateRecord={handleUpdateRecord}
           currentUserName={currentUserName}
+          currentUserRole={currentUserRole}
           outputActionConfigs={outputActionConfigs}
           onNavigate={handleNavigate}
-        />
-      );
-
-    case 'driver_manager':
-      return (
-        <DriverManagerPage
           drivers={managedDrivers}
-          currentUserRole={currentUserRole}
-          currentUserName={currentUserName}
           onCreateDriver={handleCreateDriver}
           onUpdateDriver={handleUpdateDriver}
           onDeleteDriver={handleDeleteDriver}
@@ -257,16 +252,6 @@ export const AppRouter: React.FC<AppRouterProps> = ({
         <CalendarPage
           records={deliveryRecords}
           onNavigate={handleNavigate}
-        />
-      );
-
-    case 'driver_board':
-      return (
-        <DriverBoardPage
-          records={deliveryRecords}
-          onNavigate={handleNavigate}
-          onUpdateRecord={handleUpdateRecord}
-          currentUserName={currentUserName}
         />
       );
 

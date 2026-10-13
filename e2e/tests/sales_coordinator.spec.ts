@@ -44,9 +44,7 @@ test.describe('A-1 Login & Access Control', () => {
   test('A-1.3 SC sidebar does NOT show restricted screens', async ({ page }) => {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
-    await expectSidebarMisses(page, 'Driver View');
-    await expectSidebarMisses(page, 'Driver Manager');
-    await expectSidebarMisses(page, 'Driver Board');
+    await expectSidebarMisses(page, 'Drivers');
     await expectSidebarMisses(page, 'Statistical Reports');
     await expectSidebarMisses(page, 'Admin');
   });
