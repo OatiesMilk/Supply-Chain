@@ -1,20 +1,19 @@
-import React from 'react';
-import {
-  DashboardPage,
-  DeliveriesPage,
-  AccountingCollectionPage,
-  InventoryPage,
-  CustomersPage,
-  SuppliersPage,
-  DriversPage,
-  CalendarPage,
-  TransactionCenterPage,
-  AdminPage,
-  DataSamplerPage,
-  StatisticalReportsPage,
-  AccountManagerDirectoryPage,
-  MainView,
-} from '@/pages';
+import React, { Suspense, lazy } from 'react';
+
+const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
+const DeliveriesPage = lazy(() => import('@/pages/DeliveriesPage'));
+const AccountingCollectionPage = lazy(() => import('@/pages/AccountingCollectionPage'));
+const InventoryPage = lazy(() => import('@/pages/InventoryPage'));
+const CustomersPage = lazy(() => import('@/pages/CustomersPage'));
+const SuppliersPage = lazy(() => import('@/pages/SuppliersPage'));
+const DriversPage = lazy(() => import('@/pages/DriversPage'));
+const CalendarPage = lazy(() => import('@/pages/CalendarPage'));
+const TransactionCenterPage = lazy(() => import('@/pages/TransactionCenterPage'));
+const AdminPage = lazy(() => import('@/pages/AdminPage'));
+const DataSamplerPage = lazy(() => import('@/pages/DataSamplerPage'));
+const StatisticalReportsPage = lazy(() => import('@/pages/StatisticalReportsPage'));
+const AccountManagerDirectoryPage = lazy(() => import('@/pages/AccountManagerDirectoryPage'));
+const MainView = lazy(() => import('@/pages/MainView'));
 import {
   DeliveryRecord,
   UserRole,
@@ -102,8 +101,9 @@ export const AppRouter: React.FC<AppRouterProps> = ({
     return <div role="status" className="text-center py-12 text-slate-500">This page is not available for your account.</div>;
   }
 
-  // Special case: Accounting Collection has custom verification workflow
-  if (currentScreen === 'accounting_collection') {
+  const renderContent = () => {
+    // Special case: Accounting Collection has custom verification workflow
+    if (currentScreen === 'accounting_collection') {
     return (
       <AccountingCollectionPage
         records={deliveryRecords}
@@ -274,7 +274,23 @@ export const AppRouter: React.FC<AppRouterProps> = ({
 
     default:
       return <div className="text-center py-12 text-slate-500 font-semibold">View Not Found</div>;
-  }
+    }
+  };
+
+  return (
+    <Suspense
+      fallback={
+        <div role="status" aria-live="polite" className="flex items-center justify-center py-24 text-slate-500">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-3 border-sky-600 border-t-transparent rounded-full animate-spin" />
+            <span className="text-sm font-medium text-slate-600">Loading view…</span>
+          </div>
+        </div>
+      }
+    >
+      {renderContent()}
+    </Suspense>
+  );
 };
 
 export default AppRouter;

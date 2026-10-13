@@ -1684,7 +1684,6 @@ export async function downloadDriverReport(
   }
 
   // Excel
-  const { getExcelPageSetup } = await import('./documentSize');
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
   wb.creator = generatedByName;

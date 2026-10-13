@@ -21,13 +21,45 @@ import {
 
 const EMPTY_DRIVERS: ApiDriver[] = [];
 
+export function isResourceQueryEnabled(
+  resource: string,
+  user: ApiUser | null,
+  currentScreen?: string
+): boolean {
+  if (!user?.resources.includes(resource)) return false;
+  if (!currentScreen) return true;
+  switch (resource) {
+    case 'records':
+    case 'companies':
+      return true;
+    case 'customers':
+      return currentScreen === 'customers';
+    case 'suppliers':
+      return currentScreen === 'suppliers';
+    case 'skus':
+      return currentScreen === 'inventory' || currentScreen === 'dashboard' || currentScreen === 'transactions';
+    case 'drivers':
+      return (
+        currentScreen.startsWith('driver') ||
+        currentScreen === 'deliveries' ||
+        currentScreen === 'dashboard' ||
+        currentScreen === 'data_sampler'
+      );
+    case 'dashboard':
+      return currentScreen === 'dashboard';
+    default:
+      return true;
+  }
+}
+
 export function useAppData(
   authUser: ApiUser | null,
   currentUser: { name: string; initials: string },
-  currentUserRole: UserRole
+  currentUserRole: UserRole,
+  currentScreen?: string
 ) {
   const queryClient = useQueryClient();
-  const allowed = (resource: string) => !!authUser?.resources.includes(resource);
+  const allowed = (resource: string) => isResourceQueryEnabled(resource, authUser, currentScreen);
 
   const {
     data: deliveryRecords = [],

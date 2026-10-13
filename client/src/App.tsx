@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties, lazy, Suspense } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { createQueryClient } from '@/api/queryClient';
@@ -11,7 +11,7 @@ import { syncAuthenticatedRoute } from '@/routes/screenRouting';
 import LoginView from '@/features/auth/LoginView';
 import ServerUnavailableView from '@/features/auth/ServerUnavailableView';
 import { useServerAvailability } from '@/hooks/useServerAvailability';
-import DriverDashboard from '@/features/dashboard/DriverDashboard';
+const DriverDashboard = lazy(() => import('@/features/dashboard/DriverDashboard'));
 import { DeliveryCategory } from '@/types';
 import { DashboardFilterId } from '@/utils/dashboardFilters';
 
@@ -110,6 +110,9 @@ function AuthenticatedApp() {
     initials: currentUserInitials,
   };
 
+  // Zustand UI Store state and actions
+  const currentScreen = useUIStore(s => s.currentScreen);
+
   // TanStack Query synchronized application data hook
   const {
     deliveryRecords,
@@ -129,7 +132,7 @@ function AuthenticatedApp() {
     handleUpdateDriver,
     handleDeleteDriver,
     handleResetDemoData,
-  } = useAppData(authUser, currentUser, currentUserRole);
+  } = useAppData(authUser, currentUser, currentUserRole, currentScreen);
 
   // TanStack Query mutation action workflows hook
   const {
@@ -147,8 +150,6 @@ function AuthenticatedApp() {
   // Role permissions & screen access hook
   const { effectiveScreens, canAccess } = usePermissions(authUser);
 
-  // Zustand UI Store state and actions
-  const currentScreen = useUIStore(s => s.currentScreen);
   const isSidebarOpen = useUIStore(s => s.isSidebarOpen);
   const setIsSidebarOpen = useUIStore(s => s.setIsSidebarOpen);
   const isSidebarCollapsed = useUIStore(s => s.isSidebarCollapsed);
@@ -226,13 +227,24 @@ function AuthenticatedApp() {
 
   if (authUser.role === 'DRIVER' && canAccess('driver_dashboard')) {
     return (
-      <DriverDashboard
-        records={deliveryRecords}
-        currentUserName={currentUser.name}
-        onUpdateRecord={handleUpdateRecord}
-        onLogout={logout}
-        dataLoading={dataLoading}
-      />
+      <Suspense
+        fallback={
+          <div className="min-h-screen bg-[#F8F9FB] flex items-center justify-center text-slate-500" role="status">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-8 h-8 border-3 border-sky-600 border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm font-medium text-slate-600">Loading driver dashboard…</span>
+            </div>
+          </div>
+        }
+      >
+        <DriverDashboard
+          records={deliveryRecords}
+          currentUserName={currentUser.name}
+          onUpdateRecord={handleUpdateRecord}
+          onLogout={logout}
+          dataLoading={dataLoading}
+        />
+      </Suspense>
     );
   }
 
