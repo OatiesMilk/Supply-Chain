@@ -94,14 +94,22 @@ test.describe('X Cross-Role Integration', () => {
       const createForm = salesPage.locator('form');
       await createForm.getByLabel(/^Delivery Date/).fill(deliveryDate);
       await expect(salesPage.getByLabel('Date From', { exact: true })).toHaveValue('');
+      const createResponsePromise = salesPage.waitForResponse(response =>
+        new URL(response.url()).pathname === '/api/records' && response.request().method() === 'POST');
       await salesPage.getByRole('button', { name: 'Save as Draft', exact: true }).click();
+      const createResponse = await createResponsePromise;
+      expect(createResponse.status(), 'saving the Draft must finish successfully').toBe(201);
+      const saved = await createResponse.json() as ApiRecord;
+      recordId = saved.id; // Retain the saved ID for cleanup even if a later assertion fails.
+      expect(saved.reference).toBe(reference);
+      expect(saved.delivery_date).toBe(deliveryDate);
 
       console.log('TSK-120: Created draft');
-      await expect(salesPage.getByText(/Record Created/i)).toBeVisible({ timeout: 10_000 });
+      await expect(salesPage.getByText(`${reference} · ${recordId}`, { exact: true })).toBeVisible({ timeout: 10_000 });
       const created = (await getRecords(salesCtx)).find(record => !existingIds.has(record.id) && record.reference === reference);
       expect(created, 'the uniquely referenced Draft should be returned by the SC records API').toBeTruthy();
       expect(created!.delivery_date, 'the Draft must retain its form delivery date').toBe(deliveryDate);
-      recordId = created!.id;
+      expect(created!.id, 'the SC list must contain the newly saved Draft').toBe(recordId);
       console.log('TSK-120: Found created id', recordId);
 
       console.log('TSK-120: Clicking salesRow');
