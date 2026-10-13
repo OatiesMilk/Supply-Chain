@@ -19,7 +19,7 @@ This document describes the REST API of the Microgenesis Supply Chain Portal. Al
 | POST | `/auth/logout` | Public | Clears the cookie |
 | GET | `/auth/me` | Auth | Current session user (same shape as login), `Cache-Control: no-store` |
 | POST | `/auth/microsoft` | Public | Starts Microsoft SSO (501 if not configured) |
-| GET | `/auth/microsoft/callback` | Public | SSO callback; matches `microsoftOid` then email; unknown users are created as `SALES_COORDINATOR` |
+| GET | `/auth/microsoft/callback` | Public | SSO callback: browser-bound state consumed atomically (5-min expiry), tenant verified; only Admin-prelinked active `microsoftOid` accounts may sign in; unknown identities denied |
 | GET | `/auth/microsoft/status` | Public | `{ configured: boolean }` |
 
 `POST /auth/login` request: `{ "email": "...", "password": "..." }`.
@@ -116,6 +116,7 @@ All `/users` routes use `Auth` + `Res:users` + ADM.
 | GET | `/users` | List accounts |
 | POST | `/users` | Create `{ name, email, password, role, driver_profile_id? }` (`409` on duplicate email) |
 | PUT | `/users/:id/driver-profile` | Link/unlink a Driver login `{ driver_profile_id: string \| null }` |
+| PUT | `/users/:id/microsoft-identity` | Admin | Pre-link or unlink Entra object GUID `{ microsoft_oid: uuid or null }` (audited, rejects duplicates) |
 | PATCH | `/users/:id` | Update details/role (an admin cannot remove their own admin role) |
 | PATCH | `/users/:id/deactivate`, `/activate` | Toggle (not for yourself) |
 | DELETE | `/users/:id` | Delete (not yourself) |
@@ -158,3 +159,8 @@ available to authorized Admin users.
 Both `POST /api/auth/login` and `GET /api/auth/me` return `id`, `name`, `email`, `role`, account `permissions`, resolved `effectiveScreens`, allowed `resources` and `permissionVersion`. Protected UI must wait for this complete snapshot.
 
 `GET /api/users/:id/permissions` additionally returns `catalog`, `roleDefaults` and `editableScreens`. `PUT /api/users/:id/permissions` takes `{ permissions: [{ screen, granted }], expectedVersion }` and returns the updated editor snapshot. Invalid input returns 400, a stale version returns 409, and unauthorized module access returns 403. An empty permission array resets overrides. See [Module access](MODULE_ACCESS.md) for authorization semantics and verification.
+
+
+## 9. Microsoft SSO pre-approval (AUD-002)
+
+Only a configured corporate tenant GUID is accepted. Unknown/unapproved users cannot sign in. Existing `microsoftOid` values inherited from historical auto-provisioning are explicitly unapproved (the new `microsoftApprovedAt` column starts NULL). An authorized Admin must link/reapprove the specific tenant's user object ID using `PUT /api/users/:id/microsoft-identity` with `{ "microsoft_oid": "<the Entra user object GUID>" }`; send `null` to revoke. The operation is audited and rejects duplicate OIDs; password login is unchanged. Check the UPN/email and the Entra tenant before approval. No user is auto-created from a Microsoft callback. OAuth state is stored only as a digest, expires after five minutes and is consumed with an atomic delete before token redemption.
