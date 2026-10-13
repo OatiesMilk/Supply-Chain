@@ -159,3 +159,8 @@ available to authorized Admin users.
 Both `POST /api/auth/login` and `GET /api/auth/me` return `id`, `name`, `email`, `role`, account `permissions`, resolved `effectiveScreens`, allowed `resources` and `permissionVersion`. Protected UI must wait for this complete snapshot.
 
 `GET /api/users/:id/permissions` additionally returns `catalog`, `roleDefaults` and `editableScreens`. `PUT /api/users/:id/permissions` takes `{ permissions: [{ screen, granted }], expectedVersion }` and returns the updated editor snapshot. Invalid input returns 400, a stale version returns 409, and unauthorized module access returns 403. An empty permission array resets overrides. See [Module access](MODULE_ACCESS.md) for authorization semantics and verification.
+
+
+## 9. Microsoft SSO pre-approval (AUD-002)
+
+Only a configured corporate tenant GUID is accepted. Unknown/unapproved users cannot sign in. Existing `microsoftOid` values inherited from historical auto-provisioning are explicitly unapproved (the new `microsoftApprovedAt` column starts NULL). An authorized Admin must link/reapprove the specific tenant's user object ID using `PUT /api/users/:id/microsoft-identity` with `{ "microsoft_oid": "<the Entra user object GUID>" }`; send `null` to revoke. The operation is audited and rejects duplicate OIDs; password login is unchanged. Check the UPN/email and the Entra tenant before approval. No user is auto-created from a Microsoft callback. OAuth state is stored only as a digest, expires after five minutes and is consumed with an atomic delete before token redemption.

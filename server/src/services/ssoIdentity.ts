@@ -10,7 +10,7 @@ export async function approvedMicrosoftUser(db: Pick<PrismaClient, 'user'>, clai
     return { error: 'sso_invalid_identity' } as const;
   }
   const user = await db.user.findUnique({ where: { microsoftOid: oid } });
-  if (!user) return { error: 'sso_not_approved' } as const;
+  if (!user || !user.microsoftApprovedAt) return { error: 'sso_not_approved' } as const;
   if (!user.isActive) return { error: 'account_deactivated' } as const;
   // If supplied by Entra, mismatched email/UPN needs Admin review. OID remains
   // the sole principal identifier; email alone never auto-links an account.

@@ -4,7 +4,7 @@ import { approvedMicrosoftUser } from '../src/services/ssoIdentity';
 
 const TENANT = '7411f7e0-fb01-415c-8136-f9c30b06393f';
 const OID = 'ce7af71e-cdd0-4be6-93a9-ec280e1c10df';
-const user = { id: 'existing-1', role: 'LOGISTICS', email: 'assigned@example.com', isActive: true, microsoftOid: OID };
+const user = { id: 'existing-1', role: 'LOGISTICS', email: 'assigned@example.com', isActive: true, microsoftOid: OID, microsoftApprovedAt: new Date('2026-10-13T03:00:00Z') };
 const claims = { tid: TENANT, oid: OID, preferred_username: user.email };
 
 test('only an active, Admin-prelinked Microsoft OID in the required tenant is accepted', async () => {
@@ -16,6 +16,8 @@ test('only an active, Admin-prelinked Microsoft OID in the required tenant is ac
 
   linked = null;
   assert.deepEqual(await approvedMicrosoftUser(db, claims, TENANT), { error: 'sso_not_approved' });
+  linked = { ...user, microsoftApprovedAt: null };
+  assert.deepEqual(await approvedMicrosoftUser(db, claims, TENANT), { error: 'sso_not_approved' }, 'legacy auto-linked accounts need Admin approval');
   linked = { ...user, isActive: false };
   assert.deepEqual(await approvedMicrosoftUser(db, claims, TENANT), { error: 'account_deactivated' });
 

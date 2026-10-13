@@ -100,14 +100,14 @@ router.put('/:id/microsoft-identity', requireAuth, requireResource('users'), req
       if (!user) return null;
       const result = await tx.user.update({
         where: { id: user.id },
-        data: { microsoftOid: oid?.toLowerCase() ?? null }
+        data: { microsoftOid: oid?.toLowerCase() ?? null, microsoftApprovedAt: oid ? new Date() : null }
       });
       await tx.auditLog.create({
         data: {
           recordId: user.id, recordType: 'User', action: 'UPDATE',
           changedById: req.user!.id,
-          previousValue: JSON.stringify({ microsoft_linked: !!user.microsoftOid, microsoft_oid: user.microsoftOid }),
-          newValue: JSON.stringify({ microsoft_linked: !!result.microsoftOid, microsoft_oid: result.microsoftOid })
+          previousValue: JSON.stringify({ microsoft_linked: !!user.microsoftOid, microsoft_oid: user.microsoftOid, approved_at: user.microsoftApprovedAt }),
+          newValue: JSON.stringify({ microsoft_linked: !!result.microsoftOid, microsoft_oid: result.microsoftOid, approved_at: result.microsoftApprovedAt })
         }
       });
       return result;

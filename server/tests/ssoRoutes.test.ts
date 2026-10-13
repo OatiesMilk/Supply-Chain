@@ -12,7 +12,7 @@ const GUID = 'ce7af71e-cdd0-4be6-93a9-ec280e1c10df';
 const TENANT = '7411f7e0-fb01-415c-8136-f9c30b06393f';
 const admin = { id: 'admin-1', name: 'Admin', email: 'admin@example.com', role: 'ADMIN' as const, isActive: true, permissions: [], driverProfile: null };
 const sales = { ...admin, id: 'sales-1', role: 'SALES_COORDINATOR' as const };
-const target = { ...sales, id: 'target-1', email: 'approved@example.com', microsoftOid: null as string | null };
+const target = { ...sales, id: 'target-1', email: 'approved@example.com', microsoftOid: null as string | null, microsoftApprovedAt: null as Date | null };
 afterEach(() => mock.restoreAll());
 
 async function appServer() {
@@ -76,7 +76,7 @@ test('Microsoft account prelink is Admin-only, audited, rejects bad IDs and dupl
       update: async ({ data }: any) => {
         updates++;
         if (data.microsoftOid === '00000000-0000-0000-0000-000000000000') throw { code: 'P2002' };
-        actedOn = { ...actedOn, microsoftOid: data.microsoftOid };
+        actedOn = { ...actedOn, microsoftOid: data.microsoftOid, microsoftApprovedAt: data.microsoftApprovedAt };
         return actedOn;
       },
     },
@@ -96,12 +96,14 @@ test('Microsoft account prelink is Admin-only, audited, rejects bad IDs and dupl
     assert.equal(linked.status, 200);
     assert.deepEqual(await linked.json(), { user_id: target.id, microsoft_linked: true });
     assert.equal(actedOn.microsoftOid, GUID);
+    assert.ok(actedOn.microsoftApprovedAt instanceof Date);
     assert.equal(entries.length, 1);
     assert.equal(entries[0].changedById, admin.id);
     assert.equal((await req(admin, '00000000-0000-0000-0000-000000000000')).status, 409);
     const removed = await req(admin, null);
     assert.equal(removed.status, 200);
     assert.equal(actedOn.microsoftOid, null);
+    assert.equal(actedOn.microsoftApprovedAt, null);
   } finally {
     prisma.user.findUnique = originalUserLookup;
     prisma.$transaction = originalTransaction;

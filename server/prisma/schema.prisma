@@ -29,6 +29,7 @@ model User {
   role         String // SALES_COORDINATOR | LOGISTICS | TASS | ADMIN
   isActive     Boolean  @default(true)
   microsoftOid String?  @unique
+  microsoftApprovedAt DateTime? // Admin approval; legacy auto-created links are denied
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
