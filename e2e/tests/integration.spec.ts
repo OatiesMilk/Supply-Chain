@@ -101,7 +101,7 @@ test.describe('X Cross-Role Integration', () => {
       await expect(salesPage.getByRole('tab', { name: /dispatch & logistics/i })).not.toBeVisible();
       console.log('TSK-120: Testing assignment denial');
       const salesAssignmentAttempt = await salesCtx.request.put(`${BASE_URL}/api/records/${recordId}`, {
-        data: { driver: 'Leo Driver', remarks: 'Sales Coordinator assignment denial check.' },
+        data: { driver: 'John Doe', remarks: 'Sales Coordinator assignment denial check.' },
       });
       expect(salesAssignmentAttempt.ok()).toBeTruthy();
       expect((await salesAssignmentAttempt.json() as ApiRecord).driver).toBe('');
@@ -120,7 +120,7 @@ test.describe('X Cross-Role Integration', () => {
       await expect(draftDriverSelect).toBeDisabled();
 
       const draftAssignmentAttempt = await logisticsCtx.request.put(`${BASE_URL}/api/records/${recordId}`, {
-        data: { driver: 'Leo Driver', remarks: 'Draft assignment denial check.' },
+        data: { driver: 'John Doe', remarks: 'Draft assignment denial check.' },
       });
       expect(draftAssignmentAttempt.status()).toBe(400);
       
@@ -151,20 +151,20 @@ test.describe('X Cross-Role Integration', () => {
       const assignmentPanel = logisticsPage.getByRole('tabpanel');
       const driverSelect = assignmentPanel.locator('select').first();
       await expect(driverSelect).toBeEnabled();
-      await driverSelect.selectOption({ label: 'Leo Driver' });
-      await assignmentPanel.getByPlaceholder(/reason for the changes above/i).fill('Assigning the submitted Delivery to Leo Driver.');
+      await driverSelect.selectOption({ label: 'John Doe' });
+      await assignmentPanel.getByPlaceholder(/reason for the changes above/i).fill('Assigning the submitted Delivery to John Doe.');
       await assignmentPanel.getByRole('button', { name: /save changes/i }).click();
       await expect(logisticsPage.getByText(/changes saved/i)).toBeVisible({ timeout: 10_000 });
 
       const assigned = (await getRecords(logisticsCtx)).find(record => record.id === recordId);
       expect(assigned?.status).toBe('Scheduled');
       expect(assigned?.is_draft).toBe('No');
-      expect(assigned?.driver).toBe('Leo Driver');
+      expect(assigned?.driver).toBe('John Doe');
       const creatorNotice = (await getNotifications(salesCtx)).find(notification => notification.record_id === recordId && /driver assigned/i.test(notification.title));
       expect(creatorNotice).toBeTruthy();
 
       const driverRuns = await getRecords(driverCtx);
-      expect(driverRuns.some(record => record.id === recordId && record.driver === 'Leo Driver')).toBe(true);
+      expect(driverRuns.some(record => record.id === recordId && record.driver === 'John Doe')).toBe(true);
       await driverPage.goto(BASE_URL);
       await expect(driverPage.getByText(reference)).toBeVisible({ timeout: 10_000 });
     } finally {
@@ -225,15 +225,15 @@ test.describe('X Cross-Role Integration', () => {
       const driverSelect = logisticsPage.locator('select').first();
       try { await driverSelect.waitFor({ state: 'visible', timeout: 5000 }); } catch (e) {}
       if (await driverSelect.isVisible()) {
-        // Select "Leo Driver" (the seeded driver)
+        // Select "John Doe" (the seeded driver)
         const opts = await driverSelect.locator('option').allTextContents();
-        const leoOpt = opts.find(o => /leo driver/i.test(o));
-        if (leoOpt) {
-          await driverSelect.selectOption({ label: leoOpt });
+        const johnDoeOption = opts.find(o => /^john doe$/i.test(o.trim()));
+        if (johnDoeOption) {
+          await driverSelect.selectOption({ label: johnDoeOption });
         }
 
         const remarksArea = logisticsPage.locator('textarea').last();
-        await remarksArea.fill('UAT integration test - assigned to Leo Driver');
+        await remarksArea.fill('UAT integration test - assigned to John Doe');
         await logisticsPage.getByRole('button', { name: /save changes/i }).click();
         await expect(logisticsPage.getByText(/changes saved/i)).toBeVisible({ timeout: 10_000 });
         

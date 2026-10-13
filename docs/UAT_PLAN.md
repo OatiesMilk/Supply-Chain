@@ -7,9 +7,13 @@
 > [!IMPORTANT]
 > Before starting, ensure both servers are running: `npm run dev` from the project root.
 > The test assumes your database is seeded with at least one user per role (Sales Coordinator, Logistics, Driver).
-> The Markdown cases below are canonical. Two corresponding Playwright cases
-> (`B-1.2` and `B-5.2`) still encode the pre-TSK-104/pre-TSK-103 behavior and
-> must be updated before treating an automated browser run as authoritative.
+> The Markdown cases below are canonical. PR #140 (AUD-009) aligned the
+> Playwright B-1.2 and B-5.2 cases with current behavior and made complete
+> client/server test suites plus isolated role E2E jobs required CI checks.
+> The AUD-009 follow-up seeds a real completed delivery and PNG POD in the
+> **guarded, disposable local CI database only** to make A-3.9 (priority lock),
+> B-2.5b (bulk priority lock), and C-3.2 (POD lightbox) non-skippable.
+> Never run `seed:uat` against staging, production, or shared databases.
 
 ---
 

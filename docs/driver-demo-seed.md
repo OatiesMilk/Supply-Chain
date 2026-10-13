@@ -16,6 +16,7 @@ npm run seed:driver-demo
 - **Directory Resolution**: Resolves the `DRIVER` user account's linked `Driver` profile (stable `Driver.userId` link since TSK-100) and creates and links the profile if it is missing. Runs are assigned by `driverId`, so renaming the login does not move them.
 - **Skipping Inactive Entries**: Will intentionally skip active user accounts whose corresponding `Driver` directory entry is set to `isActive: false`. It will never reactivate an inactive identity or create duplicates.
 - **Run Creation**: Creates one delivery record scheduled for today (UTC) for each active seeded driver (e.g., Lando Navarro, Manny Santos, Ronald de la Cruz) plus the resolved driver account name.
+- **Current seed name**: The Driver login `driver@microgenesis.com` is named **John Doe**. The demo seeder derives and links its Driver profile from that name. The historical validation notes below mention the earlier name, “Leo Driver”.
 - **Idempotency**: Execution is safe to repeat. Runs are generated with deterministic IDs, so it won't duplicate them, and it won't overwrite runs you have already modified or completed during your testing.
 
 Fresh database initialization also calls this helper after the ordinary seed completes. Existing databases retain the normal seed's early return; use the command above to add today's demo runs.
