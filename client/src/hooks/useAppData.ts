@@ -21,6 +21,8 @@ import {
   useResetDemoDataMutation,
 } from '@/api/queries';
 
+import { getPageDataState, pageResources, type PageQueryState } from './pageDataState';
+
 const EMPTY_DRIVERS: ApiDriver[] = [];
 
 export function isResourceQueryEnabled(
@@ -78,25 +80,36 @@ export function useAppData(
       (searchOpen && authUser?.resources.includes(resource) === true &&
         (resource === 'records' || (resource === 'skus' && authUser.effectiveScreens.includes('inventory')))));
 
-  const {
-    data: deliveryRecords = [],
-    isLoading: recordsLoading,
-    error: recordsError,
-  } = useRecordsQuery(allowed('records'));
-
+  const recordsQuery = useRecordsQuery(allowed('records'));
+  const { data: deliveryRecords = [] } = recordsQuery;
   const { data: activeRecordCounts = null } = useRecordActiveCountsQuery(Boolean(authUser?.resources.includes('records')));
-  const { data: companies = [] } = useCompaniesQuery(allowed('companies'));
-  const { data: customers = [] } = useCustomersQuery(allowed('customers'));
-  const { data: suppliers = [] } = useSuppliersQuery(allowed('suppliers'));
-  const { data: products = [] } = useSkusQuery(allowed('skus'));
-  const { data: managedDrivers = EMPTY_DRIVERS, isError: driversError } = useDriversQuery(allowed('drivers'));
+  const companiesQuery = useCompaniesQuery(allowed('companies'));
+  const customersQuery = useCustomersQuery(allowed('customers'));
+  const suppliersQuery = useSuppliersQuery(allowed('suppliers'));
+  const skusQuery = useSkusQuery(allowed('skus'));
+  const driversQuery = useDriversQuery(allowed('drivers'));
+  const { data: companies = [] } = companiesQuery;
+  const { data: customers = [] } = customersQuery;
+  const { data: suppliers = [] } = suppliersQuery;
+  const { data: products = [] } = skusQuery;
+  const { data: managedDrivers = EMPTY_DRIVERS, isError: driversError } = driversQuery;
   // Legacy assignment dropdowns read the shared proxies; notify them after updates.
   useSyncExternalStore(subscribeManagedDrivers, getManagedDriverVersion, getManagedDriverVersion);
   useEffect(() => {
     setManagedDriverList(driversError ? [] : managedDrivers);
     return () => setManagedDriverList([]);
   }, [managedDrivers, driversError]);
-  const { data: dashboardStats = null } = useDashboardStatsQuery(allowed('dashboard'));
+  const dashboardQuery = useDashboardStatsQuery(allowed('dashboard'));
+  const { data: dashboardStats = null } = dashboardQuery;
+  const resourceQueries: Record<string, PageQueryState> = {
+    records: recordsQuery, companies: companiesQuery, customers: customersQuery,
+    suppliers: suppliersQuery, skus: skusQuery, drivers: driversQuery, dashboard: dashboardQuery,
+  };
+  const activeQueries = pageResources(currentScreen)
+    .filter(resource => routeAllowed && isResourceQueryEnabled(resource, authUser, currentScreen))
+    .map(resource => resourceQueries[resource]);
+  const pageState = getPageDataState(activeQueries);
+  const retryPageData = async () => { await Promise.all(activeQueries.map(query => query.refetch())); };
 
   const createCustomerMutation = useCreateCustomerMutation(currentUser);
   const createSupplierMutation = useCreateSupplierMutation(currentUser);
@@ -167,8 +180,9 @@ export function useAppData(
     dashboardStats,
     products,
     managedDrivers,
-    dataLoading: recordsLoading,
-    dataError: recordsError?.message ?? null,
+    dataLoading: pageState.loading,
+    dataError: pageState.error,
+    retryPageData,
     resetting: resetDemoDataMutation.isPending,
     refreshData,
     handleCreateCustomer,
