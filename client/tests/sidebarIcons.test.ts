@@ -34,8 +34,7 @@ test('Sidebar renders distinct Layers icon for Main and LayoutDashboard for Dash
 
   // TSK-117 keeps familiar, distinct symbols in the collapsed icon rail.
   assert.match(html, /aria-label="Deliveries"[\s\S]{0,800}lucide-truck/);
-  assert.match(html, /aria-label="Driver View"[\s\S]{0,800}lucide-route/);
-  assert.match(html, /aria-label="Driver Manager"[\s\S]{0,800}lucide-contact-round/);
+  assert.match(html, /aria-label="Drivers"[\s\S]{0,800}lucide-contact-round/);
   assert.match(html, /aria-label="Customers"[\s\S]{0,800}lucide-users/);
   assert.match(html, /aria-label="Admin Panel"[\s\S]{0,800}lucide-shield-check/);
 });
@@ -62,9 +61,40 @@ test('Sidebar keeps every module behind its existing canAccess check', () => {
   assert.match(html, />Deliveries</);
   for (const label of [
     'Main', 'Dashboard', 'RMA', 'Accounting Collection', 'Procurement Pick-up', 'Sales Orders',
-    'Customers', 'Suppliers', 'Driver View', 'Driver Manager', 'Admin Panel', 'Delivery Calendar',
-    'Driver Board', 'Reports', 'AM Directory', 'Transaction Center', 'SKU Master', 'Data Sampler',
+    'Customers', 'Suppliers', 'Drivers', 'Admin Panel', 'Delivery Calendar',
+    'Reports', 'AM Directory', 'Transaction Center', 'SKU Master', 'Data Sampler',
   ]) {
     assert.ok(!html.includes(`>${label}<`), `${label} remains hidden without access`);
   }
+});
+
+test('Sidebar groups the driver screens under one Drivers item', () => {
+  const render = (currentScreen: string, canAccess: (screen: string) => boolean) => renderToString(React.createElement(Sidebar, {
+    currentScreen,
+    handleNavigate: () => {},
+    isSidebarCollapsed: false,
+    setIsSidebarCollapsed: () => {},
+    isSidebarOpen: true,
+    setIsSidebarOpen: () => {},
+    canAccess,
+    currentUserRole: 'Logistics' as any,
+    currentUser: { name: 'Test User', initials: 'TU' },
+    deliveriesActiveCount: 0,
+    rmaActiveCount: 0,
+    salesOrdersActiveCount: 0,
+    accountingActiveCount: 0,
+    procurementActiveCount: 0,
+  }));
+  const driversButton = (html: string) => html.match(/<button[^>]*aria-label="Drivers"[^>]*>/)?.[0] ?? '';
+
+  // A single grant is enough to show the item, and no old labels remain.
+  const boardOnly = render('dashboard', screen => screen === 'driver_board');
+  assert.ok(driversButton(boardOnly), 'Drivers shows with only Driver Board granted');
+  for (const label of ['Driver View', 'Driver Manager', 'Driver Board']) {
+    assert.ok(!boardOnly.includes(`>${label}<`), `${label} is no longer a separate item`);
+  }
+  assert.doesNotMatch(driversButton(boardOnly), /font-semibold/);
+
+  // The item stays highlighted on any driver screen, not only its landing tab.
+  assert.match(driversButton(render('driver_manager', () => true)), /font-semibold/);
 });

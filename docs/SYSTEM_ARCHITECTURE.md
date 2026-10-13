@@ -85,7 +85,7 @@ client/src
 - **Navigation:** URL path is the screen key (`/deliveries`, `/driver_board`, …). `AppRouter.tsx` renders the page for the active screen; `syncAuthenticatedRoute` falls back to an allowed screen. Accounts with no modules reach `/no-access`.
 - **Permissions:** the client never invents role defaults. It uses the `effectiveScreens` snapshot returned by `POST /api/auth/login` and `GET /api/auth/me`, and `canAccess(screen)` to gate the sidebar, routes and queries. The snapshot is refreshed every 30 s, on focus/reconnect, and after a 401/403. A changed `permissionVersion` rebuilds the query cache.
 - **Drivers:** the `DRIVER` role gets a standalone mobile dashboard (`driver_dashboard`) with no sidebar.
-- **Screens (sidebar):** Main, Dashboard, Deliveries, RMA, Accounting Collection, Procurement Pick-up, Sales Orders, Customers, Suppliers, Driver View, Driver Manager, Admin Panel, Delivery Calendar, Driver Board, Reports (`statistical_reports`), AM Directory, Transaction Center, SKU Master (`inventory`), Data Sampler (Admin only).
+- **Screens (sidebar):** Main, Dashboard, Deliveries, RMA, Accounting Collection, Procurement Pick-up, Sales Orders, Customers, Suppliers, Drivers (tabs: View `driver`, Board `driver_board`, Manager `driver_manager`), Admin Panel, Delivery Calendar, Reports (`statistical_reports`), AM Directory, Transaction Center, SKU Master (`inventory`), Data Sampler (Admin only).
 - **Retired screens:** Status History was removed (TSK-103; the Audit Trail remains). The Warehouses view files remain in `features/inventory` but are not routed.
 
 ## 5. Backend (`server/src`)
