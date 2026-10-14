@@ -194,6 +194,8 @@ The token is returned in the `X-CSRF-Token` **response header** of a successful 
 
 Counters are in process memory (single API instance) and reset on restart. The client address is the socket peer unless the request carries the Worker's `PROXY_SHARED_SECRET` headers or `TRUST_PROXY` is set; `X-Forwarded-For` is otherwise ignored.
 
+**Proxy-only access (optional).** When the API runs with `REQUIRE_PROXY_SECRET=true`, every `/api` request except `GET /health` must carry the Worker's `x-mg-proxy-secret` header. Without it the API answers `403 { "error": "Direct API access is not allowed" }` before any CSRF check, rate limit or route. Off by default.
+
 **Response headers.** Helmet defaults plus a Content-Security-Policy that allows only same-origin scripts and connections and limits framing (`frame-ancestors`) to the portal itself and Microsoft Teams hosts. `X-Frame-Options` is intentionally not sent because it cannot allow Teams. `worker.js` sends the same policy with the frontend HTML.
 
 ## 11. Attachment rules (SEC-07 / SEC-08)

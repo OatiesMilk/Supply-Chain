@@ -1,7 +1,7 @@
-import type { Express } from 'express';
+import type { Express, NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
-import { verifyCsrfToken, verifyRequestOrigin } from './csrf';
-import { createRateLimiters, RATE_LIMITS, trustedProxyHops, type RateLimitSettings } from './rateLimits';
+import { safeEqual, verifyCsrfToken, verifyRequestOrigin } from './csrf';
+import { createRateLimiters, PROXY_SECRET_HEADER, proxySecretRequired, RATE_LIMITS, trustedProxyHops, type RateLimitSettings } from './rateLimits';
 
 // Hosts allowed to embed the portal: itself and the Microsoft Teams clients
 // (personal tab, teams/manifest.json). X-Frame-Options cannot express an
@@ -42,6 +42,19 @@ export const securityHeaders = helmet({
   crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
 });
 
+// Issue #167: the API's own address is public, so a caller can skip the Worker.
+// With REQUIRE_PROXY_SECRET on, only requests carrying the secret the Worker
+// adds are served. GET /health stays open: the host's health check and the
+// self-ping call it directly. Mount under /api.
+export function requireProxySecret(env: NodeJS.ProcessEnv = process.env) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (req.method === 'GET' && req.path === '/health') return next();
+    const secret = env.PROXY_SHARED_SECRET;
+    if (secret && safeEqual(req.get(PROXY_SECRET_HEADER) ?? '', secret)) return next();
+    res.status(403).json({ error: 'Direct API access is not allowed' });
+  };
+}
+
 // AUD-003: response headers, CSRF checks and rate limits for the whole API.
 // Call once, after the body and cookie parsers and before any route, so a
 // rejected request never reaches a handler.
@@ -57,6 +70,9 @@ export function applySecurity(app: Express, settings: RateLimitSettings = RATE_L
   const limits = createRateLimiters(settings);
 
   app.use(securityHeaders);
+  // Ahead of everything else: a request that bypassed the Worker is refused
+  // before it can reach a CSRF check, a rate limiter or a route.
+  if (proxySecretRequired()) app.use('/api', requireProxySecret());
   // CSRF checks come first so forged requests cannot spend the victim's limits.
   app.use('/api', verifyRequestOrigin(), verifyCsrfToken);
   app.use('/api', limits.api);

@@ -30,6 +30,7 @@ const CLOUD_ENV: NodeJS.ProcessEnv = {
   JWT_SECRET: SECRETS.jwtSecret,
   CLIENT_ORIGIN: 'https://portal.example.com',
   PROXY_SHARED_SECRET: SECRETS.proxySecret,
+  REQUIRE_PROXY_SECRET: 'true',
   POD_STORAGE_PROVIDER: 'supabase',
   SUPABASE_URL: 'https://projectref.supabase.co',
   SUPABASE_SERVICE_ROLE_KEY: SECRETS.serviceKey,
@@ -90,7 +91,7 @@ test('a correctly proxied cloud deployment reports identities, no secrets and no
   assert.deepEqual(status.origins, { cors: 'https://portal.example.com', trusted_for_writes: ['https://portal.example.com'] });
   assert.deepEqual(status.session_cookie, { http_only: true, secure: true, same_site: 'none' });
   assert.deepEqual(status.proxy, {
-    shared_secret_configured: true, request_carried_valid_secret: true, trusted_proxy_hops: 0,
+    shared_secret_configured: true, secret_required: true, request_carried_valid_secret: true, trusted_proxy_hops: 0,
     client_address: '203.0.113.9', client_address_source: 'worker-proxy',
   });
   assert.equal(status.settings_present.SUPABASE_SERVICE_ROLE_KEY, true);
@@ -111,6 +112,13 @@ test('risky deployments are called out', async () => {
   assert.equal(direct.proxy.client_address_source, 'socket');
   assert.match(direct.warnings.join('\n'), /did not carry the Worker proxy secret/);
   assert.match(direct.warnings.join('\n'), /bucket is public/);
+
+  // A secret that is configured but not enforced leaves the API's own address open.
+  stubBucket({ public: false });
+  const unenforced = await deploymentStatus(request(), { ...CLOUD_ENV, REQUIRE_PROXY_SECRET: undefined });
+  assert.equal(unenforced.proxy.secret_required, false);
+  assert.match(unenforced.warnings.join('\n'), /REQUIRE_PROXY_SECRET is off/);
+  assert.doesNotMatch(direct.warnings.join('\n'), /REQUIRE_PROXY_SECRET is off/);
 
   stubBucket({ message: 'denied' }, 403);
   const unreachable = await deploymentStatus(request(), CLOUD_ENV);
@@ -190,5 +198,10 @@ test('the Worker refuses to proxy without a configured API target and never forw
     await worker.fetch(browserRequest(), { API_BASE_URL: 'https://api.example.com', PROXY_SHARED_SECRET: 'real' });
     assert.equal(forwarded[1].headers.get('x-mg-proxy-secret'), 'real');
     assert.equal(forwarded[1].headers.get('x-mg-client-ip'), '203.0.113.9');
+
+    // The secret is sent even when Cloudflare supplied no visitor address.
+    await worker.fetch(new Request('https://portal.example.com/api/records', { headers: { 'x-mg-client-ip': '198.51.100.1' } }), { API_BASE_URL: 'https://api.example.com', PROXY_SHARED_SECRET: 'real' });
+    assert.equal(forwarded[2].headers.get('x-mg-proxy-secret'), 'real');
+    assert.equal(forwarded[2].headers.get('x-mg-client-ip'), null);
   }
 });
