@@ -60,10 +60,12 @@ test('workspace header, Overview and its editing state show Manila timestamps wi
     IS_REACT_ACT_ENVIRONMENT: { value: true, configurable: true },
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const { createRoot } = await import('react-dom/client');
-  const root = createRoot(dom.window.document.getElementById('root')!);
+  let root: import('react-dom/client').Root | undefined;
   try {
-    await act(async () => { root.render(workspace(client)); });
+    const { createRoot } = await import('react-dom/client');
+    root = createRoot(dom.window.document.getElementById('root')!);
+    const workspaceRoot = root;
+    await act(async () => { workspaceRoot.render(workspace(client)); });
     const html = dom.window.document.body.innerHTML;
     assert.match(html, />Time in:<\/dt><dd[^>]*>09:48 AM<\/dd>/);
     assert.match(html, />Time out:<\/dt><dd[^>]*>02:30 AM<\/dd>/);
@@ -77,13 +79,13 @@ test('workspace header, Overview and its editing state show Manila timestamps wi
     assert.match(text, /Time In\s*\(Logistics only\)Oct 14, 2026, 09:48 AM/);
     assert.match(text, /Time Out\s*\(Logistics only\)Oct 15, 2026, 02:30 AM/);
     assert.doesNotMatch(text, /2026-10-14T01:48|2026-10-14T18:30/);
-    await act(async () => { root.render(workspace(client, { ...record, id: 'empty-timestamps', time_in: null, time_out: 'invalid' })); });
+    await act(async () => { workspaceRoot.render(workspace(client, { ...record, id: 'empty-timestamps', time_in: null, time_out: 'invalid' })); });
     const empty = dom.window.document.body.innerHTML;
     assert.match(empty, />Time in:<\/dt><dd[^>]*>—<\/dd>/);
     assert.match(empty, />Time out:<\/dt><dd[^>]*>—<\/dd>/);
     assert.doesNotMatch(empty, /Invalid Date/);
   } finally {
-    await act(async () => { root.unmount(); });
+    await act(async () => { root?.unmount(); });
     client.clear(); dom.window.close();
     for (const key of ['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT']) {
       if (saved[key]) Object.defineProperty(globalThis, key, saved[key]);
