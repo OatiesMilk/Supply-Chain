@@ -39,6 +39,8 @@ export interface UIActions {
 
 export type UIStore = UIState & UIActions;
 
+type PersistedUIState = Pick<UIState, 'isSidebarCollapsed' | 'zoomFactor' | 'outputActionConfigs'>;
+
 export const useUIStore = create<UIStore>()(
   persist(
     subscribeWithSelector((set, get) => ({
@@ -128,11 +130,27 @@ export const useUIStore = create<UIStore>()(
     })),
     {
       name: 'ui_store',
-      partialize: state => ({
+      version: 1,
+      partialize: (state): PersistedUIState => ({
         isSidebarCollapsed: state.isSidebarCollapsed,
         zoomFactor: state.zoomFactor,
         outputActionConfigs: state.outputActionConfigs,
       }),
+      // v1: "Record Created" became opt-out (notify every role by default), so
+      // a config saved under the old opt-in default is reset to the new one.
+      migrate: (persisted, version) => {
+        const state = persisted as PersistedUIState;
+        if (version < 1 && state?.outputActionConfigs) {
+          return {
+            ...state,
+            outputActionConfigs: {
+              ...state.outputActionConfigs,
+              'Record Created': DEFAULT_OUTPUT_ACTIONS['Record Created'],
+            },
+          };
+        }
+        return state;
+      },
     }
   )
 );
