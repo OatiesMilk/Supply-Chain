@@ -9,7 +9,9 @@ on Render. Cloudflare Workers Builds tracks the `staging` branch and uses
 ## How API requests reach the API
 
 The client calls relative `/api/...` URLs. `worker.js` forwards every `/api/*`
-request to `env.API_BASE_URL`, falling back to the currently coded Render URL.
+request to `env.API_BASE_URL`. There is no built-in fallback host: if the
+variable is unset the Worker answers `503 API proxy is not configured`, so a
+deployment can never reach an API it was not explicitly pointed at.
 The health check is also relative when `VITE_API_BASE_URL` is unset, so it uses
 the same Worker proxy. This keeps browser requests and the session cookie on the
 Cloudflare origin.
@@ -31,6 +33,33 @@ Also set these for request security (AUD-003):
 - **Render `CLIENT_ORIGIN`** (and `APP_URL` if SSO is configured) must be the
   public Cloudflare origin, for example `https://portal.microgenesis.com`. The
   API refuses writes whose `Origin` is not one of these.
+
+Set `API_BASE_URL` for **every** Cloudflare environment (production and
+preview). A preview that uses the same value as production writes to the same
+database and file store; it is not an isolated test backend.
+
+## Verifying a deployment (read-only)
+
+`GET /api/health` shows the service works, not what it is connected to. To
+confirm the real targets, sign in to the deployed site as an Admin and open
+`/api/admin/deployment-status` in the same browser. It reports, without any
+secret value:
+
+- `database`: host, port and database name the API is connected to.
+- `storage`: the file store in use. For Supabase it reads the bucket's own
+  settings (private or public, size limit, allowed types) and writes nothing.
+- `origins` and `session_cookie`: the origins allowed to send writes and the
+  cookie flags in effect.
+- `proxy.request_carried_valid_secret`: `true` only when the request came
+  through the Worker with a `PROXY_SHARED_SECRET` matching the API's.
+  `proxy.client_address` is the address you are rate-limited under; it should
+  be your own public address, not a Cloudflare or Render one.
+- `settings_present`: whether each reviewed setting is set (yes/no only).
+- `warnings`: anything above that looks unsafe.
+
+`POD_STORAGE_PROVIDER` must be exactly `local` or `supabase`; the API refuses
+to start on any other value. Left unset it means `local`, which loses uploads
+on restart unless `POD_UPLOAD_DIR` is on a persistent disk.
 
 The Worker also adds the Content-Security-Policy and related headers to the
 HTML it serves. The policy string in `worker.js` must match the one in

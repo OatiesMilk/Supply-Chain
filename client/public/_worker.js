@@ -32,10 +32,15 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname.startsWith('/api/')) {
-      const apiBaseUrl = env.API_BASE_URL || 'https://supply-chain-9fnl.onrender.com';
-      const targetUrl = new URL(url.pathname + url.search, apiBaseUrl);
+      // No built-in fallback host: an unset target must fail visibly instead
+      // of quietly sending this deployment's traffic to whichever API was
+      // once written here.
+      if (!env.API_BASE_URL) {
+        return Response.json({ error: 'API proxy is not configured' }, { status: 503 });
+      }
 
       try {
+        const targetUrl = new URL(url.pathname + url.search, env.API_BASE_URL);
         return await fetch(new Request(new Request(targetUrl, request), { headers: apiHeaders(request, env) }));
       } catch {
         return new Response('Error connecting to backend API', { status: 502 });

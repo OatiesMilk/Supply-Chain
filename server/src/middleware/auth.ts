@@ -66,24 +66,20 @@ export function csrfToken(session: SessionClaims): string {
   return createHmac('sha256', JWT_SECRET).update(`csrf:${session.id}:${session.iat ?? 0}`).digest('base64url');
 }
 
+// Production cookies are SameSite=None so the portal works inside a Microsoft
+// Teams tab; that requires Secure, and is why csrf.ts checks every write.
+export function sessionCookieOptions(env: NodeJS.ProcessEnv = process.env) {
+  const isProd = env.NODE_ENV === 'production';
+  return { httpOnly: true, sameSite: isProd ? 'none' : 'lax', secure: isProd } as const;
+}
+
 export function setSessionCookie(res: Response, token: string) {
-  const isProd = process.env.NODE_ENV === 'production';
   res.setHeader(CSRF_HEADER, csrfToken(jwt.decode(token) as SessionClaims));
-  res.cookie(COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: isProd ? 'none' : 'lax',
-    secure: isProd,
-    maxAge: 8 * 60 * 60 * 1000
-  });
+  res.cookie(COOKIE_NAME, token, { ...sessionCookieOptions(), maxAge: 8 * 60 * 60 * 1000 });
 }
 
 export function clearSessionCookie(res: Response) {
-  const isProd = process.env.NODE_ENV === 'production';
-  res.clearCookie(COOKIE_NAME, {
-    httpOnly: true,
-    sameSite: isProd ? 'none' : 'lax',
-    secure: isProd
-  });
+  res.clearCookie(COOKIE_NAME, sessionCookieOptions());
 }
 
 export const requireAuth = asyncRoute(async (req: Request, res: Response, next: NextFunction) => {

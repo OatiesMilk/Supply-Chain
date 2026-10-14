@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { prisma } from '../db';
 import { requireResource, requireAuth, requireRole } from '../middleware/auth';
 import { sendEmail } from '../services/mailer';
+import { asyncRoute } from '../middleware/asyncRoute';
+import { deploymentStatus } from '../services/deploymentStatus';
 
 const router = Router();
 
@@ -104,6 +106,14 @@ router.get('/integration-status', requireAuth, requireResource('admin'), require
     node_env: process.env.NODE_ENV || 'development',
   });
 });
+
+// ─── Deployment check — ADMIN only ─────────────────────────────────────────
+// Read-only: which database, file store, origins and proxy this running
+// process is really using. Returns identities and yes/no flags, never a secret.
+
+router.get('/deployment-status', requireAuth, requireResource('admin'), requireRole('ADMIN'), asyncRoute(async (req, res) => {
+  res.json(await deploymentStatus(req));
+}));
 
 // ─── Test email — ADMIN only ───────────────────────────────────────────────
 
