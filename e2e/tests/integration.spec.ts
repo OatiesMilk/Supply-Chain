@@ -95,7 +95,8 @@ test.describe('X Cross-Role Integration', () => {
       const deliveryDate = manilaToday();
       await createForm.getByPlaceholder('e.g., SAP-88231').fill(reference);
       await createForm.getByLabel(/^Delivery Date/).fill(deliveryDate);
-      await expect(salesPage.getByLabel('Date From', { exact: true })).toHaveValue('');
+      // The list's date filters are hidden while the create form is open.
+      await expect(salesPage.getByLabel('Date From', { exact: true })).toBeHidden();
       const createResponsePromise = salesPage.waitForResponse(response =>
         new URL(response.url()).pathname === '/api/records' && response.request().method() === 'POST');
       await createForm.getByRole('button', { name: 'Save as Draft', exact: true }).click();
@@ -108,6 +109,8 @@ test.describe('X Cross-Role Integration', () => {
 
       console.log('TSK-120: Created draft');
       await expect(salesPage.getByText(`${reference} · ${recordId}`, { exact: true })).toBeVisible({ timeout: 10_000 });
+      // The form's Delivery Date must not leak into the list's date filter.
+      await expect(salesPage.getByLabel('Date From', { exact: true })).toHaveValue('');
       const created = (await getRecords(salesCtx)).find(record => !existingIds.has(record.id) && record.reference === reference);
       expect(created, 'the uniquely referenced Draft should be returned by the SC records API').toBeTruthy();
       expect(created!.delivery_date, 'the Draft must retain its form delivery date').toBe(deliveryDate);

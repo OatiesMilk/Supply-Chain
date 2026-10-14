@@ -632,6 +632,7 @@ export default function DeliveryRecordsView({
   };
 
   const showTassFilters = currentUserRole === 'TASS';
+  const isCreating = showForm && canEdit;
 
   const activeFilterCount = [
     regionFilter !== 'All Regions', subregionFilter !== 'All Subregions', areaFilter !== 'All Areas',
@@ -802,7 +803,8 @@ export default function DeliveryRecordsView({
           )}
         </div>
 
-        {/* Date Range Controls (Always mounted) */}
+        {/* Date Range Controls — list filters, so hidden while the create form is open */}
+        {!isCreating && (
         <div className="flex flex-wrap gap-3 items-end text-xs" id="date-range-filters">
         <div className="space-y-1 flex-1 min-w-[120px]">
           <label htmlFor="dateFrom" className="font-bold text-slate-700 block">Date From</label>
@@ -862,6 +864,7 @@ export default function DeliveryRecordsView({
           </button>
         )}
         </div>
+        )}
       </div>
 
       {/* TASS filter controls */}
@@ -980,7 +983,7 @@ export default function DeliveryRecordsView({
       )}
 
       {/* CREATE FORM */}
-      {showForm && canEdit ? (
+      {isCreating ? (
         <RecordCreateForm
           category={category}
           categoryLocked={true}
