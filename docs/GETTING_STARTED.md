@@ -157,6 +157,8 @@ Run from the repository root (each forwards to the `server` workspace):
 | `npm run seed:accounts` | Companies, customers and suppliers only |
 | `npm run seed:driver-demo` | Adds today's demo runs for the seeded drivers, idempotent. See [driver-demo-seed.md](./driver-demo-seed.md) |
 | `npm run seed:uat` | Destructive local UAT dataset preparation; uses the same disposable-database safeguards and is not exposed on the login screen |
+| `npm run seed:staging` | Read-only preview of the reviewed Excel route snapshot for a confirmed staging database; explicit `-- --apply` adds source records without resetting data. See [staging-seed.md](./staging-seed.md) |
+| `npm run seed:staging:reset` | Preview staging operational-data replacement while preserving accounts, permissions and linked Driver profiles; applying requires explicit staging reset acknowledgement. See [staging-seed.md](./staging-seed.md#replace-staging-operational-seeds) |
 | `npm run db:clean` / `npm run db:reset` | **Destructive:** `prisma migrate reset --force`, wipes the database |
 | `npm run pod:reconcile` | Removes untracked local POD files and reports metadata whose file is missing |
 
