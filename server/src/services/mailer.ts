@@ -1,4 +1,10 @@
 import nodemailer from 'nodemailer';
+// Loaded at startup, not with import() on first send: under the dev server
+// (tsx watch), dynamically importing @azure/identity froze the whole process,
+// so the first Graph email (e.g. a delivery marked Accomplished) hung the API.
+import { ClientSecretCredential } from '@azure/identity';
+import { Client as GraphClient } from '@microsoft/microsoft-graph-client';
+import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials';
 
 export interface MailMessage {
   to: string;
@@ -19,12 +25,6 @@ export interface SendResult {
 
 async function sendViaGraph(msg: MailMessage): Promise<SendResult> {
   try {
-    const { ClientSecretCredential } = await import('@azure/identity');
-    const { Client: GraphClient } = await import('@microsoft/microsoft-graph-client');
-    const { TokenCredentialAuthenticationProvider } = await import(
-      '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js' as any
-    );
-
     const credential = new ClientSecretCredential(
       process.env.AZURE_TENANT_ID!,
       process.env.AZURE_CLIENT_ID!,
