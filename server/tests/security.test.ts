@@ -70,6 +70,7 @@ before(async () => {
   delete process.env.APP_URL;
   delete process.env.TRUSTED_ORIGINS;
   delete process.env.PROXY_SHARED_SECRET;
+  delete process.env.REQUIRE_PROXY_SECRET;
   delete process.env.TRUST_PROXY;
   url = await start();
 });
@@ -208,6 +209,93 @@ test('a forwarded client address is believed only with the proxy secret', async 
   const proxied = await start();
   assert.equal(await whoami(proxied, { 'X-Forwarded-For': '203.0.113.9, 198.51.100.7' }), '198.51.100.7');
   delete process.env.TRUST_PROXY;
+});
+
+// Issue #167: with REQUIRE_PROXY_SECRET on, only requests that came through
+// the Worker (and so carry the shared secret) are served.
+test('requests that bypass the Worker are refused when the proxy secret is required', async () => {
+  const SECRET = 'worker-secret-for-tests';
+  const viaWorker = { 'X-MG-Proxy-Secret': SECRET };
+  const refused = async (res: Response, label: string) => {
+    assert.equal(res.status, 403, label);
+    assert.deepEqual(await res.json(), { error: 'Direct API access is not allowed' });
+    assert.equal(res.headers.get('x-csrf-error'), null, 'refused before the CSRF checks');
+  };
+
+  process.env.PROXY_SHARED_SECRET = SECRET;
+  process.env.REQUIRE_PROXY_SECRET = 'true';
+  try {
+    const app = express();
+    app.use(express.json());
+    app.use(cookieParser());
+    applySecurity(app, LIMITS);
+    let reached = 0;
+    const effect = (_req: express.Request, res: express.Response) => { reached++; res.json({ ok: true }); };
+    app.get('/api/health', effect);
+    app.post('/api/health', effect);
+    app.get('/api/health/details', effect);
+    app.get('/api/records', effect);
+    app.post('/api/records', effect);
+    app.use('/api/auth', authRoutes);
+    const base = await new Promise<string>(resolve => {
+      const server = app.listen(0, () => resolve(`http://127.0.0.1:${(server.address() as any).port}`));
+      servers.push(server);
+    });
+    const send = (target: string, method = 'GET', headers: Record<string, string> = {}) => fetch(`${base}${target}`, { method, headers, redirect: 'manual' });
+
+    for (const [label, headers] of Object.entries({
+      missing: {}, empty: { 'X-MG-Proxy-Secret': '' }, wrong: { 'X-MG-Proxy-Secret': 'guess' }, prefix: { 'X-MG-Proxy-Secret': SECRET.slice(0, -1) },
+    })) {
+      await refused(await send('/api/records', 'GET', headers), `GET ${label}`);
+      await refused(await send('/api/records', 'POST', headers), `POST ${label}`);
+    }
+    // A signed-in direct caller is refused too, and gets no hint about CSRF.
+    const { cookie, token } = session();
+    await refused(await send('/api/records', 'POST', { Cookie: cookie, Origin: TRUSTED, [CSRF_HEADER]: token }), 'signed-in direct write');
+    assert.equal(reached, 0, 'a refused request causes no side effect');
+
+    // Only GET /api/health is open to the host's health check and the self-ping.
+    assert.equal((await send('/api/health')).status, 200);
+    await refused(await send('/api/health', 'POST'), 'POST /api/health');
+    await refused(await send('/api/health/details'), 'a path under /api/health');
+    await refused(await send('/api/health/'), 'trailing slash');
+    assert.equal(reached, 1);
+
+    // Through the Worker everything behaves as before, including the CSRF checks.
+    assert.equal((await send('/api/records', 'GET', viaWorker)).status, 200);
+    assert.equal((await send('/api/records', 'POST', { ...viaWorker, Cookie: cookie, Origin: TRUSTED, [CSRF_HEADER]: token })).status, 200);
+    const forged = await send('/api/records', 'POST', { ...viaWorker, Cookie: cookie, Origin: FORGED, 'Sec-Fetch-Site': 'cross-site' });
+    assert.equal(forged.status, 403);
+    assert.equal(forged.headers.get('x-csrf-error'), 'origin');
+
+    // The Microsoft sign-in callback reaches its route through the Worker only.
+    assert.equal((await send('/api/auth/microsoft/callback?code=code', 'GET', { ...viaWorker, 'Sec-Fetch-Site': 'cross-site' })).status, 302);
+    await refused(await send('/api/auth/microsoft/callback?code=code', 'GET', { 'Sec-Fetch-Site': 'cross-site' }), 'direct SSO callback');
+
+    // Off by default: the app started before the setting was turned on is unaffected.
+    assert.equal((await call('/api/records', 'GET')).status, 200);
+  } finally {
+    delete process.env.PROXY_SHARED_SECRET;
+    delete process.env.REQUIRE_PROXY_SECRET;
+  }
+});
+
+test('requiring the proxy secret without one, or with an unrecognised value, stops startup', () => {
+  const boot = (env: Record<string, string>) => {
+    Object.assign(process.env, env);
+    try {
+      applySecurity(express(), LIMITS);
+    } finally {
+      for (const key of Object.keys(env)) delete process.env[key];
+    }
+  };
+  assert.throws(() => boot({ REQUIRE_PROXY_SECRET: 'true' }), /needs PROXY_SHARED_SECRET/);
+  assert.throws(() => boot({ REQUIRE_PROXY_SECRET: 'true', PROXY_SHARED_SECRET: '' }), /needs PROXY_SHARED_SECRET/);
+  for (const typo of ['ture', '1', 'yes', 'on']) {
+    assert.throws(() => boot({ REQUIRE_PROXY_SECRET: typo, PROXY_SHARED_SECRET: 'set' }), /must be "true" or "false"/, typo);
+  }
+  for (const off of ['false', ' FALSE ', '']) assert.doesNotThrow(() => boot({ REQUIRE_PROXY_SECRET: off }));
+  assert.doesNotThrow(() => boot({ REQUIRE_PROXY_SECRET: ' True ', PROXY_SHARED_SECRET: 'set' }));
 });
 
 test('responses carry the security headers and a Teams-compatible framing policy', async () => {

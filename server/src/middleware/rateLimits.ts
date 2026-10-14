@@ -30,6 +30,18 @@ export const PROXY_CLIENT_IP_HEADER = 'x-mg-client-ip';
 // with the secret shared with our own proxy; otherwise anyone reaching the API
 // directly could pick the address they are counted under. Without the secret
 // this is the socket peer, or Express's proxy-aware value when TRUST_PROXY is set.
+// REQUIRE_PROXY_SECRET=true makes the API refuse anything that did not come
+// through the Worker (see requireProxySecret in security.ts). Off unless set.
+// A value that is neither true nor false, or turning it on without a secret to
+// check against, stops startup rather than leaving the API open or unusable.
+export function proxySecretRequired(env: NodeJS.ProcessEnv = process.env): boolean {
+  const configured = env.REQUIRE_PROXY_SECRET?.trim().toLowerCase() ?? '';
+  if (configured === '' || configured === 'false') return false;
+  if (configured !== 'true') throw new Error('REQUIRE_PROXY_SECRET must be "true" or "false"');
+  if (!env.PROXY_SHARED_SECRET) throw new Error('REQUIRE_PROXY_SECRET=true needs PROXY_SHARED_SECRET to be set');
+  return true;
+}
+
 export type ClientAddressSource = 'worker-proxy' | 'trusted-proxy' | 'socket';
 
 // TRUST_PROXY as a hop count; 0 when unset or not a positive whole number.

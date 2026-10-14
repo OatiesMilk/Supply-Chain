@@ -19,10 +19,12 @@ function apiHeaders(request, env) {
   const headers = new Headers(request.headers);
   headers.delete('x-mg-proxy-secret');
   headers.delete('x-mg-client-ip');
+  // The secret always goes with a proxied request: the API may refuse anything
+  // without it (REQUIRE_PROXY_SECRET), whether or not an address is known.
   const clientIp = request.headers.get('cf-connecting-ip');
-  if (env.PROXY_SHARED_SECRET && clientIp) {
+  if (env.PROXY_SHARED_SECRET) {
     headers.set('x-mg-proxy-secret', env.PROXY_SHARED_SECRET);
-    headers.set('x-mg-client-ip', clientIp);
+    if (clientIp) headers.set('x-mg-client-ip', clientIp);
   }
   return headers;
 }

@@ -35,13 +35,29 @@ For proxy client-address handling, configure the same **PROXY_SHARED_SECRET** in
 
 The deployed frontend uses relative **/api/** URLs through the same-origin Worker proxy. Do not set **VITE_API_BASE_URL** for this deployment model. Pages supplies **ASSETS** to its Functions runtime; the separate Wrangler deployment declares the binding in its config.
 
+## Blocking direct API access
+
+The API host has its own public address, so a caller can skip the Worker. Setting **REQUIRE_PROXY_SECRET=true** in the API environment makes the API answer HTTP 403 (**Direct API access is not allowed**) to every **/api/** request that does not carry the Worker's **PROXY_SHARED_SECRET**. **GET /api/health** is the only exception, because the host's health check and the self-ping call it directly.
+
+The setting is off unless set. The API refuses to start when it is **true** while **PROXY_SHARED_SECRET** is empty, or when it holds any value other than **true** or **false**. The Worker sends the secret on every proxied request once it is configured.
+
+Enable it in this order. Each live step is a separately approved change:
+
+1. Deploy the code with the setting off.
+2. Configure the same **PROXY_SHARED_SECRET** in every Cloudflare environment that proxies to this API and in the API environment.
+3. As an Admin, open **GET /api/admin/deployment-status** through the deployed frontend and confirm that the current request carried a valid proxy secret.
+4. Set **REQUIRE_PROXY_SECRET=true** in the API environment.
+5. Confirm that the frontend works, a request sent straight to the API host returns 403, the host's health check stays healthy, and the deployment check reports the secret as required.
+
+To roll back, unset **REQUIRE_PROXY_SECRET** in the API environment; no code change is needed. Enabling it before step 3 passes blocks the frontend's own API traffic.
+
 ## Read-only deployment identity check
 
 The Admin-only **GET /api/admin/deployment-status** endpoint reports which services the running API is configured to use. Open it in the deployed app after signing in as an Admin. It is read-only and does not reveal credentials. It reports:
 
 - Database host, port, database name, and whether the host is loopback.
 - Upload provider and identity. For Supabase storage it reads bucket reachability, privacy, size limit, and allowed MIME types; it does not read or upload files.
-- Configured origins, session-cookie flags, proxy-secret validity for the current request, and yes/no presence for reviewed settings.
+- Configured origins, session-cookie flags, proxy-secret validity for the current request, whether the proxy secret is required, and yes/no presence for reviewed settings.
 - Warnings about settings that appear unsafe.
 
 The response includes infrastructure identifiers and the client address used for rate limiting. Redact those details appropriately before sharing evidence. **GET /api/health** only shows that the service is healthy; it does not identify the database or upload store.
