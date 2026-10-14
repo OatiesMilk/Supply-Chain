@@ -560,7 +560,7 @@ export const api = {
   // Admin user management
   getUsers: () => request<ApiUserAdmin[]>('/users'),
   // DRIVER logins: driver_profile_id links an existing profile; omit it to create one.
-  createUser: (data: { name: string; email: string; password: string; role: string; driver_profile_id?: string }) =>
+  createUser: (data: { name: string; email: string; password: string; role: string; driver_profile_id?: string; microsoft_oid?: string }) =>
     request<ApiUserAdmin>('/users', { method: 'POST', body: JSON.stringify(data) }),
   setUserDriverProfile: (userId: string, driverProfileId: string | null) =>
     request<{ user_id: string; driver_profile: { id: string; name: string } | null }>(`/users/${userId}/driver-profile`, { method: 'PUT', body: JSON.stringify({ driver_profile_id: driverProfileId }) }),

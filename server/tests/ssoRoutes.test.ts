@@ -7,6 +7,8 @@ import usersRoutes from '../src/routes/users';
 import { signToken } from '../src/middleware/auth';
 import { prisma } from '../src/db';
 import { createSsoState } from '../src/services/ssoState';
+import bcrypt from 'bcryptjs';
+import { approvedMicrosoftUser } from '../src/services/ssoIdentity';
 
 const GUID = 'ce7af71e-cdd0-4be6-93a9-ec280e1c10df';
 const TENANT = '7411f7e0-fb01-415c-8136-f9c30b06393f';
@@ -30,6 +32,133 @@ async function appServer() {
   };
 }
 const cookieFor = (user: typeof admin | typeof sales) => 'mg_session=' + signToken(user);
+
+test('Admin can approve Microsoft sign-in at creation, while ordinary accounts remain unlinked', async () => {
+  const originalLookup = prisma.user.findUnique;
+  const originalTransaction = prisma.$transaction;
+  const app = await appServer();
+  const rows: any[] = [];
+  const audits: any[] = [];
+  prisma.user.findUnique = mock.fn(async () => admin) as any;
+  prisma.$transaction = mock.fn(async (fn: any) => fn({
+    user: { create: async ({ data }: any) => {
+      const row = { id: 'new-' + rows.length, microsoftOid: null, microsoftApprovedAt: null, createdAt: new Date(), ...data };
+      rows.push(row);
+      return row;
+    } },
+    auditLog: { create: async ({ data }: any) => { audits.push(data); return data; } },
+  })) as any;
+  const create = (microsoft_oid?: string) => fetch(app.url + '/users', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookieFor(admin) },
+    body: JSON.stringify({ name: 'New User', email: 'USER@example.com', password: 'password', role: 'SALES_COORDINATOR', ...(microsoft_oid ? { microsoft_oid } : {}) }),
+  });
+  try {
+    const linked = await create(GUID.toUpperCase());
+    assert.equal(linked.status, 201);
+    const body = await linked.json() as any;
+    assert.equal(body.microsoft_linked, true);
+    assert.equal(body.role, 'SALES_COORDINATOR');
+    assert.equal(body.email, 'user@example.com');
+    assert.equal(body.password, undefined);
+    assert.equal(rows[0].microsoftOid, GUID);
+    assert.ok(rows[0].microsoftApprovedAt instanceof Date);
+    const approval = await approvedMicrosoftUser({ user: { findUnique: async () => rows[0] } } as any, {
+      oid: GUID, tid: TENANT, email: 'user@example.com',
+    }, TENANT);
+    assert.equal('user' in approval, true, 'created approval permits the matching tenant identity to sign in');
+    assert.equal(await bcrypt.compare('password', rows[0].password), true);
+    assert.equal(audits.length, 1);
+    assert.equal(audits[0].recordId, rows[0].id);
+    assert.equal(audits[0].changedById, admin.id);
+    assert.equal(audits[0].action, 'CREATE');
+    assert.deepEqual(JSON.parse(audits[0].newValue), { microsoft_linked: true, microsoft_oid: GUID, approved_at: rows[0].microsoftApprovedAt.toISOString() });
+    const ordinary = await create();
+    assert.equal(ordinary.status, 201);
+    assert.equal((await ordinary.json() as any).microsoft_linked, false);
+    assert.equal(rows[1].microsoftOid, null);
+    assert.equal(rows[1].microsoftApprovedAt, null);
+    assert.equal(audits.length, 1);
+  } finally {
+    prisma.user.findUnique = originalLookup;
+    prisma.$transaction = originalTransaction;
+    await app.close();
+  }
+});
+
+test('user creation requires Admin approval, a valid optional Object ID and a password', async () => {
+  const originalLookup = prisma.user.findUnique;
+  const originalTransaction = prisma.$transaction;
+  const app = await appServer();
+  let transactions = 0;
+  prisma.user.findUnique = mock.fn(async ({ where }: any) => where.id === admin.id ? admin : sales) as any;
+  prisma.$transaction = mock.fn(async () => { transactions++; throw new Error('must not write'); }) as any;
+  const create = (actor: typeof admin | null, extra: object = {}) => fetch(app.url + '/users', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...(actor ? { Cookie: cookieFor(actor) } : {}) },
+    body: JSON.stringify({ name: 'User', email: 'user@example.com', password: 'password', role: 'SALES_COORDINATOR', microsoft_oid: GUID, ...extra }),
+  });
+  try {
+    assert.equal((await create(null)).status, 401);
+    assert.equal((await create(sales)).status, 403);
+    for (const microsoft_oid of ['common', '', null, 123, {}, GUID + 'extra']) {
+      assert.equal((await create(admin, { microsoft_oid })).status, 400);
+    }
+    assert.equal((await create(admin, { password: '' })).status, 400);
+    assert.equal(transactions, 0);
+  } finally {
+    prisma.user.findUnique = originalLookup;
+    prisma.$transaction = originalTransaction;
+    await app.close();
+  }
+});
+
+test('identity/email conflicts preserve 409 responses and an audit failure cannot commit a created user', async () => {
+  const originalLookup = prisma.user.findUnique;
+  const originalTransaction = prisma.$transaction;
+  const app = await appServer();
+  let failure = 'identity';
+  const committed: any[] = [];
+  prisma.user.findUnique = mock.fn(async () => admin) as any;
+  // Stage writes until the transaction callback succeeds, as Prisma does.
+  prisma.$transaction = mock.fn(async (fn: any) => {
+    const pending: any[] = [];
+    const result = await fn({
+      user: { create: async ({ data }: any) => {
+        if (failure === 'adapter') throw { code: 'P2002', meta: { driverAdapterError: { cause: { constraint: { index: 'User_microsoftOid_key' } } } } };
+        if (failure !== 'audit') throw { code: 'P2002', meta: { target: [failure === 'identity' ? 'microsoftOid' : 'email'] } };
+        const row = { id: 'new-user', ...data };
+        pending.push(row);
+        return row;
+      } },
+      auditLog: { create: async () => { throw new Error('audit unavailable'); } },
+    });
+    committed.push(...pending);
+    return result;
+  }) as any;
+  const create = () => fetch(app.url + '/users', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookieFor(admin) },
+    body: JSON.stringify({ name: 'User', email: 'user@example.com', password: 'password', role: 'SALES_COORDINATOR', microsoft_oid: GUID }),
+  });
+  try {
+    const conflict = await create();
+    assert.equal(conflict.status, 409);
+    assert.deepEqual(await conflict.json(), { error: 'Microsoft identity is already linked to another account' });
+    failure = 'adapter';
+    const adapterConflict = await create();
+    assert.equal(adapterConflict.status, 409);
+    assert.deepEqual(await adapterConflict.json(), { error: 'Microsoft identity is already linked to another account' });
+    failure = 'email';
+    const emailConflict = await create();
+    assert.equal(emailConflict.status, 409);
+    assert.deepEqual(await emailConflict.json(), { error: 'An account with this email already exists.' });
+    failure = 'audit';
+    assert.equal((await create()).status, 500);
+    assert.deepEqual(committed, []);
+  } finally {
+    prisma.user.findUnique = originalLookup;
+    prisma.$transaction = originalTransaction;
+    await app.close();
+  }
+});
 
 test('Microsoft callback rejects missing and mismatched browser state before contacting Microsoft/DB', async () => {
   const previous = { ...process.env };

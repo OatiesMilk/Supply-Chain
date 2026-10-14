@@ -203,7 +203,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [createForm, setCreateForm] = useState({ name: '', email: '', password: '', role: 'SALES_COORDINATOR', driver_profile_id: '' });
+  const [createForm, setCreateForm] = useState({ name: '', email: '', password: '', role: 'SALES_COORDINATOR', driver_profile_id: '', microsoft_oid: '' });
   // DRIVER logins own runs through a linked Driver profile (TSK-100).
   const [driverProfiles, setDriverProfiles] = useState<ApiDriver[]>([]);
   const [linkingUserId, setLinkingUserId] = useState<string | null>(null);
@@ -282,19 +282,20 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
     e.preventDefault();
     setCreateError(null);
     if (!createForm.name || !createForm.email || !createForm.password) {
-      setCreateError('All fields are required');
+      setCreateError('Name, email, and password are required');
       return;
     }
     setCreateLoading(true);
     try {
-      const { driver_profile_id, ...fields } = createForm;
+      const { driver_profile_id, microsoft_oid, ...fields } = createForm;
       const created = await api.createUser({
         ...fields,
         ...(fields.role === 'DRIVER' && driver_profile_id ? { driver_profile_id } : {}),
+        ...(microsoft_oid.trim() ? { microsoft_oid: microsoft_oid.trim() } : {}),
       });
       setUsers(prev => [...prev, created]);
       if (created.role === 'DRIVER') setDriverProfiles((await api.getDrivers(true)).filter(p => p.type === 'DRIVER'));
-      setCreateForm({ name: '', email: '', password: '', role: 'SALES_COORDINATOR', driver_profile_id: '' });
+      setCreateForm({ name: '', email: '', password: '', role: 'SALES_COORDINATOR', driver_profile_id: '', microsoft_oid: '' });
       setShowCreateForm(false);
     } catch (err) {
       setCreateError(err instanceof ApiError ? err.message : 'Failed to create user');
@@ -517,6 +518,17 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                   >
                     {ROLE_OPTIONS.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
                   </select>
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <label htmlFor="create-microsoft-oid" className="font-bold text-slate-700">Microsoft user Object ID (optional)</label>
+                  <input
+                    id="create-microsoft-oid" type="text" value={createForm.microsoft_oid}
+                    onChange={e => setCreateForm(f => ({ ...f, microsoft_oid: e.target.value }))}
+                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                    aria-describedby="create-microsoft-oid-help"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none"
+                  />
+                  <p id="create-microsoft-oid-help" className="text-[11px] text-slate-500">Copy the user's Object ID from their Microsoft Entra profile in the configured tenant. Providing it approves Microsoft sign-in; the email must match their Microsoft email or username. Leave blank for email and password login only.</p>
                 </div>
                 {createForm.role === 'DRIVER' && (
                   <div className="space-y-1.5 sm:col-span-2">
