@@ -35,15 +35,9 @@ import { notify } from '@/utils/notify';
 import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
 import { ReturnToDraftDialog } from './ReturnToDraftDialog';
 import { selectableStatuses, canRecordTimeIn, isDraftRecord, manilaToday, manilaDateTimeInput, manilaInputToIso, rescheduleDateError, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
+import { formatManilaTime, formatManilaTimestamp as formatTs } from '@/utils/manilaTimestamp';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatTs(ts: string): string {
-  return new Date(ts).toLocaleString('en-PH', {
-    timeZone: 'Asia/Manila', year: 'numeric', month: 'short', day: '2-digit',
-    hour: '2-digit', minute: '2-digit'
-  });
-}
 
 const STATUS_COLOR: Record<string, string> = {
   'Draft': 'bg-slate-100 text-slate-700 border-slate-300',
@@ -338,8 +332,8 @@ function GeneralTab({
                 { label: 'Vehicle',         value: record.vehicle || '—' },
                 { label: 'Driver',            value: record.driver || 'Unassigned' },
                 { label: 'Driver Assistants', value: (record.driver_assistants ?? []).join(', ') || '—' },
-                { label: 'Time In',           value: record.time_in || '—' },
-                { label: 'Time Out',          value: record.time_out || '—' },
+                { label: 'Time In',           value: formatTs(record.time_in) },
+                { label: 'Time Out',          value: formatTs(record.time_out) },
                 { label: 'Received By',       value: record.received_by || '—' },
                 { label: 'Account Manager',   value: record.account_manager },
                 { label: 'Delivery Date',   value: record.delivery_date },
@@ -544,8 +538,8 @@ function GeneralTab({
               {[
                 { label: 'Driver',            value: record.driver || 'Unassigned' },
                 { label: 'Driver Assistants', value: (record.driver_assistants ?? []).join(', ') || '—' },
-                { label: 'Time In',           value: record.time_in || '—' },
-                { label: 'Time Out',          value: record.time_out || '—' },
+                { label: 'Time In',           value: formatTs(record.time_in) },
+                { label: 'Time Out',          value: formatTs(record.time_out) },
                 { label: 'Received By',       value: record.received_by || '—' },
               ].map(row => (
                 <div key={row.label} className="flex flex-col gap-0.5">
@@ -2029,8 +2023,8 @@ function RecordWorkspace({
           {[
             ['Driver', record.driver || 'Unassigned'],
             ['Delivery date', record.delivery_date],
-            ['Time in', record.time_in || '—'],
-            ['Time out', record.time_out || '—'],
+            ['Time in', formatManilaTime(record.time_in)],
+            ['Time out', formatManilaTime(record.time_out)],
           ].map(([label, value]) => <div key={label} className="flex gap-1"><dt className="text-slate-500">{label}:</dt><dd className="font-semibold">{value}</dd></div>)}
         </dl>
       </section>
