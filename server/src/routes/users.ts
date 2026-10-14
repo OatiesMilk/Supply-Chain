@@ -29,7 +29,7 @@ router.get('/', requireAuth, requireResource('users'), requireRole('ADMIN'), asy
 // same transaction: `driver_profile_id` links an existing unlinked profile,
 // omitting it creates a new profile named after the login.
 router.post('/', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (req: Request, res: Response) => {
-  const { name, email, password, role, driver_profile_id } = req.body ?? {};
+  const { name, email, password, role, driver_profile_id, microsoft_oid } = req.body ?? {};
   if (!name || !email || !password || !role) {
     return res.status(400).json({ error: 'name, email, password, and role are required' });
   }
@@ -40,12 +40,29 @@ router.post('/', requireAuth, requireResource('users'), requireRole('ADMIN'), as
   if (driver_profile_id !== undefined && (role !== 'DRIVER' || typeof driver_profile_id !== 'string' || !driver_profile_id)) {
     return res.status(400).json({ error: 'driver_profile_id is only valid for a DRIVER login and must be a Driver profile id.' });
   }
+  if (microsoft_oid !== undefined && !isMicrosoftGuid(microsoft_oid)) {
+    return res.status(400).json({ error: 'microsoft_oid must be a Microsoft Entra object GUID' });
+  }
+  const microsoftOid = microsoft_oid?.toLowerCase();
   const hashed = await bcrypt.hash(password, 10);
   try {
     const { created, profile } = await prisma.$transaction(async tx => {
       const created = await tx.user.create({
-        data: { name, email: String(email).toLowerCase(), password: hashed, role, isActive: true }
+        data: {
+          name, email: String(email).toLowerCase(), password: hashed, role, isActive: true,
+          ...(microsoftOid ? { microsoftOid, microsoftApprovedAt: new Date() } : {}),
+        }
       });
+      if (microsoftOid) {
+        await tx.auditLog.create({
+          data: {
+            recordId: created.id, recordType: 'User', action: 'CREATE',
+            changedById: req.user!.id,
+            previousValue: null,
+            newValue: JSON.stringify({ microsoft_linked: true, microsoft_oid: created.microsoftOid, approved_at: created.microsoftApprovedAt }),
+          },
+        });
+      }
       const profile = role === 'DRIVER' ? await linkDriverLogin(tx, created, driver_profile_id, req.user!) : null;
       return { created, profile };
     });
@@ -55,13 +72,21 @@ router.post('/', requireAuth, requireResource('users'), requireRole('ADMIN'), as
       email: created.email,
       role: created.role,
       is_active: created.isActive,
-      microsoft_linked: false,
+      microsoft_linked: !!created.microsoftOid,
       created_at: created.createdAt,
       driver_profile: profile ? { id: profile.id, name: profile.name } : null,
     });
   } catch (error) {
     if (error instanceof DriverLinkError) return res.status(error.status).json({ error: error.message });
-    if ((error as { code?: string })?.code === 'P2002') return res.status(409).json({ error: 'An account with this email already exists.' });
+    if ((error as { code?: string })?.code === 'P2002') {
+      // Prisma's PostgreSQL adapter reports the constraint under its cause;
+      // other engines report a target field list or index name directly.
+      const meta = (error as { meta?: { target?: unknown; driverAdapterError?: { cause?: { constraint?: { fields?: unknown; index?: unknown } } } } }).meta;
+      const constraint = meta?.driverAdapterError?.cause?.constraint;
+      const target = meta?.target ?? constraint?.fields ?? constraint?.index;
+      const identityCollision = Array.isArray(target) ? target.includes('microsoftOid') : typeof target === 'string' && target.includes('microsoftOid');
+      return res.status(409).json({ error: identityCollision ? 'Microsoft identity is already linked to another account' : 'An account with this email already exists.' });
+    }
     throw error;
   }
 }));

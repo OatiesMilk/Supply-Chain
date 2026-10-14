@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
-import morgan from 'morgan';
+import { accessLog } from './middleware/accessLog';
 import path from 'path';
 import fs from 'fs';
 import { prisma } from './db';
@@ -52,10 +52,9 @@ process.on('uncaughtException', (err) => {
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:3000';
 app.use(cors({ origin: CLIENT_ORIGIN, credentials: true }));
 
-// Production logs omit the query string: it can carry a Microsoft sign-in
-// code or search text, neither of which belongs in the host's log history.
-morgan.token('path', req => (req as express.Request).originalUrl.split('?')[0]);
-app.use(morgan(IS_PROD ? ':method :path :status :response-time ms' : 'dev'));
+// Production logs omit all queries; Microsoft callback queries are also
+// omitted during development because they contain sign-in codes and state.
+app.use(accessLog);
 app.use(express.json());
 app.use(cookieParser());
 // AUD-003: must stay ahead of every route below.

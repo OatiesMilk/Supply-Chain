@@ -7,6 +7,7 @@ import { asyncRoute } from '../middleware/asyncRoute';
 import { sessionUser } from '../services/permissions';
 import { createSsoState, validateSsoState, registerSsoState, consumeSsoState, getMsalConfig, SSO_STATE_COOKIE, SSO_STATE_MAX_AGE_MS } from '../services/ssoState';
 import { approvedMicrosoftUser } from '../services/ssoIdentity';
+import { ssoFailureDetails, type SsoStage } from '../services/ssoDiagnostics';
 
 const router = Router();
 
@@ -86,7 +87,7 @@ router.post('/microsoft', asyncRoute(async (_req: Request, res: Response) => {
     res.setHeader('Cache-Control', 'no-store');
     res.json({ url: authUrl });
   } catch (err) {
-    console.error('MSAL getAuthCodeUrl error:', err);
+    console.error('Microsoft SSO initiation failed', ssoFailureDetails('initiate', err));
     res.status(500).json({ error: 'Failed to initiate Microsoft login' });
   }
 }));
@@ -136,6 +137,7 @@ router.get('/microsoft/callback', asyncRoute(async (req: Request, res: Response)
 
   const redirectUri = `${cfg.appUrl}/api/auth/microsoft/callback`;
 
+  let stage: SsoStage = 'token_exchange';
   try {
     const result = await msalApp.acquireTokenByCode({
       code,
@@ -144,10 +146,12 @@ router.get('/microsoft/callback', asyncRoute(async (req: Request, res: Response)
     });
 
     const claims = result.idTokenClaims as Record<string, unknown> | undefined;
+    stage = 'account_lookup';
     const approval = await approvedMicrosoftUser(prisma, claims, cfg.tenantId);
     if ('error' in approval) return res.redirect(`/?error=${approval.error}`);
     const user = approval.user;
 
+    stage = 'session';
     const token = signToken({
       id: user.id,
       name: user.name,
@@ -158,7 +162,7 @@ router.get('/microsoft/callback', asyncRoute(async (req: Request, res: Response)
     res.redirect('/');
   } catch (err) {
     // Do not log authorization codes, state, tokens or claim payloads.
-    console.error('Microsoft SSO callback failed');
+    console.error('Microsoft SSO callback failed', ssoFailureDetails(stage, err));
     res.redirect('/?error=sso_failed');
   }
 }));
