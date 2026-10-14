@@ -138,6 +138,7 @@ All `/users` routes use `Auth` + `Res:users` + ADM.
 | POST | `/notifications/send-email` | Auth, Res:records | `{ recordId, trigger, recipients[] }`; record must be in the caller's scope |
 | GET | `/admin/audit-log` | Res:admin; ADM | System-wide audit log |
 | GET | `/admin/integration-status` | Res:admin; ADM | Mailer/SSO/storage status |
+| GET | `/admin/deployment-status` | Res:admin; ADM | Read-only identity of the connected database, file store, trusted origins, cookie flags and proxy trust, plus warnings. Never returns a secret value |
 | POST | `/admin/test-email` | Res:admin; ADM | `{ to }` |
 
 ## 7. Data sampler and demo seeding

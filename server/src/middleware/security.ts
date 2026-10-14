@@ -1,7 +1,7 @@
 import type { Express } from 'express';
 import helmet from 'helmet';
 import { verifyCsrfToken, verifyRequestOrigin } from './csrf';
-import { createRateLimiters, RATE_LIMITS, type RateLimitSettings } from './rateLimits';
+import { createRateLimiters, RATE_LIMITS, trustedProxyHops, type RateLimitSettings } from './rateLimits';
 
 // Hosts allowed to embed the portal: itself and the Microsoft Teams clients
 // (personal tab, teams/manifest.json). X-Frame-Options cannot express an
@@ -48,8 +48,8 @@ export const securityHeaders = helmet({
 export function applySecurity(app: Express, settings: RateLimitSettings = RATE_LIMITS) {
   // Hops of trusted reverse proxy in front of Express, when it is not behind
   // the Worker's shared-secret headers. Unset means trust none.
-  const trustedHops = Number(process.env.TRUST_PROXY);
-  if (Number.isInteger(trustedHops) && trustedHops > 0) app.set('trust proxy', trustedHops);
+  const trustedHops = trustedProxyHops();
+  if (trustedHops > 0) app.set('trust proxy', trustedHops);
   else if (process.env.NODE_ENV === 'production' && !process.env.PROXY_SHARED_SECRET) {
     console.warn('[security] Neither PROXY_SHARED_SECRET nor TRUST_PROXY is set: per-address rate limits will count every visitor behind the proxy as one client.');
   }

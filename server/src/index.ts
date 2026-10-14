@@ -52,15 +52,19 @@ process.on('uncaughtException', (err) => {
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:3000';
 app.use(cors({ origin: CLIENT_ORIGIN, credentials: true }));
 
-app.use(morgan('dev'));
+// Production logs omit the query string: it can carry a Microsoft sign-in
+// code or search text, neither of which belongs in the host's log history.
+morgan.token('path', req => (req as express.Request).originalUrl.split('?')[0]);
+app.use(morgan(IS_PROD ? ':method :path :status :response-time ms' : 'dev'));
 app.use(express.json());
 app.use(cookieParser());
 // AUD-003: must stay ahead of every route below.
 applySecurity(app);
 
-// Render polls this before routing live traffic to a new instance (see
-// `healthCheckPath` in render.yaml), so it must actually verify the service
-// can do its job, not just that the process is alive.
+// Suitable as the host's health-check path (render.yaml does not set one yet):
+// it verifies the service can do its job, not just that the process is alive.
+// It does not prove which database or file store is connected; an Admin reads
+// that from GET /api/admin/deployment-status.
 app.get('/api/health', async (_req, res) => {
   const checks: Record<string, string> = {};
   let healthy = true;
@@ -124,10 +128,6 @@ app.use(uploadErrorHandler);
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);
   res.status(500).json({ error: 'Internal server error' });
-});
-
-app.get('/api/health', (req, res) => {
-  res.status(200).json({ ok: true, timestamp: new Date().toISOString() });
 });
 
 app.listen(PORT, () => {

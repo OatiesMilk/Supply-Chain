@@ -80,11 +80,16 @@ const localPodStorage: PodStorage = {
   }
 };
 
-function supabaseStorage(): PodStorage {
-  const url = process.env.SUPABASE_URL?.replace(/\/$/, '');
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'pod';
+function supabaseConfig(env: NodeJS.ProcessEnv = process.env) {
+  const url = env.SUPABASE_URL?.replace(/\/$/, '');
+  const key = env.SUPABASE_SERVICE_ROLE_KEY;
+  const bucket = env.SUPABASE_STORAGE_BUCKET || 'pod';
   if (!url || !key) throw new Error('Supabase POD storage requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY');
+  return { url, key, bucket };
+}
+
+function supabaseStorage(): PodStorage {
+  const { url, key, bucket } = supabaseConfig();
   const endpoint = `${url}/storage/v1/object/${encodeURIComponent(bucket)}`;
   const headers = { Authorization: `Bearer ${key}`, apikey: key };
 
@@ -121,9 +126,64 @@ function supabaseStorage(): PodStorage {
   };
 }
 
-export const podStorage: PodStorage = process.env.POD_STORAGE_PROVIDER === 'supabase'
+export type PodStorageProvider = 'local' | 'supabase';
+
+// POD_STORAGE_PROVIDER must name a provider. Anything unrecognised (a typo, a
+// stray quote) is refused at startup instead of quietly selecting local disk,
+// which on an instance without a persistent disk loses every upload on restart.
+export function podStorageProvider(env: NodeJS.ProcessEnv = process.env): PodStorageProvider {
+  const configured = env.POD_STORAGE_PROVIDER?.trim().toLowerCase();
+  if (!configured) return 'local';
+  if (configured === 'local' || configured === 'supabase') return configured;
+  throw new Error('POD_STORAGE_PROVIDER must be "local" or "supabase"');
+}
+
+if (process.env.NODE_ENV === 'production' && !process.env.POD_STORAGE_PROVIDER?.trim()) {
+  console.warn('[POD] POD_STORAGE_PROVIDER is not set: uploads go to local disk and are lost on restart unless POD_UPLOAD_DIR is on a persistent disk.');
+}
+
+export const podStorage: PodStorage = podStorageProvider() === 'supabase'
   ? supabaseStorage()
   : localPodStorage;
+
+export type PodStorageStatus =
+  | { provider: 'local'; directory: string; exists: boolean; writable: boolean }
+  | {
+    provider: 'supabase'; host: string; bucket: string; reachable: boolean;
+    public: boolean | null; file_size_limit: number | null; allowed_mime_types: string[] | null; error?: string;
+  };
+
+// Read-only description of where uploads go, for the Admin deployment check.
+// It never writes, lists or reads stored files and never returns a credential.
+export async function podStorageStatus(env: NodeJS.ProcessEnv = process.env): Promise<PodStorageStatus> {
+  if (podStorageProvider(env) === 'local') {
+    const writable = await fs.promises.access(uploadDir, fs.constants.W_OK).then(() => true, () => false);
+    const exists = writable || await fs.promises.access(uploadDir).then(() => true, () => false);
+    return { provider: 'local', directory: uploadDir, exists, writable };
+  }
+
+  const { url, key, bucket } = supabaseConfig(env);
+  const status: PodStorageStatus = {
+    provider: 'supabase', host: new URL(url).host, bucket, reachable: false,
+    public: null, file_size_limit: null, allowed_mime_types: null,
+  };
+  try {
+    const response = await fetch(`${url}/storage/v1/bucket/${encodeURIComponent(bucket)}`, {
+      headers: { Authorization: `Bearer ${key}`, apikey: key },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return { ...status, error: `Bucket lookup failed (${response.status})` };
+    const details = await response.json() as { public?: boolean; file_size_limit?: number | null; allowed_mime_types?: string[] | null };
+    return {
+      ...status, reachable: true,
+      public: typeof details.public === 'boolean' ? details.public : null,
+      file_size_limit: details.file_size_limit ?? null,
+      allowed_mime_types: details.allowed_mime_types ?? null,
+    };
+  } catch {
+    return { ...status, error: 'Bucket lookup failed (network error or timeout)' };
+  }
+}
 
 // SEC-07: uploads are written to a private quarantine folder, never buffered
 // in memory. A file stays here only while its request is validated and copied
