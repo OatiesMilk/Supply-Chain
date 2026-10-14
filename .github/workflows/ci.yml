@@ -35,6 +35,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Verify Cloudflare Pages worker matches canonical source
+        run: |
+          if ! cmp --silent worker.js client/public/_worker.js; then
+            echo "client/public/_worker.js must be byte-identical to worker.js" >&2
+            exit 1
+          fi
+
       # Step 2: Set up Node.js with automated npm dependency caching
       - name: Setup Node.js
         uses: actions/setup-node@v4

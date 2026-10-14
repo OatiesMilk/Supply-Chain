@@ -1,198 +1,59 @@
 # Cloudflare Deployment
 
-> Last verified: 2026-10-09 against commit `ccbf192` (`dev`). The Cloudflare dashboard and the live Render service were not inspected; settings below come from the repository (`wrangler.json`, `worker.js`, `render.yaml`, `client/src/api/`).
+> This guide documents the repository configuration and safe checks. The Cloudflare, Render, and Supabase dashboards have not been inspected, so it does not confirm any live project, branch, environment variable, or deployment setting.
 
-The production frontend is hosted at Cloudflare Workers and the API is hosted
-on Render. Cloudflare Workers Builds tracks the `staging` branch and uses
-`client/` as its project root.
+## Deployment models and repository files
 
-## How API requests reach the API
+The canonical module Worker is the repository-root **worker.js**. Cloudflare Pages Advanced Mode needs an **_worker.js** entrypoint in the Pages build output directory. This repository keeps a byte-identical mirror at **client/public/_worker.js**; Vite copies it to **client/dist/_worker.js**. CI compares the mirror with the canonical source. Edit the root file, copy its bytes to the mirror, and let CI verify parity.
 
-The client calls relative `/api/...` URLs. `worker.js` forwards every `/api/*`
-request to `env.API_BASE_URL`. There is no built-in fallback host: if the
-variable is unset the Worker answers `503 API proxy is not configured`, so a
-deployment can never reach an API it was not explicitly pointed at.
-The health check is also relative when `VITE_API_BASE_URL` is unset, so it uses
-the same Worker proxy. This keeps browser requests and the session cookie on the
-Cloudflare origin.
+The repository-consistent Pages build settings are:
 
-## Frontend and API configuration
+| Setting | Intended value |
+| --- | --- |
+| Project root | **client** |
+| Build command | **npm run build** |
+| Build output directory | **dist** |
+| Advanced Mode entrypoint | **_worker.js** in the output directory |
 
-Set this Worker runtime variable in Cloudflare:
+Verify these settings in the Pages project and confirm that the build output contains **client/dist/_worker.js**. The repository alone cannot establish which Pages project, branch, or build settings are live.
 
-```env
-API_BASE_URL="https://supply-chain-9fnl.onrender.com"
-```
+The root **wrangler.json** and **client/wrangler.json** configure a separate Wrangler Worker-with-assets deployment. The client **cf:preview** script selects the root config. That preview is useful for the standalone Worker but does not verify Pages Advanced Mode or the Pages dashboard.
 
-Also set these for request security (AUD-003):
+Cloudflare Pages Advanced Mode uses its output-directory **_worker.js** as the request handler and provides the **ASSETS** binding for static files. Keep API proxying, static asset handling, security headers, and the React route fallback in the Worker.
 
-- **Worker secret `PROXY_SHARED_SECRET`** and the same value as the Render
-  environment variable `PROXY_SHARED_SECRET`. The Worker then forwards the
-  visitor's address (`CF-Connecting-IP`) to the API, which uses it for rate
-  limits. Without it every visitor is counted as one address.
-- **Render `CLIENT_ORIGIN`** (and `APP_URL` if SSO is configured) must be the
-  public Cloudflare origin, for example `https://portal.microgenesis.com`. The
-  API refuses writes whose `Origin` is not one of these.
+## Request routing and runtime configuration
 
-Set `API_BASE_URL` for **every** Cloudflare environment (production and
-preview). A preview that uses the same value as production writes to the same
-database and file store; it is not an isolated test backend.
+The Worker routes requests as follows:
 
-## Verifying a deployment (read-only)
+- Requests under **/api/** are forwarded to **API_BASE_URL**. There is no built-in fallback host; if **API_BASE_URL** is unset, the Worker returns HTTP 503.
+- Other requests go to **ASSETS**. A missing extensionless **GET** route falls back to **index.html** for React client-side routes.
+- Responses for frontend assets receive security headers. The Content-Security-Policy in **worker.js** must match the API policy in **server/src/middleware/security.ts**; server tests check that repository-level parity.
 
-`GET /api/health` shows the service works, not what it is connected to. To
-confirm the real targets, sign in to the deployed site as an Admin and open
-`/api/admin/deployment-status` in the same browser. It reports, without any
-secret value:
+Configure **API_BASE_URL** explicitly in every Cloudflare environment. Preview environments that point at a production API will share its database and file store; use an isolated backend for staging or preview UAT.
 
-- `database`: host, port and database name the API is connected to.
-- `storage`: the file store in use. For Supabase it reads the bucket's own
-  settings (private or public, size limit, allowed types) and writes nothing.
-- `origins` and `session_cookie`: the origins allowed to send writes and the
-  cookie flags in effect.
-- `proxy.request_carried_valid_secret`: `true` only when the request came
-  through the Worker with a `PROXY_SHARED_SECRET` matching the API's.
-  `proxy.client_address` is the address you are rate-limited under; it should
-  be your own public address, not a Cloudflare or Render one.
-- `settings_present`: whether each reviewed setting is set (yes/no only).
-- `warnings`: anything above that looks unsafe.
+For proxy client-address handling, configure the same **PROXY_SHARED_SECRET** in the Worker and API environment. The Worker removes browser-supplied proxy headers before adding its secret and the Cloudflare visitor address. The API trusts the forwarded address only when the secret is valid. Set **CLIENT_ORIGIN** to the exact deployed frontend origin and configure **APP_URL** as needed for Microsoft SSO. Do not paste secret values into issue comments or deployment evidence.
 
-`POD_STORAGE_PROVIDER` must be exactly `local` or `supabase`; the API refuses
-to start on any other value. Left unset it means `local`, which loses uploads
-on restart unless `POD_UPLOAD_DIR` is on a persistent disk.
+The deployed frontend uses relative **/api/** URLs through the same-origin Worker proxy. Do not set **VITE_API_BASE_URL** for this deployment model. Pages supplies **ASSETS** to its Functions runtime; the separate Wrangler deployment declares the binding in its config.
 
-The Worker also adds the Content-Security-Policy and related headers to the
-HTML it serves. The policy string in `worker.js` must match the one in
-`server/src/middleware/security.ts`; `npm run test:server` fails if they differ.
+## Read-only deployment identity check
 
-The Cloudflare Workers build configuration is:
+The Admin-only **GET /api/admin/deployment-status** endpoint reports which services the running API is configured to use. Open it in the deployed app after signing in as an Admin. It is read-only and does not reveal credentials. It reports:
 
-```text
-Root directory: client
-Build command: npm run build
-Output directory: dist
-```
+- Database host, port, database name, and whether the host is loopback.
+- Upload provider and identity. For Supabase storage it reads bucket reachability, privacy, size limit, and allowed MIME types; it does not read or upload files.
+- Configured origins, session-cookie flags, proxy-secret validity for the current request, and yes/no presence for reviewed settings.
+- Warnings about settings that appear unsafe.
 
-Do not set `VITE_API_BASE_URL` for the deployed frontend. It bypasses the Worker
-proxy and makes browser authentication cross-site, which is especially fragile
-on browsers that restrict third-party cookies. `ASSETS` is created from
-`wrangler.json`; it is not a secret or manually configured variable.
+The response includes infrastructure identifiers and the client address used for rate limiting. Redact those details appropriately before sharing evidence. **GET /api/health** only shows that the service is healthy; it does not identify the database or upload store.
 
-The Render service must allow the exact frontend origin:
+This endpoint does not prove database backup and restoration, migration rehearsal, attachment persistence, or isolated staging data. Complete those checks separately with an authorized release owner before staging writes or UAT.
 
-```env
-CLIENT_ORIGIN="https://supply-chain.mgenesis.workers.dev"
-```
+## Local and deployed checks
 
-The frontend uses `credentials: include`. The browser receives the proxied
-response from the Cloudflare origin while the Worker forwards the request to
-Render. Keep the backend cookie `HttpOnly` and `Secure`, and set
-`CLIENT_ORIGIN` to the exact Cloudflare origin. After changing cookie settings
-or deploying the production client, clear old cookies and sign in again.
+From **client/**, **npm run cf:preview** uses the pinned Wrangler command and repository-root config. It previews the standalone Worker against **client/dist**. A successful preview does not verify a Pages project, a Pages Git integration, live environment variables, or deployed storage.
 
-## Wrangler preview configuration
+For Pages, verify the build log and deployed behavior separately. Confirm that the output contains **_worker.js**, that **/api/** reaches the intended API, and that a direct refresh of **/dashboard** or another React route returns the application. A successful build or health check alone is not deployment evidence.
 
-A successful Vite build is not the same as a successful Workers deployment.
-Check both stages in the Cloudflare log:
+When using the separate Workers static-assets model, Cloudflare treats a Pages **_worker.js** copied into the assets directory as a public asset unless it is excluded or moved outside that directory. Follow [Cloudflare Pages-to-Workers migration guidance](https://developers.cloudflare.com/workers/static-assets/migration-guides/migrate-from-pages/) for that model. Keep the tracked **client/public/_worker.js** mirror for Pages Advanced Mode.
 
-1. `vite build` must finish successfully.
-2. `wrangler preview` must find the `previews` block in the active Wrangler
-   configuration.
-3. Wrangler must upload the Worker and print the
-   `supply-chain.mgenesis.workers.dev` deployment URL.
-
-The Vite chunk-size warning is non-fatal. If the build succeeds but the
-deployment still serves old behavior, verify that Workers Builds is connected
-to `staging`, then start a new deployment from the latest staging commit. A
-hostname such as `supply-chain.supply-chain.workers.dev` is invalid; use the
-deployed `supply-chain.mgenesis.workers.dev` hostname.
-
-For Cloudflare Workers Builds with `client` as the root directory, use this
-Preview command:
-
-```bash
-npx --yes wrangler@4.146.0 preview --config ../wrangler.json
-```
-
-The command pins Wrangler and explicitly selects the repository-root
-`wrangler.json` from the `client` working directory. Do not use a bare
-`npx wrangler preview`, which can install an unpinned CLI and may resolve a
-different configuration file. Both `client/wrangler.json` and the
-repository-root `wrangler.json` must retain `"previews": {}`.
-
-## Resolved Wrangler deployment errors
-
-### Missing `cf:preview` script
-
-If the log reports:
-
-```text
-Missing script: "cf:preview"
-```
-
-the build is using a checkout that predates the deployment hotfix or
-Cloudflare is running a stale deployment. Confirm that the Workers Build is
-tracking `staging` and start a new deployment from the latest commit. The
-current `client/package.json` defines the script.
-
-### Cannot read `./wrangler.json`
-
-If the log reports:
-
-```text
-Could not read file: ./wrangler.json
-ENOENT: no such file or directory
-```
-
-Cloudflare is running from the `client` root directory, while the active
-Wrangler configuration is at the repository root. Use:
-
-```bash
-npx --yes wrangler@4.146.0 preview --config ../wrangler.json
-```
-
-The repository-root configuration uses `worker.js` and serves assets from
-`client/dist`.
-
-### Uploading a Pages `_worker.js` file as an asset
-
-If the log reports:
-
-```text
-Uploading a Pages _worker.js file as an asset
-```
-
-do not keep `_worker.js` under `client/public/`. Vite copies files from that
-directory into `client/dist`, causing Wrangler to see the Worker entrypoint as
-both executable Worker code and a public asset. Keep the Worker entrypoint at
-the repository root as `worker.js`, remove `client/public/_worker.js`, and
-configure `wrangler.json` with:
-
-```json
-{
-  "main": "worker.js",
-  "assets": {
-    "directory": "client/dist",
-    "binding": "ASSETS"
-  }
-}
-```
-
-After the fix, `vite build` should complete without generating
-`client/dist/_worker.js`, and the Wrangler preview should upload the static
-assets successfully.
-
-## Client-side route refreshes
-
-The application uses client-side routes such as `/dashboard` and
-`/deliveries`. Browser navigation works because the app changes the URL without
-requesting a new document, but a direct refresh asks the Worker for that path.
-The Worker must return `client/dist/index.html` for an extensionless asset
-request that is not found; otherwise Cloudflare returns HTTP 404 for routes
-that the React app can handle.
-
-The repository's `worker.js` preserves `/api/*` proxying and implements this
-SPA fallback. Keep this behavior when changing the Worker entrypoint. A
-successful deployment log does not by itself verify route refreshes, so test
-the deployed root URL and a direct refresh of `/dashboard` or another
-extensionless application route.
+For details on the Pages entrypoint, see [Cloudflare Pages Advanced Mode](https://developers.cloudflare.com/pages/functions/advanced-mode/).
