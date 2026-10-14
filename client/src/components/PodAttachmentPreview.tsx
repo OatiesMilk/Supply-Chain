@@ -17,7 +17,8 @@ function formatUploadedAt(value: string) {
 function documentType(file: ApiPodAttachment) {
   const extension = file.name.split('.').pop()?.toUpperCase();
   if (file.mime_type === 'application/pdf' || extension === 'PDF') return 'PDF';
-  if (file.mime_type.includes('word') || extension === 'DOC' || extension === 'DOCX') return 'DOC';
+  if (extension === 'DOCX' || file.mime_type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'DOCX';
+  if (file.mime_type.includes('word') || extension === 'DOC') return 'DOC';
   return extension || 'FILE';
 }
 
