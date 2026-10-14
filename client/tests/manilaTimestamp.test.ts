@@ -56,6 +56,7 @@ test('workspace header, Overview and its editing state show Manila timestamps wi
   const saved = Object.getOwnPropertyDescriptors(globalThis);
   Object.defineProperties(globalThis, {
     window: { value: dom.window, configurable: true }, document: { value: dom.window.document, configurable: true },
+    navigator: { value: dom.window.navigator, configurable: true },
     IS_REACT_ACT_ENVIRONMENT: { value: true, configurable: true },
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -84,7 +85,7 @@ test('workspace header, Overview and its editing state show Manila timestamps wi
   } finally {
     await act(async () => { root.unmount(); });
     client.clear(); dom.window.close();
-    for (const key of ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT']) {
+    for (const key of ['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT']) {
       if (saved[key]) Object.defineProperty(globalThis, key, saved[key]);
       else Reflect.deleteProperty(globalThis, key);
     }
