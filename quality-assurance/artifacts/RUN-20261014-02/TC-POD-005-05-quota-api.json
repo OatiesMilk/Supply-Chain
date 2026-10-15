@@ -1,0 +1,78 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/records/REC-27816/attachments",
+    "file": {
+      "name": "uat-photo.png",
+      "mimeType": "image/png"
+    }
+  },
+  "uploads": [
+    {
+      "upload": 1,
+      "status": 201,
+      "body": "{\"id\":\"cmv8c1q2j007jwktcsbtzx31g\",\"name\":\"uat-photo.png\",\"mime_type\":\"image/png\",\"is_photo\":true,\"size\":168,\"uploaded_at\":\"2026-10-14T16:37:07.771Z\",\"download_url\":\"/api/records/REC-27816/attachments/cmv8c1q2j007jwktcsbtzx31g/download\"}",
+      "visibleAttachmentCount": 1
+    },
+    {
+      "upload": 2,
+      "status": 201,
+      "body": "{\"id\":\"cmv8c1r5c007lwktcz6784wt3\",\"name\":\"uat-photo.png\",\"mime_type\":\"image/png\",\"is_photo\":true,\"size\":168,\"uploaded_at\":\"2026-10-14T16:37:09.168Z\",\"download_url\":\"/api/records/REC-27816/attachments/cmv8c1r5c007lwktcz6784wt3/download\"}",
+      "visibleAttachmentCount": 2
+    },
+    {
+      "upload": 3,
+      "status": 201,
+      "body": "{\"id\":\"cmv8c1s64007nwktcsq0o8gjl\",\"name\":\"uat-photo.png\",\"mime_type\":\"image/png\",\"is_photo\":true,\"size\":168,\"uploaded_at\":\"2026-10-14T16:37:10.492Z\",\"download_url\":\"/api/records/REC-27816/attachments/cmv8c1s64007nwktcsq0o8gjl/download\"}",
+      "visibleAttachmentCount": 3
+    },
+    {
+      "upload": 4,
+      "status": 201,
+      "body": "{\"id\":\"cmv8c1t7j007pwktcqlhbsfb1\",\"name\":\"uat-photo.png\",\"mime_type\":\"image/png\",\"is_photo\":true,\"size\":168,\"uploaded_at\":\"2026-10-14T16:37:11.839Z\",\"download_url\":\"/api/records/REC-27816/attachments/cmv8c1t7j007pwktcqlhbsfb1/download\"}",
+      "visibleAttachmentCount": 4
+    },
+    {
+      "upload": 5,
+      "status": 201,
+      "body": "{\"id\":\"cmv8c1u8a007rwktcbajhvcvp\",\"name\":\"uat-photo.png\",\"mime_type\":\"image/png\",\"is_photo\":true,\"size\":168,\"uploaded_at\":\"2026-10-14T16:37:13.162Z\",\"download_url\":\"/api/records/REC-27816/attachments/cmv8c1u8a007rwktcbajhvcvp/download\"}",
+      "visibleAttachmentCount": 5
+    },
+    {
+      "upload": 6,
+      "status": 201,
+      "body": "{\"id\":\"cmv8c1v8k007twktcgqkzmh6b\",\"name\":\"uat-photo.png\",\"mime_type\":\"image/png\",\"is_photo\":true,\"size\":168,\"uploaded_at\":\"2026-10-14T16:37:14.468Z\",\"download_url\":\"/api/records/REC-27816/attachments/cmv8c1v8k007twktcgqkzmh6b/download\"}",
+      "visibleAttachmentCount": 6
+    },
+    {
+      "upload": 7,
+      "status": 201,
+      "body": "{\"id\":\"cmv8c1w9n007vwktc2vzf4n28\",\"name\":\"uat-photo.png\",\"mime_type\":\"image/png\",\"is_photo\":true,\"size\":168,\"uploaded_at\":\"2026-10-14T16:37:15.803Z\",\"download_url\":\"/api/records/REC-27816/attachments/cmv8c1w9n007vwktc2vzf4n28/download\"}",
+      "visibleAttachmentCount": 7
+    },
+    {
+      "upload": 8,
+      "status": 201,
+      "body": "{\"id\":\"cmv8c1xbb007xwktcrhjc8tp7\",\"name\":\"uat-photo.png\",\"mime_type\":\"image/png\",\"is_photo\":true,\"size\":168,\"uploaded_at\":\"2026-10-14T16:37:17.159Z\",\"download_url\":\"/api/records/REC-27816/attachments/cmv8c1xbb007xwktcrhjc8tp7/download\"}",
+      "visibleAttachmentCount": 8
+    },
+    {
+      "upload": 9,
+      "status": 201,
+      "body": "{\"id\":\"cmv8c1ycc007zwktctuy1y48j\",\"name\":\"uat-photo.png\",\"mime_type\":\"image/png\",\"is_photo\":true,\"size\":168,\"uploaded_at\":\"2026-10-14T16:37:18.492Z\",\"download_url\":\"/api/records/REC-27816/attachments/cmv8c1ycc007zwktctuy1y48j/download\"}",
+      "visibleAttachmentCount": 9
+    },
+    {
+      "upload": 10,
+      "status": 201,
+      "body": "{\"id\":\"cmv8c1ze70081wktc7vor2aku\",\"name\":\"uat-photo.png\",\"mime_type\":\"image/png\",\"is_photo\":true,\"size\":168,\"uploaded_at\":\"2026-10-14T16:37:19.855Z\",\"download_url\":\"/api/records/REC-27816/attachments/cmv8c1ze70081wktc7vor2aku/download\"}",
+      "visibleAttachmentCount": 10
+    },
+    {
+      "upload": 11,
+      "status": 409,
+      "body": "{\"error\":\"This record already has 10 attachments; the limit is 10. Remove one before uploading another.\",\"code\":\"ATTACHMENT_QUOTA_EXCEEDED\"}",
+      "visibleAttachmentCount": 10
+    }
+  ]
+}

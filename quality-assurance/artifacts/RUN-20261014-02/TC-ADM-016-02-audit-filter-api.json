@@ -1,0 +1,467 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/admin/audit-log?action=LINK_LOGIN"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "page": 1,
+      "limit": 50,
+      "total": 80,
+      "pages": 2,
+      "entries": [
+        {
+          "id": "cmv8b7v5y006gwktclkihyd6b",
+          "record_id": "cmv89jrh9005ewktcwsev4jf7",
+          "record_type": "Driver",
+          "action": "LINK_LOGIN",
+          "changed_by": "System Admin",
+          "changed_by_id": "cmv86h1fa00032otco6frctb8",
+          "timestamp": "2026-10-14T16:13:54.694Z"
+        },
+        {
+          "id": "cmv8aptrj006dwktcta1neu0s",
+          "record_id": "cmv86h19s00002otcqu2vqdb5",
+          "record_type": "UserPermission",
+          "action": "UPDATE",
+          "changed_by": "System Admin",
+          "changed_by_id": "cmv86h1fa00032otco6frctb8",
+          "timestamp": "2026-10-14T15:59:53.071Z"
+        },
+        {
+          "id": "cmv8aptqe006cwktc9fhbwick",
+          "record_id": "cmv86h19s00002otcqu2vqdb5",
+          "record_type": "UserPermission",
+          "action": "UPDATE",
+          "changed_by": "System Admin",
+          "changed_by_id": "cmv86h1fa00032otco6frctb8",
+          "timestamp": "2026-10-14T15:59:53.030Z"
+        },
+        {
+          "id": "cmv8aplzx006bwktccyo3q40s",
+          "record_id": "cmv86h19s00002otcqu2vqdb5",
+          "record_type": "UserPermission",
+          "action": "UPDATE",
+          "changed_by": "System Admin",
+          "changed_by_id": "cmv86h1fa00032otco6frctb8",
+          "timestamp": "2026-10-14T15:59:43.005Z"
+        },
+        {
+          "id": "cmv8ao83k0069wktcjplqti47",
+          "record_id": "cmv86h1bo00012otc7vr6xege",
+          "record_type": "UserPermission",
+          "action": "UPDATE",
+          "changed_by": "System Admin",
+          "changed_by_id": "cmv86h1fa00032otco6frctb8",
+          "timestamp": "2026-10-14T15:58:38.336Z"
+        },
+        {
+          "id": "cmv8ao82e0068wktc3grpu9rk",
+          "record_id": "cmv86h1bo00012otc7vr6xege",
+          "record_type": "UserPermission",
+          "action": "UPDATE",
+          "changed_by": "System Admin",
+          "changed_by_id": "cmv86h1fa00032otco6frctb8",
+          "timestamp": "2026-10-14T15:58:38.294Z"
+        },
+        {
+          "id": "cmv8anzq00067wktcyxae9r2q",
+          "record_id": "cmv8aiobg005pwktcfvb0fi59",
+          "record_type": "SKU",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:58:27.480Z"
+        },
+        {
+          "id": "cmv8anni40065wktcphdx6cye",
+          "record_id": "cmv86h1bo00012otc7vr6xege",
+          "record_type": "UserPermission",
+          "action": "UPDATE",
+          "changed_by": "System Admin",
+          "changed_by_id": "cmv86h1fa00032otco6frctb8",
+          "timestamp": "2026-10-14T15:58:11.644Z"
+        },
+        {
+          "id": "cmv8al2170063wktcyivuywge",
+          "record_id": "cmv8aiobg005pwktcfvb0fi59",
+          "record_type": "SKU",
+          "action": "UPDATE",
+          "changed_by": "System Admin",
+          "changed_by_id": "cmv86h1fa00032otco6frctb8",
+          "timestamp": "2026-10-14T15:56:10.507Z"
+        },
+        {
+          "id": "cmv8akob10061wktcjo2negxm",
+          "record_id": "cmv8aiobg005pwktcfvb0fi59",
+          "record_type": "SKU",
+          "action": "UPDATE",
+          "changed_by": "System Admin",
+          "changed_by_id": "cmv86h1fa00032otco6frctb8",
+          "timestamp": "2026-10-14T15:55:52.717Z"
+        },
+        {
+          "id": "cmv8ako2i005zwktcjrdb51lk",
+          "record_id": "cmv8aiobg005pwktcfvb0fi59",
+          "record_type": "SKU",
+          "action": "UPDATE",
+          "changed_by": "System Admin",
+          "changed_by_id": "cmv86h1fa00032otco6frctb8",
+          "timestamp": "2026-10-14T15:55:52.410Z"
+        },
+        {
+          "id": "cmv8akiz1005xwktc9dg066jn",
+          "record_id": "cmv8aiobg005pwktcfvb0fi59",
+          "record_type": "SKU",
+          "action": "UPDATE",
+          "changed_by": "System Admin",
+          "changed_by_id": "cmv86h1fa00032otco6frctb8",
+          "timestamp": "2026-10-14T15:55:45.805Z"
+        },
+        {
+          "id": "cmv8aiv8m005uwktcdseucbkr",
+          "record_id": "cmv8aiv89005swktcldnkq6a3",
+          "record_type": "SKU",
+          "action": "CREATE",
+          "changed_by": "System Admin",
+          "changed_by_id": "cmv86h1fa00032otco6frctb8",
+          "timestamp": "2026-10-14T15:54:28.390Z"
+        },
+        {
+          "id": "cmv8aiobr005rwktctnsm7lpi",
+          "record_id": "cmv8aiobg005pwktcfvb0fi59",
+          "record_type": "SKU",
+          "action": "CREATE",
+          "changed_by": "System Admin",
+          "changed_by_id": "cmv86h1fa00032otco6frctb8",
+          "timestamp": "2026-10-14T15:54:19.431Z"
+        },
+        {
+          "id": "cmv8a7znp005mwktcmhh5f0iv",
+          "record_id": "cmv8a3kah005kwktcgx88xkgt",
+          "record_type": "Customer",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:46:00.901Z"
+        },
+        {
+          "id": "cmv8a3kan005lwktcb1y447t1",
+          "record_id": "cmv8a3kah005kwktcgx88xkgt",
+          "record_type": "Customer",
+          "action": "CREATE",
+          "changed_by": "Maria Reyes",
+          "changed_by_id": "cmv86h19s00002otcqu2vqdb5",
+          "timestamp": "2026-10-14T15:42:34.367Z"
+        },
+        {
+          "id": "cmv89qmys005iwktc09njqu17",
+          "record_id": "cmv86h1kd001y2otc4ii6o9hy",
+          "record_type": "Driver",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:32:31.300Z"
+        },
+        {
+          "id": "cmv89llz4005hwktcyvzfqxtv",
+          "record_id": "cmv89llz2005gwktcsvfmba9e",
+          "record_type": "Driver",
+          "action": "CREATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:28:36.736Z"
+        },
+        {
+          "id": "cmv89jrhb005fwktcty2e5kit",
+          "record_id": "cmv89jrh9005ewktcwsev4jf7",
+          "record_type": "Driver",
+          "action": "CREATE",
+          "changed_by": "System Admin",
+          "changed_by_id": "cmv86h1fa00032otco6frctb8",
+          "timestamp": "2026-10-14T15:27:10.559Z"
+        },
+        {
+          "id": "cmv89h5nc005cwktcf3ck1375",
+          "record_id": "REC-DEMO-20261014-94890005F3B2117A",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "John Doe",
+          "changed_by_id": "cmv86h1h200042otc7p6aycdn",
+          "timestamp": "2026-10-14T15:25:08.952Z"
+        },
+        {
+          "id": "cmv89f5kq0059wktcyl9rtnry",
+          "record_id": "REC-DEMO-20261014-94890005F3B2117A",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "John Doe",
+          "changed_by_id": "cmv86h1h200042otc7p6aycdn",
+          "timestamp": "2026-10-14T15:23:35.546Z"
+        },
+        {
+          "id": "cmv89f5gp0058wktcsa42al2v",
+          "record_id": "REC-DEMO-20261014-94890005F3B2117A",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "John Doe",
+          "changed_by_id": "cmv86h1h200042otc7p6aycdn",
+          "timestamp": "2026-10-14T15:23:35.401Z"
+        },
+        {
+          "id": "cmv89eopl0055wktcxegp9z2b",
+          "record_id": "REC-DEMO-20261014-94890005F3B2117A",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "John Doe",
+          "changed_by_id": "cmv86h1h200042otc7p6aycdn",
+          "timestamp": "2026-10-14T15:23:13.689Z"
+        },
+        {
+          "id": "cmv89enoj0053wktc4hzx4f3l",
+          "record_id": "REC-DEMO-20261014-94890005F3B2117A",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "John Doe",
+          "changed_by_id": "cmv86h1h200042otc7p6aycdn",
+          "timestamp": "2026-10-14T15:23:12.355Z"
+        },
+        {
+          "id": "cmv89ddky004zwktc5xruopms",
+          "record_id": "REC-20457",
+          "record_type": "DeliveryRecord",
+          "action": "CREATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:22:12.610Z"
+        },
+        {
+          "id": "cmv89b7eg004xwktcixgxnla0",
+          "record_id": "REC-25922",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Maria Reyes",
+          "changed_by_id": "cmv86h19s00002otcqu2vqdb5",
+          "timestamp": "2026-10-14T15:20:31.288Z"
+        },
+        {
+          "id": "cmv89b5zt004twktcfqr5cvtu",
+          "record_id": "REC-25922",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:20:29.465Z"
+        },
+        {
+          "id": "cmv89b4zt004rwktcwiwx4ad8",
+          "record_id": "REC-25922",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Maria Reyes",
+          "changed_by_id": "cmv86h19s00002otcqu2vqdb5",
+          "timestamp": "2026-10-14T15:20:28.169Z"
+        },
+        {
+          "id": "cmv89b4se004pwktcon41558p",
+          "record_id": "REC-25922",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Maria Reyes",
+          "changed_by_id": "cmv86h19s00002otcqu2vqdb5",
+          "timestamp": "2026-10-14T15:20:27.902Z"
+        },
+        {
+          "id": "cmv89al9j004lwktc7ukf6jba",
+          "record_id": "REC-25922",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:20:02.599Z"
+        },
+        {
+          "id": "cmv89akqy004jwktc00yh0r68",
+          "record_id": "REC-25922",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:20:01.930Z"
+        },
+        {
+          "id": "cmv89akat004hwktc6wwdx992",
+          "record_id": "REC-25922",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:20:01.349Z"
+        },
+        {
+          "id": "cmv89a6z1004dwktczepbsd2t",
+          "record_id": "REC-25922",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:19:44.077Z"
+        },
+        {
+          "id": "cmv899x3y004bwktc6dw9sx52",
+          "record_id": "REC-25922",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:19:31.294Z"
+        },
+        {
+          "id": "cmv899v5z0047wktcn72nrl85",
+          "record_id": "REC-25922",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:19:28.775Z"
+        },
+        {
+          "id": "cmv899ije0045wktcr2vtusdy",
+          "record_id": "REC-25922",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:19:12.410Z"
+        },
+        {
+          "id": "cmv8997aw0043wktc4ruijzs6",
+          "record_id": "REC-25922",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:18:57.848Z"
+        },
+        {
+          "id": "cmv8996sa0040wktc6h0nw5no",
+          "record_id": "REC-25922",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:18:57.178Z"
+        },
+        {
+          "id": "cmv898sii003ywktchkotwx2w",
+          "record_id": "REC-25922",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:18:38.682Z"
+        },
+        {
+          "id": "cmv8973xq003wwktcq6qrd97u",
+          "record_id": "REC-39784",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:17:20.174Z"
+        },
+        {
+          "id": "cmv8959t0003twktc03bflucg",
+          "record_id": "REC-39784",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:15:54.468Z"
+        },
+        {
+          "id": "cmv8959o3003rwktcjtujguht",
+          "record_id": "REC-39784",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:15:54.291Z"
+        },
+        {
+          "id": "cmv8959lv003qwktcqh0orufj",
+          "record_id": "REC-39784",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:15:54.211Z"
+        },
+        {
+          "id": "cmv8959ku003owktcpg0ppxcc",
+          "record_id": "REC-39784",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:15:54.174Z"
+        },
+        {
+          "id": "cmv8938lk003jwktc1h8lk6mw",
+          "record_id": "REC-39784",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:14:19.592Z"
+        },
+        {
+          "id": "cmv892l2q003hwktc49btcfap",
+          "record_id": "REC-39784",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:13:49.106Z"
+        },
+        {
+          "id": "cmv891wqh003dwktceomvubaa",
+          "record_id": "REC-39784",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:13:17.561Z"
+        },
+        {
+          "id": "cmv891k6h0039wktc0jcaqmoc",
+          "record_id": "REC-39784",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:13:01.289Z"
+        },
+        {
+          "id": "cmv8916qf0035wktc0408tvi9",
+          "record_id": "REC-39784",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:12:43.863Z"
+        },
+        {
+          "id": "cmv88zeav0033wktc501budx9",
+          "record_id": "REC-39784",
+          "record_type": "DeliveryRecord",
+          "action": "UPDATE",
+          "changed_by": "Juan Santos",
+          "changed_by_id": "cmv86h1bo00012otc7vr6xege",
+          "timestamp": "2026-10-14T15:11:20.359Z"
+        }
+      ]
+    }
+  }
+}

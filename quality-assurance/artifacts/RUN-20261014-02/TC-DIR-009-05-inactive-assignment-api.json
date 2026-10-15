@@ -1,0 +1,12 @@
+﻿{
+    "method":  "PUT",
+    "path":  "/api/records/REC-27816",
+    "request":  {
+                    "driver":  "UAT Driver Alpha",
+                    "remarks":  "UAT probe"
+                },
+    "response":  {
+                     "body":  "{\"error\":\"Driver \\\"UAT Driver Alpha\\\" is inactive or not in the directory. Choose an active entry.\"",
+                     "status":  400
+                 }
+}
