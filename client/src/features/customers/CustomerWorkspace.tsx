@@ -76,7 +76,6 @@ export default function CustomerWorkspace({
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [editing, setEditing] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const [formKey, setFormKey] = useState(0);
   const [savedNotice, setSavedNotice] = useState(false);
   const [pendingLeave, setPendingLeave] = useState<(() => void) | null>(null);
   const handleDirtyChange = useCallback((value: boolean) => setDirty(value), []);
@@ -154,14 +153,19 @@ export default function CustomerWorkspace({
 
             {editing ? (
               <CustomerEditForm
-                key={`${customer.id}-${formKey}`}
                 customer={customer}
                 onDirtyChange={handleDirtyChange}
                 onCancel={() => guard(() => {})}
                 onSaved={() => { setEditing(false); setDirty(false); setSavedNotice(true); }}
                 onReloadLatest={async () => {
-                  await queryClient.refetchQueries({ queryKey: CUSTOMERS_QUERY_KEY });
-                  setFormKey(k => k + 1);
+                  await queryClient.refetchQueries(
+                    { queryKey: CUSTOMERS_QUERY_KEY, type: 'active' },
+                    { throwOnError: true },
+                  );
+                  const latest = queryClient.getQueryData<Customer[]>(CUSTOMERS_QUERY_KEY)
+                    ?.find(candidate => candidate.id === customer.id);
+                  if (!latest) throw new Error('Customer was not present in the refreshed list.');
+                  return latest;
                 }}
               />
             ) : (<>

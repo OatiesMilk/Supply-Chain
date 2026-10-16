@@ -84,4 +84,4 @@ The report records observed behavior from the linked case and does not assert an
 
 | Run ID | Date | Result | Notes |
 |---|---|---|---|
-| | | | |
+| RUN-20261016-DEF021 | 2026-10-16 | Historical missing warning not reproduced; failed reload recovery defect confirmed and locally corrected | Two real Sales/Logistics contexts on merged baseline `5609b741cc9f6f8012ef77d097f42ffc6889fd40`: stale write returned 409 and protected committed data. A failed list refresh discarded the draft on the baseline; the localized UI fix preserved it and passed retry/fresh-save/audit checks. See [#183 verification and evidence](../06-reports/2026-10-16-def021-customer-conflict.md). Owner acceptance remains pending. |
