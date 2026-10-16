@@ -85,3 +85,11 @@ The report records observed behavior from the linked case and does not assert an
 | Run ID | Date | Result | Notes |
 |---|---|---|---|
 | | | | |
+
+### Retest observation: RUN-20261015-08
+
+Fail, Sales-account adaptation: direct Enter on a unique global-search result leaves the overlay open; ArrowDown then Enter works. Original Logistics-role case not rerun.
+
+![DEF-030 retest](../artifacts/RUN-20261015-08/SC-SEARCH-001-02-failure.png)
+
+[Focused run report](../06-reports/UAT-summary-RUN-20261015-08.md)

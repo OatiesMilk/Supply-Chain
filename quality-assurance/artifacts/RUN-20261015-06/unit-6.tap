@@ -1,0 +1,123 @@
+TAP version 13
+# Subtest: Layer 1 (Unit): RBAC, Permissions & Scoping Engine
+    # Subtest: Role Screen Defaults
+        # Subtest: test_sales_coordinator_defaults_exclude_admin_driver_manager_and_inventory
+        ok 1 - test_sales_coordinator_defaults_exclude_admin_driver_manager_and_inventory
+          ---
+          duration_ms: 1.044245
+          type: 'test'
+          ...
+        # Subtest: test_logistics_defaults_include_driver_dispatch_and_reports
+        ok 2 - test_logistics_defaults_include_driver_dispatch_and_reports
+          ---
+          duration_ms: 0.293159
+          type: 'test'
+          ...
+        # Subtest: test_driver_role_is_sandboxed_strictly_to_driver_dashboard
+        ok 3 - test_driver_role_is_sandboxed_strictly_to_driver_dashboard
+          ---
+          duration_ms: 1.566932
+          type: 'test'
+          ...
+        # Subtest: test_admin_defaults_include_all_operational_screens_except_driver_dashboard
+        ok 4 - test_admin_defaults_include_all_operational_screens_except_driver_dashboard
+          ---
+          duration_ms: 0.176902
+          type: 'test'
+          ...
+        1..4
+    ok 1 - Role Screen Defaults
+      ---
+      duration_ms: 4.358052
+      type: 'suite'
+      ...
+    # Subtest: Permission Overrides and Effective Screens
+        # Subtest: test_can_grant_sku_master_to_sales_coordinator_via_override
+        ok 1 - test_can_grant_sku_master_to_sales_coordinator_via_override
+          ---
+          duration_ms: 0.377129
+          type: 'test'
+          ...
+        # Subtest: test_can_revoke_screen_from_logistics_via_override
+        ok 2 - test_can_revoke_screen_from_logistics_via_override
+          ---
+          duration_ms: 0.170807
+          type: 'test'
+          ...
+        # Subtest: test_driver_permissions_cannot_be_expanded_to_admin_or_web_screens
+        ok 3 - test_driver_permissions_cannot_be_expanded_to_admin_or_web_screens
+          ---
+          duration_ms: 0.186667
+          type: 'test'
+          ...
+        1..3
+    ok 2 - Permission Overrides and Effective Screens
+      ---
+      duration_ms: 1.003267
+      type: 'suite'
+      ...
+    # Subtest: Permission Input Validation
+        # Subtest: test_rejects_non_array_payloads
+        ok 1 - test_rejects_non_array_payloads
+          ---
+          duration_ms: 0.390645
+          type: 'test'
+          ...
+        # Subtest: test_rejects_unknown_screens_or_invalid_values
+        ok 2 - test_rejects_unknown_screens_or_invalid_values
+          ---
+          duration_ms: 0.169573
+          type: 'test'
+          ...
+        # Subtest: test_rejects_duplicate_screen_entries
+        ok 3 - test_rejects_duplicate_screen_entries
+          ---
+          duration_ms: 0.296111
+          type: 'test'
+          ...
+        # Subtest: test_accepts_clean_valid_permission_array
+        ok 4 - test_accepts_clean_valid_permission_array
+          ---
+          duration_ms: 0.229681
+          type: 'test'
+          ...
+        1..4
+    ok 3 - Permission Input Validation
+      ---
+      duration_ms: 1.419718
+      type: 'suite'
+      ...
+    # Subtest: Resource Scoping & Hash Generation
+        # Subtest: test_maps_screens_to_required_backend_resources
+        ok 1 - test_maps_screens_to_required_backend_resources
+          ---
+          duration_ms: 1.02175
+          type: 'test'
+          ...
+        # Subtest: test_permission_snapshot_computes_deterministic_sha256_hash
+        ok 2 - test_permission_snapshot_computes_deterministic_sha256_hash
+          ---
+          duration_ms: 0.646017
+          type: 'test'
+          ...
+        1..2
+    ok 4 - Resource Scoping & Hash Generation
+      ---
+      duration_ms: 1.92217
+      type: 'suite'
+      ...
+    1..4
+ok 1 - Layer 1 (Unit): RBAC, Permissions & Scoping Engine
+  ---
+  duration_ms: 9.44194
+  type: 'suite'
+  ...
+1..1
+# tests 13
+# suites 5
+# pass 13
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 23.099274

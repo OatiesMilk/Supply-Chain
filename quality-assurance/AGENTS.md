@@ -1,5 +1,7 @@
 # AGENTS.md: Operating Manual for the UAT Executor
 
+> User override, 2026-10-15: Microsoft login is now authorized for the user-designated account. The earlier SSO exclusion below remains historical for Cycle 1. Use the interactive account smoke documented in `e2e/README.md`; the user completes password/MFA/consent. A single account must not stand in for other roles.
+
 | Document control | |
 |---|---|
 | Title | Operating Manual for ChatGPT Codex (UAT executor and reporter) |

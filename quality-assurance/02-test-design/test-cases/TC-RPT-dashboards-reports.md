@@ -48,10 +48,10 @@ Conventions used in every case:
 | Test Data | None beyond preconditions |
 | Steps | 1. Dashboard: note the numbers on "Pending Driver Assignment" and "On-Hold Items".<br>2. Click "Pending Driver Assignment"; count the list rows (total).<br>3. Back; click "On-Hold Items"; count rows. |
 | Expected Result | Each card number equals the number of records listed after clicking it. |
-| Actual Result | RUN-20261014-02: Observed the case expected result: Each card number equals the number of records listed after clicking it. / |
-| Status | RUN-20261014-02: Pass |
-| Evidence | RUN-20261014-02: [TC-RPT-001-01-dashboard.png](../../artifacts/RUN-20261014-02/TC-RPT-001-01-dashboard.png); [TC-RPT-001-02-pending-click.png](../../artifacts/RUN-20261014-02/TC-RPT-001-02-pending-click.png); [TC-RPT-001-03-pending-list.png](../../artifacts/RUN-20261014-02/TC-RPT-001-03-pending-list.png); [TC-RPT-001-04-onhold-list.png](../../artifacts/RUN-20261014-02/TC-RPT-001-04-onhold-list.png) |
-| Defect ID | RUN-20261014-02: — |
+| Actual Result | RUN-20261015-08: Microsoft Sales account: Pending Driver Assignment card 23 and drilldown total 23; On-Hold Items card 3 and drilldown total 3. |
+| Status | RUN-20261015-08: Pass |
+| Evidence | RUN-20261015-08: [TC-RPT-001-03-result.png](../../artifacts/RUN-20261015-08/TC-RPT-001-03-result.png) |
+| Defect ID | RUN-20261015-08: — |
 ### TC-RPT-002: Logistics dashboard shows driver workload
 
 | Field | Description |

@@ -1,0 +1,52 @@
+TAP version 13
+# Subtest: runner never reports startup failures or missing TAP summaries as success
+ok 1 - runner never reports startup failures or missing TAP summaries as success
+  ---
+  duration_ms: 1.635677
+  type: 'test'
+  ...
+# Subtest: runner propagates real assertion failures, cancellations and incomplete execution
+ok 2 - runner propagates real assertion failures, cancellations and incomplete execution
+  ---
+  duration_ms: 0.275532
+  type: 'test'
+  ...
+# Subtest: runner discovers canonical regression and browser files, excluding interactive SSO by default
+ok 3 - runner discovers canonical regression and browser files, excluding interactive SSO by default
+  ---
+  duration_ms: 0.525821
+  type: 'test'
+  ...
+# Subtest: target guard rejects external hosts, credentials and wrong ports or prefixes
+ok 4 - target guard rejects external hosts, credentials and wrong ports or prefixes
+  ---
+  duration_ms: 0.565788
+  type: 'test'
+  ...
+# Subtest: write guard rejects production names and remote databases
+ok 5 - write guard rejects production names and remote databases
+  ---
+  duration_ms: 0.456501
+  type: 'test'
+  ...
+# Subtest: API path guard rejects cross-origin and traversal targets before fetching
+ok 6 - API path guard rejects cross-origin and traversal targets before fetching
+  ---
+  duration_ms: 0.685275
+  type: 'test'
+  ...
+# Subtest: retained evidence removes credential and session fields
+ok 7 - retained evidence removes credential and session fields
+  ---
+  duration_ms: 1.830315
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 24.610147

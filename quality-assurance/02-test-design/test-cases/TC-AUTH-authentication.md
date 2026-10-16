@@ -242,10 +242,10 @@ Conventions used in every case:
 | Test Data | None |
 | Steps | 1. Navigate to `http://localhost:3000/admin`.<br>2. In the console run `fetch('/api/records').then(async r=>[r.status, await r.text()])`.<br>3. Run `fetch('/api/users').then(r=>r.status)`. |
 | Expected Result | • Step 1 shows the login page at `/login`.<br>• Step 2: 401 with `{"error":"Not authenticated"}`.<br>• Step 3: 401. |
-| Actual Result | RUN-20261014-02: Observed the case expected result: • Step 1 shows the login page at `/login`.; • Step 2: 401 with `{"error":"Not authenticated"}`.; • Step 3: 401. / |
-| Status | RUN-20261014-02: Pass |
-| Evidence | RUN-20261014-02: [TC-AUTH-011-01-anonymous-blocked.png](../../artifacts/RUN-20261014-02/TC-AUTH-011-01-anonymous-blocked.png) |
-| Defect ID | RUN-20261014-02: — |
+| Actual Result | RUN-20261015-08: New anonymous context: /admin redirects to /login and Microsoft sign-in button is visible. GET records returns 401 with error Not authenticated; GET users returns 401 with the same error. Authenticated Sales context remained separate. |
+| Status | RUN-20261015-08: Pass |
+| Evidence | RUN-20261015-08: [TC-AUTH-011-01-anonymous-login.png](../../artifacts/RUN-20261015-08/TC-AUTH-011-01-anonymous-login.png) |
+| Defect ID | RUN-20261015-08: — |
 ### TC-AUTH-012: A write without the CSRF token is refused
 
 | Field | Description |

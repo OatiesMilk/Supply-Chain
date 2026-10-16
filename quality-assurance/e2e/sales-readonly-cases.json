@@ -1,0 +1,128 @@
+[
+  {
+    "id": "TC-ACC-001",
+    "title": "Sales Coordinator sidebar matches approved modules",
+    "coverage": "Complete sidebar case; Microsoft Sales account",
+    "code": "await state.navigate('dashboard');const nav=page.getByRole('navigation');const labels=await nav.getByRole('button').allTextContents();await screenshot('sidebar');const expected=['Main','Dashboard','Deliveries','RMA','Accounting Collection','Procurement Pick-up','Sales Orders','Customers','Suppliers','Delivery Calendar','Reports','AM Directory','Transaction Center'];const missing=expected.filter(label=>!labels.some(text=>text.trim().startsWith(label)));const unexpected=['Drivers','SKU Master','Data Sampler','Admin Panel'].filter(label=>labels.some(text=>text.trim().startsWith(label)));if(missing.length||unexpected.length)throw new Error(JSON.stringify({missing,unexpected,visible:labels}));return {visible:labels};"
+  },
+  {
+    "id": "SC-ACCESS-002",
+    "title": "Protected routes and approved Calendar/Reports access after session load",
+    "coverage": "TC-ACC-002 steps 1-4; write probe blocked. Corrects initial transient-page observation.",
+    "code": "const observations=[];for(const route of ['admin','inventory','driver_manager','calendar','statistical_reports']){await state.navigate(route);const body=await page.locator('body').innerText();observations.push({route,finalPath:new URL(page.url()).pathname,denied:new URL(page.url()).pathname==='/dashboard'||body.includes('This page is not available for your account.')});await screenshot(route);}const users=await api('GET','/users');const reports=await api('GET','/reports/summary');state.verifiedAccess={observations,users,reports};const wrong=observations.filter(x=>['calendar','statistical_reports'].includes(x.route)?x.denied:!x.denied);if(wrong.length||users.status!==403||reports.status!==200)throw new Error(JSON.stringify(state.verifiedAccess));return state.verifiedAccess;"
+  },
+  {
+    "id": "SC-API-002",
+    "title": "Sales allowed resource APIs return data",
+    "coverage": "Read-only endpoint smoke; replaces invalid unregistered endpoint in SC-API-001",
+    "code": "await state.navigate('dashboard');const out=[];for(const endpoint of ['/records?category=Deliveries','/companies','/customers','/suppliers','/notifications']){const response=await api('GET',endpoint);out.push({endpoint,status:response.status,count:Array.isArray(response.body)?response.body.length:undefined});if(endpoint.startsWith('/records')){state.deliveries=response.body;state.record=response.body.find(r=>r.reference&&response.body.filter(x=>x.reference===r.reference).length===1);}}if(out.some(x=>x.status!==200))throw new Error(JSON.stringify(out));return out;"
+  },
+  {
+    "id": "TC-RPT-001",
+    "title": "Sales dashboard KPI drilldowns match list totals",
+    "coverage": "Complete read-only case with current Sales account",
+    "code": "const out=[];for(const id of ['kpi-pending-driver','kpi-on-hold']){await state.navigate('dashboard');const card=page.locator('#'+id);await expect(card).toBeVisible();const expected=Number(await card.locator('h3').innerText());await card.click();await expect(page.getByPlaceholder('Search records...')).toBeVisible();const info=page.getByTestId('pagination-records-info');await expect(info).toContainText(/of\\s+[\\d,]+\\s+records/i);const text=await info.innerText();const total=Number(text.match(/of\\s+([\\d,]+)\\s+records/i)[1].replaceAll(',',''));out.push({card:id,cardCount:expected,listTotal:total,pagination:text});await screenshot(id);}if(out.some(x=>x.cardCount!==x.listTotal))throw new Error(JSON.stringify(out));return out;"
+  },
+  {
+    "id": "SC-DEL-002",
+    "title": "Draft status filter only shows draft deliveries",
+    "coverage": "TC-DEL-021 Draft subset; read-only existing data",
+    "code": "await state.navigate('deliveries');await page.getByPlaceholder('Search records...').fill('');const clear=page.getByRole('button',{name:'Clear All Filters',exact:true});if(await clear.isVisible())await clear.click();await page.getByRole('button',{name:'Draft',exact:true}).click();const response=await api('GET','/records?category=Deliveries&status=Draft');if(response.status!==200)throw new Error(JSON.stringify(response));const wrong=response.body.filter(r=>r.status!=='Draft');await expect(page.getByPlaceholder('Search records...')).toBeVisible();const rows=await page.locator('tbody tr').allTextContents();if(wrong.length||rows.some(text=>!text.includes('Draft')&&!text.includes('No records')))throw new Error(JSON.stringify({apiCount:response.body.length,wrong,rows}));return {apiCount:response.body.length,visibleRows:rows};"
+  },
+  {
+    "id": "SC-DEL-003",
+    "title": "Delivery filter APIs reject inverted dates, oversized searches and unknown status",
+    "coverage": "TC-DEL-021 API validation subset; GET requests only",
+    "code": "await state.navigate('deliveries');const tomorrow=new Date(Date.parse(today+'T00:00:00Z')+86400000).toISOString().slice(0,10);const out=[];for(const endpoint of ['/records?dateFrom='+tomorrow+'&dateTo='+today,'/records?search='+'a'.repeat(101),'/records?status=Lost']){const result=await api('GET',endpoint);out.push({endpoint,...result});}if(out.some(x=>x.status!==400))throw new Error(JSON.stringify(out));return out;"
+  },
+  {
+    "id": "SC-DEL-004",
+    "title": "Delivery Date label communicates submission requirement",
+    "coverage": "TC-DEL-004 label subset only; submission blocked by database guard",
+    "code": "await state.navigate('deliveries');await page.getByRole('button',{name:'New Record',exact:true}).click();const label=page.locator('form label').filter({hasText:/^Delivery Date/});await expect(label).toHaveCount(1);const text=await label.innerText();await screenshot('date-label');await page.getByRole('button',{name:'Cancel',exact:true}).click();if(/optional/i.test(text)||!text.includes('*'))throw new Error('Delivery Date is labelled '+JSON.stringify(text)+' although scheduled Delivery submission requires a date. Submission was not attempted.');return {label:text};"
+  },
+  {
+    "id": "SC-DEL-005",
+    "title": "Existing delivery workspace permits Sales reading without dispatch controls",
+    "coverage": "TC-ACC-015 UI subset; record is existing data, no writes",
+    "code": "if(!state.record)throw new Error('Blocked: missing existing record');await state.navigate('deliveries?item='+encodeURIComponent(state.record.id));await expect(page.getByRole('tab',{name:'Overview',exact:true})).toBeVisible();const tabs=await page.getByRole('tab').allTextContents();await expect(page.getByRole('tab',{name:'Dispatch & Logistics',exact:true})).toHaveCount(0);const result=await api('GET','/records/'+state.record.id);if(result.status!==200||result.body.id!==state.record.id)throw new Error(JSON.stringify(result));return {id:result.body.id,reference:result.body.reference,status:result.body.status,tabs};"
+  },
+  {
+    "id": "SC-DEL-006",
+    "title": "Record audit and supporting document reads are available",
+    "coverage": "Read-only record audit and document API/UI smoke",
+    "code": "await state.navigate('deliveries?item='+encodeURIComponent(state.record.id));await page.getByRole('tab',{name:'Audit Trail',exact:true}).click();const audit=await api('GET','/records/'+state.record.id+'/audit');if(audit.status!==200||!Array.isArray(audit.body))throw new Error(JSON.stringify(audit));await expect(page.locator('body')).not.toContainText(/Failed to load audit trail/);await screenshot('audit');await page.getByRole('tab',{name:'Documents',exact:true}).click();const files=await api('GET','/records/'+state.record.id+'/attachments');if(files.status!==200||!Array.isArray(files.body))throw new Error(JSON.stringify(files));await expect(page.locator('body')).not.toContainText(/Failed to load attachments/);return {record:state.record.id,auditEvents:audit.body.length,files:files.body.map(f=>({name:f.name,size:f.size,is_photo:f.is_photo}))};"
+  },
+  {
+    "id": "SC-DEL-007",
+    "title": "Draft workspace and list offer no delete action",
+    "coverage": "TC-DEL-025 using an existing Draft instead of a newly created chain record",
+    "code": "const draft=state.deliveries.find(r=>r.status==='Draft');if(!draft)throw new Error('Blocked: no existing draft');await state.navigate('deliveries?item='+encodeURIComponent(draft.id));await expect(page.getByRole('tab',{name:'Overview',exact:true})).toBeVisible();const workspaceDeletes=await page.getByRole('button',{name:/delete/i}).allTextContents();await screenshot('draft-workspace');await state.navigate('deliveries');await page.getByPlaceholder('Search records...').fill(draft.id);await expect(page.locator('tbody tr').filter({hasText:draft.id})).toHaveCount(1);const listDeletes=await page.getByRole('button',{name:/delete/i}).allTextContents();if(workspaceDeletes.length||listDeletes.length)throw new Error(JSON.stringify({workspaceDeletes,listDeletes}));return {draftId:draft.id,workspaceDeletes,listDeletes};"
+  },
+  {
+    "id": "SC-DEL-008",
+    "title": "Reference search resolves to the correct record ID and a single row",
+    "coverage": "Corrected TC-DEL-021 search subset; table displays record IDs",
+    "code": "await state.navigate('deliveries');await page.getByRole('button',{name:'All',exact:true}).click();await page.getByPlaceholder('Search records...').fill(state.record.reference);const row=page.locator('tbody tr').filter({hasText:state.record.id});await expect(row).toHaveCount(1);const info=page.getByTestId('pagination-records-info');await expect(info).toContainText(/of\\s+1\\s+records/);return {referenceSearch:state.record.reference,recordId:state.record.id,row:await row.innerText(),pagination:await info.innerText()};"
+  },
+  {
+    "id": "SC-TXN-001",
+    "title": "Transaction Center category choices and all delivery rows respect Sales scope",
+    "coverage": "TC-TXN-001 read-only assertions using existing deliveries; no new chain records",
+    "code": "await state.navigate('transactions');const container=page.locator('#transaction-center');await expect(container).toBeVisible();const source=container.locator('label').filter({hasText:/^Source$/}).locator('..').locator('select');await source.selectOption('delivery');const category=container.locator('label').filter({hasText:/^Category$/}).locator('..').locator('select');const options=await category.locator('option').allTextContents();await page.getByRole('button',{name:'Apply Filters',exact:true}).click();await expect(container.locator('table')).toBeVisible();const rows=[];let currentPage=1,totalPages=1;do{const response=await api('GET','/transactions?source=delivery&limit=100&page='+currentPage);if(response.status!==200)throw new Error(JSON.stringify(response));rows.push(...response.body.transactions);totalPages=response.body.pages;currentPage++;}while(currentPage<=totalPages);const expected=['All Categories','Deliveries','Procurement Pick-up','Sales Orders'];const wrongOptions=options.filter(option=>!expected.includes(option));const wrongRows=rows.filter(row=>!['Deliveries','Procurement Pick-up','Sales Orders'].includes(row.type));state.transactions=rows;if(wrongOptions.length||expected.some(option=>!options.includes(option))||wrongRows.length)throw new Error(JSON.stringify({options,wrongRows}));return {categoryOptions:options,allPagesChecked:totalPages,records:rows.length,categories:[...new Set(rows.map(row=>row.type))]};"
+  },
+  {
+    "id": "SC-MD-002",
+    "title": "Supplier registry matches accessible supplier data",
+    "coverage": "Read-only supplier module smoke",
+    "code": "await state.navigate('suppliers');await expect(page.getByRole('heading',{name:'Supplier Registry',exact:true})).toBeVisible();const response=await api('GET','/suppliers');if(response.status!==200)throw new Error(JSON.stringify(response));const names=response.body.map(s=>s.name);if(names.length)await expect(page.getByRole('row').filter({hasText:names[0]}).first()).toBeVisible();return {suppliers:names.length,categories:[...new Set(response.body.map(s=>s.category))]};"
+  },
+  {
+    "id": "SC-AM-001",
+    "title": "Sales account can open the AM Directory",
+    "coverage": "Read-only authorized module access",
+    "code": "await state.navigate('am_directory');await expect(page.getByText('Account Managers',{exact:true}).first()).toBeVisible();await expect(page.getByRole('heading',{name:'Access Denied',exact:true})).toHaveCount(0);return {path:new URL(page.url()).pathname,summary:(await page.locator('main').innerText()).slice(0,1000)};"
+  },
+  {
+    "id": "SC-NOT-001",
+    "title": "Notification bell and unread-count API agree for the current account",
+    "coverage": "Read-only notification display; mark-read and cross-user privacy cases remain blocked",
+    "code": "await state.navigate('dashboard');const notifications=await api('GET','/notifications');const count=await api('GET','/notifications/unread-count');if(notifications.status!==200||count.status!==200)throw new Error(JSON.stringify({notifications,count}));await page.locator('#notification-bell-button').click();await expect(page.locator('#notification-panel')).toBeVisible();if(notifications.body.length===0)await expect(page.getByText('No notifications yet',{exact:true})).toBeVisible();await screenshot('notification-panel');const observedUnread=notifications.body.filter(n=>!n.is_read).length;if(notifications.body.length<50&&observedUnread!==count.body.count)throw new Error(JSON.stringify({listedUnread:observedUnread,apiUnread:count.body.count}));return {listed:notifications.body.length,listedUnread:observedUnread,apiUnread:count.body.count};"
+  },
+  {
+    "id": "SC-NAV-001",
+    "title": "Browser refresh preserves the authorized delivery screen and session",
+    "coverage": "Authenticated routing persistence; read-only",
+    "code": "await state.navigate('deliveries');await page.reload();await expect(page.getByRole('navigation')).toBeVisible();await expect(page.getByPlaceholder('Search records...')).toBeVisible();const identity=await page.evaluate(async()=>{const r=await fetch('/api/auth/me');const u=await r.json();return {status:r.status,email:u.email,role:u.role};});if(identity.status!==200||identity.email!=='dagodemarcgeraldarante@gmail.com'||identity.role!=='SALES_COORDINATOR'||new URL(page.url()).pathname!=='/deliveries')throw new Error(JSON.stringify({path:new URL(page.url()).pathname,identity}));return {path:new URL(page.url()).pathname,...identity};"
+  },
+  {
+    "id": "SC-MD-003",
+    "title": "Customer registry and audit read using the rendered workspace controls",
+    "coverage": "Corrects SC-MD-001 locator assumption: customer workspace uses buttons, not tab roles",
+    "code": "await state.navigate('customers');await expect(page.getByRole('heading',{name:'Merchant Customer Registry',exact:true})).toBeVisible();const response=await api('GET','/customers');const info=page.getByTestId('pagination-records-info');await expect(info).toContainText(new RegExp('of\\\\s+'+response.body.length+'\\\\s+records'));const customer=response.body.find(c=>response.body.filter(x=>x.name===c.name).length===1);if(!customer)throw new Error('Blocked: unique customer unavailable');await page.getByRole('row').filter({hasText:customer.name}).first().click();await expect(page.getByRole('button',{name:'Overview',exact:true})).toBeVisible();await page.getByRole('button',{name:'Audit Trail',exact:true}).click();const audit=await api('GET','/customers/'+customer.id+'/audit');if(audit.status!==200)throw new Error(JSON.stringify(audit));await expect(page.locator('body')).not.toContainText(/Failed to load customer|Failed to load audit/);return {registryTotal:response.body.length,customerId:customer.id,auditEvents:Array.isArray(audit.body)?audit.body.length:undefined};"
+  },
+  {
+    "id": "SC-SEARCH-001",
+    "title": "Global search finds a reference and Enter opens the result",
+    "coverage": "TC-RPT-009 adapted to Sales and existing record; follows direct Enter sequence",
+    "code": "await state.navigate('dashboard');await page.keyboard.press('Control+k');const input=page.getByPlaceholder('Search records, companies, drivers, SKUs…');await expect(input).toBeVisible();await input.fill('U');await expect(page.getByText(/Type at least 2 characters to search/)).toBeVisible();await input.fill(state.record.reference);await expect(page.locator('[data-result-item]')).toHaveCount(1);await screenshot('search-result');await input.press('Enter');let opened=true;try{await expect(input).not.toBeVisible({timeout:3000});}catch{opened=false;}const observed={reference:state.record.reference,path:new URL(page.url()).pathname,overlayStillVisible:await input.isVisible()};if(!opened)throw new Error(JSON.stringify(observed));await expect(page.getByRole('tab',{name:'Overview',exact:true})).toBeVisible();return observed;"
+  },
+  {
+    "id": "SC-SEARCH-002",
+    "title": "Global search opens the highlighted result using ArrowDown then Enter",
+    "coverage": "Supplemental keyboard navigation control",
+    "code": "await state.navigate('dashboard');await page.keyboard.press('Control+k');const input=page.getByPlaceholder('Search records, companies, drivers, SKUs…');await input.fill(state.record.reference);await expect(page.locator('[data-result-item]')).toHaveCount(1);await input.press('ArrowDown');await input.press('Enter');await expect(input).not.toBeVisible();await expect(page.getByRole('tab',{name:'Overview',exact:true})).toBeVisible();return {reference:state.record.reference,path:new URL(page.url()).pathname,overlayClosed:true};"
+  },
+  {
+    "id": "SC-RPT-002",
+    "title": "Sales status chart displays nonzero bars and a Delivered tooltip after animation",
+    "coverage": "Sales dashboard rendering only; does not retest Admin TC-ADM-023",
+    "code": "await state.navigate('dashboard');const all=await api('GET','/records');if(all.status!==200)throw new Error(JSON.stringify(all));const delivered=all.body.filter(r=>r.status==='Delivered').length;if(!delivered)throw new Error('Blocked: no delivered records');const bars=page.locator('#chart-delivery-status .recharts-bar-rectangle');await expect(bars).toHaveCount(5);await expect.poll(async()=>{const box=await bars.nth(4).boundingBox();return box?.width??0;},{timeout:5000}).toBeGreaterThan(50);await bars.nth(4).hover();await expect(page.locator('.recharts-tooltip-wrapper')).toContainText(delivered+' records');return {deliveredRecords:delivered,barCount:await bars.count(),tooltip:await page.locator('.recharts-tooltip-wrapper').innerText()};"
+  },
+  {
+    "id": "TC-AUTH-011",
+    "title": "Anonymous browser cannot open protected page or APIs",
+    "coverage": "Complete anonymous access case; separate context leaves Microsoft QA session signed in",
+    "code": "const context=await page.context().browser().newContext({viewport:{width:1280,height:800}});const anon=await context.newPage();await context.tracing.start({screenshots:true,snapshots:false,sources:false});try{await anon.goto(base+'/admin');await expect(anon).toHaveURL(base+'/login');await expect(anon.getByRole('button',{name:/sign in with microsoft/i})).toBeVisible();const responses=await anon.evaluate(async()=>{const out=[];for(const endpoint of ['/api/records','/api/users']){const r=await fetch(endpoint);out.push({endpoint,status:r.status,body:await r.json()});}return out;});await anon.screenshot({path:'quality-assurance/artifacts/RUN-20261015-08/TC-AUTH-011-01-anonymous-login.png',fullPage:true});if(responses.some(r=>r.status!==401)||responses[0].body.error!=='Not authenticated')throw new Error(JSON.stringify(responses));return {finalPath:new URL(anon.url()).pathname,responses,anonymousScreenshot:'TC-AUTH-011-01-anonymous-login.png'};}finally{await context.tracing.stop({path:'quality-assurance/artifacts/RUN-20261015-08/TC-AUTH-011-anonymous-actions.zip'});await context.close();}"
+  }
+]

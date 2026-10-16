@@ -1,0 +1,74 @@
+{
+  "id": "RUN-20261015-3dc7bdcc",
+  "status": "PASS",
+  "revision": "665775f",
+  "branch": "dev",
+  "results": [
+    {
+      "file": "e2e/unit/attachment-and-quotas.test.ts",
+      "tests": 8,
+      "pass": 8,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0,
+      "executionError": false,
+      "status": "PASS"
+    },
+    {
+      "file": "e2e/unit/automation-infrastructure.test.ts",
+      "tests": 7,
+      "pass": 7,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0,
+      "executionError": false,
+      "status": "PASS"
+    },
+    {
+      "file": "e2e/unit/customer-and-sku-validation.test.ts",
+      "tests": 7,
+      "pass": 7,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0,
+      "executionError": false,
+      "status": "PASS"
+    },
+    {
+      "file": "e2e/unit/date-and-time.test.ts",
+      "tests": 7,
+      "pass": 7,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0,
+      "executionError": false,
+      "status": "PASS"
+    },
+    {
+      "file": "e2e/unit/delivery-lifecycle.test.ts",
+      "tests": 6,
+      "pass": 6,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0,
+      "executionError": false,
+      "status": "PASS"
+    },
+    {
+      "file": "e2e/unit/permissions-and-scoping.test.ts",
+      "tests": 13,
+      "pass": 13,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0,
+      "executionError": false,
+      "status": "PASS"
+    }
+  ]
+}

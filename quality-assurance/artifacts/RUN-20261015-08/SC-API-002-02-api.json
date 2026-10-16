@@ -1,0 +1,367 @@
+{
+  "method": "GET",
+  "endpoint": "/companies",
+  "status": 200,
+  "body": [
+    {
+      "id": "cmuyweh8m001qn4sb542p584t",
+      "name": "Abenson Enterprises Inc.",
+      "sap_number": "SAP-CO-0033",
+      "address": "SM City Marikina, Marcos Highway, Marikina",
+      "contact_person": "Antonio Abellana",
+      "created_at": "2026-10-08T02:09:13.414Z"
+    },
+    {
+      "id": "cmuyweh97001wn4sbd3xoxtfe",
+      "name": "Alfamart Philippines Inc.",
+      "sap_number": "SAP-CO-0039",
+      "address": "Canlubang, Calamba, Laguna",
+      "contact_person": "Ayin Sulistyo",
+      "created_at": "2026-10-08T02:09:13.435Z"
+    },
+    {
+      "id": "cmuyweh79001cn4sbmr627bnr",
+      "name": "Army Navy Burger Burrito PH",
+      "sap_number": "SAP-CO-0019",
+      "address": "Polaris St, Makati",
+      "contact_person": "Nicanor Reyes",
+      "created_at": "2026-10-08T02:09:13.365Z"
+    },
+    {
+      "id": "cmuyweh7f001dn4sbvq7tg15v",
+      "name": "Bo's Coffee Club Inc.",
+      "sap_number": "SAP-CO-0020",
+      "address": "Cardinal Rosales Ave, Cebu Business Park, Cebu",
+      "contact_person": "Steve Benitez",
+      "created_at": "2026-10-08T02:09:13.371Z"
+    },
+    {
+      "id": "cmuyweh5t000xn4sb6xezgz8k",
+      "name": "Chowking Foods Corp. - South Manila Area",
+      "sap_number": "SAP-CO-0004",
+      "address": "Roxas Blvd, Malate, Manila",
+      "contact_person": "Dante Torres",
+      "created_at": "2026-10-08T02:09:13.313Z"
+    },
+    {
+      "id": "cmuyweh6w0018n4sb3ca4me32",
+      "name": "Conti's Bakeshop & Restaurant",
+      "sap_number": "SAP-CO-0015",
+      "address": "President's Ave, BF Homes, Parañaque",
+      "contact_person": "Carla Conti",
+      "created_at": "2026-10-08T02:09:13.352Z"
+    },
+    {
+      "id": "cmuyweh91001un4sbz0gxs8wz",
+      "name": "DynaQuest PC Inc.",
+      "sap_number": "SAP-CO-0037",
+      "address": "Gilmore IT Center, New Manila, Quezon City",
+      "contact_person": "Harold Dy",
+      "created_at": "2026-10-08T02:09:13.429Z"
+    },
+    {
+      "id": "cmuyweh87001ln4sb3ybdd6at",
+      "name": "Generika Drugstore Head Office",
+      "sap_number": "SAP-CO-0028",
+      "address": "Alabang-Zapote Road, Muntinlupa",
+      "contact_person": "Manuel Lopez",
+      "created_at": "2026-10-08T02:09:13.399Z"
+    },
+    {
+      "id": "cmuyweh6o0016n4sb00504tp2",
+      "name": "Gerry's Grill Restaurant Group Inc.",
+      "sap_number": "SAP-CO-0013",
+      "address": "Tomas Morato Ave, Quezon City",
+      "contact_person": "Gerardo Apolinario",
+      "created_at": "2026-10-08T02:09:13.344Z"
+    },
+    {
+      "id": "cmuyweh9q0021n4sba7983ulu",
+      "name": "Goldilocks Bakeshop Inc.",
+      "sap_number": "SAP-CO-0044",
+      "address": "967 Aurora Blvd, Cubao, Quezon City",
+      "contact_person": "Milagros Leelin",
+      "created_at": "2026-10-08T02:09:13.454Z"
+    },
+    {
+      "id": "cmuyweh6b0012n4sbdyjarjfa",
+      "name": "Greenwich Pizza Corp.",
+      "sap_number": "SAP-CO-0009",
+      "address": "Jollibee Plaza, Emerald Ave, Ortigas, Pasig",
+      "contact_person": "Marco Flores",
+      "created_at": "2026-10-08T02:09:13.331Z"
+    },
+    {
+      "id": "cmuyweh5k000un4sbaqqyzwl5",
+      "name": "Jollibee Foods Corp. - Quezon City Cluster",
+      "sap_number": "SAP-CO-0001",
+      "address": "12 E. Rodriguez Jr. Ave, Quezon City",
+      "contact_person": "Theresa Alajar",
+      "created_at": "2026-10-08T02:09:13.304Z"
+    },
+    {
+      "id": "cmuyweh6f0013n4sb4x2tcfie",
+      "name": "KFC Philippines (Lotte GRS Philippines Inc.)",
+      "sap_number": "SAP-CO-0010",
+      "address": "5/F Rockwell Business Center Tower 3, Makati",
+      "contact_person": "Yolanda Bautista",
+      "created_at": "2026-10-08T02:09:13.335Z"
+    },
+    {
+      "id": "cmuyweh680011n4sbx189z9nr",
+      "name": "Mang Inasal Philippines Inc.",
+      "sap_number": "SAP-CO-0008",
+      "address": "Jollibee Centre, 10 F. Ortigas Jr. Rd, Pasig",
+      "contact_person": "Daphne Reyes",
+      "created_at": "2026-10-08T02:09:13.328Z"
+    },
+    {
+      "id": "cmuyweh6z0019n4sbaju5hr8q",
+      "name": "Mary Grace Café Head Office",
+      "sap_number": "SAP-CO-0016",
+      "address": "EDSA Shangri-La Plaza, Ortigas, Mandaluyong",
+      "contact_person": "Grace Dimacali",
+      "created_at": "2026-10-08T02:09:13.355Z"
+    },
+    {
+      "id": "cmuyweh6s0017n4sbmris4r1e",
+      "name": "Max's Restaurant Group Inc.",
+      "sap_number": "SAP-CO-0014",
+      "address": "2/F AllHome Center, Commonwealth Ave, Quezon City",
+      "contact_person": "Jose Maximo",
+      "created_at": "2026-10-08T02:09:13.349Z"
+    },
+    {
+      "id": "cmuyweh5z000zn4sb23bn4icb",
+      "name": "McDonald's Philippines (Golden Arches Dev't Corp)",
+      "sap_number": "SAP-CO-0006",
+      "address": "6/F Citibank Center, Paseo de Roxas, Makati",
+      "contact_person": "Loretta Santos",
+      "created_at": "2026-10-08T02:09:13.319Z"
+    },
+    {
+      "id": "cmuyweh5n000vn4sbaqzhexy3",
+      "name": "Mercury Drug Corporation - Head Office",
+      "sap_number": "SAP-CO-0002",
+      "address": "7 Jupiter St. Cor. Makati Ave, Makati",
+      "contact_person": "Gabriel Sy",
+      "created_at": "2026-10-08T02:09:13.307Z"
+    },
+    {
+      "id": "cmuyweh9d001xn4sbibfa2qr6",
+      "name": "Ministop Philippines Inc.",
+      "sap_number": "SAP-CO-0040",
+      "address": "AEON Square, Subic Bay Freeport Zone",
+      "contact_person": "Jocelyn Sy",
+      "created_at": "2026-10-08T02:09:13.441Z"
+    },
+    {
+      "id": "cmuyweh9g001yn4sbqvuolaer",
+      "name": "National Book Store Holdings Inc.",
+      "sap_number": "SAP-CO-0041",
+      "address": "SM City North EDSA, Quezon City",
+      "contact_person": "Socorro Ramos",
+      "created_at": "2026-10-08T02:09:13.444Z"
+    },
+    {
+      "id": "cmuyweh8u001sn4sbb0dab99q",
+      "name": "Octagon Computer Superstore",
+      "sap_number": "SAP-CO-0035",
+      "address": "SM Megamall, Ortigas Center, Mandaluyong",
+      "contact_person": "Ramon Ocampo",
+      "created_at": "2026-10-08T02:09:13.422Z"
+    },
+    {
+      "id": "cmuyweh8r001rn4sbfpidrmdz",
+      "name": "PC Express Technology Inc.",
+      "sap_number": "SAP-CO-0034",
+      "address": "Gilmore Ave, New Manila, Quezon City",
+      "contact_person": "Kenneth Tan",
+      "created_at": "2026-10-08T02:09:13.419Z"
+    },
+    {
+      "id": "cmuyweh76001bn4sb2ldotzy4",
+      "name": "Pancake House Holdings Inc.",
+      "sap_number": "SAP-CO-0018",
+      "address": "Glorietta 4, Ayala Center, Makati",
+      "contact_person": "Ricardo Villanueva",
+      "created_at": "2026-10-08T02:09:13.362Z"
+    },
+    {
+      "id": "cmuyweh94001vn4sbct7y5ps5",
+      "name": "Philippine Seven Corp. (7-Eleven PH)",
+      "sap_number": "SAP-CO-0038",
+      "address": "Plaza 2000, Meralco Ave, Pasig",
+      "contact_person": "Victor Paterno",
+      "created_at": "2026-10-08T02:09:13.432Z"
+    },
+    {
+      "id": "cmuyweh6i0014n4sbtxss8pzk",
+      "name": "Pizza Hut Philippines (QSR Brands Philippines)",
+      "sap_number": "SAP-CO-0011",
+      "address": "Unit 2A Bonifacio High Street, BGC, Taguig",
+      "contact_person": "Alfredo Ramos",
+      "created_at": "2026-10-08T02:09:13.338Z"
+    },
+    {
+      "id": "cmuyweh6l0015n4sbkv8hko40",
+      "name": "Potato Corner Franchise Group (Manila)",
+      "sap_number": "SAP-CO-0012",
+      "address": "88 Shaw Blvd, Mandaluyong",
+      "contact_person": "Christian Pineda",
+      "created_at": "2026-10-08T02:09:13.341Z"
+    },
+    {
+      "id": "cmuyweh7v001in4sb1x5rcb48",
+      "name": "Puregold Price Club Inc.",
+      "sap_number": "SAP-CO-0025",
+      "address": "900 Romualdez St, Paco, Manila",
+      "contact_person": "Manny Mendoza",
+      "created_at": "2026-10-08T02:09:13.387Z"
+    },
+    {
+      "id": "cmuyweh9n0020n4sbp9tr30rz",
+      "name": "Red Ribbon Bakeshop Inc.",
+      "sap_number": "SAP-CO-0043",
+      "address": "Jollibee Centre, Pasig",
+      "contact_person": "Rosario Tengco",
+      "created_at": "2026-10-08T02:09:13.451Z"
+    },
+    {
+      "id": "cmuyweh7s001hn4sbuvad5mvi",
+      "name": "Robinsons Grocery Inc.",
+      "sap_number": "SAP-CO-0024",
+      "address": "Robinsons Place Ermita, Manila",
+      "contact_person": "Frederick Go",
+      "created_at": "2026-10-08T02:09:13.384Z"
+    },
+    {
+      "id": "cmuyweh8a001mn4sb54i16wt4",
+      "name": "Rose Pharmacy (Medilink Health Corp.)",
+      "sap_number": "SAP-CO-0029",
+      "address": "Mandaue Reclamation Area, Cebu",
+      "contact_person": "Francisca Go",
+      "created_at": "2026-10-08T02:09:13.402Z"
+    },
+    {
+      "id": "cmuyweh7y001jn4sbj5w7ezns",
+      "name": "S&R Membership Shopping (PriceSmart Philippines)",
+      "sap_number": "SAP-CO-0026",
+      "address": "C5 Road, Libis, Quezon City",
+      "contact_person": "Patricia Jankulovski",
+      "created_at": "2026-10-08T02:09:13.390Z"
+    },
+    {
+      "id": "cmuyweh7p001gn4sbslnpo4ja",
+      "name": "SM Retail Inc. - Department Store Division",
+      "sap_number": "SAP-CO-0023",
+      "address": "SM City Bicutan, Parañaque",
+      "contact_person": "Veronica Co",
+      "created_at": "2026-10-08T02:09:13.381Z"
+    },
+    {
+      "id": "cmuyweh7m001fn4sbaaylokz4",
+      "name": "Serenitea Milktea House (Manila HQ)",
+      "sap_number": "SAP-CO-0022",
+      "address": "Pasig Blvd, Oranbo, Pasig",
+      "contact_person": "Juliet Lorenzo",
+      "created_at": "2026-10-08T02:09:13.378Z"
+    },
+    {
+      "id": "cmuyweh650010n4sbkyi81oc9",
+      "name": "Shakey's Pizza Asia Pacific Inc.",
+      "sap_number": "SAP-CO-0007",
+      "address": "3/F The Podium, Ortigas Center, Mandaluyong",
+      "contact_person": "Benedicto Cruz",
+      "created_at": "2026-10-08T02:09:13.325Z"
+    },
+    {
+      "id": "cmuyweh8j001pn4sbjxdykdph",
+      "name": "South Star Drug Inc.",
+      "sap_number": "SAP-CO-0032",
+      "address": "EDSA corner Quezon Ave, Quezon City",
+      "contact_person": "Luisa Guerrero",
+      "created_at": "2026-10-08T02:09:13.411Z"
+    },
+    {
+      "id": "cmuyweh5w000yn4sb3je57c6h",
+      "name": "TechVantage Manila Distribution",
+      "sap_number": "SAP-CO-0005",
+      "address": "Balintawak Warehouse District, Quezon City",
+      "contact_person": "Ferdinand Uy",
+      "created_at": "2026-10-08T02:09:13.316Z"
+    },
+    {
+      "id": "cmuyweh5q000wn4sbhouypx8r",
+      "name": "The Coffee Bean & Tea Leaf (CBTL PH)",
+      "sap_number": "SAP-CO-0003",
+      "address": "BGC Corporate Center, Taguig",
+      "contact_person": "Regine Velasquez",
+      "created_at": "2026-10-08T02:09:13.310Z"
+    },
+    {
+      "id": "cmuyweh8d001nn4sb047y00cc",
+      "name": "The Generics Pharmacy (TGP) Inc.",
+      "sap_number": "SAP-CO-0030",
+      "address": "188 Tomas Morato Ave, Quezon City",
+      "contact_person": "Benjamin Lirio",
+      "created_at": "2026-10-08T02:09:13.405Z"
+    },
+    {
+      "id": "cmuyweh84001kn4sb4r18wjd6",
+      "name": "The Landmark Retail Stores Inc.",
+      "sap_number": "SAP-CO-0027",
+      "address": "Ayala Center, Makati",
+      "contact_person": "Eduardo Lichauco",
+      "created_at": "2026-10-08T02:09:13.396Z"
+    },
+    {
+      "id": "cmuyweh9j001zn4sby8c4jktx",
+      "name": "Timezone Philippines Inc.",
+      "sap_number": "SAP-CO-0042",
+      "address": "SM Mall of Asia, Pasay",
+      "contact_person": "James Uy",
+      "created_at": "2026-10-08T02:09:13.447Z"
+    },
+    {
+      "id": "cmuyweh8g001on4sb26v3rfb1",
+      "name": "Watsons Personal Care Stores PH",
+      "sap_number": "SAP-CO-0031",
+      "address": "SM Mall of Asia, Pasay",
+      "contact_person": "Rachel Chan",
+      "created_at": "2026-10-08T02:09:13.408Z"
+    },
+    {
+      "id": "cmuyweh72001an4sb6wsark9c",
+      "name": "Wildflour Café + Bakery Group",
+      "sap_number": "SAP-CO-0017",
+      "address": "Net Lima Bldg, 5th Ave, BGC, Taguig",
+      "contact_person": "Ana Lorenzana",
+      "created_at": "2026-10-08T02:09:13.358Z"
+    },
+    {
+      "id": "cmuyweh7i001en4sbvux8rs5d",
+      "name": "Zagu Inc.",
+      "sap_number": "SAP-CO-0021",
+      "address": "4/F SM Megamall Bldg A, Ortigas, Mandaluyong",
+      "contact_person": "Aileen Quiambao",
+      "created_at": "2026-10-08T02:09:13.374Z"
+    },
+    {
+      "id": "cmuyweh9t0022n4sbwbh87ywh",
+      "name": "Zubuchon Inc. - Manila Branch Office",
+      "sap_number": "SAP-CO-0045",
+      "address": "Talisay St, Yakal, Makati",
+      "contact_person": "Lars Ramirez",
+      "created_at": "2026-10-08T02:09:13.457Z"
+    },
+    {
+      "id": "cmuyweh8x001tn4sb9jdc6yec",
+      "name": "iStore Philippines (FOSS National Corp.)",
+      "sap_number": "SAP-CO-0036",
+      "address": "Uptown Mall, BGC, Taguig",
+      "contact_person": "Diana Fuentes",
+      "created_at": "2026-10-08T02:09:13.425Z"
+    }
+  ]
+}
