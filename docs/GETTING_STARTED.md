@@ -58,7 +58,9 @@ Copy-Item server/.env.example server/.env
 | :--- | :--- | :--- |
 | `.env` (root) | Docker Compose PostgreSQL container | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`, `POSTGRES_BIND_IP` |
 | `server/.env` | Backend API | `DATABASE_URL`, `JWT_SECRET`, `PORT`, `CLIENT_ORIGIN`, `POD_UPLOAD_DIR`, `POD_STORAGE_PROVIDER`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET`, optional `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` / `AZURE_TENANT_ID` / `APP_URL` (Microsoft SSO and Graph mail), optional `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM`, `RENDER_EXTERNAL_URL` (self-ping), and the local-only reset opt-ins described below |
-| `client/.env` (optional) | Frontend build flags | `VITE_SHOW_DEMO_ACCOUNTS` (shows demo-account Quick Switch; it does not authorize or expose a destructive reset) |
+| `client/.env` (optional) | Frontend build flags | `VITE_SHOW_DEMO_ACCOUNTS` (defaults false; explicit true enables Quick Switch only in Vite development mode; staging/production builds always hide it) |
+
+For hosted staging, use the separate [staging configuration guide](./STAGING_CONFIGURATION.md).
 
 Notes:
 

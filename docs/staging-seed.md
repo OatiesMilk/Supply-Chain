@@ -1,5 +1,8 @@
 # Excel route seed for staging
 
+For API runtime, frontend build and Worker settings, see
+[Staging configuration](./STAGING_CONFIGURATION.md). Seeding is a separate optional operation.
+
 `npm run seed:staging` previews an additive staging seed.
 `npm run seed:staging:reset` previews replacing staging operational data with the
 Excel snapshot while preserving login accounts and permissions. Both require
