@@ -87,3 +87,10 @@ The report records observed behavior from the linked case and does not assert an
 | Run ID | Date | Result | Notes |
 |---|---|---|---|
 | | | | |
+
+
+### Confirmed-issue remediation: 2026-10-16
+
+Stock adjustments now reject unsupported types and non-finite, fractional, zero or out-of-range quantities before writing. Stock, ledger, product stamp and audit are transactional. The browser form no longer truncates decimals with parseInt.
+
+Focused mocked-handler regressions passed. Full validation and browser acceptance status are tracked in the [remediation record](../06-reports/2026-10-16-major-issues-remediation.md). Historical test outcomes remain unchanged; this is an implementation follow-up, not live UAT closure.

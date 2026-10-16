@@ -22,7 +22,7 @@ const records = [
 async function invoke(path: string, query: Record<string, string>) {
   const route = (reports as any).stack.find((layer: any) => layer.route?.path === path).route;
   let body: any;
-  await route.stack.at(-1).handle({ query, user: { role: 'ADMIN', name: 'Admin', permissions: [], effectiveScreens: ['statistical_reports'] } }, { json(value: any) { body = value; } });
+  await route.stack.at(-1).handle({ query, user: { role: 'ADMIN', name: 'Admin', permissions: [], effectiveScreens: ['statistical_reports'] } }, { json(value: any) { body = value; } }, (error: unknown) => { if (error) throw error; });
   return body;
 }
 
@@ -50,8 +50,8 @@ test('statistical report applies Manila Delivery Date filters and counts complet
   assert.deepEqual(cohortQuery.where.deliveryDate, { gte: '2026-10-06', lte: '2026-10-06' });
   assert.equal(cohortQuery.where.AND[0].category.in.includes('DELIVERY'), true);
   assert.deepEqual(completionQuery.where.timeOut, {
-    gte: new Date('2026-10-05T16:00:00.000Z'),
-    lt: new Date('2026-10-06T16:00:00.000Z'),
+    gte: '2026-10-05T16:00:00.000Z',
+    lt: '2026-10-06T16:00:00.000Z',
   });
   assert.equal(completionQuery.where.status, 'ACCOMPLISHED');
   assert.equal(completionQuery.where.AND[0].category.in.includes('DELIVERY'), true);
@@ -73,4 +73,23 @@ test('snapshot rollups keep Draft distinct and atomically replace today to remov
   assert.equal(rows.length, 6);
   assert.deepEqual(rows.filter((row: any) => row.category === 'ALL').map((row: any) => [row.status, row.count]), [['DRAFT', 1], ['SCHEDULED', 1], ['IN_TRANSIT', 1]]);
   assert.equal(transaction.mock.calls[0].arguments[0].length, 2);
+});
+
+test('date-filtered summary counts the exact Manila boundary using Prisma String filters', async () => {
+  stub(prisma.deliveryRecord, 'findMany', async () => []);
+  stub(prisma.deliveryRecord, 'count', async ({ where }: any) => {
+    assert.equal(typeof where.timeOut.gte, 'string');
+    assert.equal(typeof where.timeOut.lt, 'string');
+    return ['2026-10-05T15:59:59.999Z', '2026-10-05T16:00:00.000Z', '2026-10-06T15:59:59.999Z', '2026-10-06T16:00:00.000Z']
+      .filter(value => value >= where.timeOut.gte && value < where.timeOut.lt).length;
+  });
+  const report = await invoke('/summary', { deliveryDateFrom: '2026-10-06', deliveryDateTo: '2026-10-06' });
+  assert.equal(report.completed_in_range, 2);
+});
+
+test('summary forwards database failures to Express instead of leaving the request pending', async () => {
+  const error = new Error('report database failure');
+  stub(prisma.deliveryRecord, 'findMany', async () => { throw error; });
+  stub(prisma.deliveryRecord, 'count', async () => 0);
+  await assert.rejects(invoke('/summary', {}), error);
 });

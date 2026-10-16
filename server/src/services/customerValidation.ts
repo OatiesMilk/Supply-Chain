@@ -29,17 +29,9 @@ export function parseCustomerUpdate(body: unknown): { value: CustomerUpdate } | 
   const fields: Record<string, string> = {};
   const data: CustomerUpdate['data'] = {};
 
-  for (const [key, rule] of Object.entries(CUSTOMER_FIELDS) as [CustomerField, (typeof CUSTOMER_FIELDS)[CustomerField]][]) {
-    const raw = b[key];
-    if (raw === undefined) continue;
-    if (typeof raw !== 'string') { fields[key] = `${rule.label} must be text.`; continue; }
-    const value = raw.trim();
-    if (value.length > rule.max) fields[key] = `${rule.label} must be ${rule.max} characters or fewer.`;
-    else if (key === 'name' && !value) fields[key] = 'Customer name is required.';
-    else if (key === 'email' && value && !EMAIL_PATTERN.test(value)) fields[key] = 'Enter a valid email address, like name@company.com.';
-    else if (key === 'phone' && !PHONE_PATTERN.test(value)) fields[key] = 'Phone can only contain numbers, spaces and + ( ) - .';
-    else data[rule.column] = value;
-  }
+  const parsed = parseCustomerFields(b);
+  Object.assign(fields, parsed.fields);
+  Object.assign(data, parsed.data);
 
   const remarks = typeof b.remarks === 'string' ? b.remarks.trim() : '';
   if (!remarks) fields.remarks = 'Enter a reason for this change.';
@@ -66,4 +58,31 @@ export function customerChanges(before: Partial<CustomerSnapshot> | null, after:
   return (Object.keys(CUSTOMER_FIELDS) as CustomerField[])
     .filter(key => (before?.[key] ?? '') !== (after?.[key] ?? ''))
     .map(key => ({ field: key, label: CUSTOMER_FIELDS[key].label, from: before?.[key] ?? '', to: after?.[key] ?? '' }));
+}
+
+function parseCustomerFields(b: Record<string, unknown>) {
+  const fields: Record<string, string> = {};
+  const data: CustomerUpdate['data'] = {};
+  for (const [key, rule] of Object.entries(CUSTOMER_FIELDS) as [CustomerField, (typeof CUSTOMER_FIELDS)[CustomerField]][]) {
+    const raw = b[key];
+    if (raw === undefined) continue;
+    if (typeof raw !== 'string') { fields[key] = `${rule.label} must be text.`; continue; }
+    const value = raw.trim();
+    if (value.length > rule.max) fields[key] = `${rule.label} must be ${rule.max} characters or fewer.`;
+    else if (key === 'name' && !value) fields[key] = 'Customer name is required.';
+    else if (key === 'email' && value && !EMAIL_PATTERN.test(value)) fields[key] = 'Enter a valid email address, like name@company.com.';
+    else if (key === 'phone' && !PHONE_PATTERN.test(value)) fields[key] = 'Phone can only contain numbers, spaces and + ( ) - .';
+    else data[rule.column] = value;
+  }
+
+  return { fields, data };
+}
+
+export function parseCustomerCreate(body: unknown) {
+  const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+  const parsed = parseCustomerFields(b);
+  if (b.name === undefined) parsed.fields.name = 'Customer name is required.';
+  return Object.keys(parsed.fields).length
+    ? { error: 'Some fields need attention.', fields: parsed.fields }
+    : { value: parsed.data };
 }

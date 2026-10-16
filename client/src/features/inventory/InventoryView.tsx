@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { Search, Filter } from 'lucide-react';
 import { ApiSku } from '@/api';
+import CreateSkuForm from './CreateSkuForm';
 import SkuWorkspace from '@/features/inventory/SkuWorkspace';
 import ExportMenu from '@/components/ExportMenu';
 import { SKU_COLUMNS, fmtCurrency } from '@/utils/export';
@@ -23,6 +24,8 @@ export default function InventoryView({
   selectedProductIdFromDashboard,
   clearSelectedProductId
 }: InventoryViewProps) {
+  const [creating, setCreating] = useState(false);
+  const [createdCode, setCreatedCode] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [searchTerm, setSearchTerm] = useState('');
@@ -124,6 +127,11 @@ export default function InventoryView({
 
   return (
     <div className="space-y-4" id="inventory-view-container">
+      {currentUserRole === 'Admin' && creating && <CreateSkuForm onCancel={() => setCreating(false)} onCreated={sku => {
+        setCreating(false); setCreatedCode(sku.sku_code);
+        setSearchTerm(''); setAppliedSearchTerm(''); setCategoryFilter('ALL'); setWarehouseFilter('ALL'); setStatusFilter('ALL'); setPage(1);
+      }} />}
+      {createdCode && <p role="status" className="text-sm text-emerald-700">SKU {createdCode} created with zero stock.</p>}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
         {/* Filters */}
         <div className="p-4 border-b border-slate-200 space-y-3">
@@ -138,6 +146,7 @@ export default function InventoryView({
                 className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-[#1F3864] focus:bg-white transition-all font-mono"
               />
             </div>
+            {currentUserRole === 'Admin' && !creating && <button type="button" onClick={() => { setCreating(true); setCreatedCode(null); }} className="rounded-lg bg-[#0078C1] px-4 py-2 text-xs font-semibold text-white">Create SKU</button>}
             {(currentUserRole === 'Admin' || currentUserRole === 'Logistics') && (
               <ExportMenu
                 rows={filteredSkus.map(sku => ({

@@ -91,3 +91,10 @@ The report records observed behavior from the linked case and does not assert an
 | Run ID | Date | Result | Notes |
 |---|---|---|---|
 | | | | |
+
+
+### Confirmed-issue remediation: 2026-10-16
+
+The operational record deletion endpoint now refuses the operation with 403; no soft deletion or delete audit is written. The requirements document is aligned to the OQ-03 no-deletion decision.
+
+Focused mocked-handler regressions passed. Full validation and browser acceptance status are tracked in the [remediation record](../06-reports/2026-10-16-major-issues-remediation.md). Historical test outcomes remain unchanged; this is an implementation follow-up, not live UAT closure.

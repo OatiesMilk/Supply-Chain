@@ -6,7 +6,7 @@
 | Version | 1.0 |
 | Date | 2026-10-15 |
 | Author agent | ChatGPT Codex |
-| Status | Open |
+| Status | Closed by requirement clarification, 2026-10-16 |
 
 ## 1. Classification
 
@@ -19,7 +19,7 @@
 | Role and account used | Logistics, logistics@microgenesis.com; Sales Coordinator, sales@microgenesis.com; passwords are not recorded |
 | Severity | Major |
 | Priority | P1 |
-| Status | Open |
+| Status | Closed by requirement clarification, 2026-10-16 |
 | Found in run | RUN-20261014-02 |
 
 ## 2. Environment
@@ -112,6 +112,12 @@ The report records observed behavior from the linked case and does not assert an
 ![TC-RPT-006: 01 deliveries today](../artifacts/RUN-20261014-02/TC-RPT-006-01-deliveries-today.png)
 
 ## 11. Retest history
+
+### User acceptance and policy clarification: 2026-10-16
+
+The user confirmed that Calendar and Reports are intentionally disabled by default for Sales Coordinator. After enabling both modules on their Sales Coordinator account through Admin Module Access, both opened successfully. The user accepts this permission behavior as Pass. This supersedes the earlier OQ-09 interpretation that both modules must be granted by default; no change to role defaults is required.
+
+This is user-reported acceptance of the account permission behavior, not a new executor run or a full rerun of TC-ACC-001, TC-ACC-002 or TC-RPT-006. Earlier execution results and counts remain historical. The separate Logistics report-generation failure (DEF-029), including the user-reported Prisma timestamp filter validation error, remains unresolved by this decision.
 
 | Run ID | Date | Result | Notes |
 |---|---|---|---|

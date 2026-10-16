@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import type { Prisma } from '@prisma/client';
+import { asyncRoute } from '../middleware/asyncRoute';
 import { prisma } from '../db';
 import { requireAuth, requireScreen } from '../middleware/auth';
 import { CATEGORY_TO_DB, CATEGORY_FROM_DB, STATUS_FROM_DB } from '../mappings';
@@ -10,7 +12,7 @@ const router = Router();
 
 // GET /reports/summary — delivery-date cohort with a distinct Time Out count.
 // Legacy dateFrom/dateTo aliases remain supported for existing API clients.
-router.get('/summary', requireAuth, requireScreen('statistical_reports'), async (req, res) => {
+router.get('/summary', requireAuth, requireScreen('statistical_reports'), asyncRoute(async (req, res) => {
   const queryValue = (key: string): string | undefined => {
     const value = req.query[key];
     return typeof value === 'string' ? value : undefined;
@@ -39,7 +41,7 @@ router.get('/summary', requireAuth, requireScreen('statistical_reports'), async 
     return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid delivery date range.' });
   }
 
-  const filters: any = {
+  const filters: Prisma.DeliveryRecordWhereInput = {
     deletedAt: null,
     AND: [recordScope(req.user!)],
   };
@@ -47,7 +49,7 @@ router.get('/summary', requireAuth, requireScreen('statistical_reports'), async 
   if (area) filters.area = area;
   if (driver) filters.driver = driver;
 
-  const cohortWhere: any = { ...filters };
+  const cohortWhere: Prisma.DeliveryRecordWhereInput = { ...filters };
   if (deliveryDateFrom || deliveryDateTo) {
     cohortWhere.deliveryDate = {
       ...(deliveryDateFrom ? { gte: deliveryDateFrom } : {}),
@@ -55,11 +57,16 @@ router.get('/summary', requireAuth, requireScreen('statistical_reports'), async 
     };
   }
 
-  const completionWhere: any = {
+  const completionWhere: Prisma.DeliveryRecordWhereInput = {
     ...filters,
     draft: false,
     status: 'ACCOMPLISHED',
-    timeOut: Object.keys(completionRange).length > 0 ? completionRange : { not: null },
+    // Lifecycle writes store UTC ISO strings; use the same representation for
+    // lexical range comparisons, including the exclusive next-Manila-day bound.
+    timeOut: Object.keys(completionRange).length > 0 ? {
+      ...(completionRange.gte ? { gte: completionRange.gte.toISOString() } : {}),
+      ...(completionRange.lt ? { lt: completionRange.lt.toISOString() } : {}),
+    } : { not: null },
   };
 
   const [foundRecords, completedInRange] = await Promise.all([
@@ -106,6 +113,6 @@ router.get('/summary', requireAuth, requireScreen('statistical_reports'), async 
     by_area:      Object.entries(byArea).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([a, count]) => ({ area: a, count })),
     by_driver:    Object.entries(byDriver).sort((a, b) => b[1] - a[1]).map(([d, count]) => ({ driver: d, count })),
   });
-});
+}));
 
 export default router;

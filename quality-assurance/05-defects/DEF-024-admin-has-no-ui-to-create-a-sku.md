@@ -82,6 +82,10 @@ The report records observed behavior from the linked case and does not assert an
 
 ## 11. Retest history
 
+### Implementation follow-up: 2026-10-16
+
+The user authorized Admin SKU creation. The working tree now adds an Admin-only Create SKU form with code, name, category, cost, price, reorder point, description and optional warehouse location. Creation uses the existing API, starts stock at zero and saves the product, inventory and audit together. Automated regression validation is recorded in the [scope follow-up](../06-reports/2026-10-16-scope-and-sales-access-clarification.md). Full live browser acceptance has not been rerun; historical results remain unchanged.
+
 | Run ID | Date | Result | Notes |
 |---|---|---|---|
 | | | | |

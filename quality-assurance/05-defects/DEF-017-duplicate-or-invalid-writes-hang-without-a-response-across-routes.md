@@ -94,6 +94,17 @@ The report records observed behavior from the linked case and does not assert an
 
 ## 11. Retest history
 
+### Partial implementation follow-up: 2026-10-16
+
+The authorized SKU creation work now returns HTTP 409 for duplicate SKU codes and forwards unexpected creation errors. This addresses only the duplicate-SKU creation path in this multi-route finding. Duplicate user-email editing and malformed customer requests remain outside the implementation scope and are not cleared. See the [scope follow-up](../06-reports/2026-10-16-scope-and-sales-access-clarification.md); historical execution results are unchanged.
+
 | Run ID | Date | Result | Notes |
 |---|---|---|---|
 | | | | |
+
+
+### Confirmed-issue remediation: 2026-10-16
+
+User email edits now map duplicate conflicts to 409 and forward unexpected errors. Customer creation validates text fields before Prisma and forwards unexpected failures. Together with the earlier duplicate-SKU handling, the confirmed paths in this finding have implementation coverage.
+
+Focused mocked-handler regressions passed. Full validation and browser acceptance status are tracked in the [remediation record](../06-reports/2026-10-16-major-issues-remediation.md). Historical test outcomes remain unchanged; this is an implementation follow-up, not live UAT closure.

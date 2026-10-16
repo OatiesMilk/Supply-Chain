@@ -81,6 +81,17 @@ No screenshot was retained for the linked failure.
 
 ## 11. Retest history
 
+### Implementation follow-up: 2026-10-16
+
+As part of authorized Admin SKU creation, the working-tree POST route now rejects negative or non-finite cost/price and invalid reorder points before writing. Automated regression validation is recorded in the [scope follow-up](../06-reports/2026-10-16-scope-and-sales-access-clarification.md). This concerns creation only; no SKU edit or stock-adjustment acceptance is implied. Historical results remain unchanged pending live acceptance.
+
 | Run ID | Date | Result | Notes |
 |---|---|---|---|
 | | | | |
+
+
+### Confirmed-issue remediation: 2026-10-16
+
+SKU editing now shares the creation validation for finite non-negative numeric values and integer reorder points. Product edits and their audit entry are transactional; duplicate codes return 409.
+
+Focused mocked-handler regressions passed. Full validation and browser acceptance status are tracked in the [remediation record](../06-reports/2026-10-16-major-issues-remediation.md). Historical test outcomes remain unchanged; this is an implementation follow-up, not live UAT closure.

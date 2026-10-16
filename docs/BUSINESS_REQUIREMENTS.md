@@ -29,11 +29,11 @@ Out of scope today: automatic stock movement from deliveries, customer signature
 | :--- | :--- | :--- | :--- |
 | BR-REC-01 | One record model with five categories; each category has its own module and sidebar entry | Implemented | Single `DeliveryRecord` table |
 | BR-REC-02 | Create a record against a validated Company with an SAP/reference number; Draft records may omit the reference | Implemented | Create: Sales Coordinator, Logistics, Admin. Logistics cannot create RMA |
-| BR-REC-03 | Drafts are hidden from Drivers and must be submitted; submitting a non-draft record notifies Logistics that a driver is needed | Implemented | Return to Draft: Sales Coordinator/Admin, only before Time In |
+| BR-REC-03 | Drafts are hidden from Drivers and must be submitted; submitting a non-draft record notifies Logistics that a driver is needed | Implemented | Submit an existing Draft: Sales Coordinator/Admin only (OQ-06). Return to Draft: Sales Coordinator/Admin, only before Time In |
 | BR-REC-04 | Editing a record requires remarks; every change is written to the audit trail and the append-only remark history | Implemented | Edit: SC, Logistics, Admin, Driver (own runs), TASS (RMA only) |
 | BR-REC-05 | Delivery date is required for deliveries and validated; overdue days are computed against Asia/Manila time | Implemented | |
 | BR-REC-06 | Multiple line items (SKU and quantity) per record | Partial | `LineItem` stores SKU text and quantity; no link to the SKU Master, no serial numbers |
-| BR-REC-07 | Soft-delete records | Implemented | Sales Coordinator only |
+| BR-REC-07 | Refuse record deletion for every role, including soft deletion | Implemented | User decision OQ-03; preserve existing records and history |
 | BR-REC-08 | Comments on a record visible in its timeline | Implemented | All roles with access to the record |
 | BR-REC-09 | Link a collection record to related deliveries | Implemented | `linkedCollectionId` |
 | BR-REC-10 | Priority (1 Low, 2 Moderate, 3 High) editable from the Overview tab | Implemented | Sales Coordinator, Logistics |
@@ -132,9 +132,9 @@ Out of scope today: automatic stock movement from deliveries, customer signature
 | Create records | Yes | Yes (not RMA) | No | Yes | No |
 | Edit records | Yes | Yes (not RMA) | RMA only | Yes | Own runs |
 | Assign driver/vehicle | No | Yes | No | Yes | No |
-| Change status | Draft/Scheduled flow only | Yes (not RMA) | RMA only | Yes | Own runs |
+| Change status | Draft/Scheduled flow only | Yes (not RMA; cannot submit existing Drafts) | RMA only | Yes | Own runs |
 | Record Time In | No | Yes | No | Yes | Own runs |
-| Delete record | Yes | No | No | No | No |
+| Delete record | No | No | No | No | No |
 | Verify collection | No | No | Yes | No | No |
 | Manage users and module access | No | No | No | Yes | No |
 | Manage SKUs | No | Adjust only | No | Yes | No |
@@ -150,7 +150,7 @@ The exact default screens per role are listed in [Module access](./MODULE_ACCESS
 4. A started run (Time In recorded) cannot return to Draft or Scheduled.
 5. Proof of delivery means a verified JPG/PNG saved on the server; client claims are never trusted.
 6. A Driver sees and writes only runs assigned to their linked profile; an unlinked Driver account sees nothing.
-7. Deleting is soft; audit rows and remark history are never edited.
+7. Record deletion is disabled for every role (OQ-03); audit rows and remark history are never edited.
 8. Access is decided by the server on every request from current account data; hiding a button is not authorization.
 9. Dates are `YYYY-MM-DD` strings interpreted in Asia/Manila.
 

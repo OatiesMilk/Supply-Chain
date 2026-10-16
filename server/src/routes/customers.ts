@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../db';
 import { requireResource, requireAuth, requireRole } from '../middleware/auth';
 import { asyncRoute } from '../middleware/asyncRoute';
-import { customerChanges, customerSnapshot, parseCustomerUpdate } from '../services/customerValidation';
+import { customerChanges, customerSnapshot, parseCustomerUpdate, parseCustomerCreate } from '../services/customerValidation';
 
 const router = Router();
 
@@ -29,20 +29,21 @@ router.get('/', requireAuth, requireResource('customers'), async (_req, res) => 
 });
 
 // Every role may create a Customer except TASS.
-router.post('/', requireAuth, requireResource('customers'), requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER'), async (req, res) => {
-  const { name, contact_person, email, phone, address, city } = req.body ?? {};
-  if (!name) return res.status(400).json({ error: 'name is required' });
+router.post('/', requireAuth, requireResource('customers'), requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER'), asyncRoute(async (req, res) => {
+  const parsed = parseCustomerCreate(req.body);
+  if ('error' in parsed) return res.status(400).json(parsed);
+  const b = parsed.value!;
 
   // The creation is the first entry in the customer's audit trail.
   const created = await prisma.$transaction(async tx => {
     const customer = await tx.customer.create({
       data: {
-        name,
-        contactPerson: contact_person ?? '',
-        email: email ?? '',
-        phone: phone ?? '',
-        address: address ?? '',
-        city: city ?? '',
+        name: b.name!,
+        contactPerson: b.contactPerson ?? '',
+        email: b.email ?? '',
+        phone: b.phone ?? '',
+        address: b.address ?? '',
+        city: b.city ?? '',
         createdById: req.user!.id,
         modifiedById: req.user!.id,
         modifiedAt: new Date()
@@ -69,7 +70,7 @@ router.post('/', requireAuth, requireResource('customers'), requireRole('SALES_C
     modified_by: created.modifiedBy.name,
     modified_at: created.modifiedAt
   });
-});
+}));
 
 const CUSTOMER_EDITORS = ['SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'] as const;
 
