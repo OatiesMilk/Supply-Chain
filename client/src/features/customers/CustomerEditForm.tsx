@@ -13,8 +13,8 @@ interface CustomerEditFormProps {
   onCancel: () => void;
   onSaved: () => void;
   onDirtyChange: (dirty: boolean) => void;
-  /** Discards the draft and reopens the form on the latest saved values. */
-  onReloadLatest: () => Promise<void>;
+  /** Fetches the latest customer before the form discards its draft. */
+  onReloadLatest: () => Promise<Customer>;
 }
 
 const LAYOUT: Array<{ field: CustomerEditableField; wide?: boolean; type?: string; autoComplete?: string }> = [
@@ -34,8 +34,8 @@ const inputClass = (invalid: boolean) =>
 export default function CustomerEditForm({ customer, onCancel, onSaved, onDirtyChange, onReloadLatest }: CustomerEditFormProps) {
   const formId = useId();
   const mutation = useUpdateCustomerMutation();
-  // The values and version the edit started from; they don't move while editing.
-  const [base] = useState(() => ({ draft: customerDraft(customer), modifiedAt: customer.modified_at }));
+  // Keep the captured values and version until a reload succeeds.
+  const [base, setBase] = useState(() => ({ draft: customerDraft(customer), modifiedAt: customer.modified_at }));
   const [draft, setDraft] = useState(base.draft);
   const [remarks, setRemarks] = useState('');
   const [errors, setErrors] = useState<CustomerErrors>({});
@@ -171,7 +171,25 @@ export default function CustomerEditForm({ customer, onCancel, onSaved, onDirtyC
               <button
                 type="button"
                 disabled={reloading}
-                onClick={async () => { setReloading(true); try { await onReloadLatest(); } finally { setReloading(false); } }}
+                onClick={async () => {
+                  setReloading(true);
+                  try {
+                    const latest = await onReloadLatest();
+                    const latestDraft = customerDraft(latest);
+                    setBase({ draft: latestDraft, modifiedAt: latest.modified_at });
+                    setDraft(latestDraft);
+                    setRemarks('');
+                    setErrors({});
+                    setServerError(null);
+                  } catch {
+                    setServerError({
+                      message: 'Could not load the latest values. Your edits are still here; check your connection and try again.',
+                      stale: true,
+                    });
+                  } finally {
+                    setReloading(false);
+                  }
+                }}
                 className="mt-2 inline-flex items-center gap-1.5 font-semibold underline underline-offset-2 hover:text-red-900 disabled:opacity-60"
               >
                 <RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />
