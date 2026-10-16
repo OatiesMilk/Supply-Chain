@@ -9,9 +9,9 @@ import { downloadDocx } from '@/utils/exportDocx';
 
 const CATEGORIES = ['Deliveries', 'RMA', 'Accounting Collection', 'Procurement Pick-up', 'Sales Orders'];
 
-function SummaryCard({ label, value, sub, color }: { label: string; value: number | string; sub?: string; color: string }) {
+function SummaryCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
   return (
-    <div className={`bg-white border rounded-xl p-4 shadow-sm border-l-4 ${color}`}>
+    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{label}</p>
       <p className="text-2xl font-black text-slate-800">{value}</p>
       {sub && <p className="text-[11px] text-slate-400 mt-0.5">{sub}</p>}
@@ -273,17 +273,16 @@ export default function StatisticalReportView({ currentUserName = '', currentUse
         <div className="space-y-6">
           {/* Summary cards */}
           <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4">
-            <SummaryCard label="Delivery Date Cohort" value={data.total} sub="Records scheduled in range" color="border-slate-400" />
-            <SummaryCard label="Delivered in Cohort" value={data.accomplished} sub="Current Delivered status" color="border-emerald-500" />
+            <SummaryCard label="Delivery Date Cohort" value={data.total} sub="Records scheduled in range" />
+            <SummaryCard label="Delivered in Cohort" value={data.accomplished} sub="Current Delivered status" />
             <SummaryCard
               label="Completed by Time Out"
               value={data.completed_in_range}
               sub={`${dateFrom || dateTo ? 'Selected Manila date range' : 'All dates'}; independent of Status filter`}
-              color="border-cyan-500"
             />
-            <SummaryCard label="On-Hold"           value={data.on_hold}          color="border-red-500"     />
-            <SummaryCard label="Pending"           value={data.pending}          color="border-amber-500"   />
-            <SummaryCard label="Delivered Rate" value={`${data.completion_rate}%`} sub="Within Delivery Date cohort" color="border-blue-500" />
+            <SummaryCard label="On-Hold"           value={data.on_hold}     />
+            <SummaryCard label="Pending"           value={data.pending}   />
+            <SummaryCard label="Delivered Rate" value={`${data.completion_rate}%`} sub="Within Delivery Date cohort" />
           </div>
 
           {/* Breakdown tables */}

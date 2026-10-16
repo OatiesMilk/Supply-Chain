@@ -81,7 +81,7 @@ export default function TassDashboard({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Open RMA Records */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-blue-500 flex items-center justify-between gap-3 hover:border-blue-400 transition-all cursor-pointer"
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-blue-400 transition-all cursor-pointer"
           onClick={() => onNavigate("rma", undefined, 'tass-open-rma')}
         >
           <div className="min-w-0">
@@ -104,7 +104,7 @@ export default function TassDashboard({
 
         {/* RMA On-Hold */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-red-500 flex items-center justify-between gap-3 hover:border-red-400 transition-all cursor-pointer"
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-red-400 transition-all cursor-pointer"
           onClick={() => onNavigate("rma", undefined, 'tass-rma-on-hold')}
         >
           <div className="min-w-0">
@@ -127,7 +127,7 @@ export default function TassDashboard({
 
         {/* Procurement Pick-ups Pending */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-purple-500 flex items-center justify-between gap-3 hover:border-purple-400 transition-all cursor-pointer"
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-purple-400 transition-all cursor-pointer"
           onClick={() => onNavigate("procurement_pickup", undefined, 'tass-pending-pickups')}
         >
           <div className="min-w-0">
@@ -150,7 +150,7 @@ export default function TassDashboard({
 
         {/* Collections Pending Verification */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-amber-400 flex items-center justify-between gap-3 hover:border-amber-300 transition-all cursor-pointer"
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-amber-300 transition-all cursor-pointer"
           onClick={() => onNavigate("accounting_collection", undefined, 'tass-pending-verification')}
         >
           <div className="min-w-0">
