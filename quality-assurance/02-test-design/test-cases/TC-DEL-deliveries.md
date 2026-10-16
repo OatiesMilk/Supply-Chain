@@ -145,10 +145,10 @@ Conventions used in every case:
 | Test Data | Company "Mercury Drug Corporation - Head Office", Reference `UAT-<RUN>-NEG-02`, no date |
 | Steps | 1. Deliveries → "New Record". Read the label of the Delivery Date field.<br>2. Fill the test data (no Delivery Date) and click "Submit".<br>3. Click "Cancel". |
 | Expected Result | • Step 2 shows "Delivery Date is required" and creates nothing.<br>• Step 1: the label marks the field as required (e.g. "Delivery Date *"). Fail (SI-21) if the label reads "Delivery Date (optional)". |
-| Actual Result | RUN-20261014-02: The create form labeled Delivery Date optional, but Submit displayed Delivery Date is required. |
-| Status | RUN-20261014-02: Fail |
-| Evidence | RUN-20261014-02: [TC-DEL-004-02-date-required-label-and-error.png](../../artifacts/RUN-20261014-02/TC-DEL-004-02-date-required-label-and-error.png) |
-| Defect ID | RUN-20261014-02: DEF-005 |
+| Actual Result | RUN-20261015-08: Label subset observed: create form reads Delivery Date (optional), contrary to the required-label expectation. Submit/cancel validation step was not run because the disposable database guard blocked writes. Form was cancelled without submission. |
+| Status | RUN-20261015-08: Fail |
+| Evidence | RUN-20261015-08: [SC-DEL-004-01-date-label.png](../../artifacts/RUN-20261015-08/SC-DEL-004-01-date-label.png) |
+| Defect ID | RUN-20261015-08: DEF-005 |
 ### TC-DEL-005: API refuses a malformed Delivery Date on create
 
 | Field | Description |

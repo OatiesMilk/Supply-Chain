@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "endpoint": "/records?status=Lost",
+  "status": 400,
+  "body": {
+    "error": "status is invalid"
+  }
+}

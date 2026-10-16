@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "endpoint": "/reports/summary",
+  "status": 403,
+  "body": {
+    "error": "Module access denied"
+  }
+}

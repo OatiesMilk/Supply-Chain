@@ -1,0 +1,6 @@
+{
+  "method": "GET",
+  "endpoint": "/account-managers",
+  "status": 404,
+  "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /api/account-managers</pre>\n</body>\n</html>\n"
+}

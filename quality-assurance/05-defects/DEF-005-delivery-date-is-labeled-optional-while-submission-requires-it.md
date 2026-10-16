@@ -85,3 +85,11 @@ The report records observed behavior from the linked case and does not assert an
 | Run ID | Date | Result | Notes |
 |---|---|---|---|
 | | | | |
+
+### Retest observation: RUN-20261015-08
+
+Fail, label subset: Delivery Date (optional) remains visible. Submission not attempted because the current target did not pass the disposable database guard.
+
+![DEF-005 retest](../artifacts/RUN-20261015-08/SC-DEL-004-01-date-label.png)
+
+[Focused run report](../06-reports/UAT-summary-RUN-20261015-08.md)

@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "endpoint": "/notifications/unread-count",
+  "status": 200,
+  "body": {
+    "count": 0
+  }
+}

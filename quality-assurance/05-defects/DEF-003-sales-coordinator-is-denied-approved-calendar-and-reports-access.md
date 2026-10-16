@@ -122,3 +122,11 @@ This is user-reported acceptance of the account permission behavior, not a new e
 | Run ID | Date | Result | Notes |
 |---|---|---|---|
 | | | | |
+
+### Retest observation: RUN-20261015-08
+
+Fail: Microsoft Sales sidebar omits Calendar/Reports; both routes redirect to Dashboard and Reports API returns 403. POST refusal probe not executed.
+
+![DEF-003 retest](../artifacts/RUN-20261015-08/TC-ACC-001-01-sidebar.png)
+
+[Focused run report](../06-reports/UAT-summary-RUN-20261015-08.md)

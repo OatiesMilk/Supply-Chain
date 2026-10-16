@@ -56,10 +56,10 @@ Conventions used in every case:
 | Test Data | None beyond preconditions |
 | Steps | 1. Expand the sidebar if collapsed ("Expand menu").<br>2. List every sidebar item label. |
 | Expected Result | • Visible: Main, Dashboard, Deliveries, RMA, Accounting Collection, Procurement Pick-up, Sales Orders, Customers, Suppliers, Delivery Calendar, Reports, AM Directory, Transaction Center (Delivery Calendar and Reports per the user decision on OQ-09, 2026-10-14).<br>• Not visible: Drivers, SKU Master, Data Sampler, Admin Panel.<br>• Fail (SI-25) if "Delivery Calendar" or "Reports" is missing. |
-| Actual Result | RUN-20261014-02: Sales sidebar and module list did not include Delivery Calendar or Reports, contrary to the approved Sales access decision. |
-| Status | RUN-20261014-02: Fail |
-| Evidence | RUN-20261014-02: [TC-ACC-001-02-sales-sidebar.png](../../artifacts/RUN-20261014-02/TC-ACC-001-02-sales-sidebar.png) |
-| Defect ID | RUN-20261014-02: DEF-003 |
+| Actual Result | RUN-20261015-08: Sales sidebar shows Main, Dashboard, Deliveries, RMA, Accounting Collection, Procurement Pick-up, Sales Orders, Customers, Suppliers, AM Directory and Transaction Center; Delivery Calendar and Reports are missing. No Drivers, SKU Master, Data Sampler or Admin Panel item. Microsoft Sales account used instead of seeded Maria Reyes. |
+| Status | RUN-20261015-08: Fail |
+| Evidence | RUN-20261015-08: [TC-ACC-001-01-sidebar.png](../../artifacts/RUN-20261015-08/TC-ACC-001-01-sidebar.png) |
+| Defect ID | RUN-20261015-08: DEF-003 |
 ### TC-ACC-002: Sales Coordinator opens Calendar and Reports but not admin screens or APIs
 
 | Field | Description |
@@ -75,10 +75,10 @@ Conventions used in every case:
 | Test Data | None beyond preconditions |
 | Steps | 1. Navigate to `/admin`, then `/inventory`, then `/driver_manager`.<br>2. Navigate to `/calendar`, then `/statistical_reports`.<br>3. In the Sales Coordinator session, send with the API helper (AGENTS.md §8): `GET /api/users`<br>4. In the Sales Coordinator session, send with the API helper (AGENTS.md §8): `GET /api/reports/summary`<br>5. In the Sales Coordinator session, send with the API helper (AGENTS.md §8): `POST /api/drivers` body `{"name":"UAT Probe","type":"ASSISTANT"}` |
 | Expected Result | • Each URL in step 1 shows "This page is not available for your account." (or redirects to `/dashboard`); no admin data is displayed.<br>• Step 2: the Delivery Calendar and the Statistical Reports page open normally (OQ-09). Fail (SI-25) if either shows "This page is not available for your account."<br>• Step 3: 403 `{"error":"Module access denied"}`.<br>• Step 4: 200 with a report summary (Fail, SI-25, if 403).<br>• Step 5: 403 `{"error":"Module access denied"}`; no assistant created. |
-| Actual Result | RUN-20261014-02: Calendar and Reports remained unavailable to Maria Reyes. GET /api/reports/summary returned 403 with {"error":"Module access denied"}. |
-| Status | RUN-20261014-02: Fail |
-| Evidence | RUN-20261014-02: [TC-ACC-002-01-admin-denied.png](../../artifacts/RUN-20261014-02/TC-ACC-002-01-admin-denied.png); [TC-ACC-002-01-driver-manager-denied.png](../../artifacts/RUN-20261014-02/TC-ACC-002-01-driver-manager-denied.png); [TC-ACC-002-01-inventory-denied.png](../../artifacts/RUN-20261014-02/TC-ACC-002-01-inventory-denied.png); [TC-ACC-002-02-calendar.png](../../artifacts/RUN-20261014-02/TC-ACC-002-02-calendar.png); [TC-ACC-002-02-reports.png](../../artifacts/RUN-20261014-02/TC-ACC-002-02-reports.png) |
-| Defect ID | RUN-20261014-02: DEF-003 |
+| Actual Result | RUN-20261015-08: Steps 1-4 checked after session loading: Admin, inventory and driver-manager routes redirect to Dashboard as expected; Calendar and Reports also redirect to Dashboard, contrary to approved access. GET users returns 403 Module access denied; GET reports/summary returns 403 Module access denied. POST drivers step 5 Blocked by disposable-target guard. |
+| Status | RUN-20261015-08: Fail |
+| Evidence | RUN-20261015-08: [SC-ACCESS-002-08-failure.png](../../artifacts/RUN-20261015-08/SC-ACCESS-002-08-failure.png) |
+| Defect ID | RUN-20261015-08: DEF-003 |
 ### TC-ACC-003: Logistics sees exactly its default modules
 
 | Field | Description |

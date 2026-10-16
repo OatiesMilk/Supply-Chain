@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "endpoint": "/users",
+  "status": 403,
+  "body": {
+    "error": "Module access denied"
+  }
+}

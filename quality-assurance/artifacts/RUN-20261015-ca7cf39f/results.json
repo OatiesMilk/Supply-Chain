@@ -1,0 +1,33 @@
+{
+  "id": "RUN-20261015-ca7cf39f",
+  "status": "ERROR",
+  "revision": "665775f",
+  "branch": "dev",
+  "results": [
+    {
+      "file": "e2e/unit/attachment-and-quotas.test.ts",
+      "executionError": true,
+      "status": "ERROR"
+    },
+    {
+      "file": "e2e/unit/customer-and-sku-validation.test.ts",
+      "executionError": true,
+      "status": "ERROR"
+    },
+    {
+      "file": "e2e/unit/date-and-time.test.ts",
+      "executionError": true,
+      "status": "ERROR"
+    },
+    {
+      "file": "e2e/unit/delivery-lifecycle.test.ts",
+      "executionError": true,
+      "status": "ERROR"
+    },
+    {
+      "file": "e2e/unit/permissions-and-scoping.test.ts",
+      "executionError": true,
+      "status": "ERROR"
+    }
+  ]
+}

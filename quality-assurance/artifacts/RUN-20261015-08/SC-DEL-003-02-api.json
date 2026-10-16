@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "endpoint": "/records?search=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "status": 400,
+  "body": {
+    "error": "search query is too long"
+  }
+}
