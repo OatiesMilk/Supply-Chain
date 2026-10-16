@@ -817,53 +817,63 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
 
   if (!isDraft && !b.reference?.trim()) return res.status(400).json({ error: 'Reference is required' });
   if (!isDraft && !b.delivery_date) return res.status(400).json({ error: 'Delivery Date is required' });
+  if (b.delivery_date !== undefined && b.delivery_date !== '' && !isValidDateOnly(b.delivery_date)) return res.status(400).json({ error: 'Delivery Date must be a valid YYYY-MM-DD date.' });
+  if (b.priority !== undefined && !['1 - Low', '2 - Moderate', '3 - High'].includes(b.priority)) return res.status(400).json({ error: 'Invalid record priority.' });
   if (b.status && !['Draft', 'Scheduled'].includes(b.status)) return res.status(400).json({ error: 'New records must be Draft or Scheduled.' });
   if (requestsDriver || (Array.isArray(b.driver_assistants) && b.driver_assistants.length)) return res.status(400).json({ error: 'Assign drivers after submitting the record.' });
-  const created = await prisma.$transaction(async tx => {
-    const created = await tx.deliveryRecord.create({
-      data: {
-        id: generateRecordId(),
-        companyId: b.company_id,
-        priority: b.priority ?? '2 - Moderate',
-        reference: b.reference ?? '',
-        remarks: b.remarks ?? '',
-        status: 'SCHEDULED',
-        vehicle: b.vehicle ?? '(None)',
-        area: b.area ?? '',
-        driver: '',
-        driverAssistants: '[]',
-        timeIn: null,
-        timeOut: null,
-        receivedBy: null,
-        accountManager: b.account_manager ?? '',
-        deliveryDate: b.delivery_date ?? '',
-        category: dbCategory as any,
-        itemType: b.item_type ?? 'Small Item',
-        draft: isDraft,
-        
-        itemDescription: b.item_description ?? '',
-        lineItems: Array.isArray(b.line_items) ? {
-          create: b.line_items.map((li: any) => ({
-            sku: li.sku || li.description || '',
-            quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1
-          }))
-        } : undefined,
-        address: b.address ?? '',
-        documentAttachment: Array.isArray(b.attachments) && b.attachments.length > 0 ? b.attachments[0] : null,
-        amount: b.amount != null ? parseFloat(String(b.amount)) : null,
-        createdById: req.user!.id,
-        modifiedById: req.user!.id
-      },
-      include: recordInclude
-    });
+  const company = await prisma.company.findUnique({ where: { id: b.company_id }, select: { id: true } });
+  if (!company) return res.status(400).json({ error: 'Select an existing Company.' });
+  let created: Prisma.DeliveryRecordGetPayload<{ include: typeof recordInclude }>;
+  try {
+    created = await prisma.$transaction(async tx => {
+      const created = await tx.deliveryRecord.create({
+        data: {
+          id: generateRecordId(),
+          companyId: b.company_id,
+          priority: b.priority ?? '2 - Moderate',
+          reference: b.reference ?? '',
+          remarks: b.remarks ?? '',
+          status: 'SCHEDULED',
+          vehicle: b.vehicle ?? '(None)',
+          area: b.area ?? '',
+          driver: '',
+          driverAssistants: '[]',
+          timeIn: null,
+          timeOut: null,
+          receivedBy: null,
+          accountManager: b.account_manager ?? '',
+          deliveryDate: b.delivery_date ?? '',
+          category: dbCategory as any,
+          itemType: b.item_type ?? 'Small Item',
+          draft: isDraft,
 
-    await tx.auditLog.create({ data: {
-      recordId: created.id, recordType: 'DeliveryRecord', action: 'CREATE', changedById: req.user!.id,
-      newValue: JSON.stringify(serializeRecord(created)),
-    } });
-    if (typeof b.remarks === 'string' && b.remarks.trim()) await tx.remarkLog.create({ data: { recordId: created.id, body: b.remarks.trim(), context: 'CREATION', authorId: req.user!.id } });
-    return created;
-  });
+          itemDescription: b.item_description ?? '',
+          lineItems: Array.isArray(b.line_items) ? {
+            create: b.line_items.map((li: any) => ({
+              sku: li.sku || li.description || '',
+              quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1
+            }))
+          } : undefined,
+          address: b.address ?? '',
+          documentAttachment: Array.isArray(b.attachments) && b.attachments.length > 0 ? b.attachments[0] : null,
+          amount: b.amount != null ? parseFloat(String(b.amount)) : null,
+          createdById: req.user!.id,
+          modifiedById: req.user!.id
+        },
+        include: recordInclude
+      });
+
+      await tx.auditLog.create({ data: {
+        recordId: created.id, recordType: 'DeliveryRecord', action: 'CREATE', changedById: req.user!.id,
+        newValue: JSON.stringify(serializeRecord(created)),
+      } });
+      if (typeof b.remarks === 'string' && b.remarks.trim()) await tx.remarkLog.create({ data: { recordId: created.id, body: b.remarks.trim(), context: 'CREATION', authorId: req.user!.id } });
+      return created;
+    });
+  } catch (error) {
+    if ((error as { code?: string })?.code === 'P2003') return res.status(400).json({ error: 'Select an existing Company.' });
+    throw error;
+  }
 
   if (!isDraft) await notifyRole(
     'LOGISTICS',
@@ -982,7 +992,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (b.delivery_date !== undefined) data.deliveryDate = b.delivery_date;
     if (b.item_type !== undefined) data.itemType = b.item_type;
     if (b.is_draft !== undefined) data.draft = b.is_draft === 'Yes';
-    
+
     if (b.item_description !== undefined) data.itemDescription = b.item_description;
     if (b.line_items !== undefined && Array.isArray(b.line_items)) {
       data.lineItems = {
@@ -1171,7 +1181,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     await tx.remarkLog.create({ data: { recordId: saved.id, body: remarks.trim(), context: 'STATUS_CHANGE', authorId: req.user!.id } });
     return { error: null, saved, previous: current };
   });
-  if (result.error) return res.status(result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' ? 403 : 400).json({ error: result.error });
+  if (result.error) return res.status(result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' || result.error === 'Only Sales Coordinator or Admin may submit or return drafts.' ? 403 : 400).json({ error: result.error });
   const updated = result.saved!;
   if (result.previous!.draft && !updated.draft && updated.category === 'DELIVERY' && !String(updated.driver ?? '').trim()) {
     await notifyRole(
@@ -1244,27 +1254,9 @@ router.patch('/:id/verify-collection', requireAuth, requireResource('records'), 
   res.json(serializeRecord(updated));
 });
 
-// Soft delete only - never hard-delete, per spec.
-router.delete('/:id', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR'), async (req, res) => {
-  const existing = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null } });
-  if (!existing) return res.status(404).json({ error: 'Record not found' });
-
-  const updated = await prisma.deliveryRecord.update({
-    where: { id: existing.id },
-    data: { deletedAt: new Date(), modifiedById: req.user!.id },
-    include: recordInclude
-  });
-
-  await writeAuditLog({
-    recordId: updated.id,
-    recordType: 'DeliveryRecord',
-    action: 'DELETE',
-    changedById: req.user!.id,
-    previousValue: serializeRecord(existing),
-    newValue: serializeRecord(updated)
-  });
-
-  res.json({ ok: true });
+// OQ-03: operational records cannot be deleted by any role.
+router.delete('/:id', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR'), (_req, res) => {
+  res.status(403).json({ error: 'Record deletion is disabled for all roles.' });
 });
 
 // ── Comments ──────────────────────────────────────────────────────────────────

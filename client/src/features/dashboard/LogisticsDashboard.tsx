@@ -85,7 +85,7 @@ export default function LogisticsDashboard({
 
         {/* Unassigned (orange — needs attention) */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-amber-500 flex items-center justify-between gap-3 hover:border-amber-400 transition-all cursor-pointer"
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-amber-400 transition-all cursor-pointer"
           id="kpi-log-unassigned"
           onClick={() => onNavigate("deliveries", undefined, 'log-unassigned')}
         >
@@ -109,7 +109,7 @@ export default function LogisticsDashboard({
 
         {/* Completed Today */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-emerald-500 flex items-center justify-between gap-3 hover:border-emerald-400 transition-all cursor-pointer"
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-emerald-400 transition-all cursor-pointer"
           onClick={() => onNavigate("deliveries", undefined, 'log-completed-today')}
         >
           <div className="min-w-0">
@@ -130,7 +130,7 @@ export default function LogisticsDashboard({
 
         {/* On-Hold / Rescheduled */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-purple-500 flex items-center justify-between gap-3 hover:border-purple-400 transition-all cursor-pointer"
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-purple-400 transition-all cursor-pointer"
           onClick={() => onNavigate("deliveries", undefined, 'log-on-hold-rescheduled')}
         >
           <div className="min-w-0">

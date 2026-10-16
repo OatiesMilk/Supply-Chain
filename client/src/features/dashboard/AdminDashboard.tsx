@@ -148,7 +148,7 @@ export default function AdminDashboard({
 
         {/* Unverified Collections */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-amber-500 flex items-center justify-between gap-3 hover:border-amber-400 transition-all cursor-pointer"
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-amber-400 transition-all cursor-pointer"
           onClick={() => onNavigate("accounting_collection", undefined, 'admin-unverified-collections')}
         >
           <div className="min-w-0">

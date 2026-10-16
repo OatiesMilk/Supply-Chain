@@ -97,3 +97,9 @@ flowchart LR
 | Suspected issues | 26 (SI-01..SI-26); SI-24 resolved; 7 wait for deferred cases |
 | Open questions | 9, all answered 2026-10-14 (see `00-discovery/open-questions.md` §0) |
 | Out of scope | Microsoft SSO login (by decision), scheduled reminders, destructive resets, Teams packaging; deferred in cycle 1: RMA, Accounting Collection, Procurement Pick-up, Sales Orders, TASS-specific behaviour, completion email |
+
+## Current QA status
+
+Confirmed major issues were remediated under the user's 2026-10-16 authorization and automated validation passed (239 server tests; 27 reported client test files; both TypeScript checks). See the [remediation record and browser acceptance checklist](06-reports/2026-10-16-major-issues-remediation.md) for the working-tree implementation and live acceptance still needed. Earlier open findings and run counts are historical and do not describe whether a later fix has passed live acceptance.
+
+Latest policy clarification (2026-10-16): Calendar and Reports are intentionally disabled by default for Sales Coordinator and work after Admin grants them per account. DEF-003 is closed by this user clarification; historical run counts are unchanged. See [current scope and clarification](06-reports/2026-10-16-scope-and-sales-access-clarification.md) before interpreting the earlier Sales-access failures.

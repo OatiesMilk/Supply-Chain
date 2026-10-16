@@ -603,7 +603,7 @@ export const api = {
   getSkuAudit: (id: string) => request<ApiAuditEntry[]>(`/skus/${id}/audit`),
   updateSku: (id: string, data: Partial<ApiSku>) =>
     request<ApiSku>(`/skus/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  createSku: (data: Omit<ApiSku, 'id' | 'created_by' | 'modified_by' | 'created_at' | 'updated_at' | 'inventory' | 'recent_transactions'>) =>
+  createSku: (data: Omit<ApiSku, 'id' | 'created_by' | 'modified_by' | 'created_at' | 'updated_at' | 'inventory' | 'recent_transactions'> & { warehouse_location?: string }) =>
     request<ApiSku>('/skus', { method: 'POST', body: JSON.stringify(data) }),
   adjustStock: (id: string, data: { type: string; qty_change: number; reference: string }) =>
     request<ApiSku>(`/skus/${id}/adjust`, { method: 'POST', body: JSON.stringify(data) }),

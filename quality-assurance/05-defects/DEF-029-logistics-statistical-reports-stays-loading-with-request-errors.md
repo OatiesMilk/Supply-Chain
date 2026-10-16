@@ -82,6 +82,10 @@ The report records observed behavior from the linked case and does not assert an
 
 ## 11. Retest history
 
+### Implementation follow-up: 2026-10-16
+
+The user reproduced an initial failure and supplied a Prisma validation error: the Reports count query passed Date bounds to the String `timeOut` field. The working tree now uses UTC ISO string bounds for the Manila date range and forwards async query errors to the existing error handler. The existing browser error/finally path can then stop loading and show a retryable error. Automated validation is recorded in the [scope follow-up](../06-reports/2026-10-16-scope-and-sales-access-clarification.md). The exact live date range still needs browser acceptance; the historical finding remains open pending that check.
+
 | Run ID | Date | Result | Notes |
 |---|---|---|---|
 | | | | |

@@ -174,6 +174,7 @@ test('Logistics can still create an unassigned submitted Delivery', async () => 
     userFindMany: prisma.user.findMany,
     notificationCreateMany: prisma.notification.createMany,
     transaction: prisma.$transaction,
+    companyFindUnique: prisma.company.findUnique,
   };
   const created = {
     ...draftRecord('REC-TSK120-LOGISTICS-CREATED', 'DELIVERY', 'SAP-TSK120-LOGISTICS'),
@@ -188,6 +189,7 @@ test('Logistics can still create an unassigned submitted Delivery', async () => 
     remarkLog: { create: mock.fn(async () => ({})) },
   };
 
+  prisma.company.findUnique = mock.fn(async () => ({ id: 'company-120' })) as any;
   prisma.user.findUnique = mock.fn(async () => logisticsAccount) as any;
   prisma.user.findMany = mock.fn(async ({ where }: any) => where.role === 'LOGISTICS' ? [{ id: logisticsAccount.id }] : []) as any;
   prisma.notification.createMany = notificationCreateMany as any;
@@ -225,6 +227,7 @@ test('Logistics can still create an unassigned submitted Delivery', async () => 
     prisma.user.findMany = original.userFindMany;
     prisma.notification.createMany = original.notificationCreateMany;
     prisma.$transaction = original.transaction;
+    prisma.company.findUnique = original.companyFindUnique;
     await close();
   }
 });

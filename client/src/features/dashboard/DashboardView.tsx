@@ -176,7 +176,7 @@ export default function DashboardView({
           </div>
 
           <div
-            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-amber-500 flex items-center justify-between gap-3 hover:border-amber-400 transition-all cursor-pointer"
+            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-amber-400 transition-all cursor-pointer"
             id="kpi-pending-driver"
             onClick={() => onNavigate("deliveries", undefined, 'sc-pending-assignment')}
           >
@@ -199,7 +199,7 @@ export default function DashboardView({
           </div>
 
           <div
-            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-red-500 flex items-center justify-between gap-3 hover:border-red-400 transition-all cursor-pointer"
+            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-red-400 transition-all cursor-pointer"
             id="kpi-on-hold"
             onClick={() => onNavigate("deliveries", undefined, 'sc-on-hold')}
           >
@@ -220,7 +220,7 @@ export default function DashboardView({
           </div>
 
           <div
-            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-purple-500 flex items-center justify-between gap-3 hover:border-purple-400 transition-all cursor-pointer"
+            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-purple-400 transition-all cursor-pointer"
             id="kpi-rescheduled"
             onClick={() => onNavigate("deliveries", undefined, 'sc-rescheduled')}
           >

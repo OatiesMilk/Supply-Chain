@@ -146,10 +146,12 @@ router.put('/:id/microsoft-identity', requireAuth, requireResource('users'), req
 }));
 
 // Update user details — ADMIN only.
-router.patch('/:id', requireAuth, requireResource('users'), requireRole('ADMIN'), async (req: Request, res: Response) => {
+router.patch('/:id', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (req: Request, res: Response) => {
   const { id } = req.params;
   const { name, email, role } = req.body ?? {};
 
+  if (email !== undefined && (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))) return res.status(400).json({ error: 'Enter a valid email address.' });
+  if (name !== undefined && (typeof name !== 'string' || !name.trim())) return res.status(400).json({ error: 'Name must be non-empty text.' });
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) return res.status(404).json({ error: 'User not found' });
 
@@ -162,8 +164,8 @@ router.patch('/:id', requireAuth, requireResource('users'), requireRole('ADMIN')
   }
 
   const data: Record<string, unknown> = {};
-  if (name) data.name = name;
-  if (email) data.email = String(email).toLowerCase();
+  if (name) data.name = name.trim();
+  if (email) data.email = String(email).trim().toLowerCase();
   if (role) data.role = role;
 
   if (Object.keys(data).length === 0) {
@@ -171,10 +173,16 @@ router.patch('/:id', requireAuth, requireResource('users'), requireRole('ADMIN')
   }
 
   // A login that stops being a DRIVER also stops owning runs.
-  const updated = await prisma.$transaction(async tx => {
-    if (user.role === 'DRIVER' && role && role !== 'DRIVER') await unlinkDriverLogin(tx, id, req.user!);
-    return tx.user.update({ where: { id }, data });
-  });
+  let updated: Awaited<ReturnType<typeof prisma.user.update>>;
+  try {
+    updated = await prisma.$transaction(async tx => {
+      if (user.role === 'DRIVER' && role && role !== 'DRIVER') await unlinkDriverLogin(tx, id, req.user!);
+      return tx.user.update({ where: { id }, data });
+    });
+  } catch (error) {
+    if ((error as { code?: string })?.code === 'P2002') return res.status(409).json({ error: 'An account with this email already exists.' });
+    throw error;
+  }
   res.json({
     id: updated.id,
     name: updated.name,
@@ -184,7 +192,7 @@ router.patch('/:id', requireAuth, requireResource('users'), requireRole('ADMIN')
     microsoft_linked: !!updated.microsoftOid,
     created_at: updated.createdAt,
   });
-});
+}));
 
 // Soft-deactivate a user — ADMIN only. Deactivated users cannot log in.
 router.patch('/:id/deactivate', requireAuth, requireResource('users'), requireRole('ADMIN'), async (req: Request, res: Response) => {
