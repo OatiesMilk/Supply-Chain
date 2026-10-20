@@ -75,6 +75,8 @@ router.post('/microsoft', asyncRoute(async (_req: Request, res: Response) => {
       scopes: ['openid', 'profile', 'email', 'User.Read'],
       redirectUri,
       responseMode: 'query' as any,
+      // Offer account switching while preserving Microsoft 365/Teams sessions.
+      prompt: 'select_account',
     });
     await registerSsoState(prisma, state);
     res.cookie(SSO_STATE_COOKIE, state, {
