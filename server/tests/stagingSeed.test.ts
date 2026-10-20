@@ -158,12 +158,11 @@ test('target guard failure occurs before any database access; dry-run performs n
     await assert.rejects(runStagingSeed(fake.db, source, { apply: true }, { ...env, STAGING_SEED_DATA_APPROVED }), /data-owner approval/);
   }
   await assert.rejects(runStagingSeed(fake.db, source, { apply: true }, { ...env, STAGING_SEED_HOST: 'other.example' }), /exact database hostname/);
-  // The inspected Supabase model uses the database name postgres. Relabelling
-  // APP_ENV and confirming that host/name must not make this target eligible.
+  // APP_ENV and host/name confirmation alone do not approve a Supabase project.
   await assert.rejects(runStagingSeed(fake.db, source, { apply: true }, {
     ...env, DATABASE_URL: 'postgresql://db.reviewed-project.supabase.co:5432/postgres',
     STAGING_SEED_HOST: 'db.reviewed-project.supabase.co', STAGING_SEED_DATABASE: 'postgres',
-  }), /PostgreSQL \*_staging database/);
+  }), /STAGING_SEED_SUPABASE_PROJECT_REF/);
   assert.equal(fake.calls.reads, 0);
   assert.equal(fake.calls.transactions, 0);
   const plan = await runStagingSeed(fake.db, source, {}, { ...env, STAGING_SEED_DATA_APPROVED: undefined });
@@ -256,4 +255,75 @@ test('identity/content collisions abort rather than overwrite, and audit failure
   await assert.rejects(runStagingSeed(failure.db, source, { apply: true }, env), /Injected audit failure/);
   assert.equal(failure.state.companies.size, 0); assert.equal(failure.state.profiles.size, 0);
   assert.equal(failure.state.records.size, 0); assert.equal(failure.state.audits.size, 0);
+});
+
+const projectRef = 'abcdefghijklmnopqrst';
+const supabaseEnv: NodeJS.ProcessEnv = {
+  ...env, DATABASE_URL: `postgresql://postgres:unused@db.${projectRef}.supabase.co:5432/postgres?sslmode=require`,
+  STAGING_SEED_DATABASE: 'postgres', STAGING_SEED_HOST: `db.${projectRef}.supabase.co`,
+  STAGING_SEED_SUPABASE_PROJECT_REF: projectRef, SUPABASE_URL: `https://${projectRef}.supabase.co`,
+};
+const poolerEnv: NodeJS.ProcessEnv = {
+  ...supabaseEnv, DATABASE_URL: `postgresql://postgres.${projectRef}:unused@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=require`,
+  STAGING_SEED_HOST: 'aws-0-ap-southeast-1.pooler.supabase.com',
+};
+
+test('Supabase postgres accepts a confirmed direct project and project-bound shared pooler without renaming the database', async () => {
+  for (const target of [supabaseEnv, poolerEnv]) {
+    assert.deepEqual(assertStagingSeedTarget(target), { database: 'postgres', adminEmail: admin.email });
+    const fake = fakeDb(); fake.setDatabase('postgres');
+    const result = await runStagingSeed(fake.db, source, {}, target);
+    assert.equal(result.mode, 'dry-run');
+    assert.equal(result.records.create, 32);
+    assert.equal(fake.calls.writes, 0);
+    assert.equal(fake.calls.locks, 0);
+  }
+});
+
+test('Supabase postgres refuses missing/mismatched projects, spoofed hosts, and shared poolers without project identity before any access', async () => {
+  const otherRef = 'tsrqponmlkjihgfedcba';
+  const denied: NodeJS.ProcessEnv[] = [
+    { ...supabaseEnv, STAGING_SEED_SUPABASE_PROJECT_REF: undefined },
+    { ...supabaseEnv, STAGING_SEED_SUPABASE_PROJECT_REF: '' },
+    { ...supabaseEnv, STAGING_SEED_SUPABASE_PROJECT_REF: otherRef },
+    { ...supabaseEnv, STAGING_SEED_DATABASE: undefined },
+    { ...supabaseEnv, STAGING_SEED_DATABASE: 'other_staging' },
+    { ...supabaseEnv, STAGING_SEED_HOST: 'other.example' },
+    { ...supabaseEnv, SUPABASE_URL: undefined },
+    { ...supabaseEnv, SUPABASE_URL: `https://${otherRef}.supabase.co` },
+    { ...supabaseEnv, SUPABASE_URL: `https://${projectRef}.supabase.co.evil.example` },
+    { ...supabaseEnv, SUPABASE_URL: `http://${projectRef}.supabase.co` },
+    { ...supabaseEnv, SUPABASE_URL: `https://${projectRef}.supabase.co/project` },
+  ];
+  for (const host of ['localhost', 'unknown.example', `db.${otherRef}.supabase.co`, `db.${projectRef}.supabase.co.evil.example`, `evil-db.${projectRef}.supabase.co`, 'aws-0-ap-southeast-1.pooler.supabase.com.evil.example', 'evil.pooler.supabase.com']) {
+    denied.push({ ...supabaseEnv, DATABASE_URL: `postgresql://postgres.${projectRef}@${host}/postgres`, STAGING_SEED_HOST: host });
+  }
+  for (const username of ['postgres', `postgres.${otherRef}`, `postgres.${projectRef}.evil`, `${projectRef}`]) {
+    denied.push({ ...poolerEnv, DATABASE_URL: `postgresql://${username}@${poolerEnv.STAGING_SEED_HOST}/postgres` });
+  }
+  for (const override of ['host=production.example', '%68ost=production.example', `user=postgres.${otherRef}`, `%75ser=postgres.${otherRef}`, 'database=production', 'port=1234']) {
+    for (const target of [supabaseEnv, poolerEnv]) denied.push({ ...target, DATABASE_URL: `${target.DATABASE_URL}&${override}` });
+  }
+  for (const target of denied) {
+    const fake = fakeDb();
+    await assert.rejects(runStagingSeed(fake.db, source, { apply: true }, target), /Staging seed refused/);
+    assert.equal(fake.calls.reads, 0);
+    assert.equal(fake.calls.writes, 0);
+    assert.equal(fake.calls.transactions, 0);
+  }
+});
+
+test('confirmed Supabase postgres still enforces approval, reset acknowledgement, connected database and active Admin', async () => {
+  for (const target of [supabaseEnv, poolerEnv]) {
+    const fake = fakeDb(); fake.setDatabase('postgres');
+    await assert.rejects(runStagingSeed(fake.db, source, { apply: true }, { ...target, STAGING_SEED_DATA_APPROVED: undefined }), /data-owner approval/);
+    await assert.rejects(runStagingSeed(fake.db, source, { apply: true, reset: true }, target), /STAGING_SEED_ALLOW_RESET/);
+    assert.equal(fake.calls.reads, 0);
+    fake.setDatabase('db_staging');
+    await assert.rejects(runStagingSeed(fake.db, source, { apply: true }, target), /connected database/);
+    fake.setDatabase('postgres'); fake.setActor(null);
+    await assert.rejects(runStagingSeed(fake.db, source, { apply: true }, target), /existing active Admin/);
+    assert.equal(fake.calls.transactions, 0);
+    assert.equal(fake.calls.writes, 0);
+  }
 });
