@@ -65,6 +65,31 @@ test('unknown company is a clean validation failure and a disappearing company m
   assert.equal(transaction.mock.callCount(), 1);
 });
 
+test('editing a record to an unknown company is a 400 without writes, including a P2003 race', async () => {
+  const editBody = { company_id: 'missing-company', remarks: 'Change company' };
+  const update = mock.fn(async ({ data }: any) => ({ ...row, ...data }));
+  const audit = mock.fn(async () => ({}));
+  let companyExists = false;
+  stub(prisma.deliveryRecord, 'findFirst', async () => row);
+  stub(prisma, '$transaction', async (fn: any) => fn({
+    $queryRaw: async () => [], $executeRaw: async () => 0, $executeRawUnsafe: async () => 0,
+    deliveryRecord: { findUnique: async () => row, update }, company: { findUnique: async () => companyExists ? { id: 'missing-company' } : null },
+    auditLog: { create: audit }, remarkLog: { create: async () => ({}) }, driver: { findMany: async () => [] },
+  }));
+  for (const role of ['SALES_COORDINATOR', 'ADMIN']) {
+    const result = await invoke(records, 'put', '/:id', role, editBody);
+    assert.equal(result.status, 400); assert.equal(result.body.error, 'Select an existing Company.');
+  }
+  assert.equal(update.mock.callCount(), 0); assert.equal(audit.mock.callCount(), 0);
+  assert.equal((await invoke(records, 'put', '/:id', 'SALES_COORDINATOR', { ...editBody, company_id: '' })).status, 400);
+  // The company exists at lookup time but is gone by the write: the rolled-back FK failure is still a 400.
+  companyExists = true;
+  update.mock.mockImplementation(async () => { throw Object.assign(new Error('FK'), { code: 'P2003' }); });
+  const raced = await invoke(records, 'put', '/:id', 'SALES_COORDINATOR', editBody);
+  assert.equal(raced.status, 400); assert.equal(raced.body.error, 'Select an existing Company.');
+  assert.equal(audit.mock.callCount(), 0);
+});
+
 test('valid creation preserves Scheduled defaults and an optional empty Draft date', async () => {
   stub(prisma.company, 'findUnique', async () => ({ id: 'company' }));
   stub(prisma.user, 'findMany', async () => []);

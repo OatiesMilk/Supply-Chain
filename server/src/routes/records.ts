@@ -1023,6 +1023,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
   if (b.is_draft !== undefined) data.draft = b.is_draft === 'Yes';
   if (b.remarks !== undefined) data.remarks = String(b.remarks).trim();
   if (b.received_by !== undefined && typeof b.received_by !== 'string') return res.status(400).json({ error: 'Received By must be a name.' });
+  if (data.companyId !== undefined && (typeof data.companyId !== 'string' || !data.companyId.trim())) return res.status(400).json({ error: 'Select an existing Company.' });
   const result = await withDriverDirectoryLock(prisma, async tx => {
     await lockPodRecord(tx, existing.id);
     const current = await tx.deliveryRecord.findUnique({ where: { id: existing.id } });
@@ -1054,6 +1055,10 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (current.status === 'ACCOMPLISHED' && b.received_by !== undefined && !b.received_by.trim()) return { error: 'Received By is required on completed runs.', updated: null };
     const invalidAssignment = await assignmentError(tx, current, data);
     if (invalidAssignment) return { error: invalidAssignment, updated: null };
+    // DEF-008: an unknown Company is a client error, not a foreign-key 500.
+    if (data.companyId !== undefined && data.companyId !== current.companyId && !await tx.company.findUnique({ where: { id: data.companyId }, select: { id: true } })) {
+      return { error: 'Select an existing Company.', updated: null };
+    }
     const updated = await tx.deliveryRecord.update({ where: { id: existing.id }, data, include: recordInclude });
     await tx.auditLog.create({ data: {
       recordId: updated.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id,
@@ -1064,6 +1069,10 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
       recordId: updated.id, body: b.remarks.trim(), context: hasTimestamp ? 'TIMESTAMP_CORRECTION' : 'GENERAL_EDIT', authorId: req.user!.id,
     } });
     return { error: null, updated };
+  }).catch(error => {
+    // The Company can disappear between the lookup and the write; the transaction has rolled back.
+    if ((error as { code?: string })?.code === 'P2003' && data.companyId !== undefined) return { error: 'Select an existing Company.', updated: null };
+    throw error;
   });
   if (result.error) return res.status(result.error === 'Record not found' ? 404 : result.error === 'Record access denied' || result.error === 'Only Sales Coordinator or Admin may submit or return drafts.' ? 403 : 400).json({ error: result.error });
   const updated = result.updated!;
