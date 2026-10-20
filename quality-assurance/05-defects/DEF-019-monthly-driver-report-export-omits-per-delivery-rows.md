@@ -19,7 +19,7 @@
 | Role and account used | Logistics, logistics@microgenesis.com; passwords are not recorded |
 | Severity | Major |
 | Priority | P2 |
-| Status | Open |
+| Status | Resolved (Product Decision) |
 | Found in run | RUN-20261014-02 |
 
 ## 2. Environment
@@ -85,4 +85,4 @@ The report records observed behavior from the linked case and does not assert an
 
 | Run ID | Date | Result | Notes |
 |---|---|---|---|
-| | | | |
+| RUN-20261020-01 | 2026-10-20 | Resolved | Product decision recorded by @roelandremagbitang: The Monthly Driver Report CSV is designed as an aggregate summary report providing driver-level performance totals, time-bracket distributions, vehicle plates, area coverage, and remarks. Individual delivery breakdown rows are not required for this monthly overview export. Shape verified via automated unit test suite `client/tests/driverReportCSV.test.ts` (10 tests) covering headers, single summary row per driver, totals, RFC 4180 escaping, and aggregate-only contract. |
