@@ -67,6 +67,18 @@ select Microsoft Graph before SMTP, so review staging mail delivery separately
 before enabling them. With neither Azure nor SMTP configured, email uses the
 existing mock behavior. This change does not add a mail-provider selector.
 
+Microsoft sign-in requests an account picker. Users can choose a remembered
+corporate account or use another account; choosing an existing session does not
+require entering their email/password again. Portal logout clears only the
+portal session, preserving Microsoft 365 and Teams sessions. This avoids global
+Microsoft sign-out when switching portal accounts. Tenant and Admin-approved
+Microsoft identity checks still apply to the chosen account.
+
+Leave the Entra app registration's **Front-channel logout URL** blank: the portal
+does not implement that endpoint. This account picker does not implement or
+verify native Teams SDK SSO or sign-in within an embedded Teams tab; validate
+those deployment flows separately.
+
 Staging data preparation is optional and never runs automatically during startup
 or deployment. The commented `STAGING_SEED_*` settings in the API template are
 used only by the [guarded staging seed commands](./staging-seed.md); supply them
