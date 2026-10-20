@@ -5,6 +5,7 @@ import { asyncRoute } from '../middleware/asyncRoute';
 import { assignmentError, resolveDriverAssignment, withDriverDirectoryLock, type DriverChange } from '../services/driverDirectory';
 import { requireAuth, requireRole, requireResource } from '../middleware/auth';
 import { writeAuditLog } from '../services/audit';
+import { visibleRecordAuditSnapshots } from '../services/recordAuditVisibility';
 import { notifyAccomplished } from '../services/notify';
 import { notifyRole, notifyUser } from '../services/inAppNotify';
 import { CATEGORY_TO_DB, STATUS_TO_DB, STATUS_FROM_DB, serializeRecord } from '../mappings';
@@ -307,7 +308,7 @@ router.get('/', requireAuth, requireResource('records'), requireRecordAccess, as
       ...(parsed.take !== undefined ? { take: parsed.take } : {}),
       ...(parsed.cursor ? { cursor: { id: parsed.cursor }, skip: 1 } : {}),
     });
-    return res.json(records.map(serializeRecord));
+    return res.json(records.map(r => serializeRecord(r, req.user!)));
   }
 
   // Paged contract: { rows, nextCursor, hasMore, total, page, limit }
@@ -353,7 +354,7 @@ router.get('/', requireAuth, requireResource('records'), requireRecordAccess, as
   const nextCursor = hasMore ? encodeCursor(rows[rows.length - 1]) : null;
 
   res.json({
-    rows: rows.map(serializeRecord),
+    rows: rows.map(r => serializeRecord(r, req.user!)),
     nextCursor,
     hasMore,
     total,
@@ -464,7 +465,7 @@ router.get('/calendar-summary', requireAuth, requireResource('records'), require
     take: 500,
   });
 
-  res.json(records.map(serializeRecord));
+  res.json(records.map(r => serializeRecord(r, req.user!)));
 }));
 
 // Must be before /:id to avoid "status-history-counts" matching as an ID
@@ -601,27 +602,28 @@ router.get('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     return res.status(403).json({ error: 'TASS may only view Accounting Collection and RMA records' });
   }
 
-  res.json(serializeRecord(record));
+  res.json(serializeRecord(record, req.user!));
 });
 
-router.get('/:id/audit', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
+router.get('/:id/audit', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
   const entries = await prisma.auditLog.findMany({
     where: { recordId: req.params.id, recordType: 'DeliveryRecord' },
     include: { changedBy: true },
     orderBy: { timestamp: 'desc' }
   });
 
+  const snapshots = await visibleRecordAuditSnapshots(entries, req.user!);
   res.json(
-    entries.map(e => ({
+    entries.map((e, index) => ({
       id: e.id,
       action: e.action,
       changed_by: e.changedBy.name,
-      previous_value: e.previousValue ? JSON.parse(e.previousValue) : null,
-      new_value: e.newValue ? JSON.parse(e.newValue) : null,
+      previous_value: snapshots[index].previousValue,
+      new_value: snapshots[index].newValue,
       timestamp: e.timestamp
     }))
   );
-});
+}));
 
 router.get('/:id/attachments', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
   const attachments = await prisma.podAttachment.findMany({
@@ -883,7 +885,7 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
     'DeliveryRecord'
   );
 
-  res.status(201).json(serializeRecord(created));
+  res.status(201).json(serializeRecord(created, req.user!));
 }));
 
 // Full update - ADMIN added alongside LOGISTICS for linked collection management.
@@ -973,7 +975,12 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
         data.linkedCollectionId = null;
       } else {
         const target = await prisma.deliveryRecord.findFirst({
-          where: { id: b.linked_collection_id, deletedAt: null, category: 'ACCOUNTING_COLLECTION' }
+          where: {
+            id: b.linked_collection_id,
+            deletedAt: null,
+            category: 'ACCOUNTING_COLLECTION',
+            AND: [recordScope(req.user!)]
+          }
         });
         if (!target) {
           return res.status(400).json({ error: 'Linked record must be an existing Accounting Collection record' });
@@ -1092,7 +1099,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     );
   }
 
-  res.json(serializeRecord(updated));
+  res.json(serializeRecord(updated, req.user!));
 }));
 
 // Time In is the sole action that starts an assigned run.
@@ -1118,7 +1125,7 @@ router.post('/:id/time-in', requireAuth, requireResource('records'), requireReco
     return { error: null, saved };
   });
   if (result.error) return res.status(400).json({ error: result.error });
-  res.json(serializeRecord(result.saved));
+  res.json(serializeRecord(result.saved, req.user!));
 }));
 
 // Every completion path validates persisted proof and stamps server Time Out atomically.
@@ -1209,7 +1216,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     });
     if (updated.category === 'ACCOUNTING_COLLECTION') await notifyRole('TASS', 'Collection ready for verification', `${updated.company.name} · ${updated.reference} is now accomplished and requires collection verification.`, updated.id, 'DeliveryRecord');
   }
-  res.json(serializeRecord(updated));
+  res.json(serializeRecord(updated, req.user!));
 }));
 
 // Collection verification - TASS only, for ACCOUNTING_COLLECTION records that are ACCOMPLISHED.
@@ -1260,7 +1267,7 @@ router.patch('/:id/verify-collection', requireAuth, requireResource('records'), 
     'DeliveryRecord'
   );
 
-  res.json(serializeRecord(updated));
+  res.json(serializeRecord(updated, req.user!));
 });
 
 // OQ-03: operational records cannot be deleted by any role.

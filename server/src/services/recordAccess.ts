@@ -36,6 +36,20 @@ export function isAssignedDriver(user: AuthUser, record: { driverId?: string | n
   return user.role === 'DRIVER' && !!user.driverProfileId && record.driverId === user.driverProfileId && !record.draft;
 }
 
+export function canReadRecord(
+  user: AuthUser,
+  record: { category?: string | null; driverId?: string | null; draft?: boolean }
+): boolean {
+  const category = record.category ?? 'ACCOUNTING_COLLECTION';
+  if (!readableCategories(user).includes(category)) return false;
+  if (user.role === 'DRIVER') {
+    if (!user.driverProfileId) return false;
+    if (record.driverId !== user.driverProfileId) return false;
+    if (record.draft) return false;
+  }
+  return true;
+}
+
 export function canWriteCategory(user: AuthUser, category: string): boolean {
   const screen = CATEGORY_SCREEN[category];
   if (!screen || !readableCategories(user).includes(category)) return false;

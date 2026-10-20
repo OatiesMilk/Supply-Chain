@@ -161,6 +161,32 @@ router.post('/', requireAuth, requireResource('skus'), requireRole('ADMIN'), asy
   }
 }));
 
+// In-process mutex to serialize concurrent adjustments per SKU within the Node event loop
+const productLocks = new Map<string, Promise<void>>();
+
+async function withProductLock<T>(productId: string, fn: () => Promise<T>): Promise<T> {
+  while (productLocks.has(productId)) {
+    try {
+      await productLocks.get(productId);
+    } catch {
+      // Ignore errors from previous holder
+    }
+  }
+  let release!: () => void;
+  const lock = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  productLocks.set(productId, lock);
+  try {
+    return await fn();
+  } finally {
+    if (productLocks.get(productId) === lock) {
+      productLocks.delete(productId);
+    }
+    release();
+  }
+}
+
 // POST /api/skus/:id/adjust — Admin + Logistics, stock adjustment
 // Stock adjustment is a SKU Master action: read-only SKU lookup is not enough (TSK-118).
 router.post('/:id/adjust', requireAuth, requireResource('skus'), requireScreen('inventory'), requireRole('ADMIN', 'LOGISTICS'), asyncRoute(async (req, res) => {
@@ -175,45 +201,51 @@ router.post('/:id/adjust', requireAuth, requireResource('skus'), requireScreen('
   if (!product) return res.status(404).json({ error: 'SKU not found' });
 
   try {
-    const updated = await prisma.$transaction(async (tx) => {
-      const inv = await tx.inventoryItem.findUnique({ where: { productId: product.id } });
-      const currentQty = inv?.onHandQty ?? 0;
-      if (currentQty + change < 0) {
-        throw new Error(`Insufficient stock. Current on-hand quantity is ${currentQty}, cannot deduct ${Math.abs(change)}.`);
-      }
-      const resultingBalance = currentQty + change;
-      if (resultingBalance > 2147483647) throw new Error('Stock balance exceeds the supported range.');
-
-      if (inv) {
-        await tx.inventoryItem.update({
-          where: { productId: product.id },
-          data: { onHandQty: resultingBalance }
-        });
-      }
-
-      await tx.inventoryTransaction.create({
-        data: {
-          productId:        product.id,
-          type:             String(type),
-          qtyChange:        change,
-          resultingBalance,
-          reference:        reference.trim()
+    const updated = await withProductLock(product.id, async () => {
+      return prisma.$transaction(async (tx) => {
+        if (typeof tx.$queryRaw === 'function') {
+          await tx.$queryRaw`SELECT id FROM "Product" WHERE id = ${product.id} FOR UPDATE`;
+          await tx.$queryRaw`SELECT id FROM "InventoryItem" WHERE "productId" = ${product.id} FOR UPDATE`;
         }
-      });
+        const inv = await tx.inventoryItem.findUnique({ where: { productId: product.id } });
+        const currentQty = inv?.onHandQty ?? 0;
+        if (currentQty + change < 0) {
+          throw new Error(`Insufficient stock. Current on-hand quantity is ${currentQty}, cannot deduct ${Math.abs(change)}.`);
+        }
+        const resultingBalance = currentQty + change;
+        if (resultingBalance > 2147483647) throw new Error('Stock balance exceeds the supported range.');
 
-      await tx.product.update({
-        where: { id: product.id },
-        data: { modifiedById: req.user!.id }
-      });
+        if (inv) {
+          await tx.inventoryItem.update({
+            where: { productId: product.id },
+            data: { onHandQty: resultingBalance }
+          });
+        }
 
-      await tx.auditLog.create({ data: {
-        recordId: product.id, recordType: 'SKU', action: 'UPDATE', changedById: req.user!.id,
-        previousValue: JSON.stringify({ on_hand_qty: currentQty }),
-        newValue: JSON.stringify({ on_hand_qty: resultingBalance, adjustment_type: type, qty_change: change, reference: reference.trim() }),
-      } });
-      return tx.product.findUniqueOrThrow({
-        where: { id: product.id },
-        include: { ...productInclude, transactions: { orderBy: { date: 'desc' }, take: 20 } },
+        await tx.inventoryTransaction.create({
+          data: {
+            productId:        product.id,
+            type:             String(type),
+            qtyChange:        change,
+            resultingBalance,
+            reference:        reference.trim()
+          }
+        });
+
+        await tx.product.update({
+          where: { id: product.id },
+          data: { modifiedById: req.user!.id }
+        });
+
+        await tx.auditLog.create({ data: {
+          recordId: product.id, recordType: 'SKU', action: 'UPDATE', changedById: req.user!.id,
+          previousValue: JSON.stringify({ on_hand_qty: currentQty }),
+          newValue: JSON.stringify({ on_hand_qty: resultingBalance, adjustment_type: type, qty_change: change, reference: reference.trim() }),
+        } });
+        return tx.product.findUniqueOrThrow({
+          where: { id: product.id },
+          include: { ...productInclude, transactions: { orderBy: { date: 'desc' }, take: 20 } },
+        });
       });
     });
 
