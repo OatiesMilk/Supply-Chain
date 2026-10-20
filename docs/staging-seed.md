@@ -17,28 +17,31 @@ It retains the workbook SHA256, original worksheet headers, source sheet/row and
 raw cell strings. This is a **static snapshot**, not a dynamic Excel importer or
 automatic sync. A revised workbook needs a new reviewed extraction before use.
 
-The [Cycle 3 preflight](./CYCLE3_DB_PREFLIGHT_163.md) records an unverified Render
-database target and a shared Supabase database named `postgres`. Adding this
-command does not resolve those deployment blockers or authorize seeding that
-environment. The target guard intentionally refuses that database name. Establish
-an isolated, approved staging database before using `--apply`; the existing
-preflight release decision remains unchanged.
+The [Cycle 3 preflight](./CYCLE3_DB_PREFLIGHT_163.md) is historical: the release
+owner subsequently confirmed the staging/testing database and cleared promotion
+in [release gate #162](https://github.com/MarcZxc1/Supply-Chain/issues/162) on
+2026-10-16. The guard now supports Supabase's default `postgres` database when
+the operator explicitly confirms that staging project and its connection
+identity as described below. This supersedes the earlier database-name refusal;
+the guard itself cannot prove environment isolation or authorize a different target.
 
 **Current approval state:** the user confirmed approval for the original workbook
 and staging data, and authorized replacing staging operational seeds while
-preserving login accounts and permissions. This does not establish deployment
-isolation or make the inspected Supabase target eligible. The environment checks
-and explicit apply/reset acknowledgements still apply.
+preserving login accounts and permissions. Use the owner-approved staging project;
+these approvals do not extend to other targets. The environment checks and
+explicit apply/reset acknowledgements still apply.
 
 ## Prerequisites
 
-- Use a dedicated PostgreSQL staging database whose exact name ends `_staging`.
-  Apply the normal application migrations first; this command does not migrate.
+- Use a dedicated PostgreSQL staging database whose exact name ends `_staging`,
+  or the default `postgres` database in an explicitly confirmed isolated Supabase
+  staging project. Apply normal application migrations first; this command does
+  not migrate. Supabase does not require a database rename.
 - Independently verify and record the actual staging project, database host/name,
   backend API target and storage isolation from production. A `_staging` suffix,
   matching environment variables or `current_database()` **does not prove
-  isolation**. Confirm the project and storage with the environment owner; the
-  shared inspected Supabase `postgres` target remains blocked.
+  isolation**. Confirm the connection still identifies the owner-approved staging
+  project and storage before applying the seed.
 - Confirm the staging frontend's API target points to the staging backend, and
   that backend points to this database. Previewing a local database does not
   populate a deployed staging service.
@@ -60,11 +63,39 @@ STAGING_SEED_ADMIN_EMAIL=<existing active staging Admin email>
 ```
 
 `NODE_ENV=production` remains suitable for deployed staging. The guard checks
-`APP_ENV=staging`, the PostgreSQL URL, its `_staging` database name, and exact
-`STAGING_SEED_DATABASE` and `STAGING_SEED_HOST` confirmation before any database access. It then verifies
-`current_database()` and the Admin account. Remote hosts are allowed only when
-explicitly confirmed; names without the required suffix are refused. Deployment readiness and routing can be
-reviewed separately through the Admin deployment status check.
+`APP_ENV=staging`, a PostgreSQL URL, an eligible database name, and exact
+`STAGING_SEED_DATABASE` and `STAGING_SEED_HOST` confirmation before any database
+access. It then verifies `current_database()` and the Admin account. Remote hosts
+must be explicitly confirmed. Deployment readiness and routing can be reviewed
+separately through the Admin deployment status check.
+
+For a Supabase staging project using the default `postgres` database, add:
+
+```text
+STAGING_SEED_DATABASE=postgres
+STAGING_SEED_SUPABASE_PROJECT_REF=<exact 20-character staging project reference>
+SUPABASE_URL=https://<same staging project reference>.supabase.co
+STAGING_SEED_HOST=<exact hostname from the staging DATABASE_URL>
+```
+
+Copy the private `DATABASE_URL` from the staging project's **Connect** panel.
+The guard accepts these [Supabase connection formats](https://supabase.com/docs/guides/database/connecting-to-postgres):
+
+- Direct: host `db.<project-ref>.supabase.co`, normally username `postgres`.
+- Shared pooler: host `aws-<index>-<region>.pooler.supabase.com`, with username
+  **`postgres.<project-ref>`**. A shared pooler host alone does not identify the
+  project; its username must match the explicitly confirmed reference. Use the
+  session pooler connection for this transactional CLI.
+
+Set `STAGING_SEED_HOST` to that exact host without scheme or port. The database
+name must remain `postgres`; do not change the connection to a nonexistent
+`*_staging` database. `SUPABASE_URL` must be the matching HTTPS project origin,
+without credentials, custom ports, paths, queries or fragments. URLs with target
+overrides such as `?host=...` or `?user=...` are refused. These confirmations are
+operator acknowledgements and cannot independently prove isolation or approval.
+Source-data approval, reset acknowledgement, and the existing active Admin check
+are required exactly as for the `*_staging` flow. Local demo/UAT destructive seed
+guards remain separate and unchanged.
 
 ## Preview and apply
 
