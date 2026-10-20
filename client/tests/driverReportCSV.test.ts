@@ -212,6 +212,25 @@ test('DEF-019: RFC 4180 - cell containing commas and quotes is quoted correctly'
   assert.ok(csv.includes('""special""'), 'Double quotes must be escaped as ""');
 });
 
+test('DEF-019: RFC 4180 - cell containing newlines is enclosed in double quotes', () => {
+  const multilineStats = new Map<string, DriverStats>([
+    [
+      'Bob Smith',
+      {
+        acc: 1,
+        rh: 0,
+        pend: 0,
+        dep: [1, 0, 0, 0],
+        arr: [1, 0, 0, 0],
+        vehicles: new Set(['ABC-1234']),
+        lastRemark: 'First line note\nSecond line note',
+      },
+    ],
+  ]);
+  const csv = buildDriverReportCSV(mockDeliveries, ['Bob Smith'], multilineStats, 'OCTOBER', 2026, 'Logistics Officer', 'Logistics');
+  assert.ok(csv.includes('"First line note\nSecond line note"'), 'Cell containing newline must be enclosed in quotes');
+});
+
 test('DEF-019: CSV contains NO individual delivery reference rows (aggregate-only contract confirmed)', () => {
   const csv = buildDriverReportCSV(mockDeliveries, mockDrivers, mockStats, 'OCTOBER', 2026, 'Logistics Officer', 'Logistics');
   const rows = parseCSVRows(csv);

@@ -169,3 +169,24 @@ test('two sequential requests receive independent results and the first error do
   const second = await invoke('/summary', {});    // second must see its own result
   assert.equal(second.completed_in_range, 3);
 });
+
+test('first request with exact failing date range (2026-07-01 to 2026-12-31) succeeds and repeat succeeds immediately', async () => {
+  let completionQuery: any;
+  stub(prisma.deliveryRecord, 'findMany', async () => records);
+  stub(prisma.deliveryRecord, 'count', async (q: any) => { completionQuery = q; return 2; });
+
+  const query = { deliveryDateFrom: '2026-07-01', deliveryDateTo: '2026-12-31', category: 'Deliveries' };
+  const first = await invoke('/summary', query);
+  assert.equal(first.total, 3);
+  assert.equal(first.completed_in_range, 2);
+  assert.deepEqual(completionQuery.where.timeOut, {
+    gte: '2026-06-30T16:00:00.000Z',
+    lt: '2026-12-31T16:00:00.000Z',
+  });
+
+  // Second immediate attempt without any retry delay or intervening reset
+  const repeat = await invoke('/summary', query);
+  assert.equal(repeat.total, 3);
+  assert.equal(repeat.completed_in_range, 2);
+});
+
