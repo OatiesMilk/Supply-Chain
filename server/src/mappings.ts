@@ -5,6 +5,8 @@
 // without forcing a UI rewrite of every label.
 
 import { allowedStatuses, deliveryScheduleState, runState } from './services/deliveryLifecycle';
+import { canReadRecord, readableCategories } from './services/recordAccess';
+import type { AuthUser } from './middleware/auth';
 
 export const CATEGORY_TO_DB: Record<string, string> = {
   'Sales Orders': 'SALES_ORDERS',
@@ -51,10 +53,15 @@ export function parseDriverAssistants(value: unknown): string[] {
   }
 }
 
-export function serializeRecord(r: any) {
+export function serializeRecord(r: any, user?: AuthUser) {
   const state = r.category === 'DELIVERY' ? deliveryScheduleState(r.deliveryDate) : null;
   const completed = runState(r) === 'Delivered';
   const completedLate = r.category === 'DELIVERY' && completed && Boolean(r.completedLate);
+  const canViewLinked = !user || (
+    r.linkedCollection
+      ? canReadRecord(user, r.linkedCollection)
+      : (r.linkedCollectionId ? (user.role !== 'DRIVER' && readableCategories(user).includes('ACCOUNTING_COLLECTION')) : true)
+  );
   return {
     id: r.id,
     company_name: r.company?.name ?? '',
@@ -92,8 +99,8 @@ export function serializeRecord(r: any) {
     collection_verified_by: r.collectionVerifiedBy ?? null,
     collection_verified_at: r.collectionVerifiedAt ?? null,
     amount: r.amount ?? null,
-    linked_collection_id: r.linkedCollectionId ?? null,
-    linked_collection: r.linkedCollection && !r.linkedCollection.draft ? {
+    linked_collection_id: canViewLinked ? (r.linkedCollectionId ?? null) : null,
+    linked_collection: (canViewLinked && r.linkedCollection && !r.linkedCollection.draft) ? {
       id: r.linkedCollection.id,
       reference: r.linkedCollection.reference,
       company_name: r.linkedCollection.company?.name ?? '',
