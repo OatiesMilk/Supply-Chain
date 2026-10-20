@@ -19,10 +19,11 @@ const records = [
   { category: 'DELIVERY', status: 'SCHEDULED', draft: false, timeIn: null, deliveryDate: '2026-10-06' },
   { category: 'DELIVERY', status: 'SCHEDULED', draft: false, timeIn: '2026-10-06T01:00:00Z', deliveryDate: '2026-10-06' },
 ];
-async function invoke(path: string, query: Record<string, string>) {
+async function invoke(path: string, query: Record<string, string>, userOverride?: Partial<{ role: string; effectiveScreens: string[] }>) {
   const route = (reports as any).stack.find((layer: any) => layer.route?.path === path).route;
   let body: any;
-  await route.stack.at(-1).handle({ query, user: { role: 'ADMIN', name: 'Admin', permissions: [], effectiveScreens: ['statistical_reports'] } }, { json(value: any) { body = value; } }, (error: unknown) => { if (error) throw error; });
+  const user = { role: 'ADMIN', name: 'Admin', permissions: [], effectiveScreens: ['statistical_reports'] as string[], ...userOverride };
+  await route.stack.at(-1).handle({ query, user }, { json(value: any) { body = value; } }, (error: unknown) => { if (error) throw error; });
   return body;
 }
 
@@ -93,3 +94,99 @@ test('summary forwards database failures to Express instead of leaving the reque
   stub(prisma.deliveryRecord, 'count', async () => 0);
   await assert.rejects(invoke('/summary', {}), error);
 });
+
+// ── DEF-029 acceptance: additional boundary cases ─────────────────────────────
+
+test('single lower bound without upper returns records from that date onward in the cohort', async () => {
+  let cohortQuery: any;
+  stub(prisma.deliveryRecord, 'findMany', async (q: any) => { cohortQuery = q; return []; });
+  stub(prisma.deliveryRecord, 'count', async () => 0);
+  await invoke('/summary', { deliveryDateFrom: '2026-10-01' });
+  assert.deepEqual(cohortQuery.where.deliveryDate, { gte: '2026-10-01' });
+});
+
+test('single upper bound without lower returns records up to and including that date in the cohort', async () => {
+  let cohortQuery: any;
+  stub(prisma.deliveryRecord, 'findMany', async (q: any) => { cohortQuery = q; return []; });
+  stub(prisma.deliveryRecord, 'count', async () => 0);
+  await invoke('/summary', { deliveryDateTo: '2026-10-31' });
+  assert.deepEqual(cohortQuery.where.deliveryDate, { lte: '2026-10-31' });
+});
+
+test('unbounded summary (no dates) returns a result without a deliveryDate filter', async () => {
+  let cohortQuery: any;
+  stub(prisma.deliveryRecord, 'findMany', async (q: any) => { cohortQuery = q; return []; });
+  stub(prisma.deliveryRecord, 'count', async () => 0);
+  const result = await invoke('/summary', {});
+  assert.equal(result.total, 0);
+  assert.equal(cohortQuery.where.deliveryDate, undefined);
+});
+
+test('inverted date range (from after to) is rejected with 400 before any database query', async () => {
+  const findMany = stub(prisma.deliveryRecord, 'findMany', async () => []);
+  const count    = stub(prisma.deliveryRecord, 'count',    async () => 0);
+  const route = (reports as any).stack.find((layer: any) => layer.route?.path === '/summary').route;
+  let status = 200; let body: any;
+  const req = { query: { deliveryDateFrom: '2026-12-31', deliveryDateTo: '2026-07-01' }, user: { role: 'ADMIN', name: 'Admin', permissions: [], effectiveScreens: ['statistical_reports'] } };
+  const res = { status(v: number) { status = v; return this; }, json(v: any) { body = v; return this; } };
+  await route.stack.at(-1).handle(req, res, (err: unknown) => { if (err) throw err; });
+  assert.equal(status, 400);
+  assert.ok(body?.error, 'should include an error message');
+  assert.equal(findMany.mock.callCount(), 0);
+  assert.equal(count.mock.callCount(), 0);
+});
+
+test('Sales Coordinator without a statistical_reports grant is denied with 403', async () => {
+  const route = (reports as any).stack.find((layer: any) => layer.route?.path === '/summary').route;
+  let status = 200; let body: any;
+  const req = { query: {}, user: { role: 'SALES_COORDINATOR', name: 'Sales', permissions: [], effectiveScreens: ['deliveries', 'dashboard'] } };
+  const res = { status(v: number) { status = v; return this; }, json(v: any) { body = v; return this; } };
+  let nextCalled = false;
+  await route.stack.at(-2).handle(req, res, () => { nextCalled = true; });
+  assert.equal(nextCalled, false);
+  assert.equal(status, 403);
+  assert.equal(body?.error, 'Module access denied');
+});
+
+test('Sales Coordinator with Admin-granted statistical_reports screen receives a summary', async () => {
+  stub(prisma.deliveryRecord, 'findMany', async () => []);
+  stub(prisma.deliveryRecord, 'count', async () => 5);
+  const result = await invoke('/summary', {}, { role: 'SALES_COORDINATOR', effectiveScreens: ['statistical_reports'] });
+  assert.equal(result.completed_in_range, 5);
+});
+
+test('two sequential requests receive independent results and the first error does not taint a later success', async () => {
+  let shouldFail = true;
+  stub(prisma.deliveryRecord, 'findMany', async () => {
+    if (shouldFail) {
+      shouldFail = false;
+      throw new Error('transient failure');
+    }
+    return [];
+  });
+  stub(prisma.deliveryRecord, 'count', async () => 3);
+  await assert.rejects(invoke('/summary', {}));   // first request fails
+  const second = await invoke('/summary', {});    // second must see its own result
+  assert.equal(second.completed_in_range, 3);
+});
+
+test('first request with exact failing date range (2026-07-01 to 2026-12-31) succeeds and repeat succeeds immediately', async () => {
+  let completionQuery: any;
+  stub(prisma.deliveryRecord, 'findMany', async () => records);
+  stub(prisma.deliveryRecord, 'count', async (q: any) => { completionQuery = q; return 2; });
+
+  const query = { deliveryDateFrom: '2026-07-01', deliveryDateTo: '2026-12-31', category: 'Deliveries' };
+  const first = await invoke('/summary', query);
+  assert.equal(first.total, 3);
+  assert.equal(first.completed_in_range, 2);
+  assert.deepEqual(completionQuery.where.timeOut, {
+    gte: '2026-06-30T16:00:00.000Z',
+    lt: '2026-12-31T16:00:00.000Z',
+  });
+
+  // Second immediate attempt without any retry delay or intervening reset
+  const repeat = await invoke('/summary', query);
+  assert.equal(repeat.total, 3);
+  assert.equal(repeat.completed_in_range, 2);
+});
+

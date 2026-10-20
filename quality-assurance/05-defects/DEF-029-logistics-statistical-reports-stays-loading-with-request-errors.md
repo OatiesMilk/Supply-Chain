@@ -19,7 +19,7 @@
 | Role and account used | Logistics, logistics@microgenesis.com; passwords are not recorded |
 | Severity | Major |
 | Priority | P2 |
-| Status | Open |
+| Status | Verified / Resolved |
 | Found in run | RUN-20261014-02 |
 
 ## 2. Environment
@@ -88,4 +88,4 @@ The user reproduced an initial failure and supplied a Prisma validation error: t
 
 | Run ID | Date | Result | Notes |
 |---|---|---|---|
-| | | | |
+| RUN-20261020-01 | 2026-10-20 | Pass | Remediated via PR #184 (merged into dev). Reports endpoint verified with UTC ISO string bounds for timeOut Prisma string filter, asyncRoute error forwarding, 400 rejection for inverted ranges, Sales 403 denial / 200 on admin grant, and sequential request isolation. Automated lifecycle tests in `server/tests/reportsLifecycle.test.ts` (12 tests) passing. |
