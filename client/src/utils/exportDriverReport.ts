@@ -135,7 +135,7 @@ function monthName(mo: number): string {
 
 // ─── Driver statistics ────────────────────────────────────────────────────────
 
-interface DriverStats {
+export interface DriverStats {
   acc: number;
   rh: number;
   pend: number;
@@ -145,7 +145,7 @@ interface DriverStats {
   lastRemark: string;
 }
 
-function buildDriverStats(
+export function buildDriverStats(
   drivers: string[],
   assigned: DeliveryRecord[],
   auditSets?: Map<string, Set<string>>,
@@ -1557,14 +1557,16 @@ async function exportDOCX(
 
 // ─── CSV Export ───────────────────────────────────────────────────────────────
 
-function exportCSV(
+export function buildDriverReportCSV(
   deliveries: DeliveryRecord[],
   drivers: string[],
   stats: Map<string, DriverStats>,
-  month: string, year: number,
-  byName: string, byRole: string,
-): void {
-  const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  month: string,
+  year: number,
+  byName: string,
+  byRole: string,
+  dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+): string {
   const pctFmt = (n: number, t: number) => t > 0 ? `${(n / t * 100).toFixed(1)}%` : '0%';
   const rows: string[][] = [
     ['Microgenesis Business Systems'],
@@ -1632,11 +1634,20 @@ function exportCSV(
     if (s.lastRemark) rows.push([d, s.lastRemark]);
   }
 
-  const csv = rows
+  return rows
     .map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(','))
     .join('\r\n');
+}
 
-  const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }));
+function exportCSV(
+  deliveries: DeliveryRecord[],
+  drivers: string[],
+  stats: Map<string, DriverStats>,
+  month: string, year: number,
+  byName: string, byRole: string,
+): void {
+  const csv = buildDriverReportCSV(deliveries, drivers, stats, month, year, byName, byRole);
+  const url = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' }));
   const a   = document.createElement('a');
   a.href     = url;
   a.download = `Microgenesis_Driver_Report_${month}_${year}.csv`;
