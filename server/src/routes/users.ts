@@ -4,13 +4,15 @@ import { prisma } from '../db';
 import { requireResource, requireAuth, requireRole } from '../middleware/auth';
 
 import { asyncRoute } from '../middleware/asyncRoute';
+import { DriverLinkError, linkDriverLogin, unlinkDriverLogin } from '../services/driverLogin';
 import { permissionEditor, permissionInputError, PermissionSaveError, replacePermissions } from '../services/permissions';
+import { isMicrosoftGuid } from '../services/ssoState';
 
 const router = Router();
 
 // User management — ADMIN only.
 router.get('/', requireAuth, requireResource('users'), requireRole('ADMIN'), async (_req: Request, res: Response) => {
-  const users = await prisma.user.findMany({ orderBy: { name: 'asc' } });
+  const users = await prisma.user.findMany({ orderBy: { name: 'asc' }, include: { driverProfile: { select: { id: true, name: true } } } });
   res.json(users.map(u => ({
     id: u.id,
     name: u.name,
@@ -18,13 +20,16 @@ router.get('/', requireAuth, requireResource('users'), requireRole('ADMIN'), asy
     role: u.role,
     is_active: u.isActive,
     microsoft_linked: !!u.microsoftOid,
-    created_at: u.createdAt
+    created_at: u.createdAt,
+    driver_profile: u.driverProfile,
   })));
 });
 
-// Create user — ADMIN only.
-router.post('/', requireAuth, requireResource('users'), requireRole('ADMIN'), async (req: Request, res: Response) => {
-  const { name, email, password, role } = req.body ?? {};
+// Create user — ADMIN only. A DRIVER login is linked to a Driver profile in the
+// same transaction: `driver_profile_id` links an existing unlinked profile,
+// omitting it creates a new profile named after the login.
+router.post('/', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (req: Request, res: Response) => {
+  const { name, email, password, role, driver_profile_id, microsoft_oid } = req.body ?? {};
   if (!name || !email || !password || !role) {
     return res.status(400).json({ error: 'name, email, password, and role are required' });
   }
@@ -32,26 +37,121 @@ router.post('/', requireAuth, requireResource('users'), requireRole('ADMIN'), as
   if (!validRoles.includes(role)) {
     return res.status(400).json({ error: `role must be one of: ${validRoles.join(', ')}` });
   }
+  if (driver_profile_id !== undefined && (role !== 'DRIVER' || typeof driver_profile_id !== 'string' || !driver_profile_id)) {
+    return res.status(400).json({ error: 'driver_profile_id is only valid for a DRIVER login and must be a Driver profile id.' });
+  }
+  if (microsoft_oid !== undefined && !isMicrosoftGuid(microsoft_oid)) {
+    return res.status(400).json({ error: 'microsoft_oid must be a Microsoft Entra object GUID' });
+  }
+  const microsoftOid = microsoft_oid?.toLowerCase();
   const hashed = await bcrypt.hash(password, 10);
-  const created = await prisma.user.create({
-    data: { name, email: String(email).toLowerCase(), password: hashed, role, isActive: true }
-  });
-  res.status(201).json({
-    id: created.id,
-    name: created.name,
-    email: created.email,
-    role: created.role,
-    is_active: created.isActive,
-    microsoft_linked: false,
-    created_at: created.createdAt,
-  });
-});
+  try {
+    const { created, profile } = await prisma.$transaction(async tx => {
+      const created = await tx.user.create({
+        data: {
+          name, email: String(email).toLowerCase(), password: hashed, role, isActive: true,
+          ...(microsoftOid ? { microsoftOid, microsoftApprovedAt: new Date() } : {}),
+        }
+      });
+      if (microsoftOid) {
+        await tx.auditLog.create({
+          data: {
+            recordId: created.id, recordType: 'User', action: 'CREATE',
+            changedById: req.user!.id,
+            previousValue: null,
+            newValue: JSON.stringify({ microsoft_linked: true, microsoft_oid: created.microsoftOid, approved_at: created.microsoftApprovedAt }),
+          },
+        });
+      }
+      const profile = role === 'DRIVER' ? await linkDriverLogin(tx, created, driver_profile_id, req.user!) : null;
+      return { created, profile };
+    });
+    res.status(201).json({
+      id: created.id,
+      name: created.name,
+      email: created.email,
+      role: created.role,
+      is_active: created.isActive,
+      microsoft_linked: !!created.microsoftOid,
+      created_at: created.createdAt,
+      driver_profile: profile ? { id: profile.id, name: profile.name } : null,
+    });
+  } catch (error) {
+    if (error instanceof DriverLinkError) return res.status(error.status).json({ error: error.message });
+    if ((error as { code?: string })?.code === 'P2002') {
+      // Prisma's PostgreSQL adapter reports the constraint under its cause;
+      // other engines report a target field list or index name directly.
+      const meta = (error as { meta?: { target?: unknown; driverAdapterError?: { cause?: { constraint?: { fields?: unknown; index?: unknown } } } } }).meta;
+      const constraint = meta?.driverAdapterError?.cause?.constraint;
+      const target = meta?.target ?? constraint?.fields ?? constraint?.index;
+      const identityCollision = Array.isArray(target) ? target.includes('microsoftOid') : typeof target === 'string' && target.includes('microsoftOid');
+      return res.status(409).json({ error: identityCollision ? 'Microsoft identity is already linked to another account' : 'An account with this email already exists.' });
+    }
+    throw error;
+  }
+}));
+
+// Link, relink or unlink a DRIVER login's Driver profile — ADMIN only.
+// Body: { driver_profile_id: string | null }.
+router.put('/:id/driver-profile', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (req: Request, res: Response) => {
+  const profileId = req.body?.driver_profile_id;
+  if (profileId !== null && (typeof profileId !== 'string' || !profileId)) {
+    return res.status(400).json({ error: 'driver_profile_id must be a Driver profile id or null.' });
+  }
+  try {
+    const profile = await prisma.$transaction(async tx => {
+      const user = await tx.user.findUnique({ where: { id: req.params.id } });
+      if (!user) throw new DriverLinkError('User not found', 404);
+      return linkDriverLogin(tx, user, profileId, req.user!);
+    });
+    res.json({ user_id: req.params.id, driver_profile: profile ? { id: profile.id, name: profile.name } : null });
+  } catch (error) {
+    if (error instanceof DriverLinkError) return res.status(error.status).json({ error: error.message });
+    throw error;
+  }
+}));
+
+// An Admin explicitly pre-provisions the tenant-scoped Microsoft object ID;
+// never let SSO email claims implicitly take over an existing account.
+// A null OID deliberately unlinks the identity; relinking is audited.
+router.put('/:id/microsoft-identity', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (req: Request, res: Response) => {
+  const oid = req.body?.microsoft_oid;
+  if (oid !== null && !isMicrosoftGuid(oid)) {
+    return res.status(400).json({ error: 'microsoft_oid must be a Microsoft Entra object GUID or null' });
+  }
+  try {
+    const updated = await prisma.$transaction(async tx => {
+      const user = await tx.user.findUnique({ where: { id: req.params.id } });
+      if (!user) return null;
+      const result = await tx.user.update({
+        where: { id: user.id },
+        data: { microsoftOid: oid?.toLowerCase() ?? null, microsoftApprovedAt: oid ? new Date() : null }
+      });
+      await tx.auditLog.create({
+        data: {
+          recordId: user.id, recordType: 'User', action: 'UPDATE',
+          changedById: req.user!.id,
+          previousValue: JSON.stringify({ microsoft_linked: !!user.microsoftOid, microsoft_oid: user.microsoftOid, approved_at: user.microsoftApprovedAt }),
+          newValue: JSON.stringify({ microsoft_linked: !!result.microsoftOid, microsoft_oid: result.microsoftOid, approved_at: result.microsoftApprovedAt })
+        }
+      });
+      return result;
+    });
+    if (!updated) return res.status(404).json({ error: 'User not found' });
+    res.json({ user_id: updated.id, microsoft_linked: !!updated.microsoftOid });
+  } catch (error) {
+    if ((error as { code?: string })?.code === 'P2002') return res.status(409).json({ error: 'Microsoft identity is already linked to another account' });
+    throw error;
+  }
+}));
 
 // Update user details — ADMIN only.
-router.patch('/:id', requireAuth, requireResource('users'), requireRole('ADMIN'), async (req: Request, res: Response) => {
+router.patch('/:id', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (req: Request, res: Response) => {
   const { id } = req.params;
   const { name, email, role } = req.body ?? {};
 
+  if (email !== undefined && (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))) return res.status(400).json({ error: 'Enter a valid email address.' });
+  if (name !== undefined && (typeof name !== 'string' || !name.trim())) return res.status(400).json({ error: 'Name must be non-empty text.' });
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) return res.status(404).json({ error: 'User not found' });
 
@@ -64,15 +164,25 @@ router.patch('/:id', requireAuth, requireResource('users'), requireRole('ADMIN')
   }
 
   const data: Record<string, unknown> = {};
-  if (name) data.name = name;
-  if (email) data.email = String(email).toLowerCase();
+  if (name) data.name = name.trim();
+  if (email) data.email = String(email).trim().toLowerCase();
   if (role) data.role = role;
 
   if (Object.keys(data).length === 0) {
     return res.status(400).json({ error: 'At least one field (name, email, role) is required' });
   }
 
-  const updated = await prisma.user.update({ where: { id }, data });
+  // A login that stops being a DRIVER also stops owning runs.
+  let updated: Awaited<ReturnType<typeof prisma.user.update>>;
+  try {
+    updated = await prisma.$transaction(async tx => {
+      if (user.role === 'DRIVER' && role && role !== 'DRIVER') await unlinkDriverLogin(tx, id, req.user!);
+      return tx.user.update({ where: { id }, data });
+    });
+  } catch (error) {
+    if ((error as { code?: string })?.code === 'P2002') return res.status(409).json({ error: 'An account with this email already exists.' });
+    throw error;
+  }
   res.json({
     id: updated.id,
     name: updated.name,
@@ -82,7 +192,7 @@ router.patch('/:id', requireAuth, requireResource('users'), requireRole('ADMIN')
     microsoft_linked: !!updated.microsoftOid,
     created_at: updated.createdAt,
   });
-});
+}));
 
 // Soft-deactivate a user — ADMIN only. Deactivated users cannot log in.
 router.patch('/:id/deactivate', requireAuth, requireResource('users'), requireRole('ADMIN'), async (req: Request, res: Response) => {

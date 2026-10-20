@@ -2,12 +2,14 @@ import 'dotenv/config';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
-import morgan from 'morgan';
+import { accessLog } from './middleware/accessLog';
 import path from 'path';
 import fs from 'fs';
 import { prisma } from './db';
 import { notifyRole, notifyUser } from './services/inAppNotify';
 import { sendMailReal, sendEmail } from './services/mailer';
+import { manilaToday } from './services/deliveryLifecycle';
+import { saveDailyStatusSnapshot as writeDailyStatusSnapshot } from './services/dailyStatusSnapshot';
 
 import authRoutes from './routes/auth';
 import recordsRoutes from './routes/records';
@@ -25,6 +27,8 @@ import dataSamplerRoutes from './routes/data-sampler';
 import reportsRoutes from './routes/reports';
 import driversRoutes from './routes/drivers';
 import { uploadErrorHandler } from './middleware/uploadErrors';
+import { applySecurity } from './middleware/security';
+import { removeStaleUploads } from './services/podStorage';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -48,13 +52,18 @@ process.on('uncaughtException', (err) => {
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:3000';
 app.use(cors({ origin: CLIENT_ORIGIN, credentials: true }));
 
-app.use(morgan('dev'));
+// Production logs omit all queries; Microsoft callback queries are also
+// omitted during development because they contain sign-in codes and state.
+app.use(accessLog);
 app.use(express.json());
 app.use(cookieParser());
+// AUD-003: must stay ahead of every route below.
+applySecurity(app);
 
-// Render polls this before routing live traffic to a new instance (see
-// `healthCheckPath` in render.yaml), so it must actually verify the service
-// can do its job, not just that the process is alive.
+// Suitable as the host's health-check path (render.yaml does not set one yet):
+// it verifies the service can do its job, not just that the process is alive.
+// It does not prove which database or file store is connected; an Admin reads
+// that from GET /api/admin/deployment-status.
 app.get('/api/health', async (_req, res) => {
   const checks: Record<string, string> = {};
   let healthy = true;
@@ -93,8 +102,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/skus', skusRoutes);
 app.use('/api/transactions', transactionsRoutes);
 app.use('/api/notifications', notificationsRoutes);
-// Demo reset endpoint — available in all environments since this is a demo app.
-// The route itself requires confirmation before wiping data.
+// TSK-122: deprecated dev router is empty. HTTP resets have been removed.
 app.use('/api/dev', devRoutes);
 app.use('/api/data-sampler', dataSamplerRoutes);
 app.use('/api/reports', reportsRoutes);
@@ -121,13 +129,11 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   res.status(500).json({ error: 'Internal server error' });
 });
 
-app.get('/api/health', (req, res) => {
-  res.status(200).json({ ok: true, timestamp: new Date().toISOString() });
-});
-
 app.listen(PORT, () => {
   console.log(`Microgenesis Supply Chain Portal API listening on http://localhost:${PORT}`);
   saveDailyStatusSnapshot(); // seed today's snapshot immediately on boot
+  // SEC-07: clear quarantined uploads abandoned by a previous crash or restart.
+  removeStaleUploads().catch(err => console.error('[POD] Stale upload cleanup failed', err));
 
   // Self-ping to prevent Render free tier from sleeping
   const externalUrl = process.env.RENDER_EXTERNAL_URL;
@@ -145,9 +151,9 @@ app.listen(PORT, () => {
 
 function scheduleDaily(hour: number, minute: number, task: () => void) {
   const now = new Date();
-  const next = new Date(now);
-  next.setHours(hour, minute, 0, 0);
-  if (next <= now) next.setDate(next.getDate() + 1);
+  let next = new Date(`${manilaToday(now)}T00:00:00+08:00`);
+  next = new Date(next.getTime() + (hour * 60 + minute) * 60 * 1000);
+  if (next <= now) next = new Date(next.getTime() + 24 * 60 * 60 * 1000);
   setTimeout(() => {
     task();
     setInterval(task, 24 * 60 * 60 * 1000);
@@ -158,7 +164,7 @@ async function notify4PM() {
   try {
     // 4 PM logistics alert: unassigned scheduled records
     const unassigned = await prisma.deliveryRecord.findMany({
-      where: { status: 'SCHEDULED', driver: '', deletedAt: null }
+      where: { status: 'SCHEDULED', draft: false, driver: '', deletedAt: null }
     });
     if (unassigned.length > 0) {
       await notifyRole(
@@ -169,11 +175,10 @@ async function notify4PM() {
     }
 
     // 4 PM account manager alert: their unfinished records
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    const todayStart = new Date(`${manilaToday()}T00:00:00+08:00`);
 
     const openRecords = await prisma.deliveryRecord.findMany({
-      where: { deletedAt: null, status: { notIn: ['ACCOMPLISHED'] } },
+      where: { deletedAt: null, draft: false, status: { notIn: ['ACCOMPLISHED'] } },
       include: { company: true }
     });
     if (openRecords.length === 0) return;
@@ -231,18 +236,18 @@ async function notify4PM() {
 async function notify6PM() {
   try {
     const stillOpen = await prisma.deliveryRecord.findMany({
-      where: { status: 'SCHEDULED', deletedAt: null }
+      where: { status: { in: ['SCHEDULED', 'IN_TRANSIT'] }, draft: false, deletedAt: null }
     });
     if (stillOpen.length > 0) {
       await notifyRole(
         'LOGISTICS',
-        `${stillOpen.length} scheduled delivery${stillOpen.length !== 1 ? 'ies' : ''} still open`,
-        `End-of-day check: ${stillOpen.length} record${stillOpen.length !== 1 ? 's' : ''} remain Scheduled and have not been delivered.`
+        `${stillOpen.length} delivery${stillOpen.length !== 1 ? 'ies' : ''} still open`,
+        `End-of-day check: ${stillOpen.length} record${stillOpen.length !== 1 ? 's' : ''} remain Scheduled or In Transit and have not been delivered.`
       );
       await notifyRole(
         'SALES_COORDINATOR',
         `${stillOpen.length} delivery${stillOpen.length !== 1 ? 'ies' : ''} not yet accomplished`,
-        `6 PM: ${stillOpen.length} record${stillOpen.length !== 1 ? 's' : ''} are still in Scheduled status.`
+        `6 PM: ${stillOpen.length} record${stillOpen.length !== 1 ? 's' : ''} are still Scheduled or In Transit.`
       );
     }
   } catch (err) {
@@ -254,40 +259,8 @@ async function notify6PM() {
 
 async function saveDailyStatusSnapshot() {
   try {
-    const today = new Date().toISOString().split('T')[0];
-
-    const allRecords = await prisma.deliveryRecord.findMany({
-      where: { deletedAt: null },
-      select: { category: true, status: true }
-    });
-
-    // Group by category + status
-    const byCategoryStatus: Record<string, number> = {};
-    const byStatusTotal: Record<string, number> = {};
-    for (const r of allRecords) {
-      const key = `${r.category}::${r.status}`;
-      byCategoryStatus[key] = (byCategoryStatus[key] ?? 0) + 1;
-      byStatusTotal[r.status] = (byStatusTotal[r.status] ?? 0) + 1;
-    }
-
-    for (const [key, count] of Object.entries(byCategoryStatus)) {
-      const [category, status] = key.split('::');
-      await prisma.dailyStatusSnapshot.upsert({
-        where: { date_category_status: { date: today, category, status } },
-        update: { count },
-        create: { date: today, category, status, count }
-      });
-    }
-
-    for (const [status, count] of Object.entries(byStatusTotal)) {
-      await prisma.dailyStatusSnapshot.upsert({
-        where: { date_category_status: { date: today, category: 'ALL', status } },
-        update: { count },
-        create: { date: today, category: 'ALL', status, count }
-      });
-    }
-
-    console.log(`[Daily Snapshot] Saved status counts for ${today}`);
+    await writeDailyStatusSnapshot();
+    console.log(`[Daily Snapshot] Saved status counts for ${manilaToday()}`);
   } catch (err) {
     console.error('[Daily Snapshot]', err);
   }
@@ -296,10 +269,11 @@ async function saveDailyStatusSnapshot() {
 // Fires once per week on the given day (0=Sun,1=Mon,...) at hour:minute.
 function scheduleWeekly(dayOfWeek: number, hour: number, minute: number, task: () => void) {
   const now = new Date();
-  const next = new Date(now);
-  next.setHours(hour, minute, 0, 0);
-  const daysUntil = (dayOfWeek - now.getDay() + 7) % 7;
-  next.setDate(next.getDate() + (daysUntil === 0 && next <= now ? 7 : daysUntil));
+  const todayStart = new Date(`${manilaToday(now)}T00:00:00+08:00`);
+  const localDay = new Date(todayStart.getTime() + 8 * 60 * 60 * 1000).getUTCDay();
+  const daysUntil = (dayOfWeek - localDay + 7) % 7;
+  let next = new Date(todayStart.getTime() + (daysUntil * 24 * 60 + hour * 60 + minute) * 60 * 1000);
+  if (next <= now) next = new Date(next.getTime() + 7 * 24 * 60 * 60 * 1000);
   setTimeout(() => {
     task();
     setInterval(task, 7 * 24 * 60 * 60 * 1000);
@@ -309,10 +283,9 @@ function scheduleWeekly(dayOfWeek: number, hour: number, minute: number, task: (
 async function notifyWeeklyReport() {
   try {
     const now     = new Date();
-    const weekAgo = new Date(now);
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    const dateTo   = now.toISOString().split('T')[0];
-    const dateFrom = weekAgo.toISOString().split('T')[0];
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const dateTo   = manilaToday(now);
+    const dateFrom = manilaToday(weekAgo);
 
     const records = await prisma.deliveryRecord.findMany({
       where: { deletedAt: null, deliveryDate: { gte: dateFrom, lte: dateTo } },

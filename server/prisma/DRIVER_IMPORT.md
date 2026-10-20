@@ -1,5 +1,7 @@
 # Historical driver import
 
+> Last verified: 2026-10-09 against commit `ccbf192` (`dev`).
+
 Driver API reads never seed or synchronize the directory. Demo roster setup remains
 part of the existing explicit seed workflow.
 
@@ -22,5 +24,6 @@ activates them in Driver Manager. Historical delivery records are never rewritte
 
 This is a maintenance operation against the database configured for the server.
 It is not run automatically at startup or during deployment. Name matching is a
-legacy compatibility measure; moving delivery assignments to driver IDs is a
-separate schema change.
+legacy compatibility measure. Delivery assignments themselves are stored by stable
+driver profile ID (`DeliveryRecord.driverId`, TSK-100); the display name on a record
+is only a snapshot.

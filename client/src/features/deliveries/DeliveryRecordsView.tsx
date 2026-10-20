@@ -1,3 +1,4 @@
+import { selectableStatuses, manilaToday, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Plus,
@@ -23,26 +24,32 @@ import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, PDF_DELIVERY_COLUMNS, PDF_AC_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel } from '@/types';
 import { ApiCompany, api, apiUrl, ApiError } from '@/api';
+import { usePagedRecordsQuery, normalizeApiRecord } from '@/api/queries/useRecordsQuery';
 import { DELIVERY_STATUSES, AREA_HIERARCHY, getRegion, getSubregion } from '@/data';
 import DeliveryRecordWorkspace from '@/features/deliveries/DeliveryRecordWorkspace';
 import RecordCreateForm from '@/features/deliveries/RecordCreateForm';
 import FilterPopover, { FilterCombobox } from '@/components/FilterPopover';
+import { dateRangeAfterFromChange, dateRangeState } from '@/utils/dateRange';
+import { DashboardFilterId, matchesDashboardFilter } from '@/utils/dashboardFilters';
+import DashboardFilterChip from '@/components/DashboardFilterChip';
 
 interface DeliveryRecordsViewProps {
   category: DeliveryCategory;
-  title: string;
-  subtitle: string;
+  title?: string;
+  subtitle?: string;
   records: DeliveryRecord[];
   companies: ApiCompany[];
   currentUserRole: UserRole;
   currentUserName: string;
-  onCreateRecord: (data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>) => Promise<void>;
+  onCreateRecord: (data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>) => Promise<DeliveryRecord>;
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   onVerifyCollection: (id: string) => Promise<void>;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;
   onUpdateOutputActionConfig: (trigger: OutputActionTrigger, patch: Partial<OutputActionConfig>) => void;
   selectedRecordIdFromDashboard?: string | null;
   clearSelectedRecordId?: () => void;
+  dashboardFilterId: DashboardFilterId | null;
+  clearDashboardFilter: () => void;
   onRefresh?: () => void;
 }
 
@@ -56,6 +63,8 @@ const outputLineIcon = (message: string) => {
 
 const statusColor = (status: DeliveryStatus) => {
   switch (status) {
+    case 'Draft': return 'bg-slate-100 text-slate-700 border-slate-300';
+    case 'In Transit': return 'bg-cyan-50 text-cyan-700 border-cyan-200';
     case 'Delivered': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
     case 'On-Hold': return 'bg-red-50 text-red-700 border-red-200';
     case 'Rescheduled': return 'bg-purple-50 text-purple-700 border-purple-200';
@@ -81,6 +90,8 @@ export default function DeliveryRecordsView({
   onUpdateOutputActionConfig,
   selectedRecordIdFromDashboard,
   clearSelectedRecordId,
+  dashboardFilterId,
+  clearDashboardFilter,
   onRefresh
 }: DeliveryRecordsViewProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -96,8 +107,15 @@ export default function DeliveryRecordsView({
   const [amFilter, setAmFilter] = useState('');
   const [driverFilter, setDriverFilter] = useState('');
   const dateFromRef = useRef<HTMLInputElement>(null);
+  const enforceDeliveryDateRange = category === 'Deliveries' && currentUserRole === 'Logistics';
+  const {
+    error: dateRangeError,
+    dateToMin,
+    appliedDateFrom,
+    appliedDateTo,
+  } = dateRangeState(dateFrom, dateTo, enforceDeliveryDateRange);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [creationBanner, setCreationBanner] = useState<{ recordId: string; lines: string[] } | null>(null);
+  const [creationBanner, setCreationBanner] = useState<{ recordId: string; referenceLabel: string; lines: string[] } | null>(null);
 
 
   // Bulk selection (Logistics only)
@@ -178,6 +196,44 @@ export default function DeliveryRecordsView({
     }
   }, [category, selectedRecordIdFromDashboard, clearSelectedRecordId]);
 
+  useEffect(() => {
+    setSearchQuery('');
+    setStatusFilter('All');
+    setRegionFilter('All Regions');
+    setSubregionFilter('All Subregions');
+    setAreaFilter('All Areas');
+    setDateFrom('');
+    setDateTo('');
+    setDateSort('default');
+    setAmFilter('');
+    setDriverFilter('');
+    setTassDateFrom('');
+    setTassDateTo('');
+    setTassStatusFilter('');
+    setTassAccountManager('');
+
+    if (category === 'Deliveries') {
+      if (dashboardFilterId === 'sc-scheduled-today') {
+        const today = manilaToday();
+        setStatusFilter('Scheduled');
+        setDateFrom(today);
+        setDateTo(today);
+      } else if (dashboardFilterId === 'sc-on-hold' || dashboardFilterId === 'log-on-hold') {
+        setStatusFilter('On-Hold');
+      } else if (dashboardFilterId === 'sc-rescheduled' || dashboardFilterId === 'log-rescheduled') {
+        setStatusFilter('Rescheduled');
+      } else if (dashboardFilterId === 'log-assigned-today') {
+        const today = manilaToday();
+        setDateFrom(today);
+        setDateTo(today);
+      } else if (dashboardFilterId === 'sc-completed-today' || dashboardFilterId === 'log-completed-today') {
+        setStatusFilter('Delivered');
+      }
+    } else if (category === 'RMA' && dashboardFilterId === 'tass-rma-on-hold') {
+      setStatusFilter('On-Hold');
+    }
+  }, [dashboardFilterId, category]);
+
   const [statusHistoryCounts, setStatusHistoryCounts] = useState<StatusHistoryCounts | undefined>(undefined);
 
   useEffect(() => {
@@ -187,8 +243,8 @@ export default function DeliveryRecordsView({
       'Procurement Pick-up': 'PROCUREMENT_PICKUP', 'Sales Orders': 'SALES_ORDERS',
     };
     if (category) params.set('category', CATEGORY_TO_DB[category] ?? category);
-    if (dateFrom) params.set('dateFrom', dateFrom);
-    if (dateTo) params.set('dateTo', dateTo);
+    if (appliedDateFrom) params.set('deliveryDateFrom', appliedDateFrom);
+    if (appliedDateTo) params.set('deliveryDateTo', appliedDateTo);
     if (areaFilter !== 'All Areas') params.set('area', areaFilter);
     if (driverFilter) params.set('driver', driverFilter);
     if (statusFilter !== 'All') params.set('status', statusFilter);
@@ -197,7 +253,7 @@ export default function DeliveryRecordsView({
       .then(r => r.ok ? r.json() : null)
       .then(data => setStatusHistoryCounts(data ?? undefined))
       .catch(() => setStatusHistoryCounts(undefined));
-  }, [category, dateFrom, dateTo, areaFilter, driverFilter, statusFilter]);
+  }, [category, appliedDateFrom, appliedDateTo, areaFilter, driverFilter, statusFilter]);
 
 
 
@@ -235,22 +291,15 @@ export default function DeliveryRecordsView({
   ];
 
   const baseFiltered = categoryRecords.filter(r => {
+    if (dashboardFilterId && !matchesDashboardFilter(r, dashboardFilterId)) return false;
     if (regionFilter !== 'All Regions' && getRegion(r.area) !== regionFilter) return false;
     if (subregionFilter !== 'All Subregions' && getSubregion(r.area) !== subregionFilter) return false;
     if (areaFilter !== 'All Areas' && r.area !== areaFilter) return false;
     if (statusFilter !== 'All' && r.status !== statusFilter) return false;
     if (amFilter && !r.account_manager.toLowerCase().includes(amFilter.toLowerCase())) return false;
     if (driverFilter && r.driver.toLowerCase() !== driverFilter.toLowerCase()) return false;
-    if (dateFrom && r.delivery_date) {
-      const rd = new Date(r.delivery_date);
-      const df = new Date(dateFrom);
-      if (rd < df) return false;
-    }
-    if (dateTo && r.delivery_date) {
-      const rd = new Date(r.delivery_date);
-      const dt = new Date(dateTo);
-      if (rd > dt) return false;
-    }
+    if (appliedDateFrom && (!r.delivery_date || r.delivery_date < appliedDateFrom)) return false;
+    if (appliedDateTo && (!r.delivery_date || r.delivery_date > appliedDateTo)) return false;
     const q = searchQuery.toLowerCase();
     if (!q) return true;
     return (
@@ -287,10 +336,10 @@ export default function DeliveryRecordsView({
     : baseFiltered;
 
   const now = Date.now();
-  const activeDateSort = (dateFrom || dateTo) ? 'default' : dateSort;
+  const activeDateSort = (appliedDateFrom || appliedDateTo) ? 'default' : dateSort;
   const sortedFiltered = activeDateSort === 'default' ? filtered : [...filtered].sort((a, b) => {
-    const da = a.delivery_date ? new Date(a.delivery_date + 'T12:00:00').getTime() : null;
-    const db = b.delivery_date ? new Date(b.delivery_date + 'T12:00:00').getTime() : null;
+    const da = a.delivery_date ? new Date(a.delivery_date + 'T12:00:00Z').getTime() : null;
+    const db = b.delivery_date ? new Date(b.delivery_date + 'T12:00:00Z').getTime() : null;
     if (!da && !db) return 0;
     if (!da) return 1;
     if (!db) return -1;
@@ -302,6 +351,27 @@ export default function DeliveryRecordsView({
 
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+
+  const effectiveStatusFilter = tassStatusFilter || (statusFilter !== 'All' ? statusFilter : undefined);
+  const effectiveAmFilter = tassAccountManager || amFilter || undefined;
+  const effectiveDateFrom = tassDateFrom || appliedDateFrom || undefined;
+  const effectiveDateTo = tassDateTo || appliedDateTo || undefined;
+  const effectiveAreaFilter = areaFilter !== 'All Areas' ? areaFilter : undefined;
+
+  const { data: pagedData, isLoading: pagedLoading } = usePagedRecordsQuery({
+    category,
+    page: currentPage,
+    limit: pageSize,
+    status: effectiveStatusFilter,
+    search: searchQuery || undefined,
+    driver: driverFilter || undefined,
+    area: effectiveAreaFilter,
+    account_manager: effectiveAmFilter,
+    dateFrom: effectiveDateFrom,
+    dateTo: effectiveDateTo,
+    dashboard_filter: dashboardFilterId || undefined,
+    paged: true,
+  }, Boolean(category));
 
   // Automatically reset to page 1 whenever any filter or search query changes
   useEffect(() => {
@@ -322,27 +392,41 @@ export default function DeliveryRecordsView({
     tassDateTo,
     tassStatusFilter,
     tassAccountManager,
+    dashboardFilterId,
   ]);
 
-  const totalPages = Math.max(1, Math.ceil(sortedFiltered.length / pageSize));
-  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const displayTotalCount = pagedData ? pagedData.total : sortedFiltered.length;
+  const displayTotalPages = pagedData
+    ? Math.max(1, Math.ceil(pagedData.total / pageSize))
+    : Math.max(1, Math.ceil(sortedFiltered.length / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), displayTotalPages);
 
   const paginatedRecords = useMemo(() => {
     const startIndex = (safeCurrentPage - 1) * pageSize;
     return sortedFiltered.slice(startIndex, startIndex + pageSize);
   }, [sortedFiltered, safeCurrentPage, pageSize]);
 
-  const activeRecord = records.find(r => r.id === selectedId);
+  const displayRecords = pagedData ? pagedData.rows : paginatedRecords;
+
+  const activeRecord = (pagedData?.rows ?? []).find(r => r.id === selectedId) || records.find(r => r.id === selectedId);
+
+  // Delivered records keep their Priority, so a bulk Priority never applies to them (TSK-124).
+  const allSelectedPriorityLocked = selectedBulkIds.size > 0 && [...selectedBulkIds].every(id => {
+    const record = categoryRecords.find(r => r.id === id);
+    return !!record && isPriorityLocked(record);
+  });
+  const effectiveBulkPriority: PriorityLevel | '' = allSelectedPriorityLocked ? '' : bulkPriority;
 
   const handleBulkUpdate = async () => {
     if (selectedBulkIds.size === 0 || bulkApplying ||
-      !((canAssignDriver && bulkStatus) || (canEdit && bulkPriority))) return;
+      !((canAssignDriver && bulkStatus) || (canEdit && effectiveBulkPriority))) return;
     setBulkApplying(true);
     setBulkResult(null);
     const failedIds = new Set<string>();
     let firstError = '';
     let savedCount = 0;
     let unchangedCount = 0;
+    let lockedCount = 0;
     const ids = [...selectedBulkIds];
     try {
       for (const id of ids) {
@@ -352,15 +436,18 @@ export default function DeliveryRecordsView({
           const updates: Partial<DeliveryRecord> = {};
           const remarks: string[] = [];
           if (canAssignDriver && bulkStatus && record.status !== bulkStatus) {
+            if (!selectableStatuses(record, currentUserRole).includes(bulkStatus)) throw new Error("This status transition is not available for the selected record.");
             updates.status = bulkStatus;
             remarks.push(`Status set to ${bulkStatus}`);
           }
-          if (canEdit && bulkPriority && record.priority !== bulkPriority) {
-            updates.priority = bulkPriority;
-            remarks.push(`Priority set to ${bulkPriority}`);
+          const priorityLocked = canEdit && !!effectiveBulkPriority && isPriorityLocked(record);
+          if (priorityLocked) lockedCount++;
+          if (canEdit && effectiveBulkPriority && !priorityLocked && record.priority !== effectiveBulkPriority) {
+            updates.priority = effectiveBulkPriority;
+            remarks.push(`Priority set to ${effectiveBulkPriority}`);
           }
           if (remarks.length === 0) {
-            unchangedCount++;
+            if (!priorityLocked) unchangedCount++;
             continue;
           }
           updates.remarks = remarks.join('; ');
@@ -375,7 +462,7 @@ export default function DeliveryRecordsView({
       const messages: string[] = [];
       if (savedCount > 0) {
         const savedRecords = `${savedCount} record${savedCount === 1 ? '' : 's'}`;
-        if (canAssignDriver && bulkStatus && canEdit && bulkPriority) {
+        if (canAssignDriver && bulkStatus && canEdit && effectiveBulkPriority) {
           messages.push(`Status and priority changes applied to ${savedRecords}.`);
         } else if (canAssignDriver && bulkStatus) {
           messages.push(`Status updated for ${savedRecords}.`);
@@ -387,6 +474,9 @@ export default function DeliveryRecordsView({
       }
       if (unchangedCount > 0) {
         messages.push(`${unchangedCount} record${unchangedCount === 1 ? '' : 's'} already matched the selected values.`);
+      }
+      if (lockedCount > 0) {
+        messages.push(`${lockedCount} Delivered record${lockedCount === 1 ? ' was' : 's were'} skipped — ${PRIORITY_LOCKED_NOTE.charAt(0).toLowerCase()}${PRIORITY_LOCKED_NOTE.slice(1)}`);
       }
       if (failedIds.size > 0) {
         messages.push(`${failedIds.size} record${failedIds.size === 1 ? '' : 's'} failed to update and ${failedIds.size === 1 ? 'remains' : 'remain'} selected for retry.`);
@@ -453,6 +543,10 @@ export default function DeliveryRecordsView({
 
   const exportMeta = {
     reportName: `${category} Records Export`,
+    dateRange: appliedDateFrom || appliedDateTo
+      ? `${appliedDateFrom || 'earliest'} to ${appliedDateTo || 'latest'}`
+      : 'All dates',
+    dateBasis: 'Delivery Date (Asia/Manila)',
     generatedByName: currentUserName,
     generatedByRole: currentUserRole
   };
@@ -466,18 +560,86 @@ export default function DeliveryRecordsView({
     ? {
       records: sortedFiltered,
       driverName: driverFilter,
-      date: dateFrom || new Date().toISOString().split('T')[0],
+      date: appliedDateFrom || manilaToday(),
       preparedBy: currentUserName,
     }
     : undefined;
 
+  const fetchExportData = async () => {
+    const rawAll = await api.getAllRecordsForExport({
+      category,
+      status: effectiveStatusFilter,
+      search: searchQuery || undefined,
+      driver: driverFilter || undefined,
+      area: effectiveAreaFilter,
+      account_manager: effectiveAmFilter,
+      dateFrom: effectiveDateFrom,
+      dateTo: effectiveDateTo,
+      dashboard_filter: dashboardFilterId || undefined,
+    });
+    const allRecords = rawAll.map(normalizeApiRecord);
+    const sortedAll = activeDateSort === 'default' ? allRecords : [...allRecords].sort((a, b) => {
+      const da = a.delivery_date ? new Date(a.delivery_date + 'T12:00:00').getTime() : null;
+      const db = b.delivery_date ? new Date(b.delivery_date + 'T12:00:00').getTime() : null;
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      if (activeDateSort === 'nearest') return Math.abs(da - now) - Math.abs(db - now);
+      if (activeDateSort === 'oldest') return da - db;
+      if (activeDateSort === 'furthest') return db - da;
+      return 0;
+    });
+
+    const rows = sortedAll.map(r => ({
+      id: r.id,
+      company_name: r.company_name,
+      reference: r.reference,
+      category: r.category,
+      priority: r.priority,
+      area: r.area,
+      delivery_date_fmt: fmtDate(r.delivery_date),
+      driver: r.driver || '',
+      driver_assistants: r.driver_assistants?.join(', ') || '',
+      account_manager: r.account_manager,
+      vehicle: r.vehicle,
+      item_type: r.item_type,
+      status_fmt: fmtStatus(r.status),
+      remarks: r.remarks || '',
+      created_by: r.created_by,
+      created_at_fmt: fmtDatetime(r.created_at),
+      ...(isAC ? {
+        collection_verified_fmt: r.collection_verified ? 'Verified' : 'Pending',
+        collection_verified_by: r.collection_verified_by || '',
+        collection_verified_at_fmt: r.collection_verified_at ? fmtDatetime(r.collection_verified_at) : ''
+      } : {})
+    }));
+
+    const summary = computeAllOpsSummary(
+      sortedAll,
+      activeDateSort === 'default' ? 'nearest' : activeDateSort
+    );
+
+    const rsProps = driverFilter
+      ? {
+        records: sortedAll,
+        driverName: driverFilter,
+        date: appliedDateFrom || manilaToday(),
+        preparedBy: currentUserName,
+      }
+      : undefined;
+
+    return { rows, summary, routeSlipProps: rsProps };
+  };
+
   const showTassFilters = currentUserRole === 'TASS';
+  const isCreating = showForm && canEdit;
 
   const activeFilterCount = [
     regionFilter !== 'All Regions', subregionFilter !== 'All Subregions', areaFilter !== 'All Areas',
     !!amFilter, !!driverFilter, !!dateFrom, !!dateTo, dateSort !== 'default',
     statusFilter !== 'All', !!searchQuery,
     ...(showTassFilters ? [!!tassDateFrom, !!tassDateTo, !!tassStatusFilter, !!tassAccountManager] : []),
+    !!dashboardFilterId,
   ].filter(Boolean).length;
 
   const clearAllFilters = () => {
@@ -485,6 +647,7 @@ export default function DeliveryRecordsView({
     setSubregionFilter('All Subregions'); setAreaFilter('All Areas');
     setAmFilter(''); setDriverFilter(''); setDateFrom(''); setDateTo(''); setDateSort('default');
     setTassDateFrom(''); setTassDateTo(''); setTassStatusFilter(''); setTassAccountManager('');
+    clearDashboardFilter();
   };
 
 
@@ -508,19 +671,19 @@ export default function DeliveryRecordsView({
       : { id: 13, company: 26, area: 13, date: 22, driver: 13, status: 13 };
 
   return (
-    <div className="space-y-6 print:space-y-2" id={`records-view-${category.toLowerCase().replace(/\s+/g, '-')}`}>
+    <div className="space-y-3 print:space-y-2" id={`records-view-${category.toLowerCase().replace(/\s+/g, '-')}`}>
+      <DashboardFilterChip
+        filterId={dashboardFilterId}
+        onClear={clearAllFilters}
+      />
       {bulkResult && (
         <div role={bulkResult.ok ? 'status' : 'alert'} className={`rounded-lg border px-4 py-3 text-sm ${bulkResult.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
           {bulkResult.message}
         </div>
       )}
-      {/* View Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4 print:hidden">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">{title}</h2>
-          <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-3 print:hidden" id="records-toolbar">
+        {/* View Actions */}
+        <div className="flex items-center justify-end gap-2 flex-wrap">
           {showExports && (
             <ExportMenu
               rows={exportRows}
@@ -533,13 +696,15 @@ export default function DeliveryRecordsView({
               summary={exportSummary}
               routeSlipProps={routeSlipProps}
               statusHistoryCounts={statusHistoryCounts}
+              totalCount={displayTotalCount}
+              fetchExportData={fetchExportData}
             />
           )}
           {showExports && (
             <RouteSlipMenu
               records={sortedFiltered}
               driverFilter={driverFilter}
-              dateFrom={dateFrom}
+              dateFrom={appliedDateFrom}
               preparedBy={currentUserName}
               filename={category.toLowerCase().replace(/\s+/g, '-')}
               onFocusDateFilter={() => {
@@ -637,10 +802,10 @@ export default function DeliveryRecordsView({
             </button>
           )}
         </div>
-      </div>
 
-      {/* Date Range Controls (Always mounted) */}
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap gap-3 items-end text-xs print:hidden" id="date-range-filters">
+        {/* Date Range Controls — list filters, so hidden while the create form is open */}
+        {!isCreating && (
+        <div className="flex flex-wrap gap-3 items-end text-xs" id="date-range-filters">
         <div className="space-y-1 flex-1 min-w-[120px]">
           <label htmlFor="dateFrom" className="font-bold text-slate-700 block">Date From</label>
           <input
@@ -648,7 +813,11 @@ export default function DeliveryRecordsView({
             ref={dateFromRef}
             type="date"
             value={dateFrom}
-            onChange={e => setDateFrom(e.target.value)}
+            onChange={e => {
+              const next = dateRangeAfterFromChange(e.target.value, dateTo, enforceDeliveryDateRange);
+              setDateFrom(next.dateFrom);
+              if (next.dateTo !== dateTo) setDateTo(next.dateTo);
+            }}
             title="Date from"
             className="w-full text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
           />
@@ -659,10 +828,14 @@ export default function DeliveryRecordsView({
             id="dateTo"
             type="date"
             value={dateTo}
+            min={dateToMin}
             onChange={e => setDateTo(e.target.value)}
             title="Date to"
-            className="w-full text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+            aria-invalid={dateRangeError ? 'true' : undefined}
+            aria-describedby={dateRangeError ? 'date-range-error' : undefined}
+            className={`w-full text-[11px] font-semibold border rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer ${dateRangeError ? 'border-red-400' : 'border-slate-200'}`}
           />
+          {dateRangeError && <p id="date-range-error" role="alert" className="text-[10px] font-semibold text-red-700">{dateRangeError}</p>}
         </div>
         <div className="space-y-1 flex-1 min-w-[150px]">
           <label htmlFor="dateSort" className="font-bold text-slate-700 block">Sort</label>
@@ -689,6 +862,8 @@ export default function DeliveryRecordsView({
           >
             <X className="w-3.5 h-3.5" /> Clear
           </button>
+        )}
+        </div>
         )}
       </div>
 
@@ -736,7 +911,7 @@ export default function DeliveryRecordsView({
           <ListChecks className="w-4 h-4 text-blue-300 shrink-0" />
           <span className="text-sm font-bold text-white">{selectedBulkIds.size} selected</span>
           {canAssignDriver && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2" title="Complete deliveries individually with Time In, a saved JPG/PNG photo, Received By, and remarks.">
               <span className="text-xs text-white/60">Set status:</span>
               <select
                 value={bulkStatus}
@@ -745,10 +920,11 @@ export default function DeliveryRecordsView({
                 className="text-[11px] font-bold bg-white/10 border border-white/20 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
               >
                 <option value="" className="text-slate-900 bg-white">Keep unchanged</option>
-                {(['Pending', 'Scheduled', 'Delivered', 'On-Hold', 'Rescheduled'] as const).map(s => (
+                {DELIVERY_STATUSES.filter(s => s !== 'In Transit' && s !== 'Delivered' && s !== 'Draft' && !(category === 'Deliveries' && s === 'Rescheduled') && [...selectedBulkIds].every(id => { const record = categoryRecords.find(r => r.id === id); return record && (record.status === s || selectableStatuses(record, currentUserRole).includes(s)); })).map(s => (
                   <option key={s} value={s} className="text-slate-900 bg-white">{s}</option>
                 ))}
               </select>
+              {category === 'Deliveries' && <span className="text-[10px] text-white/60 max-w-48 leading-tight">Reschedule deliveries one at a time to set each new date.</span>}
             </div>
           )}
           {canEdit && (
@@ -756,9 +932,10 @@ export default function DeliveryRecordsView({
               <span className="text-xs text-white/60">Set priority:</span>
               <select
                 id="bulk-priority-select"
-                value={bulkPriority}
+                value={effectiveBulkPriority}
                 onChange={e => setBulkPriority(e.target.value as PriorityLevel | '')}
-                disabled={bulkApplying}
+                disabled={bulkApplying || allSelectedPriorityLocked}
+                aria-describedby={allSelectedPriorityLocked ? 'bulk-priority-locked-hint' : undefined}
                 className="text-[11px] font-bold bg-white/10 border border-white/20 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
               >
                 <option value="" className="text-slate-900 bg-white">Keep unchanged</option>
@@ -766,11 +943,12 @@ export default function DeliveryRecordsView({
                   <option key={p} value={p} className="text-slate-900 bg-white">{p}</option>
                 ))}
               </select>
+              {allSelectedPriorityLocked && <span id="bulk-priority-locked-hint" className="text-[10px] text-white/60 max-w-48 leading-tight">{PRIORITY_LOCKED_NOTE}</span>}
             </div>
           )}
           <button
             onClick={handleBulkUpdate}
-            disabled={bulkApplying || !((canAssignDriver && bulkStatus) || (canEdit && bulkPriority))}
+            disabled={bulkApplying || !((canAssignDriver && bulkStatus) || (canEdit && effectiveBulkPriority))}
             className="px-4 py-1.5 bg-[#0078C1] hover:bg-blue-500 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
           >
             {bulkApplying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Apply
@@ -789,19 +967,23 @@ export default function DeliveryRecordsView({
       {creationBanner && (
         <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg p-3 flex items-start justify-between gap-3 print:hidden" id="record-created-banner">
           <div className="space-y-1">
-            <p className="font-bold text-[11px] uppercase tracking-wider">Record Created — Output Actions Fired</p>
+            <p className="font-bold text-[11px] uppercase tracking-wider">Record Created</p>
+            <p className="text-xs font-semibold">{creationBanner.referenceLabel} · <span className="font-mono">{creationBanner.recordId}</span></p>
             {creationBanner.lines.map((line, i) => (
               <span key={i} className="flex items-center gap-1.5 font-semibold text-xs">
                 {outputLineIcon(line)} {line}
               </span>
             ))}
           </div>
-          <button onClick={() => setCreationBanner(null)} className="text-emerald-700 hover:bg-emerald-100 p-1 rounded shrink-0"><X className="w-4 h-4" /></button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button onClick={() => { setSelectedId(creationBanner.recordId); setCreationBanner(null); }} className="text-emerald-800 hover:bg-emerald-100 px-2 py-1 rounded text-xs font-bold">View record</button>
+            <button onClick={() => setCreationBanner(null)} className="text-emerald-700 hover:bg-emerald-100 p-1 rounded"><X className="w-4 h-4" /></button>
+          </div>
         </div>
       )}
 
       {/* CREATE FORM */}
-      {showForm && canEdit ? (
+      {isCreating ? (
         <RecordCreateForm
           category={category}
           categoryLocked={true}
@@ -810,8 +992,8 @@ export default function DeliveryRecordsView({
           onCancel={() => setShowForm(false)}
           outputActionConfigs={outputActionConfigs}
           onUpdateOutputActionConfig={onUpdateOutputActionConfig}
-          onAfterSubmit={({ referenceLabel, lines }) =>
-            setCreationBanner({ recordId: referenceLabel, lines })
+          onAfterSubmit={({ recordId, referenceLabel, lines }) =>
+            setCreationBanner({ recordId, referenceLabel, lines })
           }
         />
       ) : selectedId && activeRecord ? (
@@ -945,9 +1127,11 @@ export default function DeliveryRecordsView({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {paginatedRecords.length === 0 ? (
-                    <tr><td colSpan={10} className="px-4 py-3.5 text-center text-gray-400">No matching records found.</td></tr>
-                  ) : paginatedRecords.map(rec => {
+                  {displayRecords.length === 0 ? (
+                    <tr><td colSpan={10} className="px-4 py-3.5 text-center text-gray-400">
+                      {pagedLoading ? 'Loading records…' : 'No matching records found.'}
+                    </td></tr>
+                  ) : displayRecords.map(rec => {
                     const isSelected = selectedId === rec.id;
                     return (
                       <tr key={rec.id} onClick={() => { setSelectedId(rec.id); setShowForm(false); }}
@@ -965,7 +1149,7 @@ export default function DeliveryRecordsView({
                         )}
                         <td className="px-4 py-3.5 font-bold text-slate-400 truncate">{rec.id}</td>
                         <td className="px-4 py-3.5">
-                          <div className="font-medium text-sm text-slate-900 truncate" title={rec.company_name}>{rec.company_name}</div>
+                          <div className="font-semibold text-sm text-slate-900 truncate" title={rec.company_name}>{rec.company_name}</div>
                           <div className="text-xs text-gray-400 mt-0.5 truncate" title={rec.area}>{rec.area}</div>
                         </td>
                         <td className="px-4 py-3.5 truncate text-slate-600" title={rec.area}>{rec.area}</td>
@@ -991,8 +1175,8 @@ export default function DeliveryRecordsView({
             <div className="border-t border-slate-200 print:hidden">
               <Pagination
                 currentPage={safeCurrentPage}
-                totalPages={totalPages}
-                totalItems={sortedFiltered.length}
+                totalPages={displayTotalPages}
+                totalItems={displayTotalCount}
                 pageSize={pageSize}
                 onPageChange={setCurrentPage}
                 onPageSizeChange={(newSize) => {

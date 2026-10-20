@@ -13,24 +13,55 @@ export function apiUrl(path: string): string {
   return `${API_BASE}/api${path}`;
 }
 
+export interface RecordActiveCounts {
+  deliveries: number;
+  rma: number;
+  sales_orders: number;
+  accounting_collection: number;
+  procurement_pickup: number;
+}
+
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  /** Per-field validation messages from the server, keyed by API field name. */
+  fields: Record<string, string>;
+  constructor(message: string, status: number, fields: Record<string, string> = {}) {
     super(message);
     this.status = status;
+    this.fields = fields;
   }
+}
+
+// AUD-003: the server hands every authenticated response the session's
+// anti-CSRF token in this header and requires it back on writes. It is kept in
+// memory only; a reload gets a fresh copy from the session check.
+const CSRF_HEADER = 'X-CSRF-Token';
+let csrfToken: string | null = null;
+
+async function send(path: string, options: RequestInit): Promise<Response> {
+  const res = await fetch(apiUrl(path), {
+    credentials: 'include',
+    ...options,
+    headers: {
+      ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+      ...(csrfToken ? { [CSRF_HEADER]: csrfToken } : {}),
+      ...(options.headers || {}),
+    },
+  });
+  csrfToken = res.headers.get(CSRF_HEADER) ?? csrfToken;
+  return res;
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(apiUrl(path), {
-      credentials: 'include',
-      headers: options.body instanceof FormData
-        ? { ...(options.headers || {}) }
-        : { 'Content-Type': 'application/json', ...(options.headers || {}) },
-      ...options
-    });
+    res = await send(path, options);
+    // The token is tied to the current sign-in, so one from before a re-login
+    // (for example in another tab) is refused. Fetch the current one and retry once.
+    if (res.status === 403 && res.headers.get('X-CSRF-Error') === 'token') {
+      await send('/auth/me', {});
+      res = await send(path, options);
+    }
   } catch (error) {
     if (!(error instanceof DOMException && error.name === 'AbortError')) requestServerCheck();
     throw error;
@@ -44,17 +75,47 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
+    let fields: Record<string, string> = {};
     try {
       const body = await res.json();
       if (body?.error) message = body.error;
+      if (body?.fields && typeof body.fields === 'object') fields = body.fields;
     } catch {
       // ignore non-JSON error bodies
     }
-    throw new ApiError(message, res.status);
+    throw new ApiError(message, res.status, fields);
   }
 
   if (res.status === 204) return undefined as unknown as T;
   return res.json() as Promise<T>;
+}
+
+/** Optional server-side filters for GET /records; the server always applies the user's record scope. */
+export interface RecordListFilters {
+  company_id?: string;
+  category?: string;
+  status?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  search?: string;
+  driver?: string;
+  area?: string;
+  account_manager?: string;
+  priority?: string;
+  dashboard_filter?: string;
+  limit?: number;
+  cursor?: string;
+  page?: number;
+  paged?: boolean;
+}
+
+export interface PagedRecordResponse {
+  rows: any[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  total: number;
+  page: number;
+  limit: number;
 }
 
 export interface ApiUser {
@@ -88,6 +149,7 @@ export interface ApiUserAdmin {
   is_active: boolean;
   microsoft_linked: boolean;
   created_at: string;
+  driver_profile?: { id: string; name: string } | null; // DRIVER logins: the linked Driver profile
 }
 
 export interface ApiIntegrationStatus {
@@ -127,6 +189,23 @@ export interface ApiCustomer {
   modified_at: string;
 }
 
+export type CustomerEditableField = 'name' | 'contact_person' | 'email' | 'phone' | 'city' | 'address';
+
+export type CustomerUpdateInput = Partial<Record<CustomerEditableField, string>> & {
+  remarks: string;
+  /** The modified_at value the edit was based on; the server rejects stale edits with 409. */
+  expected_modified_at: string;
+};
+
+export interface ApiCustomerAuditEntry {
+  id: string;
+  action: string;
+  changed_by: string;
+  timestamp: string;
+  remarks: string;
+  changes: Array<{ field: string; label: string; from: string; to: string }>;
+}
+
 export interface ApiSupplier {
   id: string;
   name: string;
@@ -148,6 +227,8 @@ export interface ApiDriver {
   type: 'DRIVER' | 'ASSISTANT';
   coverage_areas: string[];
   is_active: boolean;
+  is_linked?: boolean; // has a DRIVER login (linked by Admin)
+  linked_user?: { id: string; name: string; email: string } | null; // Admin responses only
   created_by: string;
   created_at: string;
   modified_by: string;
@@ -245,9 +326,11 @@ export interface ApiPodAttachment {
 export interface ApiReportSummary {
   total: number;
   accomplished: number;
+  completed_in_range: number;
   on_hold: number;
   pending: number;
   completion_rate: number;
+  date_basis: { cohort: 'deliveryDate'; completion: 'timeOut'; time_zone: 'Asia/Manila' };
   by_status:   { status: string;   count: number }[];
   by_category: { category: string; count: number }[];
   by_area:     { area: string;     count: number }[];
@@ -356,7 +439,6 @@ export interface ApiTransactionDetail {
   driver_assistants?: string[];
   account_manager?: string;
   delivery_date?: string;
-  date_time?: string;
   item_type?: string;
   remarks?: string;
   priority?: string;
@@ -389,14 +471,65 @@ export const api = {
   logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
   me: () => request<ApiUser>('/auth/me'),
 
-  getRecords: () => request<any[]>('/records'),
+  getRecords: (filters: RecordListFilters = {}) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) {
+      if (value !== undefined && value !== '') params.set(key, String(value));
+    }
+    const query = params.toString();
+    return request<any[]>(`/records${query ? `?${query}` : ''}`);
+  },
+  getRecordActiveCounts: () => request<RecordActiveCounts>('/records/active-counts'),
+  getPagedRecords: (filters: RecordListFilters = {}) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries({ ...filters, paged: true })) {
+      if (value !== undefined && value !== '') params.set(key, String(value));
+    }
+    return request<PagedRecordResponse>(`/records?${params.toString()}`);
+  },
+  getAllRecordsForExport: async (filters: Omit<RecordListFilters, 'paged' | 'page' | 'cursor'> = {}) => {
+    const allRows: any[] = [];
+    let cursor: string | undefined = undefined;
+    let hasMore = true;
+    while (hasMore) {
+      const pageRes = await api.getPagedRecords({
+        ...filters,
+        limit: 100,
+        cursor,
+      });
+      allRows.push(...pageRes.rows);
+      hasMore = pageRes.hasMore;
+      cursor = pageRes.nextCursor || undefined;
+      if (!cursor) break;
+    }
+    return allRows;
+  },
+  getAmSummary: () => request<Array<{
+    name: string;
+    total: number;
+    delivered: number;
+    pending: number;
+    onHold: number;
+    rescheduled: number;
+    scheduled: number;
+    companies: string[];
+  }>>('/records/am-summary'),
+  getCalendarSummary: (dateFrom?: string, dateTo?: string) => {
+    const params = new URLSearchParams();
+    if (dateFrom) params.set('dateFrom', dateFrom);
+    if (dateTo) params.set('dateTo', dateTo);
+    const qs = params.toString();
+    return request<any[]>(`/records/calendar-summary${qs ? `?${qs}` : ''}`);
+  },
   getRecord: (id: string) => request<any>(`/records/${id}`),
   getRecordAudit: (id: string) => request<ApiAuditEntry[]>(`/records/${id}/audit`),
   createRecord: (data: Record<string, unknown>) =>
     request<any>('/records', { method: 'POST', body: JSON.stringify(data) }),
   updateRecord: (id: string, data: Record<string, unknown>) =>
     request<any>(`/records/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  patchStatus: (id: string, status: string, remarks?: string, extra?: { time_out?: string; received_by?: string; priority?: string }) =>
+  recordTimeIn: (id: string, remarks: string) =>
+    request<any>(`/records/${id}/time-in`, { method: 'POST', body: JSON.stringify({ remarks }) }),
+  patchStatus: (id: string, status: string, remarks?: string, extra?: { time_out?: string; received_by?: string; priority?: string; delivery_date?: string }) =>
     request<any>(`/records/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, remarks: remarks ?? '', ...extra }) }),
   verifyCollection: (id: string) =>
     request<any>(`/records/${id}/verify-collection`, { method: 'PATCH' }),
@@ -406,14 +539,17 @@ export const api = {
     form.append('file', file);
     return request<ApiPodAttachment>(`/records/${id}/attachments`, { method: 'POST', body: form });
   },
-  deleteRecordAttachment: (id: string, attachmentId: string) =>
-    request<void>(`/records/${id}/attachments/${attachmentId}`, { method: 'DELETE' }),
+  deleteRecordAttachment: (id: string, attachmentId: string, remarks: string) =>
+    request<void>(`/records/${id}/attachments/${attachmentId}`, { method: 'DELETE', body: JSON.stringify({ remarks }) }),
 
   getCompanies: () => request<ApiCompany[]>('/companies'),
 
   getCustomers: () => request<ApiCustomer[]>('/customers'),
   createCustomer: (data: { name: string; contact_person?: string; email?: string; phone?: string; address?: string; city?: string }) =>
     request<ApiCustomer>('/customers', { method: 'POST', body: JSON.stringify(data) }),
+  updateCustomer: (id: string, data: CustomerUpdateInput) =>
+    request<ApiCustomer>(`/customers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  getCustomerAudit: (id: string) => request<ApiCustomerAuditEntry[]>(`/customers/${id}/audit`),
 
   getSuppliers: () => request<ApiSupplier[]>('/suppliers'),
   createSupplier: (data: { name: string; contact_person?: string; email?: string; phone?: string; address?: string; city?: string; category?: string }) =>
@@ -423,8 +559,11 @@ export const api = {
 
   // Admin user management
   getUsers: () => request<ApiUserAdmin[]>('/users'),
-  createUser: (data: { name: string; email: string; password: string; role: string }) =>
+  // DRIVER logins: driver_profile_id links an existing profile; omit it to create one.
+  createUser: (data: { name: string; email: string; password: string; role: string; driver_profile_id?: string; microsoft_oid?: string }) =>
     request<ApiUserAdmin>('/users', { method: 'POST', body: JSON.stringify(data) }),
+  setUserDriverProfile: (userId: string, driverProfileId: string | null) =>
+    request<{ user_id: string; driver_profile: { id: string; name: string } | null }>(`/users/${userId}/driver-profile`, { method: 'PUT', body: JSON.stringify({ driver_profile_id: driverProfileId }) }),
   updateUser: (id: string, data: { name?: string; email?: string; role?: string }) =>
     request<ApiUserAdmin>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deactivateUser: (id: string) =>
@@ -464,13 +603,13 @@ export const api = {
   getSkuAudit: (id: string) => request<ApiAuditEntry[]>(`/skus/${id}/audit`),
   updateSku: (id: string, data: Partial<ApiSku>) =>
     request<ApiSku>(`/skus/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  createSku: (data: Omit<ApiSku, 'id' | 'created_by' | 'modified_by' | 'created_at' | 'updated_at' | 'inventory' | 'recent_transactions'>) =>
+  createSku: (data: Omit<ApiSku, 'id' | 'created_by' | 'modified_by' | 'created_at' | 'updated_at' | 'inventory' | 'recent_transactions'> & { warehouse_location?: string }) =>
     request<ApiSku>('/skus', { method: 'POST', body: JSON.stringify(data) }),
   adjustStock: (id: string, data: { type: string; qty_change: number; reference: string }) =>
     request<ApiSku>(`/skus/${id}/adjust`, { method: 'POST', body: JSON.stringify(data) }),
 
   resetSeed: () => request<{ ok: boolean }>('/dev/reset-seed', { method: 'POST' }),
-  seedUat: () => request<{ ok: boolean; userCount: number; driverRecords: number }>('/dev/public-seed-uat', { method: 'POST' }),
+  canResetDemo: () => request<{ enabled: boolean }>('/dev/reset-capability'),
 
   // Data Sampler (Admin only)
   dataSampler: {
@@ -508,8 +647,10 @@ export const api = {
   getRecordRemarks: (id: string) => request<ApiRemarkLog[]>(`/records/${id}/remarks`),
 
   // Statistical report summary
-  getReportSummary: (params: { dateFrom?: string; dateTo?: string; category?: string; area?: string; driver?: string; status?: string }) => {
+  getReportSummary: (params: { deliveryDateFrom?: string; deliveryDateTo?: string; dateFrom?: string; dateTo?: string; category?: string; area?: string; driver?: string; status?: string }) => {
     const qs = new URLSearchParams();
+    if (params.deliveryDateFrom) qs.set('deliveryDateFrom', params.deliveryDateFrom);
+    if (params.deliveryDateTo)   qs.set('deliveryDateTo', params.deliveryDateTo);
     if (params.dateFrom)  qs.set('dateFrom',  params.dateFrom);
     if (params.dateTo)    qs.set('dateTo',    params.dateTo);
     if (params.category)  qs.set('category',  params.category);
@@ -542,16 +683,6 @@ export const api = {
 
   getTransaction: (source: string, id: string) =>
     request<ApiTransactionDetail>(`/transactions/${source}/${id}`),
-
-  // Daily Status History (rollup snapshot, not a live recomputation)
-  getDailyStatusHistory: (params: { from: string; to: string; status?: string; category?: string }) => {
-    const qs = new URLSearchParams({ from: params.from, to: params.to });
-    if (params.status) qs.set('status', params.status);
-    if (params.category) qs.set('category', params.category);
-    return request<{ rows: { date: string; category: string; status: string; count: number }[]; source?: 'snapshot' | 'live' }>(
-      `/reports/daily-status-history?${qs.toString()}`
-    );
-  },
 
   // Driver Manager
   getDrivers: (all?: boolean) => request<ApiDriver[]>(`/drivers${all ? '?all=1' : ''}`),

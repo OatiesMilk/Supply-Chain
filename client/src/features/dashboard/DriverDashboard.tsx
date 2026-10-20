@@ -13,7 +13,14 @@ import {
 } from "lucide-react";
 import { DeliveryRecord, DeliveryStatus } from "@/types";
 import PodUploader from "@/components/PodUploader";
-import { deliveryPhotoError, type PodReadiness } from "@/utils/podRequirement";
+import { completionError, type PodReadiness } from "@/utils/podRequirement";
+
+import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
+import { canRecordTimeIn, dashboardRunDaysLate, deliveryScheduleState, hasValidRunTimeIn, isDashboardRunActionable, isDraftRecord, manilaToday } from '@/utils/recordLifecycle';
+import DoneRecordModal from "./DoneRecordModal";
+import { uploadStagedFiles } from '@/api/queries/usePodAttachments';
+import { useQueryClient } from '@tanstack/react-query';
+import { notify } from '@/utils/notify';
 
 interface DriverDashboardProps {
   records: DeliveryRecord[];
@@ -31,6 +38,7 @@ const STATUS_VERB: Record<string, string> = {
 
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString([], {
+    timeZone: "Asia/Manila",
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -43,13 +51,19 @@ export default function DriverDashboard({
   onLogout,
   dataLoading,
 }: DriverDashboardProps) {
-  const today = new Date().toISOString().split("T")[0];
+  const today = manilaToday();
+  const timeInMutation = useRecordTimeInMutation();
+  const queryClient = useQueryClient();
+  records = records.filter(record => !isDraftRecord(record));
   const todayLabel = new Date().toLocaleDateString("en-PH", {
+    timeZone: "Asia/Manila",
     weekday: "long",
     month: "long",
     day: "numeric",
     year: "numeric",
   });
+
+  const [selectedDoneRecord, setSelectedDoneRecord] = useState<DeliveryRecord | null>(null);
 
   const [pendingAction, setPendingAction] = useState<{
     rec: DeliveryRecord;
@@ -62,21 +76,29 @@ export default function DriverDashboard({
 
   const [podStates, setPodStates] = useState<Record<string, PodReadiness>>({});
   const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveFeedback, setSaveFeedback] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const onPodReadinessChange = useCallback((id: string, state: PodReadiness) => {
     setPodStates(previous => ({ ...previous, [id]: state }));
   }, []);
   const photoError = pendingAction
-    ? deliveryPhotoError(pendingAction.rec.category, pendingAction.status, podStates[pendingAction.rec.id])
+    ? completionError(pendingAction.rec, pendingAction.status, receivedByInputs[pendingAction.rec.id] ?? pendingAction.rec.received_by, podStates[pendingAction.rec.id])
     : null;
 
-  // Show all assigned records (backend already filters to this driver's records)
+  // The server returns all assigned non-draft records. Deliveries use the latest
+  // saved date: overdue runs are actionable, while future unstarted runs are read-only.
   const todayRecs = records.filter((r) => r.delivery_date === today);
-  const activeRecs = todayRecs.filter((r) => r.status !== "Delivered");
-  const doneRecs = todayRecs.filter((r) => r.status === "Delivered");
+  const actionableRecs = records.filter(record => isDashboardRunActionable(record, today));
+  const activeRecs = actionableRecs.filter((r) => r.status !== "Delivered");
+  const doneRecs = records.filter((r) => r.status === "Delivered" &&
+    (r.category === 'Deliveries'
+      ? r.delivery_date === today || !!r.completed_late || (deliveryScheduleState(r.delivery_date, today).future && hasValidRunTimeIn(r.time_in))
+      : r.delivery_date === today));
+  const runsInScope = activeRecs.length + doneRecs.length;
 
   const handleTimeIn = (rec: DeliveryRecord) => {
-    onUpdateRecord(rec.id, { time_in: new Date().toISOString() } as any);
+    setPendingAction({ rec, status: "In Transit" });
+    setRemarksInput("");
+    setSaveFeedback(null);
   };
 
   const applyStatus = async (
@@ -87,15 +109,12 @@ export default function DriverDashboard({
     const extra =
       status === "Delivered"
         ? {
-            time_out: new Date().toISOString(),
-            received_by: receivedByInputs[rec.id]?.trim() || null,
+            received_by: (receivedByInputs[rec.id] ?? rec.received_by ?? "").trim(),
           }
         : undefined;
     await onUpdateRecord(rec.id, {
       status,
       status_remarks: remarks,
-      modified_by: currentUserName,
-      modified_at: new Date().toISOString(),
       ...(extra ?? {}),
     } as any);
   };
@@ -169,6 +188,14 @@ export default function DriverDashboard({
         </div>
       </div>
 
+      {saveFeedback && !pendingAction && (
+        <div className="px-4 py-3 pb-0">
+          <div role="alert" className={`rounded-xl border p-3 text-xs font-semibold shadow-sm ${saveFeedback.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : saveFeedback.type === 'info' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
+            {saveFeedback.message}
+          </div>
+        </div>
+      )}
+
       {/* Body */}
       <div className="flex-1 px-4 py-5 space-y-4 max-w-lg mx-auto w-full">
         {dataLoading && (
@@ -177,11 +204,11 @@ export default function DriverDashboard({
           </div>
         )}
 
-        {!dataLoading && todayRecs.length === 0 && (
+        {!dataLoading && runsInScope === 0 && (
           <div className="text-center py-16 text-slate-400">
             <CheckCircle className="w-10 h-10 mx-auto mb-3 text-emerald-400" />
             <p className="font-bold text-slate-600">
-              No runs scheduled for today.
+              No runs ready for execution today.
             </p>
             <p className="text-xs mt-1">
               Check back later or contact Logistics.
@@ -191,6 +218,8 @@ export default function DriverDashboard({
 
         {/* Active records */}
         {activeRecs.map((rec) => {
+          const daysLate = dashboardRunDaysLate(rec, today);
+          const futureStarted = rec.category === 'Deliveries' && deliveryScheduleState(rec.delivery_date, today).future && hasValidRunTimeIn(rec.time_in);
           return (
             <div
               key={rec.id}
@@ -206,11 +235,19 @@ export default function DriverDashboard({
                     {rec.company_name}
                   </p>
                 </div>
-                <span
-                  className={`px-2 py-0.5 rounded-full border text-[9px] font-bold uppercase tracking-wider ${statusBadge(rec.status)}`}
-                >
-                  {rec.status}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {daysLate > 0 && rec.category === 'Deliveries' && (
+                    <span className="px-2 py-0.5 rounded-full border border-rose-200 bg-rose-50 text-[9px] font-bold text-rose-700">
+                      Overdue · {daysLate} day{daysLate === 1 ? '' : 's'} late
+                    </span>
+                  )}
+                  {futureStarted && (
+                    <span className="px-2 py-0.5 rounded-full border border-blue-200 bg-blue-50 text-[9px] font-bold text-blue-700">Started</span>
+                  )}
+                  <span className={`px-2 py-0.5 rounded-full border text-[9px] font-bold uppercase tracking-wider ${statusBadge(rec.status)}`}>
+                    {rec.status}
+                  </span>
+                </div>
               </div>
 
               <div className="px-4 py-3 space-y-3">
@@ -234,6 +271,7 @@ export default function DriverDashboard({
                   {!rec.time_in ? (
                     <button
                       onClick={() => handleTimeIn(rec)}
+                      disabled={saving || !canRecordTimeIn(rec)}
                       className="w-full py-2.5 rounded-xl font-bold text-xs tracking-wide uppercase bg-blue-600 hover:bg-blue-700 text-white transition-all flex items-center justify-center gap-2"
                     >
                       <Clock className="w-4 h-4" /> Record Time In
@@ -246,16 +284,16 @@ export default function DriverDashboard({
                   )}
 
                   {/* Step 2: Proof of Delivery */}
-                  <PodUploader recordId={rec.id} required={rec.category === 'Deliveries'} disabled={saving} onReadinessChange={onPodReadinessChange} />
+                  <PodUploader recordId={rec.id} required disabled={saving} onReadinessChange={onPodReadinessChange} />
 
-                  {/* Receiver Name — always visible, optional */}
+                  {/* Receiver name is required for completion. */}
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                      <UserCheck className="w-3.5 h-3.5" /> Received By
+                      <UserCheck className="w-3.5 h-3.5" /> Received By *
                     </label>
                     <input
                       type="text"
-                      value={receivedByInputs[rec.id] ?? ""}
+                      value={receivedByInputs[rec.id] ?? rec.received_by ?? ""}
                       onChange={(e) =>
                         setReceivedByInputs((prev) => ({
                           ...prev,
@@ -267,15 +305,16 @@ export default function DriverDashboard({
                     />
                   </div>
 
+                  {completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id]) && <p className="text-xs text-slate-600">{completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}</p>}
                   {/* Step 3: Status buttons */}
                   <div className="grid grid-cols-3 gap-2">
                     <button
                       onClick={() => {
                         setPendingAction({ rec, status: "Delivered" });
                         setRemarksInput("");
-                        setSaveError(null);
+                        setSaveFeedback(null);
                       }}
-                      disabled={saving || !!deliveryPhotoError(rec.category, "Delivered", podStates[rec.id])}
+                      disabled={saving || !(rec.allowed_statuses ?? []).includes("Delivered") || !!completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}
                       className="disabled:opacity-40 disabled:cursor-not-allowed py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-emerald-600 hover:bg-emerald-700 text-white transition-all flex flex-col items-center gap-1 cursor-pointer"
                     >
                       <CheckCircle className="w-4 h-4" /> Accomplish
@@ -284,9 +323,10 @@ export default function DriverDashboard({
                       onClick={() => {
                         setPendingAction({ rec, status: "Pending" });
                         setRemarksInput("");
-                        setSaveError(null);
+                        setSaveFeedback(null);
                       }}
-                      className="py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-amber-500 hover:bg-amber-600 text-white transition-all flex flex-col items-center gap-1"
+                      disabled={saving || !(rec.allowed_statuses ?? []).includes("Pending")}
+                      className="disabled:opacity-40 py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-amber-500 hover:bg-amber-600 text-white transition-all flex flex-col items-center gap-1"
                     >
                       <Navigation className="w-4 h-4" /> Pending
                     </button>
@@ -294,9 +334,10 @@ export default function DriverDashboard({
                       onClick={() => {
                         setPendingAction({ rec, status: "Rescheduled" });
                         setRemarksInput("");
-                        setSaveError(null);
+                        setSaveFeedback(null);
                       }}
-                      className="py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-purple-500 hover:bg-purple-600 text-white transition-all flex flex-col items-center gap-1"
+                      disabled={saving || !(rec.allowed_statuses ?? []).includes("Rescheduled")}
+                      className="disabled:opacity-40 py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-purple-500 hover:bg-purple-600 text-white transition-all flex flex-col items-center gap-1"
                     >
                       <RefreshCw className="w-4 h-4" /> Reschedule
                     </button>
@@ -318,9 +359,11 @@ export default function DriverDashboard({
               <div className="flex-1 h-px bg-slate-200" />
             </div>
             {doneRecs.map((rec) => (
-              <div
+              <button
+                type="button"
                 key={rec.id}
-                className="bg-white rounded-2xl border border-emerald-200 px-4 py-3 flex items-start justify-between gap-3"
+                onClick={() => setSelectedDoneRecord(rec)}
+                className="w-full text-left bg-white rounded-2xl border border-emerald-200 px-4 py-3 flex items-start justify-between gap-3 hover:bg-emerald-50 transition-colors cursor-pointer"
               >
                 <div className="min-w-0">
                   <p className="font-mono text-[10px] text-slate-400">
@@ -329,6 +372,11 @@ export default function DriverDashboard({
                   <p className="font-bold text-sm text-slate-800 truncate">
                     {rec.company_name}
                   </p>
+                  {rec.completed_late && (
+                    <p className="text-[10px] font-bold text-rose-700 mt-0.5">
+                      Completed {rec.days_late ?? 0} day{rec.days_late === 1 ? '' : 's'} late
+                    </p>
+                  )}
                   <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
                     <MapPin className="w-3 h-3 text-red-400 shrink-0" />
                     {rec.area}
@@ -358,27 +406,25 @@ export default function DriverDashboard({
                 <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full shrink-0">
                   Done
                 </span>
-              </div>
+              </button>
             ))}
           </div>
         )}
 
-        {/* Other-day records (not today) */}
+        {/* Upcoming and other-date records stay visible without execution controls. */}
         {records.filter(
-          (r) => r.delivery_date !== today && r.status !== "Delivered",
+          (r) => !isDashboardRunActionable(r, today) && r.status !== "Delivered",
         ).length > 0 && (
           <div className="space-y-2">
             <div className="flex items-center gap-3">
               <div className="flex-1 h-px bg-slate-200" />
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                Other Dates
+                Upcoming / Other Dates
               </p>
               <div className="flex-1 h-px bg-slate-200" />
             </div>
             {records
-              .filter(
-                (r) => r.delivery_date !== today && r.status !== "Delivered",
-              )
+              .filter((r) => !isDashboardRunActionable(r, today) && r.status !== "Delivered")
               .map((rec) => (
                 <div
                   key={rec.id}
@@ -391,12 +437,20 @@ export default function DriverDashboard({
                     <p className="text-xs font-bold text-slate-700">
                       {rec.company_name}
                     </p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      {rec.area}{rec.item_description ? ` · ${rec.item_description}` : ''}
+                    </p>
                   </div>
-                  <span
-                    className={`text-[9px] font-bold border px-2 py-0.5 rounded-full ${statusBadge(rec.status)}`}
-                  >
-                    {rec.status}
-                  </span>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <span className="text-[9px] font-bold border border-slate-200 bg-slate-50 px-2 py-0.5 rounded-full text-slate-600">
+                      {rec.category === 'Deliveries'
+                        ? deliveryScheduleState(rec.delivery_date, today).valid ? 'Upcoming · read-only' : 'Delivery Date needed · read-only'
+                        : 'Other date · read-only'}
+                    </span>
+                    <span className={`text-[9px] font-bold border px-2 py-0.5 rounded-full ${statusBadge(rec.status)}`}>
+                      {rec.status}
+                    </span>
+                  </div>
                 </div>
               ))}
           </div>
@@ -436,10 +490,14 @@ export default function DriverDashboard({
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-600 uppercase tracking-wider block">
-                Remarks <span className="text-red-500">*</span>
+              <label htmlFor="driver-action-remarks" className="text-[10px] font-black text-slate-600 uppercase tracking-wider block">
+                Remarks — reason for change (required)
               </label>
+              <p id="driver-action-remarks-help" className="text-xs text-slate-600">Explain why you are making this change. The reason is saved with your name in the record history.</p>
               <textarea
+                id="driver-action-remarks"
+                aria-describedby="driver-action-remarks-help"
+                required
                 value={remarksInput}
                 onChange={(e) => setRemarksInput(e.target.value)}
                 rows={3}
@@ -450,7 +508,7 @@ export default function DriverDashboard({
             </div>
 
             {photoError && <p role="alert" className="text-xs text-red-700">{photoError}</p>}
-            {saveError && <p role="alert" className="text-xs text-red-700">{saveError}</p>}
+            {saveFeedback && <p role="alert" className={`text-xs ${saveFeedback.type === 'success' ? 'text-emerald-700' : saveFeedback.type === 'info' ? 'text-amber-700' : 'text-red-700'}`}>{saveFeedback.message}</p>}
             <div className="flex gap-2 justify-end">
               <button
                 disabled={saving}
@@ -466,14 +524,26 @@ export default function DriverDashboard({
                 disabled={saving || !remarksInput.trim() || !!photoError}
                 onClick={async () => {
                   if (saving || !remarksInput.trim() || photoError) return;
+                  if (pendingAction.status === pendingAction.rec.status) {
+                    setSaveFeedback({ message: 'Choose a different status before saving.', type: 'info' });
+                    return;
+                  }
                   setSaving(true);
-                  setSaveError(null);
+                  setSaveFeedback(null);
                   try {
-                    await applyStatus(pendingAction.rec, pendingAction.status, remarksInput.trim());
+                    const recordId = pendingAction.rec.id;
+                    await uploadStagedFiles(recordId, queryClient);
+
+                    if (pendingAction.status === "In Transit") {
+                      await timeInMutation.mutateAsync({ id: recordId, remarks: remarksInput.trim() });
+                    } else {
+                      await applyStatus(pendingAction.rec, pendingAction.status, remarksInput.trim());
+                    }
                     setPendingAction(null);
                     setRemarksInput("");
+                    notify.success('Status updated successfully');
                   } catch (error) {
-                    setSaveError(error instanceof Error ? error.message : 'Could not update the delivery. Please try again.');
+                    notify.error(error instanceof Error ? error.message : 'Could not update the delivery. Please try again.');
                   } finally {
                     setSaving(false);
                   }
@@ -485,6 +555,13 @@ export default function DriverDashboard({
             </div>
           </div>
         </div>
+      )}
+
+      {selectedDoneRecord && (
+        <DoneRecordModal
+          record={selectedDoneRecord}
+          onClose={() => setSelectedDoneRecord(null)}
+        />
       )}
     </div>
   );

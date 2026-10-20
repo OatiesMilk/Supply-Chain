@@ -10,7 +10,8 @@ export const OUTPUT_ACTION_TRIGGERS: OutputActionTrigger[] = [
 ];
 
 export const DEFAULT_OUTPUT_ACTIONS: Record<OutputActionTrigger, OutputActionConfig> = {
-  'Record Created': { notifyAM: false, notifyLogistics: true, notifyTASS: false, exportPDF: false, internalOnly: false },
+  // Opt-out: every role is notified unless the creator excludes it.
+  'Record Created': { notifyAM: true, notifyLogistics: true, notifyTASS: true, exportPDF: false, internalOnly: false },
   'Accomplished': { notifyAM: true, notifyLogistics: false, notifyTASS: false, exportPDF: false, internalOnly: false },
   'Rescheduled': { notifyAM: true, notifyLogistics: true, notifyTASS: false, exportPDF: false, internalOnly: false },
   'On-Hold': { notifyAM: true, notifyLogistics: true, notifyTASS: false, exportPDF: false, internalOnly: false },

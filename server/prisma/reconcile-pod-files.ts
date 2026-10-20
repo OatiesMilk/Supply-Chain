@@ -1,7 +1,12 @@
 import { prisma } from '../src/db';
-import { podStorage, podStorageKeys } from '../src/services/podStorage';
+import { podStorage, podStorageKeys, podStorageProvider } from '../src/services/podStorage';
 
 async function main() {
+  // The file listing below reads the local upload folder only. Against Supabase
+  // it would report every attachment as missing, so refuse instead of misleading.
+  if (podStorageProvider() !== 'local') {
+    throw new Error('pod:reconcile supports POD_STORAGE_PROVIDER="local" only; it cannot list a Supabase bucket.');
+  }
   const [files, attachments] = await Promise.all([
     podStorageKeys(),
     prisma.podAttachment.findMany({ select: { storageKey: true } })

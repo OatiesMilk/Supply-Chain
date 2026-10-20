@@ -3,6 +3,7 @@
  */
 
 export * from './useRecordsQuery';
+export * from './useCompanyRecordsQuery';
 export * from './useCompaniesQuery';
 export * from './useSuppliersQuery';
 export * from './useDriversQuery';

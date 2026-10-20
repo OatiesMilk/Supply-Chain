@@ -11,7 +11,7 @@ export type DeliveryCategory =
   | 'Accounting Collection'
   | 'Procurement Pick-up';
 
-export type DeliveryStatus = 'Scheduled' | 'Delivered' | 'On-Hold' | 'Rescheduled' | 'Pending';
+export type DeliveryStatus = 'Draft' | 'Scheduled' | 'In Transit' | 'Delivered' | 'On-Hold' | 'Rescheduled' | 'Pending';
 
 export type PriorityLevel = '1 - Low' | '2 - Moderate' | '3 - High';
 
@@ -41,25 +41,29 @@ export interface OutputActionLogEntry {
 
 export interface DeliveryRecord extends AuditFields {
   id: string; // e.g., REC-4001
-  company_name: string; // validated lookup value, matches a Customer.name
-  customer_id: string; // link back to Customer master
+  company_name: string; // display name of the record's Company
+  company_id: string; // Company the record belongs to (never a Customer ID)
   priority: PriorityLevel;
   reference: string; // SAP number
   remarks: string;
   status: DeliveryStatus;
+  allowed_statuses?: DeliveryStatus[]; // Authoritative transitions supplied by the server
   vehicle: string;
   area: string;
-  driver: string;
+  driver: string; // display name of the assigned Driver profile
+  driver_id?: string | null; // stable Driver profile id — what assignment saves and what decides Driver access
   driver_assistants: string[];
   time_in?: string | null;
   time_out?: string | null;
   received_by?: string | null;
   account_manager: string;
   delivery_date: string; // date, YYYY-MM-DD
+  overdue?: boolean;
+  days_late?: number;
+  completed_late?: boolean;
   category: DeliveryCategory;
   item_type: ItemType;
   is_draft: 'Yes' | 'No';
-  date_time: string; // separate date+time field, ISO datetime
   item_description: string;
   line_items?: { id?: string, sku: string, quantity: number }[];
   attachments: string[]; // mock file names only

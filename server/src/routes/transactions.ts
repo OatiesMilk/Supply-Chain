@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/auth';
 import { asyncRoute } from '../middleware/asyncRoute';
 import { canAccessTransactions, canAccessInventoryTransactions, transactionRecordScope } from '../services/transactionAccess';
 import { CATEGORY_FROM_DB, STATUS_FROM_DB, parseDriverAssistants } from '../mappings';
+import { visibleRecordAuditSnapshots } from '../services/recordAuditVisibility';
 
 const router = Router();
 
@@ -14,15 +15,9 @@ const router = Router();
 const requireTransactionAccess = asyncRoute(async (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
   if (!canAccessTransactions(req.user)) return res.status(403).json({ error: 'Module access denied' });
-  if (req.user.role === 'DRIVER') {
-    // Legacy assignments store names rather than account IDs. Never treat an
-    // ambiguous name as proof of ownership, including inactive driver accounts.
-    const identities = await prisma.user.findMany({
-      where: { role: 'DRIVER', name: req.user.name }, select: { id: true }, take: 2,
-    });
-    if (identities.length !== 1 || identities[0].id !== req.user.id) {
-      return res.status(403).json({ error: 'Driver identity cannot be verified' });
-    }
+  // Driver ownership comes from the Admin-linked Driver profile, never the display name.
+  if (req.user.role === 'DRIVER' && !req.user.driverProfileId) {
+    return res.status(403).json({ error: 'Driver identity cannot be verified' });
   }
   next();
 });
@@ -170,9 +165,10 @@ router.get('/:source/:id', requireAuth, requireTransactionAccess, asyncRoute(asy
       orderBy: { timestamp: 'asc' }
     });
 
-    const timeline = auditEntries.map(e => {
-      const prev = e.previousValue ? JSON.parse(e.previousValue) : null;
-      const next = e.newValue       ? JSON.parse(e.newValue)       : null;
+    const snapshots = await visibleRecordAuditSnapshots(auditEntries, user);
+    const timeline = auditEntries.map((e, index) => {
+      const prev = snapshots[index].previousValue;
+      const next = snapshots[index].newValue;
 
       let event_type = 'field_update';
       let label      = 'Record updated';
@@ -214,7 +210,7 @@ router.get('/:source/:id', requireAuth, requireTransactionAccess, asyncRoute(asy
       driver_assistants: parseDriverAssistants(record.driverAssistants),
       account_manager:  record.accountManager,
       delivery_date:    record.deliveryDate,
-      date_time:        record.dateAndTime,
+      
       item_type:        record.itemType,
       remarks:          record.remarks,
       priority:         record.priority,

@@ -11,14 +11,16 @@ import skusRoutes from '../src/routes/skus';
 
 afterEach(() => mock.restoreAll());
 
-const account = (role = 'DRIVER', permissions: Permission[] = []) => ({
+// Drivers own runs through their Admin-linked Driver profile id (TSK-100).
+const account = (role = 'DRIVER', permissions: Permission[] = [], driverProfile: { id: string; type: string } | null = { id: 'profile-one', type: 'DRIVER' }) => ({
   id: 'driver-user', name: 'Driver One', email: 'driver@example.com', role, permissions, isActive: true,
+  driverProfile: role === 'DRIVER' ? driverProfile : null,
 });
 
 test('transaction policy explicitly denies unknown roles and driver inventory despite forged module grants', () => {
-  const driver = sessionUser(account('DRIVER', [
+  const driver = { ...sessionUser(account('DRIVER', [
     { screen: 'transactions', granted: true }, { screen: 'inventory', granted: true },
-  ])) as AuthUser;
+  ])), driverProfileId: 'profile-one' } as AuthUser;
   assert.deepEqual(transactionCategories('DRIVER'), ['DELIVERY', 'RMA', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS']);
   assert.deepEqual(transactionCategories('UNKNOWN'), []);
   assert.equal(canAccessTransactions(driver), true);
@@ -27,7 +29,8 @@ test('transaction policy explicitly denies unknown roles and driver inventory de
   assert.equal(driver.resources.includes('skus'), false);
   assert.equal(canAccessTransactions({ ...driver, role: 'UNKNOWN' as any, resources: ['transactions', 'skus'] }), false);
   assert.equal(canAccessInventoryTransactions({ ...driver, role: 'UNKNOWN' as any, resources: ['skus'] }), false);
-  assert.equal(canAccessTransactions({ ...driver, name: ' ' }), false);
+  assert.equal(canAccessTransactions({ ...driver, driverProfileId: null }), false);
+  assert.equal(canAccessTransactions({ ...driver, name: ' ' }), true, 'The display name no longer decides Driver identity');
 });
 
 // Evaluate the actual query predicates against fixtures, so missing ownership,
@@ -43,20 +46,21 @@ function matches(record: any, where: any): boolean {
 
 test('HTTP transaction reads enforce driver ownership, category, inventory denial and live module revocation', async () => {
   let user = account();
-  let identities = [{ id: user.id }];
   let readFailure = false;
   const now = new Date('2026-10-01T00:00:00Z');
-  const record = (id: string, driver: string, category = 'DELIVERY', deletedAt: Date | null = null) => ({
-    id, driver, category, deletedAt, company: { name: 'Customer' }, companyId: 'customer',
+  const profileNames: Record<string, string> = { 'profile-one': 'Driver One', 'profile-two': 'Driver Two' };
+  const record = (id: string, driverId: string | null, category = 'DELIVERY', deletedAt: Date | null = null) => ({
+    id, driverId, driver: driverId ? profileNames[driverId] : '', category, deletedAt, draft: false, company: { name: 'Customer' }, companyId: 'customer',
     createdBy: { name: 'Coordinator' }, modifiedBy: { name: 'Coordinator' }, reference: id,
     status: 'SCHEDULED', deliveryDate: '2026-10-01', itemDescription: 'Shipment',
     driverAssistants: '[]', createdAt: now, updatedAt: now,
   });
   const rows = [
-    record('own', user.name), record('other', 'Driver Two'), record('unassigned', ''),
-    record('own-rma', user.name, 'RMA'), record('deleted', user.name, 'DELIVERY', now),
-    record('collection', user.name, 'ACCOUNTING_COLLECTION'),
-    record('unknown-category', user.name, 'FORGED_CATEGORY'),
+    { ...record('own-draft', 'profile-one'), draft: true },
+    record('own', 'profile-one'), record('other', 'profile-two'), record('unassigned', null),
+    record('own-rma', 'profile-one', 'RMA'), record('deleted', 'profile-one', 'DELIVERY', now),
+    record('collection', 'profile-one', 'ACCOUNTING_COLLECTION'),
+    record('unknown-category', 'profile-one', 'FORGED_CATEGORY'),
   ];
   // Prisma delegates are dynamic proxies; Node's mock.method requires ordinary
   // property descriptors. Assign mocked functions and restore them explicitly.
@@ -69,7 +73,6 @@ test('HTTP transaction reads enforce driver ownership, category, inventory denia
     return mocked;
   };
   stub(prisma.user, 'findUnique', async () => user);
-  stub(prisma.user, 'findMany', async () => identities);
   const reads = stub(prisma.deliveryRecord, 'findMany', async ({ where }: any) => {
     if (readFailure) throw new Error('Simulated read failure');
     return rows.filter(row => matches(row, where));
@@ -112,7 +115,7 @@ test('HTTP transaction reads enforce driver ownership, category, inventory denia
     assert.equal((await get('/api/transactions/delivery/own')).status, 200);
     assert.equal((await get('/api/transactions/delivery/own-rma')).status, 200);
     assert.equal(auditRead.mock.callCount(), 2);
-    for (const id of ['other', 'unassigned', 'unknown-category', 'deleted', 'missing']) {
+    for (const id of ['own-draft', 'other', 'unassigned', 'unknown-category', 'deleted', 'missing']) {
       const response = await get(`/api/transactions/delivery/${id}`);
       assert.equal(response.status, 404, id);
       assert.deepEqual(await response.json(), { error: 'Delivery record not found' });
@@ -130,16 +133,21 @@ test('HTTP transaction reads enforce driver ownership, category, inventory denia
     assert.equal((await get('/api/transactions')).status, 500, 'Rejected queries must reach the Express error handler');
     readFailure = false;
 
-    identities = [{ id: user.id }, { id: 'duplicate-name-account' }];
-    const beforeAmbiguousReads = reads.mock.callCount();
-    assert.equal((await get('/api/transactions')).status, 403);
-    assert.equal((await get('/api/transactions/delivery/own')).status, 403);
-    assert.equal(reads.mock.callCount(), beforeAmbiguousReads);
-    identities = [{ id: 'different-account' }];
-    assert.equal((await get('/api/transactions')).status, 403);
-    identities = [{ id: user.id }];
+    // An unlinked login (e.g. an ambiguous legacy name left for Admin review)
+    // and a login linked to a non-DRIVER profile own nothing and read nothing.
+    for (const profile of [null, { id: 'profile-one', type: 'ASSISTANT' }]) {
+      user = account('DRIVER', [], profile);
+      const beforeUnlinkedReads = reads.mock.callCount();
+      assert.equal((await get('/api/transactions')).status, 403);
+      assert.equal((await get('/api/transactions/delivery/own')).status, 403);
+      assert.equal(reads.mock.callCount(), beforeUnlinkedReads);
+    }
 
-    user = { ...user, name: 'Driver Two' };
+    // Renaming the login changes presentation only; ownership stays on the profile id.
+    user = { ...account(), name: 'Driver Two' };
+    assert.deepEqual((await (await get('/api/transactions')).json() as any).transactions.map((txn: any) => txn.id), ['own', 'own-rma', 'collection']);
+    // Relinking the login to another profile moves ownership immediately.
+    user = account('DRIVER', [], { id: 'profile-two', type: 'DRIVER' });
     assert.deepEqual((await (await get('/api/transactions')).json() as any).transactions.map((txn: any) => txn.id), ['other']);
     assert.equal((await get('/api/transactions/delivery/own')).status, 404);
     user = account('DRIVER', [{ screen: 'driver_dashboard', granted: false }]);
@@ -161,9 +169,10 @@ test('HTTP transaction reads enforce driver ownership, category, inventory denia
     user = account('LOGISTICS', [{ screen: 'deliveries', granted: false }]);
     assert.equal((await get('/api/transactions/delivery/own')).status, 404);
     assert.ok(!(await (await get('/api/transactions')).json() as any).transactions.some((txn: any) => txn.id === 'own'));
+    // TSK-118: without SKU Master, Logistics keeps read-only inventory transactions through
+    // Transaction Center; denying Transaction Center (below) removes them.
     user = account('LOGISTICS', [{ screen: 'inventory', granted: false }]);
-    assert.equal((await get('/api/transactions?source=inventory')).status, 403);
-    assert.equal((await get('/api/transactions/inventory/known')).status, 403);
+    assert.equal((await get('/api/transactions?source=inventory')).status, 200);
     user = account('LOGISTICS', [{ screen: 'transactions', granted: false }]);
     assert.equal((await get('/api/transactions')).status, 403);
     assert.equal((await get('/api/transactions/delivery/own')).status, 403);

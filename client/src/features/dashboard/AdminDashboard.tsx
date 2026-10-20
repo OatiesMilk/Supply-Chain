@@ -1,3 +1,4 @@
+import { manilaToday } from '@/utils/recordLifecycle';
 import {
   Users,
   ClipboardList,
@@ -18,11 +19,12 @@ import {
 } from "recharts";
 import { ApiDashboardStats } from "@/api";
 import { DeliveryRecord } from "@/types";
+import { DashboardFilterId, getManilaWeekRange, matchesDashboardFilter } from '@/utils/dashboardFilters';
 
 interface Props {
   stats: Extract<ApiDashboardStats, { role: "ADMIN" }> | null;
   deliveryRecords: DeliveryRecord[];
-  onNavigate: (screen: string, item_id?: string) => void;
+  onNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
   onRefresh?: () => void;
 }
 
@@ -61,7 +63,10 @@ export default function AdminDashboard({
   onNavigate,
   onRefresh,
 }: Props) {
-  const today = new Date().toISOString().split("T")[0];
+  const today = manilaToday();
+  const weekRange = getManilaWeekRange(today);
+  const weekStart = new Date(`${weekRange.from}T00:00:00+08:00`).getTime();
+  const endExclusive = new Date(`${today}T00:00:00+08:00`).getTime() + 86_400_000;
 
   // Compute from deliveryRecords as fallback / supplement
   const totalActiveUsers = stats?.total_active_users ?? 0;
@@ -69,27 +74,14 @@ export default function AdminDashboard({
   const recordsThisWeek =
     stats?.records_this_week ??
     deliveryRecords.filter((r) => {
-      const d = new Date(r.created_at);
-      const dow = d.getUTCDay();
-      const weekStart = new Date(d);
-      weekStart.setUTCDate(d.getUTCDate() - dow);
-      return new Date(r.created_at) >= weekStart;
+      const createdAt = new Date(r.created_at).getTime();
+      return createdAt >= weekStart && createdAt < endExclusive;
     }).length;
   const unverifiedCollections =
     stats?.unverified_collections ??
-    deliveryRecords.filter(
-      (r) =>
-        r.category === "Accounting Collection" &&
-        r.status === "Delivered" &&
-        !r.collection_verified,
-    ).length;
+    deliveryRecords.filter(r => matchesDashboardFilter(r, 'admin-unverified-collections')).length;
   const unverifiedCollectionsAmount = deliveryRecords
-    .filter(
-      (r) =>
-        r.category === "Accounting Collection" &&
-        r.status === "Delivered" &&
-        !r.collection_verified,
-    )
+    .filter(r => matchesDashboardFilter(r, 'admin-unverified-collections'))
     .reduce((sum, r) => sum + (r.amount ?? 0), 0);
   const auditEventsToday = stats?.audit_events_today ?? 0;
 
@@ -108,7 +100,7 @@ export default function AdminDashboard({
         {/* Total Active Users */}
         <div
           className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-[#1F3864] transition-all cursor-pointer"
-          onClick={() => onNavigate("admin")}
+          onClick={() => onNavigate("admin", undefined, 'admin-active-users')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -136,7 +128,7 @@ export default function AdminDashboard({
         {/* Records Created This Week */}
         <div
           className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-[#1F3864] transition-all cursor-pointer"
-          onClick={() => onNavigate("transactions")}
+          onClick={() => onNavigate("transactions", undefined, 'admin-records-this-week')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -156,8 +148,8 @@ export default function AdminDashboard({
 
         {/* Unverified Collections */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-amber-500 flex items-center justify-between gap-3 hover:border-amber-400 transition-all cursor-pointer"
-          onClick={() => onNavigate("accounting_collection")}
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-amber-400 transition-all cursor-pointer"
+          onClick={() => onNavigate("accounting_collection", undefined, 'admin-unverified-collections')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -179,7 +171,7 @@ export default function AdminDashboard({
               </p>
             )}
             <span className="text-xs text-amber-600 font-extrabold flex items-center gap-1 mt-1">
-              Awaiting TASS <Banknote className="w-3.5 h-3.5 shrink-0" />
+              Awaiting TASS
             </span>
           </div>
           <div
@@ -192,7 +184,7 @@ export default function AdminDashboard({
         {/* System Audit Events Today */}
         <div
           className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-[#1F3864] transition-all cursor-pointer"
-          onClick={() => onNavigate("admin")}
+          onClick={() => onNavigate("admin", undefined, 'admin-audit-today')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">

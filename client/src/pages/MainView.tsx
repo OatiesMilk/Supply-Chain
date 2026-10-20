@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
 import { Layers, Plus } from "lucide-react";
 import { DeliveryRecord, DeliveryCategory, UserRole } from "@/types";
-import { ApiCompany, apiUrl } from "@/api";
+import { ApiCompany, apiUrl, api } from "@/api";
+import { normalizeApiRecord } from "@/api/queries/useRecordsQuery";
 import RecordCreateForm from "@/features/deliveries/RecordCreateForm";
 import AllOpsExportMenu from "@/components/AllOpsExportMenu";
 import { StatusHistoryCounts } from "@/utils/export";
@@ -24,7 +25,7 @@ interface MainViewProps {
       | "modified_at"
       | "email_notification_sent"
     >,
-  ) => Promise<void>;
+  ) => Promise<DeliveryRecord>;
   effectiveScreens: Set<string>;
 }
 
@@ -70,6 +71,7 @@ function fmtCreatedAt(ts: string): string {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "Asia/Manila",
   });
 }
 
@@ -96,16 +98,18 @@ export default function MainView({
 
   useEffect(() => {
     const params = new URLSearchParams();
-    if (activeFilter !== "all" && activeFilter !== "draft")
-      params.set("status", activeFilter);
+    if (activeFilter !== "all")
+      params.set("status", activeFilter === "draft" ? "Draft" : activeFilter);
+    if (dateFrom) params.set("deliveryDateFrom", dateFrom);
+    if (dateTo) params.set("deliveryDateTo", dateTo);
 
-    fetch(`${apiUrl('/records/status-history-counts')}?${params}`, {
+    fetch(`${apiUrl("/records/status-history-counts")}?${params}`, {
       credentials: "include",
     })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => setStatusHistoryCounts(data ?? undefined))
       .catch(() => setStatusHistoryCounts(undefined));
-  }, [activeFilter]);
+  }, [activeFilter, dateFrom, dateTo]);
 
   const availableCategories = useMemo<DeliveryCategory[]>(
     () =>
@@ -176,36 +180,18 @@ export default function MainView({
     setShowCreateForm(true);
   };
 
-  return (
-    <div className="space-y-5">
-      {/* Page header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-base font-black text-slate-900 leading-tight">
-            Main
-          </h1>
-          <p className="text-[11px] text-slate-400">
-            All delivery records across every module, newest first.
-          </p>
-        </div>
-        <AllOpsExportMenu
-          records={displayRecords}
-          meta={{
-            reportName: "All Operations",
-            generatedByName: currentUserName,
-            generatedByRole: currentUserRole,
-          }}
-          activeFilterLabel={
-            activeFilter !== "all"
-              ? activeFilter === "draft"
-                ? "Draft Records"
-                : activeFilter + " Records"
-              : undefined
-          }
-          statusHistoryCounts={statusHistoryCounts}
-        />
-      </div>
+  const fetchExportData = async () => {
+    const raw = await api.getAllRecordsForExport({
+      status: activeFilter !== "all" && activeFilter !== "draft" ? activeFilter : undefined,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
+    });
+    const normalized = raw.map(normalizeApiRecord);
+    return dateFrom || dateTo ? normalized : sortRecordsByDate(normalized, sortMode);
+  };
 
+  return (
+    <div className="space-y-3">
       {/* Filter shortcut buttons + New Delivery */}
       <div className="flex flex-wrap gap-2 items-center">
         {/* New Delivery — separate, not part of the active filter group */}
@@ -273,6 +259,7 @@ export default function MainView({
           <option value="oldest">Oldest First</option>
           <option value="furthest">Furthest Future First</option>
         </select>
+
         {(dateFrom || dateTo || sortMode !== "nearest") && (
           <button
             onClick={() => {
@@ -285,6 +272,30 @@ export default function MainView({
             Clear
           </button>
         )}
+
+        <div className="flex flex-wrap items-center justify-end gap-3 ml-auto">
+          <AllOpsExportMenu
+            records={displayRecords}
+            meta={{
+              reportName: "All Operations",
+              dateRange: dateFrom || dateTo
+                ? `${dateFrom || "earliest"} to ${dateTo || "latest"}`
+                : "All dates",
+              dateBasis: "Delivery Date (Asia/Manila)",
+              generatedByName: currentUserName,
+              generatedByRole: currentUserRole,
+            }}
+            activeFilterLabel={
+              activeFilter !== "all"
+                ? activeFilter === "draft"
+                  ? "Draft Records"
+                  : activeFilter + " Records"
+                : undefined
+            }
+            statusHistoryCounts={statusHistoryCounts}
+            fetchExportData={fetchExportData}
+          />
+        </div>
       </div>
 
       {/* Record count */}

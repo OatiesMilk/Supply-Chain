@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { prisma } from '../db';
 import { requireResource, requireAuth, requireRole } from '../middleware/auth';
-import { writeAuditLog } from '../services/audit';
-import { serializeRecord } from '../mappings';
 import { runSeed } from '../../prisma/seed';
+import { canResetLocalDemo } from '../services/localDemoReset';
+import { serializeRecord } from '../mappings';
+import type { Request, Response } from 'express';
 
 const router = Router();
 
@@ -68,14 +69,6 @@ const DRIVERS = ['Lando Navarro', 'Manny Santos', 'Ronald de la Cruz'];
 const DRIVER_ASSISTANTS = ['Jayson Reyes', 'Bong Alvarez', 'Ricky Mendoza'];
 const ACCOUNT_MANAGERS = ['P. Soriano', 'D. Macaraeg', 'F. Valenzuela', 'R. Pagkalinawan', 'M. Reyes', 'A. Santos', 'C. Lim'];
 const ITEM_TYPES = ['Small Item', 'Medium Item', 'Large / Pallet'];
-
-const STATUS_WEIGHTS: [string, number][] = [
-  ['SCHEDULED', 50],
-  ['ACCOMPLISHED', 20],
-  ['PENDING', 15],
-  ['RESCHEDULED', 10],
-  ['ON_HOLD', 5],
-];
 
 const PRIORITY_WEIGHTS: [string, number][] = [
   ['2 - Moderate', 60],
@@ -144,6 +137,7 @@ router.post('/generate', requireAuth, requireResource('dataSampler'), requireRol
       return res.status(400).json({ error: `Unknown module: ${module}` });
     }
 
+    if (fields?.status !== undefined && fields.status !== 'SCHEDULED') return res.status(400).json({ error: 'Sample records must start Scheduled. Record Time In and complete through the delivery workflow.' });
     const n = Math.min(Math.max(1, Number(count) || 1), 50);
 
     const companies = await prisma.company.findMany({ select: { id: true, name: true } });
@@ -151,17 +145,28 @@ router.post('/generate', requireAuth, requireResource('dataSampler'), requireRol
       return res.status(400).json({ error: 'No companies found. Please seed the database first.' });
     }
 
+    // Sample runs reference Driver profiles by id, like real assignments.
+    const driverProfiles = await prisma.driver.findMany({ where: { type: 'DRIVER', isActive: true }, select: { id: true, name: true } });
+    const sampleDrivers = driverProfiles.filter(d => DRIVERS.includes(d.name));
+    const fieldDriver = typeof fields?.driver === 'string' && fields.driver.trim()
+      ? driverProfiles.find(d => d.name.toLowerCase() === fields.driver.trim().toLowerCase())
+      : undefined;
+    if (typeof fields?.driver === 'string' && fields.driver.trim() && !fieldDriver) {
+      return res.status(400).json({ error: `Driver "${fields.driver}" is inactive or not in the directory. Choose an active entry.` });
+    }
+
     const created = [];
 
     for (let i = 0; i < n; i++) {
       const company = companies[Math.floor(Math.random() * companies.length)];
-      const status = weightedPick(STATUS_WEIGHTS);
+      const status = 'SCHEDULED';
       const priority = weightedPick(PRIORITY_WEIGHTS);
       const deliveryDate = generateDate(30, 14);
       const area = AREAS[Math.floor(Math.random() * AREAS.length)];
       const vehicle = VEHICLES[Math.floor(Math.random() * VEHICLES.length)];
-      const assignDriver = status === 'ACCOMPLISHED' || Math.random() > 0.4;
-      const driver = assignDriver ? DRIVERS[Math.floor(Math.random() * DRIVERS.length)] : '';
+      const assignDriver = sampleDrivers.length > 0 && Math.random() > 0.4;
+      const sampleDriver = assignDriver ? sampleDrivers[Math.floor(Math.random() * sampleDrivers.length)] : null;
+      const driver = sampleDriver?.name ?? '';
       const driverAssistants = driver && Math.random() > 0.5
         ? DRIVER_ASSISTANTS[Math.floor(Math.random() * DRIVER_ASSISTANTS.length)]
         : '';
@@ -194,41 +199,41 @@ router.post('/generate', requireAuth, requireResource('dataSampler'), requireRol
         formattedAssistants = JSON.stringify([driverAssistants]);
       }
 
-      const record = await prisma.deliveryRecord.create({
-        data: {
-          id:              recordId,
-          companyId:       overrides.company_id    ?? company.id,
-          priority:        overrides.priority       ?? priority,
-          reference:       overrides.reference      ?? reference,
-          remarks:         overrides.remarks        ?? 'Created via Data Sampler',
-          status:          overrides.status         ?? status,
-          vehicle:         overrides.vehicle        ?? vehicle,
-          area:            overrides.area           ?? area,
-          driver:          overrides.driver         ?? driver,
-          driverAssistants: formattedAssistants,
-          accountManager:  overrides.account_manager ?? accountManager,
-          deliveryDate:    overrides.delivery_date  ?? deliveryDate,
-          category:        mod.dbCategory as any,
-          itemType:        overrides.item_type      ?? itemType,
-          draft:           false,
-          dateAndTime:     overrides.date_time      ?? new Date().toISOString(),
-          itemDescription: overrides.item_description ?? itemDescription,
-          amount: overrides.amount != null
-            ? parseFloat(String(overrides.amount))
-            : amount,
-          createdById:  req.user!.id,
-          modifiedById: req.user!.id,
-        },
-        include: { company: true, createdBy: true, modifiedBy: true }
-      });
+      const record = await prisma.$transaction(async tx => {
+        const record = await tx.deliveryRecord.create({
+          data: {
+            id:              recordId,
+            companyId:       overrides.company_id    ?? company.id,
+            priority:        overrides.priority       ?? priority,
+            reference:       overrides.reference      ?? reference,
+            remarks:         overrides.remarks        ?? 'Created via Data Sampler',
+            status:          overrides.status         ?? status,
+            vehicle:         overrides.vehicle        ?? vehicle,
+            area:            overrides.area           ?? area,
+            driver:          fieldDriver ? fieldDriver.name : (overrides.driver === '' ? '' : driver),
+            driverId:        fieldDriver ? fieldDriver.id : (overrides.driver === '' ? null : sampleDriver?.id ?? null),
+            driverAssistants: formattedAssistants,
+            accountManager:  overrides.account_manager ?? accountManager,
+            deliveryDate:    overrides.delivery_date  ?? deliveryDate,
+            category:        mod.dbCategory as any,
+            itemType:        overrides.item_type      ?? itemType,
+            draft:           false,
+            
+            itemDescription: overrides.item_description ?? itemDescription,
+            amount: overrides.amount != null
+              ? parseFloat(String(overrides.amount))
+              : amount,
+            createdById:  req.user!.id,
+            modifiedById: req.user!.id,
+          },
+          include: { company: true, createdBy: true, modifiedBy: true }
+        });
 
-      await writeAuditLog({
-        recordId:     record.id,
-        recordType:   'DeliveryRecord',
-        action:       'CREATE',
-        changedById:  req.user!.id,
-        previousValue: null,
-        newValue:     { ...serializeRecord(record), _note: 'Created via Data Sampler' }
+        await tx.auditLog.create({ data: {
+          recordId: record.id, recordType: 'DeliveryRecord', action: 'CREATE', changedById: req.user!.id,
+          newValue: JSON.stringify({ ...serializeRecord(record), _note: 'Created via Data Sampler' }),
+        } });
+        return record;
       });
 
       created.push(serializeRecord(record));
@@ -241,32 +246,46 @@ router.post('/generate', requireAuth, requireResource('dataSampler'), requireRol
   }
 });
 
-router.post('/reset', requireAuth, requireResource('dataSampler'), requireRole('ADMIN'), async (req, res) => {
-  const { mode } = req.body ?? {};
-  if (mode !== 'full' && mode !== 'seed') {
-    return res.status(400).json({ error: 'mode must be "full" or "seed"' });
-  }
+export interface DataSamplerResetOperations {
+  countRecords: () => Promise<number>;
+  resetToSeed: () => Promise<void>;
+  fullReset: () => Promise<void>;
+}
 
-  const deleted = await prisma.deliveryRecord.count();
-
-  if (mode === 'seed') {
-    // Full wipe + re-seed restores the complete demo state (users, companies, records).
-    await runSeed(true);
-  } else {
-    // Delete only transactional records. AuditLog has a DB-level FK to DeliveryRecord
-    // (ON DELETE RESTRICT from the init migration), so audit entries must be removed first.
+const dataSamplerResetOperations: DataSamplerResetOperations = {
+  countRecords: () => prisma.deliveryRecord.count(),
+  resetToSeed: () => runSeed(true),
+  fullReset: async () => {
+    // AuditLog has a DB-level FK to DeliveryRecord (ON DELETE RESTRICT), so audit
+    // entries must be removed before the transactional records.
     await prisma.auditLog.deleteMany({ where: { recordType: 'DeliveryRecord' } });
     await prisma.comment.deleteMany({ where: { recordType: 'DeliveryRecord' } });
     await prisma.notification.deleteMany();
     await prisma.notificationLog.deleteMany();
     await prisma.deliveryRecord.deleteMany();
-  }
+  },
+};
 
-  // Cannot write to audit_log: the FK on recordId requires a valid DeliveryRecord.id
-  // which no longer exists after the reset. System events would need a schema change.
-  console.log(`[RESET] ${mode} reset performed by ${req.user!.name} — ${deleted} record(s) deleted`);
+export function createDataSamplerResetHandler(operations: DataSamplerResetOperations = dataSamplerResetOperations) {
+  return async (req: Request, res: Response) => {
+    if (!canResetLocalDemo(req)) return res.status(403).json({ error: 'Demo reset is available only on a verified local disposable database' });
+    const { mode } = req.body ?? {};
+    if (mode !== 'full' && mode !== 'seed') {
+      return res.status(400).json({ error: 'mode must be "full" or "seed"' });
+    }
 
-  res.json({ deleted, mode });
-});
+    const deleted = await operations.countRecords();
+    if (mode === 'seed') await operations.resetToSeed();
+    else await operations.fullReset();
+
+    // Cannot write to audit_log: the FK on recordId requires a valid DeliveryRecord.id
+    // which no longer exists after the reset. System events would need a schema change.
+    console.log(`[RESET] ${mode} reset performed by ${req.user!.name} — ${deleted} record(s) deleted`);
+    res.json({ deleted, mode });
+  };
+}
+
+router.post('/reset', requireAuth, requireResource('dataSampler'), requireRole('ADMIN'), createDataSamplerResetHandler());
+
 
 export default router;

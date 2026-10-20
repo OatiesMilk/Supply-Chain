@@ -1,3 +1,4 @@
+import { manilaToday } from '@/utils/recordLifecycle';
 import {
   AlertTriangle,
   Package,
@@ -32,13 +33,14 @@ import { ApiDashboardStats } from "@/api";
 import LogisticsDashboard from "@/features/dashboard/LogisticsDashboard";
 import TassDashboard from "@/features/dashboard/TassDashboard";
 import AdminDashboard from "@/features/dashboard/AdminDashboard";
+import { DashboardFilterId, filterRecordsForDashboard } from '@/utils/dashboardFilters';
 
 interface DashboardViewProps {
   products: Product[];
   inventory: InventoryItem[];
   deliveryRecords: DeliveryRecord[];
   dashboardStats?: ApiDashboardStats | null;
-  onNavigate: (screen: string, item_id?: string) => void;
+  onNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
   currentUserRole: string;
   onRefresh?: () => void;
 }
@@ -95,27 +97,23 @@ export default function DashboardView({
   }
 
   // ── Sales Coordinator dashboard (default) ────────────────────────────────────
-  const today = new Date().toISOString().split("T")[0];
+  const today = manilaToday();
 
   const deliveriesScheduledToday =
     salesStats?.deliveries_scheduled_today ??
-    deliveryRecords.filter(
-      (r) => r.delivery_date === today && r.status === "Scheduled",
-    ).length;
+    filterRecordsForDashboard(deliveryRecords, 'sc-scheduled-today', today).length;
   const pendingDriverAssignment =
     salesStats?.pending_driver_assignment ??
-    deliveryRecords.filter((r) => !r.driver && r.status !== "Delivered").length;
+    filterRecordsForDashboard(deliveryRecords, 'sc-pending-assignment', today).length;
   const onHoldCount =
     salesStats?.on_hold ??
-    deliveryRecords.filter((r) => r.status === "On-Hold").length;
+    filterRecordsForDashboard(deliveryRecords, 'sc-on-hold', today).length;
   const rescheduledCount =
     salesStats?.rescheduled ??
-    deliveryRecords.filter((r) => r.status === "Rescheduled").length;
+    filterRecordsForDashboard(deliveryRecords, 'sc-rescheduled', today).length;
   const deliveriesCompletedToday =
     salesStats?.accomplished_today ??
-    deliveryRecords.filter(
-      (r) => r.status === "Delivered" && r.modified_at.split("T")[0] === today,
-    ).length;
+    filterRecordsForDashboard(deliveryRecords, 'sc-completed-today', today).length;
 
   const statusChartData: {
     name: DeliveryStatus;
@@ -141,22 +139,10 @@ export default function DashboardView({
     },
   ];
 
-  const msInDay = 24 * 60 * 60 * 1000;
-  const noDriverApproaching = deliveryRecords.filter((r) => {
-    if (r.driver) return false;
-    if (r.status === "Delivered") return false;
-    const diffDays =
-      (new Date(r.delivery_date).getTime() - new Date(today).getTime()) /
-      msInDay;
-    return diffDays <= 2;
-  });
-
-  const onHoldOrRescheduled = deliveryRecords.filter(
-    (r) => r.status === "On-Hold" || r.status === "Rescheduled",
-  );
-  const pendingConfirmation = deliveryRecords.filter(
-    (r) => r.status === "Pending" || r.status === "Scheduled",
-  );
+  const noDriverApproaching = filterRecordsForDashboard(deliveryRecords, 'sc-attention-no-driver', today);
+  const onHoldOrRescheduled = filterRecordsForDashboard(deliveryRecords, 'sc-attention-on-hold-rescheduled', today);
+  const pendingConfirmation = filterRecordsForDashboard(deliveryRecords, 'sc-attention-pending-confirmation', today);
+  const needsAttentionCount = filterRecordsForDashboard(deliveryRecords, 'sc-attention-all', today).length;
 
   const totalRecordCount = deliveryRecords.length + products.length;
 
@@ -171,7 +157,7 @@ export default function DashboardView({
           <div
             className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-[#1F3864] transition-all cursor-pointer"
             id="kpi-scheduled-today"
-            onClick={() => onNavigate("deliveries")}
+            onClick={() => onNavigate("deliveries", undefined, 'sc-scheduled-today')}
           >
             <div className="min-w-0">
               <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -190,9 +176,9 @@ export default function DashboardView({
           </div>
 
           <div
-            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-amber-500 flex items-center justify-between gap-3 hover:border-amber-400 transition-all cursor-pointer"
+            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-amber-400 transition-all cursor-pointer"
             id="kpi-pending-driver"
-            onClick={() => onNavigate("deliveries")}
+            onClick={() => onNavigate("deliveries", undefined, 'sc-pending-assignment')}
           >
             <div className="min-w-0">
               <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -202,7 +188,7 @@ export default function DashboardView({
                 {pendingDriverAssignment}
               </h3>
               <span className="text-xs text-amber-600 font-extrabold flex items-center gap-1 mt-2">
-                Needs a driver <UserX className="w-3.5 h-3.5 shrink-0" />
+                Needs a driver
               </span>
             </div>
             <div
@@ -213,9 +199,9 @@ export default function DashboardView({
           </div>
 
           <div
-            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-red-500 flex items-center justify-between gap-3 hover:border-red-400 transition-all cursor-pointer"
+            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-red-400 transition-all cursor-pointer"
             id="kpi-on-hold"
-            onClick={() => onNavigate("deliveries")}
+            onClick={() => onNavigate("deliveries", undefined, 'sc-on-hold')}
           >
             <div className="min-w-0">
               <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -225,7 +211,7 @@ export default function DashboardView({
                 {onHoldCount}
               </h3>
               <span className="text-xs text-red-600 font-extrabold flex items-center gap-1 mt-2">
-                Blocked <PauseCircle className="w-3.5 h-3.5 shrink-0" />
+                Blocked
               </span>
             </div>
             <div className="bg-red-50 p-3 rounded-lg text-red-600 shrink-0">
@@ -234,9 +220,9 @@ export default function DashboardView({
           </div>
 
           <div
-            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-purple-500 flex items-center justify-between gap-3 hover:border-purple-400 transition-all cursor-pointer"
+            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-purple-400 transition-all cursor-pointer"
             id="kpi-rescheduled"
-            onClick={() => onNavigate("deliveries")}
+            onClick={() => onNavigate("deliveries", undefined, 'sc-rescheduled')}
           >
             <div className="min-w-0">
               <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -246,7 +232,7 @@ export default function DashboardView({
                 {rescheduledCount}
               </h3>
               <span className="text-xs text-purple-600 font-extrabold flex items-center gap-1 mt-2">
-                Needs follow-up <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                Needs follow-up
               </span>
             </div>
             <div className="bg-purple-50 p-3 rounded-lg text-purple-600 shrink-0">
@@ -257,7 +243,7 @@ export default function DashboardView({
           <div
             className=" bg-white  p-5 rounded-xl border border-transparent shadow-sm flex items-center justify-between gap-3 hover:border-[#0078C1] hover:shadow-md transition-all cursor-pointer"
             id="kpi-completed-today"
-            onClick={() => onNavigate("deliveries")}
+            onClick={() => onNavigate("deliveries", undefined, 'sc-completed-today')}
           >
             <div className="min-w-0">
               <p className="text-xs font-extrabold text-[#1F3864] uppercase tracking-wider">
@@ -343,12 +329,10 @@ export default function DashboardView({
               Attention
             </h4>
             <button
-              onClick={() => onNavigate("deliveries")}
+              onClick={() => onNavigate("deliveries", undefined, 'sc-attention-all')}
               className="bg-amber-100 hover:bg-amber-200 text-amber-800 text-xs px-2.5 py-0.5 rounded font-extrabold uppercase tracking-wide cursor-pointer hover:underline transition-colors"
             >
-              {noDriverApproaching.length +
-                onHoldOrRescheduled.length +
-                pendingConfirmation.length}{" "}
+              {needsAttentionCount}{" "}
               Items Need Action
             </button>
           </div>
@@ -366,7 +350,7 @@ export default function DashboardView({
                 Deliveries with no driver assigned, due within 2 days.
               </p>
               <button
-                onClick={() => onNavigate("deliveries")}
+                onClick={() => onNavigate("deliveries", undefined, 'sc-attention-no-driver')}
                 className="text-[10px] text-[#0078C1] hover:underline font-bold uppercase tracking-wide cursor-pointer text-left"
               >
                 View records →
@@ -384,7 +368,7 @@ export default function DashboardView({
                 Records blocked or bumped to a new date.
               </p>
               <button
-                onClick={() => onNavigate("deliveries")}
+                onClick={() => onNavigate("deliveries", undefined, 'sc-attention-on-hold-rescheduled')}
                 className="text-[10px] text-[#0078C1] hover:underline font-bold uppercase tracking-wide cursor-pointer text-left"
               >
                 View records →
@@ -402,7 +386,7 @@ export default function DashboardView({
                 Scheduled or pending records awaiting confirmation.
               </p>
               <button
-                onClick={() => onNavigate("deliveries")}
+                onClick={() => onNavigate("deliveries", undefined, 'sc-attention-pending-confirmation')}
                 className="text-[10px] text-[#0078C1] hover:underline font-bold uppercase tracking-wide cursor-pointer text-left"
               >
                 View records →

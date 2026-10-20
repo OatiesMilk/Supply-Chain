@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { Search, Filter } from 'lucide-react';
 import { ApiSku } from '@/api';
+import CreateSkuForm from './CreateSkuForm';
 import SkuWorkspace from '@/features/inventory/SkuWorkspace';
 import ExportMenu from '@/components/ExportMenu';
 import { SKU_COLUMNS, fmtCurrency } from '@/utils/export';
@@ -23,6 +24,8 @@ export default function InventoryView({
   selectedProductIdFromDashboard,
   clearSelectedProductId
 }: InventoryViewProps) {
+  const [creating, setCreating] = useState(false);
+  const [createdCode, setCreatedCode] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [searchTerm, setSearchTerm] = useState('');
@@ -123,47 +126,12 @@ export default function InventoryView({
   const currentPage = Math.max(1, Math.min(page, totalPages));
 
   return (
-    <div className="space-y-6" id="inventory-view-container">
-      {/* View Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">SKU Master</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Real-time SKU catalog master registry, ATP computations, and location bins. Click any row to open the SKU workspace.
-          </p>
-        </div>
-        {(currentUserRole === 'Admin' || currentUserRole === 'Logistics') && (
-          <ExportMenu
-            rows={filteredSkus.map(sku => ({
-              sku_code: sku.sku_code,
-              name: sku.name,
-              category: sku.category,
-              unit_cost_fmt: fmtCurrency(sku.unit_cost),
-              unit_price_fmt: fmtCurrency(sku.unit_price),
-              reorder_point: sku.reorder_point,
-              on_hand_qty: sku.inventory?.on_hand_qty ?? 0,
-              allocated_qty: sku.inventory?.allocated_qty ?? 0,
-              atp: sku.inventory?.atp ?? 0,
-              warehouse_location: sku.inventory?.warehouse_location ?? '',
-              description: sku.description,
-              created_by: sku.created_by,
-              modified_by: sku.modified_by,
-            }))}
-            columns={SKU_COLUMNS}
-            sheetName="SKU Master"
-            filename="sku-master"
-            pdfTitle="SKU Master Report"
-            showPdf={true}
-            pdfPortrait={false}
-            meta={{
-              reportName: 'SKU Master Export',
-              generatedByName: currentUserName,
-              generatedByRole: currentUserRole,
-            }}
-          />
-        )}
-      </div>
-
+    <div className="space-y-4" id="inventory-view-container">
+      {currentUserRole === 'Admin' && creating && <CreateSkuForm onCancel={() => setCreating(false)} onCreated={sku => {
+        setCreating(false); setCreatedCode(sku.sku_code);
+        setSearchTerm(''); setAppliedSearchTerm(''); setCategoryFilter('ALL'); setWarehouseFilter('ALL'); setStatusFilter('ALL'); setPage(1);
+      }} />}
+      {createdCode && <p role="status" className="text-sm text-emerald-700">SKU {createdCode} created with zero stock.</p>}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
         {/* Filters */}
         <div className="p-4 border-b border-slate-200 space-y-3">
@@ -178,6 +146,37 @@ export default function InventoryView({
                 className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-[#1F3864] focus:bg-white transition-all font-mono"
               />
             </div>
+            {currentUserRole === 'Admin' && !creating && <button type="button" onClick={() => { setCreating(true); setCreatedCode(null); }} className="rounded-lg bg-[#0078C1] px-4 py-2 text-xs font-semibold text-white">Create SKU</button>}
+            {(currentUserRole === 'Admin' || currentUserRole === 'Logistics') && (
+              <ExportMenu
+                rows={filteredSkus.map(sku => ({
+                  sku_code: sku.sku_code,
+                  name: sku.name,
+                  category: sku.category,
+                  unit_cost_fmt: fmtCurrency(sku.unit_cost),
+                  unit_price_fmt: fmtCurrency(sku.unit_price),
+                  reorder_point: sku.reorder_point,
+                  on_hand_qty: sku.inventory?.on_hand_qty ?? 0,
+                  allocated_qty: sku.inventory?.allocated_qty ?? 0,
+                  atp: sku.inventory?.atp ?? 0,
+                  warehouse_location: sku.inventory?.warehouse_location ?? '',
+                  description: sku.description,
+                  created_by: sku.created_by,
+                  modified_by: sku.modified_by,
+                }))}
+                columns={SKU_COLUMNS}
+                sheetName="SKU Master"
+                filename="sku-master"
+                pdfTitle="SKU Master Report"
+                showPdf={true}
+                pdfPortrait={false}
+                meta={{
+                  reportName: 'SKU Master Export',
+                  generatedByName: currentUserName,
+                  generatedByRole: currentUserRole,
+                }}
+              />
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-xs">

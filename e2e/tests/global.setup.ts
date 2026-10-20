@@ -5,7 +5,7 @@
  * Logs in as each role and saves the auth cookie to a JSON file
  * so individual test suites can skip the login step.
  */
-import { chromium, FullConfig } from '@playwright/test';
+import { chromium, expect, test as setup } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
 
@@ -26,17 +26,24 @@ async function loginAndSave(email: string, password: string, filePath: string) {
   await page.goto(BASE_URL);
   await page.waitForLoadState('networkidle');
 
-  await page.getByLabel(/email/i).fill(email);
-  await page.getByLabel(/password/i).fill(password);
-  await page.getByRole('button', { name: /sign in|log in/i }).click();
+  const showEmailBtn = page.getByRole('button', { name: 'Sign in with email instead' });
+  if (await showEmailBtn.isVisible()) {
+    await showEmailBtn.click();
+  }
+
+  await page.locator('#login-email').fill(email);
+  await page.locator('#login-password').fill(password);
+  await page.getByRole('button', { name: /^sign in$|^log in$/i }).click();
   await page.waitForLoadState('networkidle');
+  await expect(page.locator('#login-email')).not.toBeVisible();
 
   await context.storageState({ path: filePath });
   await browser.close();
   console.log(`  ✓ Saved auth state for ${email} → ${path.basename(filePath)}`);
 }
 
-export default async function globalSetup(_config: FullConfig) {
+setup('authenticate seeded roles', async () => {
+  setup.setTimeout(90_000);
   const helpersDir = path.join(__dirname, '../helpers');
   if (!fs.existsSync(helpersDir)) fs.mkdirSync(helpersDir, { recursive: true });
 
@@ -45,4 +52,4 @@ export default async function globalSetup(_config: FullConfig) {
     const filePath = path.join(helpersDir, file);
     await loginAndSave(email, password, filePath);
   }
-}
+});

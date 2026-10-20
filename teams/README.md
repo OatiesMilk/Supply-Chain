@@ -1,5 +1,9 @@
 # Microsoft Teams Tab App
 
+> Last verified: 2026-10-09 against commit `ccbf192` (`dev`).
+
+> UNVERIFIED: the packaging steps below were not run against a Teams tenant in this audit. First-time Microsoft sign-in creates an active Sales Coordinator account for unknown users (see issue 13.4 in `docs/PROJECT_ISSUES_REPORT.md`).
+
 This directory contains the Teams app manifest for embedding the Supply Chain Portal as a Teams tab.
 
 ## Setup Steps

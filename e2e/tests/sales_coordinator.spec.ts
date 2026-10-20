@@ -44,11 +44,50 @@ test.describe('A-1 Login & Access Control', () => {
   test('A-1.3 SC sidebar does NOT show restricted screens', async ({ page }) => {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
-    await expectSidebarMisses(page, 'Driver View');
-    await expectSidebarMisses(page, 'Driver Manager');
-    await expectSidebarMisses(page, 'Driver Board');
+    await expectSidebarMisses(page, 'Drivers');
     await expectSidebarMisses(page, 'Statistical Reports');
     await expectSidebarMisses(page, 'Admin');
+  });
+});
+
+test.describe('TSK-126 dashboard card filters', () => {
+  test('SC On-Hold card opens the matching list, wraps at supported widths, and clears', async ({ page }) => {
+    await page.goto(BASE_URL);
+    await page.waitForLoadState('networkidle');
+    const card = page.locator('#kpi-on-hold');
+    await expect(card).toBeVisible();
+    const cardCount = Number((await card.locator('h3').innerText()).trim());
+    await card.click();
+
+    const chip = page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true });
+    await expect(chip).toBeVisible();
+    const clearButton = page.getByRole('button', { name: 'Clear dashboard filter: On-Hold Items' });
+    await expect(clearButton).toBeVisible();
+    const recordsInfo = page.getByTestId('pagination-records-info');
+    await expect(recordsInfo).toContainText(/of\s+\d+\s+records/i);
+    const rowCount = Number((await recordsInfo.innerText()).match(/of\s+(\d+)\s+records/i)?.[1]);
+    expect(rowCount).toBe(cardCount);
+
+    for (const width of [375, 768, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      const chipBox = await page.getByTestId('dashboard-filter-chip').boundingBox();
+      expect(chipBox).toBeTruthy();
+      expect((chipBox?.x ?? 0) + (chipBox?.width ?? 0)).toBeLessThanOrEqual(width);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    }
+
+    await clearButton.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true })).not.toBeVisible();
+    const unfilteredInfo = page.getByTestId('pagination-records-info');
+    const unfilteredCount = Number((await unfilteredInfo.innerText()).match(/of\s+(\d+)\s+records/i)?.[1]);
+    expect(unfilteredCount).toBeGreaterThanOrEqual(cardCount);
+
+    await page.getByRole('navigation').getByRole('button', { name: /^Dashboard/ }).click();
+    await page.locator('#kpi-on-hold').click();
+    await expect(page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true })).toBeVisible();
+    await page.getByRole('navigation').getByRole('button', { name: /^Deliveries/ }).click();
+    await expect(page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true })).not.toBeVisible();
   });
 });
 
@@ -64,8 +103,8 @@ test.describe('A-2 Create a Delivery Record', () => {
     await newBtn.click();
     await page.waitForLoadState('networkidle');
 
-    // Click Save without filling anything
-    await page.getByRole('button', { name: /save|create|submit/i }).first().click();
+    // Submit without filling anything
+    await page.getByRole('button', { name: 'Submit', exact: true }).click();
 
     // Expect validation errors
     await expect(page.getByText(/company name is required/i)).toBeVisible();
@@ -76,7 +115,7 @@ test.describe('A-2 Create a Delivery Record', () => {
     await newBtn.click();
 
     // Type a garbage company name
-    const companyInput = page.getByPlaceholder(/company|customer/i).first();
+    const companyInput = page.locator('form').getByPlaceholder('Type to search or scroll to browse...').first();
     await companyInput.fill('ZZZZNOTACOMPANY');
     await page.getByRole('button', { name: /save|create|submit/i }).first().click();
 
@@ -89,13 +128,13 @@ test.describe('A-2 Create a Delivery Record', () => {
     await page.waitForLoadState('networkidle');
 
     // Fill company (pick first suggestion)
-    const companyInput = page.getByPlaceholder(/company|customer/i).first();
+    const companyInput = page.locator('form').getByPlaceholder('Type to search or scroll to browse...').first();
     await companyInput.fill('M'); // trigger dropdown
-    await page.waitForTimeout(500);
-    const firstOption = page.getByRole('option').first();
-    if (await firstOption.isVisible()) {
-      await firstOption.click();
-    }
+    const companyListbox = page.locator('form').getByRole('listbox').first();
+    const firstOption = companyListbox.getByRole('option').first();
+    await expect(firstOption).toBeVisible();
+    await firstOption.click();
+    await expect(companyInput).not.toHaveValue('M');
 
     // Fill reference
     const refInput = page.getByPlaceholder(/reference|sap/i).first();
@@ -103,10 +142,10 @@ test.describe('A-2 Create a Delivery Record', () => {
 
     // Set delivery date to today
     const today = new Date().toISOString().split('T')[0];
-    const dateInput = page.locator('input[type="date"]').first();
+    const dateInput = page.locator('form input[type="date"]').first();
     await dateInput.fill(today);
 
-    await page.getByRole('button', { name: /save|create|submit/i }).first().click();
+    await page.getByRole('button', { name: 'Submit', exact: true }).click();
     await page.waitForLoadState('networkidle');
 
     // Record should appear in the list — status badge shows Scheduled
@@ -126,7 +165,7 @@ test.describe('A-2 Create a Delivery Record', () => {
     const fileInput = page.locator('input[type="file"]').first();
     await fileInput.setInputFiles(bigFilePath);
 
-    await expect(page.getByText(/size|too large|10\s*mb/i)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('big_test_file.pdf is 11.0 MB — maximum is 10 MB.', { exact: true })).toBeVisible({ timeout: 5_000 });
 
     fs.unlinkSync(bigFilePath);
   });
@@ -141,13 +180,116 @@ test.describe('A-2 Create a Delivery Record', () => {
     const fileInput = page.locator('input[type="file"]').first();
     await fileInput.setInputFiles(badFilePath);
 
-    await expect(page.getByText(/unsupported|invalid|type|format/i)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('malicious.exe — file type not allowed. Use JPG, PNG, PDF, DOC or DOCX.', { exact: true })).toBeVisible({ timeout: 5_000 });
 
     fs.unlinkSync(badFilePath);
   });
 });
 
 test.describe('A-3 Edit a Record', () => {
+  test('A-3.9 SC can stage, save, and preview a photo from Documents', async ({ page }) => {
+    const photoName = `sc-preview-${Date.now()}.png`;
+    const onePixelPng = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64',
+    );
+
+    await page.goto(`${BASE_URL}/deliveries`);
+    await page.waitForLoadState('networkidle');
+    const firstRow = page.getByRole('row').nth(1);
+    await expect(firstRow).toBeVisible();
+    await firstRow.click();
+    await page.getByRole('tab', { name: /documents/i }).click();
+    await page.locator('input[type="file"]').last().setInputFiles({
+      name: photoName,
+      mimeType: 'image/png',
+      buffer: onePixelPng,
+    });
+
+    await expect(page.getByText('Waiting to upload', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: `Remove staged ${photoName}` })).toBeVisible();
+    await page.getByRole('button', { name: 'Save Files' }).click();
+
+    const preview = page.getByRole('button', { name: `Preview ${photoName}` });
+    await expect(preview).toBeVisible({ timeout: 15_000 });
+    await preview.click();
+    await expect(page.getByRole('dialog', { name: `Preview ${photoName}` })).toBeVisible();
+    await page.getByRole('button', { name: 'Close photo preview' }).click();
+
+    await page.getByRole('button', { name: `Remove ${photoName}` }).click();
+    const confirmation = page.getByRole('alertdialog', { name: 'Remove Attachment' });
+    await expect(confirmation.getByRole('textbox')).toHaveCount(0);
+    await confirmation.getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(preview).toHaveCount(0);
+  });
+
+  test('A-3.6 Active Deliveries sidebar returns to the list and preserves filters', async ({ page }) => {
+    await page.goto(`${BASE_URL}/deliveries`);
+    await page.waitForLoadState('networkidle');
+
+    const scheduledFilter = page.getByRole('button', { name: 'Scheduled', exact: true });
+    await scheduledFilter.click();
+
+    const firstRow = page.getByRole('row').nth(1);
+    await expect(firstRow).toBeVisible();
+    const recordId = (await firstRow.getByRole('cell').nth(1).innerText()).trim();
+    const search = page.getByRole('textbox', { name: 'Search delivery records' });
+    await search.fill(recordId);
+
+    const filteredRow = page.getByRole('row').filter({ hasText: recordId }).first();
+    await expect(filteredRow).toBeVisible();
+    await filteredRow.click();
+    await expect(page.locator('[id^="delivery-record-workspace-"]')).toBeVisible();
+
+    await page.getByRole('navigation').getByRole('button', { name: /deliveries/i }).click();
+
+    await expect(page.getByRole('table')).toBeVisible();
+    await expect(page.locator('[id^="delivery-record-workspace-"]')).toHaveCount(0);
+    await expect(page.getByRole('textbox', { name: 'Search delivery records' })).toHaveValue(recordId);
+    await expect(page.getByRole('button', { name: 'Scheduled', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('A-3.7 Global search deep links still open and browser back/forward returns between workspace and list', async ({ page }) => {
+    await page.goto(`${BASE_URL}/deliveries`);
+    await page.waitForLoadState('networkidle');
+    const firstRow = page.getByRole('row').nth(1);
+    await expect(firstRow).toBeVisible();
+    const recordId = (await firstRow.getByRole('cell').nth(1).innerText()).trim();
+
+    await page.keyboard.press('Control+k');
+    const globalSearch = page.getByPlaceholder(/Search records, companies, drivers, SKUs/);
+    await globalSearch.fill(recordId);
+    await page.locator('[data-result-item]').filter({ hasText: recordId }).click();
+    await expect(page.locator('[id^="delivery-record-workspace-"]')).toBeVisible();
+    await page.getByRole('navigation').getByRole('button', { name: /deliveries/i }).click();
+    await expect(page.getByRole('table')).toBeVisible();
+
+    await page.goBack();
+    await expect(page.locator('[id^="delivery-record-workspace-"]')).toBeVisible();
+    await page.goForward();
+    await expect(page.getByRole('table')).toBeVisible();
+  });
+
+  test('A-3.8 Active module navigation works with collapsed and mobile sidebars', async ({ page }) => {
+    await page.goto(`${BASE_URL}/deliveries`);
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('button', { name: 'Collapse menu' }).click();
+
+    const firstRow = page.getByRole('row').nth(1);
+    await expect(firstRow).toBeVisible();
+    await firstRow.click();
+    await expect(page.locator('[id^="delivery-record-workspace-"]')).toBeVisible();
+    await page.getByRole('navigation').getByRole('button', { name: /deliveries/i }).click();
+    await expect(page.getByRole('table')).toBeVisible();
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.getByRole('row').nth(1).click();
+    await expect(page.locator('[id^="delivery-record-workspace-"]')).toBeVisible();
+    await page.locator('#mobile-sidebar-toggle').click();
+    await page.locator('#sidebar-panel').getByRole('button', { name: /deliveries/i }).click();
+    await expect(page.getByRole('table')).toBeVisible();
+  });
+
   test('A-3.3 Dispatch & Logistics tab NOT visible for SC', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
@@ -174,12 +316,63 @@ test.describe('A-3 Edit a Record', () => {
       const commentsTab = page.getByRole('tab', { name: /comments/i });
       if (await commentsTab.isVisible()) {
         await commentsTab.click();
-        const commentInput = page.getByPlaceholder(/comment|type/i);
+        const commentsPanel = page.getByRole('tabpanel', { name: 'Comments' });
+        const commentInput = commentsPanel.getByRole('textbox', { name: 'Comment (optional)' });
         await commentInput.fill('UAT automated comment test');
-        await page.getByRole('button', { name: /send|post|submit/i }).click();
-        await expect(page.getByText('UAT automated comment test')).toBeVisible({ timeout: 8_000 });
+        await commentsPanel.getByRole('button', { name: 'Send comment' }).click();
+        await expect(commentsPanel.getByText('UAT automated comment test', { exact: true })).toBeVisible({ timeout: 8_000 });
       }
     }
+  });
+
+  test('A-3.10 TSK-125 Return to Draft uses a confirmation dialog with a required reason', async ({ page }) => {
+    await page.goto(`${BASE_URL}/deliveries`);
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('row').filter({ hasText: /scheduled/i }).first().click();
+
+    const returnButton = page.getByRole('button', { name: 'Return to Draft', exact: true });
+    test.skip(!(await returnButton.isVisible()), 'First Scheduled delivery has already started');
+
+    // No page-level "required" remarks box any more.
+    await expect(page.getByText('Remarks — reason for change (required)')).toHaveCount(0);
+
+    // Keep as is changes nothing.
+    await returnButton.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('heading', { name: 'Return this record to Draft?' })).toBeVisible();
+    const confirm = dialog.getByRole('button', { name: 'Return to Draft' });
+    await expect(confirm).toBeDisabled();
+    await dialog.getByLabel('Reason (required)').fill('Typed but not confirmed');
+    await expect(confirm).toBeEnabled();
+    await dialog.getByRole('button', { name: 'Keep as is' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(returnButton).toBeVisible();
+
+    // Confirming returns the record to Draft and records the reason.
+    await returnButton.click();
+    await dialog.getByLabel('Reason (required)').fill('TSK-125 automated return to draft');
+    await confirm.click();
+    await expect(page.getByText('Record returned to Draft').first()).toBeVisible({ timeout: 8_000 });
+    await page.getByRole('tab', { name: /remarks history/i }).click();
+    await expect(page.getByRole('tabpanel', { name: 'Remarks History' }).getByText('TSK-125 automated return to draft', { exact: true })).toBeVisible();
+
+    // Restore the record through the unchanged Submit flow.
+    await page.getByRole('tab', { name: /overview/i }).click();
+    await page.locator('#submission-change-remarks').fill('TSK-125 automated resubmit');
+    await page.getByRole('button', { name: 'Submit', exact: true }).click();
+    await expect(page.getByText('Record submitted').first()).toBeVisible({ timeout: 8_000 });
+  });
+
+  test('A-3.9 TSK-124 Priority is read-only on a Delivered record', async ({ page }) => {
+    await page.goto(`${BASE_URL}/deliveries`);
+    await page.waitForLoadState('networkidle');
+    const delivered = page.getByRole('row').filter({ hasText: 'REC-UAT-DELIVERED-' }).first();
+    await expect(delivered, 'The UAT seed must provide its completed delivery fixture').toBeVisible();
+    await delivered.click();
+
+    await expect(page.getByText('Priority is locked after delivery.')).toBeVisible();
+    // Sales Coordinator cannot edit a Delivered record, so there is no Edit button or Priority dropdown.
+    await expect(page.locator('select').filter({ has: page.locator('option[value="3 - High"]') })).toHaveCount(0);
   });
 });
 

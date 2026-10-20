@@ -1,0 +1,402 @@
+{
+  "started": "2026-10-15T07:59:43.101Z",
+  "ended": "2026-10-15T08:12:01.441Z",
+  "results": [
+    {
+      "id": "TC-ACC-001",
+      "title": "Sales Coordinator sidebar matches approved modules",
+      "coverage": "Complete sidebar case; current Microsoft account replaces seeded Sales account",
+      "status": "Fail",
+      "at": "2026-10-15T08:01:53.674Z",
+      "actual": "{\"missing\":[\"Delivery Calendar\",\"Reports\"],\"unexpected\":[],\"visible\":[\"Main\",\"Dashboard\",\"Deliveries\",\"RMA\",\"Accounting Collection\",\"Procurement Pick-up\",\"Sales Orders\",\"Customers\",\"Suppliers\",\"AM Directory\",\"Transaction Center\"]}",
+      "screenshot": "TC-ACC-001-02-failure.png"
+    },
+    {
+      "id": "TC-ACC-002",
+      "title": "Sales direct routes and read APIs enforce approved access",
+      "coverage": "Steps 1-4 executed; POST driver refusal probe blocked by disposable-target guard",
+      "status": "Fail",
+      "at": "2026-10-15T08:01:54.983Z",
+      "actual": "{\"observations\":[{\"route\":\"admin\",\"finalPath\":\"/admin\",\"denied\":false},{\"route\":\"inventory\",\"finalPath\":\"/inventory\",\"denied\":false},{\"route\":\"driver_manager\",\"finalPath\":\"/driver_manager\",\"denied\":false},{\"route\":\"calendar\",\"finalPath\":\"/calendar\",\"denied\":false},{\"route\":\"statistical_reports\",\"finalPath\":\"/statistical_reports\",\"denied\":false}],\"users\":{\"status\":403,\"body\":{\"error\":\"Module access denied\"}},\"reports\":{\"status\":403,\"body\":{\"error\":\"Module access denied\"}},\"unexecuted\":\"POST /drivers blocked: no verified disposable target\"}",
+      "screenshot": "TC-ACC-002-08-failure.png"
+    },
+    {
+      "id": "SC-API-001",
+      "title": "Authenticated read APIs expose allowed Sales resources",
+      "coverage": "Supplemental endpoint smoke; not full workflow acceptance",
+      "status": "Fail",
+      "at": "2026-10-15T08:01:59.279Z",
+      "actual": "[{\"endpoint\":\"/records?category=Deliveries\",\"status\":200,\"count\":69},{\"endpoint\":\"/companies\",\"status\":200,\"count\":45},{\"endpoint\":\"/customers\",\"status\":200,\"count\":15},{\"endpoint\":\"/suppliers\",\"status\":200,\"count\":5},{\"endpoint\":\"/account-managers\",\"status\":404},{\"endpoint\":\"/notifications\",\"status\":200,\"count\":0}]",
+      "screenshot": "SC-API-001-07-failure.png"
+    },
+    {
+      "id": "SC-ACCESS-002",
+      "title": "Protected routes and approved Calendar/Reports access after session load",
+      "coverage": "TC-ACC-002 steps 1-4; write probe blocked. Corrects initial transient-page observation.",
+      "status": "Fail",
+      "at": "2026-10-15T08:03:23.904Z",
+      "actual": "{\"observations\":[{\"route\":\"admin\",\"finalPath\":\"/dashboard\",\"denied\":true},{\"route\":\"inventory\",\"finalPath\":\"/dashboard\",\"denied\":true},{\"route\":\"driver_manager\",\"finalPath\":\"/dashboard\",\"denied\":true},{\"route\":\"calendar\",\"finalPath\":\"/dashboard\",\"denied\":true},{\"route\":\"statistical_reports\",\"finalPath\":\"/dashboard\",\"denied\":true}],\"users\":{\"status\":403,\"body\":{\"error\":\"Module access denied\"}},\"reports\":{\"status\":403,\"body\":{\"error\":\"Module access denied\"}}}",
+      "screenshot": "SC-ACCESS-002-08-failure.png"
+    },
+    {
+      "id": "SC-API-002",
+      "title": "Sales allowed resource APIs return data",
+      "coverage": "Read-only endpoint smoke; replaces invalid unregistered endpoint in SC-API-001",
+      "status": "Pass",
+      "at": "2026-10-15T08:03:30.200Z",
+      "actual": [
+        {
+          "endpoint": "/records?category=Deliveries",
+          "status": 200,
+          "count": 69
+        },
+        {
+          "endpoint": "/companies",
+          "status": 200,
+          "count": 45
+        },
+        {
+          "endpoint": "/customers",
+          "status": 200,
+          "count": 15
+        },
+        {
+          "endpoint": "/suppliers",
+          "status": 200,
+          "count": 5
+        },
+        {
+          "endpoint": "/notifications",
+          "status": 200,
+          "count": 0
+        }
+      ],
+      "screenshot": "SC-API-002-06-result.png"
+    },
+    {
+      "id": "TC-RPT-001",
+      "title": "Sales dashboard KPI drilldowns match list totals",
+      "coverage": "Complete read-only case with current Sales account",
+      "status": "Pass",
+      "at": "2026-10-15T08:03:31.661Z",
+      "actual": [
+        {
+          "card": "kpi-pending-driver",
+          "cardCount": 23,
+          "listTotal": 23,
+          "pagination": "Showing 1–10 of 23 records"
+        },
+        {
+          "card": "kpi-on-hold",
+          "cardCount": 3,
+          "listTotal": 3,
+          "pagination": "Showing 1–3 of 3 records"
+        }
+      ],
+      "screenshot": "TC-RPT-001-03-result.png"
+    },
+    {
+      "id": "SC-DEL-001",
+      "title": "Delivery list searches a unique existing reference",
+      "coverage": "TC-DEL-021 search subset; uses existing record rather than creating test data",
+      "status": "Fail",
+      "at": "2026-10-15T08:03:34.770Z",
+      "actual": "\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveCount\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  getByRole('row').filter({ hasText: 'SAP-E2E-629309' })\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\nTimeout:  5000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveCount\" getByRole('row').filter({ hasText: 'SAP-E2E-629309' }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('row').filter({ hasText: 'SAP-E2E-629309' })\u001b[22m\n\u001b[2m    14 × locator resolved to 0 elements\u001b[22m\n\u001b[2m       - unexpected value \"0\"\u001b[22m\n",
+      "screenshot": "SC-DEL-001-01-failure.png"
+    },
+    {
+      "id": "SC-DEL-002",
+      "title": "Draft status filter only shows draft deliveries",
+      "coverage": "TC-DEL-021 Draft subset; read-only existing data",
+      "status": "Pass",
+      "at": "2026-10-15T08:03:40.881Z",
+      "actual": {
+        "apiCount": 20,
+        "visibleRows": [
+          "REC-38858Alfamart Philippines Inc.UnassignedDraft",
+          "REC-29286Alfamart Philippines Inc.UnassignedDraft",
+          "REC-28487Alfamart Philippines Inc.UnassignedDraft",
+          "REC-40426Alfamart Philippines Inc.UnassignedDraft",
+          "REC-40597Alfamart Philippines Inc.UnassignedDraft",
+          "REC-41996Alfamart Philippines Inc.UnassignedDraft",
+          "REC-45623Alfamart Philippines Inc.UnassignedDraft",
+          "REC-15830Alfamart Philippines Inc.UnassignedDraft",
+          "REC-21274Alfamart Philippines Inc.UnassignedDraft",
+          "REC-12744Alfamart Philippines Inc.UnassignedDraft"
+        ]
+      },
+      "screenshot": "SC-DEL-002-02-result.png"
+    },
+    {
+      "id": "SC-DEL-003",
+      "title": "Delivery filter APIs reject inverted dates, oversized searches and unknown status",
+      "coverage": "TC-DEL-021 API validation subset; GET requests only",
+      "status": "Pass",
+      "at": "2026-10-15T08:05:02.862Z",
+      "actual": [
+        {
+          "endpoint": "/records?dateFrom=2026-10-16&dateTo=2026-10-15",
+          "status": 400,
+          "body": {
+            "error": "dateFrom cannot be after dateTo"
+          }
+        },
+        {
+          "endpoint": "/records?search=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "status": 400,
+          "body": {
+            "error": "search query is too long"
+          }
+        },
+        {
+          "endpoint": "/records?status=Lost",
+          "status": 400,
+          "body": {
+            "error": "status is invalid"
+          }
+        }
+      ],
+      "screenshot": "SC-DEL-003-04-result.png"
+    },
+    {
+      "id": "SC-DEL-004",
+      "title": "Delivery Date label communicates submission requirement",
+      "coverage": "TC-DEL-004 label subset only; submission blocked by database guard",
+      "status": "Fail",
+      "at": "2026-10-15T08:05:04.591Z",
+      "actual": "Delivery Date is labelled \"Delivery Date (optional)\" although scheduled Delivery submission requires a date. Submission was not attempted.",
+      "screenshot": "SC-DEL-004-02-failure.png"
+    },
+    {
+      "id": "SC-DEL-005",
+      "title": "Existing delivery workspace permits Sales reading without dispatch controls",
+      "coverage": "TC-ACC-015 UI subset; record is existing data, no writes",
+      "status": "Pass",
+      "at": "2026-10-15T08:05:06.367Z",
+      "actual": {
+        "id": "REC-28510",
+        "reference": "SAP-E2E-629309",
+        "status": "Delivered",
+        "tabs": [
+          "Overview",
+          "Comments",
+          "Remarks History",
+          "Audit Trail",
+          "Documents"
+        ]
+      },
+      "screenshot": "SC-DEL-005-02-result.png"
+    },
+    {
+      "id": "SC-DEL-006",
+      "title": "Record audit and supporting document reads are available",
+      "coverage": "Read-only record audit and document API/UI smoke",
+      "status": "Pass",
+      "at": "2026-10-15T08:05:07.456Z",
+      "actual": {
+        "record": "REC-28510",
+        "auditEvents": 5,
+        "files": [
+          {
+            "name": "uat-photo.jpg",
+            "size": 784,
+            "is_photo": true
+          }
+        ]
+      },
+      "screenshot": "SC-DEL-006-04-result.png"
+    },
+    {
+      "id": "SC-DEL-007",
+      "title": "Draft workspace and list offer no delete action",
+      "coverage": "TC-DEL-025 using an existing Draft instead of a newly created chain record",
+      "status": "Pass",
+      "at": "2026-10-15T08:05:09.151Z",
+      "actual": {
+        "draftId": "REC-38858",
+        "workspaceDeletes": [],
+        "listDeletes": []
+      },
+      "screenshot": "SC-DEL-007-02-result.png"
+    },
+    {
+      "id": "SC-DEL-008",
+      "title": "Reference search resolves to the correct record ID and a single row",
+      "coverage": "Corrected TC-DEL-021 search subset; table displays record IDs",
+      "status": "Pass",
+      "at": "2026-10-15T08:05:11.379Z",
+      "actual": {
+        "referenceSearch": "SAP-E2E-629309",
+        "recordId": "REC-28510",
+        "row": "\tREC-28510\t\nJollibee Foods Corp. - Quezon City Cluster\n\t\t2026-10-15\tLeo Driver\tDelivered",
+        "pagination": "Showing 1–1 of 1 records"
+      },
+      "screenshot": "SC-DEL-008-01-result.png"
+    },
+    {
+      "id": "SC-TXN-001",
+      "title": "Transaction Center category choices and all delivery rows respect Sales scope",
+      "coverage": "TC-TXN-001 read-only assertions using existing deliveries; no new chain records",
+      "status": "Pass",
+      "at": "2026-10-15T08:06:58.832Z",
+      "actual": {
+        "categoryOptions": [
+          "All Categories",
+          "Deliveries",
+          "Procurement Pick-up",
+          "Sales Orders"
+        ],
+        "allPagesChecked": 1,
+        "records": 79,
+        "categories": [
+          "Deliveries",
+          "Procurement Pick-up",
+          "Sales Orders"
+        ]
+      },
+      "screenshot": "SC-TXN-001-02-result.png"
+    },
+    {
+      "id": "SC-MD-001",
+      "title": "Customer registry totals and existing customer audit are readable",
+      "coverage": "Read-only master-data navigation; no creation/edit acceptance claimed",
+      "status": "Fail",
+      "at": "2026-10-15T08:07:00.361Z",
+      "actual": "\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('tab', { name: 'Overview', exact: true })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('tab', { name: 'Overview', exact: true }) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('tab', { name: 'Overview', exact: true })\u001b[22m\n",
+      "screenshot": "SC-MD-001-02-failure.png"
+    },
+    {
+      "id": "SC-MD-002",
+      "title": "Supplier registry matches accessible supplier data",
+      "coverage": "Read-only supplier module smoke",
+      "status": "Pass",
+      "at": "2026-10-15T08:07:06.487Z",
+      "actual": {
+        "suppliers": 5,
+        "categories": [
+          "Packaging",
+          "Services",
+          "Hardware",
+          "Consumables",
+          "Electronics"
+        ]
+      },
+      "screenshot": "SC-MD-002-02-result.png"
+    },
+    {
+      "id": "SC-AM-001",
+      "title": "Sales account can open the AM Directory",
+      "coverage": "Read-only authorized module access",
+      "status": "Pass",
+      "at": "2026-10-15T08:07:07.537Z",
+      "actual": {
+        "path": "/am_directory",
+        "summary": "SORT BY:\nTOTAL\nDELIVERED\nNAME\nACCOUNT MANAGERS\n\n9\n\nDELIVERED\n\n33\n\nPENDING\n\n12\n\nON-HOLD\n\n5\n\nU\n\nUnknown\n\n3 companies · 33 records\n\n33\n\nTOTAL\n\n4\n\nDONE\n\n27\n\nACTIVE\n\n12% delivered\nDM\n\nD. Macaraeg\n\n7 companies · 14 records\n\n14\n\nTOTAL\n\n8\n\nDONE\n\n4\n\nACTIVE\n\n1\n\nON-HOLD\n\n57% delivered\nPS\n\nP. Soriano\n\n6 companies · 13 records\n\n13\n\nTOTAL\n\n6\n\nDONE\n\n5\n\nACTIVE\n\n46% delivered\nRP\n\nR. Pagkalinawan\n\n6 companies · 11 records\n\n11\n\nTOTAL\n\n3\n\nDONE\n\n6\n\nACTIVE\n\n1\n\nON-HOLD\n\n27% delivered\nFV\n\nF. Valenzuela\n\n5 companies · 9 records\n\n9\n\nTOTAL\n\n4\n\nDONE\n\n5\n\nACTIVE\n\n44% delivered\nAS\n\nA. Santos\n\n3 companies · 7 records\n\n7\n\nTOTAL\n\n1\n\nDONE\n\n4\n\nACTIVE\n\n2\n\nON-HOLD\n\n14% delivered\nCL\n\nC. Lim\n\n4 companies · 7 records\n\n7\n\nTOTAL\n\n0\n\nDONE\n\n5\n\nACTIVE\n\n1\n\nON-HOLD\n\n0% delivered\nMR\n\nMaria Reyes\n\n1 company · 6 records\n\n6\n\nTOTAL\n\n6\n\nDONE\n\n0\n\nACTIVE\n\n100% delivered\nDA\n\nDemo Account\n\n1 company · 4 records\n\n4\n\nTOTAL\n\n1\n\nDONE\n\n3\n\nACTIVE\n\n25% delivered"
+      },
+      "screenshot": "SC-AM-001-01-result.png"
+    },
+    {
+      "id": "SC-NOT-001",
+      "title": "Notification bell and unread-count API agree for the current account",
+      "coverage": "Read-only notification display; mark-read and cross-user privacy cases remain blocked",
+      "status": "Pass",
+      "at": "2026-10-15T08:07:08.352Z",
+      "actual": {
+        "listed": 0,
+        "listedUnread": 0,
+        "apiUnread": 0
+      },
+      "screenshot": "SC-NOT-001-04-result.png"
+    },
+    {
+      "id": "SC-NAV-001",
+      "title": "Browser refresh preserves the authorized delivery screen and session",
+      "coverage": "Authenticated routing persistence; read-only",
+      "status": "Pass",
+      "at": "2026-10-15T08:07:09.574Z",
+      "actual": {
+        "path": "/deliveries",
+        "status": 200,
+        "email": "dagodemarcgeraldarante@gmail.com",
+        "role": "SALES_COORDINATOR"
+      },
+      "screenshot": "SC-NAV-001-01-result.png"
+    },
+    {
+      "id": "SC-MD-003",
+      "title": "Customer registry and audit read using the rendered workspace controls",
+      "coverage": "Corrects SC-MD-001 locator assumption: customer workspace uses buttons, not tab roles",
+      "status": "Pass",
+      "at": "2026-10-15T08:08:13.533Z",
+      "actual": {
+        "registryTotal": 15,
+        "customerId": "cmuywehb6002en4sbx538enwo",
+        "auditEvents": 0
+      },
+      "screenshot": "SC-MD-003-03-result.png"
+    },
+    {
+      "id": "SC-SEARCH-001",
+      "title": "Global search finds a reference and Enter opens the result",
+      "coverage": "TC-RPT-009 adapted to Sales and existing record; follows direct Enter sequence",
+      "status": "Fail",
+      "at": "2026-10-15T08:08:15.000Z",
+      "actual": "{\"reference\":\"SAP-E2E-629309\",\"path\":\"/dashboard\",\"overlayStillVisible\":true}",
+      "screenshot": "SC-SEARCH-001-02-failure.png"
+    },
+    {
+      "id": "SC-SEARCH-002",
+      "title": "Global search opens the highlighted result using ArrowDown then Enter",
+      "coverage": "Supplemental keyboard navigation control",
+      "status": "Pass",
+      "at": "2026-10-15T08:08:19.615Z",
+      "actual": {
+        "reference": "SAP-E2E-629309",
+        "path": "/deliveries",
+        "overlayClosed": true
+      },
+      "screenshot": "SC-SEARCH-002-01-result.png"
+    },
+    {
+      "id": "SC-RPT-002",
+      "title": "Sales status chart displays nonzero bars and a Delivered tooltip after animation",
+      "coverage": "Sales dashboard rendering only; does not retest Admin TC-ADM-023",
+      "status": "Pass",
+      "at": "2026-10-15T08:10:15.602Z",
+      "actual": {
+        "deliveredRecords": 33,
+        "barCount": 5,
+        "tooltip": "Delivered\n\nTotal : 33 records"
+      },
+      "screenshot": "SC-RPT-002-02-result.png"
+    },
+    {
+      "id": "TC-AUTH-011",
+      "title": "Anonymous browser cannot open protected page or APIs",
+      "coverage": "Complete anonymous access case; separate context leaves Microsoft QA session signed in",
+      "status": "Pass",
+      "at": "2026-10-15T08:10:17.298Z",
+      "actual": {
+        "finalPath": "/login",
+        "responses": [
+          {
+            "endpoint": "/api/records",
+            "status": 401,
+            "body": {
+              "error": "Not authenticated"
+            }
+          },
+          {
+            "endpoint": "/api/users",
+            "status": 401,
+            "body": {
+              "error": "Not authenticated"
+            }
+          }
+        ],
+        "anonymousScreenshot": "TC-AUTH-011-01-anonymous-login.png"
+      },
+      "screenshot": "TC-AUTH-011-01-result.png"
+    }
+  ]
+}

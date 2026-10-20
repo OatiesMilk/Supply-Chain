@@ -218,9 +218,9 @@ function InventoryTab({
   }
 
   const handleAdjust = async () => {
-    const qty = parseInt(adjQty, 10);
-    if (isNaN(qty) || qty === 0) {
-      setAdjError('Quantity must be a non-zero number.');
+    const qty = Number(adjQty);
+    if (!Number.isFinite(qty) || !Number.isInteger(qty) || qty === 0 || Math.abs(qty) > 2147483647) {
+      setAdjError('Quantity must be a non-zero whole number within the supported range.');
       return;
     }
     if (!adjRef.trim()) {

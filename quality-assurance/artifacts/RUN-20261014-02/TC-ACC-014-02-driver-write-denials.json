@@ -1,0 +1,27 @@
+﻿{
+    "requests":  [
+                     {
+                         "method":  "POST",
+                         "path":  "/api/customers",
+                         "request":  {
+                                         "name":  "UAT Driver Customer"
+                                     },
+                         "response":  {
+                                          "body":  "{\"error\":\"Module access denied\"}",
+                                          "status":  403
+                                      }
+                     },
+                     {
+                         "method":  "POST",
+                         "path":  "/api/suppliers",
+                         "request":  {
+                                         "category":  "Hardware",
+                                         "name":  "UAT Driver Supplier"
+                                     },
+                         "response":  {
+                                          "body":  "{\"error\":\"Module access denied\"}",
+                                          "status":  403
+                                      }
+                     }
+                 ]
+}

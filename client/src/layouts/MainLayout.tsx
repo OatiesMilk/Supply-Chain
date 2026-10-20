@@ -55,7 +55,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           </div>
         )}
 
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-[#F8F9FB]" id="main-routed-view">
+        <main className="flex-1 overflow-y-auto px-3 py-3 sm:px-4 sm:py-4 lg:px-5 lg:py-4 bg-[#F8F9FB]" id="main-routed-view">
           {children}
         </main>
       </div>

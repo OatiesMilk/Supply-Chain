@@ -2,11 +2,29 @@ import { afterEach, beforeEach, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { prisma } from '../src/db';
 import records from '../src/routes/records';
+import sampler from '../src/routes/data-sampler';
 import { signToken } from '../src/middleware/auth';
 import { podStorage } from '../src/services/podStorage';
-import { isPodPhoto } from '../src/services/podPhotos';
+import sharp from 'sharp';
+import { PassThrough } from 'node:stream';
+import { docx, oleFile, pdf, zipOf } from './attachmentFixtures';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { isPodPhoto, isVerifiedPodPhoto } from '../src/services/podPhotos';
+import { allowedStatuses, deliveryScheduleState, driverDeliveryDateError, isoTimestamp, manilaToday, timeInError, transitionError } from '../src/services/deliveryLifecycle';
+import { recordScope } from '../src/services/recordAccess';
 
-const photo = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
+const photo = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWMwTpsJAAICATMDms/iAAAAAElFTkSuQmCC', 'base64');
+const uploadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mg-pod-test-'));
+process.on('exit', () => fs.rmSync(uploadDir, { recursive: true, force: true }));
+// What Multer hands the route after writing an upload to its quarantine folder.
+function uploaded(bytes: Buffer = photo, originalname = 'photo.png', mimetype = 'image/png') {
+  const filePath = path.join(uploadDir, crypto.randomUUID());
+  fs.writeFileSync(filePath, bytes);
+  return { originalname, mimetype, size: bytes.length, path: filePath };
+}
 const restorers: (() => void)[] = [];
 function stub(target: any, key: string, implementation: (...args: any[]) => any) {
   const original = target[key];
@@ -20,11 +38,29 @@ function restoreStubs() {
   mock.restoreAll();
 }
 const originalMailEnv = Object.fromEntries(['SMTP_HOST', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET', 'AZURE_TENANT_ID'].map(key => [key, process.env[key]]));
-const user = (role = 'DRIVER') => ({ id: 'test-user', name: 'Assigned Driver', email: 'test@example.com', role, isActive: true, permissions: [] });
+// Drivers own runs through their Admin-linked Driver profile id (TSK-100), not their name.
+const user = (role = 'DRIVER') => ({ id: 'test-user', name: 'Assigned Driver', email: 'test@example.com', role, isActive: true, permissions: [], driverProfile: role === 'DRIVER' ? { id: 'profile-assigned', type: 'DRIVER' } : null, driverProfileId: role === 'DRIVER' ? 'profile-assigned' : null });
+const otherDriver = (name: string) => ({ driver: name, driverId: `profile-${name}` });
 const attachment = (overrides: Record<string, unknown> = {}) => ({ id: 'photo-1', recordId: 'delivery-1', originalName: 'photo.png', mimeType: 'image/png', storageKey: 'photo.png', size: photo.length, createdAt: new Date(), ...overrides });
-const record = (overrides: Record<string, unknown> = {}) => ({ id: 'delivery-1', category: 'DELIVERY', status: 'SCHEDULED', priority: '2 - Moderate', driver: 'Assigned Driver', company: { name: 'Test Company' }, accountManager: 'Test AM', deletedAt: null, ...overrides });
+const record = (overrides: Record<string, unknown> = {}) => ({ id: 'delivery-1', category: 'DELIVERY', status: 'IN_TRANSIT', draft: false, reference: 'REF', driverAssistants: '[]', priority: '2 - Moderate', driver: 'Assigned Driver', driverId: 'profile-assigned', company: { name: 'Test Company' }, accountManager: 'Test AM', deliveryDate: manilaToday(), timeIn: '2026-10-06T01:00:00.000Z', receivedBy: 'Recipient', timeOut: null, deletedAt: null, ...overrides });
+const shiftDate = (date: string, days: number) => {
+  const [year, month, day] = date.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+};
+
+function failClosed() {
+  for (const model of [prisma.user, prisma.company, prisma.deliveryRecord, prisma.podAttachment, prisma.auditLog, prisma.remarkLog, prisma.comment, prisma.notification, prisma.notificationLog, prisma.driver]) {
+    for (const method of ['findFirst', 'findUnique', 'findUniqueOrThrow', 'findMany', 'create', 'createMany', 'upsert', 'update', 'updateMany', 'delete', 'deleteMany', 'count']) {
+      stub(model, method, async () => { throw new Error('Unstubbed database operation: ' + method); });
+    }
+  }
+  stub(prisma, '$transaction', async () => { throw new Error('Unstubbed transaction'); });
+  for (const method of ['save', 'read', 'remove']) stub(podStorage, method, async () => { throw new Error('Unstubbed storage operation: ' + method); });
+}
+function resetFixtures() { restoreStubs(); failClosed(); }
 
 beforeEach(() => {
+  failClosed();
   for (const key of Object.keys(originalMailEnv)) delete process.env[key];
 });
 afterEach(() => {
@@ -35,55 +71,69 @@ afterEach(() => {
 });
 
 // Exercise the actual middleware/handlers in memory: no listener, live DB or email.
-async function request(method: string, path: string, options: { role?: string; body?: unknown; file?: unknown; attachmentId?: string } = {}) {
+async function request(method: string, path: string, options: { role?: string; authenticated?: boolean; body?: unknown; file?: unknown; attachmentId?: string; multipart?: Buffer; contentType?: string; router?: any } = {}) {
   const actor = user(options.role);
   stub(prisma.user, 'findUnique', async () => actor as any);
-  const route = (records as any).stack.find((layer: any) => layer.route?.path === path && layer.route.methods[method]).route;
-  const req: any = { method: method.toUpperCase(), headers: {}, cookies: { mg_session: signToken(actor as any) },
-    params: { id: 'delivery-1', attachmentId: options.attachmentId ?? 'photo-1' }, body: options.body ?? {}, file: options.file };
+  const route = (options.router ?? records).stack.find((layer: any) => layer.route?.path === path && layer.route.methods[method]).route;
+  const req: any = Object.assign(options.multipart ? new PassThrough() : {}, { method: method.toUpperCase(), headers: {}, cookies: { mg_session: signToken(actor as any) },
+    params: path === '/' ? {} : { id: 'delivery-1', attachmentId: options.attachmentId ?? 'photo-1' }, body: options.body ?? {}, file: options.file });
+  if (options.multipart) req.headers = { 'content-type': options.contentType, 'content-length': String(options.multipart.length) };
+  if (options.authenticated === false) req.cookies = {};
   return new Promise<{ status: number; body: any }>((resolve, reject) => {
+    const timer = setTimeout(() => { req.destroy?.(); reject(new Error('In-memory request timed out')); }, 3000);
     const res: any = { statusCode: 200, setHeader() {}, clearCookie() {},
       status(code: number) { this.statusCode = code; return this; },
-      json(body: unknown) { resolve({ status: this.statusCode, body }); return this; },
-      send(body: unknown) { resolve({ status: this.statusCode, body }); return this; } };
+      json(body: unknown) { clearTimeout(timer); resolve({ status: this.statusCode, body }); return this; },
+      send(body: unknown) { clearTimeout(timer); resolve({ status: this.statusCode, body }); return this; } };
     let index = 0;
     const next = (error?: unknown) => {
-      if (error) return reject(error);
+      if (error) { clearTimeout(timer); return reject(error); }
       const handler = route.stack[index++]?.handle;
       if (!handler) return reject(new Error('Route did not return a response'));
       try { Promise.resolve(handler(req, res, next)).catch(reject); } catch (error) { reject(error); }
     };
     next();
+    if (options.multipart) req.end(options.multipart);
   });
 }
 
 function database(row = record(), files: any[] = []) {
+  failClosed();
   let saved = row;
   const events: string[] = [];
-  stub(prisma.deliveryRecord, 'findFirst', async ({ where }: any) => {
-    const scopedDriver = where.AND?.[0]?.driver;
-    return scopedDriver && scopedDriver !== saved.driver ? null : saved as any;
-  });
+  const audit: any[] = []; const remarks: any[] = [];
+  const outOfScope = (scope: any) => !!scope?.id?.in || (scope?.driverId !== undefined && (scope.driverId !== saved.driverId || saved.draft));
+  stub(prisma.deliveryRecord, 'findFirst', async ({ where }: any) => outOfScope(where.AND?.[0]) ? null : saved as any);
   const tx = {
+    $executeRaw: async () => {},
     $queryRaw: async () => { events.push('lock'); return [{ id: saved.id }]; },
     deliveryRecord: {
+      findFirst: async ({ where }: any) => outOfScope(where.AND?.[0]) ? null : saved,
       findUnique: async () => saved,
+      update: async ({ data }: any) => { events.push('update'); saved = { ...saved, ...data }; return saved; },
       updateMany: async ({ data }: any) => { events.push('update'); saved = { ...saved, ...data }; return { count: 1 }; },
       findUniqueOrThrow: async () => saved,
     },
     podAttachment: {
+      create: async (args: any) => prisma.podAttachment.create(args),
+      aggregate: async () => ({ _count: { _all: files.length }, _sum: { size: files.reduce((total, file) => total + file.size, 0) } }),
       findMany: async ({ where }: any) => { events.push('photos'); return files.filter(file => file.id !== where.id?.not); },
       findFirst: async () => files[0] ?? null,
       delete: async () => { events.push('delete'); return files.shift(); },
     },
-    auditLog: { create: async () => { events.push('audit'); return {}; } },
-    remarkLog: { create: async () => { events.push('remark'); return {}; } },
+    driver: {
+      findUnique: async ({ where }: any) => ({ id: where.id, name: 'New Driver', type: 'DRIVER', isActive: true }),
+      findFirst: async ({ where }: any) => ({ id: 'profile-new-driver', name: where.name.equals, type: 'DRIVER', isActive: true }),
+    },
+    auditLog: { create: async ({ data }: any) => { events.push('audit'); audit.push(data); return {}; } },
+    remarkLog: { create: async ({ data }: any) => { events.push('remark'); remarks.push(data); return {}; } },
   };
   stub(prisma, '$transaction', async (fn: any) => fn(tx));
-  stub(prisma.notificationLog, 'create', async () => ({} as any));
+  stub(prisma.notificationLog, 'create', async () => { events.push('notification'); return {} as any; });
+  stub(prisma.notification, 'createMany', async () => { events.push('notification'); return { count: 0 }; });
   stub(prisma.user, 'findMany', async () => []);
   stub(podStorage, 'read', async () => photo);
-  return { events, saved: () => saved };
+  return { events, audit, remarks, tx, saved: () => saved };
 }
 
 test('image proof checks bytes, rejecting renamed, empty, mismatched and truncated files', () => {
@@ -94,11 +144,115 @@ test('image proof checks bytes, rejecting renamed, empty, mismatched and truncat
   assert.equal(isPodPhoto(photo.subarray(0, 30), 'image/png'), false);
 });
 
+test('Delivery schedule eligibility uses valid Manila dates and leaves started/non-Delivery runs alone', () => {
+  const now = new Date('2026-10-08T03:00:00.000Z'); // 11:00 in Manila
+  assert.deepEqual(deliveryScheduleState('2026-10-06', new Date('2026-10-05T16:01:00.000Z')), { valid: true, future: false, overdue: false, daysLate: 0 });
+  assert.deepEqual(deliveryScheduleState('2026-10-06', new Date('2026-10-06T16:01:00.000Z')), { valid: true, future: false, overdue: true, daysLate: 1 });
+  assert.deepEqual(deliveryScheduleState('2026-10-06', now), { valid: true, future: false, overdue: true, daysLate: 2 });
+  assert.deepEqual(deliveryScheduleState('2026-10-08', now), { valid: true, future: false, overdue: false, daysLate: 0 });
+  assert.deepEqual(deliveryScheduleState('2026-10-09', now), { valid: true, future: true, overdue: false, daysLate: 0 });
+  assert.equal(driverDeliveryDateError(record({ deliveryDate: '2026-10-09', timeIn: null }), 'DRIVER', now), 'This delivery is scheduled for a future date and is read-only until that date.');
+  assert.equal(driverDeliveryDateError(record({ deliveryDate: '2026-10-06', timeIn: null }), 'DRIVER', now), null);
+  assert.equal(driverDeliveryDateError(record({ deliveryDate: '2026-10-09', timeIn: '2026-10-08T02:00:00.000Z' }), 'DRIVER', now), null);
+  assert.equal(driverDeliveryDateError(record({ category: 'RMA', deliveryDate: '2026-10-09', timeIn: null }), 'DRIVER', now), null);
+  assert.match(driverDeliveryDateError(record({ deliveryDate: '2026-02-30', timeIn: null }), 'DRIVER', now) ?? '', /valid Delivery Date/);
+});
+
+test('server rejects future unstarted Driver writes across execution, POD, record edit and comments', async () => {
+  const future = shiftDate(manilaToday(), 1);
+  const photoFile = uploaded();
+  for (const [method, path, options] of [
+    ['post', '/:id/time-in', { body: { remarks: 'Start early' } }],
+    ['patch', '/:id/status', { body: { status: 'On-Hold', remarks: 'Future run' } }],
+    ['put', '/:id', { body: { received_by: 'Recipient', remarks: 'Edit future run' } }],
+    ['post', '/:id/attachments', { file: photoFile }],
+    ['post', '/:id/comments', { body: { body: 'Future run comment' } }],
+  ] as const) {
+    resetFixtures();
+    const state = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: future }));
+    const before = { ...state.saved() };
+    const storage = stub(podStorage, 'save', async () => 'unexpected-photo.png');
+    const attachmentCreate = stub(prisma.podAttachment, 'create', async () => attachment() as any);
+    const response = await request(method, path, options);
+    assert.equal(response.status, 400, path);
+    assert.match(response.body.error, /future date|read-only/i, path);
+    assert.deepEqual(state.saved(), before, path);
+    assert.equal(state.events.includes('update'), false, path);
+    assert.equal(state.events.includes('remark'), false, path);
+    assert.equal(state.events.includes('audit'), false, path);
+    assert.equal(storage.mock.callCount(), 0, path);
+    assert.equal(attachmentCreate.mock.callCount(), 0, path);
+  }
+});
+
+test('Logistics can reschedule a Delivery with remarks and audit while preserving its Driver assignment', async () => {
+  const future = shiftDate(manilaToday(), 2);
+  const today = manilaToday();
+  const state = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: future }));
+  const response = await request('put', '/:id', { role: 'LOGISTICS', body: { delivery_date: today, remarks: 'Client requested an urgent reschedule' } });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.delivery_date, today);
+  assert.equal(state.saved().deliveryDate, today);
+  assert.equal(state.saved().driverId, 'profile-assigned');
+  assert.equal(state.audit[0].changedById, 'test-user');
+  assert.equal(JSON.parse(state.audit[0].previousValue).delivery_date, future);
+  assert.equal(JSON.parse(state.audit[0].newValue).delivery_date, today);
+  assert.equal(state.remarks[0].body, 'Client requested an urgent reschedule');
+  assert.equal(driverDeliveryDateError(state.saved() as any, 'DRIVER'), null);
+
+  resetFixtures();
+  const pushedOut = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: today }));
+  const futureResponse = await request('put', '/:id', { role: 'LOGISTICS', body: { delivery_date: future, remarks: 'Customer requested a later date' } });
+  assert.equal(futureResponse.status, 200);
+  assert.equal(futureResponse.body.delivery_date, future);
+  assert.equal(pushedOut.saved().driverId, 'profile-assigned');
+  assert.match(driverDeliveryDateError(pushedOut.saved() as any, 'DRIVER') ?? '', /future date/);
+});
+
+test('overdue Driver Time In and POD upload audit the effective date and days late', async () => {
+  const overdueDate = shiftDate(manilaToday(), -2);
+  const timeInState = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: overdueDate }));
+  const started = await request('post', '/:id/time-in', { body: { remarks: 'Starting late delivery' } });
+  assert.equal(started.status, 200);
+  const timeInSnapshot = JSON.parse(timeInState.audit[0].previousValue);
+  assert.equal(timeInSnapshot.overdue, true);
+  assert.equal(timeInSnapshot.days_late, 2);
+
+  resetFixtures();
+  const podState = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: overdueDate }));
+  stub(podStorage, 'save', async () => 'photo.png');
+  stub(prisma.podAttachment, 'create', async () => attachment() as any);
+  const upload = await request('post', '/:id/attachments', { file: uploaded() });
+  assert.equal(upload.status, 201);
+  const uploadSnapshot = JSON.parse(podState.audit[0].newValue);
+  assert.equal(uploadSnapshot.overdue, true);
+  assert.equal(uploadSnapshot.days_late, 2);
+});
+
+test('Delivery completion persists completedLate and daysLate from the effective Manila date', async () => {
+  const overdueDate = shiftDate(manilaToday(), -3);
+  const state = database(record({ deliveryDate: overdueDate }), [attachment()]);
+  const response = await request('patch', '/:id/status', { body: { status: 'Delivered', remarks: 'Late delivery completed', received_by: 'Recipient' } });
+  assert.equal(response.status, 200);
+  assert.equal(state.saved().completedLate, true);
+  assert.equal(state.saved().daysLate, 3);
+  const auditSnapshot = JSON.parse(state.audit[0].newValue);
+  assert.equal(auditSnapshot.completed_late, true);
+  assert.equal(auditSnapshot.days_late, 3);
+
+  resetFixtures();
+  const onTime = database(record(), [attachment()]);
+  const onTimeResponse = await request('patch', '/:id/status', { body: { status: 'Delivered', remarks: 'Completed on time', received_by: 'Recipient' } });
+  assert.equal(onTimeResponse.status, 200);
+  assert.equal(onTime.saved().completedLate, false);
+  assert.equal(onTime.saved().daysLate, 0);
+});
+
 test('assigned driver can upload a saved photo and list its verified photo flag', async () => {
   database();
   const save = stub(podStorage, 'save', async () => 'photo.png');
   stub(prisma.podAttachment, 'create', async () => attachment() as any);
-  const result = await request('post', '/:id/attachments', { file: { originalname: 'photo.png', mimetype: 'image/png', size: photo.length, buffer: photo } });
+  const result = await request('post', '/:id/attachments', { file: uploaded() });
   assert.equal(result.status, 201);
   assert.equal(result.body.is_photo, true);
   assert.equal(save.mock.callCount(), 1);
@@ -108,18 +262,18 @@ test('assigned driver can upload a saved photo and list its verified photo flag'
 });
 
 test('driver cannot upload to another driver record and counterfeit image uploads are rejected before storage', async () => {
-  database(record({ driver: 'Another Driver' }));
+  database(record(otherDriver('Another Driver')));
   const save = stub(podStorage, 'save', async () => 'unexpected');
-  const file = { originalname: 'photo.png', mimetype: 'image/png', size: photo.length, buffer: photo };
+  const file = uploaded();
   assert.equal((await request('post', '/:id/attachments', { file })).status, 403);
   stub(prisma.deliveryRecord, 'findFirst', async () => record() as any);
-  assert.equal((await request('post', '/:id/attachments', { file: { ...file, buffer: Buffer.from('not a photo') } })).status, 400);
+  assert.equal((await request('post', '/:id/attachments', { file: uploaded(Buffer.from('not a photo')) })).status, 400);
   assert.equal(save.mock.callCount(), 0);
 });
 
 test('delivery completion rejects absent, document-only, missing and counterfeit photos without writes', async () => {
   for (const kind of ['empty', 'document', 'missing', 'counterfeit']) {
-    restoreStubs();
+    resetFixtures();
     const state = database(record(), kind === 'empty' ? [] : [attachment(kind === 'document' ? { mimeType: 'application/pdf' } : {})]);
     if (kind === 'missing') stub(podStorage, 'read', async () => { throw new Error('missing'); });
     if (kind === 'counterfeit') stub(podStorage, 'read', async () => Buffer.alloc(photo.length));
@@ -127,7 +281,7 @@ test('delivery completion rejects absent, document-only, missing and counterfeit
     assert.equal(result.status, 400, kind);
     assert.match(result.body.error, /photo/);
     assert.deepEqual(state.events, ['lock', 'photos']);
-    assert.equal(state.saved().status, 'SCHEDULED');
+    assert.equal(state.saved().status, 'IN_TRANSIT');
   }
 });
 
@@ -136,20 +290,24 @@ test('a persisted photo enables delivery completion after taking the record lock
   const result = await request('patch', '/:id/status', { body: { status: 'Delivered', remarks: 'Completed' } });
   assert.equal(result.status, 200);
   assert.equal(result.body.status, 'Delivered');
-  assert.deepEqual(state.events, ['lock', 'photos', 'update', 'audit', 'remark']);
+  assert.deepEqual(state.events.slice(0, 5), ['lock', 'photos', 'update', 'audit', 'remark']);
 });
 
-test('pending statuses and non-delivery completion do not require a photo', async () => {
-  for (const [category, status] of [['DELIVERY', 'Pending'], ['PROCUREMENT_PICKUP', 'Delivered'], ['ACCOUNTING_COLLECTION', 'Delivered'], ['RMA', 'Delivered']]) {
-    restoreStubs();
+test('Pending requires a started run and every category requires photo for completion', async () => {
+  const pending = database();
+  assert.equal((await request('patch', '/:id/status', { body: { status: 'Pending', remarks: 'Customer unavailable' } })).status, 200);
+  assert.equal(pending.events.includes('photos'), false);
+  for (const category of ['PROCUREMENT_PICKUP', 'ACCOUNTING_COLLECTION', 'RMA', 'SALES_ORDERS']) {
+    resetFixtures();
     const state = database(record({ category }));
-    const result = await request('patch', '/:id/status', { role: 'ADMIN', body: { status, remarks: 'Updated' } });
-    assert.equal(result.status, 200, category);
-    assert.equal(state.events.includes('photos'), false);
+    const result = await request('patch', '/:id/status', { role: 'ADMIN', body: { status: 'Delivered', remarks: 'Updated' } });
+    assert.equal(result.status, 400, category);
+    assert.equal(state.events.includes('update'), false);
   }
 });
 
 test('delivery creation cannot bypass proof by specifying Delivered or a filename', async () => {
+  database();
   const create = stub(prisma.deliveryRecord, 'create', async () => { throw new Error('Unexpected write'); });
   const result = await request('post', '/', { role: 'SALES_COORDINATOR', body: { company_id: 'company', category: 'Deliveries', reference: 'REF', status: 'Delivered', attachments: ['pretend-photo.jpg'] } });
   assert.equal(result.status, 400);
@@ -170,5 +328,735 @@ test('a replacement photo allows removal while preserving delivery proof', async
   stub(podStorage, 'remove', async () => {});
   const result = await request('delete', '/:id/attachments/:attachmentId', { role: 'ADMIN' });
   assert.equal(result.status, 204);
-  assert.deepEqual(state.events, ['lock', 'photos', 'delete']);
+  assert.deepEqual(state.events, ['lock', 'photos', 'delete', 'audit']);
+});
+
+
+test('completion enforces Time In, Received By and remarks for every role without partial writes', async () => {
+  for (const role of ['DRIVER', 'LOGISTICS', 'ADMIN', 'TASS']) {
+    for (const invalid of ['receiver', 'remarks', 'timeIn']) {
+      resetFixtures();
+      const state = database(record({ ...(role === 'TASS' ? { category: 'RMA' } : {}), ...(invalid === 'timeIn' ? { timeIn: null } : {}) }), [attachment()]);
+      const result = await request('patch', '/:id/status', { role, body: { status: 'Delivered', remarks: invalid === 'remarks' ? '  ' : 'Completed', received_by: invalid === 'receiver' ? '   ' : 'Receiver' } });
+      assert.equal(result.status, 400, `${role}/${invalid}`);
+      assert.equal(state.events.includes('update'), false);
+      assert.equal(state.events.includes('audit'), false);
+    }
+  }
+});
+
+test('all allowed completion roles persist Delivered with automatic server Time Out', async () => {
+  for (const role of ['DRIVER', 'LOGISTICS', 'ADMIN', 'TASS']) {
+    resetFixtures();
+    const state = database(record(role === 'TASS' ? { category: 'RMA' } : {}), [attachment()]);
+    const before = Date.now();
+    const result = await request('patch', '/:id/status', { role, body: { status: 'Delivered', remarks: 'Completed', received_by: ' Receiver ' } });
+    assert.equal(result.status, 200, role);
+    assert.equal(result.body.status, 'Delivered');
+    assert.equal(result.body.received_by, 'Receiver');
+    assert.ok(new Date(result.body.time_out).getTime() >= before);
+    assert.equal(state.audit[0].changedById, 'test-user');
+  }
+});
+
+test('Time In stamps once for an assigned actionable run, ignores client clock and rejects repeat', async () => {
+  const state = database(record({ status: 'SCHEDULED', timeIn: null }));
+  const before = Date.now();
+  const result = await request('post', '/:id/time-in', { body: { remarks: 'Starting run', time_in: 'spoofed' } });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.status, 'In Transit');
+  assert.ok(new Date(result.body.time_in).getTime() >= before);
+  const again = await request('post', '/:id/time-in', { body: { remarks: 'Start again' } });
+  assert.equal(again.status, 400);
+  assert.equal(state.events.filter(event => event === 'update').length, 1);
+  assert.equal(state.audit.length, 1);
+});
+
+test('Time In rejects drafts, unassigned, held, completed and other-driver runs', async () => {
+  for (const overrides of [{ draft: true }, { driver: '', driverId: null }, { status: 'ON_HOLD' }, { status: 'ACCOMPLISHED' }, otherDriver('Someone else')]) {
+    resetFixtures();
+    const state = database(record({ timeIn: null, ...overrides }));
+    assert.notEqual((await request('post', '/:id/time-in', { body: { remarks: 'Start' } })).status, 200);
+    assert.equal(state.events.includes('update'), false);
+  }
+});
+
+test('manual In Transit, early completion, early Pending and reopening Delivered are rejected', async () => {
+  for (const [row, target] of [[{ status: 'SCHEDULED', timeIn: null }, 'In Transit'], [{ status: 'SCHEDULED', timeIn: null }, 'Delivered'], [{ status: 'SCHEDULED', timeIn: null }, 'Pending'], [{ status: 'ACCOMPLISHED' }, 'Rescheduled']] as const) {
+    resetFixtures();
+    const state = database(record(row), [attachment()]);
+    const result = await request('patch', '/:id/status', { role: 'ADMIN', body: { status: target, remarks: 'Update' } });
+    assert.equal(result.status, 400);
+    assert.equal(state.events.includes('update'), false);
+  }
+});
+
+test('assigned Driver cannot mark Pending before Time In and the rejected request makes no writes', async () => {
+  const state = database(record({ status: 'SCHEDULED', timeIn: null }));
+  const before = { ...state.saved() };
+
+  const result = await request('patch', '/:id/status', {
+    role: 'DRIVER',
+    body: { status: 'Pending', remarks: 'Customer unavailable before starting the run' },
+  });
+
+  assert.equal(result.status, 400);
+  assert.match(result.body.error, /time in/i);
+  assert.deepEqual(state.saved(), before);
+  assert.equal(state.events.includes('update'), false);
+  assert.equal(state.events.includes('audit'), false);
+  assert.equal(state.events.includes('remark'), false);
+  assert.equal(state.events.includes('notification'), false);
+});
+
+test('SC/Admin return pre-start run to Draft, retain assignment and audit; started run cannot revert', async () => {
+  for (const role of ['SALES_COORDINATOR', 'ADMIN']) {
+    resetFixtures();
+    const state = database(record({ status: 'SCHEDULED', timeIn: null }));
+    const result = await request('patch', '/:id/status', { role, body: { status: 'Draft', remarks: 'Fix details' } });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.status, 'Draft');
+    assert.equal(state.saved().driver, 'Assigned Driver');
+    assert.deepEqual(result.body.allowed_statuses, ['Scheduled']);
+    assert.equal(state.audit.length, 1);
+    assert.equal((await request('get', '/:id')).status, 403);
+    assert.equal((await request('get', '/:id/attachments')).status, 403);
+    resetFixtures();
+    database();
+    assert.equal((await request('patch', '/:id/status', { role, body: { status: 'Draft', remarks: 'Revert' } })).status, 400);
+  }
+});
+
+test('draft assignment blocked; ISO corrections are restricted, audited and cannot stamp a new attempt', async () => {
+  let state = database(record({ draft: true, timeIn: null, status: 'SCHEDULED' }));
+  assert.equal((await request('put', '/:id', { role: 'LOGISTICS', body: { driver: 'New Driver', remarks: 'Assign' } })).status, 400);
+  assert.equal(state.events.includes('update'), false);
+  resetFixtures();
+  state = database();
+  assert.equal((await request('put', '/:id', { body: { time_in: '2026-10-06T09:00:00+08:00', remarks: 'Correct' } })).status, 403);
+  assert.equal((await request('put', '/:id', { role: 'LOGISTICS', body: { time_in: '09:00', remarks: 'Correct' } })).status, 400);
+  const corrected = await request('put', '/:id', { role: 'LOGISTICS', body: { time_in: '2026-10-06T09:30:00+08:00', remarks: 'Correct capture' } });
+  assert.equal(corrected.status, 200);
+  assert.equal(corrected.body.time_in, '2026-10-06T01:30:00.000Z');
+  assert.equal(state.audit.length, 1);
+  resetFixtures();
+  database(record({ timeIn: null, status: 'SCHEDULED' }));
+  assert.equal((await request('put', '/:id', { role: 'ADMIN', body: { time_in: '2026-10-06T09:00:00+08:00', remarks: 'Start bypass' } })).status, 400);
+});
+
+test('rescheduling clears timestamps and preserves them and actor in audit for next attempt', async () => {
+  const state = database(record({ timeOut: '2026-10-06T02:00:00.000Z' }));
+  const result = await request('patch', '/:id/status', { role: 'LOGISTICS', body: { status: 'Rescheduled', remarks: 'Try tomorrow', delivery_date: shiftDate(manilaToday(), 1) } });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.time_in, null);
+  assert.equal(result.body.time_out, null);
+  const previous = JSON.parse(state.audit[0].previousValue);
+  assert.equal(previous.time_in, '2026-10-06T01:00:00.000Z');
+  assert.equal(previous.time_out, '2026-10-06T02:00:00.000Z');
+  assert.equal(state.audit[0].changedById, 'test-user');
+  assert.equal((await request('post', '/:id/time-in', { role: 'LOGISTICS', body: { remarks: 'New attempt' } })).status, 200);
+});
+
+test('TSK-123: Logistics/Admin must send a valid new date when rescheduling a Delivery', async () => {
+  const today = manilaToday();
+  const tomorrow = shiftDate(today, 1);
+  const rejected: [string, Record<string, unknown>, RegExp][] = [
+    ['LOGISTICS', {}, /new delivery date is required/i],
+    ['LOGISTICS', { delivery_date: shiftDate(today, -1) }, /past/i],
+    ['LOGISTICS', { delivery_date: today }, /different/i],
+    ['ADMIN', { delivery_date: 'tomorrow' }, /valid/i],
+    ['ADMIN', { delivery_date: '2026-02-30' }, /valid/i],
+  ];
+  for (const [role, extra, message] of rejected) {
+    resetFixtures();
+    const state = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: today }));
+    const before = { ...state.saved() };
+    const result = await request('patch', '/:id/status', { role, body: { status: 'Rescheduled', remarks: 'Move it', ...extra } });
+    assert.equal(result.status, 400, JSON.stringify(extra));
+    assert.match(result.body.error, message);
+    assert.deepEqual(state.saved(), before);
+    assert.equal(state.audit.length, 0);
+    assert.equal(state.remarks.length, 0);
+  }
+
+  for (const role of ['LOGISTICS', 'ADMIN']) {
+    resetFixtures();
+    const state = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: today }));
+    const result = await request('patch', '/:id/status', { role, body: { status: 'Rescheduled', remarks: 'Customer asked for tomorrow', delivery_date: tomorrow } });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.status, 'Rescheduled');
+    assert.equal(result.body.delivery_date, tomorrow);
+    assert.equal(state.saved().deliveryDate, tomorrow);
+    assert.equal(state.saved().timeIn, null);
+    assert.equal(state.audit.length, 1);
+    assert.equal(JSON.parse(state.audit[0].previousValue).delivery_date, today);
+    assert.equal(JSON.parse(state.audit[0].newValue).delivery_date, tomorrow);
+    assert.equal(state.remarks.length, 1);
+    assert.equal(state.events.filter(event => event === 'update').length, 1);
+  }
+});
+
+test('TSK-123: delivery_date is rejected on any status change other than a Delivery reschedule', async () => {
+  const tomorrow = shiftDate(manilaToday(), 1);
+  for (const [role, status, row] of [
+    ['LOGISTICS', 'On-Hold', { status: 'SCHEDULED', timeIn: null }],
+    ['ADMIN', 'On-Hold', { status: 'SCHEDULED', timeIn: null }],
+    ['DRIVER', 'Rescheduled', { status: 'SCHEDULED' }],
+    ['LOGISTICS', 'Rescheduled', { status: 'SCHEDULED', category: 'ACCOUNTING_COLLECTION' }],
+  ] as const) {
+    resetFixtures();
+    const state = database(record(row));
+    const before = { ...state.saved() };
+    const result = await request('patch', '/:id/status', { role, body: { status, remarks: 'Try a date', delivery_date: tomorrow } });
+    assert.equal(result.status, 400, `${role} ${status}`);
+    assert.match(result.body.error, /Overview, or choose Rescheduled/);
+    assert.deepEqual(state.saved(), before);
+  }
+});
+
+test('TSK-123: Driver and non-Delivery reschedules still work without a date; Sales Coordinator cannot reschedule', async () => {
+  resetFixtures();
+  const driverRun = database(record({ status: 'SCHEDULED' }));
+  const today = driverRun.saved().deliveryDate;
+  const driver = await request('patch', '/:id/status', { role: 'DRIVER', body: { status: 'Rescheduled', remarks: 'Customer away' } });
+  assert.equal(driver.status, 200);
+  assert.equal(driverRun.saved().deliveryDate, today);
+
+  resetFixtures();
+  const collection = database(record({ category: 'ACCOUNTING_COLLECTION', status: 'SCHEDULED', timeIn: null }));
+  const collectionResult = await request('patch', '/:id/status', { role: 'LOGISTICS', body: { status: 'Rescheduled', remarks: 'Move collection' } });
+  assert.equal(collectionResult.status, 200);
+  assert.equal(collection.saved().deliveryDate, today);
+
+  resetFixtures();
+  const sc = database(record({ status: 'SCHEDULED', timeIn: null }));
+  const scResult = await request('patch', '/:id/status', { role: 'SALES_COORDINATOR', body: { status: 'Rescheduled', remarks: 'Move it', delivery_date: shiftDate(manilaToday(), 1) } });
+  assert.equal(scResult.status, 403);
+  assert.equal(sc.events.includes('update'), false);
+});
+
+test('record scope hides drafts in driver list/detail and related transactions; table omits manual In Transit', () => {
+  assert.equal(recordScope({ ...user(), effectiveScreens: ['driver_dashboard'] } as any).draft, false);
+  assert.deepEqual(allowedStatuses(record({ timeIn: null, status: 'SCHEDULED' })), ['On-Hold', 'Rescheduled', 'Draft']);
+  assert.equal(allowedStatuses(record()).includes('In Transit'), false);
+  assert.equal(manilaToday(new Date('2026-10-05T16:01:00.000Z')), '2026-10-06');
+});
+
+
+test('same-status priority changes remain audited without resetting timestamps', async () => {
+  // Delivered records are locked (TSK-124), so the same-status priority path is exercised on a Pending record.
+  const state = database(record({ status: 'PENDING', timeOut: '2026-10-06T02:00:00.000Z' }));
+  const result = await request('patch', '/:id/status', { role: 'ADMIN', body: { status: 'Pending', priority: '3 - High', remarks: 'Adjust priority' } });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.priority, '3 - High');
+  assert.equal(result.body.time_out, '2026-10-06T02:00:00.000Z');
+  assert.equal(state.events.includes('photos'), false);
+  assert.equal(state.audit.length, 1);
+});
+
+
+test('legacy Scheduled ISO Time In is normalized; invalid legacy clocks cannot complete and can be corrected', async () => {
+  let state = database(record({ status: 'SCHEDULED' }), [attachment()]);
+  const complete = await request('patch', '/:id/status', { body: { status: 'Delivered', remarks: 'Finish existing attempt' } });
+  assert.equal(complete.status, 200);
+  assert.equal(state.saved().timeIn, '2026-10-06T01:00:00.000Z');
+  resetFixtures();
+  state = database(record({ status: 'SCHEDULED', timeIn: '09:00' }), [attachment()]);
+  assert.equal((await request('patch', '/:id/status', { role: 'ADMIN', body: { status: 'Delivered', remarks: 'Complete' } })).status, 400);
+  assert.equal(state.events.includes('update'), false);
+  const corrected = await request('put', '/:id', { role: 'LOGISTICS', body: { time_in: '2026-10-06T09:00:00+08:00', remarks: 'Correct legacy clock' } });
+  assert.equal(corrected.status, 200);
+  assert.equal(corrected.body.status, 'In Transit');
+  assert.equal((await request('patch', '/:id/status', { role: 'LOGISTICS', body: { status: 'Delivered', remarks: 'Completed' } })).status, 200);
+});
+
+test('data sampler rejects manually requested In Transit or Delivered before database work', async () => {
+  const companyRead = stub(prisma.company, 'findMany', async () => { throw new Error('Unexpected database read'); });
+  for (const status of ['IN_TRANSIT', 'ACCOMPLISHED', 'PENDING', 'Delivered']) {
+    const result = await request('post', '/generate', { role: 'ADMIN', router: sampler, body: { module: 'deliveries', fields: { status } } });
+    assert.equal(result.status, 400);
+    assert.match(result.body.error, /Scheduled/);
+  }
+  assert.equal(companyRead.mock.callCount(), 0);
+});
+
+test('Admin can fill a draft reference with remarks and submit, preserving assignment', async () => {
+  const state = database(record({ draft: true, status: 'SCHEDULED', timeIn: null, reference: '' }));
+  assert.equal((await request('patch', '/:id/status', { role: 'ADMIN', body: { status: 'Scheduled', remarks: 'Submit' } })).status, 400);
+  assert.equal((await request('put', '/:id', { role: 'ADMIN', body: { reference: 'REF' } })).status, 400);
+  assert.equal((await request('put', '/:id', { role: 'ADMIN', body: { reference: 'REF', remarks: 'Fill reference' } })).status, 200);
+  const submit = await request('patch', '/:id/status', { role: 'ADMIN', body: { status: 'Scheduled', remarks: 'Submit' } });
+  assert.equal(submit.status, 200);
+  assert.equal(state.saved().draft, false);
+  assert.equal(state.saved().driver, 'Assigned Driver');
+});
+
+test('C-2.12 isolates missing photo with valid recipient, Time In and remarks for every completion role', async () => {
+  for (const role of ['DRIVER', 'LOGISTICS', 'ADMIN']) {
+    resetFixtures();
+    const state = database();
+    const before = { ...state.saved() };
+    const response = await request('patch', '/:id/status', { role, body: { status: 'Delivered', remarks: 'POD test' } });
+    assert.equal(response.status, 400, role);
+    assert.match(response.body.error, /photo/);
+    assert.deepEqual(state.saved(), before);
+    assert.deepEqual(state.events, ['lock', 'photos']);
+  }
+});
+
+test('C-2.13 status, edit and upload reject another driver with no mutations or storage writes', async () => {
+  for (const [method, path] of [['patch', '/:id/status'], ['put', '/:id'], ['post', '/:id/attachments']]) {
+    resetFixtures();
+    const state = database(record(otherDriver('Driver B')), [attachment()]);
+    const before = { ...state.saved() };
+    const storage = stub(podStorage, 'save', async () => { throw new Error('Unexpected storage write'); });
+    const create = stub(prisma.podAttachment, 'create', async () => { throw new Error('Unexpected attachment write'); });
+    const response = await request(method, path, {
+      body: { status: 'Delivered', remarks: 'Completion', received_by: 'Recipient' },
+      file: uploaded(),
+    });
+    assert.equal(response.status, 403, path);
+    assert.deepEqual(state.saved(), before);
+    assert.deepEqual(state.events, []);
+    assert.equal(storage.mock.callCount(), 0);
+    assert.equal(create.mock.callCount(), 0);
+  }
+});
+
+test('completion prerequisites are enforced independently for Driver, Logistics and Admin', async () => {
+  for (const role of ['DRIVER', 'LOGISTICS', 'ADMIN']) {
+    for (const missing of ['timeIn', 'receivedBy', 'remarks']) {
+      resetFixtures();
+      const state = database(record(missing === 'remarks' ? {} : { [missing]: '  ' }), [attachment()]);
+      const response = await request('patch', '/:id/status', { role, body: { status: 'Delivered', remarks: missing === 'remarks' ? ' ' : 'Completed' } });
+      assert.equal(response.status, 400, `${role}: ${missing}`);
+      assert.match(response.body.error, missing === 'timeIn' ? /Time In/ : missing === 'receivedBy' ? /Received By/ : /Remarks/);
+      assert.equal(state.saved().status, 'IN_TRANSIT');
+      assert.equal(state.events.some(event => ['update', 'audit', 'remark', 'notification'].includes(event)), false);
+    }
+  }
+});
+
+test('owner positive controls stamp server Time Out and authenticated audit actor for all roles', async () => {
+  for (const role of ['DRIVER', 'LOGISTICS', 'ADMIN']) {
+    resetFixtures();
+    const state = database(record(), [attachment()]);
+    const start = Date.now();
+    const response = await request('patch', '/:id/status', { role, body: { status: 'Delivered', remarks: ' Completed ', received_by: ' Named recipient ' } });
+    assert.equal(response.status, 200);
+    assert.equal(state.saved().status, 'ACCOMPLISHED');
+    assert.ok(Date.parse(state.saved().timeOut!) >= start && Date.parse(state.saved().timeOut!) <= Date.now());
+    assert.equal(state.saved().receivedBy, 'Named recipient');
+    assert.equal(state.audit[0].changedById, 'test-user');
+    assert.equal(state.remarks[0].authorId, 'test-user');
+    assert.equal(state.remarks[0].body, 'Completed');
+  }
+});
+
+test('reassignment between access check and locked mutation is denied for status and edit', async () => {
+  for (const [method, path] of [['patch', '/:id/status'], ['put', '/:id']]) {
+    resetFixtures();
+    const state = database(record(), [attachment()]);
+    state.tx.deliveryRecord.findUnique = async () => record(otherDriver('Driver B'));
+    const result = await request(method, path, { body: { ...(method === 'patch' ? { status: 'Delivered' } : {}), remarks: 'Updated', received_by: 'Recipient' } });
+    assert.equal(result.status, 403);
+    assert.deepEqual(state.events, ['lock']);
+    assert.equal(state.saved().status, 'IN_TRANSIT');
+  }
+});
+
+test('client Time Out cannot be spoofed through driver PUT or status actions', async () => {
+  const state = database();
+  assert.equal((await request('put', '/:id', { body: { time_out: '1999-01-01T00:00:00.000Z' } })).status, 403);
+  assert.deepEqual(state.events, []);
+  for (const status of ['Pending', 'Delivered']) {
+    assert.equal((await request('patch', '/:id/status', { body: { status, remarks: 'Updated', time_out: '1999-01-01T00:00:00.000Z' } })).status, 400);
+    assert.deepEqual(state.events, []);
+  }
+  assert.equal(state.saved().timeOut, null);
+});
+
+test('a priority-only save on an accomplished record is rejected and preserves its original Time Out', async () => {
+  const timeOut = '2026-10-07T02:00:00.000Z';
+  const state = database(record({ status: 'ACCOMPLISHED', timeOut }), [attachment()]);
+  const response = await request('patch', '/:id/status', { role: 'ADMIN', body: { status: 'Delivered', priority: '3 - High', remarks: 'Priority corrected' } });
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error, "Priority can't be changed after a record is Delivered.");
+  assert.equal(state.saved().timeOut, timeOut);
+  assert.equal(state.saved().priority, '2 - Moderate');
+  assert.equal(state.events.includes('update'), false);
+});
+
+test('TSK-124: a changed Priority on a Delivered record is rejected for every role and route without writes', async () => {
+  for (const [method, path, role, body] of [
+    ['put', '/:id', 'SALES_COORDINATOR', { priority: '3 - High', remarks: 'Escalate' }],
+    ['put', '/:id', 'LOGISTICS', { priority: '3 - High', remarks: 'Escalate' }],
+    ['put', '/:id', 'ADMIN', { priority: '3 - High', remarks: 'Escalate' }],
+    ['patch', '/:id/status', 'LOGISTICS', { status: 'Delivered', priority: '3 - High', remarks: 'Escalate' }],
+    ['patch', '/:id/status', 'ADMIN', { status: 'Delivered', priority: '1 - Low', remarks: 'Lower' }],
+  ] as const) {
+    resetFixtures();
+    const state = database(record({ status: 'ACCOMPLISHED', timeOut: '2026-10-07T02:00:00.000Z' }), [attachment()]);
+    const before = { ...state.saved() };
+    const response = await request(method, path, { role, body });
+    assert.equal(response.status, 400, `${method} ${role}`);
+    assert.equal(response.body.error, "Priority can't be changed after a record is Delivered.");
+    assert.deepEqual(state.saved(), before);
+    assert.equal(state.events.includes('update'), false);
+    assert.equal(state.audit.length, 0);
+    assert.equal(state.remarks.length, 0);
+  }
+});
+
+test('TSK-124: re-sending the same Priority, or editing other fields, on a Delivered record still works', async () => {
+  const timeOut = '2026-10-07T02:00:00.000Z';
+  const state = database(record({ status: 'ACCOMPLISHED', timeOut }), [attachment()]);
+  const same = await request('put', '/:id', { role: 'LOGISTICS', body: { priority: '2 - Moderate', address: 'Corrected address', remarks: 'Address correction' } });
+  assert.equal(same.status, 200);
+  assert.equal(state.saved().address, 'Corrected address');
+  assert.equal(state.saved().priority, '2 - Moderate');
+  assert.equal(state.audit.length, 1);
+
+  resetFixtures();
+  const other = database(record({ status: 'ACCOMPLISHED', timeOut }), [attachment()]);
+  assert.equal((await request('put', '/:id', { role: 'LOGISTICS', body: { address: 'Another correction', remarks: 'No priority sent' } })).status, 200);
+  assert.equal(other.saved().address, 'Another correction');
+});
+
+test('TSK-124: Priority on non-Delivered records is still editable', async () => {
+  for (const status of ['SCHEDULED', 'ON_HOLD', 'PENDING', 'RESCHEDULED']) {
+    resetFixtures();
+    const state = database(record({ status, timeIn: null }));
+    const response = await request('put', '/:id', { role: 'SALES_COORDINATOR', body: { priority: '3 - High', remarks: 'Escalate' } });
+    assert.equal(response.status, 200, status);
+    assert.equal(state.saved().priority, '3 - High');
+  }
+  resetFixtures();
+  const state = database(record({ status: 'SCHEDULED', timeIn: null }));
+  assert.equal((await request('patch', '/:id/status', { role: 'LOGISTICS', body: { status: 'On-Hold', priority: '1 - Low', remarks: 'Hold and lower' } })).status, 200);
+  assert.equal(state.saved().priority, '1 - Low');
+});
+
+test('Logistics and Admin retain audited ISO Time Out corrections', async () => {
+  for (const role of ['LOGISTICS', 'ADMIN']) {
+    resetFixtures();
+    const state = database(record({ status: 'ACCOMPLISHED', timeOut: '2026-10-07T02:00:00.000Z' }), [attachment()]);
+    stub(prisma.remarkLog, 'create', async ({ data }: any) => { state.remarks.push(data); return {} as any; });
+    const correction = '2026-10-07T02:30:00.000Z';
+    const response = await request('put', '/:id', { role, body: { time_out: correction, remarks: 'Corrected clock entry' } });
+    assert.equal(response.status, 200);
+    assert.equal(state.saved().timeOut, correction);
+    assert.equal(state.audit[0].changedById, 'test-user');
+    assert.equal(state.remarks[0].authorId, 'test-user');
+  }
+});
+
+test('Logistics RMA write restrictions remain enforced for status, edit and upload', async () => {
+  for (const [method, path] of [['patch', '/:id/status'], ['put', '/:id'], ['post', '/:id/attachments']]) {
+    resetFixtures();
+    const state = database(record({ category: 'RMA' }));
+    assert.equal((await request(method, path, { role: 'LOGISTICS', body: { status: 'Delivered', remarks: 'Blocked' } })).status, 403);
+    assert.deepEqual(state.events, []);
+  }
+});
+
+test('protected status, edit and upload routes reject unauthenticated requests without mutations', async () => {
+  for (const [method, path] of [['patch', '/:id/status'], ['put', '/:id'], ['post', '/:id/attachments']]) {
+    resetFixtures();
+    const state = database();
+    assert.equal((await request(method, path, { authenticated: false, body: { status: 'Delivered', remarks: 'Unauthorized' } })).status, 401);
+    assert.deepEqual(state.events, []);
+  }
+});
+
+test('framed counterfeit PNG and JPEG cannot satisfy actual pixel decoding', async () => {
+  const png = Buffer.from(photo);
+  const idat = png.indexOf(Buffer.from('IDAT'));
+  png.fill(0, idat + 4, idat + 8);
+  const jpeg = Buffer.from('ffd8ffc00008080001000100ffda00020102ffd9', 'hex');
+  for (const [bytes, mime] of [[png, 'image/png'], [jpeg, 'image/jpeg']] as const) {
+    assert.equal(isPodPhoto(bytes, mime), true, 'Framing guard alone accepted the counterfeit');
+    assert.equal(await isVerifiedPodPhoto(bytes, mime), false);
+  }
+  const genuineJpeg = await sharp({ create: { width: 1, height: 1, channels: 3, background: '#336699' } }).jpeg().toBuffer();
+  assert.equal(await isVerifiedPodPhoto(genuineJpeg, 'image/jpeg'), true);
+  assert.equal(await isVerifiedPodPhoto(photo, 'image/png'), true);
+});
+
+test('real multipart middleware accepts genuine bytes and rejects counterfeit bytes without storage writes', async () => {
+  database();
+  const save = stub(podStorage, 'save', async () => 'photo.png');
+  stub(prisma.podAttachment, 'create', async () => attachment() as any);
+  const boundary = 'isolated-pod-test-boundary';
+  const multipart = (bytes: Buffer) => Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="photo.png"\r\nContent-Type: image/png\r\n\r\n`),
+    bytes, Buffer.from(`\r\n--${boundary}--\r\n`),
+  ]);
+  const contentType = `multipart/form-data; boundary=${boundary}`;
+  assert.equal((await request('post', '/:id/attachments', { multipart: multipart(photo), contentType })).status, 201);
+  assert.equal(save.mock.callCount(), 1);
+  assert.equal((await request('post', '/:id/attachments', { multipart: multipart(Buffer.from('not a PNG')), contentType })).status, 400);
+  assert.equal(save.mock.callCount(), 1);
+});
+
+test('upload rejects reassignment under the row lock before any storage or metadata write', async () => {
+  const state = database();
+  state.tx.deliveryRecord.findUnique = async () => record(otherDriver('Driver B'));
+  const save = stub(podStorage, 'save', async () => { throw new Error('Unexpected save'); });
+  const create = stub(prisma.podAttachment, 'create', async () => { throw new Error('Unexpected metadata'); });
+  const response = await request('post', '/:id/attachments', { file: uploaded() });
+  assert.equal(response.status, 403);
+  assert.deepEqual(state.events, ['lock']);
+  assert.equal(save.mock.callCount(), 0);
+  assert.equal(create.mock.callCount(), 0);
+});
+
+test('upload compensates object storage on metadata and transaction commit failure', async () => {
+  for (const failure of ['metadata', 'commit']) {
+    resetFixtures();
+    const state = database();
+    stub(podStorage, 'save', async () => 'new-key');
+    const remove = stub(podStorage, 'remove', async () => {});
+    stub(prisma.podAttachment, 'create', async () => { if (failure === 'metadata') throw new Error('metadata failed'); return attachment() as any; });
+    if (failure === 'commit') stub(prisma, '$transaction', async (fn: any) => { await fn(state.tx); throw new Error('commit failed'); });
+    await assert.rejects(request('post', '/:id/attachments', { file: uploaded() }), new RegExp(`${failure} failed`));
+    assert.equal(remove.mock.callCount(), 1);
+    assert.equal(remove.mock.calls[0].arguments[0], 'new-key');
+  }
+});
+
+test('attachment removal does not require a reason and always writes an audit entry', async () => {
+  const state = database(record(), [attachment()]);
+  const remove = stub(podStorage, 'remove', async () => {});
+  const response = await request('delete', '/:id/attachments/:attachmentId', { role: 'LOGISTICS', body: {} });
+  assert.equal(response.status, 204);
+  assert.equal(remove.mock.callCount(), 1);
+  assert.deepEqual(state.events, ['lock', 'delete', 'audit']);
+  assert.equal(state.audit.length, 1);
+  assert.deepEqual(JSON.parse(state.audit[0].previousValue), { attachment: 'photo.png', attachment_id: 'photo-1' });
+  assert.deepEqual(JSON.parse(state.audit[0].newValue), { attachment_removed: 'photo-1' });
+  assert.equal(state.remarks.length, 0);
+});
+
+test('locked status, edit and upload checks reject a record newly returned to Draft or a newly denied category', async () => {
+  for (const role of ['DRIVER', 'LOGISTICS']) {
+    for (const [method, path] of [['patch', '/:id/status'], ['put', '/:id'], ['post', '/:id/attachments']]) {
+      resetFixtures();
+      const state = database(record(), [attachment()]);
+      state.tx.deliveryRecord.findUnique = async () => record(role === 'DRIVER' ? { draft: true } : { category: 'RMA' });
+      const response = await request(method, path, { role,
+        body: { ...(method === 'patch' ? { status: 'Delivered' } : {}), received_by: 'Recipient', remarks: 'Update' },
+        file: uploaded(),
+      });
+      assert.equal(response.status, 403, `${role}/${path}`);
+      assert.deepEqual(state.events, ['lock']);
+    }
+  }
+});
+
+test('locked PUT retains draft role restrictions and timestamp chronology after an intervening edit', async () => {
+  let state = database(record({ status: 'SCHEDULED', timeIn: null }));
+  state.tx.deliveryRecord.findUnique = async () => record({ status: 'SCHEDULED', timeIn: null, draft: true });
+  assert.equal((await request('put', '/:id', { role: 'LOGISTICS', body: { is_draft: 'No', remarks: 'Submit' } })).status, 403);
+  assert.deepEqual(state.events, ['lock']);
+  resetFixtures();
+  state = database(record({ status: 'ACCOMPLISHED', timeOut: '2026-10-07T03:00:00.000Z' }));
+  state.tx.deliveryRecord.findUnique = async () => record({ status: 'ACCOMPLISHED', timeIn: '2026-10-07T02:00:00.000Z', timeOut: '2026-10-07T03:00:00.000Z' });
+  assert.equal((await request('put', '/:id', { role: 'ADMIN', body: { time_out: '2026-10-07T01:00:00.000Z', remarks: 'Correct clock' } })).status, 400);
+  assert.deepEqual(state.events, ['lock']);
+});
+
+test('Logistics RMA discussion is readable but comment writes are denied without mutation', async () => {
+  const state = database(record({ category: 'RMA' }));
+  stub(prisma.comment, 'findMany', async () => [{ id: 'comment-1', body: 'Discussion', author: { name: 'Author' }, createdAt: new Date(), updatedAt: new Date() }] as any);
+  const create = stub(prisma.comment, 'create', async () => { throw new Error('Unexpected comment write'); });
+  assert.equal((await request('get', '/:id/comments', { role: 'LOGISTICS' })).status, 200);
+  assert.equal((await request('post', '/:id/comments', { role: 'LOGISTICS', body: { body: 'Discussion' } })).status, 403);
+  assert.equal(create.mock.callCount(), 0);
+  assert.deepEqual(state.events, []);
+});
+
+test('authorized RMA comments preserve the named actor without change remarks and reject blank discussion', async () => {
+  for (const role of ['SALES_COORDINATOR', 'ADMIN', 'DRIVER', 'TASS']) {
+    resetFixtures();
+    const state = database(record({ category: 'RMA' }));
+    const create = stub(prisma.comment, 'create', async ({ data }: any) => ({ ...data, id: 'comment-1', author: { name: 'Assigned Driver' }, createdAt: new Date(), updatedAt: new Date() }) as any);
+    assert.equal((await request('post', '/:id/comments', { role, body: { body: '   ' } })).status, 400);
+    assert.equal(create.mock.callCount(), 0);
+    const response = await request('post', '/:id/comments', { role, body: { body: ' Optional discussion ' } });
+    assert.equal(response.status, 201);
+    assert.equal(response.body.body, 'Optional discussion');
+    assert.equal(response.body.author, 'Assigned Driver');
+    assert.equal((create.mock.calls[0].arguments[0] as any).data.authorId, 'test-user');
+    assert.deepEqual(state.events, []);
+  }
+});
+
+// TSK-100: assignment ownership follows the stable Driver profile id.
+test('Logistics assigns and reassigns by profile id; ownership moves with the id, not the name', async () => {
+  const state = database(record({ status: 'SCHEDULED', timeIn: null, driver: '', driverId: null, createdById: 'creator-1' }));
+  const notices = stub(prisma.notification, 'create', async () => ({}) as any);
+  const assigned = await request('put', '/:id', { role: 'LOGISTICS', body: { driver_id: 'profile-assigned', remarks: 'Assign run' } });
+  assert.equal(assigned.status, 200);
+  assert.equal(state.saved().driverId, 'profile-assigned');
+  assert.equal(state.saved().driver, 'New Driver', 'Display name is copied from the profile');
+  assert.equal(assigned.body.driver_id, 'profile-assigned');
+  assert.equal(notices.mock.callCount(), 1, 'The record creator is notified on first assignment');
+  assert.ok(state.remarks.some(r => r.body === 'Assign run'));
+  assert.equal((await request('get', '/:id')).status, 200, 'The linked Driver sees the run');
+
+  const reassigned = await request('put', '/:id', { role: 'LOGISTICS', body: { driver_id: 'profile-driver-b', remarks: 'Reassign' } });
+  assert.equal(reassigned.status, 200);
+  assert.equal(state.saved().driverId, 'profile-driver-b');
+  assert.equal(notices.mock.callCount(), 1, 'Reassignment is not a first assignment');
+  const before = { ...state.saved() };
+  assert.equal((await request('get', '/:id')).status, 403, 'The previous Driver loses access immediately');
+  assert.equal((await request('patch', '/:id/status', { body: { status: 'Pending', remarks: 'Late' } })).status, 403);
+  assert.deepEqual(state.saved(), before);
+});
+
+test('a display name equal to the Driver login name grants nothing without the profile id', async () => {
+  database(record({ driver: 'Assigned Driver', driverId: 'profile-someone-else' }));
+  assert.equal((await request('get', '/:id')).status, 403);
+  assert.equal((await request('put', '/:id', { body: { received_by: 'Recipient', remarks: 'Edit' } })).status, 403);
+});
+
+test('Sales Coordinator cannot assign a Driver by profile id on create or edit', async () => {
+  const created = await request('post', '/', { role: 'SALES_COORDINATOR', body: { company_id: 'company-1', reference: 'REF', category: 'Deliveries', delivery_date: '2026-10-10', driver_id: 'profile-assigned' } });
+  assert.equal(created.status, 403);
+  const state = database(record({ status: 'SCHEDULED', timeIn: null, driver: '', driverId: null }));
+  const edited = await request('put', '/:id', { role: 'SALES_COORDINATOR', body: { driver_id: 'profile-assigned', remarks: 'Try' } });
+  assert.equal(state.saved().driverId, null, `SC edit must not assign (status ${edited.status})`);
+});
+
+// ── SEC-07 / SEC-08: content checks, per-record quota and quarantine cleanup ──
+const MEBIBYTE = 1024 * 1024;
+
+test('document uploads are verified by content and stored under the server-derived type', async () => {
+  database();
+  const save = stub(podStorage, 'save', async () => 'stored.pdf');
+  const create = stub(prisma.podAttachment, 'create', async ({ data }: any) => attachment({ ...data, id: 'pdf-1' }) as any);
+
+  const genuine = uploaded(pdf(), 'Scan.PDF', 'application/pdf');
+  const stored = await request('post', '/:id/attachments', { file: genuine });
+  assert.equal(stored.status, 201);
+  assert.equal(stored.body.is_photo, false);
+  assert.equal(stored.body.mime_type, 'application/pdf');
+  // Storage receives the quarantined file, not an in-memory copy.
+  const savedFile = save.mock.calls[0].arguments[0];
+  assert.equal(savedFile.path, genuine.path);
+  assert.equal('buffer' in savedFile, false);
+
+  // The browser's declared type is not what gets stored.
+  const mislabelled = await request('post', '/:id/attachments', { file: uploaded(pdf(), 'scan.pdf', 'image/png') });
+  assert.equal(mislabelled.status, 201);
+  assert.equal(create.mock.calls[1].arguments[0].data.mimeType, 'application/pdf');
+
+  // Word documents, modern and legacy, are accepted on their content too.
+  const wordType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  for (const [bytes, name, type] of [[docx(), 'Letter.DOCX', wordType], [oleFile('WordDocument'), 'letter.doc', 'application/msword']] as const) {
+    const word = await request('post', '/:id/attachments', { file: uploaded(bytes, name, type) });
+    assert.equal(word.status, 201, name);
+    assert.equal(create.mock.calls.at(-1)!.arguments[0].data.mimeType, type);
+  }
+
+  const rejected: Array<[string, Buffer, string, string]> = [
+    ['archive renamed to DOCX', zipOf([{ name: 'setup.exe', content: 'MZ' }]), 'invoice.docx', wordType],
+    ['macro-enabled document', zipOf([{ name: 'word/vbaProject.bin', content: 'macro' }]), 'invoice.docx', wordType],
+    ['legacy DOC renamed to DOCX', oleFile('WordDocument'), 'letter.docx', wordType],
+    ['DOCX renamed to DOC', docx(), 'letter.doc', 'application/msword'],
+    ['PDF header only', Buffer.from('%PDF-1.4 UAT supporting document'), 'fake.pdf', 'application/pdf'],
+    ['photo renamed to PDF', photo, 'photo.pdf', 'application/pdf'],
+    ['PDF renamed to DOC', pdf(), 'letter.doc', 'application/msword'],
+    ['executable renamed to DOC', Buffer.concat([Buffer.from('MZ'), Buffer.alloc(2000)]), 'setup.doc', 'application/msword'],
+    ['PDF renamed to PNG', pdf(), 'photo.png', 'image/png'],
+    ['PDF with a script appended', Buffer.concat([pdf(), Buffer.from('<script>alert(1)</script>')]), 'page.pdf', 'application/pdf'],
+    ['type outside the allow-list', docx(), 'macro.docm', wordType],
+  ];
+  for (const [name, bytes, originalname, mimetype] of rejected) {
+    const file = uploaded(bytes, originalname, mimetype);
+    const response = await request('post', '/:id/attachments', { file });
+    assert.equal(response.status, 400, name);
+    assert.match(response.body.error, /not a valid|Unsupported file type/, name);
+    assert.equal(fs.existsSync(file.path), false, `${name}: quarantined file removed`);
+  }
+  assert.equal(save.mock.callCount(), 4);
+  assert.equal(create.mock.callCount(), 4);
+});
+
+test('a record at its attachment quota refuses another file before anything is stored', async () => {
+  const save = () => stub(podStorage, 'save', async () => { throw new Error('Unexpected storage write'); });
+  const create = () => stub(prisma.podAttachment, 'create', async () => { throw new Error('Unexpected metadata write'); });
+
+  // Count: ten stored files, including a legacy record that is already over.
+  for (const count of [10, 14]) {
+    resetFixtures();
+    const state = database(record(), Array.from({ length: count }, (_unused, index) => attachment({ id: `file-${index}`, size: 1000 })));
+    const storage = save();
+    const metadata = create();
+    const file = uploaded();
+    const response = await request('post', '/:id/attachments', { file });
+    assert.equal(response.status, 409, `${count} files`);
+    assert.equal(response.body.code, 'ATTACHMENT_QUOTA_EXCEEDED');
+    assert.match(response.body.error, new RegExp(`already has ${count} attachments; the limit is 10`));
+    assert.equal(storage.mock.callCount() + metadata.mock.callCount(), 0);
+    assert.equal(state.audit.length, 0);
+    assert.equal(fs.existsSync(file.path), false);
+  }
+
+  // Total size: one byte over is refused, exactly at the limit is accepted.
+  for (const [storedBytes, status] of [[50 * MEBIBYTE - photo.length + 1, 409], [50 * MEBIBYTE - photo.length, 201]] as const) {
+    resetFixtures();
+    database(record(), [attachment({ size: storedBytes })]);
+    stub(podStorage, 'save', async () => 'photo.png');
+    stub(prisma.podAttachment, 'create', async () => attachment() as any);
+    const response = await request('post', '/:id/attachments', { file: uploaded() });
+    assert.equal(response.status, status, `${storedBytes} bytes stored`);
+    if (status === 409) {
+      assert.equal(response.body.code, 'ATTACHMENT_QUOTA_EXCEEDED');
+      assert.match(response.body.error, /over its 50 MB attachment limit/);
+    }
+  }
+});
+
+test('parallel uploads to one record cannot take it past the quota', async () => {
+  const files = Array.from({ length: 8 }, (_unused, index) => attachment({ id: `file-${index}`, size: 1000 }));
+  const state = database(record(), files);
+  // Transactions on one record run one at a time, as the record row lock makes them in PostgreSQL.
+  let queue: Promise<unknown> = Promise.resolve();
+  stub(prisma, '$transaction', (work: any) => {
+    const run = queue.then(() => work(state.tx));
+    queue = run.catch(() => {});
+    return run;
+  });
+  const save = stub(podStorage, 'save', async () => { await new Promise(resolve => setTimeout(resolve, 5)); return `stored-${files.length}`; });
+  stub(prisma.podAttachment, 'create', async ({ data }: any) => {
+    const row = attachment({ ...data, id: `new-${files.length}` });
+    files.push(row);
+    return row as any;
+  });
+
+  const responses = await Promise.all(Array.from({ length: 6 }, () => request('post', '/:id/attachments', { file: uploaded() })));
+  assert.deepEqual(responses.map(response => response.status).sort(), [201, 201, 409, 409, 409, 409]);
+  assert.equal(files.length, 10);
+  assert.equal(save.mock.callCount(), 2, 'refused uploads never reach storage');
+});
+
+test('the quarantined upload is removed after success, refusal, storage failure and database failure', async () => {
+  for (const outcome of ['stored', 'refused', 'storage failure', 'database failure']) {
+    resetFixtures();
+    const state = database();
+    if (outcome === 'refused') state.tx.deliveryRecord.findUnique = async () => record(otherDriver('Driver B'));
+    stub(podStorage, 'save', async () => { if (outcome === 'storage failure') throw new Error('storage failure'); return 'new-key'; });
+    const remove = stub(podStorage, 'remove', async () => {});
+    stub(prisma.podAttachment, 'create', async () => { if (outcome === 'database failure') throw new Error('database failure'); return attachment() as any; });
+
+    const file = uploaded();
+    const pending = request('post', '/:id/attachments', { file });
+    if (outcome.endsWith('failure')) await assert.rejects(pending, new RegExp(outcome));
+    else assert.equal((await pending).status, outcome === 'stored' ? 201 : 403);
+    assert.equal(fs.existsSync(file.path), false, outcome);
+    // Only a file that reached storage needs compensating.
+    assert.equal(remove.mock.callCount(), outcome === 'database failure' ? 1 : 0, outcome);
+  }
 });

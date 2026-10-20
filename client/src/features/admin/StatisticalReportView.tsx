@@ -9,9 +9,9 @@ import { downloadDocx } from '@/utils/exportDocx';
 
 const CATEGORIES = ['Deliveries', 'RMA', 'Accounting Collection', 'Procurement Pick-up', 'Sales Orders'];
 
-function SummaryCard({ label, value, sub, color }: { label: string; value: number | string; sub?: string; color: string }) {
+function SummaryCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
   return (
-    <div className={`bg-white border rounded-xl p-4 shadow-sm border-l-4 ${color}`}>
+    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{label}</p>
       <p className="text-2xl font-black text-slate-800">{value}</p>
       {sub && <p className="text-[11px] text-slate-400 mt-0.5">{sub}</p>}
@@ -54,11 +54,12 @@ const REPORT_COLUMNS: ExportColumn[] = [
 
 function buildReportRows(data: ApiReportSummary): Record<string, string>[] {
   const rows: Record<string, string>[] = [];
-  rows.push({ section: 'Summary', label: 'Total Records',    value: String(data.total) });
-  rows.push({ section: 'Summary', label: 'Delivered',        value: String(data.accomplished) });
+  rows.push({ section: 'Summary', label: 'Delivery Date Cohort — Total Records', value: String(data.total) });
+  rows.push({ section: 'Summary', label: 'Delivered in Delivery Date Cohort', value: String(data.accomplished) });
+  rows.push({ section: 'Summary', label: 'Completed by Time Out in Range (independent of Status filter)', value: String(data.completed_in_range) });
   rows.push({ section: 'Summary', label: 'On-Hold',          value: String(data.on_hold) });
   rows.push({ section: 'Summary', label: 'Pending',          value: String(data.pending) });
-  rows.push({ section: 'Summary', label: 'Completion Rate',  value: `${data.completion_rate}%` });
+  rows.push({ section: 'Summary', label: 'Delivered Rate in Delivery Date Cohort', value: `${data.completion_rate}%` });
   data.by_status.forEach(r   => rows.push({ section: 'By Status',   label: r.status,   value: String(r.count) }));
   data.by_category.forEach(r => rows.push({ section: 'By Category', label: r.category, value: String(r.count) }));
   data.by_area.forEach(r     => rows.push({ section: 'By Area',     label: r.area,     value: String(r.count) }));
@@ -97,10 +98,11 @@ function StatReportExportMenu({
     const title = 'Statistical Report';
     const dateRange = dateFrom || dateTo
       ? `${dateFrom || 'all time'} to ${dateTo || 'all time'}`
-      : undefined;
+      : 'All dates';
     const meta: ExportMeta = {
       reportName: title,
       dateRange,
+      dateBasis: 'Delivery Date cohort and completion Time Out (Asia/Manila)',
       generatedByName: currentUserName,
       generatedByRole: currentUserRole,
     };
@@ -175,8 +177,8 @@ export default function StatisticalReportView({ currentUserName = '', currentUse
     setError(null);
     try {
       const result = await api.getReportSummary({
-        dateFrom:  dateFrom  || undefined,
-        dateTo:    dateTo    || undefined,
+        deliveryDateFrom: dateFrom || undefined,
+        deliveryDateTo:   dateTo   || undefined,
         category:  category  || undefined,
         status:    status    || undefined,
         driver:    driver    || undefined,
@@ -196,37 +198,28 @@ export default function StatisticalReportView({ currentUserName = '', currentUse
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">
-            <BarChart2 className="w-5 h-5 text-[#0078C1]" />
-            Statistical Report
-          </h2>
-          <p className="text-xs text-slate-400 mt-0.5">On-demand delivery record summary with filters</p>
-        </div>
-        {data && (
-          <StatReportExportMenu
-            data={data}
-            dateFrom={dateFrom}
-            dateTo={dateTo}
-            currentUserName={currentUserName}
-            currentUserRole={currentUserRole}
-          />
-        )}
-      </div>
-
+    <div className="space-y-4">
       {/* Filter bar */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Filters</p>
+      <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-3.5 flex-wrap gap-2">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Filters</p>
+          {data && (
+            <StatReportExportMenu
+              data={data}
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              currentUserName={currentUserName}
+              currentUserRole={currentUserRole}
+            />
+          )}
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
           <div>
-            <label className={labelCls}>Date From</label>
+            <label className={labelCls}>Delivery Date From (Manila)</label>
             <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className={inputCls} />
           </div>
           <div>
-            <label className={labelCls}>Date To</label>
+            <label className={labelCls}>Delivery Date To (Manila)</label>
             <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={inputCls} />
           </div>
           <div>
@@ -279,36 +272,41 @@ export default function StatisticalReportView({ currentUserName = '', currentUse
       {data && (
         <div className="space-y-6">
           {/* Summary cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-            <SummaryCard label="Total Records"     value={data.total}            color="border-slate-400"   />
-            <SummaryCard label="Delivered"         value={data.accomplished}     color="border-emerald-500" />
-            <SummaryCard label="On-Hold"           value={data.on_hold}          color="border-red-500"     />
-            <SummaryCard label="Pending"           value={data.pending}          color="border-amber-500"   />
-            <SummaryCard label="Completion Rate"   value={`${data.completion_rate}%`} sub={`${data.accomplished} of ${data.total}`} color="border-blue-500" />
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4">
+            <SummaryCard label="Delivery Date Cohort" value={data.total} sub="Records scheduled in range" />
+            <SummaryCard label="Delivered in Cohort" value={data.accomplished} sub="Current Delivered status" />
+            <SummaryCard
+              label="Completed by Time Out"
+              value={data.completed_in_range}
+              sub={`${dateFrom || dateTo ? 'Selected Manila date range' : 'All dates'}; independent of Status filter`}
+            />
+            <SummaryCard label="On-Hold"           value={data.on_hold}     />
+            <SummaryCard label="Pending"           value={data.pending}   />
+            <SummaryCard label="Delivered Rate" value={`${data.completion_rate}%`} sub="Within Delivery Date cohort" />
           </div>
 
           {/* Breakdown tables */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <BreakdownTable
-              title="By Status"
+              title="By Status (Delivery Date cohort)"
               colA="Status"
               colB="Count"
               rows={data.by_status.map(r => ({ label: r.status, count: r.count }))}
             />
             <BreakdownTable
-              title="By Category"
+              title="By Category (Delivery Date cohort)"
               colA="Category"
               colB="Count"
               rows={data.by_category.map(r => ({ label: r.category, count: r.count }))}
             />
             <BreakdownTable
-              title="Top Areas (by volume)"
+              title="Top Areas (Delivery Date cohort)"
               colA="Area"
               colB="Count"
               rows={data.by_area.map(r => ({ label: r.area, count: r.count }))}
             />
             <BreakdownTable
-              title="By Driver"
+              title="By Driver (Delivery Date cohort)"
               colA="Driver"
               colB="Count"
               rows={data.by_driver.map(r => ({ label: r.driver, count: r.count }))}

@@ -17,7 +17,7 @@ It provides the context, conventions, and constraints Claude must follow at all 
 | Backend | Node.js, Express, TypeScript |
 | ORM | Prisma (PostgreSQL) |
 | Auth | JWT in `httpOnly` cookie (`mg_session`) |
-| Testing | Vitest + React Testing Library |
+| Testing | Node built-in test runner (`node:test` via `tsx`) for client and server; Playwright E2E in `e2e/` |
 
 ## Dev Environment
 
@@ -27,7 +27,7 @@ It provides the context, conventions, and constraints Claude must follow at all 
 | Backend (Express) | `4000` |
 
 Vite proxies `/api/*` → `http://localhost:4000`.
-`.env` at project root contains `DATABASE_URL`, `JWT_SECRET`, `NOTION_API_KEY`.
+Root `.env` holds the Docker PostgreSQL settings (`POSTGRES_*`); `server/.env` holds `DATABASE_URL`, `JWT_SECRET` and the other API settings (see `docs/GETTING_STARTED.md`). `NOTION_API_KEY` is only used for the Notion ticketing workflow; no application code reads it.
 
 ## Common Commands
 
@@ -47,8 +47,11 @@ cd client && npx tsc --noEmit
 # Type check backend
 cd server && npx tsc --noEmit
 
-# Run component tests
-cd client && npx vitest run
+# Run client tests (node:test, not Vitest)
+npm run test:client
+
+# Run server tests
+npm run test:server
 
 # Prisma migration
 cd server && npx prisma migrate dev --name <migration-name>
@@ -68,7 +71,8 @@ cd server && npx prisma studio
 │   ├── pages/          # Top-level page components
 │   ├── store/          # Zustand stores
 │   ├── types/          # Shared TypeScript types
-│   └── screenRouting.ts  # Screen → component registry
+│   ├── routes/         # AppRouter.tsx (screen → page switch), screenRouting.ts
+│   └── screenRouting.ts  # Re-exports routes/screenRouting.ts
 ├── server/src/
 │   ├── routes/         # Express route handlers (one file per resource)
 │   ├── middleware/      # auth.ts — requireAuth, requireRole
@@ -100,7 +104,7 @@ requireRole('ADMIN', 'SALES_COORDINATOR')
 
 ### Frontend
 - New screens must be registered in `client/src/screenRouting.ts`
-- Sidebar buttons use `canAccess(screen)` from `UserPermission` — new screens need a permission entry
+- Sidebar buttons use `canAccess(screen)` (effective screens from the session snapshot) — new screens need a permission entry in `server/src/services/permissions.ts` (`SCREEN_LABELS`, `ROLE_DEFAULTS`) and a case in `client/src/routes/AppRouter.tsx`
 - API calls go through `client/src/api.ts` or hooks in `client/src/api/`
 - Global state lives in Zustand stores in `client/src/store/`
 - TypeScript strict mode is on — all code must pass `tsc --noEmit`

@@ -1,6 +1,7 @@
 import { FormEvent, useState, useEffect } from 'react';
 import { LogIn, Loader2, Mail, ChevronDown } from 'lucide-react';
 import { api, apiUrl, ApiUser } from '@/api';
+import { demoAccountsEnabled } from '@/utils/demoAccounts';
 import { keepLoginRoute } from '@/routes/screenRouting';
 
 interface LoginViewProps {
@@ -46,7 +47,12 @@ const DEMO_ACCOUNTS = [
   },
 ] as const;
 
-const SHOW_DEMO = import.meta.env.DEV || import.meta.env.VITE_SHOW_DEMO_ACCOUNTS === 'true';
+// Keep DEV outside the helper so production builds can remove demo accounts entirely.
+const SHOW_DEMO = import.meta.env.DEV && demoAccountsEnabled({
+  dev: import.meta.env.DEV,
+  mode: import.meta.env.MODE,
+  showDemoAccounts: import.meta.env.VITE_SHOW_DEMO_ACCOUNTS,
+});
 
 function MicrosoftLogo() {
   return (
@@ -66,37 +72,6 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
   const [loading, setLoading] = useState(false);
   const [ssoLoading, setSsoLoading] = useState(false);
   const [showEmailForm, setShowEmailForm] = useState(false);
-  const [isSeeding, setIsSeeding] = useState(false);
-
-  const handleSeedDemo = async () => {
-    setIsSeeding(true);
-    setError(null);
-    try {
-      const res = await fetch(apiUrl('/dev/public-seed'), { method: 'POST' });
-      if (res.ok) {
-        alert('Database has been successfully seeded with demo data!');
-      } else {
-        setError('Failed to seed demo database');
-      }
-    } catch (err) {
-      setError('Error connecting to server to seed data');
-    } finally {
-      setIsSeeding(false);
-    }
-  };
-
-  const handleSeedUat = async () => {
-    setIsSeeding(true);
-    setError(null);
-    try {
-      const result = await api.seedUat();
-      alert(`UAT data is ready: ${result.userCount} demo accounts and ${result.driverRecords} driver run(s) for today.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to prepare UAT data');
-    } finally {
-      setIsSeeding(false);
-    }
-  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -152,6 +127,7 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
   };
 
   const handleQuickLogin = async (demoEmail: string, demoPassword: string) => {
+    if (!SHOW_DEMO) return;
     setError(null);
     setLoading(true);
     try {
@@ -341,23 +317,7 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
                 ))}
               </div>
 
-              <div className="mt-4 pt-4 border-t border-slate-100">
-                <button
-                  onClick={handleSeedDemo}
-                  disabled={isSeeding || isLoading}
-                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold text-xs py-2.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {isSeeding ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                  {isSeeding ? 'Seeding Database...' : 'Seed Demo Data (Resets DB)'}
-                </button>
-                <button
-                  onClick={handleSeedUat}
-                  disabled={isSeeding || isLoading}
-                  className="w-full mt-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-xs py-2.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-                >
-                  {isSeeding ? 'Preparing UAT Data...' : 'Prepare UAT Data (Accounts + Today’s Driver Run)'}
-                </button>
-              </div>
+              <p className="mt-4 text-xs text-slate-500">Prepare demo or UAT data from an approved disposable local database using the guarded CLI. See GETTING_STARTED.md.</p>
             </div>
           )}
         </div>

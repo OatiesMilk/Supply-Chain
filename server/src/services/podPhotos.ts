@@ -1,5 +1,8 @@
+import fs from 'node:fs';
 import type { Prisma } from '@prisma/client';
-import { podStorage } from './podStorage';
+import { podStorage, withFileInMemory } from './podStorage';
+import { ATTACHMENT_MIME_TYPES, UNSUPPORTED_FILE_TYPE, attachmentMimeType, isDocxDocument, isPdfDocument, isWordDocument } from './attachmentRules';
+import sharp from 'sharp';
 
 export const DELIVERY_PHOTO_REQUIRED = 'Upload at least one JPG or PNG delivery photo before marking this delivery Accomplished.';
 
@@ -45,11 +48,53 @@ export function isPodPhoto(buffer: Buffer, mimeType: string): boolean {
   return false;
 }
 
+// Framing alone can be forged. Decode pixel statistics without trusting
+// filenames or allocating a full raw raster buffer in JavaScript.
+export async function isVerifiedPodPhoto(buffer: Buffer, mimeType: string): Promise<boolean> {
+  if (!isPodPhoto(buffer, mimeType)) return false;
+  try {
+    await sharp(buffer, { failOn: 'warning', limitInputPixels: 40_000_000 }).stats();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// How each accepted document type proves itself, and what to call it in errors.
+const DOCUMENT_CHECKS: Record<string, { label: string; valid: (content: Buffer) => boolean }> = {
+  [ATTACHMENT_MIME_TYPES['.pdf']]: { label: 'PDF', valid: isPdfDocument },
+  [ATTACHMENT_MIME_TYPES['.doc']]: { label: 'Word (.doc)', valid: isWordDocument },
+  [ATTACHMENT_MIME_TYPES['.docx']]: { label: 'Word (.docx)', valid: isDocxDocument },
+};
+
+// SEC-08: decide what a quarantined upload really is from its bytes. The file
+// name only selects which format the content must prove to be.
+export type UploadInspection = { mimeType: string; isPhoto: boolean; size: number } | { error: string };
+
+export function inspectUpload(filePath: string, originalName: string): Promise<UploadInspection> {
+  return withFileInMemory(async () => {
+    const mimeType = attachmentMimeType(originalName);
+    if (!mimeType) return { error: UNSUPPORTED_FILE_TYPE };
+    const content = await fs.promises.readFile(filePath);
+    if (isPhotoMimeType(mimeType)) {
+      return await isVerifiedPodPhoto(content, mimeType)
+        ? { mimeType, isPhoto: true, size: content.length }
+        : { error: 'This file is not a valid JPG or PNG photo. Choose a photo and try again.' };
+    }
+    const check = DOCUMENT_CHECKS[mimeType];
+    return check.valid(content)
+      ? { mimeType, isPhoto: false, size: content.length }
+      : { error: `This file is not a valid ${check.label} document. Check the file and try again.` };
+  });
+}
+
 export async function isStoredPodPhoto(attachment: { mimeType: string; storageKey: string; size: number }) {
   if (!isPhotoMimeType(attachment.mimeType) || attachment.size <= 0) return false;
   try {
-    const content = await podStorage.read(attachment.storageKey);
-    return content.length === attachment.size && isPodPhoto(content, attachment.mimeType);
+    return await withFileInMemory(async () => {
+      const content = await podStorage.read(attachment.storageKey);
+      return content.length === attachment.size && await isVerifiedPodPhoto(content, attachment.mimeType);
+    });
   } catch {
     // Missing/unreadable files must never satisfy delivery proof.
     return false;

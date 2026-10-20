@@ -1,0 +1,47 @@
+{
+  "issue": 183,
+  "defect": "DEF-021",
+  "testedBaseSha": "5609b741cc9f6f8012ef77d097f42ffc6889fd40",
+  "candidate": "Local patch to CustomerEditForm.tsx and CustomerWorkspace.tsx",
+  "environment": "Windows, localhost frontend 3000/API 4000, isolated Docker PostgreSQL mg_portal_qa183_sandbox",
+  "baseline": {
+    "mode": "baseline",
+    "stalePutStatus": 409,
+    "committedValuePreserved": true,
+    "draftPreservedOn409": true,
+    "savingEnded": true,
+    "failedLatestFetches": 2,
+    "draftLostAfterFailedReload": true
+  },
+  "candidateResult": {
+    "mode": "candidate",
+    "browser": "153.0.8010.12",
+    "roles": [
+      {
+        "name": "Maria Reyes",
+        "role": "SALES_COORDINATOR"
+      },
+      {
+        "name": "Juan Santos",
+        "role": "LOGISTICS"
+      }
+    ],
+    "fixture": {
+      "id": "cmvamo12600080olp03iqhlhw",
+      "name": "QA183 stale edit mvamo0zo"
+    },
+    "initialModifiedAt": "2026-10-16T07:14:27.13Z",
+    "savedAModifiedAt": "2026-10-16T07:15:41.209Z",
+    "freshModifiedAt": "2026-10-16T07:15:44.683Z",
+    "stalePutStatus": 409,
+    "committedValuePreserved": true,
+    "draftPreservedOn409": true,
+    "savingEnded": true,
+    "failedLatestFetches": 2,
+    "draftAndReasonPreservedAfterFailedReload": true,
+    "retryEnabled": true,
+    "successfulReloadUpdatedValuesAndVersion": true,
+    "freshPutStatus": 200,
+    "auditActorsAndReasonsVerified": true
+  }
+}

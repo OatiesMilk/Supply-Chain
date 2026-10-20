@@ -87,7 +87,7 @@ export function getNearbyAreas(area: string): string[] {
 export const VEHICLES = ['(None)', 'Truck-A (6-Wheeler)', 'Truck-B (10-Wheeler)', 'Van-01 (L300)', 'Motorcycle-01 (Express)'];
 export const PRIORITIES = ['1 - Low', '2 - Moderate', '3 - High'] as const;
 export const ITEM_TYPES = ['Small Item', 'Medium Item', 'Large / Pallet'] as const;
-export const DELIVERY_STATUSES = ['Scheduled', 'Delivered', 'On-Hold', 'Rescheduled', 'Pending'] as const;
+export const DELIVERY_STATUSES = ['Draft', 'Scheduled', 'In Transit', 'Delivered', 'On-Hold', 'Rescheduled', 'Pending'] as const;
 
 // Accounting Collection displays collection-domain vocabulary in its UI while
 // the underlying DeliveryStatus value stays the same shared enum used by
@@ -110,6 +110,7 @@ export const ACCOUNT_MANAGERS = ['P. Soriano', 'D. Macaraeg', 'F. Valenzuela', '
 // Assignment options remain empty until the API provides the roster.
 
 let _managedDrivers: string[] = [];
+let _managedDriverIds: Record<string, string> = {};
 let _managedAssistants: string[] = [];
 let _managedCoverage: Record<string, string[]> = {};
 let managedDriverVersion = 0;
@@ -121,15 +122,23 @@ export function subscribeManagedDrivers(listener: () => void) {
 }
 
 export interface ManagedDriver {
+  id: string;
   name: string;
   type: 'DRIVER' | 'ASSISTANT';
   coverage_areas: string[];
   is_active: boolean;
 }
 
+// Assignments save the Driver profile id; the roster keeps names unique per
+// type, so the name shown in a dropdown maps to exactly one active profile.
+export function driverIdForName(name: string): string | null {
+  return _managedDriverIds[name] ?? null;
+}
+
 export function setManagedDriverList(list: ManagedDriver[]) {
   const active = list.filter(d => d.is_active);
   _managedDrivers = active.filter(d => d.type === 'DRIVER').map(d => d.name);
+  _managedDriverIds = Object.fromEntries(active.filter(d => d.type === 'DRIVER').map(d => [d.name, d.id]));
   _managedAssistants = active.filter(d => d.type === 'ASSISTANT').map(d => d.name);
   const cov: Record<string, string[]> = {};
   for (const d of active) {

@@ -1,23 +1,6 @@
-import React from 'react';
-import {
-  DashboardPage,
-  DeliveriesPage,
-  AccountingCollectionPage,
-  InventoryPage,
-  CustomersPage,
-  SuppliersPage,
-  DriverPage,
-  DriverManagerPage,
-  DriverBoardPage,
-  CalendarPage,
-  TransactionCenterPage,
-  AdminPage,
-  DataSamplerPage,
-  StatusHistoryPage,
-  StatisticalReportsPage,
-  AccountManagerDirectoryPage,
-  MainView,
-} from '@/pages';
+import React, { Suspense } from 'react';
+import { lazyPage } from './lazyPage';
+
 import {
   DeliveryRecord,
   UserRole,
@@ -33,6 +16,22 @@ import {
   ApiDashboardStats,
 } from '@/api';
 import { CATEGORY_SCREENS } from './screenRouting';
+import { DashboardFilterId } from '@/utils/dashboardFilters';
+
+const DashboardPage = lazyPage(() => import('@/pages/DashboardPage'));
+const DeliveriesPage = lazyPage(() => import('@/pages/DeliveriesPage'));
+const AccountingCollectionPage = lazyPage(() => import('@/pages/AccountingCollectionPage'));
+const InventoryPage = lazyPage(() => import('@/pages/InventoryPage'));
+const CustomersPage = lazyPage(() => import('@/pages/CustomersPage'));
+const SuppliersPage = lazyPage(() => import('@/pages/SuppliersPage'));
+const DriversPage = lazyPage(() => import('@/pages/DriversPage'), { gateData: false });
+const CalendarPage = lazyPage(() => import('@/pages/CalendarPage'));
+const TransactionCenterPage = lazyPage(() => import('@/pages/TransactionCenterPage'));
+const AdminPage = lazyPage(() => import('@/pages/AdminPage'));
+const DataSamplerPage = lazyPage(() => import('@/pages/DataSamplerPage'));
+const StatisticalReportsPage = lazyPage(() => import('@/pages/StatisticalReportsPage'));
+const AccountManagerDirectoryPage = lazyPage(() => import('@/pages/AccountManagerDirectoryPage'));
+const MainView = lazyPage(() => import('@/pages/MainView'));
 
 export interface AppRouterProps {
   currentScreen: string;
@@ -47,14 +46,16 @@ export interface AppRouterProps {
   currentUserName: string;
   effectiveScreens: Set<string>;
   canAccess: (screen: string) => boolean;
-  handleNavigate: (screen: string, item_id?: string) => void;
-  handleCreateRecord: (data: any) => Promise<void>;
+  handleNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
+  handleCreateRecord: (data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>) => Promise<DeliveryRecord>;
   handleUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   handleVerifyCollection: (id: string) => Promise<void>;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;
   handleUpdateOutputActionConfig: (trigger: OutputActionTrigger, patch: Partial<OutputActionConfig>) => void;
   selectedRecordId: string | null;
   setSelectedRecordId: (id: string | null) => void;
+  dashboardFilterId: DashboardFilterId | null;
+  clearDashboardFilter: () => void;
   selectedProductId: string | null;
   setSelectedProductId: (id: string | null) => void;
   handleCreateCustomer: (data: any) => Promise<void>;
@@ -86,6 +87,8 @@ export const AppRouter: React.FC<AppRouterProps> = ({
   handleUpdateOutputActionConfig,
   selectedRecordId,
   setSelectedRecordId,
+  dashboardFilterId,
+  clearDashboardFilter,
   selectedProductId,
   setSelectedProductId,
   handleCreateCustomer,
@@ -100,8 +103,9 @@ export const AppRouter: React.FC<AppRouterProps> = ({
     return <div role="status" className="text-center py-12 text-slate-500">This page is not available for your account.</div>;
   }
 
-  // Special case: Accounting Collection has custom verification workflow
-  if (currentScreen === 'accounting_collection') {
+  const renderContent = () => {
+    // Special case: Accounting Collection has custom verification workflow
+    if (currentScreen === 'accounting_collection') {
     return (
       <AccountingCollectionPage
         records={deliveryRecords}
@@ -113,6 +117,8 @@ export const AppRouter: React.FC<AppRouterProps> = ({
         onVerifyCollection={handleVerifyCollection}
         selectedRecordIdFromDashboard={selectedRecordId}
         clearSelectedRecordId={() => setSelectedRecordId(null)}
+        dashboardFilterId={dashboardFilterId}
+        clearDashboardFilter={clearDashboardFilter}
       />
     );
   }
@@ -134,6 +140,8 @@ export const AppRouter: React.FC<AppRouterProps> = ({
         onUpdateOutputActionConfig={handleUpdateOutputActionConfig}
         selectedRecordIdFromDashboard={selectedRecordId}
         clearSelectedRecordId={() => setSelectedRecordId(null)}
+        dashboardFilterId={dashboardFilterId}
+        clearDashboardFilter={clearDashboardFilter}
         onRefresh={refreshData}
       />
     );
@@ -166,22 +174,19 @@ export const AppRouter: React.FC<AppRouterProps> = ({
       );
 
     case 'driver':
+    case 'driver_board':
+    case 'driver_manager':
       return (
-        <DriverPage
+        <DriversPage
+          activeScreen={currentScreen}
+          canAccess={canAccess}
           records={deliveryRecords}
           onUpdateRecord={handleUpdateRecord}
           currentUserName={currentUserName}
+          currentUserRole={currentUserRole}
           outputActionConfigs={outputActionConfigs}
           onNavigate={handleNavigate}
-        />
-      );
-
-    case 'driver_manager':
-      return (
-        <DriverManagerPage
           drivers={managedDrivers}
-          currentUserRole={currentUserRole}
-          currentUserName={currentUserName}
           onCreateDriver={handleCreateDriver}
           onUpdateDriver={handleUpdateDriver}
           onDeleteDriver={handleDeleteDriver}
@@ -203,10 +208,8 @@ export const AppRouter: React.FC<AppRouterProps> = ({
       return (
         <CustomersPage
           customers={customers}
-          deliveryRecords={deliveryRecords}
           currentUserRole={currentUserRole}
           currentUserName={currentUserName}
-          onNavigate={handleNavigate}
           onCreateCustomer={handleCreateCustomer}
         />
       );
@@ -216,11 +219,13 @@ export const AppRouter: React.FC<AppRouterProps> = ({
         <TransactionCenterPage
           currentUserRole={currentUserRole}
           currentUserName={currentUserName}
+          dashboardFilterId={dashboardFilterId}
+          clearDashboardFilter={clearDashboardFilter}
         />
       );
 
     case 'admin':
-      return <AdminPage />;
+      return <AdminPage dashboardFilterId={dashboardFilterId} clearDashboardFilter={clearDashboardFilter} />;
 
     case 'main':
       return (
@@ -252,19 +257,6 @@ export const AppRouter: React.FC<AppRouterProps> = ({
         />
       );
 
-    case 'driver_board':
-      return (
-        <DriverBoardPage
-          records={deliveryRecords}
-          onNavigate={handleNavigate}
-          onUpdateRecord={handleUpdateRecord}
-          currentUserName={currentUserName}
-        />
-      );
-
-    case 'status_history':
-      return <StatusHistoryPage />;
-
     case 'statistical_reports':
       return (
         <StatisticalReportsPage
@@ -284,7 +276,23 @@ export const AppRouter: React.FC<AppRouterProps> = ({
 
     default:
       return <div className="text-center py-12 text-slate-500 font-semibold">View Not Found</div>;
-  }
+    }
+  };
+
+  return (
+    <Suspense key={currentScreen}
+      fallback={
+        <div role="status" aria-live="polite" className="flex items-center justify-center py-24 text-slate-500">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-3 border-sky-600 border-t-transparent rounded-full animate-spin" />
+            <span className="text-sm font-medium text-slate-600">Loading view…</span>
+          </div>
+        </div>
+      }
+    >
+      {renderContent()}
+    </Suspense>
+  );
 };
 
 export default AppRouter;

@@ -5,9 +5,11 @@
 export interface ApiReportSummary {
   total: number;
   accomplished: number;
+  completed_in_range: number;
   on_hold: number;
   pending: number;
   completion_rate: number;
+  date_basis: { cohort: 'deliveryDate'; completion: 'timeOut'; time_zone: 'Asia/Manila' };
   by_status:   { status: string;   count: number }[];
   by_category: { category: string; count: number }[];
   by_area:     { area: string;     count: number }[];

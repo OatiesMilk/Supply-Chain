@@ -1,0 +1,77 @@
+{
+  "method": "GET",
+  "endpoint": "/suppliers",
+  "status": 200,
+  "body": [
+    {
+      "id": "cmuywehc3002ln4sb4fqtmjwz",
+      "name": "BoxRight Packaging Solutions",
+      "contact_person": "Mark Villanueva",
+      "email": "mark@boxright.ph",
+      "phone": "+63 2 8555 4004",
+      "address": "22 Industrial Rd, Valenzuela",
+      "city": "Valenzuela",
+      "category": "Packaging",
+      "created_by": "System Admin",
+      "created_at": "2026-10-08T02:09:13.539Z",
+      "modified_by": "System Admin",
+      "modified_at": "2026-10-08T02:09:13.538Z"
+    },
+    {
+      "id": "cmuywehc6002mn4sbg2jmxcjo",
+      "name": "Globalink Freight & Logistics",
+      "contact_person": "Nina Bautista",
+      "email": "nina@globalink.ph",
+      "phone": "+63 2 8444 5005",
+      "address": "100 Port Area, Manila",
+      "city": "Manila",
+      "category": "Services",
+      "created_by": "System Admin",
+      "created_at": "2026-10-08T02:09:13.542Z",
+      "modified_by": "System Admin",
+      "modified_at": "2026-10-08T02:09:13.542Z"
+    },
+    {
+      "id": "cmuywehbs002jn4sbtlufl5i6",
+      "name": "MetalWorks Fabrication Inc.",
+      "contact_person": "Carlo Reyes",
+      "email": "carlo@metalworks.ph",
+      "phone": "+63 2 8777 2002",
+      "address": "18 Macapagal Blvd, Pasay",
+      "city": "Pasay",
+      "category": "Hardware",
+      "created_by": "System Admin",
+      "created_at": "2026-10-08T02:09:13.528Z",
+      "modified_by": "System Admin",
+      "modified_at": "2026-10-08T02:09:13.527Z"
+    },
+    {
+      "id": "cmuywehby002kn4sbjtgui1nq",
+      "name": "PaperTrail Consumables Co.",
+      "contact_person": "Liza Cruz",
+      "email": "liza@papertrail.ph",
+      "phone": "+63 2 8666 3003",
+      "address": "7 EDSA North, Caloocan",
+      "city": "Caloocan",
+      "category": "Consumables",
+      "created_by": "System Admin",
+      "created_at": "2026-10-08T02:09:13.534Z",
+      "modified_by": "System Admin",
+      "modified_at": "2026-10-08T02:09:13.534Z"
+    },
+    {
+      "id": "cmuywehbo002in4sbk9dyx46n",
+      "name": "TechVantage Manila Distribution",
+      "contact_person": "Ariel Santos",
+      "email": "ariel@techvantage.ph",
+      "phone": "+63 2 8888 1001",
+      "address": "45 Tuazon Ave, Quezon City",
+      "city": "Quezon City",
+      "category": "Electronics",
+      "created_by": "System Admin",
+      "created_at": "2026-10-08T02:09:13.524Z",
+      "modified_by": "System Admin",
+      "modified_at": "2026-10-08T02:09:13.523Z"
+    }
+  ]
+}

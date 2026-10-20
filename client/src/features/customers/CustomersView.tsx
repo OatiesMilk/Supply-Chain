@@ -1,6 +1,6 @@
 import { useState, FormEvent } from 'react';
 import { Plus, X } from 'lucide-react';
-import { Customer, DeliveryRecord } from '@/types';
+import { Customer } from '@/types';
 import CustomerWorkspace from '@/features/customers/CustomerWorkspace';
 import ExportMenu from '@/components/ExportMenu';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
@@ -8,10 +8,8 @@ import { CUSTOMER_COLUMNS } from '@/utils/export';
 
 interface CustomersViewProps {
   customers: Customer[];
-  deliveryRecords: DeliveryRecord[];
   currentUserRole: string;
   currentUserName: string;
-  onNavigate: (screen: string, item_id?: string) => void;
   onCreateCustomer: (data: { name: string; contact_person?: string; email?: string; phone?: string; address?: string; city?: string }) => Promise<void>;
 }
 
@@ -19,10 +17,8 @@ const EMPTY_FORM = { name: '', contact_person: '', email: '', phone: '', address
 
 export default function CustomersView({
   customers,
-  deliveryRecords,
   currentUserRole,
   currentUserName,
-  onNavigate,
   onCreateCustomer
 }: CustomersViewProps) {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
@@ -70,10 +66,8 @@ export default function CustomersView({
         customerId={selectedCustomerId}
         allCustomerIds={customers.map(c => c.id)}
         customers={customers}
-        deliveryRecords={deliveryRecords}
         currentUserRole={currentUserRole}
         onBack={handleBackToList}
-        onNavigate={onNavigate}
         onNavigateToCustomer={handleNavigateToCustomer}
       />
     );
@@ -87,51 +81,42 @@ export default function CustomersView({
     phone: c.phone,
     city: c.city,
     address: c.address,
-    total_records: deliveryRecords.filter(r => r.customer_id === c.id).length,
   }));
 
   return (
-    <div className="space-y-6" id="customers-view-container">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">Merchant Directory &amp; Relations</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Registered merchant accounts used as the validated Company Name lookup on every delivery record.
-            Click any row to open the customer workspace.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {canCreate && (
-            <button
-              onClick={() => { setForm(EMPTY_FORM); setFormError(''); setSaveError(''); setShowCreateForm(true); }}
-              className="flex items-center gap-1.5 bg-[#1F3864] hover:bg-blue-900 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition-all shadow-xs cursor-pointer"
-            >
-              <Plus className="w-4 h-4" /> New Customer
-            </button>
-          )}
-          <ExportMenu
-            rows={exportRows}
-            columns={CUSTOMER_COLUMNS}
-            sheetName="Customers"
-            filename="customers"
-            pdfTitle="Merchant Customer Registry"
-            showPdf={true}
-            pdfPortrait={false}
-            meta={{
-              reportName: 'Merchant Customer Export',
-              generatedByName: currentUserName,
-              generatedByRole: currentUserRole,
-            }}
-          />
-        </div>
-      </div>
-
+    <div className="space-y-4" id="customers-view-container">
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-        <div className="p-4 border-b border-slate-200">
-          <h4 className="text-sm sm:text-base font-bold text-slate-800 uppercase tracking-wider">Merchant Customer Registry</h4>
-          <p className="text-xs sm:text-sm text-slate-500 font-medium">
-            Total record volume across all categories for each registered merchant
-          </p>
+        <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h4 className="text-sm sm:text-base font-bold text-slate-800 uppercase tracking-wider">Merchant Customer Registry</h4>
+            <p className="text-xs sm:text-sm text-slate-500 font-medium">
+              Total record volume across all categories for each registered merchant
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {canCreate && (
+              <button
+                onClick={() => { setForm(EMPTY_FORM); setFormError(''); setSaveError(''); setShowCreateForm(true); }}
+                className="flex items-center gap-1.5 bg-[#1F3864] hover:bg-blue-900 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition-all shadow-xs cursor-pointer"
+              >
+                <Plus className="w-4 h-4" /> New Customer
+              </button>
+            )}
+            <ExportMenu
+              rows={exportRows}
+              columns={CUSTOMER_COLUMNS}
+              sheetName="Customers"
+              filename="customers"
+              pdfTitle="Merchant Customer Registry"
+              showPdf={true}
+              pdfPortrait={false}
+              meta={{
+                reportName: 'Merchant Customer Export',
+                generatedByName: currentUserName,
+                generatedByRole: currentUserRole,
+              }}
+            />
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -142,12 +127,10 @@ export default function CustomersView({
                 <th className="px-4 py-3">Merchant Customer</th>
                 <th className="px-4 py-3">Contact Person</th>
                 <th className="px-4 py-3">City</th>
-                <th className="px-4 py-3 text-center">Records Logged</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {customers.slice((safeCurrentPage - 1) * pageSize, safeCurrentPage * pageSize).map(c => {
-                const totalRecords = deliveryRecords.filter(r => r.customer_id === c.id).length;
                 return (
                   <tr
                     key={c.id}
@@ -156,12 +139,11 @@ export default function CustomersView({
                   >
                     <td className="px-4 py-3.5 font-bold text-slate-400">{c.id}</td>
                     <td className="px-4 py-3.5">
-                      <div className="font-extrabold text-slate-900 text-sm">{c.name}</div>
+                      <div className="font-semibold text-slate-900 text-sm">{c.name}</div>
                       <div className="text-xs text-slate-500 mt-0.5">{c.email}</div>
                     </td>
                     <td className="px-4 py-3.5 text-slate-700 font-extrabold">{c.contact_person}</td>
                     <td className="px-4 py-3.5 text-slate-500 font-bold">{c.city}</td>
-                    <td className="px-4 py-3.5 text-center font-bold text-slate-800">{totalRecords}</td>
                   </tr>
                 );
               })}

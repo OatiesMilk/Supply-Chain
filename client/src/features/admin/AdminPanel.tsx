@@ -1,19 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { Users, ClipboardList, UserX, Plus, ChevronLeft, ChevronRight, Loader2, Check, ShieldCheck, RotateCcw, X, Settings2, Send, Pencil, Link2, Trash2 } from 'lucide-react';
-import { api, ApiPermissionEditor, ApiUserAdmin, ApiAdminAuditEntry, ApiIntegrationStatus, ApiError } from '@/api';
+import { api, ApiDriver, ApiPermissionEditor, ApiUserAdmin, ApiAdminAuditEntry, ApiIntegrationStatus, ApiError } from '@/api';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { ActionDialog } from '@/components/ActionDialog';
+import DashboardFilterChip from '@/components/DashboardFilterChip';
+import { DashboardFilterId } from '@/utils/dashboardFilters';
+import { manilaToday } from '@/utils/recordLifecycle';
 
 import { useAuthStore } from '@/store/authStore';
 
 type Tab = 'users' | 'audit' | 'integrations';
 
-const ROLE_OPTIONS = ['SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'ADMIN'] as const;
+const ROLE_OPTIONS = ['SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'ADMIN', 'DRIVER'] as const;
 const ROLE_LABELS: Record<string, string> = {
   SALES_COORDINATOR: 'Sales Coordinator',
   LOGISTICS: 'Logistics',
   TASS: 'TASS',
-  ADMIN: 'Admin'
+  ADMIN: 'Admin',
+  DRIVER: 'Driver'
 };
 
 interface PermissionsPanelProps {
@@ -185,7 +189,13 @@ function PermissionsPanel({ user, onClose }: PermissionsPanelProps) {
   );
 }
 
-export default function AdminPanel() {
+interface AdminPanelProps {
+  dashboardFilterId: DashboardFilterId | null;
+  clearDashboardFilter: () => void;
+}
+
+export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: AdminPanelProps) {
+  const initialAuditDate = dashboardFilterId === 'admin-audit-today' ? manilaToday() : '';
   const [tab, setTab] = useState<Tab>('users');
 
   // ── User Management ──────────────────────────────────────────────────────────
@@ -193,7 +203,10 @@ export default function AdminPanel() {
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [createForm, setCreateForm] = useState({ name: '', email: '', password: '', role: 'SALES_COORDINATOR' });
+  const [createForm, setCreateForm] = useState({ name: '', email: '', password: '', role: 'SALES_COORDINATOR', driver_profile_id: '', microsoft_oid: '' });
+  // DRIVER logins own runs through a linked Driver profile (TSK-100).
+  const [driverProfiles, setDriverProfiles] = useState<ApiDriver[]>([]);
+  const [linkingUserId, setLinkingUserId] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [userAction, setUserAction] = useState<{ kind: 'deactivate' | 'activate' | 'delete'; user: ApiUserAdmin } | null>(null);
@@ -209,8 +222,9 @@ export default function AdminPanel() {
     setUsersLoading(true);
     setUsersError(null);
     try {
-      const list = await api.getUsers();
+      const [list, profiles] = await Promise.all([api.getUsers(), api.getDrivers(true)]);
       setUsers(list);
+      setDriverProfiles(profiles.filter(p => p.type === 'DRIVER'));
     } catch (err) {
       setUsersError(err instanceof ApiError ? err.message : 'Failed to load users');
     } finally {
@@ -218,20 +232,70 @@ export default function AdminPanel() {
     }
   };
 
+  // Profiles a DRIVER login may link to: unlinked ones, plus its current profile.
+  const linkableProfiles = (current?: string | null) =>
+    driverProfiles.filter(p => !p.is_linked || p.id === current);
+
+  const handleDriverLink = async (user: ApiUserAdmin, profileId: string) => {
+    setLinkingUserId(user.id);
+    setEditNotice(null);
+    try {
+      const { driver_profile } = await api.setUserDriverProfile(user.id, profileId || null);
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, driver_profile } : u));
+      setDriverProfiles((await api.getDrivers(true)).filter(p => p.type === 'DRIVER'));
+    } catch (err) {
+      setEditNotice(err instanceof ApiError ? err.message : 'Failed to update the Driver profile link');
+    } finally {
+      setLinkingUserId(null);
+    }
+  };
+
   useEffect(() => { if (tab === 'users') loadUsers(); }, [tab]);
+
+  useEffect(() => {
+    if (dashboardFilterId === 'admin-active-users') {
+      setTab('users');
+      setAuditAction('');
+      setAuditFrom('');
+      setAuditTo('');
+    } else if (dashboardFilterId === 'admin-audit-today') {
+      const today = manilaToday();
+      setTab('audit');
+      setAuditAction('');
+      setAuditFrom(today);
+      setAuditTo(today);
+      loadAudit(1, auditPageSize, { action: '', from: today, to: today });
+    } else {
+      setAuditFrom('');
+      setAuditTo('');
+      if (dashboardFilterId === null && tab === 'audit') {
+        loadAudit(1, auditPageSize, { action: auditAction, from: '', to: '' });
+      }
+    }
+  }, [dashboardFilterId]); // eslint-disable-line react-hooks/exhaustive-deps -- filter transitions intentionally fetch explicit preset/clear parameters once
+
+  const visibleUsers = dashboardFilterId === 'admin-active-users'
+    ? users.filter(user => user.is_active)
+    : users;
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreateError(null);
     if (!createForm.name || !createForm.email || !createForm.password) {
-      setCreateError('All fields are required');
+      setCreateError('Name, email, and password are required');
       return;
     }
     setCreateLoading(true);
     try {
-      const created = await api.createUser(createForm);
+      const { driver_profile_id, microsoft_oid, ...fields } = createForm;
+      const created = await api.createUser({
+        ...fields,
+        ...(fields.role === 'DRIVER' && driver_profile_id ? { driver_profile_id } : {}),
+        ...(microsoft_oid.trim() ? { microsoft_oid: microsoft_oid.trim() } : {}),
+      });
       setUsers(prev => [...prev, created]);
-      setCreateForm({ name: '', email: '', password: '', role: 'SALES_COORDINATOR' });
+      if (created.role === 'DRIVER') setDriverProfiles((await api.getDrivers(true)).filter(p => p.type === 'DRIVER'));
+      setCreateForm({ name: '', email: '', password: '', role: 'SALES_COORDINATOR', driver_profile_id: '', microsoft_oid: '' });
       setShowCreateForm(false);
     } catch (err) {
       setCreateError(err instanceof ApiError ? err.message : 'Failed to create user');
@@ -258,7 +322,8 @@ export default function AdminPanel() {
         const updated = kind === 'deactivate'
           ? await api.deactivateUser(user.id)
           : await api.activateUser(user.id);
-        setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
+        // Keep the Driver profile link, which this response does not include.
+        setUsers(prev => prev.map(u => u.id === updated.id ? { ...u, ...updated } : u));
       }
       setUserAction(null);
     } catch (err) {
@@ -277,7 +342,10 @@ export default function AdminPanel() {
     setEditLoading(true);
     try {
       const updated = await api.updateUser(userId, editForm);
-      setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
+      // Leaving the DRIVER role unlinks the profile on the server.
+      setUsers(prev => prev.map(u => u.id === updated.id
+        ? { ...u, ...updated, driver_profile: u.role === 'DRIVER' && updated.role === 'DRIVER' ? u.driver_profile : null }
+        : u));
       setEditingUserId(null);
     } catch (err) {
       setEditNotice(err instanceof ApiError ? err.message : 'Failed to update user');
@@ -325,8 +393,8 @@ export default function AdminPanel() {
   // ── Audit Log ────────────────────────────────────────────────────────────────
   const [auditPage, setAuditPage] = useState(1);
   const [auditAction, setAuditAction] = useState('');
-  const [auditFrom, setAuditFrom] = useState('');
-  const [auditTo, setAuditTo] = useState('');
+  const [auditFrom, setAuditFrom] = useState(initialAuditDate);
+  const [auditTo, setAuditTo] = useState(initialAuditDate);
   const [auditEntries, setAuditEntries] = useState<ApiAdminAuditEntry[]>([]);
   const [auditTotal, setAuditTotal] = useState(0);
   const [auditPages, setAuditPages] = useState(1);
@@ -334,16 +402,20 @@ export default function AdminPanel() {
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
 
-  const loadAudit = async (page: number, size = auditPageSize) => {
+  const loadAudit = async (
+    page: number,
+    size = auditPageSize,
+    filters?: { action?: string; from?: string; to?: string },
+  ) => {
     setAuditLoading(true);
     setAuditError(null);
     try {
       const result = await api.getAuditLog({
         page,
         limit: size,
-        action: auditAction || undefined,
-        from: auditFrom || undefined,
-        to: auditTo || undefined
+        action: (filters ? filters.action : auditAction) || undefined,
+        from: (filters ? filters.from : auditFrom) || undefined,
+        to: (filters ? filters.to : auditTo) || undefined
       });
       setAuditEntries(result.entries);
       setAuditTotal(result.total);
@@ -356,7 +428,9 @@ export default function AdminPanel() {
     }
   };
 
-  useEffect(() => { if (tab === 'audit') loadAudit(1); }, [tab]);
+  useEffect(() => {
+    if (tab === 'audit' && dashboardFilterId !== 'admin-audit-today') loadAudit(1);
+  }, [tab]);
 
   const actionBadge = (action: string) => {
     if (action === 'CREATE') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
@@ -372,18 +446,13 @@ export default function AdminPanel() {
     }`;
 
   return (
-    <div className="space-y-6" id="admin-panel">
-      <div className="border-b border-slate-200 pb-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-            Admin Panel
-          </h2>
-          <p className="text-xs text-gray-500 mt-0.5">User management and system audit log.</p>
-        </div>
-      </div>
-
+    <div className="space-y-4" id="admin-panel">
+      <DashboardFilterChip
+        filterId={dashboardFilterId}
+        onClear={clearDashboardFilter}
+      />
       {/* Tab bar */}
-      <div className="flex border-b border-slate-200 -mt-2">
+      <div className="flex border-b border-slate-200">
         <button className={tabClass('users')} onClick={() => setTab('users')}>
           <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> User Management</span>
         </button>
@@ -399,7 +468,7 @@ export default function AdminPanel() {
       {tab === 'users' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-xs text-slate-500 font-semibold">{users.length} registered account{users.length !== 1 ? 's' : ''}</p>
+            <p className="text-xs text-slate-500 font-semibold">{visibleUsers.length} {dashboardFilterId === 'admin-active-users' ? 'active account' : 'registered account'}{visibleUsers.length !== 1 ? 's' : ''}</p>
             <button
               onClick={() => setShowCreateForm(v => !v)}
               className="bg-[#1F3864] hover:bg-blue-900 text-white text-[11px] font-bold uppercase tracking-wider px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer"
@@ -450,6 +519,32 @@ export default function AdminPanel() {
                     {ROLE_OPTIONS.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
                   </select>
                 </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <label htmlFor="create-microsoft-oid" className="font-bold text-slate-700">Microsoft user Object ID (optional)</label>
+                  <input
+                    id="create-microsoft-oid" type="text" value={createForm.microsoft_oid}
+                    onChange={e => setCreateForm(f => ({ ...f, microsoft_oid: e.target.value }))}
+                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                    aria-describedby="create-microsoft-oid-help"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none"
+                  />
+                  <p id="create-microsoft-oid-help" className="text-[11px] text-slate-500">Copy the user's Object ID from their Microsoft Entra profile in the configured tenant. Providing it approves Microsoft sign-in; the email must match their Microsoft email or username. Leave blank for email and password login only.</p>
+                </div>
+                {createForm.role === 'DRIVER' && (
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <label htmlFor="create-driver-profile" className="font-bold text-slate-700">Driver profile</label>
+                    <select
+                      id="create-driver-profile"
+                      value={createForm.driver_profile_id}
+                      onChange={e => setCreateForm(f => ({ ...f, driver_profile_id: e.target.value }))}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none"
+                    >
+                      <option value="">Create a new profile named after this login</option>
+                      {linkableProfiles().map(p => <option key={p.id} value={p.id}>{p.name}{p.is_active ? '' : ' (inactive)'}</option>)}
+                    </select>
+                    <p className="text-[11px] text-slate-500">This login sees only runs assigned to the profile it is linked to.</p>
+                  </div>
+                )}
               </div>
               {createError && (
                 <p className="text-red-600 text-[11px] font-semibold bg-red-50 border border-red-200 rounded px-3 py-2">{createError}</p>
@@ -490,9 +585,9 @@ export default function AdminPanel() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {users.length === 0 ? (
+                  {visibleUsers.length === 0 ? (
                     <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">No users found.</td></tr>
-                  ) : users.map(u => (
+                  ) : visibleUsers.map(u => (
                     <React.Fragment key={u.id}>
                       <tr className="hover:bg-slate-50 transition-all">
                         <td className="px-4 py-3">
@@ -521,6 +616,22 @@ export default function AdminPanel() {
                             <span className="bg-blue-50 text-blue-700 border border-blue-100 text-[10px] px-2 py-0.5 rounded-full font-semibold">
                               {ROLE_LABELS[u.role] ?? u.role}
                             </span>
+                          )}
+                          {u.role === 'DRIVER' && editingUserId !== u.id && (
+                            <div className="mt-1.5 space-y-1">
+                              <label htmlFor={`driver-profile-${u.id}`} className="sr-only">Driver profile for {u.name}</label>
+                              <select
+                                id={`driver-profile-${u.id}`}
+                                value={u.driver_profile?.id ?? ''}
+                                disabled={linkingUserId === u.id}
+                                onChange={e => { void handleDriverLink(u, e.target.value); }}
+                                className={`w-full max-w-[12rem] px-2 py-1 border rounded text-[10px] bg-white disabled:opacity-50 ${u.driver_profile ? 'border-slate-300' : 'border-amber-400 bg-amber-50'}`}
+                              >
+                                <option value="">No Driver profile</option>
+                                {linkableProfiles(u.driver_profile?.id).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                              </select>
+                              {!u.driver_profile && <p className="text-[10px] text-amber-700">Sees no runs until linked.</p>}
+                            </div>
                           )}
                         </td>
                         <td className="px-4 py-3 text-center">

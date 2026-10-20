@@ -1,0 +1,22 @@
+{
+  "name": "e2e",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --import tsx ../automated-tests/run-pyramid.ts",
+    "test:unit": "node --import tsx ../automated-tests/run-pyramid.ts --layer=unit",
+    "test:api": "node --import tsx ../automated-tests/run-pyramid.ts --layer=api",
+    "test:browser": "node --import tsx ../automated-tests/run-pyramid.ts --layer=browser",
+    "test:sso": "node --import tsx ../automated-tests/run-pyramid.ts --layer=browser --sso",
+    "typecheck": "tsc --project tsconfig.json --noEmit"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "docx": "^9.11.0"
+  }
+}

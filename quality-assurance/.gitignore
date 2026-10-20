@@ -1,0 +1,8 @@
+# Local tooling output from UAT runs; regenerable, never committed.
+artifacts/**/npm-cache/
+e2e/node_modules/
+e2e/.auth/
+e2e/test-results/
+e2e/playwright-report/
+# 11 MB oversize fixture; regenerate with e2e/make-fixtures.mjs.
+e2e/fixtures/uat-big.pdf

@@ -1,28 +1,22 @@
 import { Router } from 'express';
 import { prisma } from '../db';
 import { requireResource, requireAuth } from '../middleware/auth';
+import { manilaTodayRange, manilaWeekStart } from '../services/dateSemantics';
 
 const router = Router();
 
-function todayRangeUTC() {
-  const now = new Date();
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
-  return { start, end, dateStr: start.toISOString().split('T')[0] };
-}
-
 router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res) => {
-  const { start, end, dateStr } = todayRangeUTC();
+  const { start, end, dateStr } = manilaTodayRange();
   const role = req.user!.role;
 
   // ── SALES_COORDINATOR ────────────────────────────────────────────────────────
   if (role === 'SALES_COORDINATOR') {
     const [deliveriesToday, pendingDriverAssignment, onHold, rescheduled, accomplishedToday] = await Promise.all([
-      prisma.deliveryRecord.count({ where: { deletedAt: null, deliveryDate: dateStr, status: 'SCHEDULED' } }),
-      prisma.deliveryRecord.count({ where: { deletedAt: null, driver: '', status: { not: 'ACCOMPLISHED' } } }),
-      prisma.deliveryRecord.count({ where: { deletedAt: null, status: 'ON_HOLD' } }),
-      prisma.deliveryRecord.count({ where: { deletedAt: null, status: 'RESCHEDULED' } }),
-      prisma.deliveryRecord.count({ where: { deletedAt: null, status: 'ACCOMPLISHED', updatedAt: { gte: start, lt: end } } })
+      prisma.deliveryRecord.count({ where: { deletedAt: null, category: 'DELIVERY', draft: false, deliveryDate: dateStr, status: 'SCHEDULED' } }),
+      prisma.deliveryRecord.count({ where: { deletedAt: null, category: 'DELIVERY', draft: false, driver: '', status: { not: 'ACCOMPLISHED' } } }),
+      prisma.deliveryRecord.count({ where: { deletedAt: null, category: 'DELIVERY', draft: false, status: 'ON_HOLD' } }),
+      prisma.deliveryRecord.count({ where: { deletedAt: null, category: 'DELIVERY', draft: false, status: 'RESCHEDULED' } }),
+      prisma.deliveryRecord.count({ where: { deletedAt: null, category: 'DELIVERY', draft: false, status: 'ACCOMPLISHED', timeOut: { gte: start.toISOString(), lt: end.toISOString() } } })
     ]);
     return res.json({
       role: 'SALES_COORDINATOR',
@@ -38,16 +32,16 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
   if (role === 'LOGISTICS') {
     const [assignedToday, unassignedCount, completedToday, onHoldRescheduled] = await Promise.all([
       prisma.deliveryRecord.count({
-        where: { deletedAt: null, deliveryDate: dateStr, NOT: { driver: '' }, status: { not: 'ACCOMPLISHED' } }
+        where: { deletedAt: null, category: 'DELIVERY', draft: false, deliveryDate: dateStr, NOT: { driver: '' }, status: { not: 'ACCOMPLISHED' } }
       }),
       prisma.deliveryRecord.count({
-        where: { deletedAt: null, driver: '', status: { not: 'ACCOMPLISHED' } }
+        where: { deletedAt: null, category: 'DELIVERY', draft: false, driver: '', status: { not: 'ACCOMPLISHED' } }
       }),
       prisma.deliveryRecord.count({
-        where: { deletedAt: null, status: 'ACCOMPLISHED', updatedAt: { gte: start, lt: end } }
+        where: { deletedAt: null, category: 'DELIVERY', draft: false, status: 'ACCOMPLISHED', timeOut: { gte: start.toISOString(), lt: end.toISOString() } }
       }),
       prisma.deliveryRecord.count({
-        where: { deletedAt: null, status: { in: ['ON_HOLD', 'RESCHEDULED'] } }
+        where: { deletedAt: null, category: 'DELIVERY', draft: false, status: { in: ['ON_HOLD', 'RESCHEDULED'] } }
       })
     ]);
     return res.json({
@@ -96,10 +90,7 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
 
   // ── ADMIN ─────────────────────────────────────────────────────────────────────
   if (role === 'ADMIN') {
-    const now = new Date();
-    const weekStart = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - now.getUTCDay())
-    );
+    const weekStart = manilaWeekStart(dateStr);
 
     const [
       activeUsers,

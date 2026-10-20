@@ -117,3 +117,93 @@ test('Logistics has view-only access to RMA records on update', async () => {
     await close();
   }
 });
+
+const loginAs = async (url: string, row: ReturnType<typeof createUser>) => {
+  const login = await fetch(`${url}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: row.email, password: 'test-password' }),
+  });
+  assert.equal(login.status, 200);
+  return { Cookie: login.headers.get('set-cookie')!.split(';')[0] };
+};
+
+const withListMocks = async (role: string, run: (url: string, headers: Record<string, string>, calls: any[]) => Promise<void>, driverProfile: { id: string; type: string } | null = { id: 'profile-1', type: 'DRIVER' }) => {
+  const { url, close } = await setupApp();
+  const row = { ...createUser(role), driverProfile: role === 'DRIVER' ? driverProfile : null };
+  const calls: any[] = [];
+  const originalUserLookup = prisma.user.findUnique;
+  const originalFindMany = prisma.deliveryRecord.findMany;
+  prisma.user.findUnique = mock.fn(async () => row) as any;
+  prisma.deliveryRecord.findMany = mock.fn(async (args: any) => { calls.push(args); return []; }) as any;
+  try {
+    await run(url, await loginAs(url, row), calls);
+  } finally {
+    prisma.user.findUnique = originalUserLookup;
+    prisma.deliveryRecord.findMany = originalFindMany;
+    await close();
+  }
+};
+
+test('Company history filters by company_id and keeps the role scope', async () => {
+  await withListMocks('SALES_COORDINATOR', async (url, headers, calls) => {
+    const res = await fetch(`${url}/records?company_id=comp-1&limit=25`, { headers });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), []);
+    const args = calls[0];
+    assert.equal(args.where.companyId, 'comp-1');
+    assert.equal(args.where.deletedAt, null);
+    assert.equal(args.take, 25);
+    assert.ok(Array.isArray(args.where.AND) && args.where.AND[0].category.in.length > 0);
+  });
+});
+
+test('Company history for TASS stays limited to RMA and Accounting Collection', async () => {
+  await withListMocks('TASS', async (url, headers, calls) => {
+    const res = await fetch(`${url}/records?company_id=comp-1`, { headers });
+    assert.equal(res.status, 200);
+    const allowed: string[] = calls[0].where.AND[0].category.in;
+    assert.ok(allowed.every(c => ['RMA', 'ACCOUNTING_COLLECTION'].includes(c)));
+  });
+});
+
+test('Company history for drivers only returns their own non-draft records', async () => {
+  await withListMocks('DRIVER', async (url, headers, calls) => {
+    const res = await fetch(`${url}/records?company_id=comp-1`, { headers });
+    assert.equal(res.status, 200);
+    const scope = calls[0].where.AND[0];
+    assert.equal(scope.driverId, 'profile-1');
+    assert.equal(scope.driver, undefined);
+    assert.equal(scope.draft, false);
+  });
+});
+
+test('a Driver login without a linked profile sees no records, even with a matching name', async () => {
+  await withListMocks('DRIVER', async (url, headers, calls) => {
+    const res = await fetch(`${url}/records`, { headers });
+    assert.equal(res.status, 200);
+    const scope = calls[0].where.AND[0];
+    assert.deepEqual(scope.id, { in: [] });
+    assert.equal(scope.driverId, undefined);
+  }, null);
+});
+
+test('Record list maps the category filter and paginates with a cursor', async () => {
+  await withListMocks('SALES_COORDINATOR', async (url, headers, calls) => {
+    const res = await fetch(`${url}/records?company_id=comp-1&category=RMA&limit=10&cursor=REC-10001`, { headers });
+    assert.equal(res.status, 200);
+    assert.equal(calls[0].where.category, 'RMA');
+    assert.deepEqual(calls[0].cursor, { id: 'REC-10001' });
+    assert.equal(calls[0].skip, 1);
+  });
+});
+
+test('Record list rejects invalid filters', async () => {
+  await withListMocks('SALES_COORDINATOR', async (url, headers, calls) => {
+    for (const query of ['company_id=bad%20id', 'category=Unknown', 'limit=0', 'limit=101', 'limit=abc', 'cursor=REC-1']) {
+      const res = await fetch(`${url}/records?${query}`, { headers });
+      assert.equal(res.status, 400, query);
+    }
+    assert.equal(calls.length, 0);
+  });
+});

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { PrismaClient } from '@prisma/client';
-import { assignmentError, createDriverDirectory, DriverConflictError, driverInputError, parseCoverageAreas, readDriverDirectory, updateDriverDirectory, withDriverDirectoryLock } from '../src/services/driverDirectory';
+import { assignmentError, createDriverDirectory, DriverConflictError, driverInputError, parseCoverageAreas, readDriverDirectory, resolveDriverAssignment, updateDriverDirectory, withDriverDirectoryLock } from '../src/services/driverDirectory';
 import { asyncRoute } from '../src/middleware/asyncRoute';
 import { planHistoricalDrivers } from '../src/services/historicalDrivers';
 
@@ -41,21 +41,65 @@ test('deactivation retains IDs, audits the change, and is idempotent with or wit
   assert.equal(audits.length, 2);
 });
 
-test('new assignments require an active matching directory entry; historical assignments can remain', async () => {
+test('new assistant assignments require an active matching directory entry; historical assistants can remain', async () => {
   const lookups: any[] = [];
   const db = { driver: { findFirst: async ({ where }: any) => {
     lookups.push(where);
-    return where.name.equals === 'Active' && where.type === 'DRIVER' ? { id: 'active' } : null;
+    return where.name.equals === 'Active assistant' && where.type === 'ASSISTANT' ? { id: 'active' } : null;
   } } } as unknown as PrismaClient;
-  const history = { driver: 'Inactive', driverAssistants: '["Old assistant"]' };
+  const history = { driverAssistants: '["Old assistant"]' };
   assert.equal(await assignmentError(db, history, {}), null);
-  assert.equal(await assignmentError(db, history, { driver: 'Inactive', driverAssistants: '["Old assistant"]' }), null);
+  assert.equal(await assignmentError(db, history, { driverAssistants: '["Old assistant"]' }), null);
   assert.equal(lookups.length, 0);
-  assert.equal(await assignmentError(db, history, { driver: 'Active' }), null);
-  assert.match((await assignmentError(db, history, { driver: 'Other inactive' }))!, /inactive/);
+  assert.equal(await assignmentError(db, history, { driverAssistants: '["Old assistant", "Active assistant"]' }), null);
   assert.match((await assignmentError(db, history, { driverAssistants: '["Old assistant", "Inactive assistant"]' }))!, /inactive/);
-  assert.equal(await assignmentError(db, history, { driver: '', driverAssistants: '[]' }), null);
+  assert.equal(await assignmentError(db, history, { driverAssistants: '[]' }), null);
   assert.ok(lookups.every(where => where.isActive === true));
+});
+
+test('Driver assignments resolve to a stable active profile id; the name is only copied for display', async () => {
+  const profiles = [
+    { id: 'profile-active', name: 'Pat Cruz', type: 'DRIVER', isActive: true },
+    { id: 'profile-inactive', name: 'Old Driver', type: 'DRIVER', isActive: false },
+    { id: 'profile-assistant', name: 'Helper', type: 'ASSISTANT', isActive: true },
+  ];
+  const db = { driver: {
+    findUnique: async ({ where }: any) => profiles.find(p => p.id === where.id) ?? null,
+    findFirst: async ({ where }: any) => profiles.find(p => p.name.toLowerCase() === where.name.equals.toLowerCase() && p.type === where.type && p.isActive === where.isActive) ?? null,
+  } } as unknown as PrismaClient;
+  const unassigned = { driver: '', driverId: null };
+  assert.deepEqual(await resolveDriverAssignment(db, unassigned, { id: 'profile-active' }), { driverId: 'profile-active', driver: 'Pat Cruz' });
+  assert.deepEqual(await resolveDriverAssignment(db, unassigned, { name: ' pat cruz ' }), { driverId: 'profile-active', driver: 'Pat Cruz' });
+  assert.match((await resolveDriverAssignment(db, unassigned, { id: 'profile-inactive' }) as any).error, /inactive/);
+  assert.match((await resolveDriverAssignment(db, unassigned, { name: 'Old Driver' }) as any).error, /inactive/);
+  assert.match((await resolveDriverAssignment(db, unassigned, { id: 'profile-assistant' }) as any).error, /directory/);
+  assert.match((await resolveDriverAssignment(db, unassigned, { id: 'missing' }) as any).error, /directory/);
+  // Keeping a historical assignment never requires the profile to still be active.
+  const historical = { driver: 'Old Driver', driverId: 'profile-inactive' };
+  assert.deepEqual(await resolveDriverAssignment(db, historical, { id: 'profile-inactive' }), historical);
+  assert.deepEqual(await resolveDriverAssignment(db, historical, { name: 'Old Driver' }), historical);
+  assert.deepEqual(await resolveDriverAssignment(db, historical, { id: null }), { driverId: null, driver: '' });
+  assert.deepEqual(await resolveDriverAssignment(db, historical, { name: '' }), { driverId: null, driver: '' });
+});
+
+test('renaming a Driver profile keeps ownership and refreshes the record display name; linked or assigned profiles keep their type', async () => {
+  let row: any = { id: 'profile-1', name: 'Pat', type: 'DRIVER', isActive: true, userId: 'login-1' };
+  const recordUpdates: any[] = [];
+  const tx = {
+    $executeRaw: async () => 0,
+    driver: { findUnique: async () => row, findFirst: async () => null, update: async ({ data }: any) => (row = { ...row, ...data }) },
+    deliveryRecord: { updateMany: async (args: any) => { recordUpdates.push(args); return { count: 2 }; }, count: async () => 2 },
+    auditLog: { create: async () => ({}) },
+  };
+  const db = { $transaction: async (fn: any) => fn(tx) } as unknown as PrismaClient;
+  const actor = { id: 'admin-1', name: 'Admin' };
+  await updateDriverDirectory(db, 'profile-1', { name: 'Patricia' }, actor);
+  assert.deepEqual(recordUpdates, [{ where: { driverId: 'profile-1' }, data: { driver: 'Patricia' } }]);
+  assert.equal(row.userId, 'login-1');
+  await assert.rejects(updateDriverDirectory(db, 'profile-1', { type: 'ASSISTANT' }, actor), DriverConflictError);
+  row = { ...row, userId: null };
+  await assert.rejects(updateDriverDirectory(db, 'profile-1', { type: 'ASSISTANT' }, actor), DriverConflictError, 'Assigned runs also keep the type');
+  assert.equal(row.type, 'DRIVER');
 });
 
 test('historical imports skip existing inactive identities, deduplicate, and never activate new entries', () => {
@@ -73,7 +117,10 @@ test('invalid types and coverage payloads are rejected; malformed legacy coverag
   assert.ok(driverInputError({ coverage_areas: 'Makati' }));
   assert.ok(driverInputError({ coverage_areas: [42] }));
   assert.ok(driverInputError({ is_active: 'false' }));
-  assert.equal(driverInputError({ coverage_areas: ['Makati'], is_active: false }), null);
+  assert.equal(driverInputError({ coverage_areas: ['Makati CBD', 'Ortigas Corridor'], is_active: false }), null);
+  // TSK-115: only canonical Areas / Subregions are accepted.
+  assert.match(driverInputError({ coverage_areas: ['Makati'] })!, /Not recognised: Makati/);
+  assert.match(driverInputError({ coverage_areas: ['Makati CBD', 'Makatii', 'Metro Manila'] })!, /Makatii, Metro Manila/);
   assert.deepEqual(parseCoverageAreas('malformed'), []);
   assert.deepEqual(parseCoverageAreas('null'), []);
   assert.deepEqual(parseCoverageAreas('["Makati", null, 42]'), ['Makati']);
@@ -133,7 +180,7 @@ test('assignment validation waits for a concurrent deactivation and sees the com
   const { db, rows } = lockedDirectory();
   rows.push({ id: 'driver-1', name: 'Pat', type: 'DRIVER', isActive: true });
   const deactivate = updateDriverDirectory(db, 'driver-1', { isActive: false }, { id: 'admin', name: 'Admin' }, true);
-  const assignment = withDriverDirectoryLock(db, tx => assignmentError(tx, { driver: '', driverAssistants: '[]' }, { driver: 'Pat' }));
+  const assignment = withDriverDirectoryLock(db, tx => resolveDriverAssignment(tx, { driver: '', driverId: null }, { id: 'driver-1' }));
   await deactivate;
-  assert.match((await assignment)!, /inactive/);
+  assert.match((await assignment as any).error, /inactive/);
 });

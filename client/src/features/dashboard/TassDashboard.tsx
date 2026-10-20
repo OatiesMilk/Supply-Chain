@@ -1,3 +1,4 @@
+import { manilaToday } from '@/utils/recordLifecycle';
 import {
   RotateCcw,
   Clock,
@@ -10,11 +11,12 @@ import {
 } from "lucide-react";
 import { DeliveryRecord } from "@/types";
 import { ApiDashboardStats } from "@/api";
+import { DashboardFilterId, filterRecordsForDashboard } from '@/utils/dashboardFilters';
 
 interface Props {
   stats: Extract<ApiDashboardStats, { role: "TASS" }> | null;
   deliveryRecords: DeliveryRecord[];
-  onNavigate: (screen: string, item_id?: string) => void;
+  onNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
   onRefresh?: () => void;
 }
 
@@ -38,43 +40,26 @@ export default function TassDashboard({
   // KPI values — fall back to computing from deliveryRecords when stats haven't loaded
   const openRma =
     stats?.open_rma ??
-    deliveryRecords.filter(
-      (r) =>
-        r.category === "RMA" &&
-        (r.status === "Scheduled" || r.status === "Pending"),
-    ).length;
+    filterRecordsForDashboard(deliveryRecords, 'tass-open-rma').length;
 
   const rmaOnHold =
     stats?.rma_on_hold ??
-    deliveryRecords.filter(
-      (r) => r.category === "RMA" && r.status === "On-Hold",
-    ).length;
+    filterRecordsForDashboard(deliveryRecords, 'tass-rma-on-hold').length;
 
   const pendingProcurementPickup =
     stats?.pending_procurement_pickup ??
-    deliveryRecords.filter(
-      (r) =>
-        r.category === "Procurement Pick-up" &&
-        (r.status === "Scheduled" || r.status === "Pending"),
-    ).length;
+    filterRecordsForDashboard(deliveryRecords, 'tass-pending-pickups').length;
 
   const pendingVerification =
     stats?.pending_verification ??
-    deliveryRecords.filter(
-      (r) =>
-        r.category === "Accounting Collection" &&
-        r.status === "Delivered" &&
-        !r.collection_verified,
-    ).length;
+    filterRecordsForDashboard(deliveryRecords, 'tass-pending-verification').length;
 
   const verifiedToday =
     stats?.verified_today ??
     (() => {
-      const today = new Date().toISOString().split("T")[0];
+      const today = manilaToday();
       return deliveryRecords.filter(
-        (r) =>
-          r.collection_verified &&
-          r.collection_verified_at?.slice(0, 10) === today,
+        (record) => record.collection_verified && record.collection_verified_at?.slice(0, 10) === today,
       ).length;
     })();
 
@@ -96,8 +81,8 @@ export default function TassDashboard({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Open RMA Records */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-blue-500 flex items-center justify-between gap-3 hover:border-blue-400 transition-all cursor-pointer"
-          onClick={() => onNavigate("rma")}
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-blue-400 transition-all cursor-pointer"
+          onClick={() => onNavigate("rma", undefined, 'tass-open-rma')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -119,8 +104,8 @@ export default function TassDashboard({
 
         {/* RMA On-Hold */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-red-500 flex items-center justify-between gap-3 hover:border-red-400 transition-all cursor-pointer"
-          onClick={() => onNavigate("rma")}
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-red-400 transition-all cursor-pointer"
+          onClick={() => onNavigate("rma", undefined, 'tass-rma-on-hold')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -130,8 +115,7 @@ export default function TassDashboard({
               {rmaOnHold}
             </h3>
             <span className="text-xs text-red-600 font-extrabold flex items-center gap-1 mt-2">
-              Blocked — needs action{" "}
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              Blocked — needs action
             </span>
           </div>
           <div
@@ -143,8 +127,8 @@ export default function TassDashboard({
 
         {/* Procurement Pick-ups Pending */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-purple-500 flex items-center justify-between gap-3 hover:border-purple-400 transition-all cursor-pointer"
-          onClick={() => onNavigate("procurement_pickup")}
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-purple-400 transition-all cursor-pointer"
+          onClick={() => onNavigate("procurement_pickup", undefined, 'tass-pending-pickups')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -166,8 +150,8 @@ export default function TassDashboard({
 
         {/* Collections Pending Verification */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-amber-400 flex items-center justify-between gap-3 hover:border-amber-300 transition-all cursor-pointer"
-          onClick={() => onNavigate("accounting_collection")}
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-amber-300 transition-all cursor-pointer"
+          onClick={() => onNavigate("accounting_collection", undefined, 'tass-pending-verification')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -179,8 +163,7 @@ export default function TassDashboard({
             <span className="text-xs text-amber-600 font-extrabold flex items-center gap-1 mt-1">
               {verifiedToday > 0
                 ? `${verifiedToday} verified today`
-                : "Awaiting TASS sign-off"}{" "}
-              <Clock className="w-3.5 h-3.5 shrink-0" />
+                : "Awaiting TASS sign-off"}
             </span>
           </div>
           <div
