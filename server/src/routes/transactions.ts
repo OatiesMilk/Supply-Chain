@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/auth';
 import { asyncRoute } from '../middleware/asyncRoute';
 import { canAccessTransactions, canAccessInventoryTransactions, transactionRecordScope } from '../services/transactionAccess';
 import { CATEGORY_FROM_DB, STATUS_FROM_DB, parseDriverAssistants } from '../mappings';
+import { visibleRecordAuditSnapshots } from '../services/recordAuditVisibility';
 
 const router = Router();
 
@@ -164,9 +165,10 @@ router.get('/:source/:id', requireAuth, requireTransactionAccess, asyncRoute(asy
       orderBy: { timestamp: 'asc' }
     });
 
-    const timeline = auditEntries.map(e => {
-      const prev = e.previousValue ? JSON.parse(e.previousValue) : null;
-      const next = e.newValue       ? JSON.parse(e.newValue)       : null;
+    const snapshots = await visibleRecordAuditSnapshots(auditEntries, user);
+    const timeline = auditEntries.map((e, index) => {
+      const prev = snapshots[index].previousValue;
+      const next = snapshots[index].newValue;
 
       let event_type = 'field_update';
       let label      = 'Record updated';

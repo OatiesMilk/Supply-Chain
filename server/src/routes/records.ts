@@ -5,6 +5,7 @@ import { asyncRoute } from '../middleware/asyncRoute';
 import { assignmentError, resolveDriverAssignment, withDriverDirectoryLock, type DriverChange } from '../services/driverDirectory';
 import { requireAuth, requireRole, requireResource } from '../middleware/auth';
 import { writeAuditLog } from '../services/audit';
+import { visibleRecordAuditSnapshots } from '../services/recordAuditVisibility';
 import { notifyAccomplished } from '../services/notify';
 import { notifyRole, notifyUser } from '../services/inAppNotify';
 import { CATEGORY_TO_DB, STATUS_TO_DB, STATUS_FROM_DB, serializeRecord } from '../mappings';
@@ -604,24 +605,25 @@ router.get('/:id', requireAuth, requireResource('records'), requireRecordAccess,
   res.json(serializeRecord(record, req.user!));
 });
 
-router.get('/:id/audit', requireAuth, requireResource('records'), requireRecordAccess, async (req, res) => {
+router.get('/:id/audit', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
   const entries = await prisma.auditLog.findMany({
     where: { recordId: req.params.id, recordType: 'DeliveryRecord' },
     include: { changedBy: true },
     orderBy: { timestamp: 'desc' }
   });
 
+  const snapshots = await visibleRecordAuditSnapshots(entries, req.user!);
   res.json(
-    entries.map(e => ({
+    entries.map((e, index) => ({
       id: e.id,
       action: e.action,
       changed_by: e.changedBy.name,
-      previous_value: e.previousValue ? JSON.parse(e.previousValue) : null,
-      new_value: e.newValue ? JSON.parse(e.newValue) : null,
+      previous_value: snapshots[index].previousValue,
+      new_value: snapshots[index].newValue,
       timestamp: e.timestamp
     }))
   );
-});
+}));
 
 router.get('/:id/attachments', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
   const attachments = await prisma.podAttachment.findMany({

@@ -1,6 +1,6 @@
 # Staging readiness audit — 2026-10-20
 
-**Recommendation: hold promotion until the record disclosure and stock concurrency defects below are fixed or explicitly accepted for isolated staging.** Current automated gates pass; they do not cover these cases.
+**Original audit recommendation: hold promotion until the record disclosure and stock concurrency defects below are fixed or explicitly accepted for isolated staging.** The findings below describe the audited baseline; see the remediation follow-up for subsequent changes.
 
 Reviewed `dev` at `8a75e692571f709a678354df56679ad6888496a4` against local staging reference `c637547a0c4577b10a59550a2485b72ab9e7529c`. This is a focused staging-readiness audit of the current project, not a claim that every finding was introduced after staging. No application code, deployment settings, accounts, or business data were changed. Existing untracked QA outputs were preserved.
 
@@ -83,3 +83,13 @@ Not performed: new live browser UAT, cloud DB migration rehearsal, real storage 
 ## Promotion path
 
 Fix or explicitly accept findings 1–2 for this isolated staging environment; fix findings 3–4 before accepting the affected workflows. Run focused regression tests, retain the current release-owner clearance, and execute the agreed post-deployment Driver linking and SC → Logistics → Driver handoff UAT on the exact promoted build. Include private POD reload/download, denied-role reads, date completeness, stock integrity, and notification outcomes in acceptance evidence.
+
+## Remediation follow-up — 2026-10-20
+
+The staging audit fix branch addresses both high-priority findings. Record responses redact unreadable linked collections and IDs, and link edits enforce the caller's record scope. Audit-history and transaction-timeline responses also filter historical linked-record snapshots against current permissions and ownership, including legacy field names, missing/deleted targets and conflicting IDs. Stored audit evidence is preserved; target visibility is resolved in one batch per response.
+
+Stock adjustments acquire PostgreSQL row locks on the product and inventory rows before reading the balance, with an additional per-product process mutex. Competing deductions therefore read the committed balance before stock validation and ledger creation. Regression coverage includes the two competing deductions of 7 from an opening quantity of 10: one succeeds and one is rejected.
+
+Findings 3–4 remain outside this remediation. Mocked regression coverage does not replace post-deployment UAT or a multi-process PostgreSQL concurrency exercise. The original baseline validation above must not be interpreted as CI results for the fix branch.
+
+Local remediation validation: 247 server tests and all 29 reported client test files passed with no failures or skips; client and server TypeScript checks passed. The two new history-route regression tests also passed when executed directly. Current-branch diff whitespace checks passed.
