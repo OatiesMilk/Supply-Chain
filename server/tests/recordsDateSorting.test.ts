@@ -17,7 +17,9 @@ async function list(query: Record<string, string>, rows: any[] = []) {
     calls.push(args);
     return rows;
   }) as any;
-  prisma.deliveryRecord.count = mock.fn(async () => rows.length) as any;
+  prisma.deliveryRecord.count = mock.fn(async ({ where }: any) =>
+    where?.AND?.some((filter: any) => filter?.deliveryDate?.not === '') ? 3 : rows.length
+  ) as any;
   const layer = (records as any).stack.find((entry: any) => entry.route?.path === '/' && entry.route.methods.get);
   assert.ok(layer, 'records list GET route must exist');
   let status = 200;
@@ -34,15 +36,24 @@ async function list(query: Record<string, string>, rows: any[] = []) {
   return { status, body, calls };
 }
 
-test('oldest and furthest date sorting order the scoped query before the page offset', async () => {
+test('oldest and furthest sort dates globally, with blank dates in a separate final partition', async () => {
   for (const [sort, direction] of [['oldest', 'asc'], ['furthest', 'desc']] as const) {
-    const result = await list({ dateSort: sort, page: '2' });
-    assert.equal(result.status, 200);
-    assert.equal(result.calls.length, 1);
-    assert.deepEqual(result.calls[0].orderBy, [{ deliveryDate: direction }, { id: 'asc' }]);
-    assert.equal(result.calls[0].skip, 2);
-    assert.equal(result.calls[0].take, 3);
-    assert.ok(result.calls[0].where.AND.length > 0, 'scoped conditions retained');
+    const pageTwo = await list({ dateSort: sort, page: '2' });
+    assert.equal(pageTwo.status, 200);
+    assert.equal(pageTwo.calls.length, 2); // dated remainder plus undated fill
+    assert.deepEqual(pageTwo.calls[0].orderBy, [{ deliveryDate: direction }, { id: 'asc' }]);
+    assert.equal(pageTwo.calls[0].skip, 2);
+    assert.equal(pageTwo.calls[0].take, 2);
+    assert.ok(pageTwo.calls[0].where.AND[0].AND, 'scope preserved for dated rows');
+    assert.deepEqual(pageTwo.calls[1].orderBy, [{ id: 'asc' }]);
+    assert.equal(pageTwo.calls[1].skip, 0);
+    assert.equal(pageTwo.calls[1].take, 2);
+    assert.equal(pageTwo.body.nextCursor, null);
+
+    const pageThree = await list({ dateSort: sort, page: '3' });
+    assert.equal(pageThree.calls.length, 1); // past all dated rows
+    assert.deepEqual(pageThree.calls[0].orderBy, [{ id: 'asc' }]);
+    assert.equal(pageThree.calls[0].skip, 1);
   }
 });
 
