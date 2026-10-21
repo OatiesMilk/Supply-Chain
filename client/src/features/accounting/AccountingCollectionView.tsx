@@ -13,6 +13,7 @@ import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus } from '@/ty
 import { AREAS, PRIORITIES, ITEM_TYPES, DELIVERY_STATUSES, ACCOUNT_MANAGERS, acStatusLabel } from '@/data';
 import { ApiCompany, api, apiUrl } from '@/api';
 import { usePagedRecordsQuery, normalizeApiRecord } from '@/api/queries/useRecordsQuery';
+import { sortDeliveryRows } from '@/utils/dateSort';
 import AccountingCollectionWorkspace from '@/features/accounting/AccountingCollectionWorkspace';
 import { WorkspaceDraftProvider } from '@/features/deliveries/WorkspaceDrafts';
 import { POD_ATTACHMENT_ACCEPT, getPodAttachmentRejection } from '@/utils/attachmentValidation';
@@ -374,20 +375,7 @@ export default function AccountingCollectionView({
   // Date sort — a named helper so we can reuse it for both the local fallback
   // list and the server-paged rows.
   const _now = Date.now();
-  const sortRows = <T extends { delivery_date?: string | null }>(rows: T[]): T[] => {
-    if (dateSort === 'default') return rows;
-    return [...rows].sort((a, b) => {
-      const da = a.delivery_date ? new Date(a.delivery_date + 'T12:00:00').getTime() : null;
-      const db = b.delivery_date ? new Date(b.delivery_date + 'T12:00:00').getTime() : null;
-      if (!da && !db) return 0;
-      if (!da) return 1;
-      if (!db) return -1;
-      if (dateSort === 'nearest')  return Math.abs(da - _now) - Math.abs(db - _now);
-      if (dateSort === 'oldest')   return da - db;
-      if (dateSort === 'furthest') return db - da;
-      return 0;
-    });
-  };
+  const sortRows = <T extends { delivery_date?: string | null }>(rows: T[]) => sortDeliveryRows(rows, dateSort, _now);
   const sortedFiltered = sortRows(filtered);
 
   const displayTotalCount = pagedData ? pagedData.total : sortedFiltered.length;
@@ -403,7 +391,7 @@ export default function AccountingCollectionView({
 
   // Apply the client-side sort to server-paged rows so the sort dropdown
   // works even when the API does not support an order-by parameter.
-  const displayRecords = pagedData ? (dateSort === 'nearest' ? sortRows(pagedData.rows) : pagedData.rows) : paginatedRecords;
+  const displayRecords = pagedData ? pagedData.rows : paginatedRecords;
 
   // If a record is selected, render full-page workspace
   if (selectedRecordId) {
