@@ -341,6 +341,7 @@ export default function AccountingCollectionView({
 
   const { data: pagedData, isLoading: pagedLoading } = usePagedRecordsQuery({
     category: CATEGORY,
+    dateSort,
     page: currentPage,
     limit: pageSize,
     status: statusFilter !== 'All' ? statusFilter : undefined,
@@ -402,7 +403,7 @@ export default function AccountingCollectionView({
 
   // Apply the client-side sort to server-paged rows so the sort dropdown
   // works even when the API does not support an order-by parameter.
-  const displayRecords = pagedData ? sortRows(pagedData.rows) : paginatedRecords;
+  const displayRecords = pagedData ? (dateSort === 'nearest' ? sortRows(pagedData.rows) : pagedData.rows) : paginatedRecords;
 
   // If a record is selected, render full-page workspace
   if (selectedRecordId) {
