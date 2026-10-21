@@ -12,7 +12,7 @@ import { CATEGORY_TO_DB, STATUS_TO_DB, STATUS_FROM_DB, serializeRecord } from '.
 import { recordActiveCounts } from '../services/activeRecordCounts';
 import { pipeline } from 'node:stream/promises';
 import { discardUpload, podStorage, podUpload } from '../services/podStorage';
-import { DELIVERY_PHOTO_REQUIRED, hasStoredDeliveryPhoto, inspectUpload, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
+import { DELIVERY_PHOTO_REQUIRED, findVerifiedDeliveryPhoto, hasStoredDeliveryPhoto, inspectUpload, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
 import { ATTACHMENT_QUOTA_EXCEEDED, attachmentQuotaError } from '../services/attachmentRules';
 
 import { canWriteCategory, isAssignedDriver, recordScope } from '../services/recordAccess';
@@ -1141,6 +1141,12 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   const newDeliveryDate = req.body.delivery_date;
   const hasNewDeliveryDate = newDeliveryDate !== undefined && newDeliveryDate !== null && newDeliveryDate !== '';
   if (hasNewDeliveryDate && !isValidDateOnly(newDeliveryDate)) return res.status(400).json({ error: 'New delivery date must be a valid YYYY-MM-DD date.' });
+  // WAN storage downloads and image decoding can exceed Prisma's default 5s
+  // transaction limit. Verify the actual persisted bytes before acquiring the
+  // record lock; the transaction below still validates the identical attachment.
+  const verifiedPod = status === 'Delivered'
+    ? await findVerifiedDeliveryPhoto(prisma, req.params.id)
+    : null;
   const result = await prisma.$transaction(async tx => {
     await lockPodRecord(tx, req.params.id);
     const current = await tx.deliveryRecord.findUnique({ where: { id: req.params.id }, include: recordInclude });
@@ -1177,7 +1183,15 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     if (statusChanged && status === 'Delivered') {
       if (!isoTimestamp(current.timeIn)) return { error: 'Record a valid Time In before completing this run.', saved: null, previous: null };
       if (!String(received_by ?? current.receivedBy ?? '').trim()) return { error: 'Received By is required before completing this run.', saved: null, previous: null };
-      if (!await hasStoredDeliveryPhoto(tx, current.id)) return { error: DELIVERY_PHOTO_REQUIRED, saved: null, previous: null };
+      if (!verifiedPod || !await tx.podAttachment.findFirst({
+        where: {
+          id: verifiedPod.id,
+          recordId: current.id,
+          storageKey: verifiedPod.storageKey,
+          mimeType: verifiedPod.mimeType,
+          size: verifiedPod.size,
+        },
+      })) return { error: DELIVERY_PHOTO_REQUIRED, saved: null, previous: null };
       data.receivedBy = String(received_by ?? current.receivedBy).trim();
       const completedAt = new Date();
       data.timeOut = completedAt.toISOString();
