@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DATE_RANGE_ERROR, dateRangeAfterFromChange, dateRangeState } from '../dateRange';
+import { sortDeliveryRows } from '../dateSort';
 
 // ── dateRangeState ────────────────────────────────────────────────────────────
 
@@ -63,29 +64,10 @@ test('explicit enforceChronology=false never clears Date To when Date From moves
   });
 });
 
-// ── DEF regression: sort order applied to paged rows ─────────────────────────
-// The sortRows helper inside DeliveryRecordsView / AccountingCollectionView is
-// reproduced here as a pure function so that all four orderings are covered by
-// the unit-test suite independently of React component rendering.
-
+// ── Date sort regression: exercise the production comparator, not a copied test-only implementation ──
+const now = new Date('2026-10-21T02:00:00Z').getTime();
+const sortRows = (mode: 'default' | 'nearest' | 'oldest' | 'furthest', rows: Rec[]) => sortDeliveryRows(rows, mode, now);
 type Rec = { id: string; delivery_date: string | null };
-
-function sortRows(dateSort: 'default' | 'nearest' | 'oldest' | 'furthest', rows: Rec[]): Rec[] {
-  // Fixed reference point so tests are deterministic regardless of system clock.
-  const now = new Date('2026-10-21T02:00:00Z').getTime();
-  if (dateSort === 'default') return rows;
-  return [...rows].sort((a, b) => {
-    const da = a.delivery_date ? new Date(a.delivery_date + 'T12:00:00Z').getTime() : null;
-    const db = b.delivery_date ? new Date(b.delivery_date + 'T12:00:00Z').getTime() : null;
-    if (!da && !db) return 0;
-    if (!da) return 1;
-    if (!db) return -1;
-    if (dateSort === 'nearest') return Math.abs(da - now) - Math.abs(db - now);
-    if (dateSort === 'oldest') return da - db;
-    if (dateSort === 'furthest') return db - da;
-    return 0;
-  });
-}
 
 const ROWS: Rec[] = [
   { id: 'A', delivery_date: '2026-10-08' },  // 13 days before reference → past
@@ -115,4 +97,14 @@ test('sort: nearest to present (ascending |distance| from reference, nulls last)
   // B (Nov 15): |distance| ≈ 25d
   // D: null → last
   assert.deepEqual(sortRows('nearest', ROWS).map(r => r.id), ['C', 'A', 'B', 'D']);
+});
+
+
+test('sort: blank delivery dates remain last when sorting oldest or furthest', () => {
+  for (const mode of ['oldest', 'furthest'] as const) {
+    assert.equal(sortRows(mode, [
+      { id: 'blank', delivery_date: '' },
+      { id: 'dated', delivery_date: '2026-10-21' },
+    ])[1].id, 'blank');
+  }
 });
