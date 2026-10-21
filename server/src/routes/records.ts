@@ -394,6 +394,38 @@ router.get('/', requireAuth, requireResource('records'), requireRecordAccess, as
     });
   }
 
+  if (dateSort === 'oldest' || dateSort === 'furthest') {
+    // Empty delivery dates must remain LAST for both directions. A bare
+    // ascending Prisma orderBy would put '' before every valid YYYY-MM-DD.
+    // Partition within the same authorization filters before paginating.
+    const datedWhere: Prisma.DeliveryRecordWhereInput = { AND: [queryWhere, { deliveryDate: { not: '' } }] };
+    const undatedWhere: Prisma.DeliveryRecordWhereInput = { AND: [queryWhere, { deliveryDate: '' }] };
+    const offset = (parsed.page && parsed.page > 1 ? parsed.page - 1 : 0) * take;
+    const [datedCount, total] = await Promise.all([
+      prisma.deliveryRecord.count({ where: datedWhere }),
+      prisma.deliveryRecord.count({ where: baseWhere }),
+    ]);
+    const dated = offset < datedCount
+      ? await prisma.deliveryRecord.findMany({
+          where: datedWhere, include: recordInclude, orderBy: sortOrder,
+          skip: offset, take: take,
+        })
+      : [];
+    const undatedNeeded = take - dated.length;
+    const undated = undatedNeeded > 0
+      ? await prisma.deliveryRecord.findMany({
+          where: undatedWhere, include: recordInclude, orderBy: [{ id: 'asc' }],
+          skip: Math.max(0, offset - datedCount), take: undatedNeeded,
+        })
+      : [];
+    const rows = [...dated, ...undated];
+    return res.json({
+      rows: rows.map(r => serializeRecord(r, req.user!)),
+      nextCursor: null, hasMore: total > offset + take,
+      total, page: parsed.page ?? 1, limit: take,
+    });
+  }
+
   const [records, total] = await Promise.all([
     prisma.deliveryRecord.findMany({
       where: queryWhere,
