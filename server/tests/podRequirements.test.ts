@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { isPodPhoto, isVerifiedPodPhoto } from '../src/services/podPhotos';
+import { hasStoredDeliveryPhoto, isPodPhoto, isVerifiedPodPhoto } from '../src/services/podPhotos';
 import { allowedStatuses, deliveryScheduleState, driverDeliveryDateError, isoTimestamp, manilaToday, timeInError, transitionError } from '../src/services/deliveryLifecycle';
 import { recordScope } from '../src/services/recordAccess';
 
@@ -291,6 +291,39 @@ test('a persisted photo enables delivery completion after taking the record lock
   assert.equal(result.status, 200);
   assert.equal(result.body.status, 'Delivered');
   assert.deepEqual(state.events.slice(0, 5), ['lock', 'photos', 'update', 'audit', 'remark']);
+});
+
+test('delivery completion and attachment deletion configure a 30s timeout on prisma transaction', async () => {
+  const transactionOptions: any[] = [];
+  const state = database(record(), [attachment(), attachment({ id: 'replacement' })]);
+  stub(prisma, '$transaction', async (fn: any, opts: any) => {
+    transactionOptions.push(opts);
+    return fn(state.tx);
+  });
+  const resPatch = await request('patch', '/:id/status', { body: { status: 'Delivered', remarks: 'Completed' } });
+  assert.equal(resPatch.status, 200);
+  assert.deepEqual(transactionOptions[0], { timeout: 30_000, maxWait: 10_000 });
+
+  stub(podStorage, 'remove', async () => {});
+  const resDel = await request('delete', '/:id/attachments/:attachmentId', { role: 'ADMIN' });
+  assert.equal(resDel.status, 204);
+  assert.deepEqual(transactionOptions[1], { timeout: 30_000, maxWait: 10_000 });
+});
+
+test('hasStoredDeliveryPhoto queries attachments ordered by createdAt desc to check newest proof first', async () => {
+  let capturedQuery: any;
+  const mockTx: any = {
+    podAttachment: {
+      findMany: async (args: any) => {
+        capturedQuery = args;
+        return [attachment()];
+      },
+    },
+  };
+  stub(podStorage, 'read', async () => photo);
+  const result = await hasStoredDeliveryPhoto(mockTx, 'rec-123');
+  assert.equal(result, true);
+  assert.deepEqual(capturedQuery.orderBy, { createdAt: 'desc' });
 });
 
 test('Pending requires a started run and every category requires photo for completion', async () => {

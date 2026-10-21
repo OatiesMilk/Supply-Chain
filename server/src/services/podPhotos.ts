@@ -102,8 +102,15 @@ export async function isStoredPodPhoto(attachment: { mimeType: string; storageKe
 }
 
 export async function hasStoredDeliveryPhoto(tx: Pick<Prisma.TransactionClient, 'podAttachment'>, recordId: string, excludeId?: string) {
-  const attachments = await tx.podAttachment.findMany({ where: { recordId, ...(excludeId ? { id: { not: excludeId } } : {}) } });
-  for (const attachment of attachments) if (await isStoredPodPhoto(attachment)) return true;
+  const attachments = await tx.podAttachment.findMany({
+    where: { recordId, ...(excludeId ? { id: { not: excludeId } } : {}) },
+    orderBy: { createdAt: 'desc' },
+  });
+  for (const attachment of attachments) {
+    if (isPhotoMimeType(attachment.mimeType) && attachment.size > 0) {
+      if (await isStoredPodPhoto(attachment)) return true;
+    }
+  }
   return false;
 }
 
