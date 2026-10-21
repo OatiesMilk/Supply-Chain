@@ -107,13 +107,13 @@ export default function DeliveryRecordsView({
   const [amFilter, setAmFilter] = useState('');
   const [driverFilter, setDriverFilter] = useState('');
   const dateFromRef = useRef<HTMLInputElement>(null);
-  const enforceDeliveryDateRange = category === 'Deliveries' && currentUserRole === 'Logistics';
+  // Always enforce chronological date ranges across all categories and roles.
   const {
     error: dateRangeError,
     dateToMin,
     appliedDateFrom,
     appliedDateTo,
-  } = dateRangeState(dateFrom, dateTo, enforceDeliveryDateRange);
+  } = dateRangeState(dateFrom, dateTo);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [creationBanner, setCreationBanner] = useState<{ recordId: string; referenceLabel: string; lines: string[] } | null>(null);
 
@@ -336,18 +336,21 @@ export default function DeliveryRecordsView({
     : baseFiltered;
 
   const now = Date.now();
-  const activeDateSort = (appliedDateFrom || appliedDateTo) ? 'default' : dateSort;
-  const sortedFiltered = activeDateSort === 'default' ? filtered : [...filtered].sort((a, b) => {
-    const da = a.delivery_date ? new Date(a.delivery_date + 'T12:00:00Z').getTime() : null;
-    const db = b.delivery_date ? new Date(b.delivery_date + 'T12:00:00Z').getTime() : null;
-    if (!da && !db) return 0;
-    if (!da) return 1;
-    if (!db) return -1;
-    if (activeDateSort === 'nearest') return Math.abs(da - now) - Math.abs(db - now);
-    if (activeDateSort === 'oldest') return da - db;
-    if (activeDateSort === 'furthest') return db - da;
-    return 0;
-  });
+  const sortRows = <T extends { delivery_date?: string | null }>(rows: T[]): T[] => {
+    if (dateSort === 'default') return rows;
+    return [...rows].sort((a, b) => {
+      const da = a.delivery_date ? new Date(a.delivery_date + 'T12:00:00Z').getTime() : null;
+      const db = b.delivery_date ? new Date(b.delivery_date + 'T12:00:00Z').getTime() : null;
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      if (dateSort === 'nearest') return Math.abs(da - now) - Math.abs(db - now);
+      if (dateSort === 'oldest') return da - db;
+      if (dateSort === 'furthest') return db - da;
+      return 0;
+    });
+  };
+  const sortedFiltered = sortRows(filtered);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -406,7 +409,9 @@ export default function DeliveryRecordsView({
     return sortedFiltered.slice(startIndex, startIndex + pageSize);
   }, [sortedFiltered, safeCurrentPage, pageSize]);
 
-  const displayRecords = pagedData ? pagedData.rows : paginatedRecords;
+  // Apply the client-side sort to server-paged rows so the sort dropdown
+  // works even when the API does not support an order-by parameter.
+  const displayRecords = pagedData ? sortRows(pagedData.rows) : paginatedRecords;
 
   const activeRecord = (pagedData?.rows ?? []).find(r => r.id === selectedId) || records.find(r => r.id === selectedId);
 
@@ -553,7 +558,7 @@ export default function DeliveryRecordsView({
 
   const exportSummary = computeAllOpsSummary(
     sortedFiltered,
-    activeDateSort === 'default' ? 'nearest' : activeDateSort
+    dateSort === 'default' ? 'nearest' : dateSort
   );
 
   const routeSlipProps = driverFilter
@@ -578,17 +583,7 @@ export default function DeliveryRecordsView({
       dashboard_filter: dashboardFilterId || undefined,
     });
     const allRecords = rawAll.map(normalizeApiRecord);
-    const sortedAll = activeDateSort === 'default' ? allRecords : [...allRecords].sort((a, b) => {
-      const da = a.delivery_date ? new Date(a.delivery_date + 'T12:00:00').getTime() : null;
-      const db = b.delivery_date ? new Date(b.delivery_date + 'T12:00:00').getTime() : null;
-      if (!da && !db) return 0;
-      if (!da) return 1;
-      if (!db) return -1;
-      if (activeDateSort === 'nearest') return Math.abs(da - now) - Math.abs(db - now);
-      if (activeDateSort === 'oldest') return da - db;
-      if (activeDateSort === 'furthest') return db - da;
-      return 0;
-    });
+    const sortedAll = sortRows(allRecords);
 
     const rows = sortedAll.map(r => ({
       id: r.id,
@@ -616,7 +611,7 @@ export default function DeliveryRecordsView({
 
     const summary = computeAllOpsSummary(
       sortedAll,
-      activeDateSort === 'default' ? 'nearest' : activeDateSort
+      dateSort === 'default' ? 'nearest' : dateSort
     );
 
     const rsProps = driverFilter
@@ -814,7 +809,7 @@ export default function DeliveryRecordsView({
             type="date"
             value={dateFrom}
             onChange={e => {
-              const next = dateRangeAfterFromChange(e.target.value, dateTo, enforceDeliveryDateRange);
+              const next = dateRangeAfterFromChange(e.target.value, dateTo);
               setDateFrom(next.dateFrom);
               if (next.dateTo !== dateTo) setDateTo(next.dateTo);
             }}
@@ -843,11 +838,8 @@ export default function DeliveryRecordsView({
             id="dateSort"
             value={dateSort}
             onChange={e => setDateSort(e.target.value as typeof dateSort)}
-            disabled={!!(dateFrom || dateTo)}
-            title={(dateFrom || dateTo) ? 'Sort order is N/A while a date range filter is active' : undefined}
-            className={`w-full text-[11px] font-semibold border rounded-lg px-2.5 py-2 focus:outline-none focus:ring-1 focus:ring-[#0078C1] ${(dateFrom || dateTo) ? 'border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-700 cursor-pointer'}`}
+            className="w-full text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
           >
-            {(dateFrom || dateTo) && <option value={dateSort}>Sort: N/A</option>}
             <option value="default">Date: Default</option>
             <option value="nearest">Nearest to Present</option>
             <option value="oldest">Oldest First</option>
