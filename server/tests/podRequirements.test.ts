@@ -376,7 +376,7 @@ test('last photo deletion on accomplished delivery is blocked under the same rec
   const remove = stub(podStorage, 'remove', async () => {});
   const result = await request('delete', '/:id/attachments/:attachmentId', { role: 'ADMIN' });
   assert.equal(result.status, 409);
-  assert.deepEqual(state.events, ['photos', 'lock']);
+  assert.deepEqual(state.events, ['lock', 'photos']);
   assert.equal(remove.mock.callCount(), 0);
 });
 
@@ -717,7 +717,7 @@ test('reassignment between access check and locked mutation is denied for status
     state.tx.deliveryRecord.findUnique = async () => record(otherDriver('Driver B'));
     const result = await request(method, path, { body: { ...(method === 'patch' ? { status: 'Delivered' } : {}), remarks: 'Updated', received_by: 'Recipient' } });
     assert.equal(result.status, 403);
-    assert.deepEqual(state.events, ['lock']);
+    assert.deepEqual(state.events, method === 'patch' ? ['photos', 'lock'] : ['lock']);
     assert.equal(state.saved().status, 'IN_TRANSIT');
   }
 });
@@ -906,7 +906,7 @@ test('locked status, edit and upload checks reject a record newly returned to Dr
         file: uploaded(),
       });
       assert.equal(response.status, 403, `${role}/${path}`);
-      assert.deepEqual(state.events, ['lock']);
+      assert.deepEqual(state.events, method === 'patch' ? ['photos', 'lock'] : ['lock']);
     }
   }
 });
