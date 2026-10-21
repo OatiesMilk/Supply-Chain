@@ -5,6 +5,9 @@ coverage/
 .DS_Store
 *.log
 .env*
+*.env
+*.env.*
+Supply-Chain.env
 !.env.example
 !.env.staging.example
 server/*.db
