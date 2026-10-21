@@ -357,6 +357,8 @@ export default function DeliveryRecordsView({
 
   const effectiveStatusFilter = tassStatusFilter || (statusFilter !== 'All' ? statusFilter : undefined);
   const effectiveAmFilter = tassAccountManager || amFilter || undefined;
+  const tassRange = dateRangeState(tassDateFrom, tassDateTo);
+  const hasInvalidDateRange = Boolean(dateRangeError || tassRange.error);
   const effectiveDateFrom = tassDateFrom || appliedDateFrom || undefined;
   const effectiveDateTo = tassDateTo || appliedDateTo || undefined;
   const effectiveAreaFilter = areaFilter !== 'All Areas' ? areaFilter : undefined;
@@ -374,7 +376,7 @@ export default function DeliveryRecordsView({
     dateTo: effectiveDateTo,
     dashboard_filter: dashboardFilterId || undefined,
     paged: true,
-  }, Boolean(category));
+  }, Boolean(category) && !hasInvalidDateRange);
 
   // Automatically reset to page 1 whenever any filter or search query changes
   useEffect(() => {
@@ -398,8 +400,8 @@ export default function DeliveryRecordsView({
     dashboardFilterId,
   ]);
 
-  const displayTotalCount = pagedData ? pagedData.total : sortedFiltered.length;
-  const displayTotalPages = pagedData
+  const displayTotalCount = hasInvalidDateRange ? 0 : pagedData ? pagedData.total : sortedFiltered.length;
+  const displayTotalPages = hasInvalidDateRange ? 1 : pagedData
     ? Math.max(1, Math.ceil(pagedData.total / pageSize))
     : Math.max(1, Math.ceil(sortedFiltered.length / pageSize));
   const safeCurrentPage = Math.min(Math.max(1, currentPage), displayTotalPages);
@@ -411,7 +413,7 @@ export default function DeliveryRecordsView({
 
   // Apply the client-side sort to server-paged rows so the sort dropdown
   // works even when the API does not support an order-by parameter.
-  const displayRecords = pagedData ? sortRows(pagedData.rows) : paginatedRecords;
+  const displayRecords = hasInvalidDateRange ? [] : pagedData ? sortRows(pagedData.rows) : paginatedRecords;
 
   const activeRecord = (pagedData?.rows ?? []).find(r => r.id === selectedId) || records.find(r => r.id === selectedId);
 
@@ -864,12 +866,12 @@ export default function DeliveryRecordsView({
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap gap-3 items-end text-xs print:hidden" id="tass-filters">
           <div className="space-y-1">
             <label htmlFor="tass-date-from" className="font-bold text-slate-700 block">Delivery Date From</label>
-            <input id="tass-date-from" type="date" value={tassDateFrom} onChange={e => setTassDateFrom(e.target.value)}
+            <input id="tass-date-from" type="date" value={tassDateFrom} onChange={e => { const next = dateRangeAfterFromChange(e.target.value, tassDateTo); setTassDateFrom(next.dateFrom); if (next.dateTo !== tassDateTo) setTassDateTo(next.dateTo); }}
               className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
           </div>
           <div className="space-y-1">
             <label htmlFor="tass-date-to" className="font-bold text-slate-700 block">Delivery Date To</label>
-            <input id="tass-date-to" type="date" value={tassDateTo} onChange={e => setTassDateTo(e.target.value)}
+            <input id="tass-date-to" type="date" value={tassDateTo} min={tassRange.dateToMin} aria-invalid={tassRange.error ? 'true' : undefined} onChange={e => setTassDateTo(e.target.value)}
               className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
           </div>
           <div className="space-y-1">
