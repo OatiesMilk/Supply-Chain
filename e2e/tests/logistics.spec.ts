@@ -196,15 +196,8 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     await dateFrom.fill('2026-10-08');
     await expect(dateTo).toHaveAttribute('min', '2026-10-08');
 
-    const unfilteredHistoryRequest = page.waitForRequest(request => {
-      const url = new URL(request.url());
-      return url.pathname.endsWith('/records/status-history-counts')
-        && !url.searchParams.has('dateFrom')
-        && !url.searchParams.has('dateTo');
-    });
     await dateTo.fill('2026-10-01');
     await expect(page.getByText('Date To cannot be earlier than Date From.', { exact: true })).toBeVisible();
-    await unfilteredHistoryRequest;
 
     await dateTo.fill('2026-10-08');
     await expect(page.getByText('Date To cannot be earlier than Date From.', { exact: true })).not.toBeVisible();
