@@ -238,23 +238,29 @@ export default function DeliveryRecordsView({
   const [statusHistoryCounts, setStatusHistoryCounts] = useState<StatusHistoryCounts | undefined>(undefined);
 
   useEffect(() => {
+    if (dateRangeError || dateRangeState(tassDateFrom, tassDateTo).error) {
+      setStatusHistoryCounts(undefined);
+      return;
+    }
+    let active = true;
     const params = new URLSearchParams();
     const CATEGORY_TO_DB: Record<string, string> = {
       'Deliveries': 'DELIVERY', 'RMA': 'RMA', 'Accounting Collection': 'ACCOUNTING_COLLECTION',
       'Procurement Pick-up': 'PROCUREMENT_PICKUP', 'Sales Orders': 'SALES_ORDERS',
     };
     if (category) params.set('category', CATEGORY_TO_DB[category] ?? category);
-    if (appliedDateFrom) params.set('deliveryDateFrom', appliedDateFrom);
-    if (appliedDateTo) params.set('deliveryDateTo', appliedDateTo);
+    if (tassDateFrom || appliedDateFrom) params.set('deliveryDateFrom', tassDateFrom || appliedDateFrom);
+    if (tassDateTo || appliedDateTo) params.set('deliveryDateTo', tassDateTo || appliedDateTo);
     if (areaFilter !== 'All Areas') params.set('area', areaFilter);
     if (driverFilter) params.set('driver', driverFilter);
     if (statusFilter !== 'All') params.set('status', statusFilter);
 
     fetch(`${apiUrl('/records/status-history-counts')}?${params}`, { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
-      .then(data => setStatusHistoryCounts(data ?? undefined))
-      .catch(() => setStatusHistoryCounts(undefined));
-  }, [category, appliedDateFrom, appliedDateTo, areaFilter, driverFilter, statusFilter]);
+      .then(data => { if (active) setStatusHistoryCounts(data ?? undefined); })
+      .catch(() => { if (active) setStatusHistoryCounts(undefined); });
+    return () => { active = false; };
+  }, [category, dateRangeError, appliedDateFrom, appliedDateTo, tassDateFrom, tassDateTo, areaFilter, driverFilter, statusFilter]);
 
 
 
