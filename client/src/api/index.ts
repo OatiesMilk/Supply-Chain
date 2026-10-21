@@ -97,6 +97,7 @@ export interface RecordListFilters {
   status?: string;
   dateFrom?: string;
   dateTo?: string;
+  dateSort?: 'default' | 'nearest' | 'oldest' | 'furthest';
   search?: string;
   driver?: string;
   area?: string;

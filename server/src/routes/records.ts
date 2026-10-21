@@ -177,11 +177,14 @@ function parseListQuery(query: express.Request['query']) {
   const {
     company_id, category, limit, cursor, page,
     status, dateFrom, dateTo, search, driver, area, account_manager, priority, dashboard_filter,
-    paged
+    paged, dateSort
   } = query;
   const where: Prisma.DeliveryRecordWhereInput = {};
   const andConditions: Prisma.DeliveryRecordWhereInput[] = [];
   const isPaged = paged === 'true' || paged === '1';
+  if (dateSort !== undefined && (typeof dateSort !== 'string' || !['default', 'nearest', 'oldest', 'furthest'].includes(dateSort))) return { error: 'dateSort is invalid' };
+  if (dateSort && dateSort !== 'default' && !isPaged) return { error: 'dateSort requires paged=true' };
+  if (dateSort && dateSort !== 'default' && cursor !== undefined) return { error: 'dateSort cannot be combined with cursor' };
   let take: number | undefined;
   let pageNum: number | undefined;
 
@@ -285,7 +288,8 @@ function parseListQuery(query: express.Request['query']) {
     take,
     cursor: cursor as string | undefined,
     page: pageNum,
-    isPaged
+    isPaged,
+    dateSort: typeof dateSort === 'string' ? dateSort : 'default'
   };
 }
 
@@ -338,11 +342,95 @@ router.get('/', requireAuth, requireResource('records'), requireRecordAccess, as
 
   const skip = (!decodedCursor && parsed.page && parsed.page > 1) ? (parsed.page - 1) * take : undefined;
 
+  const dateSort = parsed.dateSort;
+  // A custom sort must be applied across the permission-scoped result set
+  // *before* the database page is selected.
+  const sortOrder: Prisma.DeliveryRecordOrderByWithRelationInput[] =
+    dateSort === 'oldest' ? [{ deliveryDate: 'asc' }, { id: 'asc' }]
+      : dateSort === 'furthest' ? [{ deliveryDate: 'desc' }, { id: 'asc' }]
+      : [{ createdAt: 'desc' }, { id: 'desc' }];
+
+  if (dateSort === 'nearest') {
+    // Top-k merge of both sides of the present date: at most k records
+    // from either side can enter the first k globally nearest records.
+    const offset = (parsed.page && parsed.page > 1 ? parsed.page - 1 : 0) * take;
+    const k = offset + take + 1;
+    const today = manilaToday();
+    const byDate = (condition: Prisma.StringFilter): Prisma.DeliveryRecordWhereInput =>
+      ({ AND: [queryWhere, { deliveryDate: condition }] });
+    const [past, future, blanks, total] = await Promise.all([
+      prisma.deliveryRecord.findMany({
+        where: byDate({ gte: '0001-01-01', lte: today }),
+        include: recordInclude,
+        orderBy: [{ deliveryDate: 'desc' }, { id: 'asc' }],
+        take: k,
+      }),
+      prisma.deliveryRecord.findMany({
+        where: byDate({ gt: today }),
+        include: recordInclude,
+        orderBy: [{ deliveryDate: 'asc' }, { id: 'asc' }],
+        take: k,
+      }),
+      prisma.deliveryRecord.findMany({
+        where: byDate({ equals: '' }),
+        include: recordInclude,
+        orderBy: [{ id: 'asc' }],
+        take: k,
+      }),
+      prisma.deliveryRecord.count({ where: baseWhere }),
+    ]);
+    const now = Date.now();
+    const distance = (date: string) => Math.abs(new Date(date + 'T12:00:00Z').getTime() - now);
+    const candidates = [...past, ...future].sort((a, b) =>
+      distance(a.deliveryDate) - distance(b.deliveryDate) || a.id.localeCompare(b.id));
+    const rows = [...candidates, ...blanks].slice(offset, offset + take);
+    return res.json({
+      rows: rows.map(r => serializeRecord(r, req.user!)),
+      nextCursor: null,
+      hasMore: total > offset + take,
+      total,
+      page: parsed.page ?? 1,
+      limit: take,
+    });
+  }
+
+  if (dateSort === 'oldest' || dateSort === 'furthest') {
+    // Empty delivery dates must remain LAST for both directions. A bare
+    // ascending Prisma orderBy would put '' before every valid YYYY-MM-DD.
+    // Partition within the same authorization filters before paginating.
+    const datedWhere: Prisma.DeliveryRecordWhereInput = { AND: [queryWhere, { deliveryDate: { not: '' } }] };
+    const undatedWhere: Prisma.DeliveryRecordWhereInput = { AND: [queryWhere, { deliveryDate: '' }] };
+    const offset = (parsed.page && parsed.page > 1 ? parsed.page - 1 : 0) * take;
+    const [datedCount, total] = await Promise.all([
+      prisma.deliveryRecord.count({ where: datedWhere }),
+      prisma.deliveryRecord.count({ where: baseWhere }),
+    ]);
+    const dated = offset < datedCount
+      ? await prisma.deliveryRecord.findMany({
+          where: datedWhere, include: recordInclude, orderBy: sortOrder,
+          skip: offset, take: take,
+        })
+      : [];
+    const undatedNeeded = take - dated.length;
+    const undated = undatedNeeded > 0
+      ? await prisma.deliveryRecord.findMany({
+          where: undatedWhere, include: recordInclude, orderBy: [{ id: 'asc' }],
+          skip: Math.max(0, offset - datedCount), take: undatedNeeded,
+        })
+      : [];
+    const rows = [...dated, ...undated];
+    return res.json({
+      rows: rows.map(r => serializeRecord(r, req.user!)),
+      nextCursor: null, hasMore: total > offset + take,
+      total, page: parsed.page ?? 1, limit: take,
+    });
+  }
+
   const [records, total] = await Promise.all([
     prisma.deliveryRecord.findMany({
       where: queryWhere,
       include: recordInclude,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      orderBy: sortOrder,
       ...(skip !== undefined ? { skip } : {}),
       take: take + 1,
     }),
@@ -351,7 +439,7 @@ router.get('/', requireAuth, requireResource('records'), requireRecordAccess, as
 
   const hasMore = records.length > take;
   const rows = hasMore ? records.slice(0, take) : records;
-  const nextCursor = hasMore ? encodeCursor(rows[rows.length - 1]) : null;
+  const nextCursor = hasMore && dateSort === 'default' ? encodeCursor(rows[rows.length - 1]) : null;
 
   res.json({
     rows: rows.map(r => serializeRecord(r, req.user!)),

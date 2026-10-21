@@ -13,6 +13,7 @@ import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus } from '@/ty
 import { AREAS, PRIORITIES, ITEM_TYPES, DELIVERY_STATUSES, ACCOUNT_MANAGERS, acStatusLabel } from '@/data';
 import { ApiCompany, api, apiUrl } from '@/api';
 import { usePagedRecordsQuery, normalizeApiRecord } from '@/api/queries/useRecordsQuery';
+import { sortDeliveryRows } from '@/utils/dateSort';
 import AccountingCollectionWorkspace from '@/features/accounting/AccountingCollectionWorkspace';
 import { WorkspaceDraftProvider } from '@/features/deliveries/WorkspaceDrafts';
 import { POD_ATTACHMENT_ACCEPT, getPodAttachmentRejection } from '@/utils/attachmentValidation';
@@ -341,6 +342,7 @@ export default function AccountingCollectionView({
 
   const { data: pagedData, isLoading: pagedLoading } = usePagedRecordsQuery({
     category: CATEGORY,
+    dateSort,
     page: currentPage,
     limit: pageSize,
     status: statusFilter !== 'All' ? statusFilter : undefined,
@@ -370,19 +372,11 @@ export default function AccountingCollectionView({
     return matchesSearch && matchesStatus && matchesAM;
   });
 
-  // Date sort
+  // Date sort — a named helper so we can reuse it for both the local fallback
+  // list and the server-paged rows.
   const _now = Date.now();
-  const sortedFiltered = dateSort === 'default' ? filtered : [...filtered].sort((a, b) => {
-    const da = a.delivery_date ? new Date(a.delivery_date + 'T12:00:00').getTime() : null;
-    const db = b.delivery_date ? new Date(b.delivery_date + 'T12:00:00').getTime() : null;
-    if (!da && !db) return 0;
-    if (!da) return 1;
-    if (!db) return -1;
-    if (dateSort === 'nearest')  return Math.abs(da - _now) - Math.abs(db - _now);
-    if (dateSort === 'oldest')   return da - db;
-    if (dateSort === 'furthest') return db - da;
-    return 0;
-  });
+  const sortRows = <T extends { delivery_date?: string | null }>(rows: T[]) => sortDeliveryRows(rows, dateSort, _now);
+  const sortedFiltered = sortRows(filtered);
 
   const displayTotalCount = pagedData ? pagedData.total : sortedFiltered.length;
   const displayTotalPages = pagedData
@@ -395,6 +389,8 @@ export default function AccountingCollectionView({
     return sortedFiltered.slice(startIndex, startIndex + pageSize);
   }, [sortedFiltered, safeCurrentPage, pageSize]);
 
+  // Apply the client-side sort to server-paged rows so the sort dropdown
+  // works even when the API does not support an order-by parameter.
   const displayRecords = pagedData ? pagedData.rows : paginatedRecords;
 
   // If a record is selected, render full-page workspace
@@ -456,17 +452,7 @@ export default function AccountingCollectionView({
       dashboard_filter: dashboardFilterId || undefined,
     });
     const allRecords = rawAll.map(normalizeApiRecord);
-    const sortedAll = dateSort === 'default' ? allRecords : [...allRecords].sort((a, b) => {
-      const da = a.delivery_date ? new Date(a.delivery_date + 'T12:00:00').getTime() : null;
-      const db = b.delivery_date ? new Date(b.delivery_date + 'T12:00:00').getTime() : null;
-      if (!da && !db) return 0;
-      if (!da) return 1;
-      if (!db) return -1;
-      if (dateSort === 'nearest') return Math.abs(da - _now) - Math.abs(db - _now);
-      if (dateSort === 'oldest') return da - db;
-      if (dateSort === 'furthest') return db - da;
-      return 0;
-    });
+    const sortedAll = sortRows(allRecords);
 
     const rows = sortedAll.map(r => ({
       id: r.id,
