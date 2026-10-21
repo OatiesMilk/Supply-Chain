@@ -25,6 +25,7 @@ import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, PDF_DELIVERY_COLUMNS, PDF_AC_COLUMN
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel } from '@/types';
 import { ApiCompany, api, apiUrl, ApiError } from '@/api';
 import { usePagedRecordsQuery, normalizeApiRecord } from '@/api/queries/useRecordsQuery';
+import { sortDeliveryRows } from '@/utils/dateSort';
 import { DELIVERY_STATUSES, AREA_HIERARCHY, getRegion, getSubregion } from '@/data';
 import DeliveryRecordWorkspace from '@/features/deliveries/DeliveryRecordWorkspace';
 import RecordCreateForm from '@/features/deliveries/RecordCreateForm';
@@ -336,21 +337,8 @@ export default function DeliveryRecordsView({
     : baseFiltered;
 
   const now = Date.now();
-  const sortRows = <T extends { delivery_date?: string | null }>(rows: T[]): T[] => {
-    if (dateSort === 'default') return rows;
-    return [...rows].sort((a, b) => {
-      const da = a.delivery_date ? new Date(a.delivery_date + 'T12:00:00Z').getTime() : null;
-      const db = b.delivery_date ? new Date(b.delivery_date + 'T12:00:00Z').getTime() : null;
-      if (!da && !db) return 0;
-      if (!da) return 1;
-      if (!db) return -1;
-      if (dateSort === 'nearest') return Math.abs(da - now) - Math.abs(db - now);
-      if (dateSort === 'oldest') return da - db;
-      if (dateSort === 'furthest') return db - da;
-      return 0;
-    });
-  };
-  const sortedFiltered = sortRows(filtered);
+  const sortRows = <T extends { delivery_date?: string | null }>(rows: T[]) => sortDeliveryRows(rows, dateSort, now);
+  const sortedFiltered = dateRangeError || dateRangeState(tassDateFrom, tassDateTo).error ? [] : sortRows(filtered);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -413,7 +401,7 @@ export default function DeliveryRecordsView({
 
   // Apply the client-side sort to server-paged rows so the sort dropdown
   // works even when the API does not support an order-by parameter.
-  const displayRecords = hasInvalidDateRange ? [] : pagedData ? sortRows(pagedData.rows) : paginatedRecords;
+  const displayRecords = hasInvalidDateRange ? [] : pagedData ? pagedData.rows : paginatedRecords;
 
   const activeRecord = (pagedData?.rows ?? []).find(r => r.id === selectedId) || records.find(r => r.id === selectedId);
 
