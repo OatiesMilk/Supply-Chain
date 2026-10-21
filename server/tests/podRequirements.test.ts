@@ -128,6 +128,7 @@ function database(row = record(), files: any[] = []) {
     auditLog: { create: async ({ data }: any) => { events.push('audit'); audit.push(data); return {}; } },
     remarkLog: { create: async ({ data }: any) => { events.push('remark'); remarks.push(data); return {}; } },
   };
+  stub(prisma.podAttachment, 'findMany', async ({ where }: any) => { events.push('photos'); return files.filter(file => file.id !== where.id?.not); });
   stub(prisma, '$transaction', async (fn: any) => fn(tx));
   stub(prisma.notificationLog, 'create', async () => { events.push('notification'); return {} as any; });
   stub(prisma.notification, 'createMany', async () => { events.push('notification'); return { count: 0 }; });
@@ -280,7 +281,7 @@ test('delivery completion rejects absent, document-only, missing and counterfeit
     const result = await request('patch', '/:id/status', { body: { status: 'Delivered', remarks: 'Completed' } });
     assert.equal(result.status, 400, kind);
     assert.match(result.body.error, /photo/);
-    assert.deepEqual(state.events, ['lock', 'photos']);
+    assert.deepEqual(state.events, ['photos', 'lock']);
     assert.equal(state.saved().status, 'IN_TRANSIT');
   }
 });
@@ -290,7 +291,30 @@ test('a persisted photo enables delivery completion after taking the record lock
   const result = await request('patch', '/:id/status', { body: { status: 'Delivered', remarks: 'Completed' } });
   assert.equal(result.status, 200);
   assert.equal(result.body.status, 'Delivered');
-  assert.deepEqual(state.events.slice(0, 5), ['lock', 'photos', 'update', 'audit', 'remark']);
+  assert.deepEqual(state.events.slice(0, 5), ['photos', 'lock', 'update', 'audit', 'remark']);
+});
+
+test('remote POD decoding completes before the completion transaction starts', async () => {
+  const state = database(record(), [attachment()]);
+  stub(podStorage, 'read', async () => {
+    assert.equal(state.events.includes('lock'), false, 'remote image fetch must precede the record lock');
+    return photo;
+  });
+  const result = await request('patch', '/:id/status', { body: { status: 'Delivered', remarks: 'Completed' } });
+  assert.equal(result.status, 200);
+  assert.deepEqual(state.events.slice(0, 5), ['photos', 'lock', 'update', 'audit', 'remark']);
+});
+
+test('completion refuses a verified photo removed before the locked membership recheck', async () => {
+  const state = database(record(), [attachment()]);
+  // The image bytes were valid, but deletion won the race before the status
+  // transaction acquired its lock. Never complete based on stale preflight.
+  state.tx.podAttachment.findFirst = async () => null;
+  const result = await request('patch', '/:id/status', { body: { status: 'Delivered', remarks: 'Completed' } });
+  assert.equal(result.status, 400);
+  assert.match(result.body.error, /photo/);
+  assert.equal(state.events.includes('update'), false);
+  assert.equal(state.saved().status, 'IN_TRANSIT');
 });
 
 test('delivery completion and attachment deletion configure a 30s timeout on prisma transaction', async () => {
@@ -352,7 +376,7 @@ test('last photo deletion on accomplished delivery is blocked under the same rec
   const remove = stub(podStorage, 'remove', async () => {});
   const result = await request('delete', '/:id/attachments/:attachmentId', { role: 'ADMIN' });
   assert.equal(result.status, 409);
-  assert.deepEqual(state.events, ['lock', 'photos']);
+  assert.deepEqual(state.events, ['photos', 'lock']);
   assert.equal(remove.mock.callCount(), 0);
 });
 
@@ -633,7 +657,7 @@ test('C-2.12 isolates missing photo with valid recipient, Time In and remarks fo
     assert.equal(response.status, 400, role);
     assert.match(response.body.error, /photo/);
     assert.deepEqual(state.saved(), before);
-    assert.deepEqual(state.events, ['lock', 'photos']);
+    assert.deepEqual(state.events, ['photos', 'lock']);
   }
 });
 
