@@ -543,7 +543,9 @@ export default function DriverDashboard({
                     setRemarksInput("");
                     notify.success('Status updated successfully');
                   } catch (error) {
-                    notify.error(error instanceof Error ? error.message : 'Could not update the delivery. Please try again.');
+                    const message = error instanceof Error ? error.message : 'Could not update the delivery. Please try again.';
+                    setSaveFeedback({ message, type: 'error' });
+                    notify.error(message);
                   } finally {
                     setSaving(false);
                   }

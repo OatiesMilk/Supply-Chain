@@ -12,7 +12,7 @@ import { CATEGORY_TO_DB, STATUS_TO_DB, STATUS_FROM_DB, serializeRecord } from '.
 import { recordActiveCounts } from '../services/activeRecordCounts';
 import { pipeline } from 'node:stream/promises';
 import { discardUpload, podStorage, podUpload } from '../services/podStorage';
-import { DELIVERY_PHOTO_REQUIRED, hasStoredDeliveryPhoto, inspectUpload, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
+import { DELIVERY_PHOTO_REQUIRED, findVerifiedDeliveryPhoto, hasStoredDeliveryPhoto, inspectUpload, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
 import { ATTACHMENT_QUOTA_EXCEEDED, attachmentQuotaError } from '../services/attachmentRules';
 
 import { canWriteCategory, isAssignedDriver, recordScope } from '../services/recordAccess';
@@ -855,7 +855,7 @@ router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('re
     await tx.auditLog.create({ data: { recordId: req.params.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id, previousValue: JSON.stringify({ attachment: attachment.originalName, attachment_id: attachment.id }), newValue: JSON.stringify({ attachment_removed: attachment.id }) } });
     if (remarks) await tx.remarkLog.create({ data: { recordId: req.params.id, body: `Removed attachment ${attachment.originalName}: ${remarks}`, context: 'GENERAL_EDIT', authorId: req.user!.id } });
     return null;
-  });
+  }, { timeout: 30_000, maxWait: 10_000 });
   if (result) return res.status(result.status).json({ error: result.error });
   res.status(204).send();
 }));
@@ -1229,6 +1229,12 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   const newDeliveryDate = req.body.delivery_date;
   const hasNewDeliveryDate = newDeliveryDate !== undefined && newDeliveryDate !== null && newDeliveryDate !== '';
   if (hasNewDeliveryDate && !isValidDateOnly(newDeliveryDate)) return res.status(400).json({ error: 'New delivery date must be a valid YYYY-MM-DD date.' });
+  // WAN storage downloads and image decoding can exceed Prisma's default 5s
+  // transaction limit. Verify the actual persisted bytes before acquiring the
+  // record lock; the transaction below still validates the identical attachment.
+  const verifiedPod = status === 'Delivered'
+    ? await findVerifiedDeliveryPhoto(prisma, req.params.id)
+    : null;
   const result = await prisma.$transaction(async tx => {
     await lockPodRecord(tx, req.params.id);
     const current = await tx.deliveryRecord.findUnique({ where: { id: req.params.id }, include: recordInclude });
@@ -1265,7 +1271,15 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     if (statusChanged && status === 'Delivered') {
       if (!isoTimestamp(current.timeIn)) return { error: 'Record a valid Time In before completing this run.', saved: null, previous: null };
       if (!String(received_by ?? current.receivedBy ?? '').trim()) return { error: 'Received By is required before completing this run.', saved: null, previous: null };
-      if (!await hasStoredDeliveryPhoto(tx, current.id)) return { error: DELIVERY_PHOTO_REQUIRED, saved: null, previous: null };
+      if (!verifiedPod || !await tx.podAttachment.findFirst({
+        where: {
+          id: verifiedPod.id,
+          recordId: current.id,
+          storageKey: verifiedPod.storageKey,
+          mimeType: verifiedPod.mimeType,
+          size: verifiedPod.size,
+        },
+      })) return { error: DELIVERY_PHOTO_REQUIRED, saved: null, previous: null };
       data.receivedBy = String(received_by ?? current.receivedBy).trim();
       const completedAt = new Date();
       data.timeOut = completedAt.toISOString();
@@ -1284,7 +1298,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     } });
     await tx.remarkLog.create({ data: { recordId: saved.id, body: remarks.trim(), context: 'STATUS_CHANGE', authorId: req.user!.id } });
     return { error: null, saved, previous: current };
-  });
+  }, { timeout: 30_000, maxWait: 10_000 });
   if (result.error) return res.status(result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' || result.error === 'Only Sales Coordinator or Admin may submit or return drafts.' ? 403 : 400).json({ error: result.error });
   const updated = result.saved!;
   if (result.previous!.draft && !updated.draft && updated.category === 'DELIVERY' && !String(updated.driver ?? '').trim()) {
