@@ -874,6 +874,7 @@ export default function DeliveryRecordsView({
             <input id="tass-date-to" type="date" value={tassDateTo} min={tassRange.dateToMin} aria-invalid={tassRange.error ? 'true' : undefined} onChange={e => setTassDateTo(e.target.value)}
               className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
           </div>
+          {tassRange.error && <p role="alert" className="text-[10px] font-semibold text-red-700">{tassRange.error}</p>}
           <div className="space-y-1">
             <label htmlFor="tass-status-filter" className="font-bold text-slate-700 block">Status</label>
             <select id="tass-status-filter" value={tassStatusFilter} onChange={e => setTassStatusFilter(e.target.value)}
