@@ -25,6 +25,7 @@ import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, PDF_DELIVERY_COLUMNS, PDF_AC_COLUMN
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel } from '@/types';
 import { ApiCompany, api, apiUrl, ApiError } from '@/api';
 import { usePagedRecordsQuery, normalizeApiRecord } from '@/api/queries/useRecordsQuery';
+import { sortDeliveryRows } from '@/utils/dateSort';
 import { DELIVERY_STATUSES, AREA_HIERARCHY, getRegion, getSubregion } from '@/data';
 import DeliveryRecordWorkspace from '@/features/deliveries/DeliveryRecordWorkspace';
 import RecordCreateForm from '@/features/deliveries/RecordCreateForm';
@@ -107,13 +108,13 @@ export default function DeliveryRecordsView({
   const [amFilter, setAmFilter] = useState('');
   const [driverFilter, setDriverFilter] = useState('');
   const dateFromRef = useRef<HTMLInputElement>(null);
-  const enforceDeliveryDateRange = category === 'Deliveries' && currentUserRole === 'Logistics';
+  // Always enforce chronological date ranges across all categories and roles.
   const {
     error: dateRangeError,
     dateToMin,
     appliedDateFrom,
     appliedDateTo,
-  } = dateRangeState(dateFrom, dateTo, enforceDeliveryDateRange);
+  } = dateRangeState(dateFrom, dateTo);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [creationBanner, setCreationBanner] = useState<{ recordId: string; referenceLabel: string; lines: string[] } | null>(null);
 
@@ -237,23 +238,29 @@ export default function DeliveryRecordsView({
   const [statusHistoryCounts, setStatusHistoryCounts] = useState<StatusHistoryCounts | undefined>(undefined);
 
   useEffect(() => {
+    if (dateRangeError || dateRangeState(tassDateFrom, tassDateTo).error) {
+      setStatusHistoryCounts(undefined);
+      return;
+    }
+    let active = true;
     const params = new URLSearchParams();
     const CATEGORY_TO_DB: Record<string, string> = {
       'Deliveries': 'DELIVERY', 'RMA': 'RMA', 'Accounting Collection': 'ACCOUNTING_COLLECTION',
       'Procurement Pick-up': 'PROCUREMENT_PICKUP', 'Sales Orders': 'SALES_ORDERS',
     };
     if (category) params.set('category', CATEGORY_TO_DB[category] ?? category);
-    if (appliedDateFrom) params.set('deliveryDateFrom', appliedDateFrom);
-    if (appliedDateTo) params.set('deliveryDateTo', appliedDateTo);
+    if (tassDateFrom || appliedDateFrom) params.set('deliveryDateFrom', tassDateFrom || appliedDateFrom);
+    if (tassDateTo || appliedDateTo) params.set('deliveryDateTo', tassDateTo || appliedDateTo);
     if (areaFilter !== 'All Areas') params.set('area', areaFilter);
     if (driverFilter) params.set('driver', driverFilter);
     if (statusFilter !== 'All') params.set('status', statusFilter);
 
     fetch(`${apiUrl('/records/status-history-counts')}?${params}`, { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
-      .then(data => setStatusHistoryCounts(data ?? undefined))
-      .catch(() => setStatusHistoryCounts(undefined));
-  }, [category, appliedDateFrom, appliedDateTo, areaFilter, driverFilter, statusFilter]);
+      .then(data => { if (active) setStatusHistoryCounts(data ?? undefined); })
+      .catch(() => { if (active) setStatusHistoryCounts(undefined); });
+    return () => { active = false; };
+  }, [category, dateRangeError, appliedDateFrom, appliedDateTo, tassDateFrom, tassDateTo, areaFilter, driverFilter, statusFilter]);
 
 
 
@@ -336,24 +343,16 @@ export default function DeliveryRecordsView({
     : baseFiltered;
 
   const now = Date.now();
-  const activeDateSort = (appliedDateFrom || appliedDateTo) ? 'default' : dateSort;
-  const sortedFiltered = activeDateSort === 'default' ? filtered : [...filtered].sort((a, b) => {
-    const da = a.delivery_date ? new Date(a.delivery_date + 'T12:00:00Z').getTime() : null;
-    const db = b.delivery_date ? new Date(b.delivery_date + 'T12:00:00Z').getTime() : null;
-    if (!da && !db) return 0;
-    if (!da) return 1;
-    if (!db) return -1;
-    if (activeDateSort === 'nearest') return Math.abs(da - now) - Math.abs(db - now);
-    if (activeDateSort === 'oldest') return da - db;
-    if (activeDateSort === 'furthest') return db - da;
-    return 0;
-  });
+  const sortRows = <T extends { delivery_date?: string | null }>(rows: T[]) => sortDeliveryRows(rows, dateSort, now);
+  const sortedFiltered = dateRangeError || dateRangeState(tassDateFrom, tassDateTo).error ? [] : sortRows(filtered);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   const effectiveStatusFilter = tassStatusFilter || (statusFilter !== 'All' ? statusFilter : undefined);
   const effectiveAmFilter = tassAccountManager || amFilter || undefined;
+  const tassRange = dateRangeState(tassDateFrom, tassDateTo);
+  const hasInvalidDateRange = Boolean(dateRangeError || tassRange.error);
   const effectiveDateFrom = tassDateFrom || appliedDateFrom || undefined;
   const effectiveDateTo = tassDateTo || appliedDateTo || undefined;
   const effectiveAreaFilter = areaFilter !== 'All Areas' ? areaFilter : undefined;
@@ -371,7 +370,7 @@ export default function DeliveryRecordsView({
     dateTo: effectiveDateTo,
     dashboard_filter: dashboardFilterId || undefined,
     paged: true,
-  }, Boolean(category));
+  }, Boolean(category) && !hasInvalidDateRange);
 
   // Automatically reset to page 1 whenever any filter or search query changes
   useEffect(() => {
@@ -395,8 +394,8 @@ export default function DeliveryRecordsView({
     dashboardFilterId,
   ]);
 
-  const displayTotalCount = pagedData ? pagedData.total : sortedFiltered.length;
-  const displayTotalPages = pagedData
+  const displayTotalCount = hasInvalidDateRange ? 0 : pagedData ? pagedData.total : sortedFiltered.length;
+  const displayTotalPages = hasInvalidDateRange ? 1 : pagedData
     ? Math.max(1, Math.ceil(pagedData.total / pageSize))
     : Math.max(1, Math.ceil(sortedFiltered.length / pageSize));
   const safeCurrentPage = Math.min(Math.max(1, currentPage), displayTotalPages);
@@ -406,7 +405,9 @@ export default function DeliveryRecordsView({
     return sortedFiltered.slice(startIndex, startIndex + pageSize);
   }, [sortedFiltered, safeCurrentPage, pageSize]);
 
-  const displayRecords = pagedData ? pagedData.rows : paginatedRecords;
+  // Apply the client-side sort to server-paged rows so the sort dropdown
+  // works even when the API does not support an order-by parameter.
+  const displayRecords = hasInvalidDateRange ? [] : pagedData ? pagedData.rows : paginatedRecords;
 
   const activeRecord = (pagedData?.rows ?? []).find(r => r.id === selectedId) || records.find(r => r.id === selectedId);
 
@@ -553,7 +554,7 @@ export default function DeliveryRecordsView({
 
   const exportSummary = computeAllOpsSummary(
     sortedFiltered,
-    activeDateSort === 'default' ? 'nearest' : activeDateSort
+    dateSort === 'default' ? 'nearest' : dateSort
   );
 
   const routeSlipProps = driverFilter
@@ -578,17 +579,7 @@ export default function DeliveryRecordsView({
       dashboard_filter: dashboardFilterId || undefined,
     });
     const allRecords = rawAll.map(normalizeApiRecord);
-    const sortedAll = activeDateSort === 'default' ? allRecords : [...allRecords].sort((a, b) => {
-      const da = a.delivery_date ? new Date(a.delivery_date + 'T12:00:00').getTime() : null;
-      const db = b.delivery_date ? new Date(b.delivery_date + 'T12:00:00').getTime() : null;
-      if (!da && !db) return 0;
-      if (!da) return 1;
-      if (!db) return -1;
-      if (activeDateSort === 'nearest') return Math.abs(da - now) - Math.abs(db - now);
-      if (activeDateSort === 'oldest') return da - db;
-      if (activeDateSort === 'furthest') return db - da;
-      return 0;
-    });
+    const sortedAll = sortRows(allRecords);
 
     const rows = sortedAll.map(r => ({
       id: r.id,
@@ -616,7 +607,7 @@ export default function DeliveryRecordsView({
 
     const summary = computeAllOpsSummary(
       sortedAll,
-      activeDateSort === 'default' ? 'nearest' : activeDateSort
+      dateSort === 'default' ? 'nearest' : dateSort
     );
 
     const rsProps = driverFilter
@@ -814,7 +805,7 @@ export default function DeliveryRecordsView({
             type="date"
             value={dateFrom}
             onChange={e => {
-              const next = dateRangeAfterFromChange(e.target.value, dateTo, enforceDeliveryDateRange);
+              const next = dateRangeAfterFromChange(e.target.value, dateTo);
               setDateFrom(next.dateFrom);
               if (next.dateTo !== dateTo) setDateTo(next.dateTo);
             }}
@@ -843,11 +834,8 @@ export default function DeliveryRecordsView({
             id="dateSort"
             value={dateSort}
             onChange={e => setDateSort(e.target.value as typeof dateSort)}
-            disabled={!!(dateFrom || dateTo)}
-            title={(dateFrom || dateTo) ? 'Sort order is N/A while a date range filter is active' : undefined}
-            className={`w-full text-[11px] font-semibold border rounded-lg px-2.5 py-2 focus:outline-none focus:ring-1 focus:ring-[#0078C1] ${(dateFrom || dateTo) ? 'border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-200 bg-white text-slate-700 cursor-pointer'}`}
+            className="w-full text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
           >
-            {(dateFrom || dateTo) && <option value={dateSort}>Sort: N/A</option>}
             <option value="default">Date: Default</option>
             <option value="nearest">Nearest to Present</option>
             <option value="oldest">Oldest First</option>
@@ -872,14 +860,15 @@ export default function DeliveryRecordsView({
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap gap-3 items-end text-xs print:hidden" id="tass-filters">
           <div className="space-y-1">
             <label htmlFor="tass-date-from" className="font-bold text-slate-700 block">Delivery Date From</label>
-            <input id="tass-date-from" type="date" value={tassDateFrom} onChange={e => setTassDateFrom(e.target.value)}
+            <input id="tass-date-from" type="date" value={tassDateFrom} onChange={e => { const next = dateRangeAfterFromChange(e.target.value, tassDateTo); setTassDateFrom(next.dateFrom); if (next.dateTo !== tassDateTo) setTassDateTo(next.dateTo); }}
               className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
           </div>
           <div className="space-y-1">
             <label htmlFor="tass-date-to" className="font-bold text-slate-700 block">Delivery Date To</label>
-            <input id="tass-date-to" type="date" value={tassDateTo} onChange={e => setTassDateTo(e.target.value)}
+            <input id="tass-date-to" type="date" value={tassDateTo} min={tassRange.dateToMin} aria-invalid={tassRange.error ? 'true' : undefined} onChange={e => setTassDateTo(e.target.value)}
               className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
           </div>
+          {tassRange.error && <p role="alert" className="text-[10px] font-semibold text-red-700">{tassRange.error}</p>}
           <div className="space-y-1">
             <label htmlFor="tass-status-filter" className="font-bold text-slate-700 block">Status</label>
             <select id="tass-status-filter" value={tassStatusFilter} onChange={e => setTassStatusFilter(e.target.value)}

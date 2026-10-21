@@ -12,7 +12,7 @@ import { CATEGORY_TO_DB, STATUS_TO_DB, STATUS_FROM_DB, serializeRecord } from '.
 import { recordActiveCounts } from '../services/activeRecordCounts';
 import { pipeline } from 'node:stream/promises';
 import { discardUpload, podStorage, podUpload } from '../services/podStorage';
-import { DELIVERY_PHOTO_REQUIRED, hasStoredDeliveryPhoto, inspectUpload, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
+import { DELIVERY_PHOTO_REQUIRED, findVerifiedDeliveryPhoto, hasStoredDeliveryPhoto, inspectUpload, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
 import { ATTACHMENT_QUOTA_EXCEEDED, attachmentQuotaError } from '../services/attachmentRules';
 
 import { canWriteCategory, isAssignedDriver, recordScope } from '../services/recordAccess';
@@ -177,11 +177,14 @@ function parseListQuery(query: express.Request['query']) {
   const {
     company_id, category, limit, cursor, page,
     status, dateFrom, dateTo, search, driver, area, account_manager, priority, dashboard_filter,
-    paged
+    paged, dateSort
   } = query;
   const where: Prisma.DeliveryRecordWhereInput = {};
   const andConditions: Prisma.DeliveryRecordWhereInput[] = [];
   const isPaged = paged === 'true' || paged === '1';
+  if (dateSort !== undefined && (typeof dateSort !== 'string' || !['default', 'nearest', 'oldest', 'furthest'].includes(dateSort))) return { error: 'dateSort is invalid' };
+  if (dateSort && dateSort !== 'default' && !isPaged) return { error: 'dateSort requires paged=true' };
+  if (dateSort && dateSort !== 'default' && cursor !== undefined) return { error: 'dateSort cannot be combined with cursor' };
   let take: number | undefined;
   let pageNum: number | undefined;
 
@@ -285,7 +288,8 @@ function parseListQuery(query: express.Request['query']) {
     take,
     cursor: cursor as string | undefined,
     page: pageNum,
-    isPaged
+    isPaged,
+    dateSort: typeof dateSort === 'string' ? dateSort : 'default'
   };
 }
 
@@ -338,11 +342,95 @@ router.get('/', requireAuth, requireResource('records'), requireRecordAccess, as
 
   const skip = (!decodedCursor && parsed.page && parsed.page > 1) ? (parsed.page - 1) * take : undefined;
 
+  const dateSort = parsed.dateSort;
+  // A custom sort must be applied across the permission-scoped result set
+  // *before* the database page is selected.
+  const sortOrder: Prisma.DeliveryRecordOrderByWithRelationInput[] =
+    dateSort === 'oldest' ? [{ deliveryDate: 'asc' }, { id: 'asc' }]
+      : dateSort === 'furthest' ? [{ deliveryDate: 'desc' }, { id: 'asc' }]
+      : [{ createdAt: 'desc' }, { id: 'desc' }];
+
+  if (dateSort === 'nearest') {
+    // Top-k merge of both sides of the present date: at most k records
+    // from either side can enter the first k globally nearest records.
+    const offset = (parsed.page && parsed.page > 1 ? parsed.page - 1 : 0) * take;
+    const k = offset + take + 1;
+    const today = manilaToday();
+    const byDate = (condition: Prisma.StringFilter): Prisma.DeliveryRecordWhereInput =>
+      ({ AND: [queryWhere, { deliveryDate: condition }] });
+    const [past, future, blanks, total] = await Promise.all([
+      prisma.deliveryRecord.findMany({
+        where: byDate({ gte: '0001-01-01', lte: today }),
+        include: recordInclude,
+        orderBy: [{ deliveryDate: 'desc' }, { id: 'asc' }],
+        take: k,
+      }),
+      prisma.deliveryRecord.findMany({
+        where: byDate({ gt: today }),
+        include: recordInclude,
+        orderBy: [{ deliveryDate: 'asc' }, { id: 'asc' }],
+        take: k,
+      }),
+      prisma.deliveryRecord.findMany({
+        where: byDate({ equals: '' }),
+        include: recordInclude,
+        orderBy: [{ id: 'asc' }],
+        take: k,
+      }),
+      prisma.deliveryRecord.count({ where: baseWhere }),
+    ]);
+    const now = Date.now();
+    const distance = (date: string) => Math.abs(new Date(date + 'T12:00:00Z').getTime() - now);
+    const candidates = [...past, ...future].sort((a, b) =>
+      distance(a.deliveryDate) - distance(b.deliveryDate) || a.id.localeCompare(b.id));
+    const rows = [...candidates, ...blanks].slice(offset, offset + take);
+    return res.json({
+      rows: rows.map(r => serializeRecord(r, req.user!)),
+      nextCursor: null,
+      hasMore: total > offset + take,
+      total,
+      page: parsed.page ?? 1,
+      limit: take,
+    });
+  }
+
+  if (dateSort === 'oldest' || dateSort === 'furthest') {
+    // Empty delivery dates must remain LAST for both directions. A bare
+    // ascending Prisma orderBy would put '' before every valid YYYY-MM-DD.
+    // Partition within the same authorization filters before paginating.
+    const datedWhere: Prisma.DeliveryRecordWhereInput = { AND: [queryWhere, { deliveryDate: { not: '' } }] };
+    const undatedWhere: Prisma.DeliveryRecordWhereInput = { AND: [queryWhere, { deliveryDate: '' }] };
+    const offset = (parsed.page && parsed.page > 1 ? parsed.page - 1 : 0) * take;
+    const [datedCount, total] = await Promise.all([
+      prisma.deliveryRecord.count({ where: datedWhere }),
+      prisma.deliveryRecord.count({ where: baseWhere }),
+    ]);
+    const dated = offset < datedCount
+      ? await prisma.deliveryRecord.findMany({
+          where: datedWhere, include: recordInclude, orderBy: sortOrder,
+          skip: offset, take: take,
+        })
+      : [];
+    const undatedNeeded = take - dated.length;
+    const undated = undatedNeeded > 0
+      ? await prisma.deliveryRecord.findMany({
+          where: undatedWhere, include: recordInclude, orderBy: [{ id: 'asc' }],
+          skip: Math.max(0, offset - datedCount), take: undatedNeeded,
+        })
+      : [];
+    const rows = [...dated, ...undated];
+    return res.json({
+      rows: rows.map(r => serializeRecord(r, req.user!)),
+      nextCursor: null, hasMore: total > offset + take,
+      total, page: parsed.page ?? 1, limit: take,
+    });
+  }
+
   const [records, total] = await Promise.all([
     prisma.deliveryRecord.findMany({
       where: queryWhere,
       include: recordInclude,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      orderBy: sortOrder,
       ...(skip !== undefined ? { skip } : {}),
       take: take + 1,
     }),
@@ -351,7 +439,7 @@ router.get('/', requireAuth, requireResource('records'), requireRecordAccess, as
 
   const hasMore = records.length > take;
   const rows = hasMore ? records.slice(0, take) : records;
-  const nextCursor = hasMore ? encodeCursor(rows[rows.length - 1]) : null;
+  const nextCursor = hasMore && dateSort === 'default' ? encodeCursor(rows[rows.length - 1]) : null;
 
   res.json({
     rows: rows.map(r => serializeRecord(r, req.user!)),
@@ -767,7 +855,7 @@ router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('re
     await tx.auditLog.create({ data: { recordId: req.params.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id, previousValue: JSON.stringify({ attachment: attachment.originalName, attachment_id: attachment.id }), newValue: JSON.stringify({ attachment_removed: attachment.id }) } });
     if (remarks) await tx.remarkLog.create({ data: { recordId: req.params.id, body: `Removed attachment ${attachment.originalName}: ${remarks}`, context: 'GENERAL_EDIT', authorId: req.user!.id } });
     return null;
-  });
+  }, { timeout: 30_000, maxWait: 10_000 });
   if (result) return res.status(result.status).json({ error: result.error });
   res.status(204).send();
 }));
@@ -1141,6 +1229,12 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   const newDeliveryDate = req.body.delivery_date;
   const hasNewDeliveryDate = newDeliveryDate !== undefined && newDeliveryDate !== null && newDeliveryDate !== '';
   if (hasNewDeliveryDate && !isValidDateOnly(newDeliveryDate)) return res.status(400).json({ error: 'New delivery date must be a valid YYYY-MM-DD date.' });
+  // WAN storage downloads and image decoding can exceed Prisma's default 5s
+  // transaction limit. Verify the actual persisted bytes before acquiring the
+  // record lock; the transaction below still validates the identical attachment.
+  const verifiedPod = status === 'Delivered'
+    ? await findVerifiedDeliveryPhoto(prisma, req.params.id)
+    : null;
   const result = await prisma.$transaction(async tx => {
     await lockPodRecord(tx, req.params.id);
     const current = await tx.deliveryRecord.findUnique({ where: { id: req.params.id }, include: recordInclude });
@@ -1177,7 +1271,15 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     if (statusChanged && status === 'Delivered') {
       if (!isoTimestamp(current.timeIn)) return { error: 'Record a valid Time In before completing this run.', saved: null, previous: null };
       if (!String(received_by ?? current.receivedBy ?? '').trim()) return { error: 'Received By is required before completing this run.', saved: null, previous: null };
-      if (!await hasStoredDeliveryPhoto(tx, current.id)) return { error: DELIVERY_PHOTO_REQUIRED, saved: null, previous: null };
+      if (!verifiedPod || !await tx.podAttachment.findFirst({
+        where: {
+          id: verifiedPod.id,
+          recordId: current.id,
+          storageKey: verifiedPod.storageKey,
+          mimeType: verifiedPod.mimeType,
+          size: verifiedPod.size,
+        },
+      })) return { error: DELIVERY_PHOTO_REQUIRED, saved: null, previous: null };
       data.receivedBy = String(received_by ?? current.receivedBy).trim();
       const completedAt = new Date();
       data.timeOut = completedAt.toISOString();
@@ -1196,7 +1298,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     } });
     await tx.remarkLog.create({ data: { recordId: saved.id, body: remarks.trim(), context: 'STATUS_CHANGE', authorId: req.user!.id } });
     return { error: null, saved, previous: current };
-  });
+  }, { timeout: 30_000, maxWait: 10_000 });
   if (result.error) return res.status(result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' || result.error === 'Only Sales Coordinator or Admin may submit or return drafts.' ? 403 : 400).json({ error: result.error });
   const updated = result.saved!;
   if (result.previous!.draft && !updated.draft && updated.category === 'DELIVERY' && !String(updated.driver ?? '').trim()) {

@@ -101,9 +101,36 @@ export async function isStoredPodPhoto(attachment: { mimeType: string; storageKe
   }
 }
 
+/**
+ * Read and decode persisted POD content BEFORE opening a database transaction.
+ * The caller must then lock the record and confirm this exact attachment still
+ * exists in the transaction; preflight alone is never authorization to complete.
+ */
+export async function findVerifiedDeliveryPhoto(
+  db: Pick<Prisma.TransactionClient, 'podAttachment'>, recordId: string,
+): Promise<{ id: string; storageKey: string; mimeType: string; size: number } | null> {
+  const attachments = await db.podAttachment.findMany({
+    where: { recordId },
+    orderBy: { createdAt: 'desc' },
+  });
+  for (const file of attachments) {
+    if (isPhotoMimeType(file.mimeType) && file.size > 0 && await isStoredPodPhoto(file)) {
+      return { id: file.id, storageKey: file.storageKey, mimeType: file.mimeType, size: file.size };
+    }
+  }
+  return null;
+}
+
 export async function hasStoredDeliveryPhoto(tx: Pick<Prisma.TransactionClient, 'podAttachment'>, recordId: string, excludeId?: string) {
-  const attachments = await tx.podAttachment.findMany({ where: { recordId, ...(excludeId ? { id: { not: excludeId } } : {}) } });
-  for (const attachment of attachments) if (await isStoredPodPhoto(attachment)) return true;
+  const attachments = await tx.podAttachment.findMany({
+    where: { recordId, ...(excludeId ? { id: { not: excludeId } } : {}) },
+    orderBy: { createdAt: 'desc' },
+  });
+  for (const attachment of attachments) {
+    if (isPhotoMimeType(attachment.mimeType) && attachment.size > 0) {
+      if (await isStoredPodPhoto(attachment)) return true;
+    }
+  }
   return false;
 }
 
