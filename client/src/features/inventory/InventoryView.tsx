@@ -137,16 +137,18 @@ export default function InventoryView({
         <div className="p-4 border-b border-slate-200 space-y-3">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+              <label htmlFor="inventory-search" className="sr-only">Search inventory</label>
+              <Search aria-hidden="true" className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
               <input
+                id="inventory-search"
                 type="text"
                 placeholder="Search SKU code, product name, or description..."
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-[#1F3864] focus:bg-white transition-all font-mono"
+                className="min-h-11 w-full pl-9 pr-4 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-[#1F3864] focus:bg-white transition-all font-mono"
               />
             </div>
-            {currentUserRole === 'Admin' && !creating && <button type="button" onClick={() => { setCreating(true); setCreatedCode(null); }} className="rounded-lg bg-[#0078C1] px-4 py-2 text-xs font-semibold text-white">Create SKU</button>}
+            {currentUserRole === 'Admin' && !creating && <button type="button" onClick={() => { setCreating(true); setCreatedCode(null); }} className="min-h-11 min-w-11 rounded-lg bg-[#0078C1] px-4 py-2 text-xs font-semibold text-white">Create SKU</button>}
             {(currentUserRole === 'Admin' || currentUserRole === 'Logistics') && (
               <ExportMenu
                 rows={filteredSkus.map(sku => ({
@@ -184,10 +186,12 @@ export default function InventoryView({
               <Filter className="w-3.5 h-3.5" /> Filters:
             </span>
 
+            <label htmlFor="inventory-category" className="sr-only">Category</label>
             <select
+              id="inventory-category"
               value={categoryFilter}
               onChange={e => { setCategoryFilter(e.target.value); setPage(1); }}
-              className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none text-xs font-medium"
+              className="min-h-11 bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none text-xs font-medium"
             >
               <option value="ALL">All Categories (A / B / C)</option>
               <option value="A">Category A (High Cost)</option>
@@ -195,10 +199,12 @@ export default function InventoryView({
               <option value="C">Category C (Consumables)</option>
             </select>
 
+            <label htmlFor="inventory-warehouse" className="sr-only">Warehouse zone</label>
             <select
+              id="inventory-warehouse"
               value={warehouseFilter}
               onChange={e => { setWarehouseFilter(e.target.value); setPage(1); }}
-              className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none text-xs font-medium"
+              className="min-h-11 bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none text-xs font-medium"
             >
               <option value="ALL">All Bins</option>
               {uniqueBins.map(bin => (
@@ -206,10 +212,12 @@ export default function InventoryView({
               ))}
             </select>
 
+            <label htmlFor="inventory-status" className="sr-only">Stock status</label>
             <select
+              id="inventory-status"
               value={statusFilter}
               onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
-              className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none text-xs font-medium"
+              className="min-h-11 bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none text-xs font-medium"
             >
               <option value="ALL">All Stock Statuses</option>
               <option value="In Stock">In Stock</option>
@@ -231,7 +239,7 @@ export default function InventoryView({
                   setStatusFilter('ALL');
                   setPage(1);
                 }}
-                className="text-[#1F3864] hover:underline font-bold uppercase text-[10px]"
+                className="min-h-11 min-w-11 text-[#1F3864] hover:underline font-bold uppercase text-[10px]"
               >
                 Clear All
               </button>
@@ -284,7 +292,7 @@ export default function InventoryView({
                       className="hover:bg-blue-50/40 cursor-pointer transition-all"
                       onClick={() => setSelectedSkuId(sku.id)}
                     >
-                      <td className="px-4 py-3.5 font-mono text-slate-500 tracking-tight">{sku.sku_code}</td>
+                      <td className="px-4 py-3.5 font-mono text-slate-500 tracking-tight"><button type="button" onClick={event => { event.stopPropagation(); setSelectedSkuId(sku.id); }} aria-label={`Open SKU ${sku.sku_code}: ${sku.name}`} className="min-h-11 min-w-11 text-left underline decoration-slate-300 underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700">{sku.sku_code}</button></td>
                       <td className="px-4 py-3.5 font-bold text-slate-800 max-w-[160px] sm:max-w-xs truncate">{sku.name}</td>
                       <td className="px-4 py-3.5 text-right text-slate-800 font-semibold tabular-nums">{onHand}</td>
                       <td className="px-4 py-3.5 text-right text-amber-600 font-semibold tabular-nums">{inv?.allocated_qty ?? 0}</td>

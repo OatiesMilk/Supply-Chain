@@ -13,6 +13,7 @@ import { printSingleManifest, ManifestDocumentationData } from '@/features/deliv
 import { rankDriversByCoverage } from '@/utils/driverCoverage';
 import { DRIVERS, driverIdForName,DRIVER_ASSISTANTS, DELIVERY_STATUSES, AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, ACCOUNT_MANAGERS, DRIVER_COVERAGE_AREAS, getSubregion, getNearbyAreas } from '@/data';
 import ComboboxField from '@/components/ComboboxField';
+import { ActionDialog } from '@/components/ActionDialog';
 import { Pencil, X as XIcon, Save, Plus } from 'lucide-react';
 import { getOutputTrigger, runOutputActions } from '@/outputActions';
 import StatusStepper from '@/components/StatusStepper';
@@ -153,6 +154,7 @@ function GeneralTab({
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [remarksError, setRemarksError] = useState(false);
+  const remarksRef = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState<EditDraft>({
     priority: record.priority,
     reference: record.reference,
@@ -204,6 +206,7 @@ function GeneralTab({
   const handleSave = async () => {
     if (!draft.remarks.trim()) {
       setRemarksError(true);
+      requestAnimationFrame(() => remarksRef.current?.focus());
       return;
     }
     setRemarksError(false);
@@ -265,7 +268,7 @@ function GeneralTab({
     setEditing(false);
   };
 
-  const inputCls = 'w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]';
+  const inputCls = 'w-full min-h-11 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]';
   const labelCls = 'text-[10px] text-slate-400 uppercase tracking-widest font-bold';
 
   return (
@@ -279,7 +282,7 @@ function GeneralTab({
       {canManageDraft && !isDraftRecord(record) && selectableStatuses(record, currentUserRole).includes('Draft') && (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
           <button type="button" onClick={() => setReturnToDraftOpen(true)}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1]">
+            className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1]">
             Return to Draft
           </button>
           <p className="text-xs text-slate-500">Takes this record back out of dispatch so you can edit it and submit it again.</p>
@@ -298,7 +301,7 @@ function GeneralTab({
           <p id="submission-change-remarks-help" className="text-xs text-slate-600">Explain why you are submitting or returning this record to Draft. The reason is saved with your name in Remarks History.</p>
           <textarea id="submission-change-remarks" aria-describedby="submission-change-remarks-help" required value={lifecycleRemarks} onChange={e => setLifecycleRemarks(e.target.value)} rows={2} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" placeholder="Reason for submitting or returning to draft" />
           {selectableStatuses(record, currentUserRole).filter(status => isDraftRecord(record) ? status === 'Scheduled' : status === 'Draft').map(status => (
-            <button key={status} type="button" disabled={saving || !lifecycleRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+            <button key={status} type="button" disabled={saving || !lifecycleRemarks.trim()} className="min-h-11 rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
               onClick={async () => { setSaving(true); try { await onUpdateRecord(record.id, { status, remarks: lifecycleRemarks.trim() }); setLifecycleRemarks(''); notify.success(isDraftRecord(record) ? 'Record submitted' : 'Record returned to Draft'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not change submission status.'); } finally { setSaving(false); } }}>
               {isDraftRecord(record) ? 'Submit' : 'Return to Draft'}
             </button>
@@ -314,7 +317,7 @@ function GeneralTab({
           {canEdit && !editing && (
             <button
               onClick={handleStartEdit}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-[#0078C1] hover:bg-blue-50 border border-blue-200 rounded-lg transition-colors cursor-pointer"
+              className="min-h-11 flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-[#0078C1] hover:bg-blue-50 border border-blue-200 rounded-lg transition-colors cursor-pointer"
             >
               <Pencil className="w-3 h-3" /> Edit
             </button>
@@ -385,8 +388,8 @@ function GeneralTab({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {canEditPriority && (
                 <div className="space-y-1">
-                  <label className={labelCls}>Priority</label>
-                  <select value={draft.priority} onChange={e => set('priority', e.target.value as PriorityLevel)} className={inputCls}>
+                  <label htmlFor="overview-priority" className={labelCls}>Priority</label>
+                  <select id="overview-priority" value={draft.priority} onChange={e => set('priority', e.target.value as PriorityLevel)} className={inputCls}>
                     {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </div>
@@ -400,8 +403,8 @@ function GeneralTab({
               )}
               {canEditFull && (
                 <div className="space-y-1">
-                  <label className={labelCls}>Reference (SAP)</label>
-                  <input type="text" value={draft.reference} onChange={e => set('reference', e.target.value)} className={inputCls} />
+                  <label htmlFor="overview-reference" className={labelCls}>Reference (SAP)</label>
+                  <input id="overview-reference" type="text" value={draft.reference} onChange={e => set('reference', e.target.value)} className={inputCls} />
                 </div>
               )}
               {(canEditFull || canEditAreaAddress) && (<>
@@ -419,46 +422,42 @@ function GeneralTab({
                 />
               </div>
               <div className="space-y-1">
-                <label className={labelCls}>Address <span className="text-[10px] font-normal text-slate-400 normal-case tracking-normal">(optional)</span></label>
-                <input type="text" value={draft.address} onChange={e => set('address', e.target.value)} className={inputCls} placeholder="Street, building, floor, or additional location detail" />
+                <label htmlFor="overview-address" className={labelCls}>Address <span className="text-[10px] font-normal text-slate-400 normal-case tracking-normal">(optional)</span></label>
+                <input id="overview-address" type="text" value={draft.address} onChange={e => set('address', e.target.value)} className={inputCls} placeholder="Street, building, floor, or additional location detail" />
               </div>
               </>)}
               {canEditFull && (
                 <>
                   <div className="space-y-1">
-                    <label className={labelCls}>Vehicle</label>
-                    <select value={draft.vehicle} onChange={e => set('vehicle', e.target.value)} className={inputCls}>
+                    <label htmlFor="overview-vehicle" className={labelCls}>Vehicle</label>
+                    <select id="overview-vehicle" value={draft.vehicle} onChange={e => set('vehicle', e.target.value)} className={inputCls}>
                       {VEHICLES.map(v => <option key={v} value={v}>{v}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className={labelCls}>Account Manager</label>
-                    <select value={draft.account_manager} onChange={e => set('account_manager', e.target.value)} className={inputCls}>
+                    <label htmlFor="overview-account_manager" className={labelCls}>Account Manager</label>
+                    <select id="overview-account_manager" value={draft.account_manager} onChange={e => set('account_manager', e.target.value)} className={inputCls}>
                       <option value="">— Select —</option>
                       {ACCOUNT_MANAGERS.map(m => <option key={m} value={m}>{m}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className={labelCls}>Item Type</label>
-                    <select value={draft.item_type} onChange={e => set('item_type', e.target.value as ItemType)} className={inputCls}>
+                    <label htmlFor="overview-item_type" className={labelCls}>Item Type</label>
+                    <select id="overview-item_type" value={draft.item_type} onChange={e => set('item_type', e.target.value as ItemType)} className={inputCls}>
                       {ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className={labelCls}>Delivery Date</label>
-                    <input type="date" value={draft.delivery_date} onChange={e => set('delivery_date', e.target.value)} className={inputCls} />
-                  </div>
-                  <div className="space-y-1">
-                    <label className={labelCls}>Date &amp; Time</label>
-                    
+                    <label htmlFor="overview-delivery_date" className={labelCls}>Delivery Date</label>
+                    <input id="overview-delivery_date" type="date" value={draft.delivery_date} onChange={e => set('delivery_date', e.target.value)} className={inputCls} />
                   </div>
 
                 </>
               )}
               {canEditDeliveryDate && (
                 <div className="space-y-1">
-                  <label className={labelCls}>Delivery Date</label>
-                  <input type="date" value={draft.delivery_date} onChange={e => set('delivery_date', e.target.value)} className={inputCls} />
+                  <label htmlFor="overview-delivery_date" className={labelCls}>Delivery Date</label>
+                  <input id="overview-delivery_date" type="date" value={draft.delivery_date} onChange={e => set('delivery_date', e.target.value)} className={inputCls} />
                 </div>
               )}
             </div>
@@ -469,32 +468,35 @@ function GeneralTab({
               <p id="overview-change-remarks-help" className="text-xs text-slate-600">Explain why you are making this change. The reason is saved with your name in Remarks History.</p>
               <textarea
                 id="overview-change-remarks"
-                aria-describedby="overview-change-remarks-help"
+                ref={remarksRef}
+                aria-invalid={remarksError}
+                aria-describedby={`overview-change-remarks-help${remarksError ? ' overview-change-remarks-error' : ''}`}
                 required
                 value={draft.remarks}
                 onChange={e => { set('remarks', e.target.value); if (remarksError && e.target.value.trim()) setRemarksError(false); }}
                 rows={3}
                 placeholder={canEditFull ? '' : 'Explain why you are making this update...'}
-                className={`w-full px-2.5 py-1.5 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${remarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
+                className={`w-full min-h-11 px-2.5 py-1.5 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${remarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
               />
-              {remarksError && <p className="text-[11px] text-red-600 font-semibold">Remarks are required to save changes.</p>}
+              {remarksError && <p id="overview-change-remarks-error" role="alert" className="text-[11px] text-red-600 font-semibold">Remarks are required to save changes.</p>}
             </div>
             {canEditFull && (
               <div className="space-y-1 mt-4 pt-4 border-t border-slate-100">
                 <div className="flex justify-between items-center mb-1.5">
-                  <label className={labelCls}>Line Items</label>
+                  <p className={labelCls}>Line Items</p>
                   <button
                     type="button"
                     onClick={() => set('line_items', [...(draft.line_items || []), { sku: '', quantity: 1 }])}
-                    className="flex items-center gap-1 text-[11px] font-bold text-[#0078C1] hover:text-[#1F3864] cursor-pointer"
+                    className="min-h-11 flex items-center gap-1 text-[11px] font-bold text-[#0078C1] hover:text-[#1F3864] cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" /> Add Item
                   </button>
                 </div>
                 {(draft.line_items || []).map((item, index) => (
-                  <div key={index} className="flex items-center gap-2 mb-2">
+                  <div key={index} className="min-h-11 flex items-center gap-2 mb-2">
                     <input
                       type="text"
+                      aria-label={`Item ${index + 1} SKU or description`}
                       placeholder="SKU or Description"
                       value={item.sku}
                       onChange={(e) => {
@@ -505,6 +507,7 @@ function GeneralTab({
                       className={inputCls}
                     />
                     <input
+                      aria-label={`Item ${index + 1} quantity`}
                       type="number"
                       min="1"
                       value={item.quantity}
@@ -521,7 +524,8 @@ function GeneralTab({
                         const newItems = (draft.line_items || []).filter((_, i) => i !== index);
                         set('line_items', newItems);
                       }}
-                      className="p-1 text-slate-400 hover:text-red-500 cursor-pointer shrink-0"
+                      aria-label={`Remove item ${index + 1}`}
+                      className="min-h-11 min-w-11 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-500 cursor-pointer shrink-0"
                     >
                       <XIcon className="w-4 h-4" />
                     </button>
@@ -556,7 +560,7 @@ function GeneralTab({
             <p className={`${labelCls} mb-1.5`}>Attachments</p>
             <div className="space-y-1">
               {record.attachments.map((a, i) => (
-                <div key={i} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded px-2 py-1">
+                <div key={i} className="min-h-11 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded px-2 py-1">
                   <FileText className="w-3 h-3 text-[#1F3864]" />
                   <span className="font-mono text-[10px] text-slate-700">{a}</span>
                 </div>
@@ -572,18 +576,18 @@ function GeneralTab({
         )}
 
         {editing && (
-          <div className="flex gap-2 justify-end pt-4 border-t border-slate-100 mt-6">
+          <div className="flex flex-wrap gap-2 justify-end pt-4 border-t border-slate-100 mt-6">
             <button
               onClick={handleCancel}
               disabled={saving}
-              className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors text-[11px] uppercase cursor-pointer disabled:opacity-50"
+              className="min-h-11 px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors text-[11px] uppercase cursor-pointer disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
               disabled={saving}
-              className="px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+              className="min-h-11 px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               {saving ? 'Saving…' : 'Save Changes'}
@@ -636,11 +640,13 @@ function LinkedCollectionCard({
   const [linkRemarks, setLinkRemarks] = useState('');
   const [linking, setLinking]       = useState(false);
   const [linkError, setLinkError]   = useState<string | null>(null);
+  const linkRemarksRef = useRef<HTMLInputElement>(null);
   useWorkspaceDraft('linked-collection', !!(linkInput || linkRemarks), linking);
 
   const handleLink = async (collectionId: string | null) => {
     if (!linkRemarks.trim() && collectionId !== null) {
       setLinkError('A brief remark is required when linking a collection.');
+      requestAnimationFrame(() => linkRemarksRef.current?.focus());
       return;
     }
     setLinking(true);
@@ -698,7 +704,7 @@ function LinkedCollectionCard({
             <button
               onClick={() => handleLink(null)}
               disabled={linking}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-red-600 hover:bg-red-50 border border-red-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+              className="min-h-11 flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-red-600 hover:bg-red-50 border border-red-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
             >
               {linking ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}
               Unlink
@@ -710,13 +716,14 @@ function LinkedCollectionCard({
           {canLink ? (
             <>
               <div className="space-y-1.5 text-xs">
-                <label className={labelCls}>Collection Record ID</label>
+                <label htmlFor="collection-link-id" className={labelCls}>Collection Record ID</label>
                 <input
+                  id="collection-link-id"
                   type="text"
                   value={linkInput}
                   onChange={e => { setLinkInput(e.target.value); setLinkError(null); }}
                   placeholder="e.g. REC-12345"
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                  className="w-full min-h-11 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
                 />
               </div>
               <div className="space-y-1.5 text-xs">
@@ -724,20 +731,22 @@ function LinkedCollectionCard({
                 <p id="collection-link-remarks-help" className="text-xs text-slate-600">Explain why you are linking this collection. This is the change reason, not a discussion comment.</p>
                 <input
                   id="collection-link-remarks"
-                  aria-describedby="collection-link-remarks-help"
+                  ref={linkRemarksRef}
+                  aria-invalid={!!linkError && !linkRemarks.trim()}
+                  aria-describedby={`collection-link-remarks-help${linkError ? ' collection-link-error' : ''}`}
                   required
                   type="text"
                   value={linkRemarks}
                   onChange={e => { setLinkRemarks(e.target.value); setLinkError(null); }}
                   placeholder="Brief reason for linking…"
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                  className="w-full min-h-11 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
                 />
               </div>
-              {linkError && <p className="text-[11px] text-red-600 font-semibold">{linkError}</p>}
+              {linkError && <p id="collection-link-error" role="alert" className="text-[11px] text-red-600 font-semibold">{linkError}</p>}
               <button
                 onClick={() => handleLink(linkInput.trim() || null)}
                 disabled={linking || !linkInput.trim()}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-white bg-[#0078C1] hover:bg-[#1F3864] rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                className="min-h-11 flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-white bg-[#0078C1] hover:bg-[#1F3864] rounded-lg transition-colors cursor-pointer disabled:opacity-50"
               >
                 {linking ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link2 className="w-3 h-3" />}
                 {linking ? 'Linking…' : 'Link Collection'}
@@ -792,7 +801,7 @@ function RemarksTab({ recordId }: { recordId: string }) {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center gap-2 py-20 text-red-600 text-sm">
+      <div role="alert" className="flex items-center justify-center gap-2 py-20 text-red-600 text-sm">
         <AlertTriangle className="w-4 h-4" /> {error}
       </div>
     );
@@ -927,7 +936,7 @@ function ActionsTab({
       setActionRemarksError(true);
       requestAnimationFrame(() => {
         actionRemarksRef.current?.focus();
-        actionRemarksRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        actionRemarksRef.current?.scrollIntoView({ block: 'nearest' });
       });
       return;
     }
@@ -1002,14 +1011,14 @@ function ActionsTab({
     }
   };
 
-  const inputCls = 'w-full px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]';
+  const inputCls = 'w-full min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]';
 
   return (
     <div className="space-y-6">
       {record.status !== 'Delivered' && <PodUploader key={record.id} recordId={record.id} required disabled={saving} />}
       {canRecordTimeIn(record) && (currentUserRole === 'Logistics' || currentUserRole === 'Admin') && <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-2">
         <p className="text-xs text-blue-900">Record Time In to start this run. Enter remarks below before starting.</p>
-        <button type="button" disabled={saving || !actionRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+        <button type="button" disabled={saving || !actionRemarks.trim()} className="min-h-11 rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
           onClick={async () => { setSaving(true); setSaveFeedback(null); try { await timeInMutation.mutateAsync({ id: record.id, remarks: actionRemarks.trim() }); setActionRemarks(''); notify.success('Time In recorded'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not record Time In.'); } finally { setSaving(false); } }}>
           Record Time In
         </button>
@@ -1077,7 +1086,7 @@ function ActionsTab({
         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Driver &amp; Delivery Details</h4>
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700">Driver</label>
+            <label htmlFor="dispatch-driver" className="text-xs font-bold text-slate-700">Driver</label>
             {(() => {
               const recordSubregion = getSubregion(record.area);
               const nearbyAreas = getNearbyAreas(record.area);
@@ -1101,10 +1110,11 @@ function ActionsTab({
               return (
                 <>
                   <select
+                    id="dispatch-driver"
                     value={selectedDriver}
                     disabled={draftRecord || saving}
                     onChange={e => setSelectedDriver(e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${
+                    className={`w-full min-h-11 px-3 py-2 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${
                       !selectedDriver ? 'border-amber-400 bg-amber-50' : 'border-slate-300'
                     }`}
                   >
@@ -1155,11 +1165,12 @@ function ActionsTab({
             })()}
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700">Driver Assistants</label>
+            <p className="text-xs font-bold text-slate-700">Driver Assistants</p>
             <div className="space-y-2">
               {assistants.map((assistant, index) => (
-                <div key={index} className="flex items-center gap-2">
+                <div key={index} className="min-h-11 flex items-center gap-2">
                   <select
+                    aria-label={`Driver assistant ${index + 1}`}
                     value={assistant}
                     disabled={draftRecord || saving}
                     onChange={e => {
@@ -1181,7 +1192,8 @@ function ActionsTab({
                       setAssistants(newAssistants);
                     }}
                     disabled={draftRecord || saving}
-                    className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
+                    aria-label={`Remove driver assistant ${index + 1}`}
+                    className="min-h-11 min-w-11 flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
                   >
                     <XIcon className="w-4 h-4" />
                   </button>
@@ -1191,7 +1203,7 @@ function ActionsTab({
                 type="button"
                 disabled={draftRecord || saving}
                 onClick={() => setAssistants([...assistants, ''])}
-                className="flex items-center gap-1 text-[11px] font-semibold text-[#0078C1] hover:text-[#1F3864] disabled:opacity-50"
+                className="min-h-11 flex items-center gap-1 text-[11px] font-semibold text-[#0078C1] hover:text-[#1F3864] disabled:opacity-50"
               >
                 <Plus className="w-3 h-3" /> Add Assistant
               </button>
@@ -1199,9 +1211,11 @@ function ActionsTab({
           </div>
 
           <div className="space-y-1.5 border-t border-slate-100 pt-3">
-            <label className="text-xs font-bold text-slate-700">Received By *</label>
+            <label htmlFor="dispatch-received-by" className="text-xs font-bold text-slate-700">Received By <span className="font-normal">(required for Delivered)</span></label>
             <input
               type="text"
+              id="dispatch-received-by"
+              aria-required={selectedStatus === 'Delivered'}
               value={receivedBy}
               disabled={saving}
               onChange={e => setReceivedBy(e.target.value)}
@@ -1211,9 +1225,10 @@ function ActionsTab({
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Time In (Manila)</label>
+              <label htmlFor="dispatch-time-in" className="text-xs font-bold text-slate-700">Time In (Manila)</label>
               <input
                 type="datetime-local"
+                id="dispatch-time-in"
                 value={timeIn}
                 disabled={!record.time_in || saving}
                 onChange={e => setTimeIn(e.target.value)}
@@ -1221,9 +1236,10 @@ function ActionsTab({
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Time Out (Manila)</label>
+              <label htmlFor="dispatch-time-out" className="text-xs font-bold text-slate-700">Time Out (Manila)</label>
               <input
                 type="datetime-local"
+                id="dispatch-time-out"
                 value={timeOut}
                 disabled={!record.time_out || saving}
                 onChange={e => setTimeOut(e.target.value)}
@@ -1238,7 +1254,7 @@ function ActionsTab({
       {/* Unified Save Model */}
       <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
         <div className="space-y-1.5">
-          <label className="text-xs font-bold text-slate-700">
+          <label htmlFor="dispatch-change-remarks" className="text-xs font-bold text-slate-700">
             Change Reason / Remarks
             {hasChanges
               ? <span className="text-red-500 ml-1">*</span>
@@ -1246,19 +1262,23 @@ function ActionsTab({
             }
           </label>
           <textarea
+            id="dispatch-change-remarks"
+            aria-required={hasChanges}
+            aria-invalid={actionRemarksError}
+            aria-describedby={actionRemarksError ? 'dispatch-change-remarks-error' : undefined}
             ref={actionRemarksRef}
             value={actionRemarks}
             onChange={e => { setActionRemarks(e.target.value); if (actionRemarksError && e.target.value.trim()) setActionRemarksError(false); }}
             rows={3}
             placeholder={hasChanges ? 'Reason for the changes above (required)…' : 'Optional note…'}
-            className={`w-full px-3 py-2 border rounded-lg text-xs resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${actionRemarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
+            className={`w-full min-h-11 px-3 py-2 border rounded-lg text-xs resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${actionRemarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
           />
-          {actionRemarksError && <p className="text-[11px] text-red-600 font-semibold">A reason is required when making changes to dispatch or status fields.</p>}
+          {actionRemarksError && <p id="dispatch-change-remarks-error" role="alert" className="text-[11px] text-red-600 font-semibold">A reason is required when making changes to dispatch or status fields.</p>}
         </div>
 
         {saveFeedback && <p role="status" className="text-[11px] font-semibold text-amber-700">{saveFeedback}</p>}
 
-        <div className="flex gap-2 justify-end pt-4 border-t border-slate-200 mt-6">
+        <div className="flex flex-wrap gap-2 justify-end pt-4 border-t border-slate-200 mt-6">
           <button
             onClick={() => {
               setSelectedStatus(record.status);
@@ -1273,14 +1293,14 @@ function ActionsTab({
               setSaveFeedback(null);
             }}
             disabled={saving || !hasChanges}
-            className="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg transition-colors text-[11px] uppercase cursor-pointer disabled:opacity-50"
+            className="min-h-11 px-5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg transition-colors text-[11px] uppercase cursor-pointer disabled:opacity-50"
           >
             Revert
           </button>
           <button
             onClick={handleSave}
             disabled={saving || !!photoError || !!newDateError}
-            className="px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+            className="min-h-11 px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             {saving ? 'Saving…' : 'Save Changes'}
@@ -1498,7 +1518,7 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center gap-2 py-20 text-red-600 text-sm">
+      <div role="alert" className="flex items-center justify-center gap-2 py-20 text-red-600 text-sm">
         <AlertTriangle className="w-4 h-4" /> {error}
       </div>
     );
@@ -1702,9 +1722,8 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={e => { e.preventDefault(); setDragging(false); if (!busy) addFiles(e.dataTransfer.files); }}
-        onClick={() => { if (!busy) inputRef.current?.click(); }}
         aria-busy={busy}
-        className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all ${
+        className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 transition-all ${
           dragging
             ? 'border-[#0078C1] bg-blue-50'
             : busy
@@ -1714,15 +1733,17 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
       >
         <Paperclip className={`w-8 h-8 transition-colors ${dragging ? 'text-[#0078C1]' : 'text-slate-300'}`} />
         <div className="text-center">
-          <p className="text-sm font-bold text-slate-700">{staging ? 'Adding files…' : uploading ? 'Uploading…' : 'Drop files here or click to add'}</p>
-            <p className="text-xs text-slate-400 mt-0.5">PDF, JPG, PNG, DOC or DOCX — up to 10 MB each</p>
+          <label htmlFor="record-documents-input" className="text-sm font-bold text-slate-700">{staging ? 'Adding files…' : uploading ? 'Uploading…' : 'Add documents'}</label>
+            <p id="record-documents-help" className="text-xs text-slate-500 mt-0.5">Drop files here or select files below. PDF, JPG, PNG, DOC or DOCX — up to 10 MB each</p>
         </div>
         <input
+          id="record-documents-input"
+          aria-describedby="record-documents-help"
           ref={inputRef}
           type="file"
           multiple
           accept={POD_ATTACHMENT_ACCEPT}
-          className="hidden"
+          className="block min-h-11 max-w-full rounded-lg text-xs file:mr-3 file:min-h-11 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:font-semibold file:text-blue-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700"
           disabled={busy}
           onChange={e => addFiles(e.target.files)}
         />
@@ -1778,43 +1799,16 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
       ) : null}
 
       {/* Removal Confirmation Modal */}
-      {confirmRemoveId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="remove-attachment-title"
-            onKeyDown={event => {
-              if (event.key === 'Escape' && !removing) setConfirmRemoveId(null);
-            }}
-            className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 space-y-4"
-          >
-            <h3 id="remove-attachment-title" className="text-sm font-black text-slate-900">Remove Attachment</h3>
-            <p className="text-xs text-slate-600">
-              Are you sure you want to remove <span className="font-bold">{files.find(f => f.id === confirmRemoveId)?.name}</span>? This action cannot be undone and will be permanently recorded in the audit trail.
-            </p>
-            <div className="flex gap-2 justify-end pt-2">
-              <button
-                type="button"
-                autoFocus
-                disabled={removing}
-                onClick={() => setConfirmRemoveId(null)}
-                className="px-4 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={removing}
-                onClick={removeFile}
-                className="px-4 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded-lg flex items-center gap-1.5"
-              >
-                {removing ? 'Removing...' : 'Remove'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ActionDialog
+        open={confirmRemoveId !== null}
+        title="Remove Attachment"
+        description={`Are you sure you want to remove ${files.find(file => file.id === confirmRemoveId)?.name ?? 'this attachment'}? This action cannot be undone and will be permanently recorded in the audit trail.`}
+        confirmLabel="Remove"
+        destructive
+        pending={removing}
+        onConfirm={removeFile}
+        onDismiss={() => setConfirmRemoveId(null)}
+      />
       <p className="text-[10px] text-slate-400 text-center">Files are stored in the local Docker volume and protected by record access permissions.</p>
     </div>
   );
@@ -1942,7 +1936,7 @@ function RecordWorkspace({
           <button
             onClick={() => requestLeave(onBack)}
             disabled={pending}
-            className="flex items-center gap-1.5 text-[#0078C1] hover:text-[#1F3864] text-xs font-semibold transition-colors shrink-0"
+            className="min-h-11 flex items-center gap-1.5 text-[#0078C1] hover:text-[#1F3864] text-xs font-semibold transition-colors shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
             {moduleName}
@@ -1957,7 +1951,7 @@ function RecordWorkspace({
           <button
             onClick={() => { if (prevId) requestLeave(() => onNavigateToRecord(prevId)); }}
             disabled={!prevId || pending}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold text-slate-600"
+            className="min-h-11 flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold text-slate-600"
             title="Previous Record"
           >
             <ChevronLeft className="w-3.5 h-3.5" />
@@ -1969,7 +1963,7 @@ function RecordWorkspace({
           <button
             onClick={() => { if (nextId) requestLeave(() => onNavigateToRecord(nextId)); }}
             disabled={!nextId || pending}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold text-slate-600"
+            className="min-h-11 flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold text-slate-600"
             title="Next Record"
           >
             Next
@@ -1982,7 +1976,7 @@ function RecordWorkspace({
               <button
                 onClick={handleDownloadPdf}
                 disabled={pdfLoading}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors font-semibold text-slate-600 disabled:opacity-60"
+                className="min-h-11 flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors font-semibold text-slate-600 disabled:opacity-60"
                 title="Download delivery manifest with documentation trail (PDF)"
               >
                 {pdfLoading
@@ -1991,12 +1985,13 @@ function RecordWorkspace({
                 {pdfLoading ? 'Generating…' : 'Download PDF'}
               </button>
               {pdfError && (
-                <div className="absolute right-0 top-full mt-1 z-50 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-[11px] text-red-700 font-semibold shadow-md whitespace-nowrap max-w-xs">
+                <div role="alert" className="absolute right-0 top-full mt-1 z-50 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-[11px] text-red-700 font-semibold shadow-md break-words max-w-xs">
                   <AlertTriangle className="w-3 h-3 inline mr-1" />
                   {pdfError}
                   <button
+                    aria-label="Dismiss PDF error"
                     onClick={() => setPdfError(null)}
-                    className="ml-2 text-red-400 hover:text-red-600 font-bold cursor-pointer"
+                    className="ml-2 inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-red-400 hover:text-red-600 font-bold cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-700"
                   >✕</button>
                 </div>
               )}
