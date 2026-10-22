@@ -654,7 +654,9 @@ export default function DeliveryRecordsView({
   // start shifts right (more gap from Delivery Date) without shrinking
   // Driver's own width — Status (a short pill badge) absorbs the change
   // instead, since it tolerates a narrower column better than Driver names do.
-  const colMinWidth = { id: '110px', company: '200px', area: '130px', date: '180px', driver: '130px', status: '130px' };
+  // Minimums are in rem so columns grow with the Text Size control instead of
+  // clipping the larger (14px) values.
+  const colMinWidth = { id: '8.5rem', company: '12.5rem', area: '8.5rem', date: '11.25rem', driver: '8.5rem', status: '8.5rem' };
   const colPct = showCheckbox
     ? { id: 12, company: 24, area: 13, date: 22, driver: 12, status: 13 }
     : showCollectionCol
@@ -717,7 +719,7 @@ export default function DeliveryRecordsView({
           {(currentUserRole === 'Logistics' || currentUserRole === 'Admin') && category === 'Deliveries' && (
             <button
               onClick={() => setShowDriverReportModal(true)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 text-slate-600 hover:text-blue-700 text-[11px] font-bold rounded-lg transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 text-slate-600 hover:text-blue-700 text-data font-bold rounded-lg transition-all cursor-pointer"
             >
               <FileBarChart2 className="w-3.5 h-3.5 text-blue-500" />
               Monthly Driver Report
@@ -736,22 +738,22 @@ export default function DeliveryRecordsView({
             <div className="relative">
               <button
                 onClick={() => { setShowSampler(p => !p); setSamplerResult(null); }}
-                className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-violet-50 border border-slate-200 hover:border-violet-200 text-slate-600 hover:text-violet-700 text-[11px] font-bold rounded-lg transition-all cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-violet-50 border border-slate-200 hover:border-violet-200 text-slate-600 hover:text-violet-700 text-data font-bold rounded-lg transition-all cursor-pointer"
               >
                 <Shuffle className="w-3.5 h-3.5 text-violet-500" /> Generate Sample
               </button>
               {showSampler && (
                 <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-xl w-72 p-4 space-y-3">
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-black text-slate-800">Generate Sample Records</p>
-                    <button onClick={() => setShowSampler(false)} className="p-0.5 hover:bg-slate-100 rounded cursor-pointer"><X className="w-3.5 h-3.5 text-slate-400" /></button>
+                    <p className="text-data font-black text-slate-800">Generate Sample Records</p>
+                    <button onClick={() => setShowSampler(false)} className="p-0.5 hover:bg-slate-100 rounded cursor-pointer"><X className="w-3.5 h-3.5 text-slate-500" /></button>
                   </div>
                   <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-2">
-                    <SamplerAlert className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-                    <p className="text-[10px] text-amber-700">Creates real records in the live database with randomized data.</p>
+                    <SamplerAlert className="w-3.5 h-3.5 text-amber-700 shrink-0 mt-0.5" />
+                    <p className="text-data text-amber-700">Creates real records in the live database with randomized data.</p>
                   </div>
                   <div>
-                    <label className="text-[10px] font-bold text-slate-600 block mb-1">
+                    <label className="text-data font-bold text-slate-600 block mb-1">
                       Count: <span className="text-violet-700 font-black">{samplerCount}</span>
                     </label>
                     <input
@@ -759,12 +761,12 @@ export default function DeliveryRecordsView({
                       onChange={e => setSamplerCount(Number(e.target.value))}
                       className="w-full accent-violet-600 cursor-pointer"
                     />
-                    <div className="flex justify-between text-[9px] text-slate-400 font-bold mt-0.5">
+                    <div className="flex justify-between text-data text-slate-500 font-bold mt-0.5">
                       <span>1</span><span>25</span><span>50</span>
                     </div>
                   </div>
                   {samplerResult && (
-                    <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-[11px] font-bold ${samplerResult.ok ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+                    <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-data font-bold ${samplerResult.ok ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
                       {samplerResult.ok ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> : <SamplerAlert className="w-3.5 h-3.5 shrink-0" />}
                       {samplerResult.msg}
                     </div>
@@ -773,12 +775,12 @@ export default function DeliveryRecordsView({
                     <button
                       onClick={handleGenerateSample}
                       disabled={samplerGenerating}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-violet-700 hover:bg-violet-600 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-violet-700 hover:bg-violet-600 text-white text-data font-bold rounded-lg transition-colors cursor-pointer disabled:opacity-50"
                     >
                       {samplerGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Shuffle className="w-3.5 h-3.5" />}
                       {samplerGenerating ? 'Generating…' : `Generate ${samplerCount}`}
                     </button>
-                    <button onClick={() => setShowSampler(false)} className="px-3 py-2 border border-slate-200 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50 cursor-pointer">Cancel</button>
+                    <button onClick={() => setShowSampler(false)} className="px-3 py-2 border border-slate-200 text-slate-600 text-data font-bold rounded-lg hover:bg-slate-50 cursor-pointer">Cancel</button>
                   </div>
                 </div>
               )}
@@ -787,7 +789,7 @@ export default function DeliveryRecordsView({
           {canEdit && (
             <button
               onClick={() => { setShowForm(true); setSelectedId(null); }}
-              className="bg-[#1F3864] hover:bg-blue-900 text-white text-[12px] font-bold px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition-all shadow-xs cursor-pointer self-start"
+              className="bg-[#1F3864] hover:bg-blue-900 text-white text-data font-bold px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition-all shadow-xs cursor-pointer self-start"
             >
               <Plus className="w-4 h-4" /> New Record
             </button>
@@ -796,8 +798,8 @@ export default function DeliveryRecordsView({
 
         {/* Date Range Controls — list filters, so hidden while the create form is open */}
         {!isCreating && (
-        <div className="flex flex-wrap gap-3 items-end text-xs" id="date-range-filters">
-        <div className="space-y-1 flex-1 min-w-[120px]">
+        <div className="flex flex-wrap gap-3 items-end text-data" id="date-range-filters">
+        <div className="space-y-1 flex-1 min-w-[min(9.5rem,100%)]">
           <label htmlFor="dateFrom" className="font-bold text-slate-700 block">Date From</label>
           <input
             id="dateFrom"
@@ -810,10 +812,10 @@ export default function DeliveryRecordsView({
               if (next.dateTo !== dateTo) setDateTo(next.dateTo);
             }}
             title="Date from"
-            className="w-full text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+            className="w-full text-body font-semibold border border-field rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
           />
         </div>
-        <div className="space-y-1 flex-1 min-w-[120px]">
+        <div className="space-y-1 flex-1 min-w-[min(9.5rem,100%)]">
           <label htmlFor="dateTo" className="font-bold text-slate-700 block">Date To</label>
           <input
             id="dateTo"
@@ -824,17 +826,17 @@ export default function DeliveryRecordsView({
             title="Date to"
             aria-invalid={dateRangeError ? 'true' : undefined}
             aria-describedby={dateRangeError ? 'date-range-error' : undefined}
-            className={`w-full text-[11px] font-semibold border rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer ${dateRangeError ? 'border-red-400' : 'border-slate-200'}`}
+            className={`w-full text-body font-semibold border rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer ${dateRangeError ? 'border-red-400' : 'border-field'}`}
           />
-          {dateRangeError && <p id="date-range-error" role="alert" className="text-[10px] font-semibold text-red-700">{dateRangeError}</p>}
+          {dateRangeError && <p id="date-range-error" role="alert" className="text-data font-semibold text-red-700">{dateRangeError}</p>}
         </div>
-        <div className="space-y-1 flex-1 min-w-[150px]">
+        <div className="space-y-1 flex-1 min-w-[min(9.5rem,100%)]">
           <label htmlFor="dateSort" className="font-bold text-slate-700 block">Sort</label>
           <select
             id="dateSort"
             value={dateSort}
             onChange={e => setDateSort(e.target.value as typeof dateSort)}
-            className="w-full text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+            className="w-full text-body font-semibold border border-field rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
           >
             <option value="default">Date: Default</option>
             <option value="nearest">Nearest to Present</option>
@@ -846,7 +848,7 @@ export default function DeliveryRecordsView({
           <button
             onClick={() => { setDateFrom(''); setDateTo(''); }}
             title="Clear date filter"
-            className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[11px] uppercase rounded-lg cursor-pointer h-[34px] flex items-center gap-1"
+            className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-data uppercase rounded-lg cursor-pointer min-h-[2.625rem] flex items-center gap-1"
           >
             <X className="w-3.5 h-3.5" /> Clear
           </button>
@@ -857,22 +859,22 @@ export default function DeliveryRecordsView({
 
       {/* TASS filter controls */}
       {showTassFilters && (
-        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap gap-3 items-end text-xs print:hidden" id="tass-filters">
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap gap-3 items-end text-data print:hidden" id="tass-filters">
           <div className="space-y-1">
             <label htmlFor="tass-date-from" className="font-bold text-slate-700 block">Delivery Date From</label>
             <input id="tass-date-from" type="date" value={tassDateFrom} onChange={e => { const next = dateRangeAfterFromChange(e.target.value, tassDateTo); setTassDateFrom(next.dateFrom); if (next.dateTo !== tassDateTo) setTassDateTo(next.dateTo); }}
-              className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
+              className="px-3 py-2 border border-field rounded-lg text-body" />
           </div>
           <div className="space-y-1">
             <label htmlFor="tass-date-to" className="font-bold text-slate-700 block">Delivery Date To</label>
             <input id="tass-date-to" type="date" value={tassDateTo} min={tassRange.dateToMin} aria-invalid={tassRange.error ? 'true' : undefined} onChange={e => setTassDateTo(e.target.value)}
-              className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
+              className="px-3 py-2 border border-field rounded-lg text-body" />
           </div>
-          {tassRange.error && <p role="alert" className="text-[10px] font-semibold text-red-700">{tassRange.error}</p>}
+          {tassRange.error && <p role="alert" className="text-data font-semibold text-red-700">{tassRange.error}</p>}
           <div className="space-y-1">
             <label htmlFor="tass-status-filter" className="font-bold text-slate-700 block">Status</label>
             <select id="tass-status-filter" value={tassStatusFilter} onChange={e => setTassStatusFilter(e.target.value)}
-              className="px-3 py-2 border border-slate-300 rounded-lg bg-white text-xs w-44">
+              className="px-3 py-2 border border-field rounded-lg bg-white text-body w-44">
               <option value="">All Statuses</option>
               <option value="Accomplished">Accomplished</option>
               <option value="Collection Verified">Collection Verified</option>
@@ -886,7 +888,7 @@ export default function DeliveryRecordsView({
           {activeFilterCount > 0 && (
             <button
               onClick={clearAllFilters}
-              className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[11px] uppercase rounded-lg cursor-pointer"
+              className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-data uppercase rounded-lg cursor-pointer"
             >
               Clear All Filters
             </button>
@@ -896,49 +898,49 @@ export default function DeliveryRecordsView({
 
       {/* Bulk action bar — Logistics: status / Sales Coordinator: priority */}
       {selectedBulkIds.size > 0 && (canAssignDriver || canEdit) && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-[#1F3864] text-white rounded-2xl shadow-2xl px-5 py-3.5 flex items-center gap-4 print:hidden" id="bulk-action-bar">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-[#1F3864] text-white rounded-2xl shadow-2xl px-5 py-3.5 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 w-max max-w-[calc(100vw-2rem)] print:hidden" id="bulk-action-bar">
           <ListChecks className="w-4 h-4 text-blue-300 shrink-0" />
           <span className="text-sm font-bold text-white">{selectedBulkIds.size} selected</span>
           {canAssignDriver && (
             <div className="flex items-center gap-2" title="Complete deliveries individually with Time In, a saved JPG/PNG photo, Received By, and remarks.">
-              <span className="text-xs text-white/60">Set status:</span>
+              <span className="text-data text-white/70">Set status:</span>
               <select
                 value={bulkStatus}
                 onChange={e => setBulkStatus(e.target.value as DeliveryStatus | '')}
                 disabled={bulkApplying}
-                className="text-[11px] font-bold bg-white/10 border border-white/20 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
+                className="text-body font-bold bg-white/10 border border-white/50 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
               >
                 <option value="" className="text-slate-900 bg-white">Keep unchanged</option>
                 {DELIVERY_STATUSES.filter(s => s !== 'In Transit' && s !== 'Delivered' && s !== 'Draft' && !(category === 'Deliveries' && s === 'Rescheduled') && [...selectedBulkIds].every(id => { const record = categoryRecords.find(r => r.id === id); return record && (record.status === s || selectableStatuses(record, currentUserRole).includes(s)); })).map(s => (
                   <option key={s} value={s} className="text-slate-900 bg-white">{s}</option>
                 ))}
               </select>
-              {category === 'Deliveries' && <span className="text-[10px] text-white/60 max-w-48 leading-tight">Reschedule deliveries one at a time to set each new date.</span>}
+              {category === 'Deliveries' && <span className="text-data text-white/70 max-w-48 leading-tight">Reschedule deliveries one at a time to set each new date.</span>}
             </div>
           )}
           {canEdit && (
             <div className="flex items-center gap-2">
-              <span className="text-xs text-white/60">Set priority:</span>
+              <span className="text-data text-white/70">Set priority:</span>
               <select
                 id="bulk-priority-select"
                 value={effectiveBulkPriority}
                 onChange={e => setBulkPriority(e.target.value as PriorityLevel | '')}
                 disabled={bulkApplying || allSelectedPriorityLocked}
                 aria-describedby={allSelectedPriorityLocked ? 'bulk-priority-locked-hint' : undefined}
-                className="text-[11px] font-bold bg-white/10 border border-white/20 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
+                className="text-body font-bold bg-white/10 border border-white/50 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
               >
                 <option value="" className="text-slate-900 bg-white">Keep unchanged</option>
                 {(['1 - Low', '2 - Moderate', '3 - High'] as const).map(p => (
                   <option key={p} value={p} className="text-slate-900 bg-white">{p}</option>
                 ))}
               </select>
-              {allSelectedPriorityLocked && <span id="bulk-priority-locked-hint" className="text-[10px] text-white/60 max-w-48 leading-tight">{PRIORITY_LOCKED_NOTE}</span>}
+              {allSelectedPriorityLocked && <span id="bulk-priority-locked-hint" className="text-data text-white/70 max-w-48 leading-tight">{PRIORITY_LOCKED_NOTE}</span>}
             </div>
           )}
           <button
             onClick={handleBulkUpdate}
             disabled={bulkApplying || !((canAssignDriver && bulkStatus) || (canEdit && effectiveBulkPriority))}
-            className="px-4 py-1.5 bg-[#0078C1] hover:bg-blue-500 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
+            className="px-4 py-1.5 bg-[#0078C1] hover:bg-blue-500 text-white text-data font-bold rounded-lg transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
           >
             {bulkApplying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Apply
           </button>
@@ -956,16 +958,16 @@ export default function DeliveryRecordsView({
       {creationBanner && (
         <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg p-3 flex items-start justify-between gap-3 print:hidden" id="record-created-banner">
           <div className="space-y-1">
-            <p className="font-bold text-[11px] uppercase tracking-wider">Record Created</p>
-            <p className="text-xs font-semibold">{creationBanner.referenceLabel} · <span className="font-mono">{creationBanner.recordId}</span></p>
+            <p className="font-bold text-data uppercase tracking-wider">Record Created</p>
+            <p className="text-data font-semibold">{creationBanner.referenceLabel} · <span className="font-mono">{creationBanner.recordId}</span></p>
             {creationBanner.lines.map((line, i) => (
-              <span key={i} className="flex items-center gap-1.5 font-semibold text-xs">
+              <span key={i} className="flex items-center gap-1.5 font-semibold text-data">
                 {outputLineIcon(line)} {line}
               </span>
             ))}
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            <button onClick={() => { setSelectedId(creationBanner.recordId); setCreationBanner(null); }} className="text-emerald-800 hover:bg-emerald-100 px-2 py-1 rounded text-xs font-bold">View record</button>
+            <button onClick={() => { setSelectedId(creationBanner.recordId); setCreationBanner(null); }} className="text-emerald-800 hover:bg-emerald-100 px-2 py-1 rounded text-data font-bold">View record</button>
             <button onClick={() => setCreationBanner(null)} className="text-emerald-700 hover:bg-emerald-100 p-1 rounded"><X className="w-4 h-4" /></button>
           </div>
         </div>
@@ -1009,14 +1011,14 @@ export default function DeliveryRecordsView({
               <div className="flex flex-wrap items-center justify-between gap-3">
                 {/* LEFT: category label + status chips */}
                 <div className="flex items-center gap-0 min-w-0 flex-wrap">
-                  <span className="text-xs font-black text-slate-800 uppercase tracking-wider mr-3 shrink-0">{category}</span>
+                  <span className="text-data font-black text-slate-800 uppercase tracking-wider mr-3 shrink-0">{category}</span>
                   <div className="flex items-center gap-1.5 border-l border-slate-200 pl-3 flex-wrap">
                     {['All', ...DELIVERY_STATUSES].map(s => (
                       <button
                         key={s}
                         onClick={() => setStatusFilter(s)}
                         aria-pressed={statusFilter === s}
-                        className={`px-3 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer ${statusFilter === s
+                        className={`px-3 py-1 rounded-lg text-data font-semibold border transition-all cursor-pointer ${statusFilter === s
                           ? 'bg-[#1F3864] text-white border-[#1F3864]'
                           : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
                           }`}
@@ -1030,44 +1032,44 @@ export default function DeliveryRecordsView({
                 {/* RIGHT: search + filter toggle + record count */}
                 <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end shrink-0">
                   <div className="relative flex-1 sm:w-56 sm:flex-initial">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search records..."
                       aria-label={`Search ${category === 'Deliveries' ? 'delivery' : category} records`}
-                      className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-hidden focus:ring-1 focus:ring-[#0078C1]" />
+                      className="w-full pl-9 pr-3 py-2 border border-field rounded-lg text-body focus:outline-hidden focus:ring-1 focus:ring-[#0078C1]" />
                   </div>
                     <FilterPopover open={showAdvancedFilters} onOpenChange={setShowAdvancedFilters}
                       count={activeFilterCount}
                       onClear={clearAllFilters}>
                       <fieldset className="space-y-2 min-w-0">
-                        <legend className="text-xs font-bold text-slate-800 mb-2">Location</legend>
-                        <label className="block text-xs font-semibold text-slate-600">Region
+                        <legend className="text-data font-bold text-slate-800 mb-2">Location</legend>
+                        <label className="block text-data font-semibold text-slate-600">Region
                           <select value={regionFilter}
                             onChange={e => { setRegionFilter(e.target.value); setSubregionFilter('All Subregions'); setAreaFilter('All Areas'); }}
-                            className="mt-1 min-h-10 text-xs border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white focus:ring-2 focus:ring-[#0078C1]">
+                            className="mt-1 min-h-10 text-body border border-field rounded-lg px-2.5 py-2 w-full bg-white focus:ring-2 focus:ring-[#0078C1]">
                             <option value="All Regions">All Regions</option>
                             {AREA_HIERARCHY.map(r => <option key={r.region} value={r.region}>{r.region}</option>)}
                           </select>
                         </label>
                         <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-2">
-                          <label className="block min-w-0 text-xs font-semibold text-slate-600">Subregion
+                          <label className="block min-w-0 text-data font-semibold text-slate-600">Subregion
                             <select value={subregionFilter}
                               onChange={e => { setSubregionFilter(e.target.value); setAreaFilter('All Areas'); }}
-                              className="mt-1 min-h-10 text-xs border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white focus:ring-2 focus:ring-[#0078C1]">
+                              className="mt-1 min-h-10 text-body border border-field rounded-lg px-2.5 py-2 w-full bg-white focus:ring-2 focus:ring-[#0078C1]">
                               <option value="All Subregions">All Subregions</option>
                               {(regionFilter === 'All Regions' ? AREA_HIERARCHY : AREA_HIERARCHY.filter(r => r.region === regionFilter))
                                 .flatMap(r => r.subregions).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
                             </select>
                           </label>
-                          <label className="block min-w-0 text-xs font-semibold text-slate-600">Area
+                          <label className="block min-w-0 text-data font-semibold text-slate-600">Area
                             <select value={areaFilter} onChange={e => setAreaFilter(e.target.value)}
-                              className="mt-1 min-h-10 text-xs border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white focus:ring-2 focus:ring-[#0078C1]">
+                              className="mt-1 min-h-10 text-body border border-field rounded-lg px-2.5 py-2 w-full bg-white focus:ring-2 focus:ring-[#0078C1]">
                               {distinctAreasForFilter.map(a => <option key={a} value={a}>{a}</option>)}
                             </select>
                           </label>
                         </div>
                       </fieldset>
                       <fieldset className="min-w-0">
-                        <legend className="text-xs font-bold text-slate-800 mb-2">Personnel</legend>
+                        <legend className="text-data font-bold text-slate-800 mb-2">Personnel</legend>
                         <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-2">
                           <FilterCombobox label="Account Manager" placeholder="All Account Managers" value={amFilter} onChange={setAmFilter} options={amOptions} />
                           <FilterCombobox label="Driver" placeholder="All Drivers" value={driverFilter} onChange={setDriverFilter} options={driverOptions} />
@@ -1075,13 +1077,21 @@ export default function DeliveryRecordsView({
                       </fieldset>
                     </FilterPopover>
 
-                  <span className="text-[11px] font-bold text-slate-400 tabular-nums shrink-0">{sortedFiltered.length}</span>
+                  <span className="text-data font-bold text-slate-500 tabular-nums shrink-0">{sortedFiltered.length}</span>
                 </div>
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[700px] table-fixed text-left border-collapse text-sm">
+            <p className="md:hidden px-4 pt-3 text-caption text-slate-600 print:hidden">
+              Swipe or scroll sideways to see every column.
+            </p>
+            <div
+              className="overflow-x-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1]"
+              role="region"
+              aria-label={`${category} records table`}
+              tabIndex={0}
+            >
+              <table className="w-full min-w-[44rem] table-fixed text-left border-collapse text-sm">
                 <colgroup>
                   {showCheckbox && <col style={{ width: '4%', minWidth: '40px' }} />}
                   <col style={{ width: `${colPct.id}%`, minWidth: colMinWidth.id }} />
@@ -1093,7 +1103,7 @@ export default function DeliveryRecordsView({
                   {showCollectionCol && <col style={{ width: '8%', minWidth: '90px' }} />}
                 </colgroup>
                 <thead>
-                  <tr className="bg-slate-100 border-b border-slate-200 text-xs font-black text-slate-500 uppercase tracking-wider">
+                  <tr className="bg-slate-100 border-b border-slate-200 text-caption font-black text-slate-600 uppercase tracking-wide">
                     {showCheckbox && (
                       <th className="px-4 py-3" style={{ minWidth: '40px' }}>
                         <input
@@ -1117,7 +1127,7 @@ export default function DeliveryRecordsView({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {displayRecords.length === 0 ? (
-                    <tr><td colSpan={10} className="px-4 py-3.5 text-center text-gray-400">
+                    <tr><td colSpan={10} className="px-4 py-3.5 text-center text-slate-500">
                       {pagedLoading ? 'Loading records…' : 'No matching records found.'}
                     </td></tr>
                   ) : displayRecords.map(rec => {
@@ -1136,22 +1146,22 @@ export default function DeliveryRecordsView({
                             />
                           </td>
                         )}
-                        <td className="px-4 py-3.5 font-bold text-slate-400 truncate">{rec.id}</td>
+                        <td className="px-4 py-3.5 font-bold text-slate-600 truncate" title={rec.id}>{rec.id}</td>
                         <td className="px-4 py-3.5">
                           <div className="font-semibold text-sm text-slate-900 truncate" title={rec.company_name}>{rec.company_name}</div>
-                          <div className="text-xs text-gray-400 mt-0.5 truncate" title={rec.area}>{rec.area}</div>
+                          <div className="text-data text-slate-500 mt-0.5 truncate" title={rec.area}>{rec.area}</div>
                         </td>
                         <td className="px-4 py-3.5 truncate text-slate-600" title={rec.area}>{rec.area}</td>
                         <td className="px-4 py-3.5 text-center text-slate-600 tabular-nums">{rec.delivery_date}</td>
-                        <td className="px-4 py-3.5 truncate text-slate-600" title={rec.driver}>{rec.driver || <span className="text-xs text-slate-400 italic">Unassigned</span>}</td>
+                        <td className="px-4 py-3.5 truncate text-slate-600" title={rec.driver}>{rec.driver || <span className="text-data text-slate-500 italic">Unassigned</span>}</td>
                         <td className="px-4 py-3.5 text-center">
-                          <span className={`px-2.5 py-0.5 rounded-full border text-[10.5px] font-semibold inline-block ${statusColor(rec.status)}`}>{rec.status}</span>
+                          <span className={`px-2.5 py-0.5 rounded-full border text-data font-semibold inline-block ${statusColor(rec.status)}`}>{rec.status}</span>
                         </td>
                         {currentUserRole === 'TASS' && category === 'Accounting Collection' && (
                           <td className="px-4 py-3.5 text-center">
                             {rec.collection_verified
-                              ? <span className="text-emerald-600 font-bold text-[10px] flex items-center justify-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Verified</span>
-                              : <span className="text-slate-300 text-[10px] italic">—</span>
+                              ? <span className="text-emerald-700 font-bold text-data flex items-center justify-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Verified</span>
+                              : <span className="text-slate-500 text-data italic"><span aria-hidden="true">—</span><span className="sr-only">Not verified</span></span>
                             }
                           </td>
                         )}

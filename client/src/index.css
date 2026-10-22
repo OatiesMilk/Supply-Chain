@@ -4,6 +4,20 @@
 @theme {
   --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+
+  /* Readable type scale (UI-002, see docs/UI_TYPOGRAPHY.md). Sizes are in rem
+     so they follow the browser font-size setting and the header Text Size
+     control; avoid text-[Npx] utilities, which ignore both. */
+  --text-body: 1rem;              /* 16px: forms, inputs, free text */
+  --text-body--line-height: 1.5rem;
+  --text-data: 0.875rem;          /* 14px: table values, statuses, dates, actions, errors */
+  --text-data--line-height: 1.25rem;
+  --text-caption: 0.8125rem;      /* 13px: uppercase section/field labels and hints only */
+  --text-caption--line-height: 1.125rem;
+
+  /* Form-control boundary with at least 3:1 contrast on white and slate-50
+     (WCAG 1.4.11). Use as border-field on inputs, selects and textareas. */
+  --color-field: #7f8ba0;
 }
 
 /* Company history drawer (CompanyHistoryPanel): slides in from the trigger's
