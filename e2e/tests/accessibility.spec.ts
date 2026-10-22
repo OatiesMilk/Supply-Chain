@@ -127,7 +127,7 @@ test('UI-001 notifications are nonmodal, keyboard operable and return focus on E
 test('UI-001 record validation connects errors, focuses a field and supports keyboard file selection', async ({ page }) => {
   const writes = await fixture(page, true, 'SALES_COORDINATOR');
   await page.goto('/deliveries');
-  const create = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
+  const create = page.getByRole('button', { name: 'Create Record', exact: true });
   await touchTarget(create);
   await create.click();
   const form = page.locator('form').filter({ has: page.getByRole('button', { name: 'Submit', exact: true }) });
