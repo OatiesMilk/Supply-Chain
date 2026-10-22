@@ -89,9 +89,16 @@ for (const width of [320, 390, 1280]) {
     await expect(trigger).toBeFocused();
     await fitsViewport(page);
     await trigger.click();
-    await dialog.getByLabel('Search records and products').fill('A11Y-SKU');
+    await expect(dialog).toBeVisible();
+    const reopenedSearch = dialog.getByLabel('Search records and products');
+    await expect(reopenedSearch).toBeFocused();
+    // The previous query must be cleared before typing, not by a delayed effect
+    // that can erase a fast user's freshly entered second search.
+    await expect(reopenedSearch).toHaveValue('');
+    await reopenedSearch.fill('A11Y-SKU');
     await expect(dialog.getByText('Keyboard test product', { exact: true })).toBeVisible();
     await page.keyboard.press('ArrowDown');
+    await expect(reopenedSearch).toHaveAttribute('aria-activedescendant', /.+/);
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(/\/inventory\?item=a11y-sku/);
     await expect(dialog).not.toBeVisible();

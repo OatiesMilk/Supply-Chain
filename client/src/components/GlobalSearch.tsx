@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useId } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId } from 'react';
 import { Search, X, Truck, Package, ArrowRight, Loader2 } from 'lucide-react';
 import { DeliveryRecord } from '../types';
 import { ApiSku, api } from '../api';
@@ -39,7 +39,9 @@ export default function GlobalSearch({ isOpen, onClose, deliveryRecords, product
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  // Reset before the reopened dialog can receive input. A passive effect could
+  // clear freshly typed text if the user (or Playwright) searched immediately.
+  useLayoutEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog || !isOpen) return;
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -144,9 +146,6 @@ export default function GlobalSearch({ isOpen, onClose, deliveryRecords, product
     items[cursor]?.scrollIntoView({ block: 'nearest' });
   }, [cursor]);
 
-  // Reset cursor when query changes
-  useEffect(() => { setCursor(-1); }, [query]);
-
   if (!isOpen) return null;
 
   let globalIdx = -1;
@@ -192,7 +191,7 @@ export default function GlobalSearch({ isOpen, onClose, deliveryRecords, product
             aria-controls={resultsId}
             aria-activedescendant={cursor >= 0 && cursor < total ? `${resultsId}-${cursor}` : undefined}
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={e => { setCursor(-1); setQuery(e.target.value); }}
             onKeyDown={handleKeyDown}
             placeholder="Search records, companies, drivers, SKUs…"
             className="min-h-11 min-w-0 flex-1 text-sm text-slate-800 placeholder:text-slate-400 outline-none bg-transparent"
