@@ -93,7 +93,7 @@ test.describe('A-2 Create a Delivery Record', () => {
 
   test('A-2.2 Empty form submission shows validation errors', async ({ page }) => {
     // Open the create form
-    const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
+    const newBtn = page.getByRole('button', { name: 'Create Record', exact: true });
     await newBtn.click();
     await page.waitForLoadState('networkidle');
 
@@ -105,7 +105,7 @@ test.describe('A-2 Create a Delivery Record', () => {
   });
 
   test('A-2.3 Company must be selected from list', async ({ page }) => {
-    const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
+    const newBtn = page.getByRole('button', { name: 'Create Record', exact: true });
     await newBtn.click();
 
     // Type a garbage company name
@@ -119,7 +119,7 @@ test.describe('A-2 Create a Delivery Record', () => {
   });
 
   test('A-2.4 Valid record creates with Scheduled status', async ({ page }) => {
-    const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
+    const newBtn = page.getByRole('button', { name: 'Create Record', exact: true });
     await newBtn.click();
     await page.waitForLoadState('networkidle');
 
@@ -149,7 +149,7 @@ test.describe('A-2 Create a Delivery Record', () => {
   });
 
   test('A-2.7 Reject file over 10 MB', async ({ page }) => {
-    const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
+    const newBtn = page.getByRole('button', { name: 'Create Record', exact: true });
     await newBtn.click();
 
     // Create a temporary > 10 MB file
@@ -167,7 +167,7 @@ test.describe('A-2 Create a Delivery Record', () => {
   });
 
   test('A-2.8 Reject unsupported file type', async ({ page }) => {
-    const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
+    const newBtn = page.getByRole('button', { name: 'Create Record', exact: true });
     await newBtn.click();
 
     const badFilePath = path.join('/tmp', 'malicious.exe');

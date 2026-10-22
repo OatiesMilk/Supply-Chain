@@ -65,7 +65,7 @@ test.describe('B-1 Login & Access Control', () => {
     await page.goto(`${BASE_URL}/rma`);
     await page.waitForLoadState('networkidle');
     // Attempt to click new record — button should be absent OR blocked
-    const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
+    const newBtn = page.getByRole('button', { name: 'Create Record', exact: true });
     // Either the button doesn't exist, or clicking it shows an error
     if (await newBtn.isVisible()) {
       await newBtn.click();
@@ -166,7 +166,7 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
   test('B-2.0a Auto Fill keeps Area and Address in one demo-location fixture', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
-    await page.getByRole('button', { name: /new record/i }).click();
+    await page.getByRole('button', { name: 'Create Record', exact: true }).click();
 
     const areaInput = page.locator('label').filter({ hasText: /^Area/ }).locator('..').locator('input');
     const addressInput = page.getByPlaceholder(/street, building, floor/i);
