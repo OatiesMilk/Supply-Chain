@@ -223,3 +223,19 @@ test('UI-001 workspace validation focuses required remarks and attachment remova
   await expect(remove).toBeFocused();
   expect(writes).toEqual([]);
 });
+
+
+test('UI-001 keyboard skip link bypasses repeated navigation and focuses main content', async ({ page }) => {
+  await fixture(page);
+  await page.goto('/dashboard');
+  const main = page.locator('#main-routed-view');
+  await expect(main).toBeVisible();
+  const skip = page.getByRole('link', { name: 'Skip to main content', exact: true });
+  await expect(skip).toHaveAttribute('href', '#main-routed-view');
+  // The bypass link is the first keyboard stop and only becomes visible on focus.
+  await page.keyboard.press('Tab');
+  await expect(skip).toBeFocused();
+  await expect(skip).toHaveCSS('position', 'fixed');
+  await page.keyboard.press('Enter');
+  await expect(main).toBeFocused();
+});
