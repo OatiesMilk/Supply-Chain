@@ -21,7 +21,9 @@ test('creation labels target controls and describe draft requirements and native
       assert.ok(document.getElementById(label.htmlFor), `Missing target: ${label.textContent}`);
     }
     const date = document.querySelector<HTMLInputElement>('input[type="date"]')!;
-    assert.match(date.labels![0].textContent!, /required to submit; optional for drafts/);
+    const dateDescriptions = (date.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean);
+    const dateAccessibleHelp = dateDescriptions.map(id => document.getElementById(id)?.textContent ?? '').join(' ');
+    assert.match(`${date.labels![0].textContent} ${dateAccessibleHelp}`, /required to submit; optional for drafts/i);
     assert.equal(date.required, false, 'Draft must remain possible without a date');
     const file = document.querySelector<HTMLInputElement>('input[type="file"]')!;
     assert.match(file.labels![0].textContent!, /Document Attachments/);
@@ -56,7 +58,8 @@ test('invalid submit focuses company and connects each field error to its contro
     assert.equal(invalid.length, 3);
     assert.equal(dom.window.document.activeElement, invalid[0]);
     for (const input of invalid) {
-      const error = dom.window.document.getElementById(input.getAttribute('aria-describedby')!);
+      const describedIds = (input.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean);
+      const error = describedIds.map(id => dom.window.document.getElementById(id)).find(node => node?.getAttribute('role') === 'alert');
       assert.equal(error?.getAttribute('role'), 'alert');
       assert.match(error!.textContent!, /required/);
     }
