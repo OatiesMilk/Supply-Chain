@@ -787,7 +787,7 @@ export default function DeliveryRecordsView({
           {canEdit && (
             <button
               onClick={() => { setShowForm(true); setSelectedId(null); }}
-              className="bg-[#1F3864] hover:bg-blue-900 text-white text-[12px] font-bold px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition-all shadow-xs cursor-pointer self-start"
+              className="min-h-11 bg-[#1F3864] hover:bg-blue-900 text-white text-[12px] font-bold px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition-all shadow-xs cursor-pointer self-start"
             >
               <Plus className="w-4 h-4" /> New Record
             </button>

@@ -211,7 +211,7 @@ test.describe('A-3 Edit a Record', () => {
     await page.getByRole('button', { name: 'Close photo preview' }).click();
 
     await page.getByRole('button', { name: `Remove ${photoName}` }).click();
-    const confirmation = page.getByRole('alertdialog', { name: 'Remove Attachment' });
+    const confirmation = page.getByRole('dialog', { name: 'Remove Attachment' });
     await expect(confirmation.getByRole('textbox')).toHaveCount(0);
     await confirmation.getByRole('button', { name: 'Remove', exact: true }).click();
     await expect(preview).toHaveCount(0);

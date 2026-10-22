@@ -191,15 +191,16 @@ jobs:
           npm run e2e:driver
           npm run e2e:integration
           npm run test:dashboard --prefix e2e
+          npm run test:accessibility --prefix e2e
         env:
           NODE_ENV: production
           PORT: "3000"
 
       - name: Upload Playwright artifacts
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-failure-artifacts
+          name: playwright-artifacts
           path: |
             e2e/test-results/
             e2e/playwright-report/

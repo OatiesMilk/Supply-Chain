@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { composerTextareaSize } from '../CommentComposer';
 
-// One text line (24px + 12px padding) matches the 36px Send button, so they line up.
-test('a single line is as tall as the Send button', () => {
+// The textarea keeps its 36px single-line height; the separate Send hit area is 44px.
+test('a single line keeps the composer textarea height', () => {
   assert.deepEqual(composerTextareaSize(0), { height: 36, overflowY: 'hidden' });
   assert.deepEqual(composerTextareaSize(36), { height: 36, overflowY: 'hidden' });
 });

@@ -496,7 +496,7 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     await expect(page.getByRole('button', { name: `Preview ${pdfName}` })).toHaveCount(0);
     await expect(page.getByRole('link', { name: `Download ${pdfName}` })).toHaveAttribute('download', pdfName);
     await page.getByRole('button', { name: `Remove ${pdfName}` }).click();
-    await page.getByRole('alertdialog', { name: 'Remove Attachment' }).getByRole('button', { name: 'Remove', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Remove Attachment' }).getByRole('button', { name: 'Remove', exact: true }).click();
     await expect(page.getByText(pdfName)).toHaveCount(0);
 
     fs.unlinkSync(pdfPath);
@@ -535,7 +535,7 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     await expect(lightbox).not.toBeVisible();
 
     await page.getByRole('button', { name: `Remove ${photoName}` }).click();
-    const confirmation = page.getByRole('alertdialog', { name: 'Remove Attachment' });
+    const confirmation = page.getByRole('dialog', { name: 'Remove Attachment' });
     await expect(confirmation).toBeVisible();
     await expect(confirmation.getByRole('textbox')).toHaveCount(0);
     await confirmation.getByRole('button', { name: 'Remove', exact: true }).click();

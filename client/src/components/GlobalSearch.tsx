@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useId } from 'react';
 import { Search, X, Truck, Package, ArrowRight, Loader2 } from 'lucide-react';
 import { DeliveryRecord } from '../types';
 import { ApiSku, api } from '../api';
@@ -33,25 +33,26 @@ export default function GlobalSearch({ isOpen, onClose, deliveryRecords, product
   const [cursor, setCursor] = useState(-1);
   const [serverRecords, setServerRecords] = useState<DeliveryRecord[]>([]);
   const [searching, setSearching] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const resultsId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (isOpen) {
-      setQuery('');
-      setCursor(-1);
-      setServerRecords([]);
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
-  }, [isOpen]);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+    const dialog = dialogRef.current;
+    if (!dialog || !isOpen) return;
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setQuery('');
+    setCursor(-1);
+    setServerRecords([]);
+    dialog.showModal();
+    inputRef.current?.focus();
+    return () => {
+      if (dialog.open) dialog.close();
+      if (trigger?.isConnected) trigger.focus({ preventScroll: true });
     };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
+  }, [isOpen]);
 
   const q = query.toLowerCase().trim();
 
@@ -130,7 +131,7 @@ export default function GlobalSearch({ isOpen, onClose, deliveryRecords, product
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setCursor(c => Math.max(c - 1, 0));
-    } else if (e.key === 'Enter' && cursor >= 0) {
+    } else if (e.key === 'Enter' && cursor >= 0 && cursor < allResults.length) {
       e.preventDefault();
       openItem(allResults[cursor]);
     }
@@ -151,33 +152,62 @@ export default function GlobalSearch({ isOpen, onClose, deliveryRecords, product
   let globalIdx = -1;
 
   return (
-    <div
-      className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm flex items-start justify-center pt-[10vh] px-4"
+    <dialog
+      ref={dialogRef}
+      aria-labelledby={titleId}
+      onCancel={event => { event.preventDefault(); onClose(); }}
+      onKeyDown={event => {
+        if (event.key !== 'Tab') return;
+        // Keep keyboard navigation inside the page modal rather than allowing
+        // the native dialog's last Tab stop to move into browser chrome.
+        const controls = event.currentTarget.querySelectorAll<HTMLElement>(
+          'input:not([disabled]), button:not([disabled]):not([tabindex="-1"])',
+        );
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }}
+      className="mx-auto mt-[10dvh] w-[calc(100%-2rem)] max-w-xl rounded-2xl border-0 bg-transparent p-0 text-slate-900 backdrop:bg-slate-900/60 backdrop:backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col" style={{ maxHeight: '70vh' }}>
+        <h2 id={titleId} className="sr-only">Search records and products</h2>
         {/* Search input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-200">
           <Search className="w-4 h-4 text-slate-400 shrink-0" />
           <input
             ref={inputRef}
+            id="global-search-input"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={true}
+            aria-label="Search records and products"
+            aria-describedby={`${resultsId}-help`}
+            aria-controls={resultsId}
+            aria-activedescendant={cursor >= 0 && cursor < total ? `${resultsId}-${cursor}` : undefined}
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Search records, companies, drivers, SKUs…"
-            className="flex-1 text-sm text-slate-800 placeholder:text-slate-400 outline-none bg-transparent"
+            className="min-h-11 min-w-0 flex-1 text-sm text-slate-800 placeholder:text-slate-400 outline-none bg-transparent"
           />
           <div className="flex items-center gap-2">
             {searching && <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-500 shrink-0" />}
             <kbd className="hidden sm:inline-flex text-[10px] font-mono bg-slate-100 border border-slate-200 text-slate-500 px-1.5 py-0.5 rounded">Esc</kbd>
-            <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded text-slate-400 cursor-pointer">
+            <button type="button" aria-label="Close search" onClick={onClose} className="min-h-11 min-w-11 inline-flex items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700 p-1 hover:bg-slate-100 rounded text-slate-400 cursor-pointer">
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
         {/* Results */}
-        <div className="overflow-y-auto flex-1" ref={listRef}>
+        <div id={resultsId} role="listbox" aria-label="Search results" className="overflow-y-auto flex-1" ref={listRef}>
           {q.length < 2 ? (
             <div className="py-10 text-center text-slate-400 text-sm">
               Type at least 2 characters to search
@@ -200,9 +230,13 @@ export default function GlobalSearch({ isOpen, onClose, deliveryRecords, product
                     return (
                       <button
                         key={r.id}
+                        id={`${resultsId}-${idx}`}
                         data-result-item
+                        role="option"
+                        tabIndex={-1}
+                        aria-selected={isActive}
                         onClick={() => openItem({ kind: 'record', data: r })}
-                        className={`w-full text-left flex items-center gap-3 px-4 py-3 transition-all cursor-pointer border-b border-slate-50 ${
+                        className={`min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700 w-full text-left flex items-center gap-3 px-4 py-3 transition-all cursor-pointer border-b border-slate-50 ${
                           isActive ? 'bg-blue-50 border-l-2 border-l-[#0078C1]' : 'hover:bg-blue-50'
                         }`}
                       >
@@ -237,9 +271,13 @@ export default function GlobalSearch({ isOpen, onClose, deliveryRecords, product
                     return (
                       <button
                         key={p.id}
+                        id={`${resultsId}-${idx}`}
                         data-result-item
+                        role="option"
+                        tabIndex={-1}
+                        aria-selected={isActive}
                         onClick={() => openItem({ kind: 'sku', data: p })}
-                        className={`w-full text-left flex items-center gap-3 px-4 py-3 transition-all cursor-pointer border-b border-slate-50 ${
+                        className={`min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700 w-full text-left flex items-center gap-3 px-4 py-3 transition-all cursor-pointer border-b border-slate-50 ${
                           isActive ? 'bg-blue-50 border-l-2 border-l-[#0078C1]' : 'hover:bg-blue-50'
                         }`}
                       >
@@ -266,13 +304,13 @@ export default function GlobalSearch({ isOpen, onClose, deliveryRecords, product
           )}
         </div>
 
-        <div className="px-4 py-2 border-t border-slate-100 text-[10px] text-slate-400 flex items-center gap-3">
+        <div id={`${resultsId}-help`} className="px-4 py-2 border-t border-slate-100 text-[10px] text-slate-400 flex items-center gap-3">
           <span><kbd className="font-mono bg-slate-100 border border-slate-200 px-1 rounded">↑↓</kbd> navigate</span>
           <span><kbd className="font-mono bg-slate-100 border border-slate-200 px-1 rounded">Enter</kbd> open</span>
           <span><kbd className="font-mono bg-slate-100 border border-slate-200 px-1 rounded">Esc</kbd> close</span>
-          <span className="ml-auto">{total > 0 ? `${total} result${total !== 1 ? 's' : ''}` : ''}</span>
+          <span role="status" className="ml-auto">{total > 0 ? `${total} result${total !== 1 ? 's' : ''}` : ''}</span>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }

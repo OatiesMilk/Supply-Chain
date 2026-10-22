@@ -49,7 +49,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         <Navbar {...navbarProps} />
 
         {dataError && (
-          <div className="bg-red-50 border-b border-red-200 text-red-700 text-[11px] font-semibold px-6 py-1.5 flex items-center gap-2" id="data-error-banner">
+          <div className="bg-red-50 border-b border-red-200 text-red-700 text-[11px] font-semibold px-6 py-1.5 flex items-center gap-2" id="data-error-banner" role="alert" aria-live="polite">
             <AlertTriangle className="w-3.5 h-3.5" />
             <span>{dataError}</span>
           </div>
