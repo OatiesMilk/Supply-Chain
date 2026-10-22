@@ -134,7 +134,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Search aria-hidden="true" className="w-3.5 h-3.5" />
             <span className="hidden lg:inline">Search</span>
-            <kbd className="hidden lg:inline bg-slate-200 border border-slate-300 px-1 rounded text-[9px]">
+            <kbd className="hidden lg:inline bg-slate-200 border border-slate-300 px-1 rounded text-caption text-slate-600">
               Ctrl K
             </kbd>
           </Button>

@@ -71,13 +71,13 @@ export function Pagination({
 
   return (
     <div
-      className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4 px-4 py-3 bg-white text-xs select-none"
+      className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4 px-4 py-3 bg-white text-data select-none"
       aria-label="Pagination"
       data-testid="pagination-container"
     >
       {/* Left: Record summary & Page size selector */}
       <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-slate-500">
-        <span data-testid="pagination-records-info" className="text-xs text-slate-500">
+        <span data-testid="pagination-records-info" className="text-data text-slate-500">
           Showing{' '}
           <span className="font-bold text-slate-700">
             {totalItems === 0 ? '0' : `${startItem}–${endItem}`}
@@ -89,7 +89,7 @@ export function Pagination({
           <div className="flex items-center gap-1.5 sm:gap-2">
             <label
               htmlFor={pageSizeId}
-              className="text-xs text-slate-500 whitespace-nowrap"
+              className="text-data text-slate-600 whitespace-nowrap"
             >
               Rows per page:
             </label>
