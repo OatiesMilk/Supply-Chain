@@ -18,6 +18,7 @@ export default defineConfig({
   },
   projects: [
     { name: 'Accessibility', testMatch: /accessibility\.spec\.ts/ },
+    { name: 'Design System', testMatch: /design_system\.spec\.ts/ },
     { name: 'Dashboard', testMatch: /dashboard\.spec\.ts/ },
     {
       name: 'setup',

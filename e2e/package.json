@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "test:accessibility": "playwright test --config playwright.config.ts --project='Accessibility'",
+    "test:design-system": "playwright test --config playwright.config.ts --project='Design System'",
     "test": "playwright test --config playwright.config.ts",
     "test:sc": "playwright test --config playwright.config.ts --project='Sales Coordinator'",
     "test:logistics": "playwright test --config playwright.config.ts --project='Logistics'",

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
-import { AlertCircle, AlertTriangle, Loader2 } from 'lucide-react';
+import { AlertCircle, AlertTriangle } from 'lucide-react';
+import { Button, ErrorState } from './ui';
 
 interface ActionDialogProps {
   open: boolean;
@@ -43,7 +44,7 @@ export function ActionDialog({
       aria-describedby={descriptionId}
       onCancel={event => { event.preventDefault(); if (!pending) onDismiss(); }}
       onClick={event => { if (dismissOnBackdrop && event.target === event.currentTarget && !pending) onDismiss(); }}
-      className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md overflow-y-auto rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/55 backdrop:backdrop-blur-[2px]"
+      className="mg-dialog"
     >
       <div className="space-y-5 p-5 sm:p-6">
         <div className="flex items-start gap-3">
@@ -58,20 +59,17 @@ export function ActionDialog({
 
         {children}
 
-        {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
+        {error && <ErrorState>{error}</ErrorState>}
 
         <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4">
           {onConfirm && (
-            <button type="button" disabled={pending} onClick={onDismiss}
-              className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:opacity-50">
+            <Button type="button" variant="secondary" disabled={pending} onClick={onDismiss}>
               {cancelLabel}
-            </button>
+            </Button>
           )}
-          <button type="button" disabled={pending || (!!onConfirm && confirmDisabled)} onClick={onConfirm ?? onDismiss}
-            className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50 ${destructive ? 'bg-red-700 hover:bg-red-800 focus-visible:outline-red-700' : 'bg-[#1F3864] hover:bg-[#0078C1] focus-visible:outline-blue-700'}`}>
-            {pending && <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />}
+          <Button type="button" variant={destructive ? 'danger' : 'primary'} loading={pending} disabled={pending || (!!onConfirm && confirmDisabled)} onClick={onConfirm ?? onDismiss}>
             {pending ? 'Working...' : onConfirm ? confirmLabel : 'Close'}
-          </button>
+          </Button>
         </div>
       </div>
     </dialog>
