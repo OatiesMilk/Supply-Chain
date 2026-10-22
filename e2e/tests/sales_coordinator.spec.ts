@@ -111,7 +111,9 @@ test.describe('A-2 Create a Delivery Record', () => {
     // Type a garbage company name
     const companyInput = page.locator('form').getByPlaceholder('Type to search or scroll to browse...').first();
     await companyInput.fill('ZZZZNOTACOMPANY');
-    await page.getByRole('button', { name: /save|create|submit/i }).first().click();
+    // Target the actual form action: the accessible "Close create record form" button
+    // also contains "create" and must not be clicked by this validation test.
+    await page.locator('form').getByRole('button', { name: 'Submit', exact: true }).click();
 
     await expect(page.getByText(/select a company from the list/i)).toBeVisible();
   });
