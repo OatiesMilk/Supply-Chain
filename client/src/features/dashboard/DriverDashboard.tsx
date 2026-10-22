@@ -1,3 +1,4 @@
+import OperationalDashboard from './OperationalDashboard';
 import { useState, useCallback } from "react";
 import {
   CheckCircle,
@@ -15,7 +16,7 @@ import { DeliveryRecord, DeliveryStatus } from "@/types";
 import PodUploader from "@/components/PodUploader";
 import { completionError, type PodReadiness } from "@/utils/podRequirement";
 
-import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
+import { useRecordsQuery, useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
 import { canRecordTimeIn, dashboardRunDaysLate, deliveryScheduleState, hasValidRunTimeIn, isDashboardRunActionable, isDraftRecord, manilaToday } from '@/utils/recordLifecycle';
 import DoneRecordModal from "./DoneRecordModal";
 import { uploadStagedFiles } from '@/api/queries/usePodAttachments';
@@ -53,6 +54,7 @@ export default function DriverDashboard({
 }: DriverDashboardProps) {
   const today = manilaToday();
   const timeInMutation = useRecordTimeInMutation();
+  const runsQuery = useRecordsQuery();
   const queryClient = useQueryClient();
   records = records.filter(record => !isDraftRecord(record));
   const todayLabel = new Date().toLocaleDateString("en-PH", {
@@ -156,36 +158,7 @@ export default function DriverDashboard({
           </button>
         </div>
 
-        {/* Stats strip */}
-        <div className="grid grid-cols-3 gap-3 mt-3">
-          {[
-            {
-              label: "Today's Runs",
-              value: todayRecs.length,
-              color: "text-white",
-            },
-            {
-              label: "Accomplished",
-              value: doneRecs.length,
-              color: "text-emerald-300",
-            },
-            {
-              label: "Remaining",
-              value: activeRecs.length,
-              color: "text-amber-300",
-            },
-          ].map((s) => (
-            <div
-              key={s.label}
-              className="bg-white/10 rounded-xl px-3 py-2.5 text-center"
-            >
-              <p className={`text-xl font-black ${s.color}`}>{s.value}</p>
-              <p className="text-[9px] text-blue-200 font-bold uppercase tracking-wider mt-0.5">
-                {s.label}
-              </p>
-            </div>
-          ))}
-        </div>
+
       </div>
 
       {saveFeedback && !pendingAction && (
@@ -198,13 +171,19 @@ export default function DriverDashboard({
 
       {/* Body */}
       <div className="flex-1 px-4 py-5 space-y-4 max-w-lg mx-auto w-full">
+        <OperationalDashboard driver />
+        <div className="text-xs text-slate-600">
+          <button className="rounded border border-slate-300 bg-white px-3 py-2 font-semibold" disabled={runsQuery.isFetching} onClick={() => void runsQuery.refetch()}>{runsQuery.isFetching ? 'Refreshing runs…' : 'Refresh run list'}</button>
+          {runsQuery.dataUpdatedAt > 0 && <p className="mt-2">Run list last updated: {new Date(runsQuery.dataUpdatedAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila' })} PHT</p>}
+        </div>
+        {runsQuery.isError && <p role="alert" className="rounded bg-amber-50 p-3 text-sm text-amber-900">{runsQuery.data ? 'Run list is stale; refresh failed.' : 'Unable to load your run list.'} {runsQuery.error.message}</p>}
         {dataLoading && (
           <div className="flex items-center justify-center gap-2 py-6 text-slate-400 text-xs">
             <Loader2 className="w-4 h-4 animate-spin" /> Loading runs…
           </div>
         )}
 
-        {!dataLoading && runsInScope === 0 && (
+        {!dataLoading && !runsQuery.isError && runsInScope === 0 && (
           <div className="text-center py-16 text-slate-400">
             <CheckCircle className="w-10 h-10 mx-auto mb-3 text-emerald-400" />
             <p className="font-bold text-slate-600">

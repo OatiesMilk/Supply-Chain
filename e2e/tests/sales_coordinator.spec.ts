@@ -50,44 +50,38 @@ test.describe('A-1 Login & Access Control', () => {
   });
 });
 
-test.describe('TSK-126 dashboard card filters', () => {
-  test('SC On-Hold card opens the matching list, wraps at supported widths, and clears', async ({ page }) => {
-    await page.goto(BASE_URL);
-    await page.waitForLoadState('networkidle');
-    const card = page.locator('#kpi-on-hold');
+test.describe('Role dashboard drill-downs', () => {
+  test('SC held card opens the matching dialog, fits supported widths, and closes', async ({ page }) => {
+    await page.goto(`${BASE_URL}/dashboard`);
+    const card = page.locator('#dashboard-kpis').getByRole('button', { name: /^On Hold \/ Rescheduled/ });
     await expect(card).toBeVisible();
-    const cardCount = Number((await card.locator('h3').innerText()).trim());
+    const cardCount = Number((await card.locator('strong').innerText()).trim());
     await card.click();
 
-    const chip = page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true });
-    await expect(chip).toBeVisible();
-    const clearButton = page.getByRole('button', { name: 'Clear dashboard filter: On-Hold Items' });
-    await expect(clearButton).toBeVisible();
-    const recordsInfo = page.getByTestId('pagination-records-info');
-    await expect(recordsInfo).toContainText(/of\s+\d+\s+records/i);
-    const rowCount = Number((await recordsInfo.innerText()).match(/of\s+(\d+)\s+records/i)?.[1]);
-    expect(rowCount).toBe(cardCount);
+    const dialog = page.getByRole('dialog', { name: 'On Hold / Rescheduled', exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(`${cardCount} total`, { exact: true })).toBeVisible();
 
     for (const width of [375, 768, 1280]) {
       await page.setViewportSize({ width, height: 900 });
-      const chipBox = await page.getByTestId('dashboard-filter-chip').boundingBox();
-      expect(chipBox).toBeTruthy();
-      expect((chipBox?.x ?? 0) + (chipBox?.width ?? 0)).toBeLessThanOrEqual(width);
+      const dialogBox = await dialog.boundingBox();
+      expect(dialogBox).toBeTruthy();
+      expect(dialogBox!.x).toBeGreaterThanOrEqual(0);
+      expect(dialogBox!.x + dialogBox!.width).toBeLessThanOrEqual(width);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     }
 
-    await clearButton.focus();
+    await dialog.getByRole('button', { name: 'Close', exact: true }).focus();
     await page.keyboard.press('Enter');
-    await expect(page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true })).not.toBeVisible();
-    const unfilteredInfo = page.getByTestId('pagination-records-info');
-    const unfilteredCount = Number((await unfilteredInfo.innerText()).match(/of\s+(\d+)\s+records/i)?.[1]);
-    expect(unfilteredCount).toBeGreaterThanOrEqual(cardCount);
-
-    await page.getByRole('navigation').getByRole('button', { name: /^Dashboard/ }).click();
-    await page.locator('#kpi-on-hold').click();
-    await expect(page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true })).toBeVisible();
+    await expect(dialog).not.toBeVisible();
+    await expect(card).toBeFocused();
+    await card.click();
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible();
     await page.getByRole('navigation').getByRole('button', { name: /^Deliveries/ }).click();
-    await expect(page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true })).not.toBeVisible();
+    await expect(page).toHaveURL(/\/deliveries$/);
+    await expect(page.getByRole('dialog')).not.toBeVisible();
   });
 });
 

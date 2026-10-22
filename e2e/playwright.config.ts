@@ -17,6 +17,7 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   projects: [
+    { name: 'Dashboard', testMatch: /dashboard\.spec\.ts/ },
     {
       name: 'setup',
       testMatch: /global\.setup\.ts/,
