@@ -166,13 +166,14 @@ export default function RecordCreateForm({
   onUpdateOutputActionConfig,
   onAfterSubmit,
 }: RecordCreateFormProps) {
-  const deliveryDateId = useId();
+  const formId = useId();
+  const fieldId = (field: string) => `${formId}-${field}`;
+  const deliveryDateId = fieldId('delivery-date');
   const [form, setForm] = useState<RecordFormState>(() => buildEmptyForm(category));
   const [saving, setSaving] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [stagedAttachments, setStagedAttachments] = useState<StagedRecordAttachment[]>([]);
   const [createdRecordInfo, setCreatedRecordInfo] = useState<{ id: string; referenceLabel: string; lines: string[]; isDraft: boolean } | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
   const updateField = <K extends keyof RecordFormState>(key: K, value: RecordFormState[K]) => {
@@ -291,7 +292,7 @@ export default function RecordCreateForm({
       requestAnimationFrame(() => {
         const firstInvalid = formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
         firstInvalid?.focus();
-        firstInvalid?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        firstInvalid?.scrollIntoView({ block: 'nearest' });
       });
       return;
     }
@@ -371,7 +372,7 @@ export default function RecordCreateForm({
             </div>
           ))}
         </div>
-        <button type="button" onClick={handleRetryAttachments} disabled={saving} className="px-5 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg disabled:opacity-50">
+        <button type="button" onClick={handleRetryAttachments} disabled={saving} className="min-h-11 px-5 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg disabled:opacity-50">
           {saving ? 'Uploading…' : 'Retry incomplete uploads'}
         </button>
       </div>
@@ -386,17 +387,17 @@ export default function RecordCreateForm({
             <Plus className="w-5 h-5 text-[#0078C1]" />
             {categoryLocked ? `Create New ${cat} Record` : 'Create New Record'}
           </h3>
-          <p className="text-[11.5px] text-slate-500 font-medium">Submit requires a company and SAP reference. Save as Draft requires a company.</p>
+          <p className="text-[11.5px] text-slate-500 font-medium">Submit requires a company, SAP reference, and delivery date. Save as Draft requires a company.</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={handleAutoFill}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg transition-colors cursor-pointer"
+            className="min-h-11 flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg transition-colors cursor-pointer"
           >
             <Wand2 className="w-3.5 h-3.5" /> Auto Fill
           </button>
-          <button onClick={onCancel} className="text-slate-400 hover:text-slate-700">
+          <button type="button" onClick={onCancel} aria-label="Close create record form" className="min-h-11 min-w-11 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -410,11 +411,12 @@ export default function RecordCreateForm({
           {/* Order Type — only shown when categoryLocked=false */}
           {!categoryLocked && (
             <div className="space-y-1.5 md:col-span-2">
-              <label className="font-bold text-slate-700">Order Type <span className="text-red-500">*</span></label>
+              <label htmlFor={fieldId('category')} className="font-bold text-slate-700">Order Type <span className="text-red-500">*</span></label>
               <select
+                id={fieldId('category')}
                 value={cat}
                 onChange={e => handleCategoryChange(e.target.value as DeliveryCategory)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white"
+                className="w-full min-h-11 px-3 py-2 border border-slate-300 rounded-lg bg-white"
               >
                 {(availableCategories ?? []).map(c => (
                   <option key={c} value={c}>{c}</option>
@@ -436,22 +438,23 @@ export default function RecordCreateForm({
 
           {/* Priority * */}
           <div className="space-y-1.5">
-            <label className="font-bold text-slate-700">Priority <span className="text-red-500">*</span></label>
-            <select value={form.priority} onChange={e => updateField('priority', e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">
+            <label htmlFor={fieldId('priority')} className="font-bold text-slate-700">Priority <span className="text-red-500">*</span></label>
+            <select id={fieldId('priority')} value={form.priority} onChange={e => updateField('priority', e.target.value)} className="w-full min-h-11 px-3 py-2 border border-slate-300 rounded-lg bg-white">
               {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </div>
 
           {/* Reference * (not required when Draft) */}
           <div className="space-y-1.5 md:col-span-2">
-            <label className="font-bold text-slate-700">
-              Reference (SAP Number){form.is_draft !== 'Yes' && <span className="text-red-500"> *</span>}
+            <label htmlFor={fieldId('reference')} className="font-bold text-slate-700">
+              Reference (SAP Number) <span className="text-[10px] font-normal text-slate-500">(required to submit; optional for drafts)</span>
             </label>
-            <input type="text" value={form.reference} onChange={e => updateField('reference', e.target.value)}
+            <input id={fieldId('reference')} type="text" value={form.reference} onChange={e => updateField('reference', e.target.value)}
               aria-invalid={!!formErrors.reference}
+              aria-describedby={formErrors.reference ? fieldId('reference-error') : undefined}
               placeholder="e.g., SAP-88231"
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-hidden ${formErrors.reference ? 'border-red-500' : 'border-slate-300'}`} />
-            {formErrors.reference && <p className="text-red-500 text-[10px] font-semibold">{formErrors.reference}</p>}
+              className={`w-full min-h-11 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${formErrors.reference ? 'border-red-500' : 'border-slate-300'}`} />
+            {formErrors.reference && <p id={fieldId('reference-error')} role="alert" className="text-red-500 text-[10px] font-semibold">{formErrors.reference}</p>}
           </div>
 
           {/* ── OPTIONAL FIELDS ─────────────────────────────────────── */}
@@ -471,13 +474,14 @@ export default function RecordCreateForm({
 
           {/* Address */}
           <div className="space-y-1.5 md:col-span-2">
-            <label className="font-bold text-slate-700">Address <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+            <label htmlFor={fieldId('address')} className="font-bold text-slate-700">Address <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
             <input
+              id={fieldId('address')}
               type="text"
               value={form.address}
               onChange={e => updateField('address', e.target.value)}
               placeholder="Street, building, floor, or additional location detail (optional)"
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+              className="w-full min-h-11 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
             />
           </div>
 
@@ -493,36 +497,37 @@ export default function RecordCreateForm({
 
           {/* Delivery Date */}
           <div className="space-y-1.5">
-            <label htmlFor={deliveryDateId} className="font-bold text-slate-700">Delivery Date <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+            <label htmlFor={deliveryDateId} className="font-bold text-slate-700">Delivery Date <span className="text-[10px] font-normal text-slate-500">(required to submit; optional for drafts)</span></label>
             <input id={deliveryDateId} type="date" value={form.delivery_date} onChange={e => updateField('delivery_date', e.target.value)}
               aria-invalid={!!formErrors.delivery_date}
-              className={`w-full px-3 py-2 border rounded-lg ${formErrors.delivery_date ? 'border-red-500' : 'border-slate-300'}`} />
-            {formErrors.delivery_date && <p className="text-red-500 text-[10px] font-semibold">{formErrors.delivery_date}</p>}
+              aria-describedby={formErrors.delivery_date ? fieldId('delivery-date-error') : undefined}
+              className={`w-full min-h-11 px-3 py-2 border rounded-lg ${formErrors.delivery_date ? 'border-red-500' : 'border-slate-300'}`} />
+            {formErrors.delivery_date && <p id={fieldId('delivery-date-error')} role="alert" className="text-red-500 text-[10px] font-semibold">{formErrors.delivery_date}</p>}
           </div>
 
           {/* Item Type */}
           <div className="space-y-1.5">
-            <label className="font-bold text-slate-700">Item Type <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
-            <select value={form.item_type} onChange={e => updateField('item_type', e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">
+            <label htmlFor={fieldId('item_type')} className="font-bold text-slate-700">Item Type <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+            <select id={fieldId('item_type')} value={form.item_type} onChange={e => updateField('item_type', e.target.value)} className="w-full min-h-11 px-3 py-2 border border-slate-300 rounded-lg bg-white">
               {ITEM_TYPES.map(it => <option key={it} value={it}>{it}</option>)}
             </select>
           </div>
 
           {/* Remarks */}
           <div className="space-y-1.5 md:col-span-2">
-            <label className="font-bold text-slate-700">Remarks <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
-            <textarea value={form.remarks} onChange={e => updateField('remarks', e.target.value)} rows={3}
-              placeholder="Special instructions or notes..." className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
+            <label htmlFor={fieldId('remarks')} className="font-bold text-slate-700">Remarks <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+            <textarea id={fieldId('remarks')} value={form.remarks} onChange={e => updateField('remarks', e.target.value)} rows={3}
+              placeholder="Special instructions or notes..." className="w-full min-h-11 px-3 py-2 border border-slate-300 rounded-lg" />
           </div>
 
           {/* Line Items */}
           <div className="space-y-1.5 md:col-span-2">
             <div className="flex justify-between items-center mb-1.5">
-              <label className="font-bold text-slate-700">Line Items <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+              <p className="font-bold text-slate-700">Line Items <span className="text-[10px] font-normal text-slate-400">(optional)</span></p>
               <button
                 type="button"
                 onClick={() => updateField('line_items', [...(form.line_items || []), { sku: '', quantity: 1 }])}
-                className="flex items-center gap-1 text-[11px] font-bold text-[#0078C1] hover:text-[#1F3864] cursor-pointer"
+                className="min-h-11 flex items-center gap-1 text-[11px] font-bold text-[#0078C1] hover:text-[#1F3864] cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" /> Add Item
               </button>
@@ -531,6 +536,8 @@ export default function RecordCreateForm({
               <div key={index} className="flex items-center gap-2 mb-2">
                 <input
                   type="text"
+                  id={fieldId(`item-${index}-description`)}
+                  aria-label={`Item ${index + 1} SKU or description`}
                   placeholder="SKU or Description"
                   value={item.sku}
                   onChange={(e) => {
@@ -538,9 +545,11 @@ export default function RecordCreateForm({
                     newItems[index].sku = e.target.value;
                     updateField('line_items', newItems);
                   }}
-                  className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-xs"
+                  className="min-w-0 min-h-11 flex-1 px-3 py-2 border border-slate-300 rounded-lg text-xs"
                 />
                 <input
+                  id={fieldId(`item-${index}-quantity`)}
+                  aria-label={`Item ${index + 1} quantity`}
                   type="number"
                   min="1"
                   value={item.quantity}
@@ -549,7 +558,7 @@ export default function RecordCreateForm({
                     newItems[index].quantity = parseInt(e.target.value) || 1;
                     updateField('line_items', newItems);
                   }}
-                  className="w-20 px-3 py-2 border border-slate-300 rounded-lg text-xs"
+                  className="w-20 min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-xs"
                 />
                 <button
                   type="button"
@@ -557,7 +566,8 @@ export default function RecordCreateForm({
                     const newItems = (form.line_items || []).filter((_, i) => i !== index);
                     updateField('line_items', newItems);
                   }}
-                  className="p-1 text-slate-400 hover:text-red-500 cursor-pointer shrink-0"
+                  aria-label={`Remove item ${index + 1}`}
+                  className="min-h-11 min-w-11 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-500 cursor-pointer shrink-0"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -570,15 +580,11 @@ export default function RecordCreateForm({
 
           {/* Document Attachments */}
           <div className="space-y-1.5 md:col-span-2">
-            <label className="font-bold text-slate-700">Document Attachments <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-slate-300 rounded-xl p-5 text-center flex flex-col items-center justify-center gap-2 cursor-pointer bg-slate-50/50 hover:bg-slate-50 transition-all"
-            >
-              <UploadCloud className="w-8 h-8 text-slate-400" />
-              <p className="font-bold text-slate-600">Click to select files</p>
-              <p className="text-[10px] text-slate-400">PDF, JPG/JPEG, PNG, DOC or DOCX up to 10 MB each</p>
-              <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept={POD_ATTACHMENT_ACCEPT} multiple className="hidden" />
+            <label htmlFor={fieldId('attachments')} className="font-bold text-slate-700">Document Attachments <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+            <div className="border-2 border-dashed border-slate-300 rounded-xl p-5 flex flex-col items-center justify-center gap-2 bg-slate-50/50">
+              <UploadCloud aria-hidden="true" className="w-8 h-8 text-slate-400" />
+              <p id={fieldId('attachments-help')} className="text-[10px] text-slate-500">PDF, JPG/JPEG, PNG, DOC or DOCX up to 10 MB each</p>
+              <input id={fieldId('attachments')} type="file" aria-describedby={fieldId('attachments-help')} onChange={handleFileSelect} accept={POD_ATTACHMENT_ACCEPT} multiple className="block min-h-11 max-w-full rounded-lg text-xs file:mr-3 file:min-h-11 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:font-semibold file:text-blue-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700" />
             </div>
             {stagedAttachments.length > 0 && (
               <div className="mt-2 space-y-1">
@@ -603,12 +609,12 @@ export default function RecordCreateForm({
           />
         )}
 
-        <div className="flex gap-2 justify-end pt-2 border-t border-slate-100">
-          <button type="button" onClick={onCancel} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors text-[11px] uppercase">
+        <div className="flex flex-wrap gap-2 justify-end pt-2 border-t border-slate-100">
+          <button type="button" onClick={onCancel} className="min-h-11 px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors text-[11px] uppercase">
             Cancel
           </button>
-          <button type="submit" value="draft" disabled={saving} className="px-5 py-2.5 border border-slate-300 text-slate-700 font-bold rounded-lg disabled:opacity-50">Save as Draft</button>
-          <button type="submit" value="submit" disabled={saving} className="px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5">
+          <button type="submit" value="draft" disabled={saving} className="min-h-11 px-5 py-2.5 border border-slate-300 text-slate-700 font-bold rounded-lg disabled:opacity-50">Save as Draft</button>
+          <button type="submit" value="submit" disabled={saving} className="min-h-11 px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5">
             <Check className="w-4 h-4" /> {saving ? "Saving…" : "Submit"}
           </button>
         </div>

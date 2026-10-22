@@ -31,6 +31,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 }) => {
   return (
     <div className="flex h-screen bg-[#F8F9FB] font-sans text-slate-800 overflow-hidden" id="app-root">
+      <a href="#main-routed-view" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[100] focus:rounded-lg focus:bg-white focus:px-4 focus:py-3 focus:text-sm focus:font-semibold focus:text-[#1F3864] focus:shadow-lg focus:outline-2 focus:outline-offset-2 focus:outline-[#0078C1]">
+        Skip to main content
+      </a>
       <GlobalSearch
         isOpen={searchOpen}
         onClose={() => setSearchOpen(false)}
@@ -49,13 +52,13 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         <Navbar {...navbarProps} />
 
         {dataError && (
-          <div className="bg-red-50 border-b border-red-200 text-red-700 text-[11px] font-semibold px-6 py-1.5 flex items-center gap-2" id="data-error-banner">
+          <div className="bg-red-50 border-b border-red-200 text-red-700 text-[11px] font-semibold px-6 py-1.5 flex items-center gap-2" id="data-error-banner" role="alert" aria-live="polite">
             <AlertTriangle className="w-3.5 h-3.5" />
             <span>{dataError}</span>
           </div>
         )}
 
-        <main className="flex-1 overflow-y-auto px-3 py-3 sm:px-4 sm:py-4 lg:px-5 lg:py-4 bg-[#F8F9FB]" id="main-routed-view">
+        <main tabIndex={-1} className="flex-1 overflow-y-auto px-3 py-3 sm:px-4 sm:py-4 lg:px-5 lg:py-4 bg-[#F8F9FB]" id="main-routed-view">
           {children}
         </main>
       </div>
