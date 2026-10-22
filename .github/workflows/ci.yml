@@ -192,6 +192,7 @@ jobs:
           npm run e2e:integration
           npm run test:dashboard --prefix e2e
           npm run test:accessibility --prefix e2e
+          npm run test:design-system --prefix e2e
         env:
           NODE_ENV: production
           PORT: "3000"
