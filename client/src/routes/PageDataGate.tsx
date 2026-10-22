@@ -7,7 +7,8 @@ export function PageDataGate({ loading, error, onRetry, children }: {
   loading: boolean; error: string | null; onRetry: () => Promise<void>; children: ReactNode;
 }) {
   if (error) return <div role="alert" className="flex flex-col items-center gap-3 py-16 text-slate-700">
-    <p>Unable to load page data: {error}</p>
+    <p>We could not load this page. {error}</p>
+    <p>Try again. If the problem continues, contact your administrator.</p>
     <button className="rounded bg-blue-800 px-4 py-2 text-white" onClick={() => void onRetry()}>Try again</button>
   </div>;
   if (loading) return <PageLoading />;

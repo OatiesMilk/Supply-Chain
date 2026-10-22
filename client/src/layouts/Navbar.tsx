@@ -1,3 +1,4 @@
+import { screenLabel } from '@/utils/navigationLabels';
 import { manilaToday } from "@/utils/recordLifecycle";
 import React, { useState, useEffect } from "react";
 import {
@@ -90,16 +91,13 @@ export const Navbar: React.FC<NavbarProps> = ({
             id="mobile-sidebar-toggle"
             aria-label="Open navigation menu"
             title="Open navigation menu"
+            aria-controls="sidebar-panel"
           >
             <Menu className="w-5 h-5" />
           </button>
 
           <span className="font-semibold text-slate-800 uppercase tracking-tight text-xs">
-            {currentScreen === "dashboard"
-              ? "Command Dashboard"
-              : currentScreen === "main"
-                ? "Main"
-                : currentScreen.replace(/_/g, " ")}
+            {screenLabel(currentScreen)}
           </span>
         </div>
 
@@ -138,7 +136,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             onClick={() => setSearchOpen(true)}
             className="min-h-11 min-w-11 justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700 flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-500 hover:text-slate-700 rounded-lg transition-colors cursor-pointer text-[10px] font-bold"
             aria-label="Search records and products"
-            title="Global search (Ctrl+K)"
+            title="Search records and products (Ctrl+K)"
             id="global-search-button"
             aria-haspopup="dialog"
           >
