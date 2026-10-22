@@ -144,21 +144,21 @@ test.describe('B-1 Login & Access Control', () => {
   });
 });
 
-test.describe('TSK-126 dashboard card filters', () => {
-  test('Logistics unassigned card opens the matching Delivery list', async ({ page }) => {
-    await page.goto(BASE_URL);
-    await page.waitForLoadState('networkidle');
-    const card = page.locator('#kpi-log-unassigned');
+test.describe('Role dashboard drill-downs', () => {
+  test('Logistics unassigned today card opens the matching dialog', async ({ page }) => {
+    await page.goto(`${BASE_URL}/dashboard`);
+    const card = page.locator('#dashboard-kpis').getByRole('button', { name: /^Unassigned Today/ });
     await expect(card).toBeVisible();
-    const cardCount = Number((await card.locator('h3').innerText()).trim());
+    const cardCount = Number((await card.locator('strong').innerText()).trim());
     await card.click();
 
-    await expect(page.getByText('Showing: No Driver Assigned (from Dashboard)', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Clear dashboard filter: No Driver Assigned' })).toBeVisible();
-    const recordsInfo = page.getByTestId('pagination-records-info');
-    await expect(recordsInfo).toContainText(/of\s+\d+\s+records/i);
-    const rowCount = Number((await recordsInfo.innerText()).match(/of\s+(\d+)\s+records/i)?.[1]);
-    expect(rowCount).toBe(cardCount);
+    const dialog = page.getByRole('dialog', { name: 'Unassigned Today', exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(`${cardCount} total`, { exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible();
+    await expect(card).toBeFocused();
   });
 });
 
