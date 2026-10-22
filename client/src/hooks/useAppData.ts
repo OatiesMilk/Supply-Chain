@@ -37,7 +37,7 @@ export function isResourceQueryEnabled(
       // Full lists belong on operational screens; global badges use aggregates.
       return (
         Boolean(CATEGORY_SCREENS[currentScreen]) ||
-        ['main', 'dashboard', 'calendar', 'driver', 'driver_board', 'suppliers', 'am_directory'].includes(currentScreen) ||
+        ['main', 'calendar', 'driver', 'driver_board', 'suppliers', 'am_directory'].includes(currentScreen) ||
         (user.role === 'DRIVER' && user.effectiveScreens.includes('driver_dashboard'))
       );
     case 'companies':
@@ -47,18 +47,17 @@ export function isResourceQueryEnabled(
     case 'suppliers':
       return currentScreen === 'suppliers';
     case 'skus':
-      return currentScreen === 'inventory' || currentScreen === 'dashboard' || currentScreen === 'transactions';
+      return currentScreen === 'inventory' || currentScreen === 'transactions';
     case 'drivers':
       return (
         currentScreen.startsWith('driver') ||
         Boolean(CATEGORY_SCREENS[currentScreen]) ||
         currentScreen === 'main' ||
         currentScreen === 'calendar' ||
-        currentScreen === 'dashboard' ||
         currentScreen === 'data_sampler'
       );
     case 'dashboard':
-      return currentScreen === 'dashboard';
+      return false; // OperationalDashboard owns its aggregate query and load/error state.
     default:
       return true;
   }

@@ -13,7 +13,7 @@ export function pageResources(screen?: string): string[] {
   if (!screen) return [];
   if (CATEGORY_SCREENS[screen] || screen === 'main') return ['records', 'companies', 'drivers'];
   switch (screen) {
-    case 'dashboard': return ['records', 'skus', 'dashboard', 'drivers'];
+    case 'dashboard': return []; // Self-contained server aggregate dashboard.
     case 'customers': return ['customers'];
     case 'suppliers': return ['suppliers', 'records'];
     case 'inventory': return ['skus'];

@@ -190,6 +190,7 @@ jobs:
           npm run e2e:logistics
           npm run e2e:driver
           npm run e2e:integration
+          npm run test:dashboard --prefix e2e
         env:
           NODE_ENV: production
           PORT: "3000"
