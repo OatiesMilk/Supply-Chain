@@ -141,22 +141,24 @@ export default function DriverDashboard({
     <div className="min-h-screen bg-[#F0F4F8] flex flex-col">
       {/* Header */}
       <div className="bg-[#1F3864] text-white px-4 pt-10 pb-5 shadow-lg">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <p className="text-[10px] font-bold tracking-widest uppercase text-blue-200">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <div className="min-w-0">
+            <p className="text-caption font-bold tracking-wider uppercase text-blue-200 hyphens-auto [overflow-wrap:anywhere]">
               Microgenesis Field Mobile
             </p>
             <h1 className="text-lg font-black leading-tight">
               {currentUserName}
             </h1>
-            <p className="text-[11px] text-blue-200 mt-0.5">{todayLabel}</p>
+            <p className="text-data text-blue-200 mt-0.5">{todayLabel}</p>
           </div>
-          <button
-            onClick={onLogout}
-            className="flex items-center gap-1.5 text-[10px] font-bold text-white/70 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg transition-colors cursor-pointer"
-          >
-            <LogOut className="w-3.5 h-3.5" /> Log Out
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={onLogout}
+              className="flex items-center gap-1.5 text-data font-bold text-white/70 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg transition-colors cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" /> Log Out
+            </button>
+          </div>
         </div>
 
 
@@ -164,7 +166,7 @@ export default function DriverDashboard({
 
       {saveFeedback && !pendingAction && (
         <div className="px-4 py-3 pb-0">
-          <div role="alert" className={`rounded-xl border p-3 text-xs font-semibold shadow-sm ${saveFeedback.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : saveFeedback.type === 'info' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
+          <div role="alert" className={`rounded-xl border p-3 text-data font-semibold shadow-sm ${saveFeedback.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : saveFeedback.type === 'info' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
             {saveFeedback.message}
           </div>
         </div>
@@ -173,24 +175,24 @@ export default function DriverDashboard({
       {/* Body */}
       <div className="flex-1 px-4 py-5 space-y-4 max-w-lg mx-auto w-full">
         <OperationalDashboard driver />
-        <div className="text-xs text-slate-600">
+        <div className="text-data text-slate-600">
           <button className="rounded border border-slate-300 bg-white px-3 py-2 font-semibold" disabled={runsQuery.isFetching} onClick={() => void runsQuery.refetch()}>{runsQuery.isFetching ? 'Refreshing runs…' : 'Refresh run list'}</button>
           {runsQuery.dataUpdatedAt > 0 && <p className="mt-2">Run list last updated: {new Date(runsQuery.dataUpdatedAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila' })} PHT</p>}
         </div>
         {runsQuery.isError && <p role="alert" className="rounded bg-amber-50 p-3 text-sm text-amber-900">{runsQuery.data ? 'Run list is stale; refresh failed.' : 'Unable to load your run list.'} {runsQuery.error.message} Use Refresh run list to try again. If it keeps failing, contact Logistics.</p>}
         {dataLoading && (
-          <div className="flex items-center justify-center gap-2 py-6 text-slate-400 text-xs">
+          <div className="flex items-center justify-center gap-2 py-6 text-slate-500 text-data">
             <Loader2 className="w-4 h-4 animate-spin" /> Loading runs…
           </div>
         )}
 
         {!dataLoading && !runsQuery.isError && runsInScope === 0 && (
-          <div className="text-center py-16 text-slate-400">
+          <div className="text-center py-16 text-slate-600">
             <CheckCircle className="w-10 h-10 mx-auto mb-3 text-emerald-400" />
             <p className="font-bold text-slate-600">
               No runs ready for execution today.
             </p>
-            <p className="text-xs mt-1">
+            <p className="text-data mt-1">
               Refresh the run list to check for new assignments, or contact Logistics if an expected run is missing.
             </p>
           </div>
@@ -206,39 +208,39 @@ export default function DriverDashboard({
               className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden"
             >
               {/* Card header */}
-              <div className="bg-slate-50 border-b border-slate-100 px-4 py-3 flex items-center justify-between">
-                <div>
-                  <p className="font-mono text-[10px] text-slate-400">
+              <div className="bg-slate-50 border-b border-slate-100 px-4 py-3 flex items-start justify-between gap-3">
+                <div className="min-w-0 [overflow-wrap:anywhere]">
+                  <p className="font-mono text-data text-slate-500">
                     {rec.reference}
                   </p>
                   <p className="font-black text-sm text-slate-900 leading-tight">
                     {rec.company_name}
                   </p>
                 </div>
-                <div className="flex items-center gap-1.5">
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
                   {daysLate > 0 && rec.category === 'Deliveries' && (
-                    <span className="px-2 py-0.5 rounded-full border border-rose-200 bg-rose-50 text-[9px] font-bold text-rose-700">
+                    <span className="px-2 py-0.5 rounded-full border border-rose-200 bg-rose-50 text-data font-bold text-rose-700">
                       Overdue · {daysLate} day{daysLate === 1 ? '' : 's'} late
                     </span>
                   )}
                   {futureStarted && (
-                    <span className="px-2 py-0.5 rounded-full border border-blue-200 bg-blue-50 text-[9px] font-bold text-blue-700">Started</span>
+                    <span className="px-2 py-0.5 rounded-full border border-blue-200 bg-blue-50 text-data font-bold text-blue-700">Started</span>
                   )}
-                  <span className={`px-2 py-0.5 rounded-full border text-[9px] font-bold uppercase tracking-wider ${statusBadge(rec.status)}`}>
+                  <span className={`px-2 py-0.5 rounded-full border text-data font-bold uppercase tracking-wider ${statusBadge(rec.status)}`}>
                     {rec.status}
                   </span>
                 </div>
               </div>
 
               <div className="px-4 py-3 space-y-3">
-                <div className="flex items-start gap-4 text-xs text-slate-500">
+                <div className="flex flex-wrap items-start gap-x-4 gap-y-1 text-data text-slate-600">
                   <p className="flex items-center gap-1.5">
                     <MapPin className="w-3.5 h-3.5 text-red-400 shrink-0" />
                     {rec.area}
                   </p>
                   {rec.item_description && (
                     <p className="flex items-center gap-1.5">
-                      <Package className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <Package className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                       {rec.item_description.slice(0, 40)}
                       {rec.item_description.length > 40 ? "…" : ""}
                     </p>
@@ -252,12 +254,12 @@ export default function DriverDashboard({
                     <button
                       onClick={() => handleTimeIn(rec)}
                       disabled={saving || !canRecordTimeIn(rec)}
-                      className="w-full py-2.5 rounded-xl font-bold text-xs tracking-wide uppercase bg-blue-600 hover:bg-blue-700 text-white transition-all flex items-center justify-center gap-2"
+                      className="w-full py-2.5 rounded-xl font-bold text-data tracking-wide uppercase bg-blue-600 hover:bg-blue-700 text-white transition-all flex items-center justify-center gap-2"
                     >
                       <Clock className="w-4 h-4" /> Record Time In
                     </button>
                   ) : (
-                    <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-xs text-blue-700 font-bold">
+                    <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-data text-blue-700 font-bold">
                       <Clock className="w-4 h-4 text-blue-500 shrink-0" />
                       Time In recorded: {fmtTime(rec.time_in)}
                     </div>
@@ -268,7 +270,7 @@ export default function DriverDashboard({
 
                   {/* Receiver name is required for completion. */}
                   <div className="space-y-1">
-                    <label htmlFor={`received-by-${rec.id}`} className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                    <label htmlFor={`received-by-${rec.id}`} className="text-data font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
                       <UserCheck className="w-3.5 h-3.5" /> Received By *
                     </label>
                     <input
@@ -282,13 +284,13 @@ export default function DriverDashboard({
                         }))
                       }
                       placeholder="Name of person who received the item…"
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                      className="w-full border border-field rounded-xl px-3 py-2.5 text-body focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
                     />
                   </div>
 
-                  {completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id]) && <p id={`completion-help-${rec.id}`} className="text-xs text-slate-600">{completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}</p>}
+                  {completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id]) && <p id={`completion-help-${rec.id}`} className="text-data text-slate-600">{completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}</p>}
                   {/* Step 3: Status buttons */}
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 min-[360px]:grid-cols-3 gap-2">
                     <button
                       onClick={() => {
                         setPendingAction({ rec, status: "Delivered" });
@@ -297,7 +299,7 @@ export default function DriverDashboard({
                       }}
                       aria-describedby={completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id]) ? `completion-help-${rec.id}` : undefined}
                       disabled={saving || !(rec.allowed_statuses ?? []).includes("Delivered") || !!completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}
-                      className="min-w-0 px-1 text-center whitespace-normal disabled:opacity-40 disabled:cursor-not-allowed py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-emerald-600 hover:bg-emerald-700 text-white transition-all flex flex-col items-center gap-1 cursor-pointer"
+                      className="min-w-0 px-1 text-center whitespace-normal disabled:opacity-40 disabled:cursor-not-allowed py-2.5 rounded-xl font-bold text-data bg-emerald-700 hover:bg-emerald-800 text-white transition-all flex min-[360px]:flex-col items-center justify-center gap-1 cursor-pointer"
                     >
                       <CheckCircle className="w-4 h-4" /> {completionActionLabel(rec.category)}
                     </button>
@@ -308,7 +310,7 @@ export default function DriverDashboard({
                         setSaveFeedback(null);
                       }}
                       disabled={saving || !(rec.allowed_statuses ?? []).includes("Pending")}
-                      className="disabled:opacity-40 py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-amber-500 hover:bg-amber-600 text-white transition-all flex flex-col items-center gap-1"
+                      className="disabled:opacity-40 py-2.5 rounded-xl font-bold text-data bg-amber-700 hover:bg-amber-800 text-white transition-all flex min-[360px]:flex-col items-center justify-center gap-1"
                     >
                       <Navigation className="w-4 h-4" /> Pending
                     </button>
@@ -319,7 +321,7 @@ export default function DriverDashboard({
                         setSaveFeedback(null);
                       }}
                       disabled={saving || !(rec.allowed_statuses ?? []).includes("Rescheduled")}
-                      className="disabled:opacity-40 py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-purple-500 hover:bg-purple-600 text-white transition-all flex flex-col items-center gap-1"
+                      className="disabled:opacity-40 py-2.5 rounded-xl font-bold text-data bg-purple-600 hover:bg-purple-700 text-white transition-all flex min-[360px]:flex-col items-center justify-center gap-1"
                     >
                       <RefreshCw className="w-4 h-4" /> Reschedule
                     </button>
@@ -335,7 +337,7 @@ export default function DriverDashboard({
           <div className="space-y-3">
             <div className="flex items-center gap-3">
               <div className="flex-1 h-px bg-slate-200" />
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+              <p className="text-caption font-black text-slate-600 uppercase tracking-widest">
                 Accomplished ({doneRecs.length})
               </p>
               <div className="flex-1 h-px bg-slate-200" />
@@ -348,23 +350,23 @@ export default function DriverDashboard({
                 className="w-full text-left bg-white rounded-2xl border border-emerald-200 px-4 py-3 flex items-start justify-between gap-3 hover:bg-emerald-50 transition-colors cursor-pointer"
               >
                 <div className="min-w-0">
-                  <p className="font-mono text-[10px] text-slate-400">
+                  <p className="font-mono text-data text-slate-500">
                     {rec.reference}
                   </p>
                   <p className="font-bold text-sm text-slate-800 truncate">
                     {rec.company_name}
                   </p>
                   {rec.completed_late && (
-                    <p className="text-[10px] font-bold text-rose-700 mt-0.5">
+                    <p className="text-data font-bold text-rose-700 mt-0.5">
                       Completed {rec.days_late ?? 0} day{rec.days_late === 1 ? '' : 's'} late
                     </p>
                   )}
-                  <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+                  <p className="text-data text-slate-500 flex items-center gap-1 mt-0.5">
                     <MapPin className="w-3 h-3 text-red-400 shrink-0" />
                     {rec.area}
                   </p>
                   {(rec.time_in || rec.time_out) && (
-                    <div className="flex items-center gap-3 mt-1.5 text-[10px] text-slate-500 font-bold">
+                    <div className="flex items-center gap-3 mt-1.5 text-data text-slate-500 font-bold">
                       {rec.time_in && (
                         <span className="flex items-center gap-1">
                           <Clock className="w-3 h-3 text-blue-400" /> In:{" "}
@@ -380,12 +382,12 @@ export default function DriverDashboard({
                     </div>
                   )}
                   {rec.received_by && (
-                    <p className="text-[10px] text-emerald-600 font-bold mt-0.5 flex items-center gap-1">
+                    <p className="text-data text-emerald-700 font-bold mt-0.5 flex items-center gap-1">
                       <UserCheck className="w-3 h-3" /> {rec.received_by}
                     </p>
                   )}
                 </div>
-                <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full shrink-0">
+                <span className="text-data font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full shrink-0">
                   Done
                 </span>
               </button>
@@ -400,7 +402,7 @@ export default function DriverDashboard({
           <div className="space-y-2">
             <div className="flex items-center gap-3">
               <div className="flex-1 h-px bg-slate-200" />
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+              <p className="text-caption font-black text-slate-600 uppercase tracking-widest">
                 Upcoming / Other Dates
               </p>
               <div className="flex-1 h-px bg-slate-200" />
@@ -410,26 +412,26 @@ export default function DriverDashboard({
               .map((rec) => (
                 <div
                   key={rec.id}
-                  className="bg-white/70 rounded-xl border border-slate-200 px-4 py-2.5 flex items-center justify-between"
+                  className="bg-white/70 rounded-xl border border-slate-200 px-4 py-2.5 flex flex-wrap items-start justify-between gap-x-3 gap-y-2"
                 >
-                  <div>
-                    <p className="font-mono text-[10px] text-slate-400">
+                  <div className="min-w-0 flex-1 basis-48 [overflow-wrap:anywhere]">
+                    <p className="font-mono text-data text-slate-500">
                       {rec.reference} · {rec.delivery_date}
                     </p>
-                    <p className="text-xs font-bold text-slate-700">
+                    <p className="text-data font-bold text-slate-700">
                       {rec.company_name}
                     </p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">
+                    <p className="text-data text-slate-500 mt-0.5">
                       {rec.area}{rec.item_description ? ` · ${rec.item_description}` : ''}
                     </p>
                   </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    <span className="text-[9px] font-bold border border-slate-200 bg-slate-50 px-2 py-0.5 rounded-full text-slate-600">
+                  <div className="flex shrink-0 flex-col items-start min-[400px]:items-end gap-1">
+                    <span className="text-data font-bold border border-slate-200 bg-slate-50 px-2 py-0.5 rounded-full text-slate-600">
                       {rec.category === 'Deliveries'
                         ? deliveryScheduleState(rec.delivery_date, today).valid ? 'Upcoming · read-only' : 'Delivery Date needed · read-only'
                         : 'Other date · read-only'}
                     </span>
-                    <span className={`text-[9px] font-bold border px-2 py-0.5 rounded-full ${statusBadge(rec.status)}`}>
+                    <span className={`text-data font-bold border px-2 py-0.5 rounded-full ${statusBadge(rec.status)}`}>
                       {rec.status}
                     </span>
                   </div>
@@ -448,7 +450,7 @@ export default function DriverDashboard({
                 <h3 className="text-sm font-black text-slate-900">
                   Confirm Status
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="text-data text-slate-500 mt-0.5">
                   Mark{" "}
                   <span className="font-bold text-slate-800">
                     {pendingAction.rec.reference}
@@ -466,17 +468,17 @@ export default function DriverDashboard({
                   setRemarksInput("");
                 }}
                 aria-label="Close status change"
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="text-slate-500 hover:text-slate-600 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="space-y-1.5">
-              <label htmlFor="driver-action-remarks" className="text-[10px] font-black text-slate-600 uppercase tracking-wider block">
+              <label htmlFor="driver-action-remarks" className="text-data font-black text-slate-600 uppercase tracking-wider block">
                 Remarks — reason for change (required)
               </label>
-              <p id="driver-action-remarks-help" className="text-xs text-slate-600">Explain why you are making this change. The reason is saved with your name in the record history.</p>
+              <p id="driver-action-remarks-help" className="text-data text-slate-600">Explain why you are making this change. The reason is saved with your name in the record history.</p>
               <textarea
                 id="driver-action-remarks"
                 aria-describedby="driver-action-remarks-help"
@@ -486,12 +488,12 @@ export default function DriverDashboard({
                 rows={3}
                 placeholder="Enter remarks…"
                 autoFocus
-                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] resize-none"
+                className="w-full border border-field rounded-xl px-3 py-2 text-body focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] resize-none"
               />
             </div>
 
-            {photoError && <p role="alert" className="text-xs text-red-700">{photoError}</p>}
-            {saveFeedback && <p role="alert" className={`text-xs ${saveFeedback.type === 'success' ? 'text-emerald-700' : saveFeedback.type === 'info' ? 'text-amber-700' : 'text-red-700'}`}>{saveFeedback.message}</p>}
+            {photoError && <p role="alert" className="text-data text-red-700">{photoError}</p>}
+            {saveFeedback && <p role="alert" className={`text-data ${saveFeedback.type === 'success' ? 'text-emerald-700' : saveFeedback.type === 'info' ? 'text-amber-700' : 'text-red-700'}`}>{saveFeedback.message}</p>}
             <div className="flex gap-2 justify-end">
               <button
                 disabled={saving}
@@ -499,7 +501,7 @@ export default function DriverDashboard({
                   setPendingAction(null);
                   setRemarksInput("");
                 }}
-                className="px-4 py-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                className="px-4 py-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-data font-bold rounded-xl transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -533,7 +535,7 @@ export default function DriverDashboard({
                     setSaving(false);
                   }
                 }}
-                className="px-4 py-2 bg-[#1F3864] hover:bg-[#0078C1] text-white text-xs font-bold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                className="px-4 py-2 bg-[#1F3864] hover:bg-[#0078C1] text-white text-data font-bold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
                 {saving ? "Saving…" : "Confirm"}
               </button>

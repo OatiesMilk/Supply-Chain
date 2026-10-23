@@ -110,7 +110,7 @@ function ScaffoldTab({ icon: Icon, label, detail }: { icon: typeof FileText; lab
       </div>
       <div>
         <h3 className="text-base font-bold text-slate-700">{label}</h3>
-        <p className="text-sm text-slate-400 mt-1 max-w-sm">
+        <p className="text-sm text-slate-500 mt-1 max-w-sm">
           {detail ?? `This section is under development. ${label} data will appear here once the module is connected.`}
         </p>
       </div>
@@ -268,24 +268,24 @@ function GeneralTab({
     setEditing(false);
   };
 
-  const inputCls = 'w-full min-h-11 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]';
-  const labelCls = 'text-[10px] text-slate-400 uppercase tracking-widest font-bold';
+  const inputCls = 'w-full min-h-11 px-2.5 py-1.5 border border-field rounded-lg text-body bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]';
+  const labelCls = 'text-caption text-slate-600 uppercase tracking-widest font-bold';
 
   return (
     <div className="space-y-5">
       {/* Status stepper */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Status Progression</p>
+        <p className="text-caption font-black text-slate-600 uppercase tracking-widest mb-3">Status Progression</p>
         <StatusStepper status={record.status} />
       </div>
 
       {canManageDraft && !isDraftRecord(record) && selectableStatuses(record, currentUserRole).includes('Draft') && (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
           <button type="button" onClick={() => setReturnToDraftOpen(true)}
-            className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1]">
+            className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-data font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1]">
             Return to Draft
           </button>
-          <p className="text-xs text-slate-500">Takes this record back out of dispatch so you can edit it and submit it again.</p>
+          <p className="text-data text-slate-500">Takes this record back out of dispatch so you can edit it and submit it again.</p>
         </div>
       )}
       <ReturnToDraftDialog
@@ -297,27 +297,27 @@ function GeneralTab({
 
       {canManageDraft && isDraftRecord(record) && selectableStatuses(record, currentUserRole).some(status => status === 'Draft' || status === 'Scheduled') && (
         <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-          <label htmlFor="submission-change-remarks" className="block text-xs font-bold text-slate-700">Remarks — reason for change (required)</label>
-          <p id="submission-change-remarks-help" className="text-xs text-slate-600">Explain why you are submitting or returning this record to Draft. The reason is saved with your name in Remarks History.</p>
-          <textarea id="submission-change-remarks" aria-describedby="submission-change-remarks-help" required value={lifecycleRemarks} onChange={e => setLifecycleRemarks(e.target.value)} rows={2} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" placeholder="Reason for submitting or returning to draft" />
+          <label htmlFor="submission-change-remarks" className="block text-data font-bold text-slate-700">Remarks — reason for change (required)</label>
+          <p id="submission-change-remarks-help" className="text-data text-slate-600">Explain why you are submitting or returning this record to Draft. The reason is saved with your name in Remarks History.</p>
+          <textarea id="submission-change-remarks" aria-describedby="submission-change-remarks-help" required value={lifecycleRemarks} onChange={e => setLifecycleRemarks(e.target.value)} rows={2} className="w-full rounded-lg border border-field px-3 py-2 text-body" placeholder="Reason for submitting or returning to draft" />
           {selectableStatuses(record, currentUserRole).filter(status => isDraftRecord(record) ? status === 'Scheduled' : status === 'Draft').map(status => (
-            <button key={status} type="button" disabled={saving || !lifecycleRemarks.trim()} className="min-h-11 rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+            <button key={status} type="button" disabled={saving || !lifecycleRemarks.trim()} className="min-h-11 rounded-lg bg-blue-700 px-4 py-2 text-data font-bold text-white disabled:opacity-50"
               onClick={async () => { setSaving(true); try { await onUpdateRecord(record.id, { status, remarks: lifecycleRemarks.trim() }); setLifecycleRemarks(''); notify.success(isDraftRecord(record) ? 'Record submitted' : 'Record returned to Draft'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not change submission status.'); } finally { setSaving(false); } }}>
               {isDraftRecord(record) ? 'Submit' : 'Return to Draft'}
             </button>
           ))}
-          <p className="text-xs text-slate-500">Drafts retain existing assignments and stay hidden from drivers until submitted.</p>
+          <p className="text-data text-slate-500">Drafts retain existing assignments and stay hidden from drivers until submitted.</p>
         </div>
       )}
 
       {/* Fields grid / edit form */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
         <div className="flex items-center justify-between mb-4">
-          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Record Details</h4>
+          <h4 className="text-caption font-black text-slate-600 uppercase tracking-widest">Record Details</h4>
           {canEdit && !editing && (
             <button
               onClick={handleStartEdit}
-              className="min-h-11 flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-[#0078C1] hover:bg-blue-50 border border-blue-200 rounded-lg transition-colors cursor-pointer"
+              className="min-h-11 flex items-center gap-1.5 px-3 py-1.5 text-data font-bold text-[#0078C1] hover:bg-blue-50 border border-blue-200 rounded-lg transition-colors cursor-pointer"
             >
               <Pencil className="w-3 h-3" /> Edit
             </button>
@@ -327,7 +327,7 @@ function GeneralTab({
 
         {!editing ? (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-data">
               {[
                 { label: 'Reference (SAP)', value: record.reference },
                 { label: 'Area',            value: record.area },
@@ -353,7 +353,7 @@ function GeneralTab({
                 <div className="flex flex-col gap-0.5">
                   <span className={labelCls}>Priority</span>
                   <span className="font-semibold text-slate-800">{record.priority}</span>
-                  <span className="text-[11px] text-slate-500">{PRIORITY_LOCKED_NOTE}</span>
+                  <span className="text-data text-slate-500">{PRIORITY_LOCKED_NOTE}</span>
                 </div>
               )}
             </div>
@@ -375,7 +375,7 @@ function GeneralTab({
                 <ul className="list-disc list-inside text-sm text-slate-700 leading-relaxed">
                   {record.line_items.map((li, idx) => (
                     <li key={idx}>
-                      <span className="font-mono text-xs bg-slate-100 px-1 py-0.5 rounded mr-1">x{li.quantity}</span>
+                      <span className="font-mono text-data bg-slate-100 px-1 py-0.5 rounded mr-1">x{li.quantity}</span>
                       {li.sku}
                     </li>
                   ))}
@@ -384,7 +384,7 @@ function GeneralTab({
             )}
           </>
         ) : (
-          <div className="space-y-4 text-xs">
+          <div className="space-y-4 text-data">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {canEditPriority && (
                 <div className="space-y-1">
@@ -398,7 +398,7 @@ function GeneralTab({
                 <div className="space-y-1">
                   <span className={labelCls}>Priority</span>
                   <p className="font-semibold text-slate-800">{record.priority}</p>
-                  <p className="text-[11px] text-slate-500">{PRIORITY_LOCKED_NOTE}</p>
+                  <p className="text-data text-slate-500">{PRIORITY_LOCKED_NOTE}</p>
                 </div>
               )}
               {canEditFull && (
@@ -422,7 +422,7 @@ function GeneralTab({
                 />
               </div>
               <div className="space-y-1">
-                <label htmlFor="overview-address" className={labelCls}>Address <span className="text-[10px] font-normal text-slate-400 normal-case tracking-normal">(optional)</span></label>
+                <label htmlFor="overview-address" className={labelCls}>Address <span className="font-normal text-slate-600 normal-case tracking-normal">(optional)</span></label>
                 <input id="overview-address" type="text" value={draft.address} onChange={e => set('address', e.target.value)} className={inputCls} placeholder="Street, building, floor, or additional location detail" />
               </div>
               </>)}
@@ -465,7 +465,7 @@ function GeneralTab({
               <label htmlFor="overview-change-remarks" className={labelCls}>
                 Remarks — reason for change <span className="text-red-500">*</span>
               </label>
-              <p id="overview-change-remarks-help" className="text-xs text-slate-600">Explain why you are making this change. The reason is saved with your name in Remarks History.</p>
+              <p id="overview-change-remarks-help" className="text-data text-slate-600">Explain why you are making this change. The reason is saved with your name in Remarks History.</p>
               <textarea
                 id="overview-change-remarks"
                 ref={remarksRef}
@@ -476,9 +476,9 @@ function GeneralTab({
                 onChange={e => { set('remarks', e.target.value); if (remarksError && e.target.value.trim()) setRemarksError(false); }}
                 rows={3}
                 placeholder={canEditFull ? '' : 'Explain why you are making this update...'}
-                className={`w-full min-h-11 px-2.5 py-1.5 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${remarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
+                className={`w-full min-h-11 px-2.5 py-1.5 border rounded-lg text-body bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${remarksError ? 'border-red-400 bg-red-50' : 'border-field'}`}
               />
-              {remarksError && <p id="overview-change-remarks-error" role="alert" className="text-[11px] text-red-600 font-semibold">Remarks are required to save changes.</p>}
+              {remarksError && <p id="overview-change-remarks-error" role="alert" className="text-data text-red-700 font-semibold">Remarks are required to save changes.</p>}
             </div>
             {canEditFull && (
               <div className="space-y-1 mt-4 pt-4 border-t border-slate-100">
@@ -487,7 +487,7 @@ function GeneralTab({
                   <button
                     type="button"
                     onClick={() => set('line_items', [...(draft.line_items || []), { sku: '', quantity: 1 }])}
-                    className="min-h-11 flex items-center gap-1 text-[11px] font-bold text-[#0078C1] hover:text-[#1F3864] cursor-pointer"
+                    className="min-h-11 flex items-center gap-1 text-data font-bold text-[#0078C1] hover:text-[#1F3864] cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" /> Add Item
                   </button>
@@ -525,14 +525,14 @@ function GeneralTab({
                         set('line_items', newItems);
                       }}
                       aria-label={`Remove item ${index + 1}`}
-                      className="min-h-11 min-w-11 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-500 cursor-pointer shrink-0"
+                      className="min-h-11 min-w-11 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-500 cursor-pointer shrink-0"
                     >
                       <XIcon className="w-4 h-4" />
                     </button>
                   </div>
                 ))}
                 {(!draft.line_items || draft.line_items.length === 0) && (
-                  <p className="text-[11px] text-slate-400 italic">No line items added.</p>
+                  <p className="text-data text-slate-500 italic">No line items added.</p>
                 )}
               </div>
             )}
@@ -547,8 +547,8 @@ function GeneralTab({
                 { label: 'Received By',       value: record.received_by || '—' },
               ].map(row => (
                 <div key={row.label} className="flex flex-col gap-0.5">
-                  <span className={labelCls}>{row.label} <span className="text-slate-300 normal-case tracking-normal font-normal">(Logistics only)</span></span>
-                  <span className="font-semibold text-slate-400 italic">{row.value}</span>
+                  <span className={labelCls}>{row.label} <span className="text-slate-600 normal-case tracking-normal font-normal">(Logistics only)</span></span>
+                  <span className="font-semibold text-slate-500 italic">{row.value}</span>
                 </div>
               ))}
             </div>
@@ -562,7 +562,7 @@ function GeneralTab({
               {record.attachments.map((a, i) => (
                 <div key={i} className="min-h-11 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded px-2 py-1">
                   <FileText className="w-3 h-3 text-[#1F3864]" />
-                  <span className="font-mono text-[10px] text-slate-700">{a}</span>
+                  <span className="font-mono text-data text-slate-700">{a}</span>
                 </div>
               ))}
             </div>
@@ -570,7 +570,7 @@ function GeneralTab({
         )}
 
         {canEdit && !editing && (
-          <p className="mt-4 text-[10px] text-slate-400 border-t border-slate-100 pt-3">
+          <p className="mt-4 text-data text-slate-500 border-t border-slate-100 pt-3">
             This record can be edited while its status is <span className="font-bold text-blue-600">Scheduled</span>. Once Logistics advances the status, it locks.
           </p>
         )}
@@ -580,14 +580,14 @@ function GeneralTab({
             <button
               onClick={handleCancel}
               disabled={saving}
-              className="min-h-11 px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors text-[11px] uppercase cursor-pointer disabled:opacity-50"
+              className="min-h-11 px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors text-data uppercase cursor-pointer disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
               disabled={saving}
-              className="min-h-11 px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+              className="min-h-11 px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-data uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               {saving ? 'Saving…' : 'Save Changes'}
@@ -613,7 +613,7 @@ function GeneralTab({
           { label: 'Updated At',  value: formatTs(record.modified_at) },
         ].map(row => (
           <div key={row.label} className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm">
-            <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mb-0.5">{row.label}</p>
+            <p className="text-caption text-slate-600 uppercase tracking-widest font-bold mb-0.5">{row.label}</p>
             <p className="text-sm font-semibold text-slate-800">{row.value}</p>
           </div>
         ))}
@@ -666,18 +666,18 @@ function LinkedCollectionCard({
   };
 
   const lc = record.linked_collection;
-  const labelCls = 'text-[10px] text-slate-400 uppercase tracking-widest font-bold';
+  const labelCls = 'text-caption text-slate-600 uppercase tracking-widest font-bold';
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
       <div className="flex items-center gap-2 mb-3">
         <Link2 className="w-3.5 h-3.5 text-[#0078C1]" />
-        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Linked Collection</h4>
+        <h4 className="text-caption font-black text-slate-600 uppercase tracking-widest">Linked Collection</h4>
       </div>
 
       {lc ? (
         <div className="space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2 text-data">
             <div className="flex flex-col gap-0.5">
               <span className={labelCls}>Collection ID</span>
               <span className="font-mono font-bold text-slate-800">{lc.id}</span>
@@ -695,7 +695,7 @@ function LinkedCollectionCard({
               <span className="font-semibold text-slate-800">
                 {lc.status}
                 {lc.collection_verified && (
-                  <span className="ml-2 text-[10px] text-emerald-600 font-bold">✓ Verified</span>
+                  <span className="ml-2 text-data text-emerald-700 font-bold">✓ Verified</span>
                 )}
               </span>
             </div>
@@ -704,7 +704,7 @@ function LinkedCollectionCard({
             <button
               onClick={() => handleLink(null)}
               disabled={linking}
-              className="min-h-11 flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-red-600 hover:bg-red-50 border border-red-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+              className="min-h-11 flex items-center gap-1.5 px-3 py-1.5 text-data font-bold text-red-700 hover:bg-red-50 border border-red-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
             >
               {linking ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}
               Unlink
@@ -715,7 +715,7 @@ function LinkedCollectionCard({
         <div className="space-y-3">
           {canLink ? (
             <>
-              <div className="space-y-1.5 text-xs">
+              <div className="space-y-1.5 text-data">
                 <label htmlFor="collection-link-id" className={labelCls}>Collection Record ID</label>
                 <input
                   id="collection-link-id"
@@ -723,12 +723,12 @@ function LinkedCollectionCard({
                   value={linkInput}
                   onChange={e => { setLinkInput(e.target.value); setLinkError(null); }}
                   placeholder="e.g. REC-12345"
-                  className="w-full min-h-11 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                  className="w-full min-h-11 px-2.5 py-1.5 border border-field rounded-lg text-body focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
                 />
               </div>
-              <div className="space-y-1.5 text-xs">
+              <div className="space-y-1.5 text-data">
                 <label htmlFor="collection-link-remarks" className={labelCls}>Remarks — reason for change <span className="text-red-500">*</span></label>
-                <p id="collection-link-remarks-help" className="text-xs text-slate-600">Explain why you are linking this collection. This is the change reason, not a discussion comment.</p>
+                <p id="collection-link-remarks-help" className="text-data text-slate-600">Explain why you are linking this collection. This is the change reason, not a discussion comment.</p>
                 <input
                   id="collection-link-remarks"
                   ref={linkRemarksRef}
@@ -739,21 +739,21 @@ function LinkedCollectionCard({
                   value={linkRemarks}
                   onChange={e => { setLinkRemarks(e.target.value); setLinkError(null); }}
                   placeholder="Brief reason for linking…"
-                  className="w-full min-h-11 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                  className="w-full min-h-11 px-2.5 py-1.5 border border-field rounded-lg text-body focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
                 />
               </div>
-              {linkError && <p id="collection-link-error" role="alert" className="text-[11px] text-red-600 font-semibold">{linkError}</p>}
+              {linkError && <p id="collection-link-error" role="alert" className="text-data text-red-700 font-semibold">{linkError}</p>}
               <button
                 onClick={() => handleLink(linkInput.trim() || null)}
                 disabled={linking || !linkInput.trim()}
-                className="min-h-11 flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-white bg-[#0078C1] hover:bg-[#1F3864] rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                className="min-h-11 flex items-center gap-1.5 px-3 py-1.5 text-data font-bold text-white bg-[#0078C1] hover:bg-[#1F3864] rounded-lg transition-colors cursor-pointer disabled:opacity-50"
               >
                 {linking ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link2 className="w-3 h-3" />}
                 {linking ? 'Linking…' : 'Link Collection'}
               </button>
             </>
           ) : (
-            <p className="text-xs text-slate-400 italic">No linked Accounting Collection record.</p>
+            <p className="text-data text-slate-500 italic">No linked Accounting Collection record.</p>
           )}
         </div>
       )}
@@ -801,7 +801,7 @@ function RemarksTab({ recordId }: { recordId: string }) {
 
   if (error) {
     return (
-      <div role="alert" className="flex items-center justify-center gap-2 py-20 text-red-600 text-sm">
+      <div role="alert" className="flex items-center justify-center gap-2 py-20 text-red-700 text-sm">
         <AlertTriangle className="w-4 h-4" /> {error}
       </div>
     );
@@ -809,23 +809,23 @@ function RemarksTab({ recordId }: { recordId: string }) {
 
   return (
     <div className="py-4 px-2 space-y-4">
-      <div className="flex items-center gap-2 px-1">
+      <div className="flex flex-wrap items-center gap-2 px-1">
         <ScrollText className="w-3.5 h-3.5 text-[#0078C1]" />
-        <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider">
+        <h4 className="text-data font-black text-slate-700 uppercase tracking-wider">
           Remarks History
         </h4>
         {remarks.length > 0 && (
-          <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+          <span className="bg-slate-100 text-slate-600 text-data font-bold px-1.5 py-0.5 rounded-full">
             {remarks.length}
           </span>
         )}
-        <span className="text-[10px] text-slate-400 ml-auto">Read-only · most recent first</span>
+        <span className="text-data text-slate-500 ml-auto">Read-only · most recent first</span>
       </div>
 
       {remarks.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-10 text-center gap-3">
           <ScrollText className="w-8 h-8 text-slate-200" />
-          <p className="text-sm text-slate-400">No remarks have been recorded yet for this record.</p>
+          <p className="text-sm text-slate-500">No remarks have been recorded yet for this record.</p>
         </div>
       ) : (
         <div className="relative">
@@ -838,13 +838,13 @@ function RemarksTab({ recordId }: { recordId: string }) {
                 </div>
                 <div className="flex-1 bg-white border border-slate-200 rounded-xl p-4 shadow-sm min-w-0">
                   <div className="flex flex-wrap items-center gap-2 mb-2">
-                    <span className={`px-2 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-wider ${CONTEXT_COLOR[r.context] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                    <span className={`px-2 py-0.5 rounded-full border text-data font-black uppercase tracking-wider ${CONTEXT_COLOR[r.context] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}>
                       {CONTEXT_LABEL[r.context] ?? r.context}
                     </span>
-                    <span className="text-xs font-semibold text-slate-700">{r.author}</span>
-                    <span className="text-[11px] text-slate-400 ml-auto">{formatTs(r.created_at)}</span>
+                    <span className="text-data font-semibold text-slate-700">{r.author}</span>
+                    <span className="text-data text-slate-500 ml-auto">{formatTs(r.created_at)}</span>
                   </div>
-                  <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">{r.body}</p>
+                  <p className="text-data text-slate-700 leading-relaxed whitespace-pre-wrap">{r.body}</p>
                 </div>
               </div>
             ))}
@@ -1011,21 +1011,21 @@ function ActionsTab({
     }
   };
 
-  const inputCls = 'w-full min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]';
+  const inputCls = 'w-full min-h-11 px-3 py-2 border border-field rounded-lg text-body bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]';
 
   return (
     <div className="space-y-6">
       {record.status !== 'Delivered' && <PodUploader key={record.id} recordId={record.id} required disabled={saving} />}
       {canRecordTimeIn(record) && (currentUserRole === 'Logistics' || currentUserRole === 'Admin') && <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-2">
-        <p className="text-xs text-blue-900">Record Time In to start this run. Enter remarks below before starting.</p>
-        <button type="button" disabled={saving || !actionRemarks.trim()} className="min-h-11 rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+        <p className="text-data text-blue-900">Record Time In to start this run. Enter remarks below before starting.</p>
+        <button type="button" disabled={saving || !actionRemarks.trim()} className="min-h-11 rounded-lg bg-blue-700 px-4 py-2 text-data font-bold text-white disabled:opacity-50"
           onClick={async () => { setSaving(true); setSaveFeedback(null); try { await timeInMutation.mutateAsync({ id: record.id, remarks: actionRemarks.trim() }); setActionRemarks(''); notify.success('Time In recorded'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not record Time In.'); } finally { setSaving(false); } }}>
           Record Time In
         </button>
       </div>}
       {/* Status update */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status Update</h4>
+        <h4 className="text-caption font-black text-slate-600 uppercase tracking-widest">Status Update</h4>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {statusOptions.map(s => (
             <button
@@ -1035,7 +1035,7 @@ function ActionsTab({
               disabled={saving}
               aria-pressed={s === 'Draft' ? undefined : selectedStatus === s}
               aria-haspopup={s === 'Draft' ? 'dialog' : undefined}
-              className={`min-h-10 rounded-lg border px-3 py-2.5 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] disabled:opacity-50 ${
+              className={`min-h-10 rounded-lg border px-3 py-2.5 text-data font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] disabled:opacity-50 ${
                 selectedStatus === s
                   ? 'border-[#1F3864] bg-[#1F3864] text-white'
                   : 'border-slate-200 bg-white text-slate-700 hover:border-[#0078C1] hover:text-[#0078C1]'
@@ -1053,7 +1053,7 @@ function ActionsTab({
         />
         {needsNewDate && (
           <div className="space-y-1.5">
-            <label htmlFor="reschedule-new-date" className="text-xs font-bold text-slate-700">New delivery date <span className="text-red-600">*</span></label>
+            <label htmlFor="reschedule-new-date" className="text-data font-bold text-slate-700">New delivery date <span className="text-red-700">*</span></label>
             <input
               id="reschedule-new-date"
               type="date"
@@ -1064,29 +1064,29 @@ function ActionsTab({
               aria-invalid={!!newDateError}
               aria-describedby="reschedule-new-date-help"
               onChange={e => { setNewDeliveryDate(e.target.value); setSaveFeedback(null); }}
-              className={`w-full sm:max-w-xs px-3 py-2 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${newDateError ? 'border-red-400' : 'border-slate-300'}`}
+              className={`w-full sm:max-w-xs px-3 py-2 border rounded-lg text-body bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${newDateError ? 'border-red-400' : 'border-field'}`}
             />
-            <p id="reschedule-new-date-help" className={`text-[11px] ${newDateError ? 'font-semibold text-red-600' : 'text-slate-500'}`}>
+            <p id="reschedule-new-date-help" className={`text-data ${newDateError ? 'font-semibold text-red-700' : 'text-slate-500'}`}>
               {newDateError ?? 'The driver sees this run again on the new date.'}
             </p>
           </div>
         )}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
-          <p className="text-xs text-slate-600">
+          <p className="text-data text-slate-600">
             Current status: <span className="font-semibold text-slate-800">{record.status}</span>
             {selectedStatus !== record.status && <span className="ml-2 text-[#1F3864]">→ {selectedStatus} (unsaved)</span>}
           </p>
         </div>
-        {photoError && <p role="alert" className="text-xs font-semibold text-red-700">{photoError}</p>}
+        {photoError && <p role="alert" className="text-data font-semibold text-red-700">{photoError}</p>}
       </div>
 
-      {draftRecord && <p className="text-xs text-slate-600">Submit this draft before changing its assignment. Existing assignments are retained.</p>}
+      {draftRecord && <p className="text-data text-slate-600">Submit this draft before changing its assignment. Existing assignments are retained.</p>}
       {/* Driver assignment + completion fields */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Driver &amp; Delivery Details</h4>
+        <h4 className="text-caption font-black text-slate-600 uppercase tracking-widest">Driver &amp; Delivery Details</h4>
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <label htmlFor="dispatch-driver" className="text-xs font-bold text-slate-700">Driver</label>
+            <label htmlFor="dispatch-driver" className="text-data font-bold text-slate-700">Driver</label>
             {(() => {
               const recordSubregion = getSubregion(record.area);
               const nearbyAreas = getNearbyAreas(record.area);
@@ -1114,8 +1114,8 @@ function ActionsTab({
                     value={selectedDriver}
                     disabled={draftRecord || saving}
                     onChange={e => setSelectedDriver(e.target.value)}
-                    className={`w-full min-h-11 px-3 py-2 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${
-                      !selectedDriver ? 'border-amber-400 bg-amber-50' : 'border-slate-300'
+                    className={`w-full min-h-11 px-3 py-2 border rounded-lg text-body bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${
+                      !selectedDriver ? 'border-amber-400 bg-amber-50' : 'border-field'
                     }`}
                   >
                     <option value="">-- Unassigned --</option>
@@ -1136,22 +1136,22 @@ function ActionsTab({
                     )}
                   </select>
                   {coveringCount > 0 && (
-                    <p className="text-[10px] text-emerald-600 font-semibold">
+                    <p className="text-data text-emerald-700 font-semibold">
                       {coveringCount} driver{coveringCount !== 1 ? 's' : ''} cover{coveringCount === 1 ? 's' : ''} {record.area} — shown first.
                     </p>
                   )}
                   {coveringCount === 0 && (
-                    <p className="text-[10px] text-slate-400">
+                    <p className="text-data text-slate-500">
                       No driver covers {record.area || 'this area'} yet — showing all drivers.
                     </p>
                   )}
                   {recordSubregion && nearbyAreas.length > 0 && (
-                    <p className="text-[10px] text-slate-400 italic">
+                    <p className="text-data text-slate-500 italic">
                       Part of <span className="font-semibold not-italic text-slate-500">{recordSubregion}</span> — nearby: {nearbyAreas.join(', ')}
                     </p>
                   )}
                   {sameDayHints.length > 0 && (
-                    <p className="text-[10px] text-[#0078C1] font-semibold mt-1 flex flex-col">
+                    <p className="text-data text-[#0078C1] font-semibold mt-1 flex flex-col">
                       <span className="mb-0.5 border-b border-blue-100 pb-0.5 inline-block w-max">Also assigned to {recordSubregion ?? record.area} today:</span>
                       {sameDayHints.map(([d, count]) => (
                         <span key={d}>
@@ -1165,7 +1165,7 @@ function ActionsTab({
             })()}
           </div>
           <div className="space-y-1.5">
-            <p className="text-xs font-bold text-slate-700">Driver Assistants</p>
+            <p className="text-data font-bold text-slate-700">Driver Assistants</p>
             <div className="space-y-2">
               {assistants.map((assistant, index) => (
                 <div key={index} className="min-h-11 flex items-center gap-2">
@@ -1193,7 +1193,7 @@ function ActionsTab({
                     }}
                     disabled={draftRecord || saving}
                     aria-label={`Remove driver assistant ${index + 1}`}
-                    className="min-h-11 min-w-11 flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
+                    className="min-h-11 min-w-11 flex items-center justify-center text-slate-500 hover:text-red-500 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
                   >
                     <XIcon className="w-4 h-4" />
                   </button>
@@ -1203,7 +1203,7 @@ function ActionsTab({
                 type="button"
                 disabled={draftRecord || saving}
                 onClick={() => setAssistants([...assistants, ''])}
-                className="min-h-11 flex items-center gap-1 text-[11px] font-semibold text-[#0078C1] hover:text-[#1F3864] disabled:opacity-50"
+                className="min-h-11 flex items-center gap-1 text-data font-semibold text-[#0078C1] hover:text-[#1F3864] disabled:opacity-50"
               >
                 <Plus className="w-3 h-3" /> Add Assistant
               </button>
@@ -1211,7 +1211,7 @@ function ActionsTab({
           </div>
 
           <div className="space-y-1.5 border-t border-slate-100 pt-3">
-            <label htmlFor="dispatch-received-by" className="text-xs font-bold text-slate-700">Received By <span className="font-normal">(required for Delivered)</span></label>
+            <label htmlFor="dispatch-received-by" className="text-data font-bold text-slate-700">Received By <span className="font-normal">(required for Delivered)</span></label>
             <input
               type="text"
               id="dispatch-received-by"
@@ -1225,7 +1225,7 @@ function ActionsTab({
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label htmlFor="dispatch-time-in" className="text-xs font-bold text-slate-700">Time In (Manila)</label>
+              <label htmlFor="dispatch-time-in" className="text-data font-bold text-slate-700">Time In (Manila)</label>
               <input
                 type="datetime-local"
                 id="dispatch-time-in"
@@ -1236,7 +1236,7 @@ function ActionsTab({
               />
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="dispatch-time-out" className="text-xs font-bold text-slate-700">Time Out (Manila)</label>
+              <label htmlFor="dispatch-time-out" className="text-data font-bold text-slate-700">Time Out (Manila)</label>
               <input
                 type="datetime-local"
                 id="dispatch-time-out"
@@ -1247,18 +1247,18 @@ function ActionsTab({
               />
             </div>
           </div>
-          <p className="text-xs text-slate-500">Time In starts the run; Time Out is saved automatically on completion. Existing timestamps can be corrected above with remarks, using Manila time.</p>
+          <p className="text-data text-slate-500">Time In starts the run; Time Out is saved automatically on completion. Existing timestamps can be corrected above with remarks, using Manila time.</p>
         </div>
       </div>
 
       {/* Unified Save Model */}
       <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
         <div className="space-y-1.5">
-          <label htmlFor="dispatch-change-remarks" className="text-xs font-bold text-slate-700">
+          <label htmlFor="dispatch-change-remarks" className="text-data font-bold text-slate-700">
             Change Reason / Remarks
             {hasChanges
               ? <span className="text-red-500 ml-1">*</span>
-              : <span className="text-slate-400 font-normal ml-1">(optional — no changes detected)</span>
+              : <span className="text-slate-500 font-normal ml-1">(optional — no changes detected)</span>
             }
           </label>
           <textarea
@@ -1271,12 +1271,12 @@ function ActionsTab({
             onChange={e => { setActionRemarks(e.target.value); if (actionRemarksError && e.target.value.trim()) setActionRemarksError(false); }}
             rows={3}
             placeholder={hasChanges ? 'Reason for the changes above (required)…' : 'Optional note…'}
-            className={`w-full min-h-11 px-3 py-2 border rounded-lg text-xs resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${actionRemarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
+            className={`w-full min-h-11 px-3 py-2 border rounded-lg text-body resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${actionRemarksError ? 'border-red-400 bg-red-50' : 'border-field'}`}
           />
-          {actionRemarksError && <p id="dispatch-change-remarks-error" role="alert" className="text-[11px] text-red-600 font-semibold">A reason is required when making changes to dispatch or status fields.</p>}
+          {actionRemarksError && <p id="dispatch-change-remarks-error" role="alert" className="text-data text-red-700 font-semibold">A reason is required when making changes to dispatch or status fields.</p>}
         </div>
 
-        {saveFeedback && <p role="status" className="text-[11px] font-semibold text-amber-700">{saveFeedback}</p>}
+        {saveFeedback && <p role="status" className="text-data font-semibold text-amber-700">{saveFeedback}</p>}
 
         <div className="flex flex-wrap gap-2 justify-end pt-4 border-t border-slate-200 mt-6">
           <button
@@ -1293,14 +1293,14 @@ function ActionsTab({
               setSaveFeedback(null);
             }}
             disabled={saving || !hasChanges}
-            className="min-h-11 px-5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg transition-colors text-[11px] uppercase cursor-pointer disabled:opacity-50"
+            className="min-h-11 px-5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg transition-colors text-data uppercase cursor-pointer disabled:opacity-50"
           >
             Revert
           </button>
           <button
             onClick={handleSave}
             disabled={saving || !!photoError || !!newDateError}
-            className="min-h-11 px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+            className="min-h-11 px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-data uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             {saving ? 'Saving…' : 'Save Changes'}
@@ -1356,11 +1356,11 @@ function CommentsTab({ recordId, readOnly = false }: { recordId: string; readOnl
 
   return (
     <div className="space-y-4 py-2">
-      <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-2 px-1">
+      <h4 className="text-data font-black text-slate-700 uppercase tracking-wider flex items-center gap-2 px-1">
         <MessageSquare className="w-3.5 h-3.5 text-[#0078C1]" />
         Comments
         {comments.length > 0 && (
-          <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+          <span className="bg-slate-100 text-slate-600 text-data font-bold px-1.5 py-0.5 rounded-full">
             {comments.length}
           </span>
         )}
@@ -1373,15 +1373,15 @@ function CommentsTab({ recordId, readOnly = false }: { recordId: string; readOnl
         <div className="space-y-3">
           {comments.map(c => (
             <div key={c.id} className="flex items-start gap-3">
-              <div className="w-7 h-7 rounded-full bg-[#1F3864] flex items-center justify-center text-white text-[9px] font-black shrink-0">
+              <div aria-hidden="true" className="w-7 h-7 rounded-full bg-[#1F3864] flex items-center justify-center text-white text-caption font-black shrink-0">
                 {c.author.split(' ').map((p: string) => p[0]).join('').slice(0, 2).toUpperCase()}
               </div>
               <div className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[10px] font-bold text-slate-700">{c.author}</span>
-                  <span className="text-[10px] text-slate-400 font-mono">{formatTs(c.created_at)}</span>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mb-1">
+                  <span className="text-data font-bold text-slate-700">{c.author}</span>
+                  <span className="text-data text-slate-500 font-mono">{formatTs(c.created_at)}</span>
                 </div>
-                <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">{c.body}</p>
+                <p className="text-data text-slate-700 leading-relaxed whitespace-pre-wrap">{c.body}</p>
               </div>
             </div>
           ))}
@@ -1391,7 +1391,7 @@ function CommentsTab({ recordId, readOnly = false }: { recordId: string; readOnl
       {!loadError && comments.length === 0 && (
         <div className="flex flex-col items-center justify-center py-10 text-center gap-3">
           <MessageSquare className="w-8 h-8 text-slate-200" />
-          <p className="text-sm text-slate-400">{readOnly ? 'No comments yet.' : 'No comments yet. Add the first comment below.'}</p>
+          <p className="text-sm text-slate-500">{readOnly ? 'No comments yet.' : 'No comments yet. Add the first comment below.'}</p>
         </div>
       )}
 
@@ -1518,7 +1518,7 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
 
   if (error) {
     return (
-      <div role="alert" className="flex items-center justify-center gap-2 py-20 text-red-600 text-sm">
+      <div role="alert" className="flex items-center justify-center gap-2 py-20 text-red-700 text-sm">
         <AlertTriangle className="w-4 h-4" /> {error}
       </div>
     );
@@ -1540,11 +1540,11 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
       {(!entries || entries.length === 0) ? (
         <div className="flex flex-col items-center justify-center py-8 text-center space-y-3">
           <Shield className="w-10 h-10 text-slate-200" />
-          <p className="text-sm text-slate-400">No audit events recorded yet for this record.</p>
+          <p className="text-sm text-slate-500">No audit events recorded yet for this record.</p>
         </div>
       ) : (
         <>
-          <p className="text-xs text-slate-400 px-2">
+          <p className="text-data text-slate-500 px-2">
             {entries.length} audit event{entries.length !== 1 ? 's' : ''} — most recent first
           </p>
           <div className="relative">
@@ -1557,21 +1557,21 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
                   </div>
                   <div className="flex-1 bg-white border border-slate-200 rounded-xl p-4 shadow-sm min-w-0">
                     <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <span className={`px-2 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-wider ${actionColor[entry.action] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                      <span className={`px-2 py-0.5 rounded-full border text-data font-black uppercase tracking-wider ${actionColor[entry.action] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}>
                         {entry.action}
                       </span>
-                      <span className="text-xs font-semibold text-slate-700">{entry.changed_by}</span>
-                      <span className="text-[11px] text-slate-400 ml-auto">{formatTs(entry.timestamp)}</span>
+                      <span className="text-data font-semibold text-slate-700">{entry.changed_by}</span>
+                      <span className="text-data text-slate-500 ml-auto">{formatTs(entry.timestamp)}</span>
                     </div>
                     {entry.action === 'CREATE' ? (
-                      <p className="text-xs text-slate-700 font-medium mt-2">Record created</p>
+                      <p className="text-data text-slate-700 font-medium mt-2">Record created</p>
                     ) : entry.action === 'DELETE' ? (
-                      <p className="text-xs text-slate-700 font-medium mt-2">Record deleted</p>
+                      <p className="text-data text-slate-700 font-medium mt-2">Record deleted</p>
                     ) : (() => {
                       const rows = diffAuditEntry(entry.previous_value, entry.new_value);
                       if (rows.length === 0) {
                         return (
-                          <p className="text-xs text-slate-400 italic mt-2">
+                          <p className="text-data text-slate-500 italic mt-2">
                             System update — no user-visible fields changed.
                           </p>
                         );
@@ -1580,15 +1580,15 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
                         <div className="mt-2 space-y-1.5">
                           {rows.map((row, idx) => (
                             <div key={idx} className="flex items-center flex-wrap gap-0.5">
-                              <span className="text-xs text-slate-500 w-32 shrink-0">{row.label}</span>
+                              <span className="text-data text-slate-500 w-32 shrink-0">{row.label}</span>
                               {row.hasOld ? (
                                 <>
-                                  <span className="text-xs text-slate-400 line-through">{formatAuditValue(row.oldVal)}</span>
-                                  <span className="text-slate-300 mx-1">→</span>
-                                  <span className="text-xs text-slate-700 font-medium">{formatAuditValue(row.newVal)}</span>
+                                  <span className="sr-only">changed from </span><span className="text-data text-slate-500 line-through">{formatAuditValue(row.oldVal)}</span>
+                                  <span aria-hidden="true" className="text-slate-500 mx-1">→</span><span className="sr-only"> to </span>
+                                  <span className="text-data text-slate-700 font-medium">{formatAuditValue(row.newVal)}</span>
                                 </>
                               ) : (
-                                <span className="text-xs text-slate-700 font-medium">{formatAuditValue(row.newVal)}</span>
+                                <span className="text-data text-slate-700 font-medium">{formatAuditValue(row.newVal)}</span>
                               )}
                             </div>
                           ))}
@@ -1631,8 +1631,8 @@ function StagedAttachment({ staged, disabled, onRemove }: {
         <FileText aria-hidden="true" className="h-5 w-5 shrink-0 text-amber-700" />
       )}
       <div className="min-w-0 flex-1">
-        <p className="truncate text-xs font-semibold text-slate-800">{staged.file.name}</p>
-        <p className="mt-0.5 text-[10px] font-bold text-amber-700">Waiting to upload</p>
+        <p className="truncate text-data font-semibold text-slate-800" title={staged.file.name}>{staged.file.name}</p>
+        <p className="mt-0.5 text-data font-bold text-amber-700">Waiting to upload</p>
       </div>
       <button
         type="button"
@@ -1734,7 +1734,7 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
         <Paperclip className={`w-8 h-8 transition-colors ${dragging ? 'text-[#0078C1]' : 'text-slate-300'}`} />
         <div className="text-center">
           <label htmlFor="record-documents-input" className="text-sm font-bold text-slate-700">{staging ? 'Adding files…' : uploading ? 'Uploading…' : 'Add documents'}</label>
-            <p id="record-documents-help" className="text-xs text-slate-500 mt-0.5">Drop files here or select files below. PDF, JPG, PNG, DOC or DOCX — up to 10 MB each</p>
+            <p id="record-documents-help" className="text-data text-slate-500 mt-0.5">Drop files here or select files below. PDF, JPG, PNG, DOC or DOCX — up to 10 MB each</p>
         </div>
         <input
           id="record-documents-input"
@@ -1743,25 +1743,25 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
           type="file"
           multiple
           accept={POD_ATTACHMENT_ACCEPT}
-          className="block min-h-11 max-w-full rounded-lg text-xs file:mr-3 file:min-h-11 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:font-semibold file:text-blue-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700"
+          className="block min-h-11 max-w-full rounded-lg text-body file:mr-3 file:min-h-11 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:font-semibold file:text-blue-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700"
           disabled={busy}
           onChange={e => addFiles(e.target.files)}
         />
       </div>
 
-      {readiness.loading && <p role="status" className="text-xs text-slate-600">Loading attachments…</p>}
-      {readiness.loadFailed && <p role="alert" className="text-xs text-red-700">Could not load attachments.</p>}
+      {readiness.loading && <p role="status" className="text-data text-slate-600">Loading attachments…</p>}
+      {readiness.loadFailed && <p role="alert" className="text-data text-red-700">Could not load attachments.</p>}
       {stagedFiles.length > 0 && (
         <div className="space-y-2" aria-label="Files waiting to upload">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">
+            <p className="text-caption font-black uppercase tracking-widest text-amber-700">
               {stagedFiles.length} file{stagedFiles.length !== 1 ? 's' : ''} waiting to upload
             </p>
             <button
               type="button"
               disabled={busy}
               onClick={saveFiles}
-              className="flex min-h-11 items-center gap-1.5 rounded-lg bg-[#0078C1] px-4 py-2 text-xs font-bold text-white hover:bg-[#1F3864] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex min-h-11 items-center gap-1.5 rounded-lg bg-[#0078C1] px-4 py-2 text-data font-bold text-white hover:bg-[#1F3864] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {uploading ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Save aria-hidden="true" className="h-4 w-4" />}
               {uploading ? 'Saving…' : 'Save Files'}
@@ -1782,7 +1782,7 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
       {files.length > 0 ? (
         <div className="space-y-2">
           <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+            <p className="text-caption font-black text-slate-600 uppercase tracking-widest">
               {files.length} file{files.length !== 1 ? 's' : ''}
             </p>
           </div>
@@ -1793,7 +1793,7 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
           />
         </div>
       ) : stagedFiles.length === 0 ? (
-        <div className="text-center py-6 text-slate-400 text-xs">
+        <div className="text-center py-6 text-slate-500 text-data">
           No documents attached yet. Upload files above.
         </div>
       ) : null}
@@ -1809,7 +1809,7 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
         onConfirm={removeFile}
         onDismiss={() => setConfirmRemoveId(null)}
       />
-      <p className="text-[10px] text-slate-400 text-center">Files are stored in the local Docker volume and protected by record access permissions.</p>
+      <p className="text-data text-slate-500 text-center">Files are stored in the local Docker volume and protected by record access permissions.</p>
     </div>
   );
 }
@@ -1936,14 +1936,14 @@ function RecordWorkspace({
           <button
             onClick={() => requestLeave(onBack)}
             disabled={pending}
-            className="min-h-11 flex items-center gap-1.5 text-[#0078C1] hover:text-[#1F3864] text-xs font-semibold transition-colors shrink-0"
+            className="min-h-11 flex items-center gap-1.5 text-[#0078C1] hover:text-[#1F3864] text-data font-semibold transition-colors shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
             {moduleName}
           </button>
-          <span className="text-slate-300">/</span>
-          <span className="font-mono font-black text-slate-700 text-sm truncate">{record.id}</span>
-          <span className="text-slate-400 text-xs truncate hidden sm:inline">— {record.company_name}</span>
+          <span className="text-slate-500">/</span>
+          <span className="font-mono font-black text-slate-700 text-sm shrink-0">{record.id}</span>
+          <span className="text-slate-500 text-data truncate hidden sm:inline min-w-0" title={record.company_name}>— {record.company_name}</span>
         </div>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -1951,19 +1951,19 @@ function RecordWorkspace({
           <button
             onClick={() => { if (prevId) requestLeave(() => onNavigateToRecord(prevId)); }}
             disabled={!prevId || pending}
-            className="min-h-11 flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold text-slate-600"
+            className="min-h-11 flex items-center gap-1 px-2.5 py-1.5 text-data border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold text-slate-600"
             title="Previous Record"
           >
             <ChevronLeft className="w-3.5 h-3.5" />
             Prev
           </button>
-          <span className="text-[11px] text-slate-400 px-1 hidden sm:inline">
+          <span className="text-data text-slate-500 px-1 hidden sm:inline">
             {currentIndex + 1} / {allRecordIds.length}
           </span>
           <button
             onClick={() => { if (nextId) requestLeave(() => onNavigateToRecord(nextId)); }}
             disabled={!nextId || pending}
-            className="min-h-11 flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold text-slate-600"
+            className="min-h-11 flex items-center gap-1 px-2.5 py-1.5 text-data border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold text-slate-600"
             title="Next Record"
           >
             Next
@@ -1976,7 +1976,7 @@ function RecordWorkspace({
               <button
                 onClick={handleDownloadPdf}
                 disabled={pdfLoading}
-                className="min-h-11 flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors font-semibold text-slate-600 disabled:opacity-60"
+                className="min-h-11 flex items-center gap-1.5 px-2.5 py-1.5 text-data border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors font-semibold text-slate-600 disabled:opacity-60"
                 title="Download delivery manifest with documentation trail (PDF)"
               >
                 {pdfLoading
@@ -1985,13 +1985,13 @@ function RecordWorkspace({
                 {pdfLoading ? 'Generating…' : 'Download PDF'}
               </button>
               {pdfError && (
-                <div role="alert" className="absolute right-0 top-full mt-1 z-50 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-[11px] text-red-700 font-semibold shadow-md break-words max-w-xs">
+                <div role="alert" className="absolute right-0 top-full mt-1 z-50 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-data text-red-700 font-semibold shadow-md break-words max-w-xs">
                   <AlertTriangle className="w-3 h-3 inline mr-1" />
                   {pdfError}
                   <button
                     aria-label="Dismiss PDF error"
                     onClick={() => setPdfError(null)}
-                    className="ml-2 inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-red-400 hover:text-red-600 font-bold cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-700"
+                    className="ml-2 inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-red-700 hover:text-red-900 font-bold cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-700"
                   >✕</button>
                 </div>
               )}
@@ -2001,7 +2001,7 @@ function RecordWorkspace({
       </div>
 
       <section aria-label="Record summary" className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2 text-data">
           <CompanyHistoryButton
             companyId={record.company_id}
             companyName={record.company_name}
@@ -2014,7 +2014,7 @@ function RecordWorkspace({
           <span className={`rounded-full border px-2 py-0.5 font-semibold ${STATUS_COLOR[record.status] ?? 'bg-slate-50 text-slate-700 border-slate-200'}`}>{record.status}</span>
           <span className={`rounded-full border px-2 py-0.5 ${PRIORITY_COLOR[record.priority] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}>Priority: {record.priority}</span>
         </div>
-        <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-700">
+        <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-data text-slate-700">
           {[
             ['Driver', record.driver || 'Unassigned'],
             ['Delivery date', record.delivery_date],

@@ -7,6 +7,7 @@ import {
   ExternalLink,
   Loader2,
 } from "lucide-react";
+import { IconButton } from "./ui";
 import { api, ApiNotification } from "../api";
 import { DeliveryRecord } from "../types";
 import { notificationScreen } from "../utils/notificationNavigation";
@@ -112,24 +113,23 @@ export default function NotificationBell({
       onKeyDown={event => { if (open && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeAndRestoreFocus(); } }}
       onBlur={event => { if (open && event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}
     >
-      <button
+      <IconButton
         ref={triggerRef}
-        type="button"
-        aria-label={`Notifications, ${unreadCount} unread`}
+        label={`Notifications, ${unreadCount} unread`}
         aria-expanded={open}
         aria-controls="notification-panel"
         onClick={handleOpen}
-        className="min-h-11 min-w-11 inline-flex items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700 relative p-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-600 hover:text-slate-900 rounded-lg transition-colors cursor-pointer"
+        className="relative"
         title="Notifications"
         id="notification-bell-button"
       >
-        <Bell className="w-3.5 h-3.5" />
+        <Bell aria-hidden="true" className="w-3.5 h-3.5" />
         {unreadCount > 0 && (
           <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
-      </button>
+      </IconButton>
 
       {open && (
         <div
