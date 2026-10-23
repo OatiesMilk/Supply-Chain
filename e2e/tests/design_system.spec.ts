@@ -43,7 +43,7 @@ for (const width of [320, 390, 1280]) {
     await expect(card).toBeFocused();
 
     await page.goto('/deliveries');
-    await page.getByRole('button', { name: 'New Record', exact: true }).click();
+    await page.getByRole('button', { name: 'Create Record', exact: true }).click();
     const form = page.locator('form').filter({ has: page.getByRole('button', { name: 'Submit', exact: true }) });
     await target(form.getByRole('button', { name: 'Submit', exact: true }));
     await target(form.getByRole('button', { name: 'Save as Draft', exact: true }));
