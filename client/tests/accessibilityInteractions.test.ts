@@ -2,12 +2,27 @@ import assert from 'node:assert/strict';
 import { afterEach, mock, test } from 'node:test';
 import React, { act } from 'react';
 import { JSDOM } from 'jsdom';
-import GlobalSearch from '../src/components/GlobalSearch';
+import GlobalSearch, { findGlobalSearchScreens, matchesGlobalQuery } from '../src/components/GlobalSearch';
 import NotificationBell from '../src/components/NotificationBell';
 import CommentComposer from '../src/components/CommentComposer';
 import { api, type ApiNotification } from '../src/api';
 
 afterEach(() => mock.restoreAll());
+
+test('global search matching covers partial fields and only accessible destinations', () => {
+  assert.equal(matchesGlobalQuery('nica', 'Nicanor Reyes'), true);
+  assert.equal(matchesGlobalQuery('leo drive', 'Leo Driver'), true);
+  assert.equal(matchesGlobalQuery('sku-10', 'SKU-10042'), true);
+  assert.equal(matchesGlobalQuery('n', 'Nicanor Reyes'), false);
+  assert.deepEqual(
+    findGlobalSearchScreens('sku', new Set(['transactions'])),
+    [],
+  );
+  assert.deepEqual(
+    findGlobalSearchScreens('sku', new Set(['inventory'])),
+    [{ screen: 'inventory', label: 'Products / SKU Master' }],
+  );
+});
 
 async function withDom(run: (dom: JSDOM, root: import('react-dom/client').Root) => Promise<void>) {
   const dom = new JSDOM('<button id="trigger">Search</button><div id="root"></div><button id="after">After popup</button>', { url: 'http://localhost' });

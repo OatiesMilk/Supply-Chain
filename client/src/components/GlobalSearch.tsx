@@ -1,15 +1,19 @@
 import { screenLabel } from '@/utils/navigationLabels';
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId } from 'react';
-import { Search, X, Truck, Package, ArrowRight, Loader2 } from 'lucide-react';
+import { Search, X, Truck, Package, ArrowRight, Loader2, Users, UserRound, LayoutGrid } from 'lucide-react';
 import { DeliveryRecord } from '../types';
-import { ApiSku, api } from '../api';
+import { ApiCustomer, ApiDriver, ApiSku, ApiSupplier, api } from '../api';
 import { normalizeApiRecord } from '../api/queries/useRecordsQuery';
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   deliveryRecords: DeliveryRecord[];
+  customers?: ApiCustomer[];
+  suppliers?: ApiSupplier[];
+  drivers?: ApiDriver[];
   products: ApiSku[];
+  accessibleScreens?: Set<string>;
   onNavigate: (screen: string, item_id?: string) => void;
 }
 
@@ -29,7 +33,44 @@ const STATUS_DOT: Record<string, string> = {
   Rescheduled: 'bg-purple-500'
 };
 
-export default function GlobalSearch({ isOpen, onClose, deliveryRecords, products, onNavigate }: Props) {
+const GLOBAL_SEARCH_SCREEN_LABELS = {
+  main: 'All Records',
+  dashboard: 'Dashboard',
+  deliveries: 'Deliveries',
+  rma: 'RMA',
+  accounting_collection: 'Accounting Collection',
+  procurement_pickup: 'Procurement Pick-up',
+  sales_orders: 'Sales Orders',
+  customers: 'Customers',
+  suppliers: 'Suppliers',
+  driver: 'Drivers',
+  driver_manager: 'Driver Manager',
+  calendar: 'Delivery Calendar',
+  driver_board: 'Driver Board',
+  am_directory: 'Account Managers',
+  transactions: 'Transaction Center',
+  inventory: 'Products / SKU Master',
+  statistical_reports: 'Statistical Reports',
+  driver_dashboard: 'Driver Dashboard',
+  data_sampler: 'Data Sampler',
+  admin: 'Admin Panel',
+} as const;
+
+export function matchesGlobalQuery(query: string, ...values: Array<string | null | undefined>): boolean {
+  const normalized = query.trim().toLowerCase();
+  return normalized.length >= 2 && values.some(value => value?.toLowerCase().includes(normalized));
+}
+
+export function findGlobalSearchScreens(query: string, accessibleScreens: ReadonlySet<string>) {
+  return Object.entries(GLOBAL_SEARCH_SCREEN_LABELS)
+    .filter(([screen, label]) => accessibleScreens.has(screen) && matchesGlobalQuery(query, label))
+    .map(([screen, label]) => ({ screen, label }));
+}
+
+export default function GlobalSearch({
+  isOpen, onClose, deliveryRecords, customers = [], suppliers = [], drivers = [],
+  products, accessibleScreens = new Set(), onNavigate,
+}: Props) {
   const [query, setQuery] = useState('');
   const [cursor, setCursor] = useState(-1);
   const [serverRecords, setServerRecords] = useState<DeliveryRecord[]>([]);
@@ -99,32 +140,61 @@ export default function GlobalSearch({ isOpen, onClose, deliveryRecords, product
 
   const matchedRecords = q.length < 2 ? [] : serverRecords;
 
-  const matchedSkus = q.length < 2 ? [] : products.filter(p =>
-    p.sku_code.toLowerCase().includes(q) ||
-    p.name.toLowerCase().includes(q) ||
-    p.description.toLowerCase().includes(q)
-  ).slice(0, 5);
+  const matchedCustomers = customers.filter(customer => matchesGlobalQuery(
+    q, customer.id, customer.name, customer.contact_person, customer.email,
+    customer.phone, customer.address, customer.city,
+  )).slice(0, 5);
+  const matchedSuppliers = suppliers.filter(supplier => matchesGlobalQuery(
+    q, supplier.id, supplier.name, supplier.contact_person, supplier.email,
+    supplier.phone, supplier.address, supplier.city,
+  )).slice(0, 5);
+  const matchedDrivers = drivers.filter(driver => matchesGlobalQuery(
+    q, driver.id, driver.name, ...driver.coverage_areas,
+  )).slice(0, 5);
+  const matchedSkus = products.filter(p => matchesGlobalQuery(
+    q, p.id, p.sku_code, p.name, p.description, p.category,
+    p.inventory?.warehouse_location,
+  )).slice(0, 5);
+  const matchedScreens = findGlobalSearchScreens(q, accessibleScreens);
+  const driverScreen = accessibleScreens.has('driver_manager') ? 'driver_manager' : 'driver';
 
-  const total = matchedRecords.length + matchedSkus.length;
+  const total = matchedScreens.length + matchedRecords.length + matchedCustomers.length
+    + matchedSuppliers.length + matchedDrivers.length + matchedSkus.length;
 
   // Flat list of all results for keyboard nav
   type ResultItem =
     | { kind: 'record'; data: DeliveryRecord }
-    | { kind: 'sku'; data: ApiSku };
+    | { kind: 'customer'; data: ApiCustomer }
+    | { kind: 'supplier'; data: ApiSupplier }
+    | { kind: 'driver'; data: ApiDriver }
+    | { kind: 'sku'; data: ApiSku }
+    | { kind: 'screen'; data: { screen: string; label: string } };
 
   const allResults: ResultItem[] = [
+    ...matchedScreens.map(data => ({ kind: 'screen' as const, data })),
     ...matchedRecords.map(r => ({ kind: 'record' as const, data: r })),
+    ...matchedCustomers.map(data => ({ kind: 'customer' as const, data })),
+    ...matchedSuppliers.map(data => ({ kind: 'supplier' as const, data })),
+    ...matchedDrivers.map(data => ({ kind: 'driver' as const, data })),
     ...matchedSkus.map(p => ({ kind: 'sku' as const, data: p }))
   ];
 
   const openItem = useCallback((item: ResultItem) => {
-    if (item.kind === 'record') {
+    if (item.kind === 'screen') {
+      onNavigate(item.data.screen);
+    } else if (item.kind === 'record') {
       onNavigate(CATEGORY_SCREEN[item.data.category] ?? 'deliveries', item.data.id);
+    } else if (item.kind === 'customer') {
+      onNavigate('customers', item.data.id);
+    } else if (item.kind === 'supplier') {
+      onNavigate('suppliers', item.data.id);
+    } else if (item.kind === 'driver') {
+      onNavigate(driverScreen, item.data.id);
     } else {
       onNavigate('inventory', item.data.id);
     }
     onClose();
-  }, [onNavigate, onClose]);
+  }, [driverScreen, onNavigate, onClose]);
 
   const handleKeyDown = (e: { key: string; preventDefault: () => void }) => {
     if (allResults.length === 0) return;
@@ -150,6 +220,37 @@ export default function GlobalSearch({ isOpen, onClose, deliveryRecords, product
   if (!isOpen) return null;
 
   let globalIdx = -1;
+  const renderSimpleResult = (
+    item: ResultItem,
+    title: string,
+    detail: string,
+    Icon: typeof Users,
+  ) => {
+    globalIdx++;
+    const idx = globalIdx;
+    const isActive = cursor === idx;
+    return (
+      <button
+        key={`${item.kind}-${item.kind === 'screen' ? item.data.screen : item.data.id}`}
+        id={`${resultsId}-${idx}`}
+        data-result-item
+        role="option"
+        tabIndex={-1}
+        aria-selected={isActive}
+        onClick={() => openItem(item)}
+        className={`min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700 w-full text-left flex items-center gap-3 px-4 py-3 transition-all cursor-pointer border-b border-slate-50 ${
+          isActive ? 'bg-blue-50 border-l-2 border-l-[#0078C1]' : 'hover:bg-blue-50'
+        }`}
+      >
+        <Icon className="w-4 h-4 text-slate-300 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-slate-700 font-semibold truncate">{title}</p>
+          <p className="text-[10px] text-slate-400 truncate">{detail}</p>
+        </div>
+        <ArrowRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+      </button>
+    );
+  };
 
   return (
     <dialog
@@ -218,6 +319,20 @@ export default function GlobalSearch({ isOpen, onClose, deliveryRecords, product
             </div>
           ) : (
             <div>
+              {matchedScreens.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-4 py-2 bg-slate-50 border-b border-slate-100">
+                    Pages ({matchedScreens.length})
+                  </p>
+                  {matchedScreens.map(page => renderSimpleResult(
+                    { kind: 'screen', data: page },
+                    page.label,
+                    'Open accessible module',
+                    LayoutGrid,
+                  ))}
+                </div>
+              )}
+
               {matchedRecords.length > 0 && (
                 <div>
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-4 py-2 bg-slate-50 border-b border-slate-100">
@@ -256,6 +371,48 @@ export default function GlobalSearch({ isOpen, onClose, deliveryRecords, product
                       </button>
                     );
                   })}
+                </div>
+              )}
+
+              {matchedCustomers.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-4 py-2 bg-slate-50 border-b border-slate-100">
+                    Customers ({matchedCustomers.length})
+                  </p>
+                  {matchedCustomers.map(customer => renderSimpleResult(
+                    { kind: 'customer', data: customer },
+                    customer.name,
+                    `${customer.contact_person || 'No contact person'} · ${customer.city || 'No city'}`,
+                    Users,
+                  ))}
+                </div>
+              )}
+
+              {matchedSuppliers.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-4 py-2 bg-slate-50 border-b border-slate-100">
+                    Suppliers ({matchedSuppliers.length})
+                  </p>
+                  {matchedSuppliers.map(supplier => renderSimpleResult(
+                    { kind: 'supplier', data: supplier },
+                    supplier.name,
+                    `${supplier.contact_person || 'No contact person'} · ${supplier.city || 'No city'}`,
+                    Package,
+                  ))}
+                </div>
+              )}
+
+              {matchedDrivers.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-4 py-2 bg-slate-50 border-b border-slate-100">
+                    Drivers ({matchedDrivers.length})
+                  </p>
+                  {matchedDrivers.map(driver => renderSimpleResult(
+                    { kind: 'driver', data: driver },
+                    driver.name,
+                    driver.type === 'DRIVER' ? 'Driver' : 'Driver assistant',
+                    UserRound,
+                  ))}
                 </div>
               )}
 

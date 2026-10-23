@@ -3,7 +3,7 @@ import { Sidebar, SidebarProps } from './Sidebar';
 import { Navbar, NavbarProps } from './Navbar';
 import { GlobalSearch, AccessRequestModal, AccessRequestModalProps } from '@/components';
 import { DeliveryRecord } from '@/types';
-import { ApiSku } from '@/api';
+import { ApiCustomer, ApiDriver, ApiSku, ApiSupplier } from '@/api';
 import { ErrorState } from '@/components/ui';
 
 export interface MainLayoutProps {
@@ -13,7 +13,11 @@ export interface MainLayoutProps {
   searchOpen: boolean;
   setSearchOpen: (open: boolean) => void;
   deliveryRecords: DeliveryRecord[];
+  customers: ApiCustomer[];
+  suppliers: ApiSupplier[];
+  drivers: ApiDriver[];
   products: ApiSku[];
+  accessibleScreens: Set<string>;
   dataError: string | null;
   children: ReactNode;
 }
@@ -25,7 +29,11 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   searchOpen,
   setSearchOpen,
   deliveryRecords,
+  customers,
+  suppliers,
+  drivers,
   products,
+  accessibleScreens,
   dataError,
   children,
 }) => {
@@ -38,7 +46,11 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         isOpen={searchOpen}
         onClose={() => setSearchOpen(false)}
         deliveryRecords={deliveryRecords}
+        customers={customers}
+        suppliers={suppliers}
+        drivers={drivers}
         products={products}
+        accessibleScreens={accessibleScreens}
         onNavigate={sidebarProps.handleNavigate}
       />
 
