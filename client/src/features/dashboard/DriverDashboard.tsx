@@ -10,7 +10,6 @@ import {
   Clock,
   UserCheck,
   LogOut,
-  X,
   Loader2
 } from "lucide-react";
 import { DeliveryRecord, DeliveryStatus } from "@/types";
@@ -19,6 +18,7 @@ import { completionError, type PodReadiness } from "@/utils/podRequirement";
 
 import { useRecordsQuery, useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
 import { canRecordTimeIn, dashboardRunDaysLate, deliveryScheduleState, hasValidRunTimeIn, isDashboardRunActionable, isDraftRecord, manilaToday } from '@/utils/recordLifecycle';
+import { ActionDialog } from '@/components/ActionDialog';
 import DoneRecordModal from "./DoneRecordModal";
 import { uploadStagedFiles } from '@/api/queries/usePodAttachments';
 import { useQueryClient } from '@tanstack/react-query';
@@ -275,6 +275,8 @@ export default function DriverDashboard({
                     </label>
                     <input
                       id={`received-by-${rec.id}`}
+                      aria-required="true"
+                      aria-describedby={completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id]) ? `completion-help-${rec.id}` : undefined}
                       type="text"
                       value={receivedByInputs[rec.id] ?? rec.received_by ?? ""}
                       onChange={(e) =>
@@ -441,108 +443,71 @@ export default function DriverDashboard({
         )}
       </div>
 
-      {/* Status confirmation modal */}
-      {pendingAction && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm space-y-4 p-6 mb-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-black text-slate-900">
-                  Confirm Status
-                </h3>
-                <p className="text-data text-slate-500 mt-0.5">
-                  Mark{" "}
-                  <span className="font-bold text-slate-800">
-                    {pendingAction.rec.reference}
-                  </span>{" "}
-                  as{" "}
-                  <span className="font-bold text-slate-800">
-                    {STATUS_VERB[pendingAction.status] ?? pendingAction.status}
-                  </span>
-                </p>
-              </div>
-              <button
-                disabled={saving}
-                onClick={() => {
-                  setPendingAction(null);
-                  setRemarksInput("");
-                }}
-                aria-label="Close status change"
-                className="text-slate-500 hover:text-slate-600 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {/* Keep the native dialog mounted so close restores focus to its trigger. */}
+      <ActionDialog
+        open={!!pendingAction}
+        title="Confirm Status"
+        description={pendingAction ? `Mark ${pendingAction.rec.reference} as ${STATUS_VERB[pendingAction.status] ?? pendingAction.status}` : ''}
+        pending={saving}
+        confirmLabel="Confirm"
+        confirmDisabled={!remarksInput.trim() || !!photoError}
+        onDismiss={() => {
+          if (saving) return;
+          setPendingAction(null);
+          setRemarksInput('');
+        }}
+        onConfirm={async () => {
+          if (!pendingAction || saving || !remarksInput.trim() || photoError) return;
+          if (pendingAction.status === pendingAction.rec.status) {
+            setSaveFeedback({ message: 'Choose a different status before saving.', type: 'info' });
+            return;
+          }
+          setSaving(true);
+          setSaveFeedback(null);
+          try {
+            const recordId = pendingAction.rec.id;
+            await uploadStagedFiles(recordId, queryClient);
 
-            <div className="space-y-1.5">
-              <label htmlFor="driver-action-remarks" className="text-data font-black text-slate-600 uppercase tracking-wider block">
-                Remarks — reason for change (required)
-              </label>
-              <p id="driver-action-remarks-help" className="text-data text-slate-600">Explain why you are making this change. The reason is saved with your name in the record history.</p>
-              <textarea
-                id="driver-action-remarks"
-                aria-describedby="driver-action-remarks-help"
-                required
-                value={remarksInput}
-                onChange={(e) => setRemarksInput(e.target.value)}
-                rows={3}
-                placeholder="Enter remarks…"
-                autoFocus
-                className="w-full border border-field rounded-xl px-3 py-2 text-body focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] resize-none"
-              />
-            </div>
-
-            {photoError && <p role="alert" className="text-data text-red-700">{photoError}</p>}
-            {saveFeedback && <p role="alert" className={`text-data ${saveFeedback.type === 'success' ? 'text-emerald-700' : saveFeedback.type === 'info' ? 'text-amber-700' : 'text-red-700'}`}>{saveFeedback.message}</p>}
-            <div className="flex gap-2 justify-end">
-              <button
-                disabled={saving}
-                onClick={() => {
-                  setPendingAction(null);
-                  setRemarksInput("");
-                }}
-                className="px-4 py-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-data font-bold rounded-xl transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                disabled={saving || !remarksInput.trim() || !!photoError}
-                onClick={async () => {
-                  if (saving || !remarksInput.trim() || photoError) return;
-                  if (pendingAction.status === pendingAction.rec.status) {
-                    setSaveFeedback({ message: 'Choose a different status before saving.', type: 'info' });
-                    return;
-                  }
-                  setSaving(true);
-                  setSaveFeedback(null);
-                  try {
-                    const recordId = pendingAction.rec.id;
-                    await uploadStagedFiles(recordId, queryClient);
-
-                    if (pendingAction.status === "In Transit") {
-                      await timeInMutation.mutateAsync({ id: recordId, remarks: remarksInput.trim() });
-                    } else {
-                      await applyStatus(pendingAction.rec, pendingAction.status, remarksInput.trim());
-                    }
-                    setPendingAction(null);
-                    setRemarksInput("");
-                    notify.success('Status updated successfully');
-                  } catch (error) {
-                    const message = error instanceof Error ? error.message : 'Could not update the delivery. Please try again.';
-                    setSaveFeedback({ message, type: 'error' });
-                    notify.error(message);
-                  } finally {
-                    setSaving(false);
-                  }
-                }}
-                className="px-4 py-2 bg-[#1F3864] hover:bg-[#0078C1] text-white text-data font-bold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-              >
-                {saving ? "Saving…" : "Confirm"}
-              </button>
-            </div>
+            if (pendingAction.status === "In Transit") {
+              await timeInMutation.mutateAsync({ id: recordId, remarks: remarksInput.trim() });
+            } else {
+              await applyStatus(pendingAction.rec, pendingAction.status, remarksInput.trim());
+            }
+            setPendingAction(null);
+            setRemarksInput("");
+            notify.success('Status updated successfully');
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Could not update the delivery. Please try again.';
+            setSaveFeedback({ message, type: 'error' });
+            notify.error(message);
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        {pendingAction && <>
+          <div className="space-y-1.5">
+            <label htmlFor="driver-action-remarks" className="text-data font-black text-slate-600 uppercase tracking-wider block">
+              Remarks — reason for change (required)
+            </label>
+            <p id="driver-action-remarks-help" className="text-data text-slate-600">Explain why you are making this change. The reason is saved with your name in the record history.</p>
+            <textarea
+              id="driver-action-remarks"
+              aria-describedby="driver-action-remarks-help"
+              required
+              disabled={saving}
+              value={remarksInput}
+              onChange={e => setRemarksInput(e.target.value)}
+              rows={3}
+              placeholder="Enter remarks…"
+              autoFocus
+              className="min-h-[var(--mg-control-height)] w-full border border-field rounded-xl px-3 py-2 text-body focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 resize-y"
+            />
           </div>
-        </div>
-      )}
+          {photoError && <p role="alert" className="text-data text-red-700">{photoError}</p>}
+          {saveFeedback && <p role="alert" className={`text-data ${saveFeedback.type === 'success' ? 'text-emerald-700' : saveFeedback.type === 'info' ? 'text-amber-700' : 'text-red-700'}`}>{saveFeedback.message}</p>}
+        </>}
+      </ActionDialog>
 
       {selectedDoneRecord && (
         <DoneRecordModal
