@@ -141,7 +141,7 @@
     padding: var(--mg-space-2) var(--mg-space-3);
     color: var(--mg-text);
     background: var(--mg-surface);
-    font-size: var(--mg-text-sm);
+    font-size: var(--mg-text-base);
     line-height: 1.5;
   }
   .mg-control:hover:not(:disabled) { border-color: var(--mg-text-muted); }

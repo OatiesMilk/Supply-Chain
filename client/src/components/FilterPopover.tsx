@@ -45,9 +45,9 @@ export default function FilterPopover({ open, onOpenChange, count, onClear, chil
       aria-label={`Advanced filters${count ? `, ${count} active` : ''}`}
       aria-expanded={open} aria-controls={open ? id : undefined} aria-haspopup="dialog"
       onClick={() => onOpenChange(!open)}
-      className={`flex min-h-10 min-w-10 items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg border ${open || count ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-400'}`}>
+      className={`focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 text-data flex min-h-[var(--mg-control-height)] min-w-[var(--mg-control-height)] items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg border ${open || count ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-400'}`}>
       <SlidersHorizontal className="w-4 h-4" aria-hidden="true" />
-      {count > 0 && <span className="min-w-[18px] px-1 bg-blue-600 text-white text-[10px] rounded-full">{count}</span>}
+      {count > 0 && <span className="min-w-[18px] px-1 bg-blue-600 text-white text-data rounded-full">{count}</span>}
     </button>
     {open && <FloatingPortal>
       <FloatingFocusManager context={context} modal={false} returnFocus>
@@ -60,15 +60,15 @@ export default function FilterPopover({ open, onOpenChange, count, onClear, chil
           <div className="flex items-center justify-between px-4 pt-3 shrink-0">
             <h2 id={`${id}-title`} className="text-sm font-bold text-slate-800">Advanced Filters</h2>
             <button type="button" aria-label="Close advanced filters" onClick={() => onOpenChange(false)}
-              className="min-h-10 min-w-10 flex items-center justify-center rounded-lg hover:bg-slate-100"><X className="w-4 h-4" /></button>
+              className="min-h-[var(--mg-control-height)] min-w-[var(--mg-control-height)] focus-visible:outline-2 focus-visible:outline-blue-700 flex items-center justify-center rounded-lg hover:bg-slate-100"><X className="w-4 h-4" /></button>
           </div>
-          <div className="p-4 space-y-4 min-h-0 overflow-y-auto">
+          <div className="p-4 space-y-4 min-h-0 overflow-y-auto text-data [&_label]:text-data [&_select]:text-body [&_input]:text-body [&_select]:min-h-[var(--mg-control-height)]">
             <FilterOverlayContext.Provider value={id}>{children}</FilterOverlayContext.Provider>
           </div>
-          <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-slate-100 shrink-0">
+          <div className="flex items-center justify-between flex-wrap gap-2 px-4 py-3 border-t border-slate-100 shrink-0">
             <button type="button" disabled={!count} onClick={onClear}
-              className="min-h-10 text-xs font-bold text-red-600 disabled:text-slate-400">Clear All Filters</button>
-            <button type="button" onClick={() => onOpenChange(false)} className="min-h-10 px-4 bg-[#1F3864] text-white text-xs font-bold rounded-lg">Done</button>
+              className="min-h-[var(--mg-control-height)] min-w-[var(--mg-control-height)] whitespace-normal focus-visible:outline-2 focus-visible:outline-blue-700 text-data font-bold text-red-600 disabled:text-slate-400">Clear All Filters</button>
+            <button type="button" onClick={() => onOpenChange(false)} className="min-h-[var(--mg-control-height)] min-w-[var(--mg-control-height)] focus-visible:outline-2 focus-visible:outline-blue-700 px-4 bg-[#1F3864] text-white text-data font-bold rounded-lg">Done</button>
           </div>
         </div>
       </FloatingFocusManager>
@@ -112,7 +112,7 @@ export function FilterCombobox({ label, value, options, onChange, placeholder = 
   const choose = (option: string) => { onChange(option); setOpen(false); setActiveIndex(-1); };
 
   return <div className="min-w-0">
-    <label htmlFor={id} className="block text-xs font-semibold text-slate-600 mb-1">{label}</label>
+    <label htmlFor={id} className="block text-data font-semibold text-slate-600 mb-1">{label}</label>
     <div className="relative">
       <input ref={refs.setReference} {...getReferenceProps()} id={id} role="combobox" type="text"
         aria-autocomplete="list" aria-expanded={open} aria-controls={open ? `${id}-list` : undefined}
@@ -131,19 +131,19 @@ export function FilterCombobox({ label, value, options, onChange, placeholder = 
             event.preventDefault(); event.stopPropagation(); setOpen(false);
           } else if (event.key === 'Tab') { setOpen(false); }
         }}
-        className="w-full min-h-10 border border-slate-200 rounded-lg pl-2.5 pr-10 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]" />
+        className="w-full min-h-[var(--mg-control-height)] border border-field rounded-lg pl-2.5 pr-10 py-2 text-body focus:outline-none focus:ring-2 focus:ring-[#0078C1]" />
       {value && <button type="button" aria-label={`Clear ${label}`} onClick={() => { onChange(''); setOpen(false); }}
-        className="absolute right-0 top-0 min-h-10 min-w-10 flex items-center justify-center text-slate-500"><X className="w-3.5 h-3.5" /></button>}
+        className="focus-visible:outline-2 focus-visible:outline-blue-700 absolute right-0 top-0 min-h-[var(--mg-control-height)] min-w-[var(--mg-control-height)] flex items-center justify-center text-slate-500"><X className="w-3.5 h-3.5" /></button>}
     </div>
     {open && <FloatingPortal>
       <div ref={refs.setFloating} style={floatingStyles} {...getFloatingProps()} data-filter-options-owner={ownerId ?? undefined}
         id={`${id}-list`} role="listbox" aria-label={`${label} suggestions`}
         className="z-50 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg py-1">
-        {suggestions.length === 0 && <div role="status" className="px-3 py-2 text-xs text-slate-500">No matches found</div>}
+        {suggestions.length === 0 && <div role="status" className="px-3 py-2 text-data text-slate-500">No matches found</div>}
         {suggestions.map((option, index) => <div key={option} ref={element => { optionRefs.current[index] = element; }}
           id={`${id}-option-${index}`} role="option" aria-selected={value === option}
           onMouseDown={event => event.preventDefault()} onClick={() => choose(option)} onMouseMove={() => setActiveIndex(index)}
-          className={`px-3 py-2 text-xs cursor-pointer break-words ${activeIndex === index ? 'bg-blue-50 text-blue-800' : 'text-slate-700 hover:bg-slate-50'}`}>{option}</div>)}
+          className={`min-h-[var(--mg-control-height)] flex items-center px-3 py-2 text-data cursor-pointer break-words ${activeIndex === index ? 'bg-blue-50 text-blue-800' : 'text-slate-700 hover:bg-slate-50'}`}>{option}</div>)}
       </div>
     </FloatingPortal>}
   </div>;

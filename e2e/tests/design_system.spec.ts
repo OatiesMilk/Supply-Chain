@@ -131,3 +131,123 @@ test('UI-005 shell includes an accessible skip link to the main task content', a
   await page.keyboard.press('Enter');
   await expect(page.locator('#main-routed-view')).toBeFocused();
 });
+
+async function fontSize(control: Locator, pixels: number) {
+  await expect(control).toBeVisible();
+  expect(await control.evaluate(node => parseFloat(getComputedStyle(node).fontSize))).toBeCloseTo(pixels, 1);
+}
+
+const readableScreens = ['dashboard', 'deliveries', 'accounting_collection', 'procurement_pickup', 'am_directory', 'inventory'];
+for (const { width, height } of [{ width: 320, height: 900 }, { width: 390, height: 844 }, { width: 768, height: 1024 }, { width: 1280, height: 900 }, { width: 844, height: 390 }]) {
+  test(`GH-210 readable sidebar, editable controls and filters at ${width}x${height} with 200% text`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height });
+    await page.addInitScript(() => localStorage.setItem('ui_store', JSON.stringify({ state: { zoomFactor: 200 }, version: 1 })));
+    const { writes } = await uiFixture(page, 'SALES_COORDINATOR', { screens: readableScreens, accountManager: 'Example Account Manager' });
+    await page.goto('/deliveries');
+    const sidebar = page.locator('#sidebar-panel');
+    if (width < 1024) await page.locator('#mobile-sidebar-toggle').click();
+    const accounting = sidebar.getByRole('button', { name: /^Accounting Collection/ });
+    await accounting.scrollIntoViewIfNeeded();
+    await fontSize(accounting.locator('span').filter({ hasText: /^Accounting Collection$/ }).last(), 28);
+    expect(await page.locator('#sidebar-nav').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    if (width < 1024) expect(await sidebar.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    expect(await accounting.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await testInfo.attach(`sidebar-${width}x${height}-200pct`, { body: await page.screenshot(), contentType: 'image/png' });
+    if (width < 1024) {
+      await target(page.locator('#close-sidebar-button'));
+      await page.locator('#close-sidebar-button').click();
+      await expect(sidebar).toHaveAttribute('inert', '');
+    } else {
+      const toggle = page.locator('#desktop-sidebar-toggle');
+      await target(toggle);
+      await toggle.click();
+      await expect(sidebar).toHaveCSS('width', '72px');
+      const deliveries = sidebar.getByRole('button', { name: /^Deliveries/ });
+      await deliveries.focus();
+      await target(deliveries);
+      await expect(page.getByRole('tooltip')).toContainText('Deliveries');
+      await toggle.click();
+    }
+    await page.getByRole('button', { name: 'Create Record', exact: true }).click();
+    const form = page.locator('form').filter({ has: page.getByRole('button', { name: 'Submit', exact: true }) });
+    await fontSize(form.locator('input.mg-control').first(), 32);
+    await fontSize(form.locator('select.mg-control').first(), 32);
+    await fontSize(form.locator('textarea.mg-control').first(), 32);
+    await form.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.getByRole('button', { name: /^Advanced filters/ }).click();
+    const panel = page.getByRole('dialog', { name: 'Advanced Filters', exact: true });
+    const manager = panel.getByRole('combobox', { name: 'Account Manager', exact: true });
+    await manager.scrollIntoViewIfNeeded();
+    await fontSize(manager, 32);
+    await manager.focus();
+    await page.keyboard.press('ArrowDown');
+    const option = page.getByRole('option', { name: 'Example Account Manager', exact: true });
+    await fontSize(option, 28);
+    await page.keyboard.press('Enter');
+    await expect(manager).toHaveValue('Example Account Manager');
+    await testInfo.attach(`filters-${width}x${height}-200pct`, { body: await page.screenshot(), contentType: 'image/png' });
+    await page.keyboard.press('Escape');
+    await expect(panel).not.toBeVisible();
+    await noHorizontalOverflow(page);
+    expect(writes).toEqual([]);
+  });
+}
+
+test('GH-210 touched controls retain 44px targets at 90% text and filters retain keyboard selection', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => localStorage.setItem('ui_store', JSON.stringify({ state: { zoomFactor: 90 }, version: 1 })));
+  await uiFixture(page, 'SALES_COORDINATOR', { accountManager: 'Example Account Manager' });
+  await page.goto('/deliveries');
+  await page.locator('#mobile-sidebar-toggle').click();
+  await target(page.locator('#close-sidebar-button'));
+  await page.locator('#close-sidebar-button').click();
+  const trigger = page.getByRole('button', { name: /^Advanced filters/ });
+  await target(trigger);
+  await trigger.click();
+  const panel = page.getByRole('dialog', { name: 'Advanced Filters', exact: true });
+  await target(panel.getByRole('button', { name: 'Close advanced filters', exact: true }));
+  await target(panel.getByRole('button', { name: 'Done', exact: true }));
+  const manager = panel.getByRole('combobox', { name: 'Account Manager', exact: true });
+  await target(manager);
+  await manager.focus();
+  await page.keyboard.press('ArrowDown');
+  await target(page.getByRole('option', { name: 'Example Account Manager', exact: true }));
+  await page.keyboard.press('Enter');
+  await target(panel.getByRole('button', { name: 'Clear Account Manager', exact: true }));
+  await page.keyboard.press('Escape');
+  await expect(trigger).toBeFocused();
+  await page.goto('/deliveries?item=REC-UI005');
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await target(page.getByRole('button', { name: 'Save Changes', exact: true }));
+});
+
+test('GH-210 workspace Save and staged POD names reflow at 320px and 200% text without a write', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 320, height: 900 });
+  await page.addInitScript(() => localStorage.setItem('ui_store', JSON.stringify({ state: { zoomFactor: 200 }, version: 1 })));
+  const { writes } = await uiFixture(page, 'LOGISTICS');
+  await page.goto('/deliveries?item=REC-UI005');
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  const save = page.getByRole('button', { name: 'Save Changes', exact: true });
+  await save.scrollIntoViewIfNeeded();
+  expect(await save.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await testInfo.attach('workspace-save-320px-200pct', { body: await page.screenshot(), contentType: 'image/png' });
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('tab', { name: /Dispatch & Logistics/ }).click();
+  const picker = page.getByRole('button', { name: 'Select Photo / Document', exact: true });
+  await picker.scrollIntoViewIfNeeded();
+  await target(picker);
+  const choosing = page.waitForEvent('filechooser');
+  await picker.press('Space');
+  const chooser = await choosing;
+  const name = 'example-proof-of-delivery-with-an-intentionally-long-filename-for-mobile-reflow.pdf';
+  await chooser.setFiles({ name, mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n synthetic') });
+  const filename = page.getByText(name, { exact: true });
+  await fontSize(filename, 28);
+  expect(await filename.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await testInfo.attach('staged-pod-320px-200pct', { body: await page.screenshot(), contentType: 'image/png' });
+  await target(page.getByRole('button', { name: `Remove staged file ${name}`, exact: true }));
+  await page.getByRole('button', { name: `Remove staged file ${name}`, exact: true }).click();
+  await expect(filename).not.toBeVisible();
+  await noHorizontalOverflow(page);
+  expect(writes).toEqual([]);
+});

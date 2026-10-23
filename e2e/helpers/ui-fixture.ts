@@ -1,9 +1,9 @@
 import type { Page } from '@playwright/test';
 
 /** Synthetic UI data; no fixture requests are allowed to mutate the live API. */
-export async function uiFixture(page: Page, role = 'SALES_COORDINATOR') {
+export async function uiFixture(page: Page, role = 'SALES_COORDINATOR', options: { screens?: string[]; accountManager?: string } = {}) {
   const writes: string[] = [];
-  const record = { id: 'REC-UI005', category: 'Deliveries', company_id: 'ui005-company', company_name: 'Example Company', reference: 'UI005-REF', status: 'Scheduled', driver: '', account_manager: '', area: '', address: '', remarks: '', vehicle: '(None)', delivery_date: '2026-10-22', item_type: 'Small Item', item_description: 'Example item', is_draft: 'No', line_items: [], priority: '2 - Moderate', attachments: [], created_by: 'Example Staff', modified_by: 'Example Staff', created_at: '2026-10-22T00:00:00Z', modified_at: '2026-10-22T00:00:00Z', driver_assistants: [], output_actions_log: [] };
+  const record = { id: 'REC-UI005', category: 'Deliveries', company_id: 'ui005-company', company_name: 'Example Company', reference: 'UI005-REF', status: 'Scheduled', driver: '', account_manager: options.accountManager ?? '', area: '', address: '', remarks: '', vehicle: '(None)', delivery_date: '2026-10-22', item_type: 'Small Item', item_description: 'Example item', is_draft: 'No', line_items: [], priority: '2 - Moderate', attachments: [], created_by: 'Example Staff', modified_by: 'Example Staff', created_at: '2026-10-22T00:00:00Z', modified_at: '2026-10-22T00:00:00Z', driver_assistants: [], output_actions_log: [] };
   await page.route('**/api/**', async route => {
     const request = route.request();
     const url = new URL(request.url());
@@ -14,7 +14,7 @@ export async function uiFixture(page: Page, role = 'SALES_COORDINATOR') {
     }
     let body: unknown = [];
     if (url.pathname === '/api/health') body = { ok: true };
-    if (url.pathname === '/api/auth/me') body = { id: 'ui005-user', name: 'Example Staff', email: 'staff@example.test', role, permissions: [], permissionVersion: 'ui005-fixture', effectiveScreens: ['dashboard', 'deliveries'], resources: ['dashboard', 'records', 'companies'] };
+    if (url.pathname === '/api/auth/me') body = { id: 'ui005-user', name: 'Example Staff', email: 'staff@example.test', role, permissions: [], permissionVersion: 'ui005-fixture', effectiveScreens: options.screens ?? ['dashboard', 'deliveries'], resources: ['dashboard', 'records', 'companies'] };
     if (url.pathname === '/api/dev/reset-capability') body = { enabled: true };
     if (url.pathname === '/api/records/active-counts') body = { deliveries: 1, rma: 0, sales_orders: 0, procurement_pickup: 0, accounting_collection: 0 };
     if (url.pathname === '/api/companies') body = [{ id: 'ui005-company', name: 'Example Company' }];

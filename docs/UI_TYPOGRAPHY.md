@@ -26,8 +26,11 @@ Rules:
   table column minimums). The header **Text Size** control sets the root font
   size as a percentage, and the browser font-size setting does the same.
   Pixel sizes ignore both, which is why the old `text-[10px]` labels never grew.
-- Form controls use `text-body`. At 16px, mobile Safari also stops zooming the
-  page when a field is focused.
+- Shared editable controls (`.mg-control`, Input/Select/Textarea) use
+  `--mg-text-base` / `text-body` at 1rem. Buttons and data remain 0.875rem.
+  At the default 16px root this also avoids the usual small-field mobile Safari
+  focus zoom. Actual iOS behavior and deliberately reduced app text remain manual
+  acceptance items.
 
 ## Colour and contrast
 
@@ -101,16 +104,19 @@ sideways and whether any button or field sat outside the viewport.
 | 1280px | No page scroll | No page scroll | Not applicable |
 | 1280px at 200% text | Nothing clipped; header wraps | Nothing clipped | Not applicable |
 
-Known limit: at 320px **and** 200% text together (beyond the WCAG reflow
-benchmark), the workspace Save Changes button and the Proof of Delivery
-heading are still slightly too wide.
+The original check recorded workspace Save Changes and Proof of Delivery
+heading clipping at 320px with 200% app text. The GH-210 follow-up adds wrapping
+for these actions, the shared POD heading/files and the breadcrumb minimum.
+Current evidence and remaining limits are tracked in
+[the follow-up verification record](UI-002-readable-controls-verification.md).
 
 ## Follow-ups (not in this change)
 
-About 50 other client files still use pixel text sizes. The largest are
-`features/admin/AdminPanel.tsx`, `features/admin/DataSamplerView.tsx`,
-`features/inventory/SkuWorkspace.tsx`, the Accounting Collection screens,
-`features/deliveries/RecordCreateForm.tsx`, `components/RouteSlipMenu.tsx`,
-the Export menu and `StatusStepper`. The sidebar navigation also scrolls
-sideways at 200% text. These should move to the same tokens in later UI-002
-or UI-005 work. Touch target sizes stay with #208.
+Several module files still use pixel text sizes. The source-reviewed deferred
+list includes AccountingCollectionWorkspace, RouteSlipMenu, ExportMenu and
+StatusStepper; it is recorded in
+[the GH-210 follow-up verification record](UI-002-readable-controls-verification.md).
+The follow-up covers shared editable text, Sidebar labels,
+FilterPopover/FilterCombobox and PodUploader functional text. Remaining modules
+need separate UI-002 or UI-005 slices. Touched targets reuse the existing shared
+44px token; focus-management changes remain coordinated under #208.

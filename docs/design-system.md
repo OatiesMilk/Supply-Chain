@@ -28,12 +28,14 @@ Other modules retain their existing styles. Sidebar/navigation architecture, Dri
 | Text and borders | `--mg-text`, `--mg-text-muted`, `--mg-border`, `--mg-control-border` | Body/helper text, panel boundaries, recognizable editable controls |
 | Semantic | `--mg-{danger,success,warning,info}-{text,surface}` | Error/success/warning/info feedback; actual status words remain visible |
 | Focus | `--mg-focus` | 2px focus-visible outline, 2px offset |
-| Typography | `--mg-text-sm: .875rem`, `--mg-text-base: 1rem`, `--mg-text-title: 1.25rem` | Existing Plus Jakarta Sans/system font stack; readable controls, body, page titles |
+| Typography | `--mg-text-sm: .875rem`, `--mg-text-base: 1rem`, `--mg-text-title: 1.25rem` | Existing Plus Jakarta Sans/system stack; 14px data/actions, 16px editable controls/body, 20px titles |
 | Spacing | `--mg-space-{1,2,3,4,6}` | 4/8/12/16/24px at the default root size |
 | Geometry | `--mg-radius-control: .5rem`, `--mg-radius-panel: .75rem` | Controls and containers |
 | Elevation | `--mg-elevation-panel`, `--mg-elevation-dialog` | Subtle panel boundary and modal separation |
 | Size | `--mg-control-height: max(44px, 2.75rem)` | At least 44 CSS px even at the app's 90% minimum text setting; expands with larger text |
 | Disabled | `--mg-disabled-text` plus muted surface/border | Native disabled interaction; visible state without blanket opacity |
+
+`Input`, `Select` and `Textarea` use `.mg-control` at `--mg-text-base` (1rem, 16px at the default root size). Buttons, data, errors and functional navigation use `--mg-text-sm` / `text-data` (0.875rem, 14px). Both scale with the app Text Size preference. Editable controls must not inherit the smaller button/data font; explicit local typography overrides remain the caller's responsibility. See [UI typography](UI_TYPOGRAPHY.md) and the [GH-210 follow-up evidence](UI-002-readable-controls-verification.md).
 
 Shared token text pairs are checked for a contrast ratio of at least 4.5:1; focus and control-border pairs on white are checked for at least 3:1. These are checks of the specified palette, not a claim that every screen or every rendered state meets WCAG. Screens with custom chart colors, imagery and existing utility overrides still need review.
 

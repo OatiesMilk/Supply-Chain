@@ -213,8 +213,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const navItemClass = (screen: string, special = false, active = currentScreen === screen) => {
-    const base = 'w-full px-4 py-2.5 flex items-center justify-between text-left transition-colors relative cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white';
-    const compact = isCollapsed ? ' lg:h-11 lg:w-11 lg:mx-auto lg:justify-center lg:px-0 lg:py-0 lg:rounded-lg' : '';
+    const base = 'min-h-[var(--mg-control-height)] min-w-0 gap-2 w-full px-4 py-2.5 flex items-center justify-between text-left transition-colors relative cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white';
+    const compact = isCollapsed ? ' lg:h-[44px] lg:min-h-[44px] lg:w-[44px] lg:mx-auto lg:justify-center lg:px-0 lg:py-0 lg:rounded-lg' : '';
     const activeStyle = isCollapsed
       ? ' bg-white/10 text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-r before:bg-[#0078C1]'
       : ' bg-white/10 text-white font-semibold before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:bg-[#0078C1]';
@@ -246,7 +246,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const badge = activeCount && activeCount > 0 ? (
       <span
         aria-hidden="true"
-        className={'bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full' + (isCollapsed
+        className={'bg-red-700 text-white font-bold text-data shrink-0 px-1.5 py-0.5 rounded-full' + (isCollapsed
           ? ' lg:absolute lg:-top-1 lg:-right-1 lg:min-w-4 lg:h-4 lg:px-1 lg:flex lg:items-center lg:justify-center lg:leading-none lg:z-10'
           : '')}
       >
@@ -265,9 +265,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         data-sidebar-tooltip={accessibleLabel}
         className={navItemClass(screen, special, active)}
       >
-        <span className={'flex items-center space-x-3' + (isCollapsed ? ' lg:space-x-0' : '')}>
+        <span className={'flex min-w-0 flex-1 items-center gap-3' + (isCollapsed ? ' lg:flex-none lg:gap-0' : '')}>
           <Icon className={'w-5 h-5 shrink-0' + (special ? ' text-amber-400' : '')} />
-          <span className={'text-xs font-medium truncate' + (isCollapsed ? ' lg:hidden' : '')}>{label}</span>
+          <span className={'min-w-0 text-data font-medium whitespace-normal [overflow-wrap:anywhere]' + (isCollapsed ? ' lg:hidden' : '')}>{label}</span>
         </span>
         {badge}
       </button>
@@ -292,16 +292,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
         onFocusCapture={handleFocus}
         onBlurCapture={handleBlur}
         className={'fixed inset-y-0 left-0 z-50 bg-[#1F3864] text-white flex flex-col justify-between transition-transform duration-300 ease-out lg:transition-[width] lg:duration-200 lg:ease-out motion-reduce:transition-none lg:relative lg:translate-x-0 lg:z-auto shrink-0 ' +
-          (isSidebarCollapsed ? 'lg:w-[72px]' : 'lg:w-56') +
-          ' ' + (isSidebarOpen ? 'w-64 translate-x-0' : 'w-64 -translate-x-full lg:translate-x-0')}
+          (isSidebarCollapsed ? 'lg:w-[72px]' : 'lg:w-56 lg:max-w-none') +
+          ' ' + (isSidebarOpen ? 'w-64 max-w-[calc(100vw-1rem)] translate-x-0' : 'w-64 max-w-[calc(100vw-1rem)] -translate-x-full lg:translate-x-0')}
         id="sidebar-panel"
         inert={!isDesktop && !isSidebarOpen}
       >
-        <div className="p-4 min-h-[88px] border-b border-white/10 relative">
+        <div className={'p-4 min-h-[88px] shrink-0 border-b border-white/10 relative' + (isCollapsed ? ' lg:px-2' : '')}>
           <button
             type="button"
             onClick={() => setIsSidebarOpen(false)}
-            className="absolute top-4 right-4 lg:hidden p-1 bg-white/10 hover:bg-white/20 text-white rounded transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            className="absolute z-10 top-4 right-4 lg:hidden min-h-[var(--mg-control-height)] min-w-[var(--mg-control-height)] flex items-center justify-center bg-white/10 hover:bg-white/20 text-white rounded transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             id="close-sidebar-button"
             aria-label="Close menu"
             title="Close menu"
@@ -309,7 +309,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <X className="w-5 h-5" />
           </button>
 
-          <div className="relative h-14 w-full flex items-center justify-center" role="img" aria-label="Microgenesis">
+          <div className="pointer-events-none relative h-14 w-[calc(100%-var(--mg-control-height)-0.5rem)] lg:w-full flex items-center justify-center" role="img" aria-label="Microgenesis">
             <img
               src="/microgenesis_mark_white.png"
               alt=""
@@ -324,7 +324,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         <nav
-          className="flex-1 py-3 space-y-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+          className="min-h-0 min-w-0 flex-1 py-3 space-y-4 overflow-x-hidden overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
           id="sidebar-nav"
           aria-label="Main navigation"
           onScrollCapture={repositionTooltip}
@@ -338,7 +338,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {['deliveries', 'rma', 'accounting_collection', 'procurement_pickup', 'sales_orders'].some(canAccess) && <div className="space-y-1">
-            <span className={'text-[10px] uppercase tracking-wider text-white/40 font-bold px-4 block' + (isCollapsed ? ' lg:hidden' : '')}>Manage Records</span>
+            <span className={'text-caption uppercase tracking-wider text-white/70 font-bold px-4 block' + (isCollapsed ? ' lg:hidden' : '')}>Manage Records</span>
             {isCollapsed && <hr aria-hidden="true" className="hidden lg:block w-6 border-0 border-t border-white/10 my-3 mx-auto" />}
 
             {renderNavItem('deliveries', 'Deliveries', Truck, deliveriesActiveCount)}
@@ -349,7 +349,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>}
 
           {(['customers', 'suppliers', 'am_directory', 'inventory'].some(canAccess) || driversScreen) && <div className="space-y-1">
-            <span className={'text-[10px] uppercase tracking-wider text-white/40 font-bold px-4 block' + (isCollapsed ? ' lg:hidden' : '')}>People and Products</span>
+            <span className={'text-caption uppercase tracking-wider text-white/70 font-bold px-4 block' + (isCollapsed ? ' lg:hidden' : '')}>People and Products</span>
             {isCollapsed && <hr aria-hidden="true" className="hidden lg:block w-6 border-0 border-t border-white/10 my-3 mx-auto" />}
             {renderNavItem('customers', 'Customers', Users)}
             {renderNavItem('suppliers', 'Suppliers', Building2)}
@@ -358,14 +358,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {renderNavItem('inventory', 'Products / SKU Master', Boxes)}
           </div>}
           {['calendar', 'statistical_reports', 'transactions'].some(canAccess) && <div className="space-y-1">
-            <span className={'text-[10px] uppercase tracking-wider text-white/40 font-bold px-4 block' + (isCollapsed ? ' lg:hidden' : '')}>Plan and Review</span>
+            <span className={'text-caption uppercase tracking-wider text-white/70 font-bold px-4 block' + (isCollapsed ? ' lg:hidden' : '')}>Plan and Review</span>
             {isCollapsed && <hr aria-hidden="true" className="hidden lg:block w-6 border-0 border-t border-white/10 my-3 mx-auto" />}
             {renderNavItem('calendar', 'Delivery Calendar', Calendar)}
             {renderNavItem('statistical_reports', 'Reports', BarChart3)}
             {renderNavItem('transactions', 'Transaction Center', ArrowLeftRight)}
           </div>}
           {['admin', 'data_sampler'].some(canAccess) && <div className="space-y-1">
-            <span className={'text-[10px] uppercase tracking-wider text-white/40 font-bold px-4 block' + (isCollapsed ? ' lg:hidden' : '')}>Administration</span>
+            <span className={'text-caption uppercase tracking-wider text-white/70 font-bold px-4 block' + (isCollapsed ? ' lg:hidden' : '')}>Administration</span>
             {isCollapsed && <hr aria-hidden="true" className="hidden lg:block w-6 border-0 border-t border-white/10 my-3 mx-auto" />}
             {renderNavItem('admin', 'Admin Panel', ShieldCheck)}
             {renderNavItem('data_sampler', 'Data Sampler', Database, undefined, true)}
@@ -377,7 +377,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <button
           type="button"
           onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-          className="hidden lg:flex absolute top-1/2 right-0 z-20 h-8 w-8 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-[#1F3864] shadow-md transition-colors hover:bg-slate-50 hover:text-[#0078C1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] cursor-pointer"
+          className="hidden lg:flex absolute top-1/2 right-0 z-20 min-h-[var(--mg-control-height)] min-w-[var(--mg-control-height)] -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-[#1F3864] shadow-md transition-colors hover:bg-slate-50 hover:text-[#0078C1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] cursor-pointer"
           id="desktop-sidebar-toggle"
           aria-label={isSidebarCollapsed ? 'Expand menu' : 'Collapse menu'}
           aria-expanded={!isSidebarCollapsed}
@@ -387,23 +387,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {isSidebarCollapsed ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
         </button>
 
-        <div className="p-3 border-t border-white/10 bg-black/10">
-          <div className="bg-white/5 rounded-lg p-2">
+        <div className={'min-w-0 shrink-0 p-3 border-t border-white/10 bg-black/10' + (isCollapsed ? ' lg:p-2' : '')}>
+          <div className={'bg-white/5 rounded-lg p-2' + (isCollapsed ? ' lg:p-0' : '')}>
             <div
-              className={'flex items-center rounded-md' + (isCollapsed ? ' lg:justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white' : ' space-x-3')}
+              className={'flex min-w-0 items-center rounded-md' + (isCollapsed ? ' lg:justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white' : ' space-x-3')}
               role="img"
               tabIndex={isCollapsed ? 0 : undefined}
               aria-label={currentUser.name + ' (' + currentUserRole + ')'}
               aria-describedby={isCollapsed ? tooltipId : undefined}
               data-sidebar-tooltip={currentUser.name + ' · ' + currentUserRole}
             >
-              <div className="w-8 h-8 rounded bg-[#0078C1] flex items-center justify-center font-bold text-white text-xs shrink-0">
+              <div className={'w-8 h-8 rounded bg-[#0078C1] flex items-center justify-center font-bold text-white text-caption shrink-0' + (isCollapsed ? ' lg:h-[32px] lg:w-[32px]' : '')}>
                 {currentUser.initials}
               </div>
               {!isCollapsed && (
-                <div className="overflow-hidden">
-                  <p className="text-xs text-white truncate font-medium">{currentUser.name}</p>
-                  <p className="text-[9.5px] text-white/50 truncate font-semibold uppercase tracking-wider">{currentUserRole}</p>
+                <div className="min-w-0">
+                  <p className="text-data text-white [overflow-wrap:anywhere] font-medium">{currentUser.name}</p>
+                  <p className="text-data text-white/70 [overflow-wrap:anywhere] font-semibold uppercase tracking-wider">{currentUserRole}</p>
                 </div>
               )}
             </div>
@@ -417,7 +417,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           role="tooltip"
           aria-hidden={!tooltip}
           hidden={!tooltip}
-          className="fixed z-[100] max-w-[240px] -translate-y-1/2 rounded-md border border-white/10 bg-[#122B4F] px-2.5 py-1.5 text-xs font-medium leading-5 text-white shadow-xl pointer-events-none"
+          className="fixed z-[100] max-w-[240px] -translate-y-1/2 rounded-md border border-white/10 bg-[#122B4F] px-2.5 py-1.5 text-data font-medium [overflow-wrap:anywhere] leading-5 text-white shadow-xl pointer-events-none"
           style={tooltip ? { left: tooltip.left, top: tooltip.top } : undefined}
         >
           {tooltip?.text}

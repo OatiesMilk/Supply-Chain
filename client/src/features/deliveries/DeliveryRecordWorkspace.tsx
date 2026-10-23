@@ -587,10 +587,10 @@ function GeneralTab({
             <button
               onClick={handleSave}
               disabled={saving}
-              className="min-h-11 px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-data uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+              className="min-h-[var(--mg-control-height)] min-w-[var(--mg-control-height)] px-3 sm:px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-data uppercase max-w-full min-w-0 flex flex-wrap items-center justify-center gap-1.5 whitespace-normal cursor-pointer disabled:opacity-60"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              {saving ? 'Saving…' : 'Save Changes'}
+              <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{saving ? 'Saving…' : 'Save Changes'}</span>
             </button>
           </div>
         )}
@@ -1300,10 +1300,10 @@ function ActionsTab({
           <button
             onClick={handleSave}
             disabled={saving || !!photoError || !!newDateError}
-            className="min-h-11 px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-data uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+            className="min-h-[var(--mg-control-height)] min-w-[var(--mg-control-height)] px-3 sm:px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-data uppercase max-w-full min-w-0 flex flex-wrap items-center justify-center gap-1.5 whitespace-normal cursor-pointer disabled:opacity-60"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            {saving ? 'Saving…' : 'Save Changes'}
+            <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{saving ? 'Saving…' : 'Save Changes'}</span>
           </button>
         </div>
       </div>
@@ -1932,7 +1932,7 @@ function RecordWorkspace({
     <div className="space-y-4" id={`delivery-record-workspace-${record.id}`}>
       {/* Navigation bar */}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-gray-100 pb-4">
-        <div className="flex min-w-[14rem] flex-1 items-center gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
           <button
             onClick={() => requestLeave(onBack)}
             disabled={pending}
@@ -1942,7 +1942,7 @@ function RecordWorkspace({
             {moduleName}
           </button>
           <span className="text-slate-500">/</span>
-          <span className="font-mono font-black text-slate-700 text-sm shrink-0">{record.id}</span>
+          <span className="font-mono font-black text-slate-700 text-data min-w-0 [overflow-wrap:anywhere]">{record.id}</span>
           <span className="text-slate-500 text-data truncate hidden sm:inline min-w-0" title={record.company_name}>— {record.company_name}</span>
         </div>
 
