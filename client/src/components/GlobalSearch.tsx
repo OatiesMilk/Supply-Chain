@@ -1,3 +1,4 @@
+import { screenLabel } from '@/utils/navigationLabels';
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId } from 'react';
 import { Search, X, Truck, Package, ArrowRight, Loader2 } from 'lucide-react';
 import { DeliveryRecord } from '../types';
@@ -261,7 +262,7 @@ export default function GlobalSearch({ isOpen, onClose, deliveryRecords, product
               {matchedSkus.length > 0 && (
                 <div>
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-4 py-2 bg-slate-50 border-b border-slate-100">
-                    SKU Master ({matchedSkus.length})
+                    {screenLabel('inventory')} ({matchedSkus.length})
                   </p>
                   {matchedSkus.map(p => {
                     globalIdx++;

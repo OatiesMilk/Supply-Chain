@@ -1,3 +1,4 @@
+import { CREATE_RECORD_LABEL } from '@/utils/navigationLabels';
 import { selectableStatuses, manilaToday, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
@@ -665,6 +666,7 @@ export default function DeliveryRecordsView({
 
   return (
     <div className="space-y-3 print:space-y-2" id={`records-view-${category.toLowerCase().replace(/\s+/g, '-')}`}>
+      {category === 'RMA' && <p className="text-sm text-slate-600">RMA means Return Merchandise Authorization. Review product return records here.</p>}
       <DashboardFilterChip
         filterId={dashboardFilterId}
         onClear={clearAllFilters}
@@ -791,7 +793,7 @@ export default function DeliveryRecordsView({
               onClick={() => { setShowForm(true); setSelectedId(null); }}
               className="min-h-11 bg-[#1F3864] hover:bg-blue-900 text-white text-data font-bold px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition-all shadow-xs cursor-pointer self-start"
             >
-              <Plus className="w-4 h-4" /> New Record
+              <Plus className="w-4 h-4" /> {CREATE_RECORD_LABEL}
             </button>
           )}
         </div>
@@ -1128,7 +1130,7 @@ export default function DeliveryRecordsView({
                 <tbody className="divide-y divide-slate-100">
                   {displayRecords.length === 0 ? (
                     <tr><td colSpan={10} className="px-4 py-3.5 text-center text-slate-500">
-                      {pagedLoading ? 'Loading records…' : 'No matching records found.'}
+                      {pagedLoading ? 'Loading records… Please wait.' : 'No matching records found. Clear or adjust your filters to see more records.'}
                     </td></tr>
                   ) : displayRecords.map(rec => {
                     const isSelected = selectedId === rec.id;

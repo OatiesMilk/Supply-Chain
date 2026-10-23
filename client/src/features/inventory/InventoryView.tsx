@@ -127,6 +127,7 @@ export default function InventoryView({
 
   return (
     <div className="space-y-4" id="inventory-view-container">
+      <p className="text-sm text-slate-600">SKU means Stock Keeping Unit: the code used to identify a product and track its inventory.</p>
       {currentUserRole === 'Admin' && creating && <CreateSkuForm onCancel={() => setCreating(false)} onCreated={sku => {
         setCreating(false); setCreatedCode(sku.sku_code);
         setSearchTerm(''); setAppliedSearchTerm(''); setCategoryFilter('ALL'); setWarehouseFilter('ALL'); setStatusFilter('ALL'); setPage(1);

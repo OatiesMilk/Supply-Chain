@@ -82,7 +82,7 @@ test.describe('X Cross-Role Integration', () => {
 
       await salesPage.goto(`${BASE_URL}/deliveries`);
       
-      await salesPage.getByRole('button', { name: /new record/i }).first().click();
+      await salesPage.getByRole('button', { name: 'Create Record', exact: true }).click();
 
       const createForm = salesPage.locator('form').filter({
         has: salesPage.getByRole('button', { name: 'Save as Draft', exact: true }),

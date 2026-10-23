@@ -1,3 +1,4 @@
+import { screenLabel } from '@/utils/navigationLabels';
 import React, { useState, useEffect } from "react";
 import {
   Menu,
@@ -87,16 +88,13 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="lg:hidden"
             id="mobile-sidebar-toggle"
             title="Open navigation menu"
+            aria-controls="sidebar-panel"
           >
             <Menu aria-hidden="true" className="w-5 h-5" />
           </IconButton>
 
           <span className="font-semibold text-slate-800 text-sm break-words">
-            {currentScreen === "dashboard"
-              ? "Command Dashboard"
-              : currentScreen === "main"
-                ? "Main"
-                : currentScreen.replace(/_/g, " ")}
+            {screenLabel(currentScreen)}
           </span>
         </div>
 
@@ -129,7 +127,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           <Button variant="secondary" aria-label="Search records and products" aria-haspopup="dialog"
             onClick={() => setSearchOpen(true)}
-            title="Global search (Ctrl+K)"
+            title="Search records and products (Ctrl+K)"
             id="global-search-button"
           >
             <Search aria-hidden="true" className="w-3.5 h-3.5" />

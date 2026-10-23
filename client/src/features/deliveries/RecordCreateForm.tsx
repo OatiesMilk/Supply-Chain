@@ -1,3 +1,4 @@
+import { CREATE_RECORD_LABEL } from '@/utils/navigationLabels';
 import { manilaToday, submissionErrors } from '@/utils/recordLifecycle';
 import React, { useId, useRef, useState } from 'react';
 import { Plus, X, Check, FileText, UploadCloud, Wand2 } from 'lucide-react';
@@ -384,7 +385,7 @@ export default function RecordCreateForm({
         <div className="min-w-0 flex-1">
           <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
             <Plus className="w-5 h-5 text-[#0078C1]" />
-            {categoryLocked ? `Create New ${cat} Record` : 'Create New Record'}
+            {categoryLocked ? `Create ${cat} Record` : CREATE_RECORD_LABEL}
           </h3>
           <p className="text-sm text-slate-600">Submit requires a company, SAP reference, and delivery date. Save as Draft requires a company.</p>
         </div>

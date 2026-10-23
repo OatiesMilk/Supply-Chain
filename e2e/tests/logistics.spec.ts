@@ -65,7 +65,7 @@ test.describe('B-1 Login & Access Control', () => {
     await page.goto(`${BASE_URL}/rma`);
     await page.waitForLoadState('networkidle');
     // Attempt to click new record — button should be absent OR blocked
-    const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
+    const newBtn = page.getByRole('button', { name: 'Create Record', exact: true });
     // Either the button doesn't exist, or clicking it shows an error
     if (await newBtn.isVisible()) {
       await newBtn.click();
@@ -98,7 +98,12 @@ test.describe('B-1 Login & Access Control', () => {
     expect(Math.abs((expandedToggleBox?.y ?? 0) - (collapsedToggleBox?.y ?? 0))).toBeLessThanOrEqual(1);
     const collapsedMainLeft = (await mainContent.boundingBox())?.x ?? 0;
     expect(expandedMainLeft - collapsedMainLeft).toBe(152);
-    await expect(page.locator('#sidebar-nav hr')).toHaveCount(2);
+    const navigation = page.getByRole('navigation', { name: 'Main navigation' });
+    for (const group of ['Manage Records', 'People and Products', 'Plan and Review']) {
+      await expect(navigation.getByText(group, { exact: true })).toHaveCount(1);
+    }
+    await expect(navigation.getByText('Administration', { exact: true })).toHaveCount(0);
+    await expect(navigation.locator('hr')).toHaveCount(3);
 
     const activeDashboard = page.getByRole('navigation').getByRole('button', { name: 'Dashboard' });
     const activeAccent = await activeDashboard.evaluate(element => getComputedStyle(element, '::before').backgroundColor);
@@ -166,7 +171,7 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
   test('B-2.0a Auto Fill keeps Area and Address in one demo-location fixture', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
-    await page.getByRole('button', { name: /new record/i }).click();
+    await page.getByRole('button', { name: 'Create Record', exact: true }).click();
 
     const areaInput = page.locator('label').filter({ hasText: /^Area/ }).locator('..').locator('input');
     const addressInput = page.getByPlaceholder(/street, building, floor/i);

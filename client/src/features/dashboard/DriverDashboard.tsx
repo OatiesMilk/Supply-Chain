@@ -1,3 +1,4 @@
+import { completionActionLabel } from '@/utils/navigationLabels';
 import OperationalDashboard from './OperationalDashboard';
 import { useState, useCallback } from "react";
 import {
@@ -178,7 +179,7 @@ export default function DriverDashboard({
           <button className="rounded border border-slate-300 bg-white px-3 py-2 font-semibold" disabled={runsQuery.isFetching} onClick={() => void runsQuery.refetch()}>{runsQuery.isFetching ? 'Refreshing runs…' : 'Refresh run list'}</button>
           {runsQuery.dataUpdatedAt > 0 && <p className="mt-2">Run list last updated: {new Date(runsQuery.dataUpdatedAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila' })} PHT</p>}
         </div>
-        {runsQuery.isError && <p role="alert" className="rounded bg-amber-50 p-3 text-sm text-amber-900">{runsQuery.data ? 'Run list is stale; refresh failed.' : 'Unable to load your run list.'} {runsQuery.error.message}</p>}
+        {runsQuery.isError && <p role="alert" className="rounded bg-amber-50 p-3 text-sm text-amber-900">{runsQuery.data ? 'Run list is stale; refresh failed.' : 'Unable to load your run list.'} {runsQuery.error.message} Use Refresh run list to try again. If it keeps failing, contact Logistics.</p>}
         {dataLoading && (
           <div className="flex items-center justify-center gap-2 py-6 text-slate-500 text-data">
             <Loader2 className="w-4 h-4 animate-spin" /> Loading runs…
@@ -192,7 +193,7 @@ export default function DriverDashboard({
               No runs ready for execution today.
             </p>
             <p className="text-data mt-1">
-              Check back later or contact Logistics.
+              Refresh the run list to check for new assignments, or contact Logistics if an expected run is missing.
             </p>
           </div>
         )}
@@ -269,10 +270,11 @@ export default function DriverDashboard({
 
                   {/* Receiver name is required for completion. */}
                   <div className="space-y-1">
-                    <label className="text-data font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                    <label htmlFor={`received-by-${rec.id}`} className="text-data font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
                       <UserCheck className="w-3.5 h-3.5" /> Received By *
                     </label>
                     <input
+                      id={`received-by-${rec.id}`}
                       type="text"
                       value={receivedByInputs[rec.id] ?? rec.received_by ?? ""}
                       onChange={(e) =>
@@ -286,7 +288,7 @@ export default function DriverDashboard({
                     />
                   </div>
 
-                  {completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id]) && <p className="text-data text-slate-600">{completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}</p>}
+                  {completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id]) && <p id={`completion-help-${rec.id}`} className="text-data text-slate-600">{completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}</p>}
                   {/* Step 3: Status buttons */}
                   <div className="grid grid-cols-1 min-[360px]:grid-cols-3 gap-2">
                     <button
@@ -295,10 +297,11 @@ export default function DriverDashboard({
                         setRemarksInput("");
                         setSaveFeedback(null);
                       }}
+                      aria-describedby={completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id]) ? `completion-help-${rec.id}` : undefined}
                       disabled={saving || !(rec.allowed_statuses ?? []).includes("Delivered") || !!completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}
-                      className="disabled:opacity-40 disabled:cursor-not-allowed py-2.5 rounded-xl font-bold text-data bg-emerald-700 hover:bg-emerald-800 text-white transition-all flex min-[360px]:flex-col items-center justify-center gap-1 cursor-pointer"
+                      className="min-w-0 px-1 text-center whitespace-normal disabled:opacity-40 disabled:cursor-not-allowed py-2.5 rounded-xl font-bold text-data bg-emerald-700 hover:bg-emerald-800 text-white transition-all flex min-[360px]:flex-col items-center justify-center gap-1 cursor-pointer"
                     >
-                      <CheckCircle className="w-4 h-4" /> Accomplish
+                      <CheckCircle className="w-4 h-4" /> {completionActionLabel(rec.category)}
                     </button>
                     <button
                       onClick={() => {
@@ -464,6 +467,7 @@ export default function DriverDashboard({
                   setPendingAction(null);
                   setRemarksInput("");
                 }}
+                aria-label="Close status change"
                 className="text-slate-500 hover:text-slate-600 cursor-pointer"
               >
                 <X className="w-4 h-4" />
