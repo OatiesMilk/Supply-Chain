@@ -1,5 +1,5 @@
 import { manilaToday, manilaDateTimeInput, submissionErrors } from '@/utils/recordLifecycle';
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useId } from 'react';
 import {
   Plus, Search, X, Check, FileText, UploadCloud,
   Loader2, Wand2
@@ -141,7 +141,8 @@ export default function AccountingCollectionView({
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [stagedAttachments, setStagedAttachments] = useState<StagedRecordAttachment[]>([]);
   const [createdRecordInfo, setCreatedRecordInfo] = useState<{ id: string; referenceLabel: string } | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const formId = useId();
+  const fieldId = (key: string) => `${formId}-${key}`;
   const formRef = useRef<HTMLFormElement>(null);
 
   // Deep-link: jump to a record from dashboard
@@ -533,160 +534,159 @@ export default function AccountingCollectionView({
               </div>
             ))}
           </div>
-          <button type="button" onClick={handleRetryAttachments} disabled={saving} className="px-5 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg disabled:opacity-50">
+          <button type="button" onClick={handleRetryAttachments} disabled={saving} className="min-h-[var(--mg-control-height)] focus-visible:outline-2 focus-visible:outline-blue-700 px-5 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg disabled:opacity-50">
             {saving ? 'Uploading…' : 'Retry incomplete uploads'}
           </button>
         </div>
       ) : (
         <div className="bg-white border border-slate-200 shadow-sm rounded-xl p-5 sm:p-7 space-y-6">
-          <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
+          <div className="border-b border-slate-100 pb-3 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Plus className="w-5 h-5 text-[#0078C1]" /> Create New Accounting Collection Record
               </h3>
-              <p className="text-[11.5px] text-slate-500 font-medium">Fields marked with * are required.</p>
+              <p className="text-data text-slate-600 font-medium">Fields marked with * are required to submit. Save as Draft requires only a company.</p>
             </div>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={handleAutoFill}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg transition-colors cursor-pointer"
+                className="min-h-[var(--mg-control-height)] focus-visible:outline-2 focus-visible:outline-blue-700 flex items-center gap-1.5 px-3 py-1.5 text-data font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg transition-colors cursor-pointer"
               >
                 <Wand2 className="w-3.5 h-3.5" /> Auto Fill
               </button>
-              <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-700">
+              <button type="button" aria-label="Close create collection form" onClick={() => setShowForm(false)} className="min-h-[var(--mg-control-height)] min-w-[var(--mg-control-height)] inline-flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-blue-700">
                 <X className="w-5 h-5" />
               </button>
             </div>
           </div>
 
-          <form ref={formRef} onSubmit={handleSubmit} className="space-y-5 text-xs">
+          <form ref={formRef} onSubmit={handleSubmit} className="space-y-5 text-body">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {/* Company Name */}
               <div className="space-y-1.5">
-                <label className="font-bold text-slate-700">Company Name <span className="text-red-500">*</span></label>
-                <select
+                <label htmlFor={fieldId('company_name')} className="font-bold text-slate-700">Company Name <span className="text-red-500">*</span></label>
+                <select id={fieldId('company_name')}
                   value={form.company_name}
                   onChange={e => handleCompanySelect(e.target.value)}
-                  aria-invalid={!!formErrors.company_name}
-                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none bg-white ${formErrors.company_name ? 'border-red-500' : 'border-slate-300'}`}
+                  aria-invalid={!!formErrors.company_name} aria-describedby={formErrors.company_name ? `${fieldId('company_name')}-error` : undefined}
+                  className={`min-h-[var(--mg-control-height)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 w-full px-3 py-2 border rounded-lg focus:outline-none bg-white ${formErrors.company_name ? 'border-red-500' : 'border-slate-300'}`}
                 >
                   <option value="">-- Select registered merchant / company --</option>
                   {companies.map(c => (
                     <option key={c.id} value={c.name}>{c.name}</option>
                   ))}
                 </select>
-                {formErrors.company_name && <p className="text-red-500 text-[10px] font-semibold">{formErrors.company_name}</p>}
+                {formErrors.company_name && <p id={`${fieldId('company_name')}-error`} role="alert" className="text-red-700 text-data font-semibold">{formErrors.company_name}</p>}
               </div>
 
               {/* Priority */}
               <div className="space-y-1.5">
-                <label className="font-bold text-slate-700">Priority</label>
-                <select value={form.priority} onChange={e => updateField('priority', e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">
+                <label htmlFor={fieldId('priority')} className="font-bold text-slate-700">Priority</label>
+                <select id={fieldId('priority')} value={form.priority} onChange={e => updateField('priority', e.target.value)} className="min-h-[var(--mg-control-height)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">
                   {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
 
               {/* Reference */}
               <div className="space-y-1.5">
-                <label className="font-bold text-slate-700">Reference (SAP Number) <span className="text-red-500">*</span></label>
-                <input type="text" value={form.reference} onChange={e => updateField('reference', e.target.value)}
-                  aria-invalid={!!formErrors.reference}
+                <label htmlFor={fieldId('reference')} className="font-bold text-slate-700">Reference (SAP Number) <span className="text-red-500">*</span></label>
+                <input id={fieldId('reference')} type="text" value={form.reference} onChange={e => updateField('reference', e.target.value)}
+                  aria-invalid={!!formErrors.reference} aria-describedby={formErrors.reference ? `${fieldId('reference')}-error` : undefined}
                   placeholder="e.g., SAP-88231"
-                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none ${formErrors.reference ? 'border-red-500' : 'border-slate-300'}`} />
-                {formErrors.reference && <p className="text-red-500 text-[10px] font-semibold">{formErrors.reference}</p>}
+                  className={`min-h-[var(--mg-control-height)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 w-full px-3 py-2 border rounded-lg focus:outline-none ${formErrors.reference ? 'border-red-500' : 'border-slate-300'}`} />
+                {formErrors.reference && <p id={`${fieldId('reference')}-error`} role="alert" className="text-red-700 text-data font-semibold">{formErrors.reference}</p>}
               </div>
 
               {/* Amount to Collect */}
               <div className="space-y-1.5">
-                <label className="font-bold text-slate-700">Amount to Collect <span className="text-red-500">*</span></label>
+                <label htmlFor={fieldId('amount')} className="font-bold text-slate-700">Amount to Collect <span className="text-red-500">*</span></label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-bold select-none">₱</span>
-                  <input
+                  <input id={fieldId('amount')}
                     type="number"
                     min="0"
                     step="0.01"
                     value={form.amount}
                     onChange={e => updateField('amount', e.target.value)}
-                    aria-invalid={!!formErrors.amount}
+                    aria-invalid={!!formErrors.amount} aria-describedby={formErrors.amount ? `${fieldId('amount')}-error` : undefined}
                     placeholder="25000.00"
-                    className={`w-full pl-7 pr-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 ${formErrors.amount ? 'border-red-500' : 'border-slate-300'}`}
+                    className={`min-h-[var(--mg-control-height)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 w-full pl-7 pr-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 ${formErrors.amount ? 'border-red-500' : 'border-slate-300'}`}
                   />
                 </div>
-                {formErrors.amount && <p className="text-red-500 text-[10px] font-semibold">{formErrors.amount}</p>}
+                {formErrors.amount && <p id={`${fieldId('amount')}-error`} role="alert" className="text-red-700 text-data font-semibold">{formErrors.amount}</p>}
               </div>
 
               {/* Remarks */}
               <div className="space-y-1.5 md:row-span-2">
-                <label className="font-bold text-slate-700">Remarks</label>
-                <textarea value={form.remarks} onChange={e => updateField('remarks', e.target.value)} rows={4}
-                  placeholder="Special instructions or notes..." className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
+                <label htmlFor={fieldId('remarks')} className="font-bold text-slate-700">Remarks</label>
+                <textarea id={fieldId('remarks')} value={form.remarks} onChange={e => updateField('remarks', e.target.value)} rows={4}
+                  placeholder="Special instructions or notes..." className="min-h-[var(--mg-control-height)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 w-full px-3 py-2 border border-slate-300 rounded-lg" />
               </div>
 
               {/* Area */}
               <div className="space-y-1.5">
-                <label className="font-bold text-slate-700">Area <span className="text-red-500">*</span></label>
-                <select value={form.area} onChange={e => updateField('area', e.target.value)} aria-invalid={!!formErrors.area} className={`w-full px-3 py-2 border rounded-lg bg-white ${formErrors.area ? 'border-red-500' : 'border-slate-300'}`}>
+                <label htmlFor={fieldId('area')} className="font-bold text-slate-700">Area <span className="text-red-500">*</span></label>
+                <select id={fieldId('area')} value={form.area} onChange={e => updateField('area', e.target.value)} aria-invalid={!!formErrors.area} aria-describedby={formErrors.area ? `${fieldId('area')}-error` : undefined} className={`min-h-[var(--mg-control-height)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 w-full px-3 py-2 border rounded-lg bg-white ${formErrors.area ? 'border-red-500' : 'border-slate-300'}`}>
                   {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>
-                {formErrors.area && <p className="text-red-500 text-[10px] font-semibold">{formErrors.area}</p>}
+                {formErrors.area && <p id={`${fieldId('area')}-error`} role="alert" className="text-red-700 text-data font-semibold">{formErrors.area}</p>}
               </div>
 
               {/* Account Manager */}
               <div className="space-y-1.5">
-                <label className="font-bold text-slate-700">Account Manager <span className="text-red-500">*</span></label>
-                <select value={form.account_manager} onChange={e => updateField('account_manager', e.target.value)}
-                  aria-invalid={!!formErrors.account_manager}
-                  className={`w-full px-3 py-2 border rounded-lg bg-white ${formErrors.account_manager ? 'border-red-500' : 'border-slate-300'}`}>
+                <label htmlFor={fieldId('account_manager')} className="font-bold text-slate-700">Account Manager <span className="text-red-500">*</span></label>
+                <select id={fieldId('account_manager')} value={form.account_manager} onChange={e => updateField('account_manager', e.target.value)}
+                  aria-invalid={!!formErrors.account_manager} aria-describedby={formErrors.account_manager ? `${fieldId('account_manager')}-error` : undefined}
+                  className={`min-h-[var(--mg-control-height)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 w-full px-3 py-2 border rounded-lg bg-white ${formErrors.account_manager ? 'border-red-500' : 'border-slate-300'}`}>
                   <option value="">-- Select account manager --</option>
                   {ACCOUNT_MANAGERS.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
-                {formErrors.account_manager && <p className="text-red-500 text-[10px] font-semibold">{formErrors.account_manager}</p>}
+                {formErrors.account_manager && <p id={`${fieldId('account_manager')}-error`} role="alert" className="text-red-700 text-data font-semibold">{formErrors.account_manager}</p>}
               </div>
 
               {/* Delivery Date */}
               <div className="space-y-1.5">
-                <label className="font-bold text-slate-700">Delivery Date <span className="text-red-500">*</span></label>
-                <input type="date" value={form.delivery_date} onChange={e => updateField('delivery_date', e.target.value)}
-                  aria-invalid={!!formErrors.delivery_date}
-                  className={`w-full px-3 py-2 border rounded-lg ${formErrors.delivery_date ? 'border-red-500' : 'border-slate-300'}`} />
-                {formErrors.delivery_date && <p className="text-red-500 text-[10px] font-semibold">{formErrors.delivery_date}</p>}
+                <label htmlFor={fieldId('delivery_date')} className="font-bold text-slate-700">Delivery Date <span className="text-red-500">*</span></label>
+                <input id={fieldId('delivery_date')} type="date" value={form.delivery_date} onChange={e => updateField('delivery_date', e.target.value)}
+                  aria-invalid={!!formErrors.delivery_date} aria-describedby={formErrors.delivery_date ? `${fieldId('delivery_date')}-error` : undefined}
+                  className={`min-h-[var(--mg-control-height)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 w-full px-3 py-2 border rounded-lg ${formErrors.delivery_date ? 'border-red-500' : 'border-slate-300'}`} />
+                {formErrors.delivery_date && <p id={`${fieldId('delivery_date')}-error`} role="alert" className="text-red-700 text-data font-semibold">{formErrors.delivery_date}</p>}
               </div>
 
               {/* Item Type */}
               <div className="space-y-1.5">
-                <label className="font-bold text-slate-700">Item Type</label>
-                <select value={form.item_type} onChange={e => updateField('item_type', e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">
+                <label htmlFor={fieldId('item_type')} className="font-bold text-slate-700">Item Type</label>
+                <select id={fieldId('item_type')} value={form.item_type} onChange={e => updateField('item_type', e.target.value)} className="min-h-[var(--mg-control-height)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">
                   {ITEM_TYPES.map(it => <option key={it} value={it}>{it}</option>)}
                 </select>
               </div>
 
               {/* Item Description */}
               <div className="space-y-1.5 md:col-span-2">
-                <label className="font-bold text-slate-700">Item Description</label>
-                <textarea value={form.item_description} onChange={e => updateField('item_description', e.target.value)} rows={3}
-                  placeholder="Cargo details, quantities, or bundle breakdown..." className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
+                <label htmlFor={fieldId('item_description')} className="font-bold text-slate-700">Item Description</label>
+                <textarea id={fieldId('item_description')} value={form.item_description} onChange={e => updateField('item_description', e.target.value)} rows={3}
+                  placeholder="Cargo details, quantities, or bundle breakdown..." className="min-h-[var(--mg-control-height)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 w-full px-3 py-2 border border-slate-300 rounded-lg" />
               </div>
 
               {/* Attachments */}
               <div className="space-y-1.5 md:col-span-2">
-                <label className="font-bold text-slate-700">Document Attachments</label>
+                <label htmlFor={fieldId('attachments')} className="font-bold text-slate-700">Document Attachments</label>
                 <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-slate-300 rounded-xl p-5 text-center flex flex-col items-center justify-center gap-2 cursor-pointer bg-slate-50/50 hover:bg-slate-50 transition-all"
+                  className="border-2 border-dashed border-slate-300 rounded-xl p-5 text-center flex flex-col items-center justify-center gap-2 bg-slate-50/50"
                 >
                   <UploadCloud className="w-8 h-8 text-slate-400" />
-                  <p className="font-bold text-slate-600">Click to select files</p>
-                  <p className="text-[10px] text-slate-400">PDF, JPG/JPEG, PNG, DOC or DOCX up to 10 MB each</p>
-                  <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept={POD_ATTACHMENT_ACCEPT} multiple className="hidden" />
+                  <p className="font-bold text-slate-600">Select documents to upload</p>
+                  <p id={`${fieldId('attachments')}-help`} className="text-data text-slate-600">PDF, JPG/JPEG, PNG, DOC or DOCX up to 10 MB each</p>
+                  <input id={fieldId('attachments')} aria-describedby={`${fieldId('attachments')}-help`} type="file" onChange={handleFileSelect} accept={POD_ATTACHMENT_ACCEPT} multiple className="min-h-[var(--mg-control-height)] w-full min-w-0 text-data file:min-h-[var(--mg-control-height)] file:rounded-lg file:border-0 file:px-3 file:font-semibold focus-visible:outline-2 focus-visible:outline-blue-700" />
                 </div>
                 {stagedAttachments.length > 0 && (
                   <div className="mt-2 space-y-1">
                     {stagedAttachments.map(attachment => (
                       <div key={attachment.id} className="flex items-center gap-2 bg-slate-100 border border-slate-200 rounded px-2 py-1">
                         <FileText className="w-3.5 h-3.5 text-[#1F3864]" />
-                        <span className="font-mono text-[10px] text-slate-700">{attachment.file.name}</span>
-                        <span className="ml-auto text-[10px] text-slate-500">Ready to upload</span>
+                        <span className="font-mono text-data text-slate-700">{attachment.file.name}</span>
+                        <span className="ml-auto text-data text-slate-500">Ready to upload</span>
                       </div>
                     ))}
                   </div>
@@ -694,12 +694,12 @@ export default function AccountingCollectionView({
               </div>
             </div>
 
-            <div className="flex gap-2 justify-end pt-2 border-t border-slate-100">
-              <button type="button" onClick={() => setShowForm(false)} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors text-[11px] uppercase">
+            <div className="flex flex-wrap gap-2 justify-end pt-2 border-t border-slate-100">
+              <button type="button" onClick={() => setShowForm(false)} className="min-h-[var(--mg-control-height)] min-w-[var(--mg-control-height)] focus-visible:outline-2 focus-visible:outline-blue-700 px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors text-data uppercase">
                 Cancel
               </button>
-              <button type="submit" value="draft" disabled={saving} className="px-5 py-2.5 border border-slate-300 text-slate-700 font-bold rounded-lg disabled:opacity-50">Save as Draft</button>
-              <button type="submit" value="submit" disabled={saving} className="px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5">
+              <button type="submit" value="draft" disabled={saving} className="min-h-[var(--mg-control-height)] min-w-[var(--mg-control-height)] focus-visible:outline-2 focus-visible:outline-blue-700 px-5 py-2.5 border border-slate-300 text-slate-700 font-bold rounded-lg disabled:opacity-50">Save as Draft</button>
+              <button type="submit" value="submit" disabled={saving} className="min-h-[var(--mg-control-height)] min-w-[var(--mg-control-height)] focus-visible:outline-2 focus-visible:outline-blue-700 px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-data uppercase flex items-center gap-1.5">
                 <Check className="w-4 h-4" /> {saving ? "Saving…" : "Submit"}
               </button>
             </div>
@@ -787,7 +787,7 @@ export default function AccountingCollectionView({
                 {canEdit && (
                   <button
                     onClick={() => { setShowForm(true); setSelectedRecordId(null); }}
-                    className="bg-[#1F3864] hover:bg-blue-900 text-white text-[12px] font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
+                    className="min-h-[var(--mg-control-height)] focus-visible:outline-2 focus-visible:outline-blue-700 bg-[#1F3864] hover:bg-blue-900 text-white text-[12px] font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
                   >
                     <Plus className="w-4 h-4" /> New Record
                   </button>

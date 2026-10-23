@@ -4,7 +4,7 @@ import { test, expect, type Page, type Locator } from '@playwright/test';
 // customer data and writes. Role authorization is covered by the real role suites.
 async function fixture(page: Page, authenticated = true, role = 'ADMIN', includeRecord = false) {
   const writes: string[] = [];
-  const record = { id: 'REC-A11Y', category: 'Deliveries', company_name: 'Example Company', company_id: 'a11y-company', reference: 'A11Y-REF', status: 'Scheduled', driver: '', account_manager: '', area: '', address: '', remarks: '', vehicle: '(None)', delivery_date: '2026-10-22', item_type: 'Small Item', item_description: 'Synthetic item', is_draft: 'No', line_items: [], priority: '2 - Moderate', attachments: [], created_by: 'Example Staff', modified_by: 'Example Staff', created_at: '2026-10-22T00:00:00Z', modified_at: '2026-10-22T00:00:00Z', driver_assistants: [], output_actions_log: [] };
+  const record = { id: 'REC-A11Y', category: 'Deliveries', company_name: 'Example Company', company_id: 'a11y-company', reference: 'A11Y-REF', status: 'Scheduled', driver: '', allowed_statuses: ['Pending', 'Rescheduled', 'In Transit'], account_manager: '', area: '', address: '', remarks: '', vehicle: '(None)', delivery_date: '2026-10-22', item_type: 'Small Item', item_description: 'Synthetic item', is_draft: 'No', line_items: [], priority: '2 - Moderate', attachments: [], created_by: 'Example Staff', modified_by: 'Example Staff', created_at: '2026-10-22T00:00:00Z', modified_at: '2026-10-22T00:00:00Z', driver_assistants: [], output_actions_log: [] };
   await page.route('**/api/**', async route => {
     const request = route.request();
     const url = new URL(request.url());
@@ -16,7 +16,8 @@ async function fixture(page: Page, authenticated = true, role = 'ADMIN', include
     }
     if (url.pathname === '/api/auth/me' && !authenticated) return route.fulfill({ status: 401, json: { error: 'Not signed in' } });
     let body: unknown = [];
-    if (url.pathname === '/api/auth/me') body = { id: 'a11y-user', name: 'Accessibility Tester', email: 'tester@example.test', role, permissions: [], permissionVersion: 'fixture', effectiveScreens: role === 'ADMIN' ? ['dashboard', 'deliveries', 'inventory', 'admin'] : ['dashboard', 'deliveries'], resources: ['dashboard', 'records', 'companies', 'skus', 'users', 'drivers'] };
+    if (url.pathname === '/api/auth/me') body = { id: 'a11y-user', name: 'Accessibility Tester', email: 'tester@example.test', role, permissions: [], permissionVersion: 'fixture', effectiveScreens: role === 'ADMIN' ? ['dashboard', 'deliveries', 'inventory', 'admin'] : role === 'DRIVER' ? ['driver_dashboard'] : ['dashboard', 'deliveries', 'accounting_collection'], resources: ['dashboard', 'records', 'companies', 'skus', 'users', 'drivers'] };
+    if (url.pathname === '/api/dashboard/overview') body = { role, today: '2026-10-23', updatedAt: '2026-10-23T00:00:00Z', modules: [], cards: [], status: [], missingDates: 0, daily: [], ages: [], attention: [], administration: null };
     if (url.pathname === '/api/health') body = { ok: true };
     if (url.pathname === '/api/dev/can-reset') body = { enabled: false };
     if (url.pathname === '/api/records/active-counts') body = { deliveries: 0, rma: 0, sales_orders: 0, procurement_pickup: 0, accounting_collection: 0 };
@@ -245,4 +246,90 @@ test('UI-001 keyboard skip link bypasses repeated navigation and focuses main co
   await expect(skip).toHaveCSS('position', 'fixed');
   await page.keyboard.press('Enter');
   await expect(main).toBeFocused();
+});
+
+
+for (const width of [320, 390, 1280]) {
+  test(`GH-208 driver modal contains focus, restores its trigger and fits ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 600 });
+    const writes = await fixture(page, true, 'DRIVER', true);
+    await page.goto('/dashboard');
+    const trigger = page.getByRole('button', { name: 'Pending', exact: true });
+    await trigger.focus();
+    await trigger.press('Enter');
+    const dialog = page.getByRole('dialog', { name: 'Confirm Status', exact: true });
+    await expect(dialog).toBeVisible();
+    const remarks = dialog.getByLabel('Remarks — reason for change (required)', { exact: true });
+    await expect(remarks).toBeFocused();
+    await expect(dialog.getByRole('button', { name: 'Confirm', exact: true })).toBeDisabled();
+    await remarks.fill('Synthetic route interruption');
+    await touchTarget(dialog.getByRole('button', { name: 'Confirm', exact: true }));
+    await touchTarget(dialog.getByRole('button', { name: 'Cancel', exact: true }));
+    const confirm = dialog.getByRole('button', { name: 'Confirm', exact: true });
+    const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true });
+    await confirm.focus();
+    await page.keyboard.press('Tab');
+    await expect(remarks).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(confirm).toBeFocused();
+    // Native modality still rejects attempts to focus a background control.
+    await trigger.evaluate(node => node.focus());
+    await expect(confirm).toBeFocused();
+    for (const key of ['Tab', 'Shift+Tab']) {
+      for (let index = 0; index < 8; index++) {
+        await page.keyboard.press(key);
+        expect(await dialog.evaluate(node => node.contains(document.activeElement))).toBe(true);
+      }
+    }
+    await remarks.fill('');
+    await cancel.focus();
+    await page.keyboard.press('Tab');
+    await expect(remarks).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(cancel).toBeFocused();
+    const box = await dialog.boundingBox();
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(600);
+    await fitsViewport(page);
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible();
+    await expect(trigger).toBeFocused();
+    await trigger.press('Enter');
+    await expect(dialog.getByLabel('Remarks — reason for change (required)', { exact: true })).toHaveValue('');
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(trigger).toBeFocused();
+    expect(writes).toEqual([]);
+  });
+}
+
+test('GH-208 accounting labels, errors and native file picker work with a keyboard', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const writes = await fixture(page, true, 'SALES_COORDINATOR');
+  await page.addInitScript(() => localStorage.setItem('ui_store', JSON.stringify({ state: { zoomFactor: 90 }, version: 1 })));
+  await page.goto('/accounting_collection');
+  await page.getByRole('button', { name: 'New Record', exact: true }).click();
+  const form = page.locator('form').filter({ has: page.getByRole('button', { name: 'Submit', exact: true }) });
+  for (const name of ['Company Name', 'Priority', 'Reference (SAP Number)', 'Amount to Collect', 'Remarks', 'Area', 'Account Manager', 'Delivery Date', 'Item Type', 'Item Description']) {
+    const label = form.locator('label').filter({ hasText: name }).first();
+    await label.click();
+    await expect(form.getByLabel(name, { exact: name === 'Priority' || name === 'Remarks' || name === 'Item Type' || name === 'Item Description' })).toBeFocused();
+  }
+  await touchTarget(page.getByRole('button', { name: 'Close create collection form', exact: true }));
+  await touchTarget(form.getByRole('button', { name: 'Submit', exact: true }));
+  await touchTarget(form.getByRole('button', { name: 'Save as Draft', exact: true }));
+  await form.getByRole('button', { name: 'Submit', exact: true }).click();
+  const company = form.getByLabel('Company Name', { exact: false });
+  await expect(company).toBeFocused();
+  await expect(company).toHaveAttribute('aria-invalid', 'true');
+  const errorId = await company.getAttribute('aria-describedby');
+  await expect(page.locator(`[id="${errorId}"]`)).toContainText('required');
+  const picker = form.getByLabel('Document Attachments', { exact: true });
+  await picker.focus();
+  const choosing = page.waitForEvent('filechooser');
+  await picker.press('Space');
+  const chooser = await choosing;
+  await chooser.setFiles({ name: 'collection-example.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n synthetic') });
+  await expect(form.getByText('collection-example.pdf', { exact: true })).toBeVisible();
+  await fitsViewport(page);
+  expect(writes).toEqual([]);
 });
