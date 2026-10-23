@@ -20,7 +20,7 @@ interface ActionDialogProps {
   onDismiss: () => void;
 }
 
-/** A styled native modal: the browser keeps the page inert and focus inside it. */
+/** A native modal keeps the page inert; boundary wrapping keeps Tab inside the document modal. */
 export function ActionDialog({
   open, title, description, confirmLabel = 'Confirm', cancelLabel = 'Cancel', confirmDisabled = false, dismissOnBackdrop = false, children, destructive = false,
   pending = false, error, onConfirm, onDismiss,
@@ -37,11 +37,49 @@ export function ActionDialog({
     return () => { if (dialog.open) dialog.close(); };
   }, [open]);
 
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!open || !pending || !dialog?.open) return;
+    // Disabling the focused action can move focus to body before the next Tab.
+    const active = dialog.ownerDocument.activeElement;
+    if (!dialog.contains(active) || active?.matches(':disabled')) dialog.focus();
+  }, [open, pending]);
+
   return (
     <dialog
       ref={dialogRef}
+      tabIndex={-1}
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
+      onKeyDown={event => {
+        if (event.key !== 'Tab' || event.defaultPrevented || !open) return;
+        const dialog = event.currentTarget;
+        // Native dialogs keep the background inert, but Chromium can send the
+        // last Tab stop to browser chrome (document.activeElement becomes body).
+        // Recompute on every Tab because pending states disable form controls.
+        const controls = Array.from(dialog.querySelectorAll<HTMLElement>(
+          'a[href], area[href], button, input, select, textarea, iframe, object, embed, summary, [contenteditable], [tabindex]',
+        )).filter(control =>
+          control.tabIndex >= 0 && !control.matches(':disabled') &&
+          !control.closest('[hidden], [inert]') && control.getClientRects().length > 0 &&
+          getComputedStyle(control).visibility === 'visible',
+        ).sort((a, b) => {
+          // Positive tabindex precedes natural tab order; equal values retain DOM order.
+          const order = (control: HTMLElement) => control.tabIndex || Number.MAX_SAFE_INTEGER;
+          return order(a) - order(b);
+        });
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        const active = dialog.ownerDocument.activeElement;
+        if (!first) {
+          event.preventDefault();
+          dialog.focus();
+        } else if (!controls.includes(active as HTMLElement) ||
+          (event.shiftKey ? active === first : active === last)) {
+          event.preventDefault();
+          (event.shiftKey ? last : first).focus();
+        }
+      }}
       onCancel={event => { event.preventDefault(); if (!pending) onDismiss(); }}
       onClick={event => { if (dismissOnBackdrop && event.target === event.currentTarget && !pending) onDismiss(); }}
       className="mg-dialog"

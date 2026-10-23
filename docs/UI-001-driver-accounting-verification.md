@@ -7,7 +7,7 @@ UI-003 PR #218 baseline, starting from `dev` commit `ef66d1e` on 2026-10-23. It 
 Collection create form portions of [#208](https://github.com/OatiesMilk/Supply-Chain/issues/208).
 
 The Driver uses the existing native `ActionDialog`. It provides an accessible
-name/description, browser modal focus containment and Escape dismissal, preserves
+name/description, explicit bidirectional Tab boundary wrapping and native Escape dismissal, preserves
 the trigger for focus restoration, and inherits viewport-bounded scrolling.
 Remarks retain their required help, cannot be changed while saving, and remain
 available with save failures for retry. Cancel/Escape stay blocked while saving.
@@ -32,16 +32,46 @@ requests and payload construction are unchanged.
   invalid focus, actual company-only draft payload, required Driver remarks,
   blocked pending dismissal, saved remarks trimming, failed-write retry and reopen.
 - Full client suite: passed with the repository test globs and
-  `--test-concurrency=1` (38 test-file processes, 0 failures, about 29.8 seconds).
+  `--test-concurrency=1` (39 test-file processes, 0 failures, about 24.3 seconds after the CI fix).
 - Parent validation: production client build passed; server baseline typecheck
   passed. Backend source is unchanged by this slice.
 - Playwright Accessibility project discovery: passed, 14 tests, including four new
   follow-up cases. New fixtures use synthetic responses and intercept all writes;
   no real account or customer mutation is needed.
-- Browser execution is pending: localhost:3000 was offline and repository rules
-  prohibit starting another development server for tests. Test discovery does not
-  establish browser acceptance. JSDOM's dialog stub does not establish browser
-  top-layer inertness, focus containment, or native focus restoration.
+- CI run [39889719801](https://github.com/OatiesMilk/Supply-Chain/actions/runs/39889719801)
+  passed quality checks, builds, typechecks and client/server tests. Accessibility
+  reported 11 passed and 3 failed: the Driver modal Tab containment case at each
+  viewport. The Accounting case passed.
+- A standalone Chromium experiment reproduced native modal focus moving from the
+  final button to browser chrome (`document.activeElement` becomes `body`). The
+  background control remained inert. The failure was a real gap in the stronger
+  keyboard containment contract, rather than a background authorization or save
+  regression.
+- `ActionDialog` now wraps Tab and Shift+Tab at its current enabled, visible
+  boundaries. It skips hidden/inert/disabled controls and negative tabindex,
+  handles pending states with no enabled controls by focusing the dialog, and
+  retains native modality and focus restoration. Its pending transition also
+  refocuses the modal if disabling the focused action leaves keyboard focus out
+  of reach of the dialog's key handler.
+- Focused shared-dialog regressions cover both boundaries, normal interior Tab,
+  disabled confirmation, hidden/inert/disabled-fieldset/negative-tabindex controls,
+  pending fallback/dismissal and a single-action dialog. The browser regressions
+  retain the original containment checks and add explicit reverse boundaries,
+  disabled confirmation and rejection of background focus.
+- The parent ran the actual bundled React `ActionDialog` in Chromium without an
+  application server. Its Tab/Shift+Tab, exclusions, pending fallback, Escape and
+  Cancel focus-restoration checks passed.
+- The production client build passed after the focus correction. All 21 existing
+  Accessibility and Design System browser cases then passed against those built
+  assets in Chromium (one worker, retries disabled, about 21.8 seconds), including
+  all three previously failing Driver viewport cases and the Accounting case.
+  A temporary local runner copied the repository specs unchanged except for a
+  beforeEach route that fulfilled localhost static-asset requests from the build
+  output. The specs' own synthetic API fixtures retained precedence; no server or
+  live API was used. This establishes built-client browser behavior with mocked
+  API responses, not backend role authorization, persisted writes or staff
+  acceptance. Localhost:3000 remains offline; no new development server was started.
+  Current-head GitHub CI still must validate the integrated role suites.
 
 ## Integration and manual acceptance gates
 

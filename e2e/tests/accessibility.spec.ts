@@ -265,10 +265,28 @@ for (const width of [320, 390, 1280]) {
     await remarks.fill('Synthetic route interruption');
     await touchTarget(dialog.getByRole('button', { name: 'Confirm', exact: true }));
     await touchTarget(dialog.getByRole('button', { name: 'Cancel', exact: true }));
-    for (let index = 0; index < 8; index++) {
-      await page.keyboard.press('Tab');
-      expect(await dialog.evaluate(node => node.contains(document.activeElement))).toBe(true);
+    const confirm = dialog.getByRole('button', { name: 'Confirm', exact: true });
+    const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true });
+    await confirm.focus();
+    await page.keyboard.press('Tab');
+    await expect(remarks).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(confirm).toBeFocused();
+    // Native modality still rejects attempts to focus a background control.
+    await trigger.evaluate(node => node.focus());
+    await expect(confirm).toBeFocused();
+    for (const key of ['Tab', 'Shift+Tab']) {
+      for (let index = 0; index < 8; index++) {
+        await page.keyboard.press(key);
+        expect(await dialog.evaluate(node => node.contains(document.activeElement))).toBe(true);
+      }
     }
+    await remarks.fill('');
+    await cancel.focus();
+    await page.keyboard.press('Tab');
+    await expect(remarks).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(cancel).toBeFocused();
     const box = await dialog.boundingBox();
     expect(box!.y).toBeGreaterThanOrEqual(0);
     expect(box!.y + box!.height).toBeLessThanOrEqual(600);
