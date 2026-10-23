@@ -252,10 +252,10 @@ test('Server-side filters are mapped accurately into Prisma where clauses', asyn
     assert.ok(andConditions.some((c: any) => c.area === 'Makati'));
 
     // Driver filter
-    assert.ok(andConditions.some((c: any) => c.driver && c.driver.equals === 'Juan Dela Cruz'));
+    assert.ok(andConditions.some((c: any) => c.driver && c.driver.contains === 'Juan Dela Cruz'));
 
     // Account Manager filter
-    assert.ok(andConditions.some((c: any) => c.accountManager && c.accountManager.equals === 'Maria Santos'));
+    assert.ok(andConditions.some((c: any) => c.accountManager && c.accountManager.contains === 'Maria Santos'));
 
     // Priority filter
     assert.ok(andConditions.some((c: any) => c.priority === '3 - High'));
@@ -269,6 +269,60 @@ test('Server-side filters are mapped accurately into Prisma where clauses', asyn
     // Search query maps to OR across id, reference, company name
     const searchCondition = andConditions.find((c: any) => Array.isArray(c.OR) && c.OR.some((sub: any) => sub.reference));
     assert.ok(searchCondition);
+  });
+});
+
+test('Location hierarchy filters constrain paged records to canonical areas', async () => {
+  await withRecordsMocks('ADMIN', async (url, headers, calls) => {
+    const query = new URLSearchParams({
+      paged: 'true',
+      region: 'Visayas',
+      subregion: 'Cebu',
+    });
+    const res = await fetch(`${url}/records?${query}`, { headers });
+    assert.equal(res.status, 200);
+
+    const locationFilter = calls.findMany[0].where.AND.find(
+      (condition: any) => condition.area?.in,
+    );
+    assert.deepEqual(locationFilter.area.in, ['Cebu City', 'Mandaue City, Cebu', 'Lapu-Lapu City, Cebu']);
+  });
+});
+
+test('Subregion filters exclude areas outside Nueva Ecija and Pangasinan grouping', async () => {
+  await withRecordsMocks('ADMIN', async (url, headers, calls) => {
+    const query = new URLSearchParams({
+      paged: 'true',
+      subregion: 'Nueva Ecija / Pangasinan / Benguet',
+    });
+    const res = await fetch(`${url}/records?${query}`, { headers });
+    assert.equal(res.status, 200);
+
+    const locationFilter = calls.findMany[0].where.AND.find(
+      (condition: any) => condition.area?.in,
+    );
+    assert.deepEqual(locationFilter.area.in, [
+      'Cabanatuan City, Nueva Ecija',
+      'Dagupan City, Pangasinan',
+      'Baguio City, Benguet',
+    ]);
+    assert.equal(locationFilter.area.in.includes('Quezon City - Diliman'), false);
+  });
+});
+
+test('Personnel filters accept partial autocomplete input', async () => {
+  await withRecordsMocks('ADMIN', async (url, headers, calls) => {
+    const query = new URLSearchParams({
+      paged: 'true',
+      driver: 'Leo Drive',
+      account_manager: 'P. Sorian',
+    });
+    const res = await fetch(`${url}/records?${query}`, { headers });
+    assert.equal(res.status, 200);
+
+    const andConditions = calls.findMany[0].where.AND;
+    assert.ok(andConditions.some((condition: any) => condition.driver?.contains === 'Leo Drive'));
+    assert.ok(andConditions.some((condition: any) => condition.accountManager?.contains === 'P. Sorian'));
   });
 });
 
