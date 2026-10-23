@@ -76,8 +76,7 @@ export function useAppData(
   const allowed = (resource: string) =>
     routeAllowed && (isResourceQueryEnabled(resource, authUser, currentScreen) ||
       // Opening global search explicitly requests its data; normal visits do not.
-      (searchOpen && authUser?.resources.includes(resource) === true &&
-        (resource === 'records' || (resource === 'skus' && authUser.effectiveScreens.includes('inventory')))));
+      (searchOpen && authUser?.resources.includes(resource) === true));
 
   const recordsQuery = useRecordsQuery(allowed('records'));
   const { data: deliveryRecords = [] } = recordsQuery;
