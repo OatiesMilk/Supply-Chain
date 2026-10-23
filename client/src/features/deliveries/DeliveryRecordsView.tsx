@@ -253,6 +253,8 @@ export default function DeliveryRecordsView({
     if (tassDateFrom || appliedDateFrom) params.set('deliveryDateFrom', tassDateFrom || appliedDateFrom);
     if (tassDateTo || appliedDateTo) params.set('deliveryDateTo', tassDateTo || appliedDateTo);
     if (areaFilter !== 'All Areas') params.set('area', areaFilter);
+    if (regionFilter !== 'All Regions') params.set('region', regionFilter);
+    if (subregionFilter !== 'All Subregions') params.set('subregion', subregionFilter);
     if (driverFilter) params.set('driver', driverFilter);
     if (statusFilter !== 'All') params.set('status', statusFilter);
 
@@ -305,7 +307,7 @@ export default function DeliveryRecordsView({
     if (areaFilter !== 'All Areas' && r.area !== areaFilter) return false;
     if (statusFilter !== 'All' && r.status !== statusFilter) return false;
     if (amFilter && !r.account_manager.toLowerCase().includes(amFilter.toLowerCase())) return false;
-    if (driverFilter && r.driver.toLowerCase() !== driverFilter.toLowerCase()) return false;
+    if (driverFilter && !r.driver.toLowerCase().includes(driverFilter.toLowerCase())) return false;
     if (appliedDateFrom && (!r.delivery_date || r.delivery_date < appliedDateFrom)) return false;
     if (appliedDateTo && (!r.delivery_date || r.delivery_date > appliedDateTo)) return false;
     const q = searchQuery.toLowerCase();
@@ -360,12 +362,15 @@ export default function DeliveryRecordsView({
 
   const { data: pagedData, isLoading: pagedLoading } = usePagedRecordsQuery({
     category,
+    dateSort,
     page: currentPage,
     limit: pageSize,
     status: effectiveStatusFilter,
     search: searchQuery || undefined,
     driver: driverFilter || undefined,
     area: effectiveAreaFilter,
+    region: regionFilter !== 'All Regions' ? regionFilter : undefined,
+    subregion: subregionFilter !== 'All Subregions' ? subregionFilter : undefined,
     account_manager: effectiveAmFilter,
     dateFrom: effectiveDateFrom,
     dateTo: effectiveDateTo,
@@ -574,6 +579,8 @@ export default function DeliveryRecordsView({
       search: searchQuery || undefined,
       driver: driverFilter || undefined,
       area: effectiveAreaFilter,
+      region: regionFilter !== 'All Regions' ? regionFilter : undefined,
+      subregion: subregionFilter !== 'All Subregions' ? subregionFilter : undefined,
       account_manager: effectiveAmFilter,
       dateFrom: effectiveDateFrom,
       dateTo: effectiveDateTo,
@@ -800,8 +807,8 @@ export default function DeliveryRecordsView({
 
         {/* Date Range Controls — list filters, so hidden while the create form is open */}
         {!isCreating && (
-        <div className="flex flex-wrap gap-3 items-end text-data" id="date-range-filters">
-        <div className="space-y-1 flex-1 min-w-[min(9.5rem,100%)]">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end text-data" id="date-range-filters">
+        <div className="space-y-1 min-w-0">
           <label htmlFor="dateFrom" className="font-bold text-slate-700 block">Date From</label>
           <input
             id="dateFrom"
@@ -817,7 +824,7 @@ export default function DeliveryRecordsView({
             className="w-full text-body font-semibold border border-field rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
           />
         </div>
-        <div className="space-y-1 flex-1 min-w-[min(9.5rem,100%)]">
+        <div className="space-y-1 min-w-0">
           <label htmlFor="dateTo" className="font-bold text-slate-700 block">Date To</label>
           <input
             id="dateTo"
@@ -832,7 +839,7 @@ export default function DeliveryRecordsView({
           />
           {dateRangeError && <p id="date-range-error" role="alert" className="text-data font-semibold text-red-700">{dateRangeError}</p>}
         </div>
-        <div className="space-y-1 flex-1 min-w-[min(9.5rem,100%)]">
+        <div className="space-y-1 min-w-0">
           <label htmlFor="dateSort" className="font-bold text-slate-700 block">Sort</label>
           <select
             id="dateSort"
@@ -850,7 +857,7 @@ export default function DeliveryRecordsView({
           <button
             onClick={() => { setDateFrom(''); setDateTo(''); }}
             title="Clear date filter"
-            className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-data uppercase rounded-lg cursor-pointer min-h-[2.625rem] flex items-center gap-1"
+            className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-data uppercase rounded-lg cursor-pointer min-h-[2.625rem] flex items-center gap-1 md:col-span-3 md:justify-self-start"
           >
             <X className="w-3.5 h-3.5" /> Clear
           </button>
