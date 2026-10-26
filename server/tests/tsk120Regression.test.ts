@@ -160,7 +160,7 @@ test('submitting an unassigned Delivery Draft notifies Logistics once and keeps 
   }
 });
 
-test('Logistics can still create an unassigned submitted Delivery', async () => {
+test('Logistics cannot create a Delivery; Sales Coordinator owns creation', async () => {
   const { url, close } = await setupApp();
   const logisticsAccount = {
     ...account,
@@ -215,13 +215,10 @@ test('Logistics can still create an unassigned submitted Delivery', async () => 
       }),
     });
 
-    assert.equal(response.status, 201);
-    const body = await response.json() as any;
-    assert.equal(body.status, 'Scheduled');
-    assert.equal(body.is_draft, 'No');
-    assert.equal(body.driver, '');
-    assert.equal((create.mock.calls[0].arguments[0] as any).data.driver, '');
-    assert.equal(notificationCreateMany.mock.callCount(), 1);
+    assert.equal(response.status, 403);
+    assert.match((await response.json() as any).error, /Only Sales Coordinator or Admin may create Deliveries/);
+    assert.equal(create.mock.callCount(), 0, 'the denied role must not create a record');
+    assert.equal(notificationCreateMany.mock.callCount(), 0, 'denied creation must not notify');
   } finally {
     prisma.user.findUnique = original.userFindUnique;
     prisma.user.findMany = original.userFindMany;

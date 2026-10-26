@@ -5,6 +5,7 @@ import { runSeed } from '../../prisma/seed';
 import { canResetLocalDemo } from '../services/localDemoReset';
 import { serializeRecord } from '../mappings';
 import type { Request, Response } from 'express';
+import { RMA_CATEGORIES, RMA_ITEM_TYPES, normalizeRmaCategory, rmaInputError } from '../services/rmaRules';
 
 const router = Router();
 
@@ -122,7 +123,6 @@ const ITEM_DESC_BY_CAT: Record<string, string[]> = {
 
 const REF_PREFIX: Record<string, string> = {
   DELIVERY: 'SAP',
-  RMA: 'SAP-RMA',
   ACCOUNTING_COLLECTION: 'SAP-COLL',
   PROCUREMENT_PICKUP: 'SAP-PU',
   SALES_ORDERS: 'SAP-SO',
@@ -137,7 +137,17 @@ router.post('/generate', requireAuth, requireResource('dataSampler'), requireRol
       return res.status(400).json({ error: `Unknown module: ${module}` });
     }
 
-    if (fields?.status !== undefined && fields.status !== 'SCHEDULED') return res.status(400).json({ error: 'Sample records must start Scheduled. Record Time In and complete through the delivery workflow.' });
+    if (fields !== undefined && (!fields || typeof fields !== 'object' || Array.isArray(fields))) return res.status(400).json({ error: 'fields must be an object.' });
+    if (fields?.status !== undefined && !['Scheduled', 'SCHEDULED'].includes(fields.status)) return res.status(400).json({ error: 'Sample records must start Scheduled. Record Time In and complete through the delivery workflow.' });
+    const isRma = mod.dbCategory === 'RMA';
+    const overrides: Record<string, any> = fields ?? {};
+    if (isRma) {
+      const error = rmaInputError({ ...overrides, rma_reference: overrides.rma_reference ?? overrides.reference });
+      if (error) return res.status(400).json({ error });
+      if (overrides.item_type !== undefined && !RMA_ITEM_TYPES.some(value => value === overrides.item_type)) {
+        return res.status(400).json({ error: 'RMA Item Type must be Small Item or Unit.' });
+      }
+    }
     const n = Math.min(Math.max(1, Number(count) || 1), 50);
 
     const companies = await prisma.company.findMany({ select: { id: true, name: true } });
@@ -171,16 +181,15 @@ router.post('/generate', requireAuth, requireResource('dataSampler'), requireRol
         ? DRIVER_ASSISTANTS[Math.floor(Math.random() * DRIVER_ASSISTANTS.length)]
         : '';
       const accountManager = ACCOUNT_MANAGERS[Math.floor(Math.random() * ACCOUNT_MANAGERS.length)];
-      const itemType = ITEM_TYPES[Math.floor(Math.random() * ITEM_TYPES.length)];
+      const itemTypes = isRma ? RMA_ITEM_TYPES : ITEM_TYPES;
+      const itemType = itemTypes[Math.floor(Math.random() * itemTypes.length)];
       const descs = ITEM_DESC_BY_CAT[mod.dbCategory] ?? ['Sample item'];
       const itemDescription = descs[Math.floor(Math.random() * descs.length)];
-      const reference = generateRef(REF_PREFIX[mod.dbCategory] ?? 'SAP');
+      const reference = isRma ? '' : generateRef(REF_PREFIX[mod.dbCategory] ?? 'SAP');
       // AC amounts: ₱5,000–₱150,000 in round-number increments
       const amount = mod.dbCategory === 'ACCOUNTING_COLLECTION'
         ? randInt(500, 15000) * 10
         : null;
-
-      const overrides: Record<string, any> = fields ?? {};
 
       // Generate a human-readable record ID in the same REC-XXXXX format as seed data.
       // Use the 50000–99999 range to stay clear of seed records (4001–4999).
@@ -205,11 +214,19 @@ router.post('/generate', requireAuth, requireResource('dataSampler'), requireRol
             id:              recordId,
             companyId:       overrides.company_id    ?? company.id,
             priority:        overrides.priority       ?? priority,
-            reference:       overrides.reference      ?? reference,
+            reference:       isRma ? '' : overrides.reference ?? reference,
+            rmaReference:    isRma ? (overrides.rma_reference ?? overrides.reference ?? '').trim() || null : null,
+            legacySapReference: null,
+            rmaType:         isRma ? normalizeRmaCategory(overrides.rma_type !== undefined ? overrides.rma_type : RMA_CATEGORIES[randInt(0, RMA_CATEGORIES.length - 1)]) : null,
+            purchaseDate:    isRma ? overrides.purchase_date || null : null,
+            customerContactName: isRma ? overrides.customer_contact_name?.trim() || null : null,
+            customerContactEmail: isRma ? overrides.customer_contact_email?.trim() || null : null,
+            customerContactPhone: isRma ? overrides.customer_contact_phone?.trim() || null : null,
             remarks:         overrides.remarks        ?? 'Created via Data Sampler',
-            status:          overrides.status         ?? status,
+            status,
             vehicle:         overrides.vehicle        ?? vehicle,
             area:            overrides.area           ?? area,
+            address:         overrides.address        ?? '',
             driver:          fieldDriver ? fieldDriver.name : (overrides.driver === '' ? '' : driver),
             driverId:        fieldDriver ? fieldDriver.id : (overrides.driver === '' ? null : sampleDriver?.id ?? null),
             driverAssistants: formattedAssistants,

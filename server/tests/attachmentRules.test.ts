@@ -105,7 +105,7 @@ test('a ZIP archive is a .docx only when it is a complete, ordinary Word package
 });
 
 test('the stored content type comes from the allow-list, never from the client', () => {
-  assert.deepEqual(Object.keys(ATTACHMENT_MIME_TYPES).sort(), ['.doc', '.docx', '.jpeg', '.jpg', '.pdf', '.png']);
+  assert.deepEqual(Object.keys(ATTACHMENT_MIME_TYPES).sort(), ['.docx', '.jpeg', '.jpg', '.pdf', '.png']);
   assert.equal(attachmentMimeType('Scan.PDF'), 'application/pdf');
   assert.equal(attachmentMimeType('photo.JPeG'), 'image/jpeg');
   assert.equal(attachmentMimeType('Letter.DOCX'), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');

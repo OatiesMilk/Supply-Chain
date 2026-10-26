@@ -186,28 +186,44 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     await expect(addressInput).toHaveValue('Manually entered delivery address');
   });
 
-  test('B-2.0 Delivery date range enforces chronological filters without losing focus', async ({ page }) => {
+  test('B-2.0 Delivery dates support reverse dragging, keyboard selection and cancellation', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
 
-    const dateFrom = page.getByLabel('Date From', { exact: true });
-    const dateTo = page.getByLabel('Date To', { exact: true });
+    const trigger = page.getByRole('button', { name: /^Delivery dates / });
+    await trigger.click();
+    const dialog = page.getByRole('dialog', { name: 'Select delivery dates' });
+    await dialog.getByLabel('Calendar year').selectOption('2026');
+    await dialog.getByLabel('Calendar month').selectOption('9');
+    const start = dialog.locator('[data-calendar-day="2026-10-20"]');
+    const end = dialog.locator('[data-calendar-day="2026-10-14"]');
+    const startBox = (await start.boundingBox())!;
+    const endBox = (await end.boundingBox())!;
+    await page.mouse.move(startBox.x + startBox.width / 2, startBox.y + startBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(endBox.x + endBox.width / 2, endBox.y + endBox.height / 2, { steps: 12 });
+    await page.mouse.up();
+    await expect(dialog.locator('[aria-live="polite"]')).toHaveText('14 Oct 2026 – 20 Oct 2026');
+    await expect(trigger).toContainText('All delivery dates');
+    await dialog.getByRole('button', { name: 'Apply dates', exact: true }).click();
+    await expect(trigger).toContainText('14 Oct 2026 – 20 Oct 2026');
+    await expect(trigger).toBeFocused();
 
-    await dateFrom.fill('2026-10-08');
-    await expect(dateTo).toHaveAttribute('min', '2026-10-08');
+    await trigger.click();
+    await dialog.getByRole('button', { name: 'Today', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(trigger).toContainText('14 Oct 2026 – 20 Oct 2026');
 
-    await dateTo.fill('2026-10-01');
-    await expect(page.getByText('Date To cannot be earlier than Date From.', { exact: true })).toBeVisible();
-
-    await dateTo.fill('2026-10-08');
-    await expect(page.getByText('Date To cannot be earlier than Date From.', { exact: true })).not.toBeVisible();
-
-    await dateFrom.fill('2026-10-09');
-    await expect(dateTo).toHaveValue('');
-    await expect(dateFrom).toBeFocused();
-
-    await dateFrom.fill('');
-    await expect(dateTo).not.toHaveAttribute('min');
+    await trigger.click();
+    await dialog.locator('[data-calendar-day="2026-10-14"]').click();
+    await dialog.locator('[data-calendar-day="2026-10-14"]').press('ArrowRight');
+    await expect(dialog.locator('[data-calendar-day="2026-10-15"]')).toBeFocused();
+    await page.keyboard.press('Enter');
+    await dialog.getByRole('button', { name: 'Apply dates', exact: true }).click();
+    await expect(trigger).toContainText('14 Oct 2026 – 15 Oct 2026');
+    await trigger.click();
+    await dialog.getByRole('button', { name: 'Clear dates', exact: true }).click();
+    await expect(trigger).toContainText('All delivery dates');
   });
 
   test('B-2.1 Dispatch & Logistics tab is visible', async ({ page }) => {

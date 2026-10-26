@@ -3,6 +3,7 @@
  */
 
 import { AuditFields } from './common';
+import type { RmaCategory } from '../utils/rma';
 
 export type DeliveryCategory =
   | 'Sales Orders'
@@ -15,7 +16,7 @@ export type DeliveryStatus = 'Draft' | 'Scheduled' | 'In Transit' | 'Delivered' 
 
 export type PriorityLevel = '1 - Low' | '2 - Moderate' | '3 - High';
 
-export type ItemType = 'Small Item' | 'Medium Item' | 'Large / Pallet';
+export type ItemType = 'Small Item' | 'Unit' | 'Medium Item' | 'Large / Pallet';
 
 export type OutputActionTrigger =
   | 'Record Created'
@@ -44,7 +45,9 @@ export interface DeliveryRecord extends AuditFields {
   company_name: string; // display name of the record's Company
   company_id: string; // Company the record belongs to (never a Customer ID)
   priority: PriorityLevel;
-  reference: string; // SAP number
+  reference: string; // SAP reference for non-RMA records; aliases the RMA document reference in the UI
+  rma_reference?: string | null;
+  legacy_sap_reference?: string | null;
   remarks: string;
   status: DeliveryStatus;
   allowed_statuses?: DeliveryStatus[]; // Authoritative transitions supplied by the server
@@ -64,6 +67,15 @@ export interface DeliveryRecord extends AuditFields {
   category: DeliveryCategory;
   item_type: ItemType;
   is_draft: 'Yes' | 'No';
+  created_by_id?: string;
+  modified_by_id?: string;
+  deleted_at?: string | null;
+  document_attachment?: string | null;
+  rma_type?: RmaCategory | null;
+  purchase_date?: string | null;
+  customer_contact_name?: string | null;
+  customer_contact_email?: string | null;
+  customer_contact_phone?: string | null;
   item_description: string;
   line_items?: { id?: string, sku: string, quantity: number }[];
   attachments: string[]; // mock file names only

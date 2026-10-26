@@ -17,10 +17,9 @@ export const ATTACHMENT_MIME_TYPES: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.png': 'image/png',
-  '.doc': 'application/msword',
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 };
-export const UNSUPPORTED_FILE_TYPE = 'Unsupported file type. Allowed formats: PDF, JPG, PNG, DOC, and DOCX.';
+export const UNSUPPORTED_FILE_TYPE = 'Unsupported file type. Allowed formats: PDF, JPG, PNG, and DOCX.';
 
 export function attachmentMimeType(originalName: string): string | undefined {
   return ATTACHMENT_MIME_TYPES[path.extname(originalName).toLowerCase()];

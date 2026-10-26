@@ -75,9 +75,10 @@ export function allowedStatuses(record: RunRecord): RunState[] {
   });
 }
 export function transitionError(record: RunRecord, target: RunState, role: Role): string | null {
-  if (record.draft && target === 'Scheduled' && !['SALES_COORDINATOR', 'ADMIN'].includes(role)) return 'Only Sales Coordinator or Admin may submit or return drafts.';
+  const tassRma = role === 'TASS' && record.category === 'RMA';
+  if (record.draft && target === 'Scheduled' && !tassRma && !['SALES_COORDINATOR', 'ADMIN'].includes(role)) return 'Only Sales Coordinator, TASS for RMA, or Admin may submit or return drafts.';
   if (target === 'In Transit') return 'Use Record Time In to start this run.';
-  if (target === 'Draft' && !['SALES_COORDINATOR', 'ADMIN'].includes(role)) return 'Only Sales Coordinator or Admin may return a record to Draft.';
+  if (target === 'Draft' && !tassRma && !['SALES_COORDINATOR', 'ADMIN'].includes(role)) return 'Only Sales Coordinator, TASS for RMA, or Admin may return a record to Draft.';
   if (target === 'Draft' && record.timeIn) return 'A started run cannot be returned to Draft.';
   if (!allowedStatuses(record).includes(target)) return `Cannot change ${runState(record)} to ${target}.`;
   return null;

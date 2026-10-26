@@ -15,9 +15,10 @@ import { discardUpload, podStorage, podUpload } from '../services/podStorage';
 import { DELIVERY_PHOTO_REQUIRED, findVerifiedDeliveryPhoto, hasStoredDeliveryPhoto, inspectUpload, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
 import { ATTACHMENT_QUOTA_EXCEEDED, attachmentQuotaError } from '../services/attachmentRules';
 
-import { canWriteCategory, isAssignedDriver, recordScope } from '../services/recordAccess';
+import { canCreateCategory, canWriteCategory, isAssignedDriver, recordScope } from '../services/recordAccess';
 import { deliveryScheduleState, driverDeliveryDateError, isValidDateOnly, isoTimestamp, manilaToday, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
 import { manilaDateRange } from '../services/dateSemantics';
+import { RMA_CONTACT_FIELDS, normalizeRmaCategory, rmaInputError } from '../services/rmaRules';
 
 const router = Router();
 const PRIORITY_LOCKED_ERROR = "Priority can't be changed after a record is Delivered.";
@@ -36,7 +37,7 @@ const requireRecordAccess = asyncRoute(async (req, res, next) => {
     }
   } else if (req.method === 'POST' && req.body?.category) {
     const category = CATEGORY_TO_DB[req.body.category] ?? req.body.category;
-    if (!canWriteCategory(req.user!, category)) return res.status(403).json({ error: 'Module access denied' });
+    if (!canCreateCategory(req.user!, category)) return res.status(403).json({ error: category === 'DELIVERY' && req.user!.role === 'LOGISTICS' ? 'Only Sales Coordinator or Admin may create Deliveries.' : 'Module access denied' });
   }
   next();
 });
@@ -232,6 +233,8 @@ function parseListQuery(query: express.Request['query']) {
         OR: [
           { id: { contains: s, mode: 'insensitive' } },
           { reference: { contains: s, mode: 'insensitive' } },
+          { rmaReference: { contains: s, mode: 'insensitive' } },
+          { legacySapReference: { contains: s, mode: 'insensitive' } },
           { company: { name: { contains: s, mode: 'insensitive' } } },
           { driver: { contains: s, mode: 'insensitive' } },
           { area: { contains: s, mode: 'insensitive' } },
@@ -725,7 +728,8 @@ router.get('/:id/attachments', requireAuth, requireResource('records'), requireR
     is_photo: await isStoredPodPhoto(attachment),
     size: attachment.size,
     uploaded_at: attachment.createdAt,
-    download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`
+    download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`,
+    preview_url: `/api/records/${req.params.id}/attachments/${attachment.id}/preview`
   }))));
 }));
 
@@ -734,7 +738,7 @@ router.post(
   requireAuth,
   requireResource('records'),
   requireRecordAccess,
-  requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER'),
+  requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'),
   podUpload.single('file'),
   asyncRoute(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'A file is required.' });
@@ -762,6 +766,7 @@ router.post(
         if (!canWriteCategory(req.user!, record.category) || (req.user!.role === 'LOGISTICS' && record.category === 'RMA')) {
           return { status: 403, error: 'Record access denied', attachment: null };
         }
+        if (req.user!.role === 'TASS' && record.category !== 'RMA') return { status: 403, error: 'TASS may manage documents for RMA records only', attachment: null };
         const dateError = driverDeliveryDateError(record, req.user!.role);
         if (dateError) return { status: 400, error: dateError, attachment: null };
         // Counted under the record lock taken above, so parallel uploads to one
@@ -811,7 +816,8 @@ router.post(
       is_photo: isPhoto,
       size: attachment.size,
       uploaded_at: attachment.createdAt,
-      download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`
+      download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`,
+      preview_url: `/api/records/${req.params.id}/attachments/${attachment.id}/preview`
     });
   })
 );
@@ -834,7 +840,33 @@ router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResour
   }
 }));
 
-router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'), asyncRoute(async (req, res) => {
+router.get('/:id/attachments/:attachmentId/preview', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
+  const attachment = await prisma.podAttachment.findFirst({ where: { id: req.params.attachmentId, recordId: req.params.id } });
+  if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
+  const photo = await isStoredPodPhoto(attachment);
+  const pdf = attachment.mimeType === 'application/pdf';
+  const docx = attachment.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (!photo && !pdf && !docx) {
+    return res.status(415).json({ error: 'Preview is available for PDF, DOCX, and image files. Legacy DOC files require conversion to PDF or DOCX.' });
+  }
+  try {
+    const content = await podStorage.open(attachment.storageKey);
+    const safeName = attachment.originalName.replace(/[\"\\\r\n]/g, '_');
+    res.setHeader('Content-Type', photo || docx ? attachment.mimeType : 'application/pdf');
+    res.setHeader('Content-Length', String(attachment.size));
+    res.setHeader('Content-Disposition', `inline; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(attachment.originalName)}`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'self'");
+    res.setHeader('Cache-Control', 'private, no-store');
+    await pipeline(content, res);
+  } catch (error) {
+    if (!res.headersSent) res.status(404).json({ error: 'Attachment file not found' });
+    else console.error('[POD] Failed to preview attachment', error);
+  }
+}));
+
+router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'TASS'), asyncRoute(async (req, res) => {
   const remarks = typeof req.body?.remarks === 'string' ? req.body.remarks.trim() : '';
 
   const result = await prisma.$transaction(async tx => {
@@ -842,6 +874,8 @@ router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('re
     const attachment = await tx.podAttachment.findFirst({ where: { id: req.params.attachmentId, recordId: req.params.id } });
     if (!attachment) return { status: 404, error: 'Attachment not found' };
     const record = await tx.deliveryRecord.findUnique({ where: { id: req.params.id } });
+    if (req.user!.role === 'TASS' && record?.category !== 'RMA') return { status: 403, error: 'TASS may manage documents for RMA records only' };
+    if (!record || !canWriteCategory(req.user!, record.category)) return { status: 403, error: 'Record access denied' };
     if (record?.status === 'ACCOMPLISHED' &&
         await isStoredPodPhoto(attachment) && !await hasStoredDeliveryPhoto(tx, record.id, attachment.id)) {
       return { status: 409, error: 'Keep at least one delivery photo on an accomplished delivery. Upload a replacement before removing this photo.' };
@@ -880,18 +914,23 @@ router.get('/:id/remarks', requireAuth, requireResource('records'), requireRecor
 });
 
 // Create a Draft or Scheduled record. Assignment happens after submission.
-router.post('/', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'), asyncRoute(async (req, res) => {
+router.post('/', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'TASS'), asyncRoute(async (req, res) => {
   const b = req.body ?? {};
+  const dbCategory = CATEGORY_TO_DB[b.category] ?? b.category;
   const isDraft = b.is_draft === 'Yes' || b.status === 'Draft';
-  const required = isDraft
+  const referenceField = dbCategory === 'RMA' ? 'rma_reference' : 'reference';
+  const required = isDraft || dbCategory === 'RMA'
     ? ['company_id', 'category']
-    : ['company_id', 'reference', 'category'];
+    : ['company_id', referenceField, 'category'];
   const missing = required.filter(k => typeof b[k] !== 'string' || !b[k].trim());
   if (missing.length > 0) {
     return res.status(400).json({ error: `Missing required fields: ${missing.join(', ')}` });
   }
 
-  const dbCategory = CATEGORY_TO_DB[b.category] ?? b.category;
+  if (dbCategory === 'RMA') {
+    const rmaError = rmaInputError(b, true);
+    if (rmaError) return res.status(400).json({ error: rmaError });
+  }
 
   if (req.user!.role === 'LOGISTICS' && dbCategory === 'RMA') {
     return res.status(403).json({ error: 'Logistics has view-only access to RMA records' });
@@ -905,8 +944,8 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
     return res.status(403).json({ error: 'Sales Coordinator cannot assign drivers — use the Logistics role' });
   }
 
-  if (!isDraft && !b.reference?.trim()) return res.status(400).json({ error: 'Reference is required' });
-  if (!isDraft && !b.delivery_date) return res.status(400).json({ error: 'Delivery Date is required' });
+  if (dbCategory !== 'RMA' && !isDraft && !b[referenceField]?.trim()) return res.status(400).json({ error: 'Reference is required' });
+  if (dbCategory !== 'RMA' && !isDraft && !b.delivery_date) return res.status(400).json({ error: 'Delivery Date is required' });
   if (b.delivery_date !== undefined && b.delivery_date !== '' && !isValidDateOnly(b.delivery_date)) return res.status(400).json({ error: 'Delivery Date must be a valid YYYY-MM-DD date.' });
   if (b.priority !== undefined && !['1 - Low', '2 - Moderate', '3 - High'].includes(b.priority)) return res.status(400).json({ error: 'Invalid record priority.' });
   if (b.status && !['Draft', 'Scheduled'].includes(b.status)) return res.status(400).json({ error: 'New records must be Draft or Scheduled.' });
@@ -921,7 +960,9 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
           id: generateRecordId(),
           companyId: b.company_id,
           priority: b.priority ?? '2 - Moderate',
-          reference: b.reference ?? '',
+          reference: dbCategory === 'RMA' ? '' : (b.reference ?? ''),
+          rmaReference: dbCategory === 'RMA' && typeof b.rma_reference === 'string' ? b.rma_reference.trim() || null : null,
+          legacySapReference: null,
           remarks: b.remarks ?? '',
           status: 'SCHEDULED',
           vehicle: b.vehicle ?? '(None)',
@@ -936,6 +977,11 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
           category: dbCategory as any,
           itemType: b.item_type ?? 'Small Item',
           draft: isDraft,
+          rmaType: dbCategory === 'RMA' ? normalizeRmaCategory(b.rma_type) : null,
+          purchaseDate: dbCategory === 'RMA' ? (b.purchase_date || null) : null,
+          customerContactName: dbCategory === 'RMA' && typeof b.customer_contact_name === 'string' ? b.customer_contact_name.trim() || null : null,
+          customerContactEmail: dbCategory === 'RMA' && typeof b.customer_contact_email === 'string' ? b.customer_contact_email.trim() || null : null,
+          customerContactPhone: dbCategory === 'RMA' && typeof b.customer_contact_phone === 'string' ? b.customer_contact_phone.trim() || null : null,
 
           itemDescription: b.item_description ?? '',
           lineItems: Array.isArray(b.line_items) ? {
@@ -968,7 +1014,7 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
   if (!isDraft) await notifyRole(
     'LOGISTICS',
     `New ${dbCategory.replace(/_/g, ' ')} record — driver needed`,
-    `${created.company.name} · ${created.reference || '(no reference)'}${created.deliveryDate ? ` on ${created.deliveryDate}` : ''} requires driver assignment.`,
+    `${created.company.name} · ${(dbCategory === 'RMA' ? created.rmaReference : created.reference) || '(no reference)'}${created.deliveryDate ? ` on ${created.deliveryDate}` : ''} requires driver assignment.`,
     created.id,
     'DeliveryRecord'
   );
@@ -999,10 +1045,10 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (b[field] !== undefined && (!current || !isoTimestamp(b[field]))) return res.status(400).json({ error: 'Corrections require an existing timestamp and a full ISO timestamp with timezone. Use Record Time In to start the run.' });
   }
   if (b.is_draft !== undefined && !['Yes', 'No'].includes(b.is_draft)) return res.status(400).json({ error: 'is_draft must be Yes or No.' });
-  if (b.is_draft !== undefined && (b.is_draft === 'Yes') !== existing.draft && !['SALES_COORDINATOR', 'ADMIN'].includes(req.user!.role)) return res.status(403).json({ error: 'Only Sales Coordinator or Admin may submit or return drafts.' });
+  if (b.is_draft !== undefined && (b.is_draft === 'Yes') !== existing.draft && !['SALES_COORDINATOR', 'ADMIN'].includes(req.user!.role) && !(req.user!.role === 'TASS' && existing.category === 'RMA')) return res.status(403).json({ error: 'Only Sales Coordinator, TASS for RMA, or Admin may submit or return drafts.' });
 
   if (b.priority !== undefined) {
-    if (!['SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'].includes(req.user!.role)) {
+    if (!['SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'].includes(req.user!.role) && !(req.user!.role === 'TASS' && existing.category === 'RMA')) {
       return res.status(403).json({ error: 'Your role cannot change record priority.' });
     }
     if (!['1 - Low', '2 - Moderate', '3 - High'].includes(b.priority)) {
@@ -1010,10 +1056,39 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     }
   }
 
+  if (existing.category === 'RMA') {
+    if (b.reference !== undefined) return res.status(400).json({ error: 'Use rma_reference for the RMA document reference.' });
+    const rmaError = rmaInputError(b);
+    if (rmaError) return res.status(400).json({ error: rmaError });
+    const rmaFields = ['priority', 'area', 'account_manager', 'rma_reference', 'rma_type', 'purchase_date', ...RMA_CONTACT_FIELDS];
+    const isSubmitting = existing.draft && b.is_draft === 'No';
+    const editsSubmittedRmaDetails = !existing.draft && rmaFields.some(field => field in b);
+    if (isSubmitting || editsSubmittedRmaDetails) {
+      const candidate = {
+        priority: b.priority ?? existing.priority,
+        area: b.area ?? existing.area,
+        account_manager: b.account_manager ?? existing.accountManager,
+        rma_reference: b.rma_reference ?? existing.rmaReference,
+        rma_type: b.rma_type ?? existing.rmaType,
+        purchase_date: b.purchase_date ?? existing.purchaseDate,
+        customer_contact_name: b.customer_contact_name ?? existing.customerContactName,
+        customer_contact_email: b.customer_contact_email ?? existing.customerContactEmail,
+        customer_contact_phone: b.customer_contact_phone ?? existing.customerContactPhone,
+      };
+      const completeError = rmaInputError(candidate, true);
+      if (completeError) return res.status(400).json({ error: completeError });
+    }
+  }
+
   const LOGISTICS_SUBSTANTIVE_FIELDS = ['driver', 'driver_id', 'vehicle', 'driver_assistants', 'time_in', 'time_out', 'received_by', 'linked_collection_id', 'area', 'address', 'priority'];
   const SC_SUBSTANTIVE_FIELDS = ['company_id', 'priority', 'reference', 'area', 'address', 'account_manager', 'delivery_date', 'item_type', 'is_draft', 'date_time', 'item_description', 'line_items', 'attachments', 'amount'];
-  const substantiveFields = req.user!.role === 'ADMIN' ? [...LOGISTICS_SUBSTANTIVE_FIELDS, ...SC_SUBSTANTIVE_FIELDS] : (req.user!.role === 'LOGISTICS' || req.user!.role === 'TASS')
-    ? LOGISTICS_SUBSTANTIVE_FIELDS
+  const RMA_SUBSTANTIVE_FIELDS = [...SC_SUBSTANTIVE_FIELDS.filter(field => field !== 'reference'), 'rma_reference', 'rma_type', 'purchase_date', ...RMA_CONTACT_FIELDS];
+  const ADMIN_SUBSTANTIVE_FIELDS = existing.category === 'RMA'
+    ? [...LOGISTICS_SUBSTANTIVE_FIELDS, ...RMA_SUBSTANTIVE_FIELDS]
+    : [...LOGISTICS_SUBSTANTIVE_FIELDS, ...SC_SUBSTANTIVE_FIELDS];
+  const substantiveFields = req.user!.role === 'ADMIN' ? ADMIN_SUBSTANTIVE_FIELDS
+    : req.user!.role === 'LOGISTICS' ? LOGISTICS_SUBSTANTIVE_FIELDS
+    : req.user!.role === 'TASS' && existing.category === 'RMA' ? RMA_SUBSTANTIVE_FIELDS
     : SC_SUBSTANTIVE_FIELDS;
   const logisticsDeliveryDateChange = req.user!.role === 'LOGISTICS' && existing.category === 'DELIVERY' && b.delivery_date !== undefined;
   const hasSubstantiveChange = substantiveFields.some(f => f in b) || logisticsDeliveryDateChange;
@@ -1031,7 +1106,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     }
 
     if (b.received_by !== undefined) data.receivedBy = b.received_by ?? null;
-  } else if (req.user!.role === 'LOGISTICS' || req.user!.role === 'ADMIN' || req.user!.role === 'TASS') {
+  } else if (req.user!.role === 'LOGISTICS' || req.user!.role === 'ADMIN') {
     if (req.user!.role === 'LOGISTICS' && existing.category === 'DELIVERY' && b.delivery_date !== undefined) {
       if (!isValidDateOnly(b.delivery_date)) return res.status(400).json({ error: 'Delivery Date must be a valid YYYY-MM-DD date.' });
       data.deliveryDate = b.delivery_date;
@@ -1080,7 +1155,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     // Sales Coordinator: metadata fields only (driver/vehicle/linkedCollection excluded by SoD)
     if (b.company_id !== undefined) data.companyId = b.company_id;
     if (b.priority !== undefined) data.priority = b.priority;
-    if (b.reference !== undefined) data.reference = b.reference;
+    if (b.reference !== undefined && existing.category !== 'RMA') data.reference = b.reference;
     if (b.remarks !== undefined) data.remarks = b.remarks;
     if (b.area !== undefined) data.area = b.area;
     if (b.account_manager !== undefined) data.accountManager = b.account_manager;
@@ -1103,17 +1178,45 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (b.address !== undefined) data.address = b.address;
   }
 
+  if (req.user!.role === 'TASS' && existing.category === 'RMA') {
+    if (b.priority !== undefined) data.priority = b.priority;
+    if (b.rma_reference !== undefined) data.rmaReference = typeof b.rma_reference === 'string' ? b.rma_reference.trim() || null : null;
+    if (b.area !== undefined) data.area = b.area;
+    if (b.address !== undefined) data.address = b.address;
+    if (b.account_manager !== undefined) data.accountManager = b.account_manager;
+    if (b.delivery_date !== undefined) data.deliveryDate = b.delivery_date;
+    if (b.item_type !== undefined) data.itemType = b.item_type;
+    if (b.is_draft !== undefined) data.draft = b.is_draft === 'Yes';
+    if (b.item_description !== undefined) data.itemDescription = b.item_description;
+    if (Array.isArray(b.line_items)) data.lineItems = { deleteMany: {}, create: b.line_items.map((li: any) => ({ sku: li.sku || li.description || '', quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1 })) };
+    if (b.rma_type !== undefined) data.rmaType = normalizeRmaCategory(b.rma_type);
+    if (b.purchase_date !== undefined) data.purchaseDate = b.purchase_date || null;
+    if (b.customer_contact_name !== undefined) data.customerContactName = typeof b.customer_contact_name === 'string' ? b.customer_contact_name.trim() || null : null;
+    if (b.customer_contact_email !== undefined) data.customerContactEmail = typeof b.customer_contact_email === 'string' ? b.customer_contact_email.trim() || null : null;
+    if (b.customer_contact_phone !== undefined) data.customerContactPhone = typeof b.customer_contact_phone === 'string' ? b.customer_contact_phone.trim() || null : null;
+  }
+
   if (existing.category === 'DELIVERY' && (req.user!.role === 'SALES_COORDINATOR' || req.user!.role === 'ADMIN') && b.delivery_date !== undefined && !isValidDateOnly(b.delivery_date)) {
     return res.status(400).json({ error: 'Delivery Date must be a valid YYYY-MM-DD date.' });
   }
 
   // Admin can correct the same full metadata exposed by the staff editor.
   if (req.user!.role === 'ADMIN') {
-    const metadata: Record<string, string> = { company_id: 'companyId', reference: 'reference', account_manager: 'accountManager', delivery_date: 'deliveryDate', item_type: 'itemType', item_description: 'itemDescription' };
+    const metadata: Record<string, string> = { company_id: 'companyId', account_manager: 'accountManager', delivery_date: 'deliveryDate', item_type: 'itemType', item_description: 'itemDescription' };
+    if (existing.category !== 'RMA') metadata.reference = 'reference';
     for (const [input, field] of Object.entries(metadata)) if (b[input] !== undefined) data[field] = b[input];
     if (b.amount !== undefined) data.amount = b.amount != null ? parseFloat(String(b.amount)) : null;
     if (Array.isArray(b.attachments) && b.attachments.length > 0) data.documentAttachment = b.attachments[0];
     if (Array.isArray(b.line_items)) data.lineItems = { deleteMany: {}, create: b.line_items.map((li: any) => ({ sku: li.sku || li.description || '', quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1 })) };
+    if (existing.category === 'RMA') {
+      if (b.reference !== undefined) return res.status(400).json({ error: 'Use rma_reference for the RMA document reference.' });
+      if (b.rma_reference !== undefined) data.rmaReference = typeof b.rma_reference === 'string' ? b.rma_reference.trim() || null : null;
+      if (b.rma_type !== undefined) data.rmaType = normalizeRmaCategory(b.rma_type);
+      if (b.purchase_date !== undefined) data.purchaseDate = b.purchase_date || null;
+      if (b.customer_contact_name !== undefined) data.customerContactName = typeof b.customer_contact_name === 'string' ? b.customer_contact_name.trim() || null : null;
+      if (b.customer_contact_email !== undefined) data.customerContactEmail = typeof b.customer_contact_email === 'string' ? b.customer_contact_email.trim() || null : null;
+      if (b.customer_contact_phone !== undefined) data.customerContactPhone = typeof b.customer_contact_phone === 'string' ? b.customer_contact_phone.trim() || null : null;
+    }
   }
   if (b.is_draft !== undefined) data.draft = b.is_draft === 'Yes';
   if (b.remarks !== undefined) data.remarks = String(b.remarks).trim();
@@ -1128,10 +1231,24 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (dateError) return { error: dateError, updated: null };
     if (data.priority !== undefined && data.priority !== current.priority && runState(current) === 'Delivered') return { error: PRIORITY_LOCKED_ERROR, updated: null };
     if (data.draft !== undefined && data.draft !== current.draft) {
-      if (!['SALES_COORDINATOR', 'ADMIN'].includes(req.user!.role)) return { error: 'Only Sales Coordinator or Admin may submit or return drafts.', updated: null };
+      if (!['SALES_COORDINATOR', 'ADMIN'].includes(req.user!.role) && !(req.user!.role === 'TASS' && current.category === 'RMA')) return { error: 'Only Sales Coordinator, TASS for RMA, or Admin may submit or return drafts.', updated: null };
       const invalid = transitionError(current, data.draft ? 'Draft' : 'Scheduled', req.user!.role);
       if (invalid) return { error: invalid, updated: null };
-      if (!data.draft && !String(data.reference ?? current.reference).trim()) return { error: 'Reference is required to submit the draft.', updated: null };
+      if (!data.draft && current.category === 'RMA') {
+        const rmaSubmission = {
+          priority: data.priority ?? current.priority,
+          area: data.area ?? current.area,
+          account_manager: data.accountManager ?? current.accountManager,
+          rma_reference: data.rmaReference ?? current.rmaReference,
+          rma_type: data.rmaType ?? current.rmaType,
+          purchase_date: data.purchaseDate ?? current.purchaseDate,
+          customer_contact_name: data.customerContactName ?? current.customerContactName,
+          customer_contact_email: data.customerContactEmail ?? current.customerContactEmail,
+          customer_contact_phone: data.customerContactPhone ?? current.customerContactPhone,
+        };
+        const rmaError = rmaInputError(rmaSubmission, true);
+        if (rmaError) return { error: rmaError, updated: null };
+      } else if (!data.draft && !String(data.reference ?? current.reference).trim()) return { error: 'Reference is required to submit the draft.', updated: null };
       data.status = 'SCHEDULED';
     }
     if (driverChange) {
@@ -1169,7 +1286,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if ((error as { code?: string })?.code === 'P2003' && data.companyId !== undefined) return { error: 'Select an existing Company.', updated: null };
     throw error;
   });
-  if (result.error) return res.status(result.error === 'Record not found' ? 404 : result.error === 'Record access denied' || result.error === 'Only Sales Coordinator or Admin may submit or return drafts.' ? 403 : 400).json({ error: result.error });
+  if (result.error) return res.status(result.error === 'Record not found' ? 404 : result.error === 'Record access denied' || result.error.startsWith('Only Sales Coordinator') ? 403 : 400).json({ error: result.error });
   const updated = result.updated!;
 
   // Notify the record creator (Sales Coordinator) when Logistics assigns a driver
@@ -1224,7 +1341,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   if (req.body.time_in !== undefined || req.body.time_out !== undefined) return res.status(400).json({ error: 'Use Record Time In or timestamp corrections; Time Out is recorded automatically on completion.' });
   if (received_by !== undefined && typeof received_by !== 'string') return res.status(400).json({ error: 'Received By must be a name.' });
   const hasPriority = priority !== undefined && priority !== '';
-  if (hasPriority && !['LOGISTICS', 'ADMIN'].includes(req.user!.role)) return res.status(403).json({ error: 'Your role cannot change record priority.' });
+  if (hasPriority && !['LOGISTICS', 'ADMIN', 'TASS'].includes(req.user!.role)) return res.status(403).json({ error: 'Your role cannot change record priority.' });
   if (hasPriority && !['1 - Low', '2 - Moderate', '3 - High'].includes(priority)) return res.status(400).json({ error: 'Invalid record priority.' });
   const newDeliveryDate = req.body.delivery_date;
   const hasNewDeliveryDate = newDeliveryDate !== undefined && newDeliveryDate !== null && newDeliveryDate !== '';
@@ -1263,7 +1380,21 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
       const error = transitionError(current, status as RunState, req.user!.role);
       if (error) return { error, saved: null, previous: null };
     }
-    if (current.draft && status === 'Scheduled' && !current.reference.trim()) return { error: 'Reference is required to submit the draft.', saved: null, previous: null };
+    if (current.draft && status === 'Scheduled' && current.category === 'RMA') {
+      const rmaError = rmaInputError({
+        priority: current.priority,
+        area: current.area,
+        account_manager: current.accountManager,
+        rma_reference: current.rmaReference,
+        rma_type: current.rmaType,
+        purchase_date: current.purchaseDate,
+        customer_contact_name: current.customerContactName,
+        customer_contact_email: current.customerContactEmail,
+        customer_contact_phone: current.customerContactPhone,
+      }, true);
+      if (rmaError) return { error: rmaError, saved: null, previous: null };
+    }
+    if (current.draft && status === 'Scheduled' && current.category !== 'RMA' && !current.reference.trim()) return { error: 'Reference is required to submit the draft.', saved: null, previous: null };
     const data: any = { ...(statusChanged ? { status: STATUS_TO_DB[status], draft: status === 'Draft' } : {}), remarks: remarks.trim(), modifiedById: req.user!.id };
     if (hasPriority) data.priority = priority;
     if (current.status === 'ACCOMPLISHED' && received_by !== undefined && !received_by.trim()) return { error: 'Received By is required on completed runs.', saved: null, previous: null };
@@ -1299,7 +1430,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     await tx.remarkLog.create({ data: { recordId: saved.id, body: remarks.trim(), context: 'STATUS_CHANGE', authorId: req.user!.id } });
     return { error: null, saved, previous: current };
   }, { timeout: 30_000, maxWait: 10_000 });
-  if (result.error) return res.status(result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' || result.error === 'Only Sales Coordinator or Admin may submit or return drafts.' ? 403 : 400).json({ error: result.error });
+  if (result.error) return res.status(result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' || result.error.startsWith('Only Sales Coordinator') ? 403 : 400).json({ error: result.error });
   const updated = result.saved!;
   if (result.previous!.draft && !updated.draft && updated.category === 'DELIVERY' && !String(updated.driver ?? '').trim()) {
     await notifyRole(

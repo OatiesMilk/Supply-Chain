@@ -10,7 +10,7 @@ export function transactionCategories(role: string): string[] {
     case 'DRIVER': return Object.keys(CATEGORY_SCREEN);
     case 'SALES_COORDINATOR': return ['DELIVERY', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'];
     case 'LOGISTICS': return ['DELIVERY', 'RMA', 'PROCUREMENT_PICKUP'];
-    case 'TASS': return ['ACCOUNTING_COLLECTION'];
+    case 'TASS': return ['RMA', 'ACCOUNTING_COLLECTION'];
     default: return [];
   }
 }

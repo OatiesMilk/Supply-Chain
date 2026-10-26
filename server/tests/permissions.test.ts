@@ -13,7 +13,7 @@ import transactionsRoutes from '../src/routes/transactions';
 import recordsRoutes from '../src/routes/records';
 import driversRoutes from '../src/routes/drivers';
 import { effectiveScreens, permissionEditor, permissionInputError, permissionSnapshot, replacePermissions, sessionUser, type Permission } from '../src/services/permissions';
-import { canWriteCategory, recordScope } from '../src/services/recordAccess';
+import { canCreateCategory, canWriteCategory, recordScope } from '../src/services/recordAccess';
 import type { AuthUser } from '../src/middleware/auth';
 
 afterEach(() => mock.restoreAll());
@@ -50,6 +50,40 @@ test('editor, login and restored sessions share defaults, overrides, catalog and
   assert.ok(permissionEditor(account('ADMIN')).roleDefaults.includes('inventory'));
   assert.ok(sessionUser(account('LOGISTICS', [{ screen: 'inventory', granted: true }])).effectiveScreens.includes('inventory'), 'Admin can grant SKU Master per user');
   assert.ok(!sessionUser(account('LOGISTICS', [{ screen: 'transactions', granted: false }])).resources.includes('skus'));
+});
+
+test('RMA access defaults keep Sales out, TASS as owner, Logistics read-only, and Admin unchanged', () => {
+  const sales = permissionEditor(account('SALES_COORDINATOR'));
+  assert.ok(!sales.roleDefaults.includes('rma'));
+  assert.ok(!sales.effectiveScreens.includes('rma'));
+  assert.ok(!sales.editableScreens.includes('rma'));
+  assert.ok(!effectiveScreens('SALES_COORDINATOR', [{ screen: 'rma', granted: true }]).includes('rma'));
+  assert.ok(!recordScope(sessionUser(account('SALES_COORDINATOR')) as AuthUser).category.in.includes('RMA'));
+  assert.equal(canWriteCategory(sessionUser(account('SALES_COORDINATOR')) as AuthUser, 'RMA'), false);
+
+  const logistics = permissionEditor(account('LOGISTICS'));
+  const logisticsUser = sessionUser(account('LOGISTICS')) as AuthUser;
+  assert.ok(logistics.roleDefaults.includes('rma'));
+  assert.ok(logistics.effectiveScreens.includes('rma'));
+  assert.ok(recordScope(logisticsUser).category.in.includes('RMA'));
+  assert.equal(canWriteCategory(logisticsUser, 'RMA'), false);
+  assert.equal(canCreateCategory(logisticsUser, 'RMA'), false);
+  assert.equal(canWriteCategory(logisticsUser, 'DELIVERY'), true, 'Logistics keeps its existing delivery operations');
+  assert.equal(canCreateCategory(logisticsUser, 'DELIVERY'), false, 'only Sales Coordinator/Admin create Deliveries');
+
+  const tass = permissionEditor(account('TASS'));
+  const tassUser = sessionUser(account('TASS')) as AuthUser;
+  assert.ok(tass.roleDefaults.includes('rma'));
+  assert.ok(tass.effectiveScreens.includes('rma'));
+  assert.ok(recordScope(tassUser).category.in.includes('RMA'));
+  assert.equal(canWriteCategory(tassUser, 'RMA'), true);
+  assert.equal(canCreateCategory(tassUser, 'RMA'), true);
+  assert.ok(recordScope(tassUser).category.in.includes('ACCOUNTING_COLLECTION'));
+
+  const admin = permissionEditor(account('ADMIN'));
+  assert.ok(admin.roleDefaults.includes('rma'));
+  assert.ok(canWriteCategory(sessionUser(account('ADMIN')) as AuthUser, 'RMA'));
+  assert.ok(canCreateCategory(sessionUser(account('ADMIN')) as AuthUser, 'DELIVERY'));
 });
 
 test('invalid, unknown and duplicate permission inputs fail validation', () => {

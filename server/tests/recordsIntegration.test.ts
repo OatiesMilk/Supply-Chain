@@ -41,6 +41,53 @@ const createUser = (role = 'SALES_COORDINATOR') => ({
   password: bcrypt.hashSync('test-password', 4),
 });
 
+test('Logistics cannot create a Delivery but retains access to existing Delivery operations', async () => {
+  const { url, close } = await setupApp();
+  const row = createUser('LOGISTICS');
+  const originalUserLookup = prisma.user.findUnique;
+  prisma.user.findUnique = mock.fn(async () => row) as any;
+
+  try {
+    const headers = { ...(await loginAs(url, row)), 'Content-Type': 'application/json' };
+    const response = await fetch(`${url}/records`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ company_id: 'comp-1', reference: 'SAP-1', category: 'Deliveries' }),
+    });
+    assert.equal(response.status, 403);
+    assert.match((await response.json() as any).error, /Only Sales Coordinator or Admin may create Deliveries/);
+  } finally {
+    prisma.user.findUnique = originalUserLookup;
+    await close();
+  }
+});
+
+test('RMA creation requires company, priority, area and account manager before database access', async () => {
+  const { url, close } = await setupApp();
+  const row = createUser('TASS');
+  const originalUserLookup = prisma.user.findUnique;
+  const originalCompanyLookup = prisma.company.findUnique;
+  const companyLookup = mock.fn(async () => ({ id: 'comp-1' }));
+  prisma.user.findUnique = mock.fn(async () => row) as any;
+  prisma.company.findUnique = companyLookup as any;
+
+  try {
+    const headers = { ...(await loginAs(url, row)), 'Content-Type': 'application/json' };
+    const complete = { company_id: 'comp-1', category: 'RMA', priority: '2 - Moderate', area: 'Carmona', account_manager: 'Alex AM' };
+    for (const is_draft of ['Yes', 'No']) {
+      for (const [field, error] of [['company_id', /company_id/], ['priority', /Priority is required/], ['area', /Area is required/], ['account_manager', /Account Manager is required/]] as const) {
+        const response = await fetch(`${url}/records`, { method: 'POST', headers, body: JSON.stringify({ ...complete, [field]: ' ', is_draft }) });
+        assert.equal(response.status, 400);
+        assert.match((await response.json() as any).error, error);
+      }
+    }
+    assert.equal(companyLookup.mock.callCount(), 0, 'invalid submissions are rejected before database lookup or write');
+  } finally {
+    prisma.user.findUnique = originalUserLookup;
+    prisma.company.findUnique = originalCompanyLookup;
+    await close();
+  }
+});
+
 test('Sales Coordinator cannot assign drivers when creating a record', async () => {
   const { url, close } = await setupApp();
   const row = createUser('SALES_COORDINATOR');

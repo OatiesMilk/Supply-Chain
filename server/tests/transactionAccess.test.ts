@@ -100,27 +100,27 @@ test('HTTP transaction reads enforce driver ownership, category, inventory denia
       const response = await get('/api/transactions' + query);
       assert.equal(response.status, 200);
       const body = await response.json() as any;
-      assert.equal(body.total, 3);
-      assert.deepEqual(body.transactions.map((txn: any) => txn.id), ['own', 'own-rma', 'collection']);
+      assert.equal(body.total, 2);
+      assert.deepEqual(body.transactions.map((txn: any) => txn.id), ['own', 'collection']);
     }
     const filtered = await get('/api/transactions?source=all&category=RMA');
     assert.equal(filtered.status, 200);
-    assert.deepEqual((await filtered.json() as any).transactions.map((txn: any) => txn.id), ['own-rma']);
+    assert.deepEqual((await filtered.json() as any).transactions.map((txn: any) => txn.id), []);
     const forged = await get('/api/transactions?category=FORGED_CATEGORY');
     assert.equal((await forged.json() as any).total, 0);
     const paged = await get('/api/transactions?source=all&limit=1');
     const pagedBody = await paged.json() as any;
-    assert.equal(pagedBody.total, 3);
+    assert.equal(pagedBody.total, 2);
     assert.equal(pagedBody.transactions.length, 1);
     assert.equal((await get('/api/transactions/delivery/own')).status, 200);
-    assert.equal((await get('/api/transactions/delivery/own-rma')).status, 200);
-    assert.equal(auditRead.mock.callCount(), 2);
+    assert.equal((await get('/api/transactions/delivery/own-rma')).status, 404);
+    assert.equal(auditRead.mock.callCount(), 1);
     for (const id of ['own-draft', 'other', 'unassigned', 'unknown-category', 'deleted', 'missing']) {
       const response = await get(`/api/transactions/delivery/${id}`);
       assert.equal(response.status, 404, id);
       assert.deepEqual(await response.json(), { error: 'Delivery record not found' });
     }
-    assert.equal(auditRead.mock.callCount(), 2, 'Denied records must not query audit history');
+    assert.equal(auditRead.mock.callCount(), 1, 'Denied records must not query audit history');
     for (const path of ['/api/transactions?source=inventory', '/api/transactions/inventory/known', '/api/transactions/inventory/missing', '/api/skus', '/api/skus/known']) {
       assert.equal((await get(path)).status, 403, path);
     }
@@ -145,7 +145,7 @@ test('HTTP transaction reads enforce driver ownership, category, inventory denia
 
     // Renaming the login changes presentation only; ownership stays on the profile id.
     user = { ...account(), name: 'Driver Two' };
-    assert.deepEqual((await (await get('/api/transactions')).json() as any).transactions.map((txn: any) => txn.id), ['own', 'own-rma', 'collection']);
+    assert.deepEqual((await (await get('/api/transactions')).json() as any).transactions.map((txn: any) => txn.id), ['own', 'collection']);
     // Relinking the login to another profile moves ownership immediately.
     user = account('DRIVER', [], { id: 'profile-two', type: 'DRIVER' });
     assert.deepEqual((await (await get('/api/transactions')).json() as any).transactions.map((txn: any) => txn.id), ['other']);

@@ -15,6 +15,7 @@ import crypto from 'node:crypto';
 import { hasStoredDeliveryPhoto, isPodPhoto, isVerifiedPodPhoto } from '../src/services/podPhotos';
 import { allowedStatuses, deliveryScheduleState, driverDeliveryDateError, isoTimestamp, manilaToday, timeInError, transitionError } from '../src/services/deliveryLifecycle';
 import { recordScope } from '../src/services/recordAccess';
+import { RMA_CATEGORIES } from '../src/services/rmaRules';
 
 const photo = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWMwTpsJAAICATMDms/iAAAAAElFTkSuQmCC', 'base64');
 const uploadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mg-pod-test-'));
@@ -71,7 +72,7 @@ afterEach(() => {
 });
 
 // Exercise the actual middleware/handlers in memory: no listener, live DB or email.
-async function request(method: string, path: string, options: { role?: string; authenticated?: boolean; body?: unknown; file?: unknown; attachmentId?: string; multipart?: Buffer; contentType?: string; router?: any } = {}) {
+async function request(method: string, path: string, options: { role?: string; authenticated?: boolean; body?: unknown; file?: unknown; attachmentId?: string; multipart?: Buffer; contentType?: string; router?: any; streamResponse?: boolean } = {}) {
   const actor = user(options.role);
   stub(prisma.user, 'findUnique', async () => actor as any);
   const route = (options.router ?? records).stack.find((layer: any) => layer.route?.path === path && layer.route.methods[method]).route;
@@ -81,10 +82,20 @@ async function request(method: string, path: string, options: { role?: string; a
   if (options.authenticated === false) req.cookies = {};
   return new Promise<{ status: number; body: any }>((resolve, reject) => {
     const timer = setTimeout(() => { req.destroy?.(); reject(new Error('In-memory request timed out')); }, 3000);
-    const res: any = { statusCode: 200, setHeader() {}, clearCookie() {},
+    const responseHeaders: Record<string, string> = {};
+    const streamChunks: Buffer[] = [];
+    const res: any = options.streamResponse ? new PassThrough() : {};
+    if (options.streamResponse) {
+      res.on('data', (chunk: Buffer) => streamChunks.push(Buffer.from(chunk)));
+      res.on('finish', () => { clearTimeout(timer); resolve({ status: res.statusCode, body: Buffer.concat(streamChunks), headers: responseHeaders }); });
+    }
+    Object.assign(res, { statusCode: 200, headersSent: false,
+      setHeader(name: string, value: string) { responseHeaders[name.toLowerCase()] = value; },
+      getHeader(name: string) { return responseHeaders[name.toLowerCase()]; },
+      clearCookie() {},
       status(code: number) { this.statusCode = code; return this; },
       json(body: unknown) { clearTimeout(timer); resolve({ status: this.statusCode, body }); return this; },
-      send(body: unknown) { clearTimeout(timer); resolve({ status: this.statusCode, body }); return this; } };
+      send(body: unknown) { clearTimeout(timer); resolve({ status: this.statusCode, body }); return this; } });
     let index = 0;
     const next = (error?: unknown) => {
       if (error) { clearTimeout(timer); return reject(error); }
@@ -102,12 +113,27 @@ function database(row = record(), files: any[] = []) {
   let saved = row;
   const events: string[] = [];
   const audit: any[] = []; const remarks: any[] = [];
-  const outOfScope = (scope: any) => !!scope?.id?.in || (scope?.driverId !== undefined && (scope.driverId !== saved.driverId || saved.draft));
+  const outOfScope = (scope: any) => !!scope?.id?.in ||
+    (Array.isArray(scope?.category?.in) && !scope.category.in.includes(saved.category)) ||
+    (scope?.category && typeof scope.category === 'string' && scope.category !== saved.category) ||
+    (scope?.driverId !== undefined && (scope.driverId !== saved.driverId || saved.draft));
   stub(prisma.deliveryRecord, 'findFirst', async ({ where }: any) => outOfScope(where.AND?.[0]) ? null : saved as any);
   const tx = {
     $executeRaw: async () => {},
     $queryRaw: async () => { events.push('lock'); return [{ id: saved.id }]; },
     deliveryRecord: {
+      create: async ({ data }: any) => {
+        events.push('create');
+        saved = {
+          ...saved,
+          ...data,
+          company: saved.company ?? { name: 'Test Company' },
+          createdBy: { name: 'Test User' },
+          modifiedBy: { name: 'Test User' },
+          lineItems: [],
+        };
+        return saved;
+      },
       findFirst: async ({ where }: any) => outOfScope(where.AND?.[0]) ? null : saved,
       findUnique: async () => saved,
       update: async ({ data }: any) => { events.push('update'); saved = { ...saved, ...data }; return saved; },
@@ -637,6 +663,45 @@ test('data sampler rejects manually requested In Transit or Delivered before dat
   assert.equal(companyRead.mock.callCount(), 0);
 });
 
+test('RMA samples never generate document references and preserve manually supplied values in the serialized field', async () => {
+  const cases = [
+    { module: 'rma', fields: undefined, expected: null },
+    { module: 'rma', fields: { reference: '00042 / manual-Ref', rma_type: 'Return to Customer', item_type: 'Unit', status: 'Scheduled' }, expected: '00042 / manual-Ref' },
+    { module: 'rma', fields: { rma_reference: '00000-A', rma_type: 'Others' }, expected: '00000-A' },
+    { module: 'rma', fields: { rma_reference: '', rma_type: '' }, expected: null },
+    { module: 'deliveries', fields: { reference: '00077', status: 'Scheduled' }, expected: '00077' },
+  ];
+  for (const entry of cases) {
+    resetFixtures();
+    const state = database();
+    stub(prisma.company, 'findMany', async () => [{ id: 'company-1', name: 'Test Company' }] as any);
+    stub(prisma.driver, 'findMany', async () => [] as any);
+    const response = await request('post', '/generate', { role: 'ADMIN', router: sampler,
+      body: { module: entry.module, count: 1, fields: entry.fields } });
+    assert.equal(response.status, 201);
+    const saved = response.body.records[0];
+    assert.equal(saved.reference, entry.expected ?? '');
+    assert.equal(state.saved().status, 'SCHEDULED');
+    assert.equal(state.audit[0].changedById, 'test-user');
+    if (entry.module === 'rma') {
+      assert.equal(state.saved().reference, '');
+      assert.equal(state.saved().rmaReference, entry.expected);
+      assert.equal(saved.rma_reference, entry.expected);
+      assert.ok(saved.rma_type === null || RMA_CATEGORIES.includes(saved.rma_type));
+      assert.ok(['Small Item', 'Unit'].includes(saved.item_type));
+      assert.equal(JSON.parse(state.audit[0].newValue).rma_reference, entry.expected);
+    }
+  }
+});
+
+test('RMA sampler rejects unsupported categories and item types before database work', async () => {
+  const companyRead = stub(prisma.company, 'findMany', async () => { throw new Error('Unexpected database read'); });
+  for (const fields of [{ rma_type: 'Unsupported' }, { item_type: 'Medium Item' }, { rma_reference: 123 }]) {
+    assert.equal((await request('post', '/generate', { role: 'ADMIN', router: sampler, body: { module: 'rma', fields } })).status, 400);
+  }
+  assert.equal(companyRead.mock.callCount(), 0);
+});
+
 test('Admin can fill a draft reference with remarks and submit, preserving assignment', async () => {
   const state = database(record({ draft: true, status: 'SCHEDULED', timeIn: null, reference: '' }));
   assert.equal((await request('patch', '/:id/status', { role: 'ADMIN', body: { status: 'Scheduled', remarks: 'Submit' } })).status, 400);
@@ -817,6 +882,151 @@ test('Logistics RMA write restrictions remain enforced for status, edit and uplo
   }
 });
 
+test('RMA accepts only the four required fields and can submit without optional details', async () => {
+  for (const isDraft of [false, true]) {
+    resetFixtures();
+    const state = database();
+    stub(prisma.company, 'findUnique', async () => ({ id: 'company-1' }) as any);
+    const created = await request('post', '/', { role: 'TASS', body: {
+      company_id: 'company-1', category: 'RMA', priority: '2 - Moderate', area: 'Carmona',
+      account_manager: 'Alex AM', is_draft: isDraft ? 'Yes' : 'No',
+    } });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.rma_reference, null);
+    assert.equal(created.body.purchase_date, null);
+    assert.equal(created.body.customer_contact_name, null);
+    assert.equal(created.body.delivery_date, '');
+    if (isDraft) {
+      const submitted = await request('patch', '/:id/status', { role: 'TASS', body: { status: 'Scheduled', remarks: 'Submit with confirmed required fields' } });
+      assert.equal(submitted.status, 200);
+      assert.equal(submitted.body.is_draft, 'No');
+    }
+    for (const field of ['area', 'account_manager', 'priority']) {
+      const before = { ...state.saved() };
+      const rejected = await request('put', '/:id', { role: 'TASS', body: { [field]: '', remarks: 'Clear a required field' } });
+      assert.equal(rejected.status, 400);
+      assert.deepEqual(state.saved(), before);
+    }
+  }
+});
+
+test('all seven RMA categories save with the exact manually supplied reference', async () => {
+  for (const category of RMA_CATEGORIES) {
+    resetFixtures();
+    const state = database();
+    stub(prisma.company, 'findUnique', async () => ({ id: 'company-1' }) as any);
+    const created = await request('post', '/', { role: 'TASS', body: {
+      company_id: 'company-1', category: 'RMA', priority: '2 - Moderate', area: 'Carmona', account_manager: 'Alex AM',
+      rma_type: category, rma_reference: '00042 / manual-Ref', item_type: 'Unit',
+    } });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.rma_type, category);
+    assert.equal(created.body.rma_reference, '00042 / manual-Ref');
+    assert.equal(state.saved().rmaReference, '00042 / manual-Ref');
+    assert.equal(state.saved().rmaType, category);
+  }
+});
+
+test('earlier RMA category labels remain readable without rewriting saved data', async () => {
+  const state = database(record({ category: 'RMA', rmaType: 'Pull out', rmaReference: '00042' }));
+  const response = await request('get', '/:id', { role: 'TASS' });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.rma_type, 'Pull-Out Slip');
+  assert.equal(response.body.rma_reference, '00042');
+  assert.equal(state.saved().rmaType, 'Pull out');
+  assert.deepEqual(state.events, []);
+});
+
+test('TASS creates, edits, submits and changes priority/status for an RMA record', async () => {
+  const state = database();
+  stub(prisma.company, 'findUnique', async () => ({ id: 'company-1' }) as any);
+  const created = await request('post', '/', { role: 'TASS', body: {
+    company_id: 'company-1', category: 'RMA', rma_reference: 'RMA-DOC-042', is_draft: 'Yes',
+    rma_type: 'Pull-Out Slip', purchase_date: '2026-08-04', customer_contact_name: 'Casey Customer',
+    customer_contact_email: 'casey@example.com', customer_contact_phone: '+63 900 123 4567',
+    priority: '2 - Moderate', area: 'BGC', address: '1 Demo Street', account_manager: 'Alex AM',
+    delivery_date: '2026-10-26', item_type: 'Unit', item_description: 'Monitor return',
+  } });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.category, 'RMA');
+  assert.equal(created.body.is_draft, 'Yes');
+  assert.equal(created.body.reference, 'RMA-DOC-042');
+  assert.equal(created.body.rma_reference, 'RMA-DOC-042');
+  assert.equal(created.body.rma_type, 'Pull-Out Slip');
+  assert.equal(created.body.purchase_date, '2026-08-04');
+  assert.equal(created.body.customer_contact_name, 'Casey Customer');
+  assert.equal(created.body.customer_contact_email, 'casey@example.com');
+  assert.equal(created.body.customer_contact_phone, '+63 900 123 4567');
+  assert.equal(state.audit[0].changedById, 'test-user');
+
+  const edited = await request('put', '/:id', { role: 'TASS', body: {
+    rma_type: 'Return to Supplier', purchase_date: '2026-08-12',
+    customer_contact_name: 'Jordan Customer', customer_contact_email: 'jordan@example.com',
+    customer_contact_phone: '+63 900 555 0101', priority: '3 - High', remarks: 'Supplier return details updated',
+  } });
+  assert.equal(edited.status, 200);
+  assert.equal(edited.body.rma_type, 'Return to Supplier');
+  assert.equal(edited.body.purchase_date, '2026-08-12');
+  assert.equal(edited.body.customer_contact_name, 'Jordan Customer');
+  assert.equal(edited.body.customer_contact_email, 'jordan@example.com');
+  assert.equal(edited.body.customer_contact_phone, '+63 900 555 0101');
+  assert.equal(edited.body.priority, '3 - High');
+
+  const submitted = await request('patch', '/:id/status', { role: 'TASS', body: { status: 'Scheduled', remarks: 'RMA document submitted' } });
+  assert.equal(submitted.status, 200);
+  assert.equal(submitted.body.is_draft, 'No');
+  assert.equal(submitted.body.status, 'Scheduled');
+
+  const statusAndPriority = await request('patch', '/:id/status', { role: 'TASS', body: { status: 'On-Hold', priority: '1 - Low', remarks: 'Awaiting supplier response' } });
+  assert.equal(statusAndPriority.status, 200);
+  assert.equal(statusAndPriority.body.status, 'On-Hold');
+  assert.equal(statusAndPriority.body.priority, '1 - Low');
+  assert.ok(state.audit.every(entry => entry.changedById === 'test-user'));
+});
+
+test('Sales Coordinator cannot read, create or update RMA records', async () => {
+  let state = database(record({ category: 'RMA' }));
+  assert.equal((await request('get', '/:id', { role: 'SALES_COORDINATOR' })).status, 403);
+  assert.equal((await request('put', '/:id', { role: 'SALES_COORDINATOR', body: { remarks: 'Not allowed' } })).status, 403);
+  assert.equal(state.events.includes('update'), false);
+
+  resetFixtures();
+  state = database();
+  const create = await request('post', '/', { role: 'SALES_COORDINATOR', body: {
+    company_id: 'company-1', category: 'RMA', reference: 'RMA-DOC-043', delivery_date: '2026-10-26',
+  } });
+  assert.equal(create.status, 403);
+  assert.equal(state.events.includes('create'), false);
+});
+
+test('Logistics can read an RMA record and preview its saved PDF but cannot edit it', async () => {
+  const state = database(record({ category: 'RMA' }), [attachment({ id: 'rma-pdf', originalName: 'rma.pdf', mimeType: 'application/pdf' })]);
+  const details = await request('get', '/:id', { role: 'LOGISTICS' });
+  assert.equal(details.status, 200);
+  assert.equal(details.body.category, 'RMA');
+  const listed = await request('get', '/:id/attachments', { role: 'LOGISTICS' });
+  assert.equal(listed.status, 200);
+  assert.equal(listed.body[0].preview_url, '/api/records/delivery-1/attachments/rma-pdf/preview');
+
+  stub(prisma.podAttachment, 'findFirst', async () => attachment({ id: 'rma-pdf', originalName: 'rma.pdf', mimeType: 'application/pdf' }) as any);
+  const pdf = Buffer.from('%PDF-1.7 test document');
+  const source = new PassThrough();
+  source.end(pdf);
+  const open = stub(podStorage, 'open', async () => source as any);
+  const preview = await request('get', '/:id/attachments/:attachmentId/preview', {
+    role: 'LOGISTICS', attachmentId: 'rma-pdf', streamResponse: true,
+  });
+  assert.equal(preview.status, 200);
+  assert.deepEqual(preview.body, pdf);
+  assert.match(preview.headers['content-disposition'], /^inline;/);
+  assert.equal(open.mock.callCount(), 1);
+
+  const before = state.events.length;
+  const edit = await request('put', '/:id', { role: 'LOGISTICS', body: { remarks: 'Not allowed' } });
+  assert.equal(edit.status, 403);
+  assert.equal(state.events.slice(before).includes('update'), false);
+});
+
 test('protected status, edit and upload routes reject unauthenticated requests without mutations', async () => {
   for (const [method, path] of [['patch', '/:id/status'], ['put', '/:id'], ['post', '/:id/attachments']]) {
     resetFixtures();
@@ -933,8 +1143,13 @@ test('Logistics RMA discussion is readable but comment writes are denied without
   assert.deepEqual(state.events, []);
 });
 
-test('authorized RMA comments preserve the named actor without change remarks and reject blank discussion', async () => {
-  for (const role of ['SALES_COORDINATOR', 'ADMIN', 'DRIVER', 'TASS']) {
+test('RMA comments are limited to TASS and Admin and reject blank discussion', async () => {
+  for (const role of ['SALES_COORDINATOR', 'DRIVER']) {
+    resetFixtures();
+    database(record({ category: 'RMA' }));
+    assert.equal((await request('post', '/:id/comments', { role, body: { body: ' Optional discussion ' } })).status, 403);
+  }
+  for (const role of ['ADMIN', 'TASS']) {
     resetFixtures();
     const state = database(record({ category: 'RMA' }));
     const create = stub(prisma.comment, 'create', async ({ data }: any) => ({ ...data, id: 'comment-1', author: { name: 'Assigned Driver' }, createdAt: new Date(), updatedAt: new Date() }) as any);
@@ -1009,13 +1224,13 @@ test('document uploads are verified by content and stored under the server-deriv
   assert.equal(mislabelled.status, 201);
   assert.equal(create.mock.calls[1].arguments[0].data.mimeType, 'application/pdf');
 
-  // Word documents, modern and legacy, are accepted on their content too.
+  // DOCX can be previewed in the app; legacy DOC is rejected for new uploads.
   const wordType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-  for (const [bytes, name, type] of [[docx(), 'Letter.DOCX', wordType], [oleFile('WordDocument'), 'letter.doc', 'application/msword']] as const) {
-    const word = await request('post', '/:id/attachments', { file: uploaded(bytes, name, type) });
-    assert.equal(word.status, 201, name);
-    assert.equal(create.mock.calls.at(-1)!.arguments[0].data.mimeType, type);
-  }
+  const word = await request('post', '/:id/attachments', { file: uploaded(docx(), 'Letter.DOCX', wordType) });
+  assert.equal(word.status, 201, 'DOCX should be accepted');
+  assert.equal(create.mock.calls.at(-1)!.arguments[0].data.mimeType, wordType);
+  const legacyWord = await request('post', '/:id/attachments', { file: uploaded(oleFile('WordDocument'), 'letter.doc', 'application/msword') });
+  assert.equal(legacyWord.status, 400, 'legacy DOC should be rejected for new uploads because it cannot be previewed');
 
   const rejected: Array<[string, Buffer, string, string]> = [
     ['archive renamed to DOCX', zipOf([{ name: 'setup.exe', content: 'MZ' }]), 'invoice.docx', wordType],
@@ -1037,8 +1252,8 @@ test('document uploads are verified by content and stored under the server-deriv
     assert.match(response.body.error, /not a valid|Unsupported file type/, name);
     assert.equal(fs.existsSync(file.path), false, `${name}: quarantined file removed`);
   }
-  assert.equal(save.mock.callCount(), 4);
-  assert.equal(create.mock.callCount(), 4);
+  assert.equal(save.mock.callCount(), 3);
+  assert.equal(create.mock.callCount(), 3);
 });
 
 test('a record at its attachment quota refuses another file before anything is stored', async () => {
