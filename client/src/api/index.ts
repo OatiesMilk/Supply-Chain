@@ -101,6 +101,8 @@ export interface RecordListFilters {
   search?: string;
   driver?: string;
   area?: string;
+  region?: string;
+  subregion?: string;
   account_manager?: string;
   priority?: string;
   dashboard_filter?: string;

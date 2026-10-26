@@ -252,6 +252,8 @@ export default function DeliveryRecordsView({
     if (tassDateFrom || appliedDateFrom) params.set('deliveryDateFrom', tassDateFrom || appliedDateFrom);
     if (tassDateTo || appliedDateTo) params.set('deliveryDateTo', tassDateTo || appliedDateTo);
     if (areaFilter !== 'All Areas') params.set('area', areaFilter);
+    if (regionFilter !== 'All Regions') params.set('region', regionFilter);
+    if (subregionFilter !== 'All Subregions') params.set('subregion', subregionFilter);
     if (driverFilter) params.set('driver', driverFilter);
     if (statusFilter !== 'All') params.set('status', statusFilter);
 
@@ -260,7 +262,7 @@ export default function DeliveryRecordsView({
       .then(data => { if (active) setStatusHistoryCounts(data ?? undefined); })
       .catch(() => { if (active) setStatusHistoryCounts(undefined); });
     return () => { active = false; };
-  }, [category, dateRangeError, appliedDateFrom, appliedDateTo, tassDateFrom, tassDateTo, areaFilter, driverFilter, statusFilter]);
+  }, [category, dateRangeError, appliedDateFrom, appliedDateTo, tassDateFrom, tassDateTo, areaFilter, regionFilter, subregionFilter, driverFilter, statusFilter]);
 
 
 
@@ -304,7 +306,7 @@ export default function DeliveryRecordsView({
     if (areaFilter !== 'All Areas' && r.area !== areaFilter) return false;
     if (statusFilter !== 'All' && r.status !== statusFilter) return false;
     if (amFilter && !r.account_manager.toLowerCase().includes(amFilter.toLowerCase())) return false;
-    if (driverFilter && r.driver.toLowerCase() !== driverFilter.toLowerCase()) return false;
+    if (driverFilter && !r.driver.toLowerCase().includes(driverFilter.toLowerCase())) return false;
     if (appliedDateFrom && (!r.delivery_date || r.delivery_date < appliedDateFrom)) return false;
     if (appliedDateTo && (!r.delivery_date || r.delivery_date > appliedDateTo)) return false;
     const q = searchQuery.toLowerCase();
@@ -359,12 +361,15 @@ export default function DeliveryRecordsView({
 
   const { data: pagedData, isLoading: pagedLoading } = usePagedRecordsQuery({
     category,
+    dateSort,
     page: currentPage,
     limit: pageSize,
     status: effectiveStatusFilter,
     search: searchQuery || undefined,
     driver: driverFilter || undefined,
     area: effectiveAreaFilter,
+    region: regionFilter !== 'All Regions' ? regionFilter : undefined,
+    subregion: subregionFilter !== 'All Subregions' ? subregionFilter : undefined,
     account_manager: effectiveAmFilter,
     dateFrom: effectiveDateFrom,
     dateTo: effectiveDateTo,
@@ -573,6 +578,8 @@ export default function DeliveryRecordsView({
       search: searchQuery || undefined,
       driver: driverFilter || undefined,
       area: effectiveAreaFilter,
+      region: regionFilter !== 'All Regions' ? regionFilter : undefined,
+      subregion: subregionFilter !== 'All Subregions' ? subregionFilter : undefined,
       account_manager: effectiveAmFilter,
       dateFrom: effectiveDateFrom,
       dateTo: effectiveDateTo,
