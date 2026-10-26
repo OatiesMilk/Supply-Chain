@@ -11,7 +11,7 @@ import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActio
 import { api, ApiAuditEntry, ApiComment, ApiCompany, ApiRemarkLog } from '@/api';
 import { printSingleManifest, ManifestDocumentationData } from '@/features/deliveries/DeliveryManifest';
 import { rankDriversByCoverage } from '@/utils/driverCoverage';
-import { DRIVERS, driverIdForName,DRIVER_ASSISTANTS, DELIVERY_STATUSES, AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, ACCOUNT_MANAGERS, DRIVER_COVERAGE_AREAS, getSubregion, getNearbyAreas } from '@/data';
+import { DRIVERS, driverIdForName,DRIVER_ASSISTANTS, DELIVERY_STATUSES, AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, RMA_ITEM_TYPES, ACCOUNT_MANAGERS, DRIVER_COVERAGE_AREAS, getSubregion, getNearbyAreas } from '@/data';
 import ComboboxField from '@/components/ComboboxField';
 import { Pencil, X as XIcon, Save, Plus } from 'lucide-react';
 import { getOutputTrigger, runOutputActions } from '@/outputActions';
@@ -23,6 +23,8 @@ import { PodAttachmentList } from '@/components/PodAttachmentPreview';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
 import type { StagedFile } from '@/utils/idbFiles';
 import { completionError } from '@/utils/podRequirement';
+import { submissionErrors } from '@/utils/recordLifecycle';
+import { RMA_CATEGORIES, type RmaCategory } from '@/utils/rma';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
 import DocumentSizeSelect from '@/components/DocumentSizeSelect';
 import { CompanyHistoryButton } from '@/components/CompanyHistoryPanel';
@@ -91,12 +93,12 @@ interface TabDef {
 }
 
 const ALL_TABS: TabDef[] = [
-  { id: 'general',   label: 'Overview',        icon: ClipboardList,  roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
-  { id: 'actions',   label: 'Dispatch & Logistics', icon: UserPlus, roles: ['Logistics', 'Admin'] },
-  { id: 'comments',  label: 'Comments',        icon: MessagesSquare, roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
-  { id: 'remarks',   label: 'Remarks History', icon: ScrollText,     roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
-  { id: 'audit',     label: 'Audit Trail',     icon: History,        roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
-  { id: 'documents', label: 'Documents',       icon: FolderOpen,     roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
+  { id: 'general',   label: 'Overview',        icon: ClipboardList,  roles: ['Sales Coordinator', 'Logistics', 'TASS', 'Admin'] },
+  { id: 'actions',   label: 'Status & Actions', icon: UserPlus, roles: ['Logistics', 'TASS', 'Admin'] },
+  { id: 'comments',  label: 'Comments',        icon: MessagesSquare, roles: ['Sales Coordinator', 'Logistics', 'TASS', 'Admin'] },
+  { id: 'remarks',   label: 'Remarks History', icon: ScrollText,     roles: ['Sales Coordinator', 'Logistics', 'TASS', 'Admin'] },
+  { id: 'audit',     label: 'Audit Trail',     icon: History,        roles: ['Sales Coordinator', 'Logistics', 'TASS', 'Admin'] },
+  { id: 'documents', label: 'Documents',       icon: FolderOpen,     roles: ['Sales Coordinator', 'Logistics', 'TASS', 'Admin'] },
 ];
 
 // ─── Scaffold empty-state tab ─────────────────────────────────────────────────
@@ -124,6 +126,11 @@ type EditDraft = {
   account_manager: string; delivery_date: string;
   item_type: ItemType; is_draft: 'Yes' | 'No'; remarks: string; item_description: string; line_items: { sku: string, quantity: number }[];
   address: string;
+  rma_type: RmaCategory | '';
+  purchase_date: string;
+  customer_contact_name: string;
+  customer_contact_email: string;
+  customer_contact_phone: string;
 };
 
 function GeneralTab({
@@ -140,19 +147,21 @@ function GeneralTab({
   readOnly?: boolean;
 }) {
   // SC can edit all fields while the record is still Scheduled; Logistics can always edit Area + Address
-  const canEditFull = !readOnly && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && (record.status === 'Scheduled' || isDraftRecord(record));
-  const canManageDraft = !readOnly && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && !record.time_in;
+  const tassRma = currentUserRole === 'TASS' && record.category === 'RMA';
+  const canEditFull = !readOnly && (tassRma || ((currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && (record.status === 'Scheduled' || isDraftRecord(record))));
+  const canManageDraft = !readOnly && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin' || tassRma) && !record.time_in;
   const [lifecycleRemarks, setLifecycleRemarks] = useState('');
   const [returnToDraftOpen, setReturnToDraftOpen] = useState(false);
   const canEditAreaAddress = !readOnly && currentUserRole === 'Logistics' && record.category !== 'RMA';
   const canEditDeliveryDate = !readOnly && currentUserRole === 'Logistics' && record.category === 'Deliveries';
   const priorityLocked = isPriorityLocked(record);
-  const canEditPriority = !readOnly && !priorityLocked && ((currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') || (currentUserRole === 'Logistics' && record.category !== 'RMA'));
+  const canEditPriority = !readOnly && !priorityLocked && ((currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') || (currentUserRole === 'Logistics' && record.category !== 'RMA') || tassRma);
   const canEdit = canEditFull || canEditAreaAddress || canEditDeliveryDate || canEditPriority;
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [remarksError, setRemarksError] = useState(false);
+  const [rmaErrors, setRmaErrors] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState<EditDraft>({
     priority: record.priority,
     reference: record.reference,
@@ -167,6 +176,11 @@ function GeneralTab({
     item_description: record.item_description || '',
     address: record.address ?? '',
     line_items: record.line_items || [],
+    rma_type: record.rma_type ?? '',
+    purchase_date: record.purchase_date ?? '',
+    customer_contact_name: record.customer_contact_name ?? '',
+    customer_contact_email: record.customer_contact_email ?? '',
+    customer_contact_phone: record.customer_contact_phone ?? '',
   });
   useWorkspaceDraft('general', editing || !!lifecycleRemarks, saving);
 
@@ -186,7 +200,12 @@ function GeneralTab({
       remarks: record.remarks || '',
       item_description: record.item_description || '',
       address: record.address ?? '',
-    line_items: record.line_items || [],
+      line_items: record.line_items || [],
+      rma_type: record.rma_type ?? '',
+      purchase_date: record.purchase_date ?? '',
+      customer_contact_name: record.customer_contact_name ?? '',
+      customer_contact_email: record.customer_contact_email ?? '',
+      customer_contact_phone: record.customer_contact_phone ?? '',
     });
   }, [record.id]);
 
@@ -194,6 +213,7 @@ function GeneralTab({
 
   const handleStartEdit = () => {
     setRemarksError(false);
+    setRmaErrors({});
     // A bulk priority change can update this record while the workspace stays open.
     setDraft(d => ({ ...d, priority: record.priority }));
     // Keep the saved note in read mode; every edit starts with a fresh reason.
@@ -202,6 +222,34 @@ function GeneralTab({
   };
 
   const handleSave = async () => {
+    setRmaErrors({});
+    if (canEditFull && record.category === 'RMA') {
+      const validation = submissionErrors({
+        company_name: record.company_name ?? '',
+        company_id: record.company_id ?? '',
+        reference: '',
+        rma_reference: draft.reference,
+        delivery_date: draft.delivery_date,
+        category: 'RMA',
+        priority: draft.priority,
+        area: draft.area,
+        account_manager: draft.account_manager,
+        rma_type: draft.rma_type,
+        purchase_date: draft.purchase_date,
+        customer_contact_name: draft.customer_contact_name,
+        customer_contact_email: draft.customer_contact_email,
+        customer_contact_phone: draft.customer_contact_phone,
+      }, false);
+      const fieldErrors: Record<string, string> = {};
+      if (validation.reference) fieldErrors.rma_reference = validation.reference;
+      for (const field of ['priority', 'area', 'account_manager', 'customer_contact_email']) {
+        if (validation[field]) fieldErrors[field] = validation[field];
+      }
+      if (Object.keys(fieldErrors).length) {
+        setRmaErrors(fieldErrors);
+        return;
+      }
+    }
     if (!draft.remarks.trim()) {
       setRemarksError(true);
       return;
@@ -211,7 +259,8 @@ function GeneralTab({
     const updates: any = { remarks: draft.remarks };
     if (canEditFull) {
       updates.priority = draft.priority;
-      updates.reference = draft.reference;
+      if (record.category === 'RMA') updates.rma_reference = draft.reference.trim() || null;
+      else updates.reference = draft.reference;
       updates.area = draft.area;
       updates.vehicle = draft.vehicle;
       updates.account_manager = draft.account_manager;
@@ -220,6 +269,13 @@ function GeneralTab({
       updates.item_description = draft.item_description;
       updates.line_items = draft.line_items;
       updates.address = draft.address;
+      if (record.category === 'RMA') {
+        updates.rma_type = draft.rma_type || null;
+        updates.purchase_date = draft.purchase_date || null;
+        updates.customer_contact_name = draft.customer_contact_name || null;
+        updates.customer_contact_email = draft.customer_contact_email || null;
+        updates.customer_contact_phone = draft.customer_contact_phone || null;
+      }
     } else {
       if (canEditAreaAddress) {
         updates.area = draft.area;
@@ -259,13 +315,20 @@ function GeneralTab({
       remarks: record.remarks || '',
       item_description: record.item_description || '',
       address: record.address ?? '',
-    line_items: record.line_items || [],
+      line_items: record.line_items || [],
+      rma_type: record.rma_type ?? '',
+      purchase_date: record.purchase_date ?? '',
+      customer_contact_name: record.customer_contact_name ?? '',
+      customer_contact_email: record.customer_contact_email ?? '',
+      customer_contact_phone: record.customer_contact_phone ?? '',
     });
     setRemarksError(false);
+    setRmaErrors({});
     setEditing(false);
   };
 
   const inputCls = 'w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]';
+  const fieldInputCls = (field: string) => `${inputCls}${rmaErrors[field] ? ' border-red-500 bg-red-50' : ''}`;
   const labelCls = 'text-[10px] text-slate-400 uppercase tracking-widest font-bold';
 
   return (
@@ -326,7 +389,8 @@ function GeneralTab({
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-xs">
               {[
-                { label: 'Reference (SAP)', value: record.reference },
+                { label: record.category === 'RMA' ? 'RMA Document Reference' : 'Reference (SAP)', value: record.category === 'RMA' ? (record.rma_reference ?? record.reference) : record.reference },
+                ...(record.category === 'RMA' && record.legacy_sap_reference ? [{ label: 'Legacy SAP Reference', value: record.legacy_sap_reference }] : []),
                 { label: 'Area',            value: record.area },
                 { label: 'Address',         value: record.address || '—' },
                 { label: 'Vehicle',         value: record.vehicle || '—' },
@@ -340,19 +404,21 @@ function GeneralTab({
                 { label: 'Created At',      value: record.created_at ? formatTs(record.created_at) : '—' },
                 { label: 'Item Type',       value: record.item_type },
                 { label: 'Draft',           value: record.is_draft },
+                ...(record.category === 'RMA' ? [
+                  { label: 'Category', value: record.rma_type || '—' },
+                  { label: 'Purchase Date', value: record.purchase_date || '—' },
+                  { label: 'Customer Contact Name', value: record.customer_contact_name || '—' },
+                  { label: 'Customer Contact Email', value: record.customer_contact_email || '—' },
+                  { label: 'Customer Contact Phone', value: record.customer_contact_phone || '—' },
+                ] : []),
+                { label: 'Priority', value: record.priority },
               ].map(row => (
                 <div key={row.label} className="flex flex-col gap-0.5">
                   <span className={labelCls}>{row.label}</span>
                   <span className="font-semibold text-slate-800">{row.value}</span>
                 </div>
               ))}
-              {priorityLocked && (
-                <div className="flex flex-col gap-0.5">
-                  <span className={labelCls}>Priority</span>
-                  <span className="font-semibold text-slate-800">{record.priority}</span>
-                  <span className="text-[11px] text-slate-500">{PRIORITY_LOCKED_NOTE}</span>
-                </div>
-              )}
+              {priorityLocked && <p className="text-[11px] text-slate-500">{PRIORITY_LOCKED_NOTE}</p>}
             </div>
             {record.remarks && (
               <div className="mt-4 pt-4 border-t border-slate-100">
@@ -385,10 +451,11 @@ function GeneralTab({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {canEditPriority && (
                 <div className="space-y-1">
-                  <label className={labelCls}>Priority</label>
-                  <select value={draft.priority} onChange={e => set('priority', e.target.value as PriorityLevel)} className={inputCls}>
+                  <label className={labelCls}>Priority{record.category === 'RMA' ? ' *' : ''}</label>
+                  <select value={draft.priority} onChange={e => set('priority', e.target.value as PriorityLevel)} className={fieldInputCls('priority')} aria-invalid={!!rmaErrors.priority}>
                     {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
+                  {rmaErrors.priority && <p className="text-[11px] text-red-600">{rmaErrors.priority}</p>}
                 </div>
               )}
               {priorityLocked && (
@@ -400,15 +467,91 @@ function GeneralTab({
               )}
               {canEditFull && (
                 <div className="space-y-1">
-                  <label className={labelCls}>Reference (SAP)</label>
-                  <input type="text" value={draft.reference} onChange={e => set('reference', e.target.value)} className={inputCls} />
+                  <label className={labelCls}>
+                    {record.category === 'RMA' ? 'RMA Document Reference' : 'Reference (SAP)'}
+                    {record.category === 'RMA' && ' (optional)'}
+                  </label>
+                  <input
+                    type="text"
+                    value={draft.reference}
+                    onChange={e => { set('reference', e.target.value); setRmaErrors(errors => ({ ...errors, rma_reference: '' })); }}
+                    className={record.category === 'RMA' ? fieldInputCls('rma_reference') : inputCls}
+                    aria-invalid={record.category === 'RMA' ? !!rmaErrors.rma_reference : undefined}
+                    aria-describedby={rmaErrors.rma_reference ? 'rma-reference-error' : undefined}
+                  />
+                  {rmaErrors.rma_reference && <p id="rma-reference-error" className="text-[11px] text-red-600">{rmaErrors.rma_reference}</p>}
                 </div>
               )}
+              {canEditFull && record.category === 'RMA' && <>
+                <div className="space-y-1">
+                  <label className={labelCls}>Category <span className="normal-case tracking-normal font-normal">(optional)</span></label>
+                  <select
+                    value={draft.rma_type}
+                    onChange={e => { set('rma_type', e.target.value as EditDraft['rma_type']); setRmaErrors(errors => ({ ...errors, rma_type: '' })); }}
+                    className={fieldInputCls('rma_type')}
+                    aria-invalid={!!rmaErrors.rma_type}
+                    aria-describedby={rmaErrors.rma_type ? 'rma-category-error' : undefined}
+                  >
+                    <option value="">— Select —</option>
+                    {RMA_CATEGORIES.map(value => <option key={value} value={value}>{value}</option>)}
+                  </select>
+                  {rmaErrors.rma_type && <p id="rma-category-error" className="text-[11px] text-red-600">{rmaErrors.rma_type}</p>}
+                </div>
+                <div className="space-y-1">
+                  <label className={labelCls}>Purchase Date <span className="normal-case tracking-normal font-normal">(optional)</span></label>
+                  <input
+                    type="date"
+                    value={draft.purchase_date}
+                    onChange={e => { set('purchase_date', e.target.value); setRmaErrors(errors => ({ ...errors, purchase_date: '' })); }}
+                    className={fieldInputCls('purchase_date')}
+                    aria-invalid={!!rmaErrors.purchase_date}
+                    aria-describedby={rmaErrors.purchase_date ? 'rma-purchase-date-error' : undefined}
+                  />
+                  {rmaErrors.purchase_date && <p id="rma-purchase-date-error" className="text-[11px] text-red-600">{rmaErrors.purchase_date}</p>}
+                </div>
+                <div className="space-y-1">
+                  <label className={labelCls}>Customer Contact Name <span className="normal-case tracking-normal font-normal">(optional)</span></label>
+                  <input
+                    type="text"
+                    value={draft.customer_contact_name}
+                    onChange={e => { set('customer_contact_name', e.target.value); setRmaErrors(errors => ({ ...errors, customer_contact_name: '' })); }}
+                    className={fieldInputCls('customer_contact_name')}
+                    aria-invalid={!!rmaErrors.customer_contact_name}
+                    aria-describedby={rmaErrors.customer_contact_name ? 'rma-contact-name-error' : undefined}
+                  />
+                  {rmaErrors.customer_contact_name && <p id="rma-contact-name-error" className="text-[11px] text-red-600">{rmaErrors.customer_contact_name}</p>}
+                </div>
+                <div className="space-y-1">
+                  <label className={labelCls}>Customer Contact Email <span className="normal-case tracking-normal font-normal">(optional)</span></label>
+                  <input
+                    type="email"
+                    value={draft.customer_contact_email}
+                    onChange={e => { set('customer_contact_email', e.target.value); setRmaErrors(errors => ({ ...errors, customer_contact_email: '' })); }}
+                    className={fieldInputCls('customer_contact_email')}
+                    aria-invalid={!!rmaErrors.customer_contact_email}
+                    aria-describedby={rmaErrors.customer_contact_email ? 'rma-contact-email-error' : undefined}
+                  />
+                  {rmaErrors.customer_contact_email && <p id="rma-contact-email-error" className="text-[11px] text-red-600">{rmaErrors.customer_contact_email}</p>}
+                </div>
+                <div className="space-y-1">
+                  <label className={labelCls}>Customer Contact Phone <span className="normal-case tracking-normal font-normal">(optional)</span></label>
+                  <input
+                    type="tel"
+                    value={draft.customer_contact_phone}
+                    onChange={e => { set('customer_contact_phone', e.target.value); setRmaErrors(errors => ({ ...errors, customer_contact_email: '' })); }}
+                    className={inputCls}
+                    aria-invalid={!!rmaErrors.customer_contact_email}
+                    aria-describedby={rmaErrors.customer_contact_email ? 'rma-contact-email-error' : undefined}
+                  />
+                </div>
+              </>}
               {(canEditFull || canEditAreaAddress) && (<>
               <div className="space-y-1">
                 <ComboboxField
                   label="Area"
-                  optional
+                  required={record.category === 'RMA'}
+                  optional={record.category !== 'RMA'}
+                  error={rmaErrors.area}
                   options={AREAS}
                   optionGroups={AREA_HIERARCHY.flatMap(r =>
                     r.subregions.map(s => ({ label: `${r.region} · ${s.name}`, options: s.areas }))
@@ -425,28 +568,38 @@ function GeneralTab({
               </>)}
               {canEditFull && (
                 <>
-                  <div className="space-y-1">
+                  {!tassRma && <div className="space-y-1">
                     <label className={labelCls}>Vehicle</label>
                     <select value={draft.vehicle} onChange={e => set('vehicle', e.target.value)} className={inputCls}>
                       {VEHICLES.map(v => <option key={v} value={v}>{v}</option>)}
                     </select>
-                  </div>
+                  </div>}
                   <div className="space-y-1">
-                    <label className={labelCls}>Account Manager</label>
-                    <select value={draft.account_manager} onChange={e => set('account_manager', e.target.value)} className={inputCls}>
+                    <label className={labelCls}>Account Manager{record.category === 'RMA' ? ' *' : ''}</label>
+                    <select value={draft.account_manager} onChange={e => set('account_manager', e.target.value)} className={fieldInputCls('account_manager')} aria-invalid={!!rmaErrors.account_manager}>
                       <option value="">— Select —</option>
                       {ACCOUNT_MANAGERS.map(m => <option key={m} value={m}>{m}</option>)}
                     </select>
+                    {rmaErrors.account_manager && <p className="text-[11px] text-red-600">{rmaErrors.account_manager}</p>}
                   </div>
                   <div className="space-y-1">
                     <label className={labelCls}>Item Type</label>
                     <select value={draft.item_type} onChange={e => set('item_type', e.target.value as ItemType)} className={inputCls}>
-                      {ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                      {record.category === 'RMA' && !RMA_ITEM_TYPES.some(type => type === draft.item_type) && <option value={draft.item_type} disabled>{draft.item_type} (legacy value)</option>}
+                      {(record.category === 'RMA' ? RMA_ITEM_TYPES : ITEM_TYPES).map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className={labelCls}>Delivery Date</label>
-                    <input type="date" value={draft.delivery_date} onChange={e => set('delivery_date', e.target.value)} className={inputCls} />
+                    <label className={labelCls}>Delivery Date{record.category === 'RMA' && ' (optional)'}</label>
+                    <input
+                      type="date"
+                      value={draft.delivery_date}
+                      onChange={e => { set('delivery_date', e.target.value); setRmaErrors(errors => ({ ...errors, delivery_date: '' })); }}
+                      className={record.category === 'RMA' ? fieldInputCls('delivery_date') : inputCls}
+                      aria-invalid={record.category === 'RMA' ? !!rmaErrors.delivery_date : undefined}
+                      aria-describedby={rmaErrors.delivery_date ? 'rma-delivery-date-error' : undefined}
+                    />
+                    {rmaErrors.delivery_date && <p id="rma-delivery-date-error" className="text-[11px] text-red-600">{rmaErrors.delivery_date}</p>}
                   </div>
                   <div className="space-y-1">
                     <label className={labelCls}>Date &amp; Time</label>
@@ -535,6 +688,10 @@ function GeneralTab({
 
             {/* Always-locked fields */}
             <div className="pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
+              {tassRma && <div className="flex flex-col gap-0.5">
+                <span className={labelCls}>Vehicle <span className="text-slate-300 normal-case tracking-normal font-normal">(Logistics)</span></span>
+                <span className="font-semibold text-slate-400 italic">{record.vehicle || '—'}</span>
+              </div>}
               {[
                 { label: 'Driver',            value: record.driver || 'Unassigned' },
                 { label: 'Driver Assistants', value: (record.driver_assistants ?? []).join(', ') || '—' },
@@ -883,6 +1040,7 @@ function ActionsTab({
   const [returnToDraftOpen, setReturnToDraftOpen] = useState(false);
 
   const draftRecord = isDraftRecord(record);
+  const tassRma = currentUserRole === 'TASS' && record.category === 'RMA';
   const statusOptions = selectableStatuses(record, currentUserRole);
 
   const statusChanged = selectedStatus !== record.status;
@@ -973,7 +1131,7 @@ function ActionsTab({
           status_remarks: actionRemarks.trim(),
           modified_by: `${currentUserName} (${currentUserRole})`,
           modified_at: now,
-          ...(selectedStatus === 'Delivered' ? { received_by: receivedBy.trim() } : {}),
+          ...(selectedStatus === 'Delivered' && !tassRma ? { received_by: receivedBy.trim() } : {}),
           ...(needsNewDate ? { delivery_date: newDeliveryDate } : {}),
         };
         await onUpdateRecord(record.id, statusUpdates);
@@ -1006,7 +1164,7 @@ function ActionsTab({
 
   return (
     <div className="space-y-6">
-      {record.status !== 'Delivered' && <PodUploader key={record.id} recordId={record.id} required disabled={saving} />}
+      {!tassRma && record.status !== 'Delivered' && <PodUploader key={record.id} recordId={record.id} required disabled={saving} />}
       {canRecordTimeIn(record) && (currentUserRole === 'Logistics' || currentUserRole === 'Admin') && <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-2">
         <p className="text-xs text-blue-900">Record Time In to start this run. Enter remarks below before starting.</p>
         <button type="button" disabled={saving || !actionRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
@@ -1072,6 +1230,7 @@ function ActionsTab({
       </div>
 
       {draftRecord && <p className="text-xs text-slate-600">Submit this draft before changing its assignment. Existing assignments are retained.</p>}
+      {!tassRma && <>
       {/* Driver assignment + completion fields */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Driver &amp; Delivery Details</h4>
@@ -1234,6 +1393,8 @@ function ActionsTab({
           <p className="text-xs text-slate-500">Time In starts the run; Time Out is saved automatically on completion. Existing timestamps can be corrected above with remarks, using Manila time.</p>
         </div>
       </div>
+
+      </>}
 
       {/* Unified Save Model */}
       <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
@@ -1410,6 +1571,13 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
   collection_verified: 'Collection Verified',
   account_manager: 'Account Manager',
   reference: 'Reference',
+  rma_reference: 'RMA Document Reference',
+  legacy_sap_reference: 'Legacy SAP Reference',
+  rma_type: 'RMA Category',
+  purchase_date: 'Purchase Date',
+  customer_contact_name: 'Customer Contact Name',
+  customer_contact_email: 'Customer Contact Email',
+  customer_contact_phone: 'Customer Contact Phone',
 };
 
 // Beyond the explicitly-listed skip fields, also drop the audit meta-fields
@@ -1627,7 +1795,7 @@ function StagedAttachment({ staged, disabled, onRemove }: {
   );
 }
 
-function DocumentsTab({ record }: { record: DeliveryRecord }) {
+function DocumentsTab({ record, readOnly = false }: { record: DeliveryRecord; readOnly?: boolean }) {
   const { files, stagedFiles, readiness, stageFiles, unstageFile, uploadStaged, removeFile: deleteFile } = usePodAttachments(record.id);
   const uploading = readiness.uploading;
   const [dragging, setDragging] = useState(false);
@@ -1699,23 +1867,23 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
     <div className="space-y-4">
       {/* Drop zone */}
       <div
-        onDragOver={e => { e.preventDefault(); setDragging(true); }}
+        onDragOver={e => { if (!readOnly) { e.preventDefault(); setDragging(true); } }}
         onDragLeave={() => setDragging(false)}
-        onDrop={e => { e.preventDefault(); setDragging(false); if (!busy) addFiles(e.dataTransfer.files); }}
-        onClick={() => { if (!busy) inputRef.current?.click(); }}
+        onDrop={e => { e.preventDefault(); setDragging(false); if (!readOnly && !busy) addFiles(e.dataTransfer.files); }}
+        onClick={() => { if (!readOnly && !busy) inputRef.current?.click(); }}
         aria-busy={busy}
         className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all ${
           dragging
             ? 'border-[#0078C1] bg-blue-50'
             : busy
               ? 'border-slate-200 bg-slate-50 cursor-wait'
-              : 'border-slate-300 hover:border-[#0078C1] hover:bg-slate-50'
+              : readOnly ? 'border-slate-200 bg-slate-50 cursor-default' : 'border-slate-300 hover:border-[#0078C1] hover:bg-slate-50'
         }`}
       >
         <Paperclip className={`w-8 h-8 transition-colors ${dragging ? 'text-[#0078C1]' : 'text-slate-300'}`} />
         <div className="text-center">
-          <p className="text-sm font-bold text-slate-700">{staging ? 'Adding files…' : uploading ? 'Uploading…' : 'Drop files here or click to add'}</p>
-            <p className="text-xs text-slate-400 mt-0.5">PDF, JPG, PNG, DOC or DOCX — up to 10 MB each</p>
+          <p className="text-sm font-bold text-slate-700">{readOnly ? 'Documents are read-only for Logistics' : staging ? 'Adding files…' : uploading ? 'Uploading…' : 'Drop files here or click to add'}</p>
+            <p className="text-xs text-slate-400 mt-0.5">{readOnly ? 'TASS manages RMA document uploads.' : 'PDF, JPG, PNG or DOCX — all can be previewed before download; up to 10 MB each'}</p>
         </div>
         <input
           ref={inputRef}
@@ -1723,14 +1891,14 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
           multiple
           accept={POD_ATTACHMENT_ACCEPT}
           className="hidden"
-          disabled={busy}
+          disabled={busy || readOnly}
           onChange={e => addFiles(e.target.files)}
         />
       </div>
 
       {readiness.loading && <p role="status" className="text-xs text-slate-600">Loading attachments…</p>}
       {readiness.loadFailed && <p role="alert" className="text-xs text-red-700">Could not load attachments.</p>}
-      {stagedFiles.length > 0 && (
+      {!readOnly && stagedFiles.length > 0 && (
         <div className="space-y-2" aria-label="Files waiting to upload">
           <div className="flex items-center justify-between gap-3">
             <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">
@@ -1768,7 +1936,7 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
           <PodAttachmentList
             files={files}
             removeDisabled={busy}
-            onRemove={file => setConfirmRemoveId(file.id)}
+            onRemove={!readOnly ? file => setConfirmRemoveId(file.id) : undefined}
           />
         </div>
       ) : stagedFiles.length === 0 ? (
@@ -1778,7 +1946,7 @@ function DocumentsTab({ record }: { record: DeliveryRecord }) {
       ) : null}
 
       {/* Removal Confirmation Modal */}
-      {confirmRemoveId && (
+      {!readOnly && confirmRemoveId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div
             role="alertdialog"
@@ -1867,12 +2035,13 @@ function RecordWorkspace({
     setPdfLoading(true);
     setPdfError(null);
     try {
-      const [auditEntries, remarks, comments] = await Promise.all([
+      const [auditEntries, remarks, comments, attachments] = await Promise.all([
         api.getRecordAudit(record.id),
         api.getRecordRemarks(record.id),
         api.getRecordComments(record.id),
+        api.getRecordAttachments(record.id),
       ]);
-      const docData: ManifestDocumentationData = { auditEntries, remarks, comments };
+      const docData: ManifestDocumentationData = { auditEntries, remarks, comments, attachments };
       await printSingleManifest(record, companies, docData, docSize);
     } catch (err: any) {
       setPdfError(err.message ?? 'Failed to generate PDF. Please try again.');
@@ -1927,7 +2096,7 @@ function RecordWorkspace({
         return <AuditTrailTab recordId={record.id} />;
 
       case 'documents':
-        return <DocumentsTab record={record} />;
+        return <DocumentsTab record={record} readOnly={forceReadOnly} />;
 
       default:
         return null;
@@ -1976,7 +2145,7 @@ function RecordWorkspace({
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
          </div>
-          {(['Sales Coordinator', 'Logistics', 'Admin'] as UserRole[]).includes(currentUserRole) && (
+          {(['Sales Coordinator', 'Logistics', 'TASS', 'Admin'] as UserRole[]).includes(currentUserRole) && (
             <div className="relative flex flex-wrap min-w-0 items-center gap-2">
               <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={pdfLoading} inline />
               <button

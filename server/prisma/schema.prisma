@@ -22,16 +22,16 @@ model OAuthLoginState {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  password     String
-  role         String // SALES_COORDINATOR | LOGISTICS | TASS | ADMIN
-  isActive     Boolean  @default(true)
-  microsoftOid String?  @unique
+  id                  String    @id @default(cuid())
+  name                String
+  email               String    @unique
+  password            String
+  role                String // SALES_COORDINATOR | LOGISTICS | TASS | ADMIN
+  isActive            Boolean   @default(true)
+  microsoftOid        String?   @unique
   microsoftApprovedAt DateTime? // Admin approval; legacy auto-created links are denied
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   createdRecords         DeliveryRecord[] @relation("CreatedByUser")
   modifiedRecords        DeliveryRecord[] @relation("ModifiedByUser")
@@ -112,33 +112,40 @@ model Supplier {
 }
 
 model DeliveryRecord {
-  id                 String  @id @default(cuid())
-  companyId          String
-  company            Company @relation(fields: [companyId], references: [id])
-  priority           String // 1 - Low | 2 - Moderate | 3 - High
-  reference          String
-  remarks            String  @default("")
-  status             String // SCHEDULED | ACCOMPLISHED | ON_HOLD | RESCHEDULED | PENDING
-  vehicle            String  @default("(None)")
-  area               String
-  driver             String  @default("") // display snapshot of the assigned Driver profile name; never used for authorization
-  driverId           String? // stable assignment — the assigned Driver profile decides Driver ownership
-  assignedDriver     Driver? @relation("DriverAssignments", fields: [driverId], references: [id])
-  driverAssistants   String  @default("[]")
-  timeIn             String?
-  timeOut            String?
-  receivedBy         String?
-  completedLate      Boolean @default(false)
-  daysLate           Int     @default(0)
-  accountManager     String
-  deliveryDate       String
-  category           String // DELIVERY | RMA | ACCOUNTING_COLLECTION | PROCUREMENT_PICKUP | SALES_ORDERS
-  itemType           String
-  draft              Boolean @default(false)
-  itemDescription    String  @default("")
-  lineItems          LineItem[] @relation("DeliveryRecordLineItems")
-  documentAttachment String?
-  address            String  @default("")
+  id                   String     @id @default(cuid())
+  companyId            String
+  company              Company    @relation(fields: [companyId], references: [id])
+  priority             String // 1 - Low | 2 - Moderate | 3 - High
+  reference            String
+  rmaReference         String?
+  legacySapReference   String?
+  remarks              String     @default("")
+  status               String // SCHEDULED | ACCOMPLISHED | ON_HOLD | RESCHEDULED | PENDING
+  vehicle              String     @default("(None)")
+  area                 String
+  driver               String     @default("") // display snapshot of the assigned Driver profile name; never used for authorization
+  driverId             String? // stable assignment — the assigned Driver profile decides Driver ownership
+  assignedDriver       Driver?    @relation("DriverAssignments", fields: [driverId], references: [id])
+  driverAssistants     String     @default("[]")
+  timeIn               String?
+  timeOut              String?
+  receivedBy           String?
+  completedLate        Boolean    @default(false)
+  daysLate             Int        @default(0)
+  accountManager       String
+  deliveryDate         String
+  category             String // DELIVERY | RMA | ACCOUNTING_COLLECTION | PROCUREMENT_PICKUP | SALES_ORDERS
+  itemType             String
+  draft                Boolean    @default(false)
+  itemDescription      String     @default("")
+  lineItems            LineItem[] @relation("DeliveryRecordLineItems")
+  documentAttachment   String?
+  address              String     @default("")
+  rmaType              String?
+  purchaseDate         String?
+  customerContactName  String?
+  customerContactEmail String?
+  customerContactPhone String?
 
   collectionVerified   Boolean   @default(false)
   collectionVerifiedBy String?
@@ -166,6 +173,7 @@ model DeliveryRecord {
   @@index([companyId])
   @@index([accountManager])
   @@index([linkedCollectionId])
+  @@index([category, rmaReference])
 }
 
 model PodAttachment {
@@ -305,18 +313,18 @@ model RemarkLog {
 // arrays in data.ts. Drivers and assistants managed here propagate to every
 // assignment dropdown, dispatch board, and report across the portal.
 model Driver {
-  id            String   @id @default(cuid())
+  id            String           @id @default(cuid())
   name          String
   type          String // DRIVER | ASSISTANT
-  coverageAreas String   @default("[]") // JSON string[] of area keywords
-  isActive      Boolean  @default(true)
-  userId        String?  @unique // DRIVER login linked by Admin; null for assistants and unlinked profiles
-  user          User?    @relation("DriverLogin", fields: [userId], references: [id], onDelete: SetNull)
+  coverageAreas String           @default("[]") // JSON string[] of area keywords
+  isActive      Boolean          @default(true)
+  userId        String?          @unique // DRIVER login linked by Admin; null for assistants and unlinked profiles
+  user          User?            @relation("DriverLogin", fields: [userId], references: [id], onDelete: SetNull)
   assignments   DeliveryRecord[] @relation("DriverAssignments")
   createdBy     String
-  createdAt     DateTime @default(now())
+  createdAt     DateTime         @default(now())
   modifiedBy    String
-  modifiedAt    DateTime @updatedAt
+  modifiedAt    DateTime         @updatedAt
 }
 
 model DailyStatusSnapshot {

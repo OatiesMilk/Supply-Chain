@@ -1,8 +1,8 @@
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
 export const MAX_ATTACHMENT_COUNT = 10;
-const ALLOWED_ATTACHMENT_EXTENSIONS = new Set(['.pdf', '.jpg', '.jpeg', '.png', '.doc', '.docx']);
+const ALLOWED_ATTACHMENT_EXTENSIONS = new Set(['.pdf', '.jpg', '.jpeg', '.png', '.docx']);
 
-export const POD_ATTACHMENT_ACCEPT = '.pdf,.jpg,.jpeg,.png,.doc,.docx,application/pdf,image/jpeg,image/png,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+export const POD_ATTACHMENT_ACCEPT = '.pdf,.jpg,.jpeg,.png,.docx,application/pdf,image/jpeg,image/png,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 export type AttachmentRejection = {
   fileName: string;
@@ -29,7 +29,7 @@ export function getPodAttachmentRejection(files: readonly Pick<File, 'name' | 's
     return !ALLOWED_ATTACHMENT_EXTENSIONS.has(extension);
   });
   if (unsupported) {
-    return { fileName: unsupported.name, reason: 'file type not allowed. Use JPG, PNG, PDF, DOC or DOCX.' };
+    return { fileName: unsupported.name, reason: 'file type not allowed. Use JPG, PNG, PDF or DOCX.' };
   }
 
   return null;

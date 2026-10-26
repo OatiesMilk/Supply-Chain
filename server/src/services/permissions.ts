@@ -16,7 +16,7 @@ export const RECORD_SCREENS = ['deliveries', 'rma', 'accounting_collection', 'pr
 const AGGREGATE_SCREENS = ['main', 'dashboard', 'driver', 'calendar', 'driver_board', 'statistical_reports', 'driver_dashboard'] as const;
 // SKU Master ('inventory') is an Admin default only (TSK-118); Admin can grant it per user.
 export const ROLE_DEFAULTS: Record<string, readonly Screen[]> = {
-  SALES_COORDINATOR: ['main', 'dashboard', ...RECORD_SCREENS, 'customers', 'suppliers', 'am_directory', 'transactions'],
+  SALES_COORDINATOR: ['main', 'dashboard', ...RECORD_SCREENS.filter(s => s !== 'rma'), 'customers', 'suppliers', 'am_directory', 'transactions'],
   LOGISTICS: ['main', 'dashboard', ...RECORD_SCREENS, 'customers', 'suppliers', 'driver', 'driver_manager', 'calendar', 'driver_board', 'transactions', 'statistical_reports'],
   TASS: ['main', 'dashboard', 'rma', 'procurement_pickup', 'accounting_collection', 'transactions', 'suppliers'],
   ADMIN: (Object.keys(SCREEN_LABELS) as Screen[]).filter(s => s !== 'driver_dashboard'),
@@ -28,7 +28,8 @@ export const ROLE_DEFAULTS: Record<string, readonly Screen[]> = {
 export function editableScreens(role: string): Screen[] {
   if (role === 'DRIVER') return ['driver_dashboard'];
   return (Object.keys(SCREEN_LABELS) as Screen[]).filter(s =>
-    s !== 'driver_dashboard' && s !== 'admin' && (s !== 'data_sampler' || role === 'ADMIN'));
+    s !== 'driver_dashboard' && s !== 'admin' && (s !== 'data_sampler' || role === 'ADMIN') &&
+    (s !== 'rma' || ['TASS', 'LOGISTICS', 'ADMIN'].includes(role)));
 }
 
 export function effectiveScreens(role: string, overrides: readonly Permission[]): Screen[] {
@@ -40,7 +41,8 @@ export function effectiveScreens(role: string, overrides: readonly Permission[])
     if (p.granted === true) screens.add(p.screen as Screen);
     else if (p.granted === false) screens.delete(p.screen as Screen);
   }
-  return (Object.keys(SCREEN_LABELS) as Screen[]).filter(s => screens.has(s));
+  return (Object.keys(SCREEN_LABELS) as Screen[]).filter(s => screens.has(s) &&
+    (s !== 'rma' || ['TASS', 'LOGISTICS', 'ADMIN'].includes(role)));
 }
 
 // Shared lookup access is distinct from management of the corresponding module.

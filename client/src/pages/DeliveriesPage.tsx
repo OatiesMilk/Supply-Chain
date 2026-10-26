@@ -34,8 +34,8 @@ const TITLE_MAP: Record<string, { title: string; subtitle: string }> = {
     subtitle: 'Schedule and track outbound deliveries to merchant customers.',
   },
   'RMA': {
-    title: 'RMA (Returns / Pull-out)',
-    subtitle: 'Manage returns, defective unit pull-outs, and replacement drop-offs.',
+    title: 'RMA Records',
+    subtitle: 'TASS manages return and pull-out records; Logistics can read and print saved records.',
   },
   'Accounting Collection': {
     title: 'Accounting Collection',
@@ -78,7 +78,7 @@ export const DeliveriesPage: React.FC<DeliveriesPageProps> = ({
       ? {
           title: 'RMA (Returns / Pull-out)',
           subtitle:
-            'View returns and pull-out records (read-only — driver assignment not available for Logistics on this screen).',
+            'View and print saved return and pull-out records. TASS owns RMA updates.',
         }
       : baseMeta;
 

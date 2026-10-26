@@ -7,27 +7,64 @@
  *
  * Test IDs match the UAT_PLAN.md document (B-1.x, B-2.x, B-3.x, B-4.x, B-5.x).
  */
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, Page, type Browser } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
 import path from 'path';
 import fs from 'fs';
-import { DEMO_LOCATION_FIXTURES } from '../../client/src/utils/demoLocations';
 
 const BASE_URL = 'http://localhost:3000';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function openFirstRecord(page: Page) {
+async function openFirstRecord(page: Page, status?: string) {
   await page.goto(`${BASE_URL}/deliveries`);
   await page.waitForLoadState('networkidle');
+  if (status) await page.getByRole('button', { name: status, exact: true }).click();
   const firstRow = page.getByRole('row').nth(1);
   await firstRow.waitFor({ state: 'visible', timeout: 10_000 });
   await firstRow.click();
   await page.waitForTimeout(800);
 }
 
-function assertDemoLocationPair(area: string, address: string) {
-  const fixture = DEMO_LOCATION_FIXTURES.find(location => location.area === area && location.address === address);
-  expect(fixture, `Expected one demo-location fixture for ${area} / ${address}`).toBeTruthy();
+// Each mutating test owns its fixture; leave assigned Driver demo runs untouched.
+// These records live in the disposable CI database (record deletion is disabled).
+async function openNewScheduledRecord(page: Page, browser: Browser) {
+  const sales = await browser.newContext({ storageState: './helpers/auth-sc.json' });
+  let recordId: string;
+  try {
+    const session = await sales.request.get(`${BASE_URL}/api/auth/me`);
+    expect(session.ok()).toBeTruthy();
+    const csrf = session.headers()['x-csrf-token'];
+    expect(csrf).toBeTruthy();
+    const companiesResponse = await sales.request.get(`${BASE_URL}/api/companies`);
+    expect(companiesResponse.ok()).toBeTruthy();
+    const companies = await companiesResponse.json();
+    expect(companies.length).toBeGreaterThan(0);
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date());
+    const response = await sales.request.post(`${BASE_URL}/api/records`, {
+      headers: { 'X-CSRF-Token': csrf },
+      data: {
+        company_id: companies[0].id, category: 'Deliveries',
+        reference: `UAT-LOG-${randomUUID()}`, delivery_date: today,
+        status: 'Scheduled', is_draft: 'No', priority: '2 - Moderate',
+        area: 'Makati', account_manager: 'UAT Account Manager',
+      },
+    });
+    expect(response.status(), 'Sales Coordinator must create the test fixture').toBe(201);
+    const saved = await response.json();
+    expect(saved.status).toBe('Scheduled');
+    expect(saved.id).toBeTruthy();
+    recordId = saved.id;
+  } finally {
+    await sales.close();
+  }
+  await page.goto(`${BASE_URL}/deliveries`);
+  await page.getByRole('textbox', { name: 'Search delivery records' }).fill(recordId);
+  await page.getByRole('row').filter({
+    has: page.getByRole('cell', { name: recordId, exact: true }),
+  }).click();
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -163,105 +200,101 @@ test.describe('TSK-126 dashboard card filters', () => {
 });
 
 test.describe('B-2 Dispatch & Assign Driver', () => {
-  test('B-2.0a Auto Fill keeps Area and Address in one demo-location fixture', async ({ page }) => {
+  test('B-2.0a Logistics cannot create Delivery records', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
-    await page.getByRole('button', { name: /new record/i }).click();
-
-    const areaInput = page.locator('label').filter({ hasText: /^Area/ }).locator('..').locator('input');
-    const addressInput = page.getByPlaceholder(/street, building, floor/i);
-    const autoFill = page.getByRole('button', { name: /auto fill/i });
-
-    for (let attempt = 0; attempt < 3; attempt++) {
-      await autoFill.click();
-      // Area and Address render one after the other, so retry until both settle.
-      await expect(async () => {
-        assertDemoLocationPair(await areaInput.inputValue(), await addressInput.inputValue());
-      }).toPass({ timeout: 5000 });
-    }
-
-    await areaInput.fill('Makati CBD');
-    await addressInput.fill('Manually entered delivery address');
-    await expect(areaInput).toHaveValue('Makati CBD');
-    await expect(addressInput).toHaveValue('Manually entered delivery address');
+    await expect(page.getByRole('button', { name: /new record/i })).toHaveCount(0);
   });
 
-  test('B-2.0 Delivery date range enforces chronological filters without losing focus', async ({ page }) => {
+  test('B-2.0 Delivery dates support reverse dragging, keyboard selection and cancellation', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
 
-    const dateFrom = page.getByLabel('Date From', { exact: true });
-    const dateTo = page.getByLabel('Date To', { exact: true });
+    const trigger = page.getByRole('button', { name: /^Delivery dates / });
+    await trigger.click();
+    const dialog = page.getByRole('dialog', { name: 'Select delivery dates' });
+    await dialog.getByLabel('Calendar year').selectOption('2026');
+    await dialog.getByLabel('Calendar month').selectOption('9');
+    const start = dialog.locator('[data-calendar-day="2026-10-20"]');
+    const end = dialog.locator('[data-calendar-day="2026-10-14"]');
+    const startBox = (await start.boundingBox())!;
+    const endBox = (await end.boundingBox())!;
+    await page.mouse.move(startBox.x + startBox.width / 2, startBox.y + startBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(endBox.x + endBox.width / 2, endBox.y + endBox.height / 2, { steps: 12 });
+    await page.mouse.up();
+    await expect(dialog.locator('[aria-live="polite"]')).toHaveText('14 Oct 2026 – 20 Oct 2026');
+    await expect(trigger).toContainText('All delivery dates');
+    await dialog.getByRole('button', { name: 'Apply dates', exact: true }).click();
+    await expect(trigger).toContainText('14 Oct 2026 – 20 Oct 2026');
+    await expect(trigger).toBeFocused();
 
-    await dateFrom.fill('2026-10-08');
-    await expect(dateTo).toHaveAttribute('min', '2026-10-08');
+    await trigger.click();
+    await dialog.getByRole('button', { name: 'Today', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(trigger).toContainText('14 Oct 2026 – 20 Oct 2026');
 
-    await dateTo.fill('2026-10-01');
-    await expect(page.getByText('Date To cannot be earlier than Date From.', { exact: true })).toBeVisible();
-
-    await dateTo.fill('2026-10-08');
-    await expect(page.getByText('Date To cannot be earlier than Date From.', { exact: true })).not.toBeVisible();
-
-    await dateFrom.fill('2026-10-09');
-    await expect(dateTo).toHaveValue('');
-    await expect(dateFrom).toBeFocused();
-
-    await dateFrom.fill('');
-    await expect(dateTo).not.toHaveAttribute('min');
+    await trigger.click();
+    await dialog.locator('[data-calendar-day="2026-10-14"]').click();
+    await dialog.locator('[data-calendar-day="2026-10-14"]').press('ArrowRight');
+    await expect(dialog.locator('[data-calendar-day="2026-10-15"]')).toBeFocused();
+    await page.keyboard.press('Enter');
+    await dialog.getByRole('button', { name: 'Apply dates', exact: true }).click();
+    await expect(trigger).toContainText('14 Oct 2026 – 15 Oct 2026');
+    await trigger.click();
+    await dialog.getByRole('button', { name: 'Clear dates', exact: true }).click();
+    await expect(trigger).toContainText('All delivery dates');
   });
 
-  test('B-2.1 Dispatch & Logistics tab is visible', async ({ page }) => {
+  test('B-2.1 Status & Actions tab is visible', async ({ page }) => {
     await openFirstRecord(page);
-    await expect(page.getByRole('tab', { name: /dispatch|logistics/i })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Status & Actions', exact: true })).toBeVisible();
   });
 
   test('B-2.3 Driver assignment blocked without remarks', async ({ page }) => {
-    await openFirstRecord(page);
-    const dispatchTab = page.getByRole('tab', { name: /dispatch|logistics/i });
+    await openFirstRecord(page, 'Scheduled');
+    const dispatchTab = page.getByRole('tab', { name: 'Status & Actions', exact: true });
     await dispatchTab.click();
     await page.waitForTimeout(500);
 
-    // Change the driver dropdown
-    const driverSelect = page.locator('select').filter({ hasText: /driver|select/i }).first();
-    if (await driverSelect.isVisible()) {
-      await driverSelect.selectOption({ index: 1 });
-    }
+    const driverSelect = page.locator('select').filter({ has: page.locator('option', { hasText: '-- Unassigned --' }) });
+    await expect(driverSelect).toBeEnabled();
+    const current = await driverSelect.inputValue();
+    const values = await driverSelect.locator('option').evaluateAll(options =>
+      options.map(option => (option as HTMLOptionElement).value));
+    const replacement = values.find(value => value !== current);
+    expect(replacement, 'The UAT fixture must offer an alternative Driver assignment').toBeDefined();
+    await driverSelect.selectOption(replacement!);
 
-    // Try to save without remarks
-    const saveBtn = page.getByRole('button', { name: /save driver|save fields/i });
-    if (await saveBtn.isVisible()) {
-      await saveBtn.click();
-      await expect(page.getByText(/remarks.*required|required.*remarks/i)).toBeVisible({ timeout: 5_000 });
-    }
+    await page.getByRole('button', { name: 'Save Changes', exact: true }).click();
+    await expect(page.getByText('A reason is required when making changes to dispatch or status fields.', { exact: true })).toBeVisible();
+    await expect(driverSelect).toHaveValue(replacement!);
   });
 
-  test('B-2.5 Status change works with remarks', async ({ page }) => {
-    await openFirstRecord(page);
-    const dispatchTab = page.getByRole('tab', { name: /dispatch|logistics/i });
+  test('B-2.5 Status change works with remarks', async ({ page, browser }) => {
+    await openNewScheduledRecord(page, browser);
+    const dispatchTab = page.getByRole('tab', { name: 'Status & Actions', exact: true });
     await dispatchTab.click();
     await page.waitForTimeout(500);
 
-    // Fill status remarks
-    const remarksArea = page.getByPlaceholder(/Reason for the changes|Optional note/i);
-    if (await remarksArea.isVisible()) {
-      await remarksArea.fill('UAT automated status change');
-      // Pick a different status
-      const statusSelect = page.locator('select').filter({ hasText: /status|scheduled|pending/i }).first();
-      if (await statusSelect.isVisible()) {
-        await statusSelect.selectOption({ value: 'On-Hold' });
-        await page.getByRole('button', { name: /confirm|update status/i }).click();
-        await page.waitForLoadState('networkidle');
-        await expect(page.getByText(/on.hold/i)).toBeVisible({ timeout: 8_000 });
-      }
-    }
+    await page.getByRole('button', { name: 'On-Hold', exact: true }).click();
+    await page.getByPlaceholder(/Reason for the changes|Optional note/i).fill('UAT automated status change');
+    const updatedResponse = page.waitForResponse(response =>
+      /\/api\/records\/[^/]+\/status$/.test(new URL(response.url()).pathname) && response.request().method() === 'PATCH');
+    await page.getByRole('button', { name: 'Save Changes', exact: true }).click();
+    const response = await updatedResponse;
+    expect(response.ok()).toBeTruthy();
+    expect((await response.json()).status).toBe('On-Hold');
+    await expect(page.getByText(/changes saved/i).first()).toBeVisible();
   });
 
-  test('B-2.5a TSK-123 Rescheduled requires a new delivery date saved with the status', async ({ page }) => {
-    await openFirstRecord(page);
-    await page.getByRole('tab', { name: /dispatch|logistics/i }).click();
+  test('B-2.5a TSK-123 Rescheduled requires a new delivery date saved with the status', async ({ page, browser }) => {
+    await openNewScheduledRecord(page, browser);
+    await page.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
 
     const reschedule = page.getByRole('button', { name: 'Rescheduled', exact: true });
-    test.skip(!(await reschedule.isVisible()) || (await reschedule.getAttribute('aria-pressed')) === 'true', 'First delivery cannot be rescheduled');
+    await expect(reschedule).toBeVisible();
+    await expect(reschedule).toHaveAttribute('aria-pressed', 'false');
 
     const dateField = page.getByLabel(/new delivery date/i);
     await expect(dateField).toHaveCount(0);
@@ -316,21 +349,18 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
   test('B-2.5c TSK-125 Logistics has no Return to Draft action', async ({ page }) => {
     await openFirstRecord(page);
     await expect(page.getByRole('button', { name: 'Return to Draft', exact: true })).toHaveCount(0);
-    await page.getByRole('tab', { name: /dispatch|logistics/i }).click();
+    await page.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Return to Draft', exact: true })).toHaveCount(0);
   });
 
   test('B-2.6 Saving without changes shows feedback', async ({ page }) => {
     await openFirstRecord(page);
-    const dispatchTab = page.getByRole('tab', { name: /dispatch|logistics/i });
+    const dispatchTab = page.getByRole('tab', { name: 'Status & Actions', exact: true });
     await dispatchTab.click();
     await page.waitForTimeout(500);
 
-    const saveBtn = page.getByRole('button', { name: /save changes/i });
-    if (await saveBtn.isVisible()) {
-      await saveBtn.click();
-      await expect(page.getByText('No changes detected to save.', { exact: true })).toBeVisible({ timeout: 5_000 });
-    }
+    await page.getByRole('button', { name: 'Save Changes', exact: true }).click();
+    await expect(page.getByText('No changes detected to save.', { exact: true })).toBeVisible({ timeout: 5_000 });
   });
 
   test('B-2.7 Active Deliveries sidebar uses the existing discard guard for unsaved driver changes', async ({ page }) => {
@@ -341,7 +371,7 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     const firstRow = page.getByRole('row').nth(1);
     await expect(firstRow).toBeVisible();
     await firstRow.click();
-    await page.getByRole('tab', { name: /dispatch|logistics/i }).click();
+    await page.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
 
     const driverSelect = page.locator('select').filter({ hasText: /-- Unassigned --/i }).first();
     await expect(driverSelect).toBeEnabled();
@@ -417,7 +447,7 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
       await expect(page.locator('[id^="delivery-record-workspace-"]')).toBeVisible();
 
       if (module.path === 'rma') {
-        await expect(page.getByRole('tab', { name: /dispatch|logistics/i })).not.toBeVisible();
+        await expect(page.getByRole('tab', { name: 'Status & Actions', exact: true })).not.toBeVisible();
       }
 
       await page.getByRole('navigation').getByRole('button', { name: module.sidebarName }).click();
@@ -458,17 +488,15 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
 
   test('B-4.1a Invalid upload shows a toast and no inline duplicate', async ({ page }) => {
     const fileName = 'invoice.exe';
-    const filePath = path.join('/tmp', fileName);
-    fs.writeFileSync(filePath, 'not an allowed attachment');
 
     await openFirstRecord(page);
     const docsTab = page.getByRole('tab', { name: /documents/i });
     await docsTab.click();
 
     const fileInput = page.locator('input[type="file"]').last();
-    await fileInput.setInputFiles(filePath);
+    await fileInput.setInputFiles({ name: fileName, mimeType: 'application/octet-stream', buffer: Buffer.from('not an allowed attachment') });
 
-    const message = 'invoice.exe — file type not allowed. Use JPG, PNG, PDF, DOC or DOCX.';
+    const message = 'invoice.exe — file type not allowed. Use JPG, PNG, PDF or DOCX.';
     await expect(page.getByText(message, { exact: true })).toBeVisible();
     await expect(page.locator('p', { hasText: message })).toHaveCount(0);
   });
@@ -493,7 +521,14 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     await page.getByRole('button', { name: 'Save Files' }).click();
     await expect(page.getByText('Waiting to upload', { exact: true })).not.toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(pdfName)).toBeVisible();
-    await expect(page.getByRole('button', { name: `Preview ${pdfName}` })).toHaveCount(0);
+    const preview = page.getByRole('button', { name: `Preview ${pdfName}` });
+    await expect(preview).toBeVisible();
+    await preview.click();
+    const documentPreview = page.getByRole('dialog', { name: `Preview ${pdfName}` });
+    await expect(documentPreview).toBeVisible();
+    await expect(documentPreview.locator('iframe')).toHaveAttribute('src', /\/preview$/);
+    await documentPreview.getByRole('button', { name: 'Close document preview' }).click();
+    await expect(documentPreview).toBeHidden();
     await expect(page.getByRole('link', { name: `Download ${pdfName}` })).toHaveAttribute('download', pdfName);
     await page.getByRole('button', { name: `Remove ${pdfName}` }).click();
     await page.getByRole('alertdialog', { name: 'Remove Attachment' }).getByRole('button', { name: 'Remove', exact: true }).click();

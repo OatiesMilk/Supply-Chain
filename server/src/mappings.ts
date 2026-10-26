@@ -7,6 +7,7 @@
 import { allowedStatuses, deliveryScheduleState, runState } from './services/deliveryLifecycle';
 import { canReadRecord, readableCategories } from './services/recordAccess';
 import type { AuthUser } from './middleware/auth';
+import { normalizeRmaCategory } from './services/rmaRules';
 
 export const CATEGORY_TO_DB: Record<string, string> = {
   'Sales Orders': 'SALES_ORDERS',
@@ -67,7 +68,9 @@ export function serializeRecord(r: any, user?: AuthUser) {
     company_name: r.company?.name ?? '',
     company_id: r.companyId,
     priority: r.priority,
-    reference: r.reference,
+    reference: r.category === 'RMA' ? (r.rmaReference ?? '') : r.reference,
+    rma_reference: r.category === 'RMA' ? (r.rmaReference ?? null) : null,
+    legacy_sap_reference: r.category === 'RMA' ? (r.legacySapReference ?? null) : null,
     remarks: r.remarks,
     status: runState(r),
     allowed_statuses: allowedStatuses(r),
@@ -89,7 +92,11 @@ export function serializeRecord(r: any, user?: AuthUser) {
     category: CATEGORY_FROM_DB[r.category] ?? r.category,
     item_type: r.itemType,
     is_draft: r.draft ? 'Yes' : 'No',
-    
+    rma_type: normalizeRmaCategory(r.rmaType),
+    purchase_date: r.purchaseDate ?? null,
+    customer_contact_name: r.customerContactName ?? null,
+    customer_contact_email: r.customerContactEmail ?? null,
+    customer_contact_phone: r.customerContactPhone ?? null,
     item_description: r.itemDescription,
     line_items: r.lineItems?.map((li: any) => ({ id: li.id, sku: li.sku, quantity: li.quantity })) || [],
     address: r.address ?? '',

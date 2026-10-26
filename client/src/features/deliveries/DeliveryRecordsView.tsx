@@ -21,7 +21,7 @@ import DriverReportModal from '@/features/drivers/DriverReportModal';
 import RouteSlipMenu from '@/components/RouteSlipMenu';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { computeAllOpsSummary } from '@/utils/allOpsExport';
-import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, PDF_DELIVERY_COLUMNS, PDF_AC_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
+import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, RMA_EXTRA_COLUMNS, PDF_DELIVERY_COLUMNS, PDF_AC_COLUMNS, PDF_RMA_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel } from '@/types';
 import { ApiCompany, api, apiUrl, ApiError } from '@/api';
 import { usePagedRecordsQuery, normalizeApiRecord } from '@/api/queries/useRecordsQuery';
@@ -30,7 +30,8 @@ import { DELIVERY_STATUSES, AREA_HIERARCHY, getRegion, getSubregion } from '@/da
 import DeliveryRecordWorkspace from '@/features/deliveries/DeliveryRecordWorkspace';
 import RecordCreateForm from '@/features/deliveries/RecordCreateForm';
 import FilterPopover, { FilterCombobox } from '@/components/FilterPopover';
-import { dateRangeAfterFromChange, dateRangeState } from '@/utils/dateRange';
+import { dateRangeState } from '@/utils/dateRange';
+import DateRangePicker from '@/components/DateRangePicker';
 import { DashboardFilterId, matchesDashboardFilter } from '@/utils/dashboardFilters';
 import DashboardFilterChip from '@/components/DashboardFilterChip';
 
@@ -95,6 +96,7 @@ export default function DeliveryRecordsView({
   clearDashboardFilter,
   onRefresh
 }: DeliveryRecordsViewProps) {
+  const showAccountManagerFilter = category !== 'RMA';
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -107,11 +109,10 @@ export default function DeliveryRecordsView({
   const [dateSort, setDateSort] = useState<'default' | 'nearest' | 'oldest' | 'furthest'>('default');
   const [amFilter, setAmFilter] = useState('');
   const [driverFilter, setDriverFilter] = useState('');
-  const dateFromRef = useRef<HTMLInputElement>(null);
+  const [showDateRangePicker, setShowDateRangePicker] = useState(false);
   // Always enforce chronological date ranges across all categories and roles.
   const {
     error: dateRangeError,
-    dateToMin,
     appliedDateFrom,
     appliedDateTo,
   } = dateRangeState(dateFrom, dateTo);
@@ -159,14 +160,6 @@ export default function DeliveryRecordsView({
     }
   };
 
-  // TASS filter state (applied when currentUserRole === 'TASS')
-  const [tassDateFrom, setTassDateFrom] = useState('');
-  const [tassDateTo, setTassDateTo] = useState('');
-  const [tassStatusFilter, setTassStatusFilter] = useState('');
-  const [tassAccountManager, setTassAccountManager] = useState('');
-
-
-
   const initializedCategoryRef = useRef<DeliveryCategory | null>(null);
 
   // Reset module state before applying an incoming record link so initialization
@@ -181,6 +174,7 @@ export default function DeliveryRecordsView({
       setAreaFilter('All Areas');
       setDateFrom('');
       setDateTo('');
+      setShowDateRangePicker(false);
       setDateSort('default');
       setAmFilter('');
       setDriverFilter('');
@@ -208,10 +202,6 @@ export default function DeliveryRecordsView({
     setDateSort('default');
     setAmFilter('');
     setDriverFilter('');
-    setTassDateFrom('');
-    setTassDateTo('');
-    setTassStatusFilter('');
-    setTassAccountManager('');
 
     if (category === 'Deliveries') {
       if (dashboardFilterId === 'sc-scheduled-today') {
@@ -238,7 +228,7 @@ export default function DeliveryRecordsView({
   const [statusHistoryCounts, setStatusHistoryCounts] = useState<StatusHistoryCounts | undefined>(undefined);
 
   useEffect(() => {
-    if (dateRangeError || dateRangeState(tassDateFrom, tassDateTo).error) {
+    if (dateRangeError) {
       setStatusHistoryCounts(undefined);
       return;
     }
@@ -249,8 +239,8 @@ export default function DeliveryRecordsView({
       'Procurement Pick-up': 'PROCUREMENT_PICKUP', 'Sales Orders': 'SALES_ORDERS',
     };
     if (category) params.set('category', CATEGORY_TO_DB[category] ?? category);
-    if (tassDateFrom || appliedDateFrom) params.set('deliveryDateFrom', tassDateFrom || appliedDateFrom);
-    if (tassDateTo || appliedDateTo) params.set('deliveryDateTo', tassDateTo || appliedDateTo);
+    if (appliedDateFrom) params.set('deliveryDateFrom', appliedDateFrom);
+    if (appliedDateTo) params.set('deliveryDateTo', appliedDateTo);
     if (areaFilter !== 'All Areas') params.set('area', areaFilter);
     if (regionFilter !== 'All Regions') params.set('region', regionFilter);
     if (subregionFilter !== 'All Subregions') params.set('subregion', subregionFilter);
@@ -262,13 +252,15 @@ export default function DeliveryRecordsView({
       .then(data => { if (active) setStatusHistoryCounts(data ?? undefined); })
       .catch(() => { if (active) setStatusHistoryCounts(undefined); });
     return () => { active = false; };
-  }, [category, dateRangeError, appliedDateFrom, appliedDateTo, tassDateFrom, tassDateTo, areaFilter, regionFilter, subregionFilter, driverFilter, statusFilter]);
+  }, [category, dateRangeError, appliedDateFrom, appliedDateTo, areaFilter, regionFilter, subregionFilter, driverFilter, statusFilter]);
 
 
 
   const canEdit =
     currentUserRole === 'Sales Coordinator' ||
-    (currentUserRole === 'Logistics' && category !== 'RMA');
+    (currentUserRole === 'Logistics' && category !== 'RMA') ||
+    (currentUserRole === 'TASS' && category === 'RMA');
+  const canCreateRecord = canEdit && !(currentUserRole === 'Logistics' && category === 'Deliveries');
   // Driver assignment is Logistics-only (SoD enforcement)
   const canAssignDriver = currentUserRole === 'Logistics' && category !== 'RMA';
 
@@ -305,7 +297,7 @@ export default function DeliveryRecordsView({
     if (subregionFilter !== 'All Subregions' && getSubregion(r.area) !== subregionFilter) return false;
     if (areaFilter !== 'All Areas' && r.area !== areaFilter) return false;
     if (statusFilter !== 'All' && r.status !== statusFilter) return false;
-    if (amFilter && !r.account_manager.toLowerCase().includes(amFilter.toLowerCase())) return false;
+    if (showAccountManagerFilter && amFilter && !r.account_manager.toLowerCase().includes(amFilter.toLowerCase())) return false;
     if (driverFilter && !r.driver.toLowerCase().includes(driverFilter.toLowerCase())) return false;
     if (appliedDateFrom && (!r.delivery_date || r.delivery_date < appliedDateFrom)) return false;
     if (appliedDateTo && (!r.delivery_date || r.delivery_date > appliedDateTo)) return false;
@@ -315,48 +307,29 @@ export default function DeliveryRecordsView({
       r.id.toLowerCase().includes(q) ||
       r.company_name.toLowerCase().includes(q) ||
       r.reference.toLowerCase().includes(q) ||
+      (r.legacy_sap_reference ?? '').toLowerCase().includes(q) ||
+      (r.rma_type ?? '').toLowerCase().includes(q) ||
+      (r.customer_contact_name ?? '').toLowerCase().includes(q) ||
+      (r.customer_contact_email ?? '').toLowerCase().includes(q) ||
+      (r.customer_contact_phone ?? '').toLowerCase().includes(q) ||
       r.driver.toLowerCase().includes(q) ||
       r.area.toLowerCase().includes(q) ||
       r.account_manager.toLowerCase().includes(q)
     );
   });
 
-  // TASS-specific extra filters (client-side, no extra API call)
-  const filtered = currentUserRole === 'TASS'
-    ? baseFiltered.filter(r => {
-      if (tassDateFrom && r.delivery_date) {
-        const rd = new Date(r.delivery_date);
-        const df = new Date(tassDateFrom);
-        if (rd < df) return false;
-      }
-      if (tassDateTo && r.delivery_date) {
-        const rd = new Date(r.delivery_date);
-        const dt = new Date(tassDateTo);
-        if (rd > dt) return false;
-      }
-      if (tassAccountManager && !r.account_manager.toLowerCase().includes(tassAccountManager.toLowerCase())) return false;
-      if (tassStatusFilter) {
-        if (tassStatusFilter === 'Collection Verified') return r.collection_verified === true;
-        if (tassStatusFilter === 'Accomplished') return r.status === 'Delivered';
-        return r.status === tassStatusFilter;
-      }
-      return true;
-    })
-    : baseFiltered;
-
   const now = Date.now();
   const sortRows = <T extends { delivery_date?: string | null }>(rows: T[]) => sortDeliveryRows(rows, dateSort, now);
-  const sortedFiltered = dateRangeError || dateRangeState(tassDateFrom, tassDateTo).error ? [] : sortRows(filtered);
+  const sortedFiltered = dateRangeError ? [] : sortRows(baseFiltered);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
-  const effectiveStatusFilter = tassStatusFilter || (statusFilter !== 'All' ? statusFilter : undefined);
-  const effectiveAmFilter = tassAccountManager || amFilter || undefined;
-  const tassRange = dateRangeState(tassDateFrom, tassDateTo);
-  const hasInvalidDateRange = Boolean(dateRangeError || tassRange.error);
-  const effectiveDateFrom = tassDateFrom || appliedDateFrom || undefined;
-  const effectiveDateTo = tassDateTo || appliedDateTo || undefined;
+  const effectiveStatusFilter = statusFilter !== 'All' ? statusFilter : undefined;
+  const effectiveAmFilter = showAccountManagerFilter ? amFilter || undefined : undefined;
+  const hasInvalidDateRange = Boolean(dateRangeError);
+  const effectiveDateFrom = appliedDateFrom || undefined;
+  const effectiveDateTo = appliedDateTo || undefined;
   const effectiveAreaFilter = areaFilter !== 'All Areas' ? areaFilter : undefined;
 
   const { data: pagedData, isLoading: pagedLoading } = usePagedRecordsQuery({
@@ -392,10 +365,6 @@ export default function DeliveryRecordsView({
     dateSort,
     amFilter,
     driverFilter,
-    tassDateFrom,
-    tassDateTo,
-    tassStatusFilter,
-    tassAccountManager,
     dashboardFilterId,
   ]);
 
@@ -517,16 +486,27 @@ export default function DeliveryRecordsView({
   const showExports = (() => {
     if (category === 'Accounting Collection') return currentUserRole === 'TASS' || currentUserRole === 'Admin';
     // Deliveries, RMA, Procurement Pick-up, Sales Orders
-    return ['Sales Coordinator', 'Logistics', 'Admin'].includes(currentUserRole);
+    return ['Sales Coordinator', 'Logistics', 'TASS', 'Admin'].includes(currentUserRole);
   })();
 
   const isAC = category === 'Accounting Collection';
-  const exportColumns = isAC ? [...DELIVERY_COLUMNS, ...AC_EXTRA_COLUMNS] : DELIVERY_COLUMNS;
-  const pdfCols = isAC ? PDF_AC_COLUMNS : PDF_DELIVERY_COLUMNS;
+  const isRma = category === 'RMA';
+  const baseExportColumns = isRma
+    ? DELIVERY_COLUMNS.map(column => column.key === 'reference' ? { ...column, header: 'RMA Document Reference', key: 'rma_reference' } : column)
+    : DELIVERY_COLUMNS;
+  const exportColumns = isAC ? [...DELIVERY_COLUMNS, ...AC_EXTRA_COLUMNS] : isRma ? [...baseExportColumns, ...RMA_EXTRA_COLUMNS] : DELIVERY_COLUMNS;
+  const pdfCols = isAC ? PDF_AC_COLUMNS : isRma ? PDF_RMA_COLUMNS : PDF_DELIVERY_COLUMNS;
   const exportRows = sortedFiltered.map(r => ({
     id: r.id,
     company_name: r.company_name,
     reference: r.reference,
+    rma_reference: r.rma_reference ?? '',
+    legacy_sap_reference: r.legacy_sap_reference ?? '',
+    rma_type: r.rma_type ?? '',
+    purchase_date_fmt: r.purchase_date ? fmtDate(r.purchase_date) : '',
+    customer_contact_name: r.customer_contact_name ?? '',
+    customer_contact_email: r.customer_contact_email ?? '',
+    customer_contact_phone: r.customer_contact_phone ?? '',
     category: r.category,
     priority: r.priority,
     area: r.area,
@@ -592,6 +572,13 @@ export default function DeliveryRecordsView({
       id: r.id,
       company_name: r.company_name,
       reference: r.reference,
+      rma_reference: r.rma_reference ?? '',
+      legacy_sap_reference: r.legacy_sap_reference ?? '',
+      rma_type: r.rma_type ?? '',
+      purchase_date_fmt: r.purchase_date ? fmtDate(r.purchase_date) : '',
+      customer_contact_name: r.customer_contact_name ?? '',
+      customer_contact_email: r.customer_contact_email ?? '',
+      customer_contact_phone: r.customer_contact_phone ?? '',
       category: r.category,
       priority: r.priority,
       area: r.area,
@@ -629,14 +616,12 @@ export default function DeliveryRecordsView({
     return { rows, summary, routeSlipProps: rsProps };
   };
 
-  const showTassFilters = currentUserRole === 'TASS';
-  const isCreating = showForm && canEdit;
+  const isCreating = showForm && canCreateRecord;
 
   const activeFilterCount = [
     regionFilter !== 'All Regions', subregionFilter !== 'All Subregions', areaFilter !== 'All Areas',
-    !!amFilter, !!driverFilter, !!dateFrom, !!dateTo, dateSort !== 'default',
+    showAccountManagerFilter && !!amFilter, !!driverFilter, Boolean(dateFrom || dateTo), dateSort !== 'default',
     statusFilter !== 'All', !!searchQuery,
-    ...(showTassFilters ? [!!tassDateFrom, !!tassDateTo, !!tassStatusFilter, !!tassAccountManager] : []),
     !!dashboardFilterId,
   ].filter(Boolean).length;
 
@@ -644,7 +629,6 @@ export default function DeliveryRecordsView({
     setSearchQuery(''); setStatusFilter('All'); setRegionFilter('All Regions');
     setSubregionFilter('All Subregions'); setAreaFilter('All Areas');
     setAmFilter(''); setDriverFilter(''); setDateFrom(''); setDateTo(''); setDateSort('default');
-    setTassDateFrom(''); setTassDateTo(''); setTassStatusFilter(''); setTassAccountManager('');
     clearDashboardFilter();
   };
 
@@ -707,16 +691,8 @@ export default function DeliveryRecordsView({
               filename={category.toLowerCase().replace(/\s+/g, '-')}
               onFocusDateFilter={() => {
                 setShowAdvancedFilters(false);
-                if (dateFromRef.current) {
-                  dateFromRef.current.focus();
-                  try {
-                    if (typeof dateFromRef.current.showPicker === 'function') {
-                      dateFromRef.current.showPicker();
-                    }
-                  } catch {
-                    // Keep the visible field focused for browsers that block showPicker.
-                  }
-                }
+                setShowForm(false);
+                setShowDateRangePicker(true);
               }}
             />
           )}
@@ -791,7 +767,7 @@ export default function DeliveryRecordsView({
               )}
             </div>
           )}
-          {canEdit && (
+          {canCreateRecord && (
             <button
               onClick={() => { setShowForm(true); setSelectedId(null); }}
               className="bg-[#1F3864] hover:bg-blue-900 text-white text-[12px] font-bold px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition-all shadow-xs cursor-pointer self-start"
@@ -801,47 +777,32 @@ export default function DeliveryRecordsView({
           )}
         </div>
 
-        {/* Date Range Controls — list filters, so hidden while the create form is open */}
+        {/* One shared set of list filters, hidden while creating a record. */}
         {!isCreating && (
-        <div className="flex flex-wrap gap-3 items-end text-xs" id="date-range-filters">
-        <div className="space-y-1 flex-1 min-w-[120px]">
-          <label htmlFor="dateFrom" className="font-bold text-slate-700 block">Date From</label>
-          <input
-            id="dateFrom"
-            ref={dateFromRef}
-            type="date"
-            value={dateFrom}
-            onChange={e => {
-              const next = dateRangeAfterFromChange(e.target.value, dateTo);
-              setDateFrom(next.dateFrom);
-              if (next.dateTo !== dateTo) setDateTo(next.dateTo);
-            }}
-            title="Date from"
-            className="w-full text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-          />
+        <div className="grid grid-cols-1 min-[400px]:grid-cols-2 lg:grid-cols-4 gap-3 items-start text-xs" id="date-range-filters">
+        <div className="min-w-0 min-[400px]:col-span-2">
+          <DateRangePicker dateFrom={dateFrom} dateTo={dateTo} open={showDateRangePicker} onOpenChange={setShowDateRangePicker}
+            onChange={range => { setDateFrom(range.from); setDateTo(range.to); }} />
         </div>
-        <div className="space-y-1 flex-1 min-w-[120px]">
-          <label htmlFor="dateTo" className="font-bold text-slate-700 block">Date To</label>
-          <input
-            id="dateTo"
-            type="date"
-            value={dateTo}
-            min={dateToMin}
-            onChange={e => setDateTo(e.target.value)}
-            title="Date to"
-            aria-invalid={dateRangeError ? 'true' : undefined}
-            aria-describedby={dateRangeError ? 'date-range-error' : undefined}
-            className={`w-full text-[11px] font-semibold border rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer ${dateRangeError ? 'border-red-400' : 'border-slate-200'}`}
-          />
-          {dateRangeError && <p id="date-range-error" role="alert" className="text-[10px] font-semibold text-red-700">{dateRangeError}</p>}
+        <div className="space-y-1 min-w-0">
+          <label htmlFor="recordStatusFilter" className="font-bold text-slate-700 block">Status</label>
+          <select
+            id="recordStatusFilter"
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value)}
+            className="min-h-10 w-full text-xs font-semibold border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+          >
+            <option value="All">All Statuses</option>
+            {DELIVERY_STATUSES.map(status => <option key={status} value={status}>{status}</option>)}
+          </select>
         </div>
-        <div className="space-y-1 flex-1 min-w-[150px]">
+        <div className="space-y-1 min-w-0">
           <label htmlFor="dateSort" className="font-bold text-slate-700 block">Sort</label>
           <select
             id="dateSort"
             value={dateSort}
             onChange={e => setDateSort(e.target.value as typeof dateSort)}
-            className="w-full text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+            className="min-h-10 w-full text-xs font-semibold border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
           >
             <option value="default">Date: Default</option>
             <option value="nearest">Nearest to Present</option>
@@ -849,57 +810,19 @@ export default function DeliveryRecordsView({
             <option value="furthest">Furthest Future First</option>
           </select>
         </div>
-        {(dateFrom || dateTo) && (
-          <button
-            onClick={() => { setDateFrom(''); setDateTo(''); }}
-            title="Clear date filter"
-            className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[11px] uppercase rounded-lg cursor-pointer h-[34px] flex items-center gap-1"
-          >
-            <X className="w-3.5 h-3.5" /> Clear
-          </button>
+        {activeFilterCount > 0 && (
+          <div className="col-span-full flex justify-end">
+            <button
+              onClick={clearAllFilters}
+              className="min-h-10 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[11px] rounded-lg cursor-pointer flex items-center gap-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1]"
+            >
+              <X className="w-3.5 h-3.5" /> Clear All Filters
+            </button>
+          </div>
         )}
         </div>
         )}
       </div>
-
-      {/* TASS filter controls */}
-      {showTassFilters && (
-        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap gap-3 items-end text-xs print:hidden" id="tass-filters">
-          <div className="space-y-1">
-            <label htmlFor="tass-date-from" className="font-bold text-slate-700 block">Delivery Date From</label>
-            <input id="tass-date-from" type="date" value={tassDateFrom} onChange={e => { const next = dateRangeAfterFromChange(e.target.value, tassDateTo); setTassDateFrom(next.dateFrom); if (next.dateTo !== tassDateTo) setTassDateTo(next.dateTo); }}
-              className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
-          </div>
-          <div className="space-y-1">
-            <label htmlFor="tass-date-to" className="font-bold text-slate-700 block">Delivery Date To</label>
-            <input id="tass-date-to" type="date" value={tassDateTo} min={tassRange.dateToMin} aria-invalid={tassRange.error ? 'true' : undefined} onChange={e => setTassDateTo(e.target.value)}
-              className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
-          </div>
-          {tassRange.error && <p role="alert" className="text-[10px] font-semibold text-red-700">{tassRange.error}</p>}
-          <div className="space-y-1">
-            <label htmlFor="tass-status-filter" className="font-bold text-slate-700 block">Status</label>
-            <select id="tass-status-filter" value={tassStatusFilter} onChange={e => setTassStatusFilter(e.target.value)}
-              className="px-3 py-2 border border-slate-300 rounded-lg bg-white text-xs w-44">
-              <option value="">All Statuses</option>
-              <option value="Accomplished">Accomplished</option>
-              <option value="Collection Verified">Collection Verified</option>
-              <option value="Pending">Pending</option>
-              <option value="Scheduled">Scheduled</option>
-            </select>
-          </div>
-          <div className="min-w-[180px]">
-            <FilterCombobox label="Account Manager" placeholder="All Account Managers" value={tassAccountManager} onChange={setTassAccountManager} options={amOptions} />
-          </div>
-          {activeFilterCount > 0 && (
-            <button
-              onClick={clearAllFilters}
-              className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[11px] uppercase rounded-lg cursor-pointer"
-            >
-              Clear All Filters
-            </button>
-          )}
-        </div>
-      )}
 
       {/* Bulk action bar — Logistics: status / Sales Coordinator: priority */}
       {selectedBulkIds.size > 0 && (canAssignDriver || canEdit) && (
@@ -1076,7 +999,7 @@ export default function DeliveryRecordsView({
                       <fieldset className="min-w-0">
                         <legend className="text-xs font-bold text-slate-800 mb-2">Personnel</legend>
                         <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-2">
-                          <FilterCombobox label="Account Manager" placeholder="All Account Managers" value={amFilter} onChange={setAmFilter} options={amOptions} />
+                          {showAccountManagerFilter && <FilterCombobox label="Account Manager" placeholder="All Account Managers" value={amFilter} onChange={setAmFilter} options={amOptions} />}
                           <FilterCombobox label="Driver" placeholder="All Drivers" value={driverFilter} onChange={setDriverFilter} options={driverOptions} />
                         </div>
                       </fieldset>
@@ -1146,6 +1069,8 @@ export default function DeliveryRecordsView({
                         <td className="px-4 py-3.5 font-bold text-slate-400 truncate">{rec.id}</td>
                         <td className="px-4 py-3.5">
                           <div className="font-semibold text-sm text-slate-900 truncate" title={rec.company_name}>{rec.company_name}</div>
+                          {category === 'RMA' && <div className="text-[10px] text-slate-500 mt-0.5 truncate" title={rec.rma_reference ?? ''}>RMA document ref: {rec.rma_reference || 'Not assigned'}</div>}
+                          {category === 'RMA' && rec.legacy_sap_reference && <div className="text-[10px] text-slate-400 truncate" title={rec.legacy_sap_reference}>Legacy SAP ref: {rec.legacy_sap_reference}</div>}
                           <div className="text-xs text-gray-400 mt-0.5 truncate" title={rec.area}>{rec.area}</div>
                         </td>
                         <td className="px-4 py-3.5 truncate text-slate-600" title={rec.area}>{rec.area}</td>

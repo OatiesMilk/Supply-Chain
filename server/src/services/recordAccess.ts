@@ -14,6 +14,8 @@ export function readableCategories(user: AuthUser): string[] {
   const shared = aggregate.some(s => user.effectiveScreens.includes(s));
   return Object.keys(CATEGORY_SCREEN).filter(category => {
     const screen = CATEGORY_SCREEN[category];
+    // Sales Coordinator must not discover RMA records through aggregate views.
+    if (category === 'RMA' && !['TASS', 'LOGISTICS', 'ADMIN'].includes(user.role)) return false;
     if (user.role === 'TASS' && !['ACCOUNTING_COLLECTION', 'RMA'].includes(category)) return false;
     if (user.permissions.some(p => p.screen === screen && p.granted === false)) return false;
     return shared || user.effectiveScreens.includes(screen);
@@ -54,8 +56,18 @@ export function canWriteCategory(user: AuthUser, category: string): boolean {
   const screen = CATEGORY_SCREEN[category];
   if (!screen || !readableCategories(user).includes(category)) return false;
   if (user.role === 'LOGISTICS' && category === 'RMA') return false;
+  if (category === 'RMA' && !['TASS', 'ADMIN'].includes(user.role)) return false;
   // Scheduling views can edit their records, subject to the existing action
   // and field-level role restrictions in records.ts.
   const editors: Screen[] = [screen, 'driver_dashboard', 'driver', 'calendar', 'driver_board'];
   return editors.some(s => user.effectiveScreens.includes(s));
+}
+
+/** Creating a record can be narrower than managing an existing operational record. */
+export function canCreateCategory(user: AuthUser, category: string): boolean {
+  if (!canWriteCategory(user, category)) return false;
+  // Logistics retains assignment and run management for saved Deliveries but
+  // Sales Coordinator owns creation of new Delivery records.
+  if (user.role === 'LOGISTICS' && category === 'DELIVERY') return false;
+  return true;
 }

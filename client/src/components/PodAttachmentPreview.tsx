@@ -14,6 +14,36 @@ function formatUploadedAt(value: string) {
   return new Date(value).toLocaleString();
 }
 
+function DocxTextPreview({ file }: { file: ApiPodAttachment }) {
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setText(null);
+    setError('');
+    fetch(file.preview_url ?? file.download_url, { credentials: 'include', signal: controller.signal })
+      .then(response => {
+        if (!response.ok) throw new Error(`Preview could not be loaded (${response.status}).`);
+        return response.arrayBuffer();
+      })
+      .then(async arrayBuffer => {
+        const mammoth = await import('mammoth');
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        if (!controller.signal.aborted) setText(result.value);
+      })
+      .catch(reason => {
+        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Preview could not be loaded.');
+      });
+    return () => controller.abort();
+  }, [file.id, file.preview_url, file.download_url]);
+
+  if (error) return <div className="flex flex-1 items-center justify-center p-6 text-sm text-red-700" role="alert">{error}</div>;
+  if (text === null) return <div className="flex flex-1 items-center justify-center p-6 text-sm text-slate-500" role="status">Loading document preview…</div>;
+  if (!text.trim()) return <div className="flex flex-1 items-center justify-center p-6 text-sm text-slate-500">No readable text was found in this document.</div>;
+  return <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-6 text-sm leading-6 text-slate-800">{text}</pre>;
+}
+
 function documentType(file: ApiPodAttachment) {
   const extension = file.name.split('.').pop()?.toUpperCase();
   if (file.mime_type === 'application/pdf' || extension === 'PDF') return 'PDF';
@@ -55,7 +85,7 @@ function PhotoThumbnail({ file, onOpen, onRemove, removeDisabled = false }: {
         >
           {!loaded && <span aria-hidden="true" className="absolute inset-0 animate-pulse bg-slate-200" />}
           <img
-            src={file.download_url}
+            src={file.preview_url ?? file.download_url}
             alt={file.name}
             loading="lazy"
             onLoad={() => setLoaded(true)}
@@ -202,7 +232,7 @@ export function PodPhotoLightbox({
         </div>
 
         <div className="relative flex min-h-0 flex-1 items-center justify-center p-3 sm:p-4">
-          <img src={file.download_url} alt={file.name} className="max-h-[70dvh] max-w-full object-contain sm:max-h-[80dvh]" />
+          <img src={file.preview_url ?? file.download_url} alt={file.name} className="max-h-[70dvh] max-w-full object-contain sm:max-h-[80dvh]" />
           {files.length > 1 && (
             <>
               <button
@@ -250,6 +280,7 @@ export function PodAttachmentList({ files, onRemove, removeDisabled = false }: {
 }) {
   const { photos, documents } = splitPodAttachments(files);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [previewFile, setPreviewFile] = useState<ApiPodAttachment | null>(null);
 
   return (
     <div className="space-y-3">
@@ -290,6 +321,19 @@ export function PodAttachmentList({ files, onRemove, removeDisabled = false }: {
                   <Download aria-hidden="true" className="h-4 w-4" />
                   <span className="hidden sm:inline">Download</span>
                 </a>
+                {kind === 'PDF' || kind === 'DOCX' ? (
+                  <button
+                    type="button"
+                    onClick={() => setPreviewFile(file)}
+                    aria-label={`Preview ${file.name}`}
+                    className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-bold text-blue-700 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                  >
+                    <FileText aria-hidden="true" className="h-4 w-4" />
+                    <span className="hidden sm:inline">Preview</span>
+                  </button>
+                ) : (
+                  <span className="hidden max-w-44 text-[10px] text-slate-500 md:inline">Legacy DOC cannot be previewed; ask TASS for a PDF or DOCX copy.</span>
+                )}
                 {onRemove && (
                   <button
                     type="button"
@@ -314,6 +358,21 @@ export function PodAttachmentList({ files, onRemove, removeDisabled = false }: {
           onClose={() => setLightboxIndex(null)}
           onIndexChange={setLightboxIndex}
         />
+      )}
+      {previewFile && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 p-3 sm:p-6" onMouseDown={event => { if (event.target === event.currentTarget) setPreviewFile(null); }}>
+          <div role="dialog" aria-modal="true" aria-label={`Preview ${previewFile.name}`} className="flex h-[min(90dvh,56rem)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+              <p className="min-w-0 truncate text-sm font-semibold text-slate-800">{previewFile.name}</p>
+              <button type="button" onClick={() => setPreviewFile(null)} aria-label="Close document preview" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+                <X aria-hidden="true" className="h-5 w-5" />
+              </button>
+            </div>
+            {documentType(previewFile) === 'PDF'
+              ? <iframe title={`Preview ${previewFile.name}`} src={previewFile.preview_url ?? previewFile.download_url} className="min-h-0 flex-1 bg-slate-100" />
+              : <DocxTextPreview file={previewFile} />}
+          </div>
+        </div>
       )}
     </div>
   );

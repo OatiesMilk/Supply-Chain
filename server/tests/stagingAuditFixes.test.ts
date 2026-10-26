@@ -91,6 +91,17 @@ test('canReadRecord respects category permissions and Driver profile ownership',
   assert.equal(canReadRecord(admin, collectionOwnedByB), true, 'Admin can read any collection');
 });
 
+test('RMA serialization exposes the document reference separately from any legacy SAP value', () => {
+  const result = serializeRecord({
+    id: 'rma-1', category: 'RMA', status: 'SCHEDULED', draft: false, reference: '',
+    rmaReference: 'RMA-DOC-1001', legacySapReference: 'SAP-RMA-001',
+    deliveryDate: '', timeIn: null, timeOut: null, driver: '', driverAssistants: '[]',
+  });
+  assert.equal(result.reference, 'RMA-DOC-1001');
+  assert.equal(result.rma_reference, 'RMA-DOC-1001');
+  assert.equal(result.legacy_sap_reference, 'SAP-RMA-001');
+});
+
 test('serializeRecord strips linked collection details and ID when target is unreadable by the caller', () => {
   const driverA: AuthUser = {
     id: 'user-a', name: 'Driver A', role: 'DRIVER', permissions: [],
