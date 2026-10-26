@@ -328,17 +328,16 @@ test.describe('A-3 Edit a Record', () => {
     await expect(page.getByRole('table')).toBeVisible();
   });
 
-  test('A-3.3 Dispatch & Logistics tab NOT visible for SC', async ({ page }) => {
+  test('A-3.3 Status & Actions tab NOT visible for SC', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
 
     // Open first record
     const firstRow = page.getByRole('row').nth(1);
-    if (await firstRow.isVisible()) {
-      await firstRow.click();
-      await page.waitForTimeout(800);
-      await expect(page.getByRole('tab', { name: /dispatch/i })).not.toBeVisible();
-    }
+    await expect(firstRow).toBeVisible();
+    await firstRow.click();
+    await expect(page.locator('[id^="delivery-record-workspace-"]')).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Status & Actions', exact: true })).toHaveCount(0);
   });
 
   test('A-3.5 SC can leave a comment', async ({ page }) => {

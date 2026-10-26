@@ -17,7 +17,7 @@ const CREDS = {
   driver:    { email: 'driver@microgenesis.com',    password: 'password123' },
 };
 
-type ApiRecord = { id: string; reference: string; status: string; is_draft: string; driver: string; delivery_date: string };
+type ApiRecord = { id: string; reference: string; category: string; status: string; is_draft: string; driver: string; delivery_date: string; time_in?: string | null };
 
 async function getRecords(context: BrowserContext): Promise<ApiRecord[]> {
   const response = await context.request.get(`${BASE_URL}/api/records`);
@@ -123,7 +123,7 @@ test.describe('X Cross-Role Integration', () => {
       await salesRow.click();
 
       console.log('TSK-120: Asserting no dispatch tab');
-      await expect(salesPage.getByRole('tab', { name: /dispatch & logistics/i })).not.toBeVisible();
+      await expect(salesPage.getByRole('tab', { name: 'Status & Actions', exact: true })).not.toBeVisible();
       console.log('TSK-120: Testing assignment denial');
       const salesAssignmentAttempt = await salesCtx.request.put(`${BASE_URL}/api/records/${recordId}`, {
         headers: await csrfHeaders(salesCtx),
@@ -140,9 +140,9 @@ test.describe('X Cross-Role Integration', () => {
       
       console.log('TSK-120: Logistics clicking row');
       await logisticsPage.getByRole('row').filter({ hasText: recordId }).click();
-      await logisticsPage.getByRole('tab', { name: /dispatch & logistics/i }).click();
+      await logisticsPage.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
       const dispatchPanel = logisticsPage.getByRole('tabpanel');
-      const draftDriverSelect = dispatchPanel.locator('select').first();
+      const draftDriverSelect = dispatchPanel.locator('select').filter({ has: logisticsPage.locator('option', { hasText: '-- Unassigned --' }) });
       await expect(draftDriverSelect).toBeDisabled();
 
       const draftAssignmentAttempt = await logisticsCtx.request.put(`${BASE_URL}/api/records/${recordId}`, {
@@ -174,9 +174,9 @@ test.describe('X Cross-Role Integration', () => {
       await logisticsPage.goto(`${BASE_URL}/deliveries`);
       
       await logisticsPage.getByRole('row').filter({ hasText: recordId }).click();
-      await logisticsPage.getByRole('tab', { name: /dispatch & logistics/i }).click();
+      await logisticsPage.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
       const assignmentPanel = logisticsPage.getByRole('tabpanel');
-      const driverSelect = assignmentPanel.locator('select').first();
+      const driverSelect = assignmentPanel.locator('select').filter({ has: logisticsPage.locator('option', { hasText: '-- Unassigned --' }) });
       await expect(driverSelect).toBeEnabled();
       await driverSelect.selectOption({ label: 'John Doe' });
       await assignmentPanel.getByPlaceholder(/reason for the changes above/i).fill('Assigning the submitted Delivery to John Doe.');
@@ -208,117 +208,72 @@ test.describe('X Cross-Role Integration', () => {
     }
   });
 
-  test('X-1 Driver accomplishments are visible to Logistics in real time', async () => {
+  test('X-1 Driver Time In is visible to Logistics on the same record', async () => {
     const browser = await chromium.launch();
-
-    // ── Session 1: Logistics assigns a record to the driver ─────────────────
-    const logisticsCtx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-    const logisticsPage = await logisticsCtx.newPage();
-    await login(logisticsPage, CREDS.logistics.email, CREDS.logistics.password);
-
-    // Navigate to Deliveries and filter by Scheduled to avoid picking Drafts
-    await logisticsPage.goto(`${BASE_URL}/deliveries`);
-    
-    await logisticsPage.getByRole('button', { name: 'Scheduled', exact: true }).click();
-    await logisticsPage.waitForTimeout(500);
-
-    const firstRow = logisticsPage.getByRole('row').nth(1);
     try {
-      await firstRow.waitFor({ state: 'visible', timeout: 5000 });
-    } catch (e) {
-      // ignore timeout
-    }
+      const logisticsCtx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+      const logisticsPage = await logisticsCtx.newPage();
+      await login(logisticsPage, CREDS.logistics.email, CREDS.logistics.password);
 
-    if (!(await firstRow.isVisible())) {
-      test.skip(true, 'No delivery records exist — seed the database first');
+      // A due, unstarted submitted Delivery can be executed by the assigned Driver.
+      const record = (await getRecords(logisticsCtx)).find(record =>
+        record.category === 'Deliveries' && record.status === 'Scheduled' && record.is_draft === 'No' &&
+        record.delivery_date && record.delivery_date <= manilaToday() && !record.time_in);
+      expect(record, 'The isolated UAT data must provide a due, unstarted Scheduled Delivery').toBeTruthy();
+      expect(record!.reference).toBeTruthy();
+      const recordId = record!.id;
+      const reference = record!.reference;
+
+      await logisticsPage.goto(BASE_URL + '/deliveries');
+      await logisticsPage.getByRole('textbox', { name: 'Search delivery records' }).fill(recordId);
+      await logisticsPage.getByRole('row').filter({
+        has: logisticsPage.getByRole('cell', { name: recordId, exact: true }),
+      }).click();
+      await logisticsPage.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
+      const actions = logisticsPage.getByRole('tabpanel');
+      const driverSelect = actions.locator('select').filter({
+        has: logisticsPage.locator('option', { hasText: '-- Unassigned --' }),
+      });
+      await expect(driverSelect).toBeEnabled();
+      await driverSelect.selectOption({ label: 'John Doe' });
+      await actions.getByPlaceholder(/Reason for the changes|Optional note/i).fill('UAT integration test - assigned to John Doe');
+      await actions.getByRole('button', { name: 'Save Changes', exact: true }).click();
+      await expect(logisticsPage.getByText(/changes saved/i)).toBeVisible();
+      expect((await getRecords(logisticsCtx)).find(record => record.id === recordId)?.driver).toBe('John Doe');
+
+      const driverCtx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      const driverPage = await driverCtx.newPage();
+      await login(driverPage, CREDS.driver.email, CREDS.driver.password);
+      const referenceLabel = driverPage.getByText(reference, { exact: true });
+      await expect(referenceLabel).toBeVisible();
+      const driverCard = driverPage.locator('div.bg-white.rounded-2xl').filter({ has: referenceLabel });
+      await expect(driverCard).toHaveCount(1);
+      await driverCard.getByRole('button', { name: 'Record Time In', exact: true }).click();
+      await driverPage.locator('#driver-action-remarks').fill('UAT integration test - starting assigned Delivery');
+      await driverPage.getByRole('button', { name: 'Confirm', exact: true }).click();
+      await expect(driverCard.getByText(/Time In recorded:/)).toBeVisible();
+      const started = await driverCtx.request.get(BASE_URL + '/api/records/' + recordId);
+      expect(started.ok()).toBeTruthy();
+      const savedTimeIn = (await started.json()).time_in;
+      expect(savedTimeIn).toBeTruthy();
+
+      // A fresh Logistics session must read the exact timestamp written by this Driver.
+      const verifyCtx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+      const verifyPage = await verifyCtx.newPage();
+      await login(verifyPage, CREDS.logistics.email, CREDS.logistics.password);
+      const visible = await verifyCtx.request.get(BASE_URL + '/api/records/' + recordId);
+      expect(visible.ok()).toBeTruthy();
+      expect((await visible.json()).time_in).toBe(savedTimeIn);
+      await verifyPage.goto(BASE_URL + '/deliveries');
+      await verifyPage.getByRole('textbox', { name: 'Search delivery records' }).fill(recordId);
+      await verifyPage.getByRole('row').filter({
+        has: verifyPage.getByRole('cell', { name: recordId, exact: true }),
+      }).click();
+      await verifyPage.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
+      await expect(verifyPage.getByRole('tabpanel').locator('input[type="datetime-local"]').first()).not.toHaveValue('');
+    } finally {
       await browser.close();
-      return;
     }
-
-    await firstRow.click();
-    await logisticsPage.waitForTimeout(800);
-
-    // Read the record reference for later
-    const reference = await logisticsPage.locator('.font-mono').first().textContent();
-    console.log(`  → Testing with record: ${reference}`);
-
-    // Navigate to Dispatch tab and assign driver
-    const dispatchTab = logisticsPage.getByRole('tab', { name: /dispatch|logistics/i });
-    try { await dispatchTab.waitFor({ state: 'visible', timeout: 5000 }); } catch (e) {}
-    if (await dispatchTab.isVisible()) {
-      await dispatchTab.click();
-      await logisticsPage.waitForTimeout(500);
-
-      const driverSelect = logisticsPage.locator('select').first();
-      try { await driverSelect.waitFor({ state: 'visible', timeout: 5000 }); } catch (e) {}
-      if (await driverSelect.isVisible()) {
-        // Select "John Doe" (the seeded driver)
-        const opts = await driverSelect.locator('option').allTextContents();
-        const johnDoeOption = opts.find(o => /^john doe$/i.test(o.trim()));
-        if (johnDoeOption) {
-          await driverSelect.selectOption({ label: johnDoeOption });
-        }
-
-        const remarksArea = logisticsPage.locator('textarea').last();
-        await remarksArea.fill('UAT integration test - assigned to John Doe');
-        await logisticsPage.getByRole('button', { name: /save changes/i }).click();
-        await expect(logisticsPage.getByText(/changes saved/i)).toBeVisible({ timeout: 10_000 });
-        
-      }
-    }
-
-    await logisticsCtx.close();
-
-    // ── Session 2: Driver records Time In ─────────────────────────────────
-    const driverCtx = await browser.newContext({ viewport: { width: 390, height: 844 } });
-    const driverPage = await driverCtx.newPage();
-    await login(driverPage, CREDS.driver.email, CREDS.driver.password);
-    
-
-    const driverRow = reference ? driverPage.getByText(reference).first() : driverPage.getByRole('row').nth(1);
-    try { await driverRow.waitFor({ state: 'visible', timeout: 5000 }); } catch (e) {}
-    if (await driverRow.isVisible()) {
-      await driverRow.click();
-      await driverPage.waitForTimeout(800);
-    }
-
-    const timeInBtn = driverPage.getByRole('button', { name: /record time in/i }).first();
-    try { await timeInBtn.waitFor({ state: 'visible', timeout: 5000 }); } catch (e) {}
-    if (await timeInBtn.isVisible()) {
-      await timeInBtn.click();
-      await expect(driverPage.getByText(/time in recorded/i)).toBeVisible({ timeout: 10_000 });
-    }
-
-    await driverCtx.close();
-
-    // ── Session 3: Logistics verifies the driver's Time In is now on the record
-    const logisticsCtx2 = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-    const logisticsPage2 = await logisticsCtx2.newPage();
-    await login(logisticsPage2, CREDS.logistics.email, CREDS.logistics.password);
-
-    await logisticsPage2.goto(`${BASE_URL}/deliveries`);
-    
-
-    // Open the same record
-    const targetRow = reference
-      ? logisticsPage2.getByText(reference).first()
-      : logisticsPage2.getByRole('row').nth(1);
-
-    try { await targetRow.waitFor({ state: 'visible', timeout: 5000 }); } catch (e) {}
-    if (await targetRow.isVisible()) {
-      await targetRow.click();
-      await logisticsPage2.waitForTimeout(800);
-
-      // Check Dispatch tab shows Time In
-      const dispatchTab2 = logisticsPage2.getByRole('tab', { name: /dispatch|logistics/i });
-      if (await dispatchTab2.isVisible()) {
-        await dispatchTab2.click();
-        await expect(logisticsPage2.getByText(/time in/i).first()).toBeVisible({ timeout: 8_000 });
-      }
-    }
-
-    await logisticsCtx2.close();
-    await browser.close();
   });
 
   test('X-2 Audit Trail shows Driver activity', async () => {
