@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Users, ClipboardList, UserX, Plus, ChevronLeft, ChevronRight, Loader2, Check, ShieldCheck, RotateCcw, X, Settings2, Send, Pencil, Link2, Trash2 } from 'lucide-react';
 import { api, ApiDriver, ApiPermissionEditor, ApiUserAdmin, ApiAdminAuditEntry, ApiIntegrationStatus, ApiError } from '@/api';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
@@ -117,12 +117,10 @@ function PermissionsPanel({ user, onClose }: PermissionsPanelProps) {
           type="button"
           disabled={isAdminLocked || saving}
           onClick={() => !isAdminLocked && setToggles(prev => ({ ...prev, [screen]: !prev[screen] }))}
-          className={`min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ${isAdminLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-          role="switch" aria-checked={isOn}
-          title={isAdminLocked ? 'Access is fixed by this account role' : undefined}
+          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${isOn ? 'bg-[#0078C1]' : 'bg-slate-300'} ${isAdminLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
           aria-label={`Toggle ${screenLabels[screen]}`}
         >
-          <span aria-hidden="true" className={`inline-flex h-5 w-9 items-center rounded-full transition-colors ${isOn ? 'bg-[#0078C1]' : 'bg-slate-300'}`}><span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${isOn ? 'translate-x-4' : 'translate-x-0.5'}`} /></span>
+          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${isOn ? 'translate-x-4' : 'translate-x-0.5'}`} />
         </button>
       </div>
     );
@@ -137,7 +135,7 @@ function PermissionsPanel({ user, onClose }: PermissionsPanelProps) {
             Module Access — {user.name} <span className="text-slate-400 font-normal">({ROLE_LABELS[user.role] ?? user.role})</span>
           </h4>
         </div>
-        <button aria-label="Close module access" onClick={onClose} className="min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 p-1 text-slate-400 hover:text-slate-700 cursor-pointer">
+        <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer">
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -163,26 +161,26 @@ function PermissionsPanel({ user, onClose }: PermissionsPanelProps) {
       )}
 
       {error && (
-        <p role="alert" aria-live="polite" className="text-red-600 text-[11px] font-semibold bg-red-50 border border-red-200 rounded px-3 py-2">{error}</p>
+        <p className="text-red-600 text-[11px] font-semibold bg-red-50 border border-red-200 rounded px-3 py-2">{error}</p>
       )}
 
       <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-200">
         <button
           onClick={handleSave} disabled={saving || loading || !policy}
-          className="min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 px-4 py-2 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg text-[11px] uppercase flex items-center gap-1.5 disabled:opacity-60 cursor-pointer"
+          className="px-4 py-2 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg text-[11px] uppercase flex items-center gap-1.5 disabled:opacity-60 cursor-pointer"
         >
           {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : savedOk ? <Check className="w-3 h-3" /> : <Check className="w-3 h-3" />}
           {savedOk ? 'Saved!' : 'Save Changes'}
         </button>
         <button
           onClick={handleReset} disabled={saving || loading || !policy}
-          className="min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg text-[11px] uppercase flex items-center gap-1.5 disabled:opacity-60 cursor-pointer"
+          className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg text-[11px] uppercase flex items-center gap-1.5 disabled:opacity-60 cursor-pointer"
         >
           <RotateCcw className="w-3 h-3" /> Reset to Role Default
         </button>
         <button
           onClick={onClose}
-          className="min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 px-4 py-2 text-slate-500 hover:text-slate-700 font-bold text-[11px] uppercase cursor-pointer"
+          className="px-4 py-2 text-slate-500 hover:text-slate-700 font-bold text-[11px] uppercase cursor-pointer"
         >
           Cancel
         </button>
@@ -210,8 +208,6 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
   const [driverProfiles, setDriverProfiles] = useState<ApiDriver[]>([]);
   const [linkingUserId, setLinkingUserId] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
-  const createErrorRef = useRef<HTMLParagraphElement>(null);
-  useEffect(() => { if (createError) createErrorRef.current?.focus({ preventScroll: true }); }, [createError]);
   const [createLoading, setCreateLoading] = useState(false);
   const [userAction, setUserAction] = useState<{ kind: 'deactivate' | 'activate' | 'delete'; user: ApiUserAdmin } | null>(null);
   const [userActionLoading, setUserActionLoading] = useState(false);
@@ -443,7 +439,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
   };
 
   const tabClass = (t: Tab) =>
-    `min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700 px-5 py-2 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer border-b-2 ${
+    `px-5 py-2 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer border-b-2 ${
       tab === t
         ? 'border-[#0078C1] text-[#0078C1]'
         : 'border-transparent text-slate-500 hover:text-slate-700'
@@ -456,7 +452,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
         onClear={clearDashboardFilter}
       />
       {/* Tab bar */}
-      <div className="flex flex-wrap border-b border-slate-200">
+      <div className="flex border-b border-slate-200">
         <button className={tabClass('users')} onClick={() => setTab('users')}>
           <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> User Management</span>
         </button>
@@ -475,7 +471,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
             <p className="text-xs text-slate-500 font-semibold">{visibleUsers.length} {dashboardFilterId === 'admin-active-users' ? 'active account' : 'registered account'}{visibleUsers.length !== 1 ? 's' : ''}</p>
             <button
               onClick={() => setShowCreateForm(v => !v)}
-              className="min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 bg-[#1F3864] hover:bg-blue-900 text-white text-[11px] font-bold uppercase tracking-wider px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer"
+              className="bg-[#1F3864] hover:bg-blue-900 text-white text-[11px] font-bold uppercase tracking-wider px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" /> Create User
             </button>
@@ -487,38 +483,38 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
               <h4 className="text-sm font-bold text-slate-800">New User Account</h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label htmlFor="admin-create-name" className="font-bold text-slate-700">Full Name</label>
+                  <label className="font-bold text-slate-700">Full Name</label>
                   <input
-                    type="text" required id="admin-create-name" aria-invalid={createError && !createForm.name ? true : undefined} aria-describedby={createError ? 'admin-create-error' : undefined} value={createForm.name}
+                    type="text" required value={createForm.name}
                     onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
                     placeholder="e.g., Maria Santos"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0078C1]"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="admin-create-email" className="font-bold text-slate-700">Email</label>
+                  <label className="font-bold text-slate-700">Email</label>
                   <input
-                    type="email" required id="admin-create-email" aria-invalid={createError && !createForm.email ? true : undefined} aria-describedby={createError ? 'admin-create-error' : undefined} value={createForm.email}
+                    type="email" required value={createForm.email}
                     onChange={e => setCreateForm(f => ({ ...f, email: e.target.value }))}
                     placeholder="user@microgenesis.com"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0078C1]"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="admin-create-password" className="font-bold text-slate-700">Password</label>
+                  <label className="font-bold text-slate-700">Password</label>
                   <input
-                    type="password" required id="admin-create-password" aria-invalid={createError && !createForm.password ? true : undefined} aria-describedby={createError ? 'admin-create-error' : undefined} value={createForm.password}
+                    type="password" required value={createForm.password}
                     onChange={e => setCreateForm(f => ({ ...f, password: e.target.value }))}
                     placeholder="••••••••"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0078C1]"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="admin-create-role" className="font-bold text-slate-700">Role</label>
+                  <label className="font-bold text-slate-700">Role</label>
                   <select
-                    id="admin-create-role" aria-describedby={createError ? 'admin-create-error' : undefined} value={createForm.role}
+                    value={createForm.role}
                     onChange={e => setCreateForm(f => ({ ...f, role: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none"
                   >
                     {ROLE_OPTIONS.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
                   </select>
@@ -530,7 +526,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                     onChange={e => setCreateForm(f => ({ ...f, microsoft_oid: e.target.value }))}
                     placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                     aria-describedby="create-microsoft-oid-help"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0078C1]"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none"
                   />
                   <p id="create-microsoft-oid-help" className="text-[11px] text-slate-500">Copy the user's Object ID from their Microsoft Entra profile in the configured tenant. Providing it approves Microsoft sign-in; the email must match their Microsoft email or username. Leave blank for email and password login only.</p>
                 </div>
@@ -541,7 +537,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                       id="create-driver-profile"
                       value={createForm.driver_profile_id}
                       onChange={e => setCreateForm(f => ({ ...f, driver_profile_id: e.target.value }))}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none"
                     >
                       <option value="">Create a new profile named after this login</option>
                       {linkableProfiles().map(p => <option key={p.id} value={p.id}>{p.name}{p.is_active ? '' : ' (inactive)'}</option>)}
@@ -551,15 +547,15 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                 )}
               </div>
               {createError && (
-                <p id="admin-create-error" ref={createErrorRef} tabIndex={-1} role="alert" aria-live="polite" className="text-red-600 text-[11px] font-semibold bg-red-50 border border-red-200 rounded px-3 py-2">{createError}</p>
+                <p className="text-red-600 text-[11px] font-semibold bg-red-50 border border-red-200 rounded px-3 py-2">{createError}</p>
               )}
               <div className="flex gap-2 justify-end">
                 <button type="button" onClick={() => setShowCreateForm(false)}
-                  className="min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg text-[11px] uppercase cursor-pointer">
+                  className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg text-[11px] uppercase cursor-pointer">
                   Cancel
                 </button>
                 <button type="submit" disabled={createLoading}
-                  className="min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 px-5 py-2 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg text-[11px] uppercase flex items-center gap-1.5 disabled:opacity-60 cursor-pointer">
+                  className="px-5 py-2 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg text-[11px] uppercase flex items-center gap-1.5 disabled:opacity-60 cursor-pointer">
                   {createLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                   Create
                 </button>
@@ -568,7 +564,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
           )}
 
           {usersError && (
-            <div role="alert" aria-live="polite" className="bg-red-50 border border-red-200 text-red-700 text-xs font-semibold rounded-lg px-4 py-3">{usersError}</div>
+            <div className="bg-red-50 border border-red-200 text-red-700 text-xs font-semibold rounded-lg px-4 py-3">{usersError}</div>
           )}
 
           {usersLoading ? (
@@ -576,7 +572,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
               <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading users...
             </div>
           ) : (
-            <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto shadow-sm">
+            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
               <table className="w-full text-xs text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
@@ -596,29 +592,26 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                       <tr className="hover:bg-slate-50 transition-all">
                         <td className="px-4 py-3">
                           {editingUserId === u.id ? (
-                            <><label htmlFor={`admin-edit-name-${u.id}`} className="sr-only">Full name for {u.name}</label>
-                            <input id={`admin-edit-name-${u.id}`} value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
-                              className="w-full px-2 py-1 border border-slate-300 rounded text-xs" /></>
+                            <input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                              className="w-full px-2 py-1 border border-slate-300 rounded text-xs" />
                           ) : (
                             <span className="font-bold text-slate-900">{u.name}</span>
                           )}
                         </td>
                         <td className="px-4 py-3">
                           {editingUserId === u.id ? (
-                            <><label htmlFor={`admin-edit-email-${u.id}`} className="sr-only">Email for {u.name}</label>
-                            <input id={`admin-edit-email-${u.id}`} value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))}
-                              className="w-full px-2 py-1 border border-slate-300 rounded text-[10px] font-mono" /></>
+                            <input value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))}
+                              className="w-full px-2 py-1 border border-slate-300 rounded text-[10px] font-mono" />
                           ) : (
                             <span className="text-slate-600 font-mono text-[10px]">{u.email}</span>
                           )}
                         </td>
                         <td className="px-4 py-3">
                           {editingUserId === u.id ? (
-                            <><label htmlFor={`admin-edit-role-${u.id}`} className="sr-only">Role for {u.name}</label>
-                            <select id={`admin-edit-role-${u.id}`} value={editForm.role} onChange={e => setEditForm(f => ({ ...f, role: e.target.value }))}
+                            <select value={editForm.role} onChange={e => setEditForm(f => ({ ...f, role: e.target.value }))}
                               className="px-2 py-1 border border-slate-300 rounded text-[10px] bg-white">
                               {ROLE_OPTIONS.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
-                            </select></>
+                            </select>
                           ) : (
                             <span className="bg-blue-50 text-blue-700 border border-blue-100 text-[10px] px-2 py-0.5 rounded-full font-semibold">
                               {ROLE_LABELS[u.role] ?? u.role}
@@ -661,33 +654,31 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                             {editingUserId === u.id ? (
                               <>
                                 <button onClick={() => handleEditSave(u.id)} disabled={editLoading}
-                                  className="min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 flex items-center gap-1 text-emerald-600 hover:text-emerald-800 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer">
+                                  className="flex items-center gap-1 text-emerald-600 hover:text-emerald-800 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer">
                                   {editLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Save
                                 </button>
                                 <button onClick={() => setEditingUserId(null)}
-                                  className="min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 flex items-center gap-1 text-slate-500 hover:text-slate-700 font-bold text-[10px] uppercase tracking-wide cursor-pointer">
+                                  className="flex items-center gap-1 text-slate-500 hover:text-slate-700 font-bold text-[10px] uppercase tracking-wide cursor-pointer">
                                   <X className="w-3 h-3" /> Cancel
                                 </button>
                               </>
                             ) : (
                               <>
-                                <button aria-label={`Edit ${u.name}`} onClick={() => startEdit(u)}
-                                  className="min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 flex items-center gap-1 text-slate-500 hover:text-[#0078C1] font-bold text-[10px] uppercase tracking-wide cursor-pointer">
+                                <button onClick={() => startEdit(u)}
+                                  className="flex items-center gap-1 text-slate-500 hover:text-[#0078C1] font-bold text-[10px] uppercase tracking-wide cursor-pointer">
                                   <Pencil className="w-3 h-3" /> Edit
                                 </button>
                                 <button
-                                  aria-label={`Module access for ${u.name}`} aria-expanded={openPermissionsUserId === u.id}
                                   onClick={() => setOpenPermissionsUserId(prev => prev === u.id ? null : u.id)}
-                                  className={`min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 flex items-center gap-1 font-bold text-[10px] uppercase tracking-wide cursor-pointer ${openPermissionsUserId === u.id ? 'text-[#0078C1]' : 'text-slate-500 hover:text-[#0078C1]'}`}
+                                  className={`flex items-center gap-1 font-bold text-[10px] uppercase tracking-wide cursor-pointer ${openPermissionsUserId === u.id ? 'text-[#0078C1]' : 'text-slate-500 hover:text-[#0078C1]'}`}
                                 >
-                                  <ShieldCheck className="min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 w-3 h-3" /> Access
+                                  <ShieldCheck className="w-3 h-3" /> Access
                                 </button>
                                 {u.is_active ? (
                                   <button
-                                    aria-label={`Deactivate ${u.name}`}
                                     onClick={() => requestUserAction('deactivate', u)}
                                     disabled={userActionLoading}
-                                    className="min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 flex items-center gap-1 text-red-600 hover:text-red-800 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer"
+                                    className="flex items-center gap-1 text-red-600 hover:text-red-800 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer"
                                   >
                                     {userActionLoading && userAction?.user.id === u.id && userAction.kind === 'deactivate'
                                       ? <Loader2 className="w-3 h-3 animate-spin" />
@@ -697,10 +688,9 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                                   </button>
                                 ) : (
                                   <button
-                                    aria-label={`Activate ${u.name}`}
                                     onClick={() => requestUserAction('activate', u)}
                                     disabled={userActionLoading}
-                                    className="min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 flex items-center gap-1 text-emerald-600 hover:text-emerald-800 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer"
+                                    className="flex items-center gap-1 text-emerald-600 hover:text-emerald-800 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer"
                                   >
                                     {userActionLoading && userAction?.user.id === u.id && userAction.kind === 'activate'
                                       ? <Loader2 className="w-3 h-3 animate-spin" />
@@ -710,10 +700,9 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                                   </button>
                                 )}
                                 <button
-                                  aria-label={`Delete ${u.name}`}
-                                    onClick={() => requestUserAction('delete', u)}
+                                  onClick={() => requestUserAction('delete', u)}
                                   disabled={userActionLoading}
-                                  className="min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 flex items-center gap-1 text-red-500 hover:text-red-700 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer"
+                                  className="flex items-center gap-1 text-red-500 hover:text-red-700 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer"
                                 >
                                   {userActionLoading && userAction?.user.id === u.id && userAction.kind === 'delete'
                                     ? <Loader2 className="w-3 h-3 animate-spin" />
@@ -816,22 +805,22 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                 </h4>
                 <form onSubmit={handleTestEmail} className="flex items-end gap-3">
                   <div className="flex-1 space-y-1">
-                    <label htmlFor="admin-test-email" className="text-xs font-bold text-slate-700">Recipient</label>
+                    <label className="text-xs font-bold text-slate-700">Recipient</label>
                     <input
-                      id="admin-test-email" type="email" required value={testEmailAddr} aria-describedby={testEmailResult && !testEmailResult.ok ? 'admin-test-email-result' : undefined}
+                      type="email" required value={testEmailAddr}
                       onChange={e => setTestEmailAddr(e.target.value)}
                       placeholder="your-email@example.com"
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#0078C1]"
                     />
                   </div>
                   <button type="submit" disabled={testEmailLoading}
-                    className="min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 px-5 py-2 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg text-[11px] uppercase flex items-center gap-1.5 disabled:opacity-60 cursor-pointer whitespace-nowrap">
+                    className="px-5 py-2 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg text-[11px] uppercase flex items-center gap-1.5 disabled:opacity-60 cursor-pointer whitespace-nowrap">
                     {testEmailLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                     Send Test
                   </button>
                 </form>
                 {testEmailResult && (
-                  <div id="admin-test-email-result" role={testEmailResult.ok ? 'status' : 'alert'} aria-live="polite" className={`mt-3 px-4 py-3 rounded-lg text-xs font-semibold border ${testEmailResult.ok
+                  <div className={`mt-3 px-4 py-3 rounded-lg text-xs font-semibold border ${testEmailResult.ok
                     ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
                     : 'bg-red-50 border-red-200 text-red-700'
                   }`}>
@@ -853,8 +842,8 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
           {/* Filters */}
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap gap-3 items-end text-xs">
             <div className="space-y-1">
-              <label htmlFor="admin-audit-action" className="font-bold text-slate-700 block">Action</label>
-              <select id="admin-audit-action" value={auditAction} onChange={e => setAuditAction(e.target.value)}
+              <label className="font-bold text-slate-700 block">Action</label>
+              <select value={auditAction} onChange={e => setAuditAction(e.target.value)}
                 className="px-3 py-2 border border-slate-300 rounded-lg bg-white text-xs w-36">
                 <option value="">All Actions</option>
                 <option value="CREATE">CREATE</option>
@@ -863,18 +852,18 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
               </select>
             </div>
             <div className="space-y-1">
-              <label htmlFor="admin-audit-from" className="font-bold text-slate-700 block">From</label>
-              <input id="admin-audit-from" type="date" value={auditFrom} onChange={e => setAuditFrom(e.target.value)}
+              <label className="font-bold text-slate-700 block">From</label>
+              <input type="date" value={auditFrom} onChange={e => setAuditFrom(e.target.value)}
                 className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
             </div>
             <div className="space-y-1">
-              <label htmlFor="admin-audit-to" className="font-bold text-slate-700 block">To</label>
-              <input id="admin-audit-to" type="date" value={auditTo} onChange={e => setAuditTo(e.target.value)}
+              <label className="font-bold text-slate-700 block">To</label>
+              <input type="date" value={auditTo} onChange={e => setAuditTo(e.target.value)}
                 className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
             </div>
             <button
               onClick={() => loadAudit(1)}
-              className="min-h-11 min-w-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 px-4 py-2 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold text-[11px] uppercase rounded-lg flex items-center gap-1.5 cursor-pointer"
+              className="px-4 py-2 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold text-[11px] uppercase rounded-lg flex items-center gap-1.5 cursor-pointer"
             >
               {auditLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
               Apply Filters
@@ -882,10 +871,10 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
           </div>
 
           {auditError && (
-            <div role="alert" aria-live="polite" className="bg-red-50 border border-red-200 text-red-700 text-xs font-semibold rounded-lg px-4 py-3">{auditError}</div>
+            <div className="bg-red-50 border border-red-200 text-red-700 text-xs font-semibold rounded-lg px-4 py-3">{auditError}</div>
           )}
 
-          <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto shadow-sm">
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
             <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
               <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                 {auditTotal} total entries

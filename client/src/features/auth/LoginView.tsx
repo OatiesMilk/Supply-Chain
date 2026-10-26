@@ -1,4 +1,4 @@
-import { FormEvent, useState, useEffect, useRef } from 'react';
+import { FormEvent, useState, useEffect } from 'react';
 import { LogIn, Loader2, Mail, ChevronDown } from 'lucide-react';
 import { api, apiUrl, ApiUser } from '@/api';
 import { demoAccountsEnabled } from '@/utils/demoAccounts';
@@ -66,12 +66,9 @@ function MicrosoftLogo() {
 }
 
 export default function LoginView({ onLoggedIn }: LoginViewProps) {
-  const errorRef = useRef<HTMLDivElement>(null);
-
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { if (error) errorRef.current?.focus({ preventScroll: true }); }, [error]);
   const [loading, setLoading] = useState(false);
   const [ssoLoading, setSsoLoading] = useState(false);
   const [showEmailForm, setShowEmailForm] = useState(false);
@@ -211,7 +208,7 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
           <p className="text-sm text-slate-400 mb-7 text-center">Sign in to access the portal</p>
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-lg px-4 py-3 mb-4" id="login-error" ref={errorRef} tabIndex={-1} role="alert" aria-live="polite">
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-lg px-4 py-3 mb-4" id="login-error">
               {error}
             </div>
           )}
@@ -235,7 +232,7 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
           {!showEmailForm && (
             <button
               onClick={() => setShowEmailForm(true)}
-              className="min-h-11 min-w-11 w-full flex items-center justify-center gap-2 text-sm font-bold text-slate-400 hover:text-slate-600 py-2.5 transition-colors cursor-pointer"
+              className="w-full flex items-center justify-center gap-2 text-sm font-bold text-slate-400 hover:text-slate-600 py-2.5 transition-colors cursor-pointer"
             >
               <Mail className="w-4 h-4" />
               Sign in with email instead
@@ -253,7 +250,7 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
               </div>
 
               <div className="space-y-2">
-                <label htmlFor="login-email" className="text-sm font-bold text-slate-700">Email</label>
+                <label className="text-sm font-bold text-slate-700">Email</label>
                 <input
                   type="email"
                   required
@@ -262,11 +259,11 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@microgenesis.com"
                   className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm focus:outline-hidden focus:ring-1 focus:ring-[#0078C1]"
-                  id="login-email" autoComplete="username" aria-describedby={error ? 'login-error' : undefined}
+                  id="login-email"
                 />
               </div>
               <div className="space-y-2">
-                <label htmlFor="login-password" className="text-sm font-bold text-slate-700">Password</label>
+                <label className="text-sm font-bold text-slate-700">Password</label>
                 <input
                   type="password"
                   required
@@ -274,7 +271,7 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm focus:outline-hidden focus:ring-1 focus:ring-[#0078C1]"
-                  id="login-password" autoComplete="current-password" aria-describedby={error ? 'login-error' : undefined}
+                  id="login-password"
                 />
               </div>
 

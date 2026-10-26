@@ -1,4 +1,3 @@
-import { CREATE_RECORD_LABEL, DRAFT_RECORDS_LABEL, screenLabel } from '@/utils/navigationLabels';
 import { useState, useMemo, useEffect } from "react";
 import { Layers, Plus } from "lucide-react";
 import { DeliveryRecord, DeliveryCategory, UserRole } from "@/types";
@@ -62,7 +61,7 @@ const FILTER_BUTTONS: { key: FilterKey; label: string }[] = [
   { key: "On-Hold", label: "View On-Hold Items" },
   { key: "Rescheduled", label: "View Rescheduled Items" },
   { key: "Pending", label: "View Pending Items" },
-  { key: "draft", label: DRAFT_RECORDS_LABEL },
+  { key: "draft", label: "Delivery For Approval" },
 ];
 
 function fmtCreatedAt(ts: string): string {
@@ -193,27 +192,21 @@ export default function MainView({
 
   return (
     <div className="space-y-3">
-      <div>
-        <h1 className="text-lg font-bold text-slate-900">{screenLabel('main')}</h1>
-        <p className="text-sm text-slate-600">Find records across the modules available to your account. Open a record to review its details and available actions.</p>
-      </div>
-      {availableCategories.length === 0 && <p id="create-record-unavailable" className="text-sm text-slate-600">Record creation is unavailable with your current module access. Contact your administrator if you need to create records.</p>}
-      {/* Filter shortcut buttons + Create Record */}
+      {/* Filter shortcut buttons + New Delivery */}
       <div className="flex flex-wrap gap-2 items-center">
-        {/* Create Record — separate, not part of the active filter group */}
+        {/* New Delivery — separate, not part of the active filter group */}
         <button
           onClick={handleOpenCreate}
           disabled={availableCategories.length === 0}
-          aria-describedby={availableCategories.length === 0 ? "create-record-unavailable" : undefined}
           title={
             availableCategories.length === 0
               ? "No order types available for your account"
-              : "Choose a record type and enter its details"
+              : "Create a new delivery record"
           }
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all border-2 bg-[#0078C1] text-white border-transparent hover:bg-[#1F3864] disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Plus className="w-3.5 h-3.5" />
-          {CREATE_RECORD_LABEL}
+          New Delivery
         </button>
 
         {FILTER_BUTTONS.map(({ key, label }) => {
@@ -222,7 +215,6 @@ export default function MainView({
             <button
               key={key}
               onClick={() => setActiveFilter(key)}
-              aria-pressed={isActive}
               className={`px-4 py-2 rounded-lg text-xs font-bold transition-all border-2 ${
                 isActive
                   ? "bg-[#1F3864] text-white border-white/30 ring-2 ring-white/40 ring-offset-1 ring-offset-[#1F3864]"
@@ -243,7 +235,6 @@ export default function MainView({
           onChange={(e) => setDateFrom(e.target.value)}
           className="px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
           title="Delivery Date From"
-          aria-label="Delivery Date From"
         />
         <input
           type="date"
@@ -251,10 +242,8 @@ export default function MainView({
           onChange={(e) => setDateTo(e.target.value)}
           className="px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
           title="Delivery Date To"
-          aria-label="Delivery Date To"
         />
         <select
-          aria-label="Sort records"
           value={sortMode}
           onChange={(e) => setSortMode(e.target.value as DateSortMode)}
           disabled={!!(dateFrom || dateTo)}
@@ -325,9 +314,8 @@ export default function MainView({
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <Layers className="w-10 h-10 text-slate-200" />
             <p className="text-sm text-slate-400">
-              {records.length === 0 ? "No records are available to your account yet." : "No records match these filters. Clear the filters to see more records."}
+              No records match this filter.
             </p>
-            {(activeFilter !== 'all' || dateFrom || dateTo) && <button type="button" className="text-sm font-semibold text-blue-700 underline" onClick={() => { setActiveFilter('all'); setDateFrom(''); setDateTo(''); setSortMode('nearest'); }}>Clear filters</button>}
           </div>
         ) : (
           <>
@@ -380,7 +368,7 @@ export default function MainView({
                         </span>
                       </td>
                       <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                        <button type="button" onClick={(event) => { event.stopPropagation(); handleRowClick(record); }} className="text-blue-700 underline focus-visible:outline focus-visible:outline-2" aria-label={`Open ${record.category} record ${record.reference || record.id}`}>{record.reference || record.id}</button>
+                        {record.reference || "—"}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
@@ -437,10 +425,9 @@ export default function MainView({
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4">
             <div className="px-6 pt-5 pb-0 flex items-center justify-between">
               <h2 className="text-sm font-black text-slate-900">
-                {CREATE_RECORD_LABEL}
+                New Delivery
               </h2>
               <button
-                aria-label="Close create record form"
                 onClick={() => setShowCreateForm(false)}
                 className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors"
               >

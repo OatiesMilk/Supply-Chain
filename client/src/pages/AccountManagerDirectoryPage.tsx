@@ -22,7 +22,7 @@ export const AccountManagerDirectoryPage: React.FC<AccountManagerDirectoryPagePr
         </div>
         <h2 className="text-base font-bold text-slate-700">Access Denied</h2>
         <p className="text-xs text-slate-400 max-w-xs">
-          Account Managers is not available for your account. Contact your administrator if you need access.
+          AM Directory is not available for your role. Contact your administrator if you need access.
         </p>
       </div>
     );

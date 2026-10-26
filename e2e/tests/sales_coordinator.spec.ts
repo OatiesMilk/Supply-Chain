@@ -50,38 +50,44 @@ test.describe('A-1 Login & Access Control', () => {
   });
 });
 
-test.describe('Role dashboard drill-downs', () => {
-  test('SC held card opens the matching dialog, fits supported widths, and closes', async ({ page }) => {
-    await page.goto(`${BASE_URL}/dashboard`);
-    const card = page.locator('#dashboard-kpis').getByRole('button', { name: /^On Hold \/ Rescheduled/ });
+test.describe('TSK-126 dashboard card filters', () => {
+  test('SC On-Hold card opens the matching list, wraps at supported widths, and clears', async ({ page }) => {
+    await page.goto(BASE_URL);
+    await page.waitForLoadState('networkidle');
+    const card = page.locator('#kpi-on-hold');
     await expect(card).toBeVisible();
-    const cardCount = Number((await card.locator('strong').innerText()).trim());
+    const cardCount = Number((await card.locator('h3').innerText()).trim());
     await card.click();
 
-    const dialog = page.getByRole('dialog', { name: 'On Hold / Rescheduled', exact: true });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByText(`${cardCount} total`, { exact: true })).toBeVisible();
+    const chip = page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true });
+    await expect(chip).toBeVisible();
+    const clearButton = page.getByRole('button', { name: 'Clear dashboard filter: On-Hold Items' });
+    await expect(clearButton).toBeVisible();
+    const recordsInfo = page.getByTestId('pagination-records-info');
+    await expect(recordsInfo).toContainText(/of\s+\d+\s+records/i);
+    const rowCount = Number((await recordsInfo.innerText()).match(/of\s+(\d+)\s+records/i)?.[1]);
+    expect(rowCount).toBe(cardCount);
 
     for (const width of [375, 768, 1280]) {
       await page.setViewportSize({ width, height: 900 });
-      const dialogBox = await dialog.boundingBox();
-      expect(dialogBox).toBeTruthy();
-      expect(dialogBox!.x).toBeGreaterThanOrEqual(0);
-      expect(dialogBox!.x + dialogBox!.width).toBeLessThanOrEqual(width);
+      const chipBox = await page.getByTestId('dashboard-filter-chip').boundingBox();
+      expect(chipBox).toBeTruthy();
+      expect((chipBox?.x ?? 0) + (chipBox?.width ?? 0)).toBeLessThanOrEqual(width);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     }
 
-    await dialog.getByRole('button', { name: 'Close', exact: true }).focus();
+    await clearButton.focus();
     await page.keyboard.press('Enter');
-    await expect(dialog).not.toBeVisible();
-    await expect(card).toBeFocused();
-    await card.click();
-    await expect(dialog).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(dialog).not.toBeVisible();
+    await expect(page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true })).not.toBeVisible();
+    const unfilteredInfo = page.getByTestId('pagination-records-info');
+    const unfilteredCount = Number((await unfilteredInfo.innerText()).match(/of\s+(\d+)\s+records/i)?.[1]);
+    expect(unfilteredCount).toBeGreaterThanOrEqual(cardCount);
+
+    await page.getByRole('navigation').getByRole('button', { name: /^Dashboard/ }).click();
+    await page.locator('#kpi-on-hold').click();
+    await expect(page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true })).toBeVisible();
     await page.getByRole('navigation').getByRole('button', { name: /^Deliveries/ }).click();
-    await expect(page).toHaveURL(/\/deliveries$/);
-    await expect(page.getByRole('dialog')).not.toBeVisible();
+    await expect(page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true })).not.toBeVisible();
   });
 });
 
@@ -93,7 +99,7 @@ test.describe('A-2 Create a Delivery Record', () => {
 
   test('A-2.2 Empty form submission shows validation errors', async ({ page }) => {
     // Open the create form
-    const newBtn = page.getByRole('button', { name: 'Create Record', exact: true });
+    const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
     await newBtn.click();
     await page.waitForLoadState('networkidle');
 
@@ -105,21 +111,19 @@ test.describe('A-2 Create a Delivery Record', () => {
   });
 
   test('A-2.3 Company must be selected from list', async ({ page }) => {
-    const newBtn = page.getByRole('button', { name: 'Create Record', exact: true });
+    const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
     await newBtn.click();
 
     // Type a garbage company name
     const companyInput = page.locator('form').getByPlaceholder('Type to search or scroll to browse...').first();
     await companyInput.fill('ZZZZNOTACOMPANY');
-    // Target the actual form action: the accessible "Close create record form" button
-    // also contains "create" and must not be clicked by this validation test.
-    await page.locator('form').getByRole('button', { name: 'Submit', exact: true }).click();
+    await page.getByRole('button', { name: /save|create|submit/i }).first().click();
 
     await expect(page.getByText(/select a company from the list/i)).toBeVisible();
   });
 
   test('A-2.4 Valid record creates with Scheduled status', async ({ page }) => {
-    const newBtn = page.getByRole('button', { name: 'Create Record', exact: true });
+    const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
     await newBtn.click();
     await page.waitForLoadState('networkidle');
 
@@ -149,7 +153,7 @@ test.describe('A-2 Create a Delivery Record', () => {
   });
 
   test('A-2.7 Reject file over 10 MB', async ({ page }) => {
-    const newBtn = page.getByRole('button', { name: 'Create Record', exact: true });
+    const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
     await newBtn.click();
 
     // Create a temporary > 10 MB file
@@ -167,7 +171,7 @@ test.describe('A-2 Create a Delivery Record', () => {
   });
 
   test('A-2.8 Reject unsupported file type', async ({ page }) => {
-    const newBtn = page.getByRole('button', { name: 'Create Record', exact: true });
+    const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
     await newBtn.click();
 
     const badFilePath = path.join('/tmp', 'malicious.exe');
@@ -213,7 +217,7 @@ test.describe('A-3 Edit a Record', () => {
     await page.getByRole('button', { name: 'Close photo preview' }).click();
 
     await page.getByRole('button', { name: `Remove ${photoName}` }).click();
-    const confirmation = page.getByRole('dialog', { name: 'Remove Attachment' });
+    const confirmation = page.getByRole('alertdialog', { name: 'Remove Attachment' });
     await expect(confirmation.getByRole('textbox')).toHaveCount(0);
     await confirmation.getByRole('button', { name: 'Remove', exact: true }).click();
     await expect(preview).toHaveCount(0);

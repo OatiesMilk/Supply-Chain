@@ -1,4 +1,3 @@
-import { screenLabel } from '@/utils/navigationLabels';
 import { useState, useEffect, useCallback } from 'react';
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Package, Layers,
@@ -510,7 +509,7 @@ export default function SkuWorkspace({
       <div className="flex flex-col items-center justify-center py-32 text-red-500 space-y-3">
         <AlertTriangle className="w-8 h-8" />
         <p className="text-sm">{error ?? 'SKU not found.'}</p>
-        <button onClick={onBack} className="text-sm text-[#0078C1] hover:underline">← Back to {screenLabel('inventory')}</button>
+        <button onClick={onBack} className="text-sm text-[#0078C1] hover:underline">← Back to SKU Master</button>
       </div>
     );
   }
@@ -585,7 +584,7 @@ export default function SkuWorkspace({
             className="flex items-center gap-1.5 text-[#0078C1] hover:text-[#1F3864] text-xs font-semibold transition-colors shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
-            {screenLabel('inventory')}
+            SKU Master
           </button>
           <span className="text-slate-300">/</span>
           <span className="font-mono font-black text-slate-700 text-sm truncate">{sku.sku_code}</span>

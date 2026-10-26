@@ -100,7 +100,7 @@ export const AppRouter: React.FC<AppRouterProps> = ({
 }) => {
   // Check access before mounting a page or running its protected data requests.
   if (!canAccess(currentScreen)) {
-    return <div role="status" className="text-center py-12 text-slate-500">This page is not available for your account. Choose an available page from the menu, or contact your administrator if you need access.</div>;
+    return <div role="status" className="text-center py-12 text-slate-500">This page is not available for your account.</div>;
   }
 
   const renderContent = () => {

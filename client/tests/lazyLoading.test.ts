@@ -72,8 +72,8 @@ test('isResourceQueryEnabled scopes queries to active screens while keeping glob
   assert.equal(isResourceQueryEnabled('dashboard', user, 'suppliers'), false);
 
   // When on "dashboard" screen:
-  assert.equal(isResourceQueryEnabled('dashboard', user, 'dashboard'), false);
-  assert.equal(isResourceQueryEnabled('skus', user, 'dashboard'), false);
+  assert.equal(isResourceQueryEnabled('dashboard', user, 'dashboard'), true);
+  assert.equal(isResourceQueryEnabled('skus', user, 'dashboard'), true);
   assert.equal(isResourceQueryEnabled('customers', user, 'dashboard'), false);
   assert.equal(isResourceQueryEnabled('suppliers', user, 'dashboard'), false);
 
@@ -89,7 +89,7 @@ test('isResourceQueryEnabled scopes queries to active screens while keeping glob
 
 test('record lists load for operational screens but not unrelated directories', () => {
   const user = mockUser('ADMIN');
-  for (const screen of ['main','deliveries','rma','accounting_collection','procurement_pickup','sales_orders','calendar','driver','driver_board','suppliers','am_directory']) {
+  for (const screen of ['main','dashboard','deliveries','rma','accounting_collection','procurement_pickup','sales_orders','calendar','driver','driver_board','suppliers','am_directory']) {
     assert.equal(isResourceQueryEnabled('records', user, screen), true, screen);
   }
   for (const screen of ['customers','inventory','admin','data_sampler','transactions','statistical_reports','driver_manager']) {
@@ -99,7 +99,7 @@ test('record lists load for operational screens but not unrelated directories', 
 
 test('driver directory loads on every operational creation and assignment screen', () => {
   const user = mockUser('ADMIN');
-  for (const screen of ['main','deliveries','rma','accounting_collection','procurement_pickup','sales_orders','calendar','data_sampler','driver','driver_board','driver_manager']) {
+  for (const screen of ['main','deliveries','rma','accounting_collection','procurement_pickup','sales_orders','calendar','dashboard','data_sampler','driver','driver_board','driver_manager']) {
     assert.equal(isResourceQueryEnabled('drivers', user, screen), true, screen);
   }
   assert.equal(isResourceQueryEnabled('drivers', user, 'customers'), false);

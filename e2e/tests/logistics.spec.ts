@@ -65,7 +65,7 @@ test.describe('B-1 Login & Access Control', () => {
     await page.goto(`${BASE_URL}/rma`);
     await page.waitForLoadState('networkidle');
     // Attempt to click new record — button should be absent OR blocked
-    const newBtn = page.getByRole('button', { name: 'Create Record', exact: true });
+    const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
     // Either the button doesn't exist, or clicking it shows an error
     if (await newBtn.isVisible()) {
       await newBtn.click();
@@ -98,12 +98,7 @@ test.describe('B-1 Login & Access Control', () => {
     expect(Math.abs((expandedToggleBox?.y ?? 0) - (collapsedToggleBox?.y ?? 0))).toBeLessThanOrEqual(1);
     const collapsedMainLeft = (await mainContent.boundingBox())?.x ?? 0;
     expect(expandedMainLeft - collapsedMainLeft).toBe(152);
-    const navigation = page.getByRole('navigation', { name: 'Main navigation' });
-    for (const group of ['Manage Records', 'People and Products', 'Plan and Review']) {
-      await expect(navigation.getByText(group, { exact: true })).toHaveCount(1);
-    }
-    await expect(navigation.getByText('Administration', { exact: true })).toHaveCount(0);
-    await expect(navigation.locator('hr')).toHaveCount(3);
+    await expect(page.locator('#sidebar-nav hr')).toHaveCount(2);
 
     const activeDashboard = page.getByRole('navigation').getByRole('button', { name: 'Dashboard' });
     const activeAccent = await activeDashboard.evaluate(element => getComputedStyle(element, '::before').backgroundColor);
@@ -149,21 +144,21 @@ test.describe('B-1 Login & Access Control', () => {
   });
 });
 
-test.describe('Role dashboard drill-downs', () => {
-  test('Logistics unassigned today card opens the matching dialog', async ({ page }) => {
-    await page.goto(`${BASE_URL}/dashboard`);
-    const card = page.locator('#dashboard-kpis').getByRole('button', { name: /^Unassigned Today/ });
+test.describe('TSK-126 dashboard card filters', () => {
+  test('Logistics unassigned card opens the matching Delivery list', async ({ page }) => {
+    await page.goto(BASE_URL);
+    await page.waitForLoadState('networkidle');
+    const card = page.locator('#kpi-log-unassigned');
     await expect(card).toBeVisible();
-    const cardCount = Number((await card.locator('strong').innerText()).trim());
+    const cardCount = Number((await card.locator('h3').innerText()).trim());
     await card.click();
 
-    const dialog = page.getByRole('dialog', { name: 'Unassigned Today', exact: true });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByText(`${cardCount} total`, { exact: true })).toBeVisible();
-    await expect(page).toHaveURL(/\/dashboard$/);
-    await page.keyboard.press('Escape');
-    await expect(dialog).not.toBeVisible();
-    await expect(card).toBeFocused();
+    await expect(page.getByText('Showing: No Driver Assigned (from Dashboard)', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Clear dashboard filter: No Driver Assigned' })).toBeVisible();
+    const recordsInfo = page.getByTestId('pagination-records-info');
+    await expect(recordsInfo).toContainText(/of\s+\d+\s+records/i);
+    const rowCount = Number((await recordsInfo.innerText()).match(/of\s+(\d+)\s+records/i)?.[1]);
+    expect(rowCount).toBe(cardCount);
   });
 });
 
@@ -171,7 +166,7 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
   test('B-2.0a Auto Fill keeps Area and Address in one demo-location fixture', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
-    await page.getByRole('button', { name: 'Create Record', exact: true }).click();
+    await page.getByRole('button', { name: /new record/i }).click();
 
     const areaInput = page.locator('label').filter({ hasText: /^Area/ }).locator('..').locator('input');
     const addressInput = page.getByPlaceholder(/street, building, floor/i);
@@ -501,7 +496,7 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     await expect(page.getByRole('button', { name: `Preview ${pdfName}` })).toHaveCount(0);
     await expect(page.getByRole('link', { name: `Download ${pdfName}` })).toHaveAttribute('download', pdfName);
     await page.getByRole('button', { name: `Remove ${pdfName}` }).click();
-    await page.getByRole('dialog', { name: 'Remove Attachment' }).getByRole('button', { name: 'Remove', exact: true }).click();
+    await page.getByRole('alertdialog', { name: 'Remove Attachment' }).getByRole('button', { name: 'Remove', exact: true }).click();
     await expect(page.getByText(pdfName)).toHaveCount(0);
 
     fs.unlinkSync(pdfPath);
@@ -540,7 +535,7 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     await expect(lightbox).not.toBeVisible();
 
     await page.getByRole('button', { name: `Remove ${photoName}` }).click();
-    const confirmation = page.getByRole('dialog', { name: 'Remove Attachment' });
+    const confirmation = page.getByRole('alertdialog', { name: 'Remove Attachment' });
     await expect(confirmation).toBeVisible();
     await expect(confirmation.getByRole('textbox')).toHaveCount(0);
     await confirmation.getByRole('button', { name: 'Remove', exact: true }).click();

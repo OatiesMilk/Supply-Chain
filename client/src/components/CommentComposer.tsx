@@ -68,13 +68,12 @@ export default function CommentComposer({
         <textarea
           id={id}
           ref={textareaRef}
-          aria-invalid={!!error}
-          aria-describedby={[describedBy, error ? `${id}-error` : undefined, `${id}-send-help`].filter(Boolean).join(' ')}
+          aria-describedby={describedBy}
           disabled={submitting}
           value={value}
           onChange={e => onChange(e.target.value)}
           onKeyDown={e => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && value.trim() && !submitting) { e.preventDefault(); onSubmit(); }
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); onSubmit(); }
           }}
           placeholder="Add to the discussion… (Ctrl+Enter to send)"
           rows={1}
@@ -86,13 +85,12 @@ export default function CommentComposer({
           title="Send comment (Ctrl+Enter)"
           onClick={onSubmit}
           disabled={!value.trim() || submitting}
-          className="flex min-h-11 min-w-11 shrink-0 touch-manipulation items-center justify-center rounded-md bg-[#0078C1] text-white hover:bg-[#005fa3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-md bg-[#0078C1] text-white hover:bg-[#005fa3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {submitting ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Send aria-hidden="true" className="h-4 w-4" />}
         </button>
       </div>
-      <p id={`${id}-send-help`} className="sr-only">Write a comment to enable Send. Press Control or Command and Enter to send.</p>
-      {error && <p id={`${id}-error`} role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
+      {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
     </div>
   );
 }

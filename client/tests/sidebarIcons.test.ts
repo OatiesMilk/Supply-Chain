@@ -60,9 +60,9 @@ test('Sidebar keeps every module behind its existing canAccess check', () => {
 
   assert.match(html, />Deliveries</);
   for (const label of [
-    'All Records', 'Dashboard', 'RMA', 'Accounting Collection', 'Procurement Pick-up', 'Sales Orders',
+    'Main', 'Dashboard', 'RMA', 'Accounting Collection', 'Procurement Pick-up', 'Sales Orders',
     'Customers', 'Suppliers', 'Drivers', 'Admin Panel', 'Delivery Calendar',
-    'Reports', 'Account Managers', 'Transaction Center', 'Products / SKU Master', 'Data Sampler',
+    'Reports', 'AM Directory', 'Transaction Center', 'SKU Master', 'Data Sampler',
   ]) {
     assert.ok(!html.includes(`>${label}<`), `${label} remains hidden without access`);
   }

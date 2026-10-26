@@ -3,16 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "test:accessibility": "playwright test --config playwright.config.ts --project='Accessibility'",
-    "test:design-system": "playwright test --config playwright.config.ts --project='Design System'",
     "test": "playwright test --config playwright.config.ts",
     "test:sc": "playwright test --config playwright.config.ts --project='Sales Coordinator'",
     "test:logistics": "playwright test --config playwright.config.ts --project='Logistics'",
     "test:driver": "playwright test --config playwright.config.ts --project='Driver'",
     "test:integration": "playwright test --config playwright.config.ts --project='Cross Role Integration'",
     "test:headed": "playwright test --config playwright.config.ts --headed",
-    "report": "playwright show-report playwright-report",
-    "test:dashboard": "playwright test --config playwright.config.ts --project='Dashboard'"
+    "report": "playwright show-report playwright-report"
   },
   "devDependencies": {
     "@playwright/test": "^1.43.0"

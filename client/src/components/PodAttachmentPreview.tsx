@@ -41,7 +41,7 @@ function PhotoThumbnail({ file, onOpen, onRemove, removeDisabled = false }: {
             href={file.download_url}
             download={file.name}
             aria-label={`Download ${file.name}`}
-            className="inline-flex min-h-11 min-w-11 items-center justify-center text-[10px] font-bold text-blue-700 underline"
+            className="text-[10px] font-bold text-blue-700 underline"
           >
             Download
           </a>
@@ -70,7 +70,7 @@ function PhotoThumbnail({ file, onOpen, onRemove, removeDisabled = false }: {
           download={file.name}
           aria-label={`Download ${file.name}`}
           onClick={event => event.stopPropagation()}
-          className="absolute bottom-1 right-1.5 flex h-11 w-11 items-center justify-center rounded-full bg-white/95 text-slate-700 shadow hover:bg-white hover:text-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          className="absolute bottom-1.5 right-1.5 flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-slate-700 shadow hover:bg-white hover:text-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
         >
           <Download aria-hidden="true" className="h-4 w-4" />
         </a>
@@ -84,7 +84,7 @@ function PhotoThumbnail({ file, onOpen, onRemove, removeDisabled = false }: {
             onRemove();
           }}
           aria-label={`Remove ${file.name}`}
-          className="absolute right-1.5 top-1 flex h-11 w-11 items-center justify-center rounded-full bg-white/95 text-slate-700 shadow hover:bg-white hover:text-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+          className="absolute right-1.5 top-1.5 flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-slate-700 shadow hover:bg-white hover:text-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <X aria-hidden="true" className="h-4 w-4" />
         </button>
@@ -233,7 +233,7 @@ export function PodPhotoLightbox({
             href={file.download_url}
             download={file.name}
             aria-label={`Download ${file.name}`}
-            className="flex min-h-11 min-w-11 justify-center items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-bold text-slate-900 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            className="flex min-h-11 items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-bold text-slate-900 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
           >
             <Download aria-hidden="true" className="h-4 w-4" /> Download
           </a>
@@ -285,7 +285,7 @@ export function PodAttachmentList({ files, onRemove, removeDisabled = false }: {
                   href={file.download_url}
                   download={file.name}
                   aria-label={`Download ${file.name}`}
-                  className="flex min-h-11 min-w-11 justify-center shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-bold text-slate-600 hover:bg-slate-200 hover:text-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                  className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-bold text-slate-600 hover:bg-slate-200 hover:text-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
                 >
                   <Download aria-hidden="true" className="h-4 w-4" />
                   <span className="hidden sm:inline">Download</span>

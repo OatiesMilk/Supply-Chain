@@ -1,9 +1,7 @@
-import React, { useState, useRef, useEffect, useMemo, useId } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { Field, Input } from '@/components/ui';
 
 interface ComboboxFieldProps {
-  id?: string;
   label: string;
   required?: boolean;
   optional?: boolean;
@@ -16,7 +14,6 @@ interface ComboboxFieldProps {
 }
 
 export default function ComboboxField({
-  id,
   label,
   required,
   optional,
@@ -27,9 +24,6 @@ export default function ComboboxField({
   placeholder,
   error,
 }: ComboboxFieldProps) {
-  const generatedId = useId();
-  const inputId = id ?? generatedId;
-  const listId = `${inputId}-options`;
   const [inputValue, setInputValue] = useState(value);
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(-1);
@@ -121,7 +115,6 @@ export default function ComboboxField({
         setHighlighted(h => (h > 0 ? h - 1 : filtered.length - 1));
         break;
       case 'Enter':
-        if (!open) break;
         e.preventDefault();
         if (highlighted >= 0 && highlighted < filtered.length) {
           commitSelection(filtered[highlighted]);
@@ -138,15 +131,11 @@ export default function ComboboxField({
 
   return (
     <div ref={containerRef} className="space-y-1.5">
-      <Field id={inputId} label={label} required={required} description={optional ? 'Optional.' : undefined} error={error}>
-      {control => <div className="relative">
-        <Input
-          {...control}
-          role="combobox"
-          aria-autocomplete="list"
-          aria-expanded={open && filtered.length > 0}
-          aria-controls={open && filtered.length > 0 ? listId : undefined}
-          aria-activedescendant={open && highlighted >= 0 && highlighted < filtered.length ? `${listId}-${highlighted}` : undefined}
+      <label className="font-bold text-slate-700 block">
+        {label} {required && <span className="text-red-500">*</span>}{optional && <span className="text-[10px] font-normal text-slate-400"> (optional)</span>}
+      </label>
+      <div className="relative">
+        <input
           ref={inputRef}
           type="text"
           value={inputValue}
@@ -156,22 +145,23 @@ export default function ComboboxField({
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           autoComplete="off"
-          className="pr-8"
+          aria-invalid={!!error}
+          className={`w-full px-3 py-2 pr-8 border rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] bg-white ${
+            error ? 'border-red-500' : 'border-slate-300'
+          }`}
         />
         <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
 
         {open && filtered.length > 0 && (
           <ul
             ref={listRef}
-            id={listId}
-            aria-label={label}
             role="listbox"
             className="absolute z-50 top-full left-0 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-52 overflow-y-auto"
           >
             {filteredGroups ? (
               filteredGroups.map(group => (
                 <React.Fragment key={group.label}>
-                  <li role="presentation" className="px-3 py-1.5 text-[9px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 select-none cursor-default sticky top-0 z-10">
+                  <li className="px-3 py-1.5 text-[9px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 select-none cursor-default sticky top-0 z-10">
                     {group.label}
                   </li>
                   {group.options.map(option => {
@@ -179,12 +169,11 @@ export default function ComboboxField({
                     return (
                       <li
                         key={option}
-                        id={`${listId}-${idx}`}
                         role="option"
                         data-opt={idx}
                         aria-selected={idx === highlighted}
                         onMouseDown={(e) => { e.preventDefault(); commitSelection(option); }}
-                        className={`min-h-11 px-3 py-2 pl-5 text-xs cursor-pointer select-none ${
+                        className={`px-3 py-2 pl-5 text-xs cursor-pointer select-none ${
                           idx === highlighted ? 'bg-[#0078C1] text-white' : 'text-slate-700 hover:bg-slate-50'
                         }`}
                       >
@@ -198,12 +187,11 @@ export default function ComboboxField({
               filtered.map((option, idx) => (
                 <li
                   key={option}
-                  id={`${listId}-${idx}`}
                   role="option"
                   data-opt={idx}
                   aria-selected={idx === highlighted}
                   onMouseDown={(e) => { e.preventDefault(); commitSelection(option); }}
-                  className={`min-h-11 px-3 py-2 text-xs cursor-pointer select-none ${
+                  className={`px-3 py-2 text-xs cursor-pointer select-none ${
                     idx === highlighted ? 'bg-[#0078C1] text-white' : 'text-slate-700 hover:bg-slate-50'
                   }`}
                 >
@@ -219,8 +207,8 @@ export default function ComboboxField({
             No matches found
           </div>
         )}
-      </div>}
-      </Field>
+      </div>
+      {error && <p className="text-red-500 text-[10px] font-semibold">{error}</p>}
     </div>
   );
 }

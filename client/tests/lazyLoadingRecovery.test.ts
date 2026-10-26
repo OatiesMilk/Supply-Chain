@@ -40,7 +40,7 @@ test('cold page resource errors/loading are visible and cached refresh failures 
   assert.match(errorHtml, /Try again/);
   assert.doesNotMatch(errorHtml, /Empty list/);
   const loadingHtml = renderToStaticMarkup(React.createElement(PageDataGate, { loading: true, error: null, onRetry: async () => {}, children: 'Empty list' }));
-  assert.match(loadingHtml, /Loading this page/);
+  assert.match(loadingHtml, /Loading view/);
   assert.doesNotMatch(loadingHtml, /Empty list/);
 });
 
@@ -68,7 +68,7 @@ test('failed lazy imports can retry successfully and navigation remounts a faile
     await act(async () => { root.render(renderGated(true)); });
     assert.equal(imports, 1, 'Page import starts while page data is pending');
     assert.equal(mounts, 0, 'Page effects and deep links cannot consume placeholder data');
-    assert.match(dom.window.document.body.textContent!, /Loading this page/);
+    assert.match(dom.window.document.body.textContent!, /Loading view/);
     await act(async () => { root.render(renderGated(false)); });
     assert.equal(imports, 1);
     assert.match(dom.window.document.body.textContent!, /Data ready/);
@@ -89,7 +89,7 @@ test('failed lazy imports can retry successfully and navigation remounts a faile
     await act(async () => { root.render(React.createElement(Page)); });
     assert.equal(calls, 2, 'Returning to a downloaded page reuses its resolved lazy component');
     assert.match(dom.window.document.body.textContent!, /Page loaded/);
-    assert.doesNotMatch(dom.window.document.body.textContent!, /Loading this page/);
+    assert.doesNotMatch(dom.window.document.body.textContent!, /Loading view/);
 
     let routeCalls = 0;
     const SharedPage = lazyPage(async () => {

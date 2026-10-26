@@ -7,7 +7,6 @@ import {
   ExternalLink,
   Loader2,
 } from "lucide-react";
-import { IconButton } from "./ui";
 import { api, ApiNotification } from "../api";
 import { DeliveryRecord } from "../types";
 import { notificationScreen } from "../utils/notificationNavigation";
@@ -33,8 +32,6 @@ export default function NotificationBell({
   const [notifications, setNotifications] = useState<ApiNotification[]>([]);
   const [loading, setLoading] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;
@@ -54,15 +51,6 @@ export default function NotificationBell({
     const id = setInterval(load, 60_000);
     return () => clearInterval(id);
   }, [load]);
-
-  const closeAndRestoreFocus = () => {
-    setOpen(false);
-    triggerRef.current?.focus({ preventScroll: true });
-  };
-
-  useEffect(() => {
-    if (open) contentRef.current?.focus({ preventScroll: true });
-  }, [open]);
 
   // Close on outside click
   useEffect(() => {
@@ -109,35 +97,24 @@ export default function NotificationBell({
   };
 
   return (
-    <div className="relative" ref={panelRef}
-      onKeyDown={event => { if (open && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeAndRestoreFocus(); } }}
-      onBlur={event => { if (open && event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}
-    >
-      <IconButton
-        ref={triggerRef}
-        label={`Notifications, ${unreadCount} unread`}
-        aria-expanded={open}
-        aria-controls="notification-panel"
+    <div className="relative" ref={panelRef}>
+      <button
         onClick={handleOpen}
-        className="relative"
+        className="relative p-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-600 hover:text-slate-900 rounded-lg transition-colors cursor-pointer"
         title="Notifications"
         id="notification-bell-button"
       >
-        <Bell aria-hidden="true" className="w-3.5 h-3.5" />
+        <Bell className="w-3.5 h-3.5" />
         {unreadCount > 0 && (
           <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
-      </IconButton>
+      </button>
 
       {open && (
         <div
-          ref={contentRef}
-          role="region"
-          aria-label="Notifications"
-          tabIndex={-1}
-          className="fixed left-2 right-2 top-20 sm:absolute sm:left-auto sm:right-0 sm:top-12 sm:w-96 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 flex flex-col"
+          className="absolute right-0 top-10 w-80 sm:w-96 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 flex flex-col"
           id="notification-panel"
           style={{ maxHeight: "480px" }}
         >
@@ -159,7 +136,7 @@ export default function NotificationBell({
                 <button
                   onClick={handleMarkAll}
                   disabled={markingAll}
-                  className="min-h-11 min-w-11 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700 text-[10px] text-[#0078C1] hover:underline font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                  className="text-[10px] text-[#0078C1] hover:underline font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50"
                   title="Mark all as read"
                 >
                   {markingAll ? (
@@ -171,9 +148,8 @@ export default function NotificationBell({
                 </button>
               )}
               <button
-                onClick={closeAndRestoreFocus}
-                aria-label="Close notifications"
-                className="min-h-11 min-w-11 inline-flex items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700 p-1 hover:bg-slate-100 rounded text-slate-400 cursor-pointer ml-1"
+                onClick={() => setOpen(false)}
+                className="p-1 hover:bg-slate-100 rounded text-slate-400 cursor-pointer ml-1"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -183,7 +159,7 @@ export default function NotificationBell({
           {/* List */}
           <div className="overflow-y-auto flex-1">
             {loading ? (
-              <div role="status" aria-label="Loading notifications" className="flex justify-center py-10">
+              <div className="flex justify-center py-10">
                 <Loader2 className="w-5 h-5 animate-spin text-[#0078C1]" />
               </div>
             ) : notifications.length === 0 ? (
@@ -203,14 +179,12 @@ export default function NotificationBell({
                       className={`flex items-start gap-3 px-4 py-3 transition-all ${
                         hasLink ? "cursor-pointer hover:bg-slate-50" : ""
                       } ${n.is_read ? "opacity-60" : "bg-blue-50/30"}`}
+                      onClick={() => hasLink && handleClickNotification(n)}
                     >
                       <div
                         className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${n.is_read ? "bg-slate-300" : "bg-[#0078C1]"}`}
                       />
-                      {hasLink ? (
-                        <button type="button" onClick={() => void handleClickNotification(n)}
-                          aria-label={`${n.title}. ${n.message}. Open linked record${n.is_read ? '' : ', unread'}`}
-                          className="min-h-11 min-w-0 flex-1 rounded text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700">
+                      <div className="flex-1 min-w-0">
                         <p
                           className={`text-xs font-bold truncate ${n.is_read ? "text-slate-600" : "text-slate-900"}`}
                         >
@@ -237,14 +211,7 @@ export default function NotificationBell({
                               ) : null;
                             })()}
                         </div>
-                        </button>
-                      ) : (
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-bold text-slate-800">{n.title}</p>
-                          <p className="mt-0.5 text-xs text-slate-500">{n.message}</p>
-                          <p className="mt-1 text-xs text-slate-500">{timeAgo(n.created_at)}</p>
-                        </div>
-                      )}
+                      </div>
                       <div className="flex items-center gap-1 shrink-0">
                         {hasLink && (
                           <ExternalLink className="w-3 h-3 text-slate-300" />
@@ -255,8 +222,7 @@ export default function NotificationBell({
                               e.stopPropagation();
                               handleMarkOne(n.id);
                             }}
-                            aria-label={`Mark ${n.title} as read`}
-                            className="min-h-11 min-w-11 inline-flex items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700 p-0.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-600 cursor-pointer"
+                            className="p-0.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-600 cursor-pointer"
                             title="Mark as read"
                           >
                             <Check className="w-3 h-3" />

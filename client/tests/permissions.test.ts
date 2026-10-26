@@ -24,7 +24,7 @@ test('all sidebar links follow access checks, including the formerly uncondition
   } as React.ComponentProps<typeof Sidebar>;
   const html = renderToString(React.createElement(Sidebar, props));
   assert.match(html, />Deliveries</);
-  for (const label of ['All Records', 'Dashboard', 'Customers', 'Suppliers', 'Products / SKU Master', 'Transaction Center']) {
+  for (const label of ['Main', 'Dashboard', 'Customers', 'Suppliers', 'SKU Master', 'Transaction Center']) {
     assert.ok(!html.includes(`>${label}<`), label);
   }
 });

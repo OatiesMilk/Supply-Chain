@@ -35,13 +35,14 @@ test('Pagination renders active page with bold brand styling and touch-friendly 
 
   // Active page has aria-current and brand styling
   assert.match(html, /aria-current="page"/);
-  assert.match(html, /mg-button--primary/);
+  assert.match(html, /bg-\[#1F3864\]/);
 
   // Showing range indicator
   assert.match(html, /Showing.*11.*20.*of.*50.*records/);
 
   // Touch-friendly target sizing classes
-  assert.match(html, /mg-button/);
+  assert.match(html, /min-w-\[40px\]/);
+  assert.match(html, /min-h-\[40px\]/);
 });
 
 test('Pagination handles zero records gracefully (TSK-29)', () => {

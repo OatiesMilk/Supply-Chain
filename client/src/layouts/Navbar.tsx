@@ -1,16 +1,17 @@
-import { screenLabel } from '@/utils/navigationLabels';
+import { manilaToday } from "@/utils/recordLifecycle";
 import React, { useState, useEffect } from "react";
 import {
   Menu,
   ZoomIn,
   ZoomOut,
+  Clock,
   Search,
   RotateCw,
   LogOut,
+  Loader2,
 } from "lucide-react";
 import { NotificationBell } from "@/components";
 import { api } from "@/api";
-import { Button, IconButton } from "@/components/ui";
 import { ActionDialog } from "@/components/ActionDialog";
 import { DeliveryRecord } from "@/types";
 
@@ -79,89 +80,101 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <>
       <header
-        className="min-h-16 flex-wrap gap-2 bg-white border-b border-slate-200 px-3 py-2 sm:px-4 lg:px-8 flex items-center justify-between shrink-0"
+        className="h-16 bg-white border-b border-slate-200 px-4 lg:px-8 flex items-center justify-between shrink-0"
         id="global-header"
       >
-        <div className="flex min-w-0 items-center gap-2 text-sm">
-          <IconButton label="Open navigation menu"
+        <div className="flex items-center gap-3 text-sm">
+          <button
             onClick={() => setIsSidebarOpen(true)}
-            className="lg:hidden"
+            className="lg:hidden p-1.5 -ml-1 text-slate-600 hover:text-[#0078C1] hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
             id="mobile-sidebar-toggle"
             title="Open navigation menu"
-            aria-controls="sidebar-panel"
           >
-            <Menu aria-hidden="true" className="w-5 h-5" />
-          </IconButton>
+            <Menu className="w-5 h-5" />
+          </button>
 
-          <span className="font-semibold text-slate-800 text-sm break-words">
-            {screenLabel(currentScreen)}
+          <span className="font-semibold text-slate-800 uppercase tracking-tight text-xs">
+            {currentScreen === "dashboard"
+              ? "Command Dashboard"
+              : currentScreen === "main"
+                ? "Main"
+                : currentScreen.replace(/_/g, " ")}
           </span>
         </div>
 
-        <div className="flex max-w-full flex-wrap items-center gap-1 sm:gap-2 text-sm text-slate-600">
+        <div className="flex items-center gap-4 text-xs text-slate-500">
           <div
             className="flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-lg p-1"
             id="accessibility-zoom-controls"
           >
-            <span className="text-sm font-medium text-slate-600 px-1 hidden lg:inline">
+            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider px-1 hidden lg:inline">
               Text Size
             </span>
-            <IconButton label="Decrease font size"
+            <button
               onClick={() => setZoomFactor((prev) => Math.max(90, prev - 5))}
               disabled={zoomFactor <= 90}
+              className="p-1 hover:bg-white rounded text-slate-600 hover:text-slate-900 disabled:opacity-40 transition-colors cursor-pointer flex items-center justify-center border border-transparent hover:border-slate-200"
               title="Decrease font size"
             >
-              <ZoomOut aria-hidden="true" className="w-3.5 h-3.5" />
-            </IconButton>
-            <span className="px-1.5 text-sm font-semibold text-slate-700 min-w-[36px] text-center">
+              <ZoomOut className="w-3.5 h-3.5" />
+            </button>
+            <span className="px-1.5 text-[10px] font-bold text-slate-700 min-w-[36px] text-center">
               {zoomFactor}%
             </span>
-            <IconButton label="Increase font size"
+            <button
               onClick={() => setZoomFactor((prev) => Math.min(220, prev + 5))}
               disabled={zoomFactor >= 220}
+              className="p-1 hover:bg-white rounded text-slate-600 hover:text-slate-900 disabled:opacity-40 transition-colors cursor-pointer flex items-center justify-center border border-transparent hover:border-slate-200"
               title="Increase font size"
             >
-              <ZoomIn aria-hidden="true" className="w-3.5 h-3.5" />
-            </IconButton>
+              <ZoomIn className="w-3.5 h-3.5" />
+            </button>
           </div>
 
-          <Button variant="secondary" aria-label="Search records and products" aria-haspopup="dialog"
+          <button
             onClick={() => setSearchOpen(true)}
-            title="Search records and products (Ctrl+K)"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-500 hover:text-slate-700 rounded-lg transition-colors cursor-pointer text-[10px] font-bold"
+            title="Global search (Ctrl+K)"
             id="global-search-button"
           >
-            <Search aria-hidden="true" className="w-3.5 h-3.5" />
+            <Search className="w-3.5 h-3.5" />
             <span className="hidden lg:inline">Search</span>
-            <kbd className="hidden lg:inline bg-slate-200 border border-slate-300 px-1 rounded text-caption text-slate-600">
+            <kbd className="hidden lg:inline bg-slate-200 border border-slate-300 px-1 rounded text-[9px]">
               Ctrl K
             </kbd>
-          </Button>
+          </button>
           <NotificationBell
             onNavigate={handleNavigate}
             deliveryRecords={deliveryRecords}
           />
 
           {canReset && (
-            <IconButton label="Reset demo data" loading={resetting}
+            <button
               onClick={() => {
                 setResetError(null);
                 setResetOpen(true);
               }}
               disabled={resetting}
+              className="p-1.5 bg-slate-100 hover:bg-red-50 border border-slate-200 hover:border-red-200 text-slate-500 hover:text-red-600 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
               id="reset-demo-data-button"
               title="Reset all data back to the original demo seed data (dev only)"
             >
-              {!resetting && <RotateCw aria-hidden="true" className="w-4 h-4" />}
-            </IconButton>
+              {resetting ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <RotateCw className="w-3.5 h-3.5" />
+              )}
+            </button>
           )}
 
-          <IconButton label="Log out"
+          <button
             onClick={handleLogout}
+            className="p-1.5 bg-slate-100 hover:bg-red-50 border border-slate-200 hover:border-red-200 text-slate-500 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
             id="logout-button"
             title="Log out"
           >
-            <LogOut aria-hidden="true" className="w-3.5 h-3.5" />
-          </IconButton>
+            <LogOut className="w-3.5 h-3.5" />
+          </button>
         </div>
       </header>
       <ActionDialog

@@ -210,7 +210,7 @@ test.describe('C-2 ePOD Flow', () => {
     await page.getByPlaceholder(/received.*item|name of person/i).first().fill('Juan dela Cruz (UAT)');
 
     // 3. Click Accomplish
-    const accomplishBtn = page.getByRole('button', { name: /mark as delivered|accomplish/i }).first();
+    const accomplishBtn = page.getByRole('button', { name: /accomplish/i }).first();
     try {
       await accomplishBtn.waitFor({ state: 'visible', timeout: 3000 });
     } catch (e) {
@@ -238,7 +238,7 @@ test.describe('C-2 ePOD Flow', () => {
     await page.getByPlaceholder(/received.*item|name of person/i).first().fill('Juan dela Cruz (UAT)');
 
     // 3. Click Accomplish
-    const accomplishBtn = page.getByRole('button', { name: /mark as delivered|accomplish/i }).first();
+    const accomplishBtn = page.getByRole('button', { name: /accomplish/i }).first();
     try {
       await accomplishBtn.waitFor({ state: 'visible', timeout: 3000 });
     } catch (e) {

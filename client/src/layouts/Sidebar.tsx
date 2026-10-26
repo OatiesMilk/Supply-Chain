@@ -24,7 +24,6 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { UserRole } from '@/types';
-import { screenLabel } from '@/utils/navigationLabels';
 import { driverLandingScreen, isDriverScreen } from '@/routes/screenRouting';
 
 export interface SidebarProps {
@@ -238,7 +237,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     active = currentScreen === screen,
   ) => {
     if (!canAccess(screen)) return null;
-    label = screenLabel(screen);
     const countText = activeCount && activeCount > 0
       ? (activeCount > 99 ? '99+' : String(activeCount)) + ' active'
       : '';
@@ -260,7 +258,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         type="button"
         onClick={() => handleNavigate(screen)}
         aria-label={accessibleLabel}
-        aria-current={active ? 'page' : undefined}
         aria-describedby={isCollapsed ? tooltipId : undefined}
         data-sidebar-tooltip={accessibleLabel}
         className={navItemClass(screen, special, active)}
@@ -295,7 +292,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           (isSidebarCollapsed ? 'lg:w-[72px]' : 'lg:w-56') +
           ' ' + (isSidebarOpen ? 'w-64 translate-x-0' : 'w-64 -translate-x-full lg:translate-x-0')}
         id="sidebar-panel"
-        inert={!isDesktop && !isSidebarOpen}
       >
         <div className="p-4 min-h-[88px] border-b border-white/10 relative">
           <button
@@ -326,7 +322,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <nav
           className="flex-1 py-3 space-y-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
           id="sidebar-nav"
-          aria-label="Main navigation"
           onScrollCapture={repositionTooltip}
         >
           <div className="space-y-1">
@@ -337,8 +332,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {renderNavItem('dashboard', 'Dashboard', LayoutDashboard)}
           </div>
 
-          {['deliveries', 'rma', 'accounting_collection', 'procurement_pickup', 'sales_orders'].some(canAccess) && <div className="space-y-1">
-            <span className={'text-[10px] uppercase tracking-wider text-white/40 font-bold px-4 block' + (isCollapsed ? ' lg:hidden' : '')}>Manage Records</span>
+          <div className="space-y-1">
+            <span className={'text-[10px] uppercase tracking-wider text-white/40 font-bold px-4 block' + (isCollapsed ? ' lg:hidden' : '')}>Operations</span>
             {isCollapsed && <hr aria-hidden="true" className="hidden lg:block w-6 border-0 border-t border-white/10 my-3 mx-auto" />}
 
             {renderNavItem('deliveries', 'Deliveries', Truck, deliveriesActiveCount)}
@@ -346,30 +341,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {renderNavItem('accounting_collection', 'Accounting Collection', Banknote, accountingActiveCount)}
             {renderNavItem('procurement_pickup', 'Procurement Pick-up', PackageSearch, procurementActiveCount)}
             {renderNavItem('sales_orders', 'Sales Orders', ShoppingCart, salesOrdersActiveCount)}
-          </div>}
+          </div>
 
-          {(['customers', 'suppliers', 'am_directory', 'inventory'].some(canAccess) || driversScreen) && <div className="space-y-1">
-            <span className={'text-[10px] uppercase tracking-wider text-white/40 font-bold px-4 block' + (isCollapsed ? ' lg:hidden' : '')}>People and Products</span>
+          <div className="space-y-1">
+            <span className={'text-[10px] uppercase tracking-wider text-white/40 font-bold px-4 block' + (isCollapsed ? ' lg:hidden' : '')}>Master Data</span>
             {isCollapsed && <hr aria-hidden="true" className="hidden lg:block w-6 border-0 border-t border-white/10 my-3 mx-auto" />}
+
             {renderNavItem('customers', 'Customers', Users)}
             {renderNavItem('suppliers', 'Suppliers', Building2)}
             {driversScreen && renderNavItem(driversScreen, 'Drivers', ContactRound, undefined, false, isDriverScreen(currentScreen))}
-            {renderNavItem('am_directory', 'Account Managers', BookOpen)}
-            {renderNavItem('inventory', 'Products / SKU Master', Boxes)}
-          </div>}
-          {['calendar', 'statistical_reports', 'transactions'].some(canAccess) && <div className="space-y-1">
-            <span className={'text-[10px] uppercase tracking-wider text-white/40 font-bold px-4 block' + (isCollapsed ? ' lg:hidden' : '')}>Plan and Review</span>
-            {isCollapsed && <hr aria-hidden="true" className="hidden lg:block w-6 border-0 border-t border-white/10 my-3 mx-auto" />}
+            {renderNavItem('admin', 'Admin Panel', ShieldCheck)}
             {renderNavItem('calendar', 'Delivery Calendar', Calendar)}
             {renderNavItem('statistical_reports', 'Reports', BarChart3)}
+            {renderNavItem('am_directory', 'AM Directory', BookOpen)}
             {renderNavItem('transactions', 'Transaction Center', ArrowLeftRight)}
-          </div>}
-          {['admin', 'data_sampler'].some(canAccess) && <div className="space-y-1">
-            <span className={'text-[10px] uppercase tracking-wider text-white/40 font-bold px-4 block' + (isCollapsed ? ' lg:hidden' : '')}>Administration</span>
-            {isCollapsed && <hr aria-hidden="true" className="hidden lg:block w-6 border-0 border-t border-white/10 my-3 mx-auto" />}
-            {renderNavItem('admin', 'Admin Panel', ShieldCheck)}
+            {renderNavItem('inventory', 'SKU Master', Boxes)}
             {renderNavItem('data_sampler', 'Data Sampler', Database, undefined, true)}
-          </div>}
+          </div>
         </nav>
 
         {/* Desktop collapse toggle: straddles the rail's right edge at mid-height and
