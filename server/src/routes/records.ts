@@ -750,7 +750,10 @@ router.get('/:id/attachments', requireAuth, requireResource('records'), requireR
     is_photo: await isStoredPodPhoto(attachment),
     size: attachment.size,
     uploaded_at: attachment.createdAt,
-    download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`
+    download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`,
+    preview_url: attachment.mimeType === 'application/pdf'
+      ? `/api/records/${req.params.id}/attachments/${attachment.id}/preview`
+      : null
   }))));
 }));
 
@@ -836,12 +839,15 @@ router.post(
       is_photo: isPhoto,
       size: attachment.size,
       uploaded_at: attachment.createdAt,
-      download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`
+      download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`,
+      preview_url: attachment.mimeType === 'application/pdf'
+        ? `/api/records/${req.params.id}/attachments/${attachment.id}/preview`
+        : null
     });
   })
 );
 
-router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
+async function streamAttachment(req: express.Request, res: express.Response, disposition: 'attachment' | 'inline') {
   const attachment = await prisma.podAttachment.findFirst({
     where: { id: req.params.attachmentId, recordId: req.params.id }
   });
@@ -851,12 +857,29 @@ router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResour
     const content = await podStorage.open(attachment.storageKey);
     res.setHeader('Content-Type', attachment.mimeType);
     res.setHeader('Content-Length', String(attachment.size));
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(attachment.originalName)}"`);
+    res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(attachment.originalName)}"`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     await pipeline(content, res);
   } catch (error) {
     if (!res.headersSent) res.status(404).json({ error: 'Attachment file not found' });
     else console.error('[POD] Failed to read attachment', error);
   }
+}
+
+router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
+  await streamAttachment(req, res, 'attachment');
+}));
+
+router.get('/:id/attachments/:attachmentId/preview', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
+  const attachment = await prisma.podAttachment.findFirst({
+    where: { id: req.params.attachmentId, recordId: req.params.id },
+    select: { mimeType: true }
+  });
+  if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
+  if (attachment.mimeType !== 'application/pdf') {
+    return res.status(415).json({ error: 'In-app preview is currently available for PDF attachments only.' });
+  }
+  await streamAttachment(req, res, 'inline');
 }));
 
 router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'), asyncRoute(async (req, res) => {
