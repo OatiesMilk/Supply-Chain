@@ -18,6 +18,7 @@ import { ATTACHMENT_QUOTA_EXCEEDED, attachmentQuotaError } from '../services/att
 import { canWriteCategory, isAssignedDriver, recordScope } from '../services/recordAccess';
 import { deliveryScheduleState, driverDeliveryDateError, isValidDateOnly, isoTimestamp, manilaToday, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
 import { manilaDateRange } from '../services/dateSemantics';
+import { areasForLocation } from '../areaHierarchy';
 
 const router = Router();
 const PRIORITY_LOCKED_ERROR = "Priority can't be changed after a record is Delivered.";
@@ -176,7 +177,7 @@ function dashboardPresetWhere(filterId: string): Prisma.DeliveryRecordWhereInput
 function parseListQuery(query: express.Request['query']) {
   const {
     company_id, category, limit, cursor, page,
-    status, dateFrom, dateTo, search, driver, area, account_manager, priority, dashboard_filter,
+    status, dateFrom, dateTo, search, driver, area, region, subregion, account_manager, priority, dashboard_filter,
     paged, dateSort
   } = query;
   const where: Prisma.DeliveryRecordWhereInput = {};
@@ -243,7 +244,7 @@ function parseListQuery(query: express.Request['query']) {
   if (driver !== undefined) {
     if (typeof driver !== 'string' || driver.length > 100) return { error: 'driver is invalid' };
     if (driver.trim()) {
-      andConditions.push({ driver: { equals: driver.trim(), mode: 'insensitive' } });
+      andConditions.push({ driver: { contains: driver.trim(), mode: 'insensitive' } });
     }
   }
   if (area !== undefined) {
@@ -252,10 +253,24 @@ function parseListQuery(query: express.Request['query']) {
       andConditions.push({ area: area.trim() });
     }
   }
+  if (region !== undefined) {
+    if (typeof region !== 'string' || region.length > 100) return { error: 'region is invalid' };
+  }
+  if (subregion !== undefined) {
+    if (typeof subregion !== 'string' || subregion.length > 100) return { error: 'subregion is invalid' };
+  }
+  if (region !== undefined || subregion !== undefined) {
+    const locationAreas = areasForLocation(
+      typeof region === 'string' && region.trim() ? region.trim() : undefined,
+      typeof subregion === 'string' && subregion.trim() ? subregion.trim() : undefined,
+    );
+    if (!locationAreas) return { error: 'region or subregion is invalid' };
+    andConditions.push({ area: { in: locationAreas } });
+  }
   if (account_manager !== undefined) {
     if (typeof account_manager !== 'string' || account_manager.length > 100) return { error: 'account_manager is invalid' };
     if (account_manager.trim()) {
-      andConditions.push({ accountManager: { equals: account_manager.trim(), mode: 'insensitive' } });
+      andConditions.push({ accountManager: { contains: account_manager.trim(), mode: 'insensitive' } });
     }
   }
   if (priority !== undefined) {
@@ -564,6 +579,8 @@ router.get('/status-history-counts', requireAuth, requireResource('records'), re
   };
   const category = queryValue('category');
   const area = queryValue('area');
+  const region = queryValue('region');
+  const subregion = queryValue('subregion');
   const driver = queryValue('driver');
   const status = queryValue('status');
   const legacyFrom = queryValue('dateFrom');
@@ -580,6 +597,9 @@ router.get('/status-history-counts', requireAuth, requireResource('records'), re
   if ([req.query.dateFrom, req.query.dateTo, req.query.deliveryDateFrom, req.query.deliveryDateTo, req.query.createdAtFrom, req.query.createdAtTo, req.query.dateBasis]
     .some(value => value !== undefined && typeof value !== 'string')) {
     return res.status(400).json({ error: 'Date filters must be single string values.' });
+  }
+  if ([req.query.region, req.query.subregion].some(value => value !== undefined && typeof value !== 'string')) {
+    return res.status(400).json({ error: 'Location filters must be single string values.' });
   }
   if (Number(hasLegacy) + Number(hasDelivery) + Number(hasCreated) > 1) {
     return res.status(400).json({ error: 'Use one date filter basis per request.' });
@@ -620,8 +640,13 @@ router.get('/status-history-counts', requireAuth, requireResource('records'), re
       return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid date range.' });
     }
   }
-  if (area)   where.area   = area;
-  if (driver) where.driver = driver;
+  if (area) where.area = area;
+  if (region || subregion) {
+    const locationAreas = areasForLocation(region, subregion);
+    if (!locationAreas) return res.status(400).json({ error: 'region or subregion is invalid' });
+    where.AND.push({ area: { in: locationAreas } });
+  }
+  if (driver) where.driver = { contains: driver, mode: 'insensitive' };
   const candidates = await prisma.deliveryRecord.findMany({
     where,
     select: { id: true, status: true, draft: true, timeIn: true }

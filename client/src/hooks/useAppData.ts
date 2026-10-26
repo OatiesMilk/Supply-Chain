@@ -74,11 +74,25 @@ export function useAppData(
   const queryClient = useQueryClient();
   // A forbidden screen cannot initiate protected data loading.
   const routeAllowed = !currentScreen || Boolean(authUser?.effectiveScreens.includes(currentScreen));
+  const searchableResourceAllowed = (resource: string) => {
+    const screens = authUser?.effectiveScreens ?? [];
+    switch (resource) {
+      case 'records':
+        return Object.keys(CATEGORY_SCREENS).some(screen => screens.includes(screen));
+      case 'customers':
+      case 'suppliers':
+      case 'skus':
+        return screens.includes(resource === 'skus' ? 'inventory' : resource);
+      case 'drivers':
+        return ['driver', 'driver_board', 'driver_manager'].some(screen => screens.includes(screen));
+      default:
+        return false;
+    }
+  };
   const allowed = (resource: string) =>
     routeAllowed && (isResourceQueryEnabled(resource, authUser, currentScreen) ||
       // Opening global search explicitly requests its data; normal visits do not.
-      (searchOpen && authUser?.resources.includes(resource) === true &&
-        (resource === 'records' || (resource === 'skus' && authUser.effectiveScreens.includes('inventory')))));
+      (searchOpen && authUser?.resources.includes(resource) === true && searchableResourceAllowed(resource)));
 
   const recordsQuery = useRecordsQuery(allowed('records'));
   const { data: deliveryRecords = [] } = recordsQuery;
