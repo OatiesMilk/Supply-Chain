@@ -326,7 +326,7 @@ export interface ApiPodAttachment {
   size: number;
   uploaded_at: string;
   download_url: string;
-  preview_url?: string;
+  preview_url: string | null;
 }
 
 export interface ApiReportSummary {
