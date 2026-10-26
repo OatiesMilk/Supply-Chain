@@ -257,8 +257,11 @@ function AuthenticatedApp() {
       searchOpen={searchOpen}
       setSearchOpen={setSearchOpen}
       deliveryRecords={deliveryRecords}
-      // Global search only offers SKU results that open in SKU Master (TSK-118).
+      customers={canAccess('customers') ? customers : []}
+      suppliers={canAccess('suppliers') ? suppliers : []}
+      drivers={canAccess('driver_manager') || canAccess('driver') || canAccess('driver_board') ? managedDrivers : []}
       products={canAccess('inventory') ? products : []}
+      accessibleScreens={effectiveScreens}
       dataError={dataError}
       accessRequestModalProps={{
         isOpen: accessRequestOpen,
