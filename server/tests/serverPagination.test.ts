@@ -252,10 +252,10 @@ test('Server-side filters are mapped accurately into Prisma where clauses', asyn
     assert.ok(andConditions.some((c: any) => c.area === 'Makati'));
 
     // Driver filter
-    assert.ok(andConditions.some((c: any) => c.driver && c.driver.equals === 'Juan Dela Cruz'));
+    assert.ok(andConditions.some((c: any) => c.driver && c.driver.contains === 'Juan Dela Cruz' && c.driver.mode === 'insensitive'));
 
     // Account Manager filter
-    assert.ok(andConditions.some((c: any) => c.accountManager && c.accountManager.equals === 'Maria Santos'));
+    assert.ok(andConditions.some((c: any) => c.accountManager && c.accountManager.contains === 'Maria Santos' && c.accountManager.mode === 'insensitive'));
 
     // Priority filter
     assert.ok(andConditions.some((c: any) => c.priority === '3 - High'));
