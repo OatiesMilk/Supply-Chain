@@ -451,17 +451,15 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
 
   test('B-4.1a Invalid upload shows a toast and no inline duplicate', async ({ page }) => {
     const fileName = 'invoice.exe';
-    const filePath = path.join('/tmp', fileName);
-    fs.writeFileSync(filePath, 'not an allowed attachment');
 
     await openFirstRecord(page);
     const docsTab = page.getByRole('tab', { name: /documents/i });
     await docsTab.click();
 
     const fileInput = page.locator('input[type="file"]').last();
-    await fileInput.setInputFiles(filePath);
+    await fileInput.setInputFiles({ name: fileName, mimeType: 'application/octet-stream', buffer: Buffer.from('not an allowed attachment') });
 
-    const message = 'invoice.exe — file type not allowed. Use JPG, PNG, PDF, DOC or DOCX.';
+    const message = 'invoice.exe — file type not allowed. Use JPG, PNG, PDF or DOCX.';
     await expect(page.getByText(message, { exact: true })).toBeVisible();
     await expect(page.locator('p', { hasText: message })).toHaveCount(0);
   });
@@ -486,7 +484,14 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     await page.getByRole('button', { name: 'Save Files' }).click();
     await expect(page.getByText('Waiting to upload', { exact: true })).not.toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(pdfName)).toBeVisible();
-    await expect(page.getByRole('button', { name: `Preview ${pdfName}` })).toHaveCount(0);
+    const preview = page.getByRole('button', { name: `Preview ${pdfName}` });
+    await expect(preview).toBeVisible();
+    await preview.click();
+    const documentPreview = page.getByRole('dialog', { name: `Preview ${pdfName}` });
+    await expect(documentPreview).toBeVisible();
+    await expect(documentPreview.locator('iframe')).toHaveAttribute('src', /\/preview$/);
+    await documentPreview.getByRole('button', { name: 'Close document preview' }).click();
+    await expect(documentPreview).toBeHidden();
     await expect(page.getByRole('link', { name: `Download ${pdfName}` })).toHaveAttribute('download', pdfName);
     await page.getByRole('button', { name: `Remove ${pdfName}` }).click();
     await page.getByRole('alertdialog', { name: 'Remove Attachment' }).getByRole('button', { name: 'Remove', exact: true }).click();

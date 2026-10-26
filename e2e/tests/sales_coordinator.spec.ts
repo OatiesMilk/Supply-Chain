@@ -163,18 +163,36 @@ test.describe('A-2 Create a Delivery Record', () => {
 
     // Fill reference
     const refInput = page.getByPlaceholder(/reference|sap/i).first();
-    await refInput.fill(`UAT-${Date.now()}`);
+    const reference = `UAT-${Date.now()}`;
+    await refInput.fill(reference);
 
     // Set delivery date to today
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date());
     const dateInput = page.locator('form input[type="date"]').first();
     await dateInput.fill(today);
 
+    const createdResponsePromise = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/records' && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Submit', exact: true }).click();
-    await page.waitForLoadState('networkidle');
+    const createdResponse = await createdResponsePromise;
+    expect(createdResponse.status(), 'creating the Delivery must succeed').toBe(201);
+    const saved = await createdResponse.json();
+    expect(saved.id).toBeTruthy();
+    expect(saved.reference).toBe(reference);
+    expect(saved.status).toBe('Scheduled');
+    expect(saved.is_draft).toBe('No');
+    await expect(page.getByText(`${reference} · ${saved.id}`, { exact: true })).toBeVisible();
 
-    // Record should appear in the list — status badge shows Scheduled
-    await expect(page.getByText(/scheduled/i).first()).toBeVisible({ timeout: 10_000 });
+    // Reload and inspect only the newly saved row, never a filter option or seed row.
+    await page.reload();
+    await page.getByRole('textbox', { name: 'Search delivery records' }).fill(saved.id);
+    const createdRow = page.getByRole('row').filter({
+      has: page.getByRole('cell', { name: saved.id, exact: true }),
+    });
+    await expect(createdRow).toHaveCount(1);
+    await expect(createdRow.getByText('Scheduled', { exact: true })).toBeVisible();
   });
 
   test('A-2.7 Reject file over 10 MB', async ({ page }) => {
@@ -199,15 +217,10 @@ test.describe('A-2 Create a Delivery Record', () => {
     const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
     await newBtn.click();
 
-    const badFilePath = path.join('/tmp', 'malicious.exe');
-    fs.writeFileSync(badFilePath, Buffer.from('MZ'));
-
     const fileInput = page.locator('input[type="file"]').first();
-    await fileInput.setInputFiles(badFilePath);
+    await fileInput.setInputFiles({ name: 'malicious.exe', mimeType: 'application/octet-stream', buffer: Buffer.from('MZ') });
 
-    await expect(page.getByText('malicious.exe — file type not allowed. Use JPG, PNG, PDF, DOC or DOCX.', { exact: true })).toBeVisible({ timeout: 5_000 });
-
-    fs.unlinkSync(badFilePath);
+    await expect(page.getByText('malicious.exe — file type not allowed. Use JPG, PNG, PDF or DOCX.', { exact: true })).toBeVisible({ timeout: 5_000 });
   });
 });
 
