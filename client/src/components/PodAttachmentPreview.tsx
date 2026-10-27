@@ -22,8 +22,17 @@ function documentType(file: ApiPodAttachment) {
   return extension || 'FILE';
 }
 
-function isPdf(file: ApiPodAttachment) {
-  return file.preview_url !== null && (file.mime_type === 'application/pdf' || documentType(file) === 'PDF');
+/** True when the server exposes a preview_url for this attachment. */
+function isPreviewable(file: ApiPodAttachment) {
+  return file.preview_url !== null;
+}
+
+/** Human-readable document type for the preview dialog header. */
+function previewLabel(file: ApiPodAttachment) {
+  const kind = documentType(file);
+  if (kind === 'PDF') return 'PDF';
+  if (kind === 'DOCX' || kind === 'DOC') return 'Word document';
+  return kind;
 }
 
 function PhotoThumbnail({ file, onOpen, onRemove, removeDisabled = false }: {
@@ -352,7 +361,7 @@ function PodDocumentPreview({
         <div className="flex items-center justify-between gap-3 border-b border-white/10 px-3 py-2 sm:px-4">
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{file.name}</p>
-            <p className="text-xs text-slate-400">PDF · {formatUploadedAt(file.uploaded_at)}</p>
+            <p className="text-xs text-slate-400">{previewLabel(file)} · {formatUploadedAt(file.uploaded_at)}</p>
           </div>
           <button
             ref={closeRef}
@@ -445,7 +454,7 @@ export function PodAttachmentList({ files, onRemove, removeDisabled = false }: {
                     {kind}{file.size ? ` · ${formatSize(file.size)}` : ''} · {formatUploadedAt(file.uploaded_at)}
                   </p>
                 </div>
-                {isPdf(file) ? (
+                {isPreviewable(file) ? (
                   <button
                     type="button"
                     onClick={() => setDocumentPreview(file)}
@@ -455,11 +464,7 @@ export function PodAttachmentList({ files, onRemove, removeDisabled = false }: {
                     <Eye aria-hidden="true" className="h-4 w-4" />
                     <span className="hidden sm:inline">Preview</span>
                   </button>
-                ) : (
-                  <span className="shrink-0 text-[10px] font-semibold text-slate-400" title="Preview is currently available for PDF attachments only">
-                    Download to view
-                  </span>
-                )}
+                ) : null}
                 <a
                   href={file.download_url}
                   download={file.name}
