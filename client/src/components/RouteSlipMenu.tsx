@@ -1,9 +1,11 @@
 import { manilaToday } from '@/utils/recordLifecycle';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Route, ChevronDown, Loader2, AlertTriangle, FileText, Clock, History } from 'lucide-react';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '../utils/documentSize';
 import DocumentSizeSelect from './DocumentSizeSelect';
 import { DeliveryRecord } from '../types';
+import type { ExportColumn, ExportMeta } from '../utils/export';
+import ExportPreviewDialog, { type ExportPreviewFormat } from './ExportPreviewDialog';
 import {
   downloadRouteSlipExcel,
   downloadRouteSlipPDF,
@@ -35,6 +37,7 @@ export default function RouteSlipMenu({
   const [warning, setWarning]   = useState<Format | null>(null);
   const [docSize, setDocSize]   = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
   const [trailFallback, setTrailFallback] = useState(false);
+  const [preview, setPreview] = useState<{ format: Format; variant: Variant; auditSets?: Map<string, Set<string>> } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -70,31 +73,31 @@ export default function RouteSlipMenu({
       }
     }
 
+    setPreview({ format: fmt, variant, auditSets });
+    setLoading(null);
+  };
+
+  const closePreview = useCallback(() => setPreview(null), []);
+  const downloadPreview = async () => {
+    if (!preview) return;
+    const { format: fmt, variant, auditSets } = preview;
+    setLoading(`${fmt}-${variant}`);
     try {
       if (driverFilter) {
-        const params = {
-          records,
-          driverName: driverFilter,
-          date: dateFrom || manilaToday(),
-          preparedBy,
-          filename,
-          auditSets,
-          documentSize: docSize,
-        };
+        const params = { records, driverName: driverFilter, date: dateFrom || manilaToday(), preparedBy, filename, auditSets, documentSize: docSize };
         if (fmt === 'excel') await downloadRouteSlipExcel(params);
-        if (fmt === 'pdf')   await downloadRouteSlipPDF(params);
-        if (fmt === 'docx')  await downloadRouteSlipDocx(params);
+        if (fmt === 'pdf') await downloadRouteSlipPDF(params);
+        if (fmt === 'docx') await downloadRouteSlipDocx(params);
       } else {
         const params = { records, date: dateFrom, preparedBy, filename, auditSets, documentSize: docSize };
         if (fmt === 'excel') await downloadAllDriversRouteSlipExcel(params);
-        if (fmt === 'pdf')   await downloadAllDriversRouteSlipPDF(params);
-        if (fmt === 'docx')  await downloadAllDriversRouteSlipDocx(params);
+        if (fmt === 'pdf') await downloadAllDriversRouteSlipPDF(params);
+        if (fmt === 'docx') await downloadAllDriversRouteSlipDocx(params);
       }
     } catch (err) {
       console.error('Route slip export failed:', err);
-    } finally {
-      setLoading(null);
-    }
+      throw err;
+    } finally { setLoading(null); }
   };
 
   const handleSelect = (fmt: Format, variant: Variant) => {
@@ -233,6 +236,32 @@ export default function RouteSlipMenu({
           </p>
         </div>
       )}
+
+      {preview && (() => {
+        const columns: ExportColumn[] = [
+          { header: 'Record ID', key: 'id' }, { header: 'Company', key: 'company' },
+          { header: 'Reference', key: 'reference' }, { header: 'Area', key: 'area' },
+          { header: 'Delivery Date', key: 'deliveryDate' }, { header: 'Driver', key: 'driver' },
+          { header: 'Status', key: 'status' },
+        ];
+        const rows = records.filter(record => !driverFilter || record.driver === driverFilter).map(record => ({
+          id: record.id, company: record.company_name, reference: record.reference,
+          area: record.area, deliveryDate: record.delivery_date, driver: record.driver,
+          status: record.status,
+        }));
+        const meta: ExportMeta = { reportName: 'Route Slip', dateRange: dateFrom || 'All dates', generatedByName: preparedBy, generatedByRole: '' };
+        return <ExportPreviewDialog
+          format={preview.format as ExportPreviewFormat}
+          variant={preview.variant}
+          rows={rows}
+          columns={columns}
+          meta={meta}
+          title={`${driverFilter || 'All Drivers'} Route Slip`}
+          documentSize={docSize}
+          onClose={closePreview}
+          onDownload={downloadPreview}
+        />;
+      })()}
     </div>
   );
 }

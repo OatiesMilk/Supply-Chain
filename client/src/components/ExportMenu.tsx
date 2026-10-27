@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { FileDown, FileSpreadsheet, FileText, ChevronDown, Loader2, Route, Clock, History } from 'lucide-react';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '../utils/documentSize';
 import DocumentSizeSelect from './DocumentSizeSelect';
@@ -19,6 +19,7 @@ import {
 import { downloadRouteSlipExcel, downloadRouteSlipPDF, downloadRouteSlipDocx } from '../utils/routeSlip';
 import { downloadDocx } from '../utils/exportDocx';
 import { DeliveryRecord } from '../types';
+import ExportPreviewDialog, { type ExportPreviewFormat } from './ExportPreviewDialog';
 
 interface RouteSlipProps {
   records: DeliveryRecord[];
@@ -51,6 +52,13 @@ interface Props {
 type Format = 'csv' | 'excel' | 'pdf' | 'docx';
 type Variant = 'current' | 'trail';
 type LoadingKey = `${Format}-${Variant}`;
+type PreviewState = {
+  format: Format;
+  variant: Variant;
+  rows: Record<string, string | number | null | undefined>[];
+  summary?: AllOpsSummary;
+  routeSlipProps?: RouteSlipProps;
+};
 
 export default function ExportMenu({
   rows,
@@ -71,6 +79,7 @@ export default function ExportMenu({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState<LoadingKey | null>(null);
   const [docSize, setDocSize] = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
+  const [preview, setPreview] = useState<PreviewState | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -99,28 +108,43 @@ export default function ExportMenu({
         if (fetched.routeSlipProps) exportRouteSlip = fetched.routeSlipProps;
       }
 
-      if (exportRouteSlip && fmt !== 'csv') {
-        const rsParams = { ...exportRouteSlip, filename, documentSize: docSize };
-        if (fmt === 'excel') await downloadRouteSlipExcel(rsParams);
-        if (fmt === 'pdf')   await downloadRouteSlipPDF(rsParams);
-        if (fmt === 'docx')  await downloadRouteSlipDocx(rsParams);
-      } else if (exportSummary) {
-        const summaryTitle = pdfTitle.replace(/ records?$/i, '') + ' — Comprehensive Report';
-        if (fmt === 'csv')   downloadAllOpsCSV(exportRows, columns, filename, meta, exportSummary, summaryTitle, hist);
-        if (fmt === 'excel') await downloadAllOpsExcel(exportRows, columns, filename, meta, exportSummary, summaryTitle, hist, docSize);
-        if (fmt === 'pdf')   await downloadAllOpsPDF(exportRows, pdfColumns ?? columns, filename, meta, exportSummary, summaryTitle, hist, docSize);
-        if (fmt === 'docx')  await downloadDocx(exportRows, columns, pdfTitle, filename, meta, exportSummary, summaryTitle, hist, docSize);
-      } else {
-        if (fmt === 'csv')   downloadCSV(exportRows, columns, filename, meta, hist);
-        if (fmt === 'excel') await downloadExcel(exportRows, columns, sheetName, filename, meta, hist, docSize);
-        if (fmt === 'pdf')   await downloadPDF(exportRows, pdfColumns ?? columns, pdfTitle, filename, meta, !pdfPortrait, hist, docSize);
-        if (fmt === 'docx')  await downloadDocx(exportRows, columns, pdfTitle, filename, meta, undefined, undefined, hist, docSize);
-      }
+      setPreview({ format: fmt, variant, rows: exportRows, summary: exportSummary, routeSlipProps: exportRouteSlip });
     } catch (err) {
       console.error('Export failed:', err);
     } finally {
       setLoading(null);
     }
+  };
+
+  const closePreview = useCallback(() => setPreview(null), []);
+  const downloadPreview = async () => {
+    if (!preview) return;
+    const { format: fmt, rows: exportRows, summary: exportSummary, routeSlipProps: exportRouteSlip, variant } = preview;
+    const hist = variant === 'trail' ? statusHistoryCounts : undefined;
+    const key: LoadingKey = `${fmt}-${variant}`;
+    setLoading(key);
+    try {
+      if (exportRouteSlip && fmt !== 'csv') {
+        const rsParams = { ...exportRouteSlip, filename, documentSize: docSize };
+        if (fmt === 'excel') await downloadRouteSlipExcel(rsParams);
+        if (fmt === 'pdf') await downloadRouteSlipPDF(rsParams);
+        if (fmt === 'docx') await downloadRouteSlipDocx(rsParams);
+      } else if (exportSummary) {
+        const summaryTitle = pdfTitle.replace(/ records?$/i, '') + ' — Comprehensive Report';
+        if (fmt === 'csv') downloadAllOpsCSV(exportRows, columns, filename, meta, exportSummary, summaryTitle, hist);
+        if (fmt === 'excel') await downloadAllOpsExcel(exportRows, columns, filename, meta, exportSummary, summaryTitle, hist, docSize);
+        if (fmt === 'pdf') await downloadAllOpsPDF(exportRows, pdfColumns ?? columns, filename, meta, exportSummary, summaryTitle, hist, docSize);
+        if (fmt === 'docx') await downloadDocx(exportRows, columns, pdfTitle, filename, meta, exportSummary, summaryTitle, hist, docSize);
+      } else {
+        if (fmt === 'csv') downloadCSV(exportRows, columns, filename, meta, hist);
+        if (fmt === 'excel') await downloadExcel(exportRows, columns, sheetName, filename, meta, hist, docSize);
+        if (fmt === 'pdf') await downloadPDF(exportRows, pdfColumns ?? columns, pdfTitle, filename, meta, !pdfPortrait, hist, docSize);
+        if (fmt === 'docx') await downloadDocx(exportRows, columns, pdfTitle, filename, meta, undefined, undefined, hist, docSize);
+      }
+    } catch (err) {
+      console.error('Export failed:', err);
+      throw err;
+    } finally { setLoading(null); }
   };
 
   const isLoading = loading !== null;
@@ -207,6 +231,19 @@ export default function ExportMenu({
           </div>
         </div>
       )}
+      {preview && <ExportPreviewDialog
+        format={preview.format as ExportPreviewFormat}
+        variant={preview.variant}
+        rows={preview.rows}
+        columns={preview.format === 'pdf' ? pdfColumns ?? columns : columns}
+        meta={meta}
+        title={preview.summary ? `${pdfTitle.replace(/ records?$/i, '')} — Comprehensive Report` : pdfTitle}
+        documentSize={docSize}
+        statusHistoryCounts={preview.variant === 'trail' ? statusHistoryCounts : undefined}
+        summary={preview.summary}
+        onClose={closePreview}
+        onDownload={downloadPreview}
+      />}
     </div>
   );
 }
