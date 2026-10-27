@@ -1,0 +1,3456 @@
+{
+  "baseline": "8660bdee15b502867716ca0c60683965c6cd87f6",
+  "note": "Planning cases, not implemented or executed tests. Existing test file links are inspection starting points, not coverage assertions. Characterization-gap cases document discrepancies; resolve business policy rather than blessing gaps.",
+  "cases": [
+    {
+      "id": "AUTH-001",
+      "title": "Password login restores authoritative session",
+      "module": "authentication",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR"
+      ],
+      "fixture": "Active SC with known fixture password",
+      "action": "POST /api/auth/login {email,password}; GET /api/auth/me using returned cookie",
+      "expected_result": "200 session snapshot; same identity and current permissions; Set-Cookie httpOnly; CSRF response header; no JWT/hash in JSON",
+      "side_effect_assertions": "No business rows created; no credentials in logs",
+      "source_files": [
+        "server/src/routes/auth.ts",
+        "server/src/middleware/auth.ts",
+        "client/src/store/authStore.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "client/tests/sessionNavigation.test.ts",
+        "client/tests/csrfToken.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "AUTH-002",
+      "title": "Missing and incorrect credentials",
+      "module": "authentication",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "api-integration"
+      ],
+      "roles": [
+        "anonymous"
+      ],
+      "fixture": "No session",
+      "action": "Omit email/password, then use incorrect known credentials",
+      "expected_result": "400 missing; 401 invalid; no authenticated cookie/session JSON",
+      "side_effect_assertions": "No account creation or business writes",
+      "source_files": [
+        "server/src/routes/auth.ts",
+        "server/src/middleware/auth.ts",
+        "client/src/store/authStore.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "client/tests/sessionNavigation.test.ts",
+        "client/tests/csrfToken.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "AUTH-003",
+      "title": "Account invalidation takes effect on next request",
+      "module": "authentication",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "api-integration",
+        "database-integration",
+        "e2e"
+      ],
+      "roles": [
+        "ADMIN",
+        "DRIVER"
+      ],
+      "fixture": "Logged-in Driver, separate Admin",
+      "action": "Admin deactivates Driver; reuse old session for GET protected record",
+      "expected_result": "401 and session clear; stale role/token cannot retain authority",
+      "side_effect_assertions": "No Driver mutation; no cached prior-user record shown",
+      "source_files": [
+        "server/src/routes/auth.ts",
+        "server/src/middleware/auth.ts",
+        "client/src/store/authStore.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "client/tests/sessionNavigation.test.ts",
+        "client/tests/csrfToken.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "AUTH-004",
+      "title": "Logout cannot be undone by a late session check",
+      "module": "authentication",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "component",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR"
+      ],
+      "fixture": "Delayed /me and a logged-in browser",
+      "action": "Logout while /me pending; complete old request; use Back; login as a second user",
+      "expected_result": "Login route remains until valid new session; previous cache/result never restores prior identity",
+      "side_effect_assertions": "Clear query/session UI state; no old-user data disclosed",
+      "source_files": [
+        "server/src/routes/auth.ts",
+        "server/src/middleware/auth.ts",
+        "client/src/store/authStore.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "client/tests/sessionNavigation.test.ts",
+        "client/tests/csrfToken.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "AUTH-005",
+      "title": "CSRF rejects before effects and wrapper retries only token failure",
+      "module": "authentication",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "api-integration",
+        "component"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "fixture": "Valid cookie; correct and incorrect tokens",
+      "action": "Send write without token, with wrong token, from untrusted Origin; then exercise wrapper token refresh",
+      "expected_result": "403 with X-CSRF-Error token/origin; only token path refreshes /me and retries once",
+      "side_effect_assertions": "No DB/storage/mail on rejection; at most one successful business write",
+      "source_files": [
+        "server/src/routes/auth.ts",
+        "server/src/middleware/auth.ts",
+        "client/src/store/authStore.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "client/tests/sessionNavigation.test.ts",
+        "client/tests/csrfToken.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "AUTH-006",
+      "title": "Rate limits and proxy trust boundaries",
+      "module": "authentication",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "api-integration"
+      ],
+      "roles": [
+        "anonymous",
+        "ADMIN"
+      ],
+      "fixture": "Isolated limiter settings and addresses",
+      "action": "Exceed configured login/mail/upload/API budgets; forge forwarded headers; test optional proxy gate",
+      "expected_result": "429 Retry-After when limited; spoofed IP does not evade trusted addressing; direct access 403 when required; health remains accessible",
+      "side_effect_assertions": "No provider or business effect after rejection; do not consume shared business-test budget",
+      "source_files": [
+        "server/src/routes/auth.ts",
+        "server/src/middleware/auth.ts",
+        "client/src/store/authStore.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "client/tests/sessionNavigation.test.ts",
+        "client/tests/csrfToken.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "AUTH-007",
+      "title": "Microsoft config, state and account approval",
+      "module": "authentication",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "api-integration"
+      ],
+      "roles": [
+        "anonymous"
+      ],
+      "fixture": "Fake MSAL/provider and state store; approved/unapproved active/inactive tenant identities",
+      "action": "Initiate absent config; callback missing/mismatched/expired/reused state; wrong tenant/unknown OID; approved callback",
+      "expected_result": "501 missing config; safe redirects for failures; only approved active tenant account gets session; state single-use",
+      "side_effect_assertions": "No automatic account creation; token redemption not called for invalid state; no sensitive callback logging",
+      "source_files": [
+        "server/src/routes/auth.ts",
+        "server/src/middleware/auth.ts",
+        "client/src/store/authStore.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "client/tests/sessionNavigation.test.ts",
+        "client/tests/csrfToken.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "AUTH-008",
+      "title": "Server unavailable then reconnect",
+      "module": "authentication",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "component",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR"
+      ],
+      "fixture": "Intercept health with network/503/malformed then valid 200 ok",
+      "action": "Perform failed read/write; trigger reconnect probe",
+      "expected_result": "Unavailable UI for real outage; recover after explicit healthy response; ordinary 401/403 not treated as server outage",
+      "side_effect_assertions": "No automatic replay of uncertain business write",
+      "source_files": [
+        "server/src/routes/auth.ts",
+        "server/src/middleware/auth.ts",
+        "client/src/store/authStore.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "client/tests/sessionNavigation.test.ts",
+        "client/tests/csrfToken.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "PERM-001",
+      "title": "Role defaults and overrides are one policy",
+      "module": "permissions",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "component",
+        "api-integration"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "LOGISTICS",
+        "TASS",
+        "ADMIN",
+        "DRIVER"
+      ],
+      "fixture": "All roles with default and explicit denial snapshots",
+      "action": "Resolve permissions and render Sidebar/router; request affected resource",
+      "expected_result": "Effective screens/resources/version agree; denied module is not mounted; per-action roles still apply",
+      "side_effect_assertions": "No protected query runs for denied mounted screen",
+      "source_files": [
+        "server/src/services/permissions.ts",
+        "server/src/services/recordAccess.ts",
+        "client/src/routes/AppRouter.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/permissions.test.ts",
+        "client/tests/permissions.test.ts",
+        "client/tests/sessionNavigation.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "PERM-002",
+      "title": "Stale permission edit loses no concurrent change",
+      "module": "permissions",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "fixture": "Two editor snapshots with same version",
+      "action": "PUT different permission sets with same expectedVersion sequentially/concurrently",
+      "expected_result": "One succeeds; stale second 409; reload shows winner; empty set restores defaults",
+      "side_effect_assertions": "Atomic permission replacement and audit; no mixed permission rows",
+      "source_files": [
+        "server/src/services/permissions.ts",
+        "server/src/services/recordAccess.ts",
+        "client/src/routes/AppRouter.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/permissions.test.ts",
+        "client/tests/permissions.test.ts",
+        "client/tests/sessionNavigation.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "PERM-003",
+      "title": "Invalid and privileged grants do not broaden access",
+      "module": "permissions",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "api-integration"
+      ],
+      "roles": [
+        "ADMIN",
+        "DRIVER",
+        "SALES_COORDINATOR"
+      ],
+      "fixture": "Users plus known/unknown/duplicate screen values",
+      "action": "Send malformed permission entries; grant staff/Admin/RMA screens to disallowed roles",
+      "expected_result": "400 invalid/uneditable entries; SC/Driver cannot gain RMA or Admin powers; Driver remains standalone",
+      "side_effect_assertions": "No unauthorized permission mutation",
+      "source_files": [
+        "server/src/services/permissions.ts",
+        "server/src/services/recordAccess.ts",
+        "client/src/routes/AppRouter.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/permissions.test.ts",
+        "client/tests/permissions.test.ts",
+        "client/tests/sessionNavigation.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "PERM-004",
+      "title": "Driver ownership uses stable profile identity",
+      "module": "permissions",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "DRIVER",
+        "ADMIN"
+      ],
+      "fixture": "Driver A/B, same names, unlinked C; submitted/draft/unassigned rows",
+      "action": "Read details/audits/files/transactions as A; rename login; relink profile as Admin",
+      "expected_result": "Only assigned submitted scope; C sees no runs; names do not transfer ownership; relink follows profile rules",
+      "side_effect_assertions": "No cross-Driver data or mutations",
+      "source_files": [
+        "server/src/services/permissions.ts",
+        "server/src/services/recordAccess.ts",
+        "client/src/routes/AppRouter.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/permissions.test.ts",
+        "client/tests/permissions.test.ts",
+        "client/tests/sessionNavigation.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "PERM-005",
+      "title": "Explicit category denial follows aggregates and detail",
+      "module": "permissions",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "LOGISTICS"
+      ],
+      "fixture": "Readable records, then explicit denial of one category",
+      "action": "Read records/search/export/audit after permission change",
+      "expected_result": "Denied category absent from recordScope consumers; direct access denied; separate dashboard count mismatch tracked",
+      "side_effect_assertions": "No category detail leakage; do not assume dashboard counters apply same scope",
+      "source_files": [
+        "server/src/services/permissions.ts",
+        "server/src/services/recordAccess.ts",
+        "client/src/routes/AppRouter.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/permissions.test.ts",
+        "client/tests/permissions.test.ts",
+        "client/tests/sessionNavigation.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "PERM-006",
+      "title": "TASS procurement screen versus data-scope discrepancy",
+      "module": "permissions",
+      "profile": "merged-dev",
+      "classification": "characterization-gap",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "TASS"
+      ],
+      "fixture": "Default TASS and procurement record",
+      "action": "Open procurement screen; read list and dashboard pending pickup metric",
+      "expected_result": "Characterize default screen grant and dashboard count alongside readableCategories exclusion; business owner resolves intended access",
+      "side_effect_assertions": "Do not bypass scope or change expected business requirement to make case pass",
+      "source_files": [
+        "server/src/services/permissions.ts",
+        "server/src/services/recordAccess.ts",
+        "client/src/routes/AppRouter.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/permissions.test.ts",
+        "client/tests/permissions.test.ts",
+        "client/tests/sessionNavigation.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "REC-001",
+      "title": "Create submitted record and reload",
+      "module": "records",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "database-integration",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR"
+      ],
+      "fixture": "Existing Company; valid reference/date",
+      "action": "POST /api/records ordinary category; GET created ID",
+      "expected_result": "201/200 Record; server ID, Scheduled, unassigned, null clocks; requested supported fields persist",
+      "side_effect_assertions": "CREATE audit and optional CREATION remark; no stock allocation/deduction",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/mappings.ts",
+        "client/src/features/deliveries/DeliveryRecordsView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "server/tests/serverPagination.test.ts",
+        "server/tests/recordsDateSorting.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "REC-002",
+      "title": "Ordinary drafts and validation boundaries",
+      "module": "records",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "api-integration",
+        "component"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "LOGISTICS"
+      ],
+      "fixture": "Existing Company and malformed body variants",
+      "action": "Create draft without reference/date; submit with missing reference; create unknown Company/date/priority; Logistics creates Delivery",
+      "expected_result": "Draft allowed under minimal API rules; invalid submission/company/date/priority 400; Logistics Delivery create403",
+      "side_effect_assertions": "Rejected action leaves no record/audit; no fabricated Company",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/mappings.ts",
+        "client/src/features/deliveries/DeliveryRecordsView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "server/tests/serverPagination.test.ts",
+        "server/tests/recordsDateSorting.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "REC-003",
+      "title": "Create cannot assign drivers",
+      "module": "records",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "ADMIN"
+      ],
+      "fixture": "Valid Company and Driver profile",
+      "action": "POST record with driver_id/name/assistants",
+      "expected_result": "SC dispatch attempt403; other assignment-at-create400; ordinary valid create remains unassigned",
+      "side_effect_assertions": "No assignment or Driver notification on rejection",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/mappings.ts",
+        "client/src/features/deliveries/DeliveryRecordsView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "server/tests/serverPagination.test.ts",
+        "server/tests/recordsDateSorting.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "REC-004",
+      "title": "List variants and cursor-page boundaries",
+      "module": "records",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "LOGISTICS"
+      ],
+      "fixture": "201 scoped rows with equal createdAt ties; foreign-category rows",
+      "action": "Read legacy array and paged limit1/25/100; traverse nextCursor",
+      "expected_result": "Stable total, no duplicate/omitted rows, no foreign scope; invalid limit/cursor400; hasMore/nextCursor consistent",
+      "side_effect_assertions": "Read-only",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/mappings.ts",
+        "client/src/features/deliveries/DeliveryRecordsView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "server/tests/serverPagination.test.ts",
+        "server/tests/recordsDateSorting.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "REC-005",
+      "title": "Filter semantics and canonical location expansion",
+      "module": "records",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "api-integration",
+        "component"
+      ],
+      "roles": [
+        "LOGISTICS"
+      ],
+      "fixture": "Rows across regions/subregions, exact areas and partial Driver/AM names",
+      "action": "Combine status/date/search/Driver/AM/area/region/subregion/dashboard filters; invalid repeated/date/location values",
+      "expected_result": "Intersection maintained; supported fields match according to endpoint; invalid values400; no scope expansion",
+      "side_effect_assertions": "Read-only; clearing UI filters restores permitted list",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/mappings.ts",
+        "client/src/features/deliveries/DeliveryRecordsView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "server/tests/serverPagination.test.ts",
+        "server/tests/recordsDateSorting.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "REC-006",
+      "title": "Date sorting is global before paging",
+      "module": "records",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "api-integration"
+      ],
+      "roles": [
+        "LOGISTICS"
+      ],
+      "fixture": "Dated rows spanning today plus blanks and equal dates",
+      "action": "Get nearest/oldest/furthest pages; combine custom sort with cursor or unpaged",
+      "expected_result": "Correct global order; blanks last; invalid combination400; custom sorts use page with nextCursor null",
+      "side_effect_assertions": "Read-only; no table-page-only sort claim",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/mappings.ts",
+        "client/src/features/deliveries/DeliveryRecordsView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "server/tests/serverPagination.test.ts",
+        "server/tests/recordsDateSorting.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "REC-007",
+      "title": "Role-specific edit and unknown fields",
+      "module": "records",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "LOGISTICS",
+        "DRIVER",
+        "TASS",
+        "ADMIN"
+      ],
+      "fixture": "Record per category and role",
+      "action": "PUT metadata plus forbidden dispatch/status fields; include/omit remarks; reload",
+      "expected_result": "status in PUT400; permitted fields only persist; missing edit reason400; unsupported fields may be ignored, not universally rejected",
+      "side_effect_assertions": "No unauthorized assignment/category/clock changes; audit actor valid",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/mappings.ts",
+        "client/src/features/deliveries/DeliveryRecordsView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "server/tests/serverPagination.test.ts",
+        "server/tests/recordsDateSorting.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "REC-008",
+      "title": "Comments, remarks and redacted audit",
+      "module": "records",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "LOGISTICS",
+        "SALES_COORDINATOR",
+        "DRIVER"
+      ],
+      "fixture": "Readable record with inaccessible linked collection",
+      "action": "POST blank/nonblank comment; edit reason; GET comments/remarks/audit; try foreign IDs",
+      "expected_result": "Blank400; comment201 with author; expected sort; hidden linked snapshots redacted; access status route-specific",
+      "side_effect_assertions": "Append-only history; no historical disclosure",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/mappings.ts",
+        "client/src/features/deliveries/DeliveryRecordsView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "server/tests/serverPagination.test.ts",
+        "server/tests/recordsDateSorting.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "REC-009",
+      "title": "Operational deletion is denied",
+      "module": "records",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "LOGISTICS",
+        "TASS",
+        "ADMIN",
+        "DRIVER"
+      ],
+      "fixture": "Readable operational fixtures",
+      "action": "DELETE /api/records/:id using every role including SC",
+      "expected_result": "403; no successful delete UI/API capability",
+      "side_effect_assertions": "Record, line items, audit and files unchanged",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/mappings.ts",
+        "client/src/features/deliveries/DeliveryRecordsView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "server/tests/serverPagination.test.ts",
+        "server/tests/recordsDateSorting.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "REC-010",
+      "title": "Linked Accounting Collection must remain visible and valid",
+      "module": "records",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "LOGISTICS",
+        "ADMIN"
+      ],
+      "fixture": "Accessible and denied Accounting Collections, other-category target",
+      "action": "PUT linked_collection_id valid/wrong/foreign/null; revoke target access; GET current+audit+transaction detail",
+      "expected_result": "Valid link saved; wrong/inaccessible400; null clears; denied nested/ID redacted across current/history",
+      "side_effect_assertions": "Atomic record+audit; no link to forbidden target",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/mappings.ts",
+        "client/src/features/deliveries/DeliveryRecordsView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "server/tests/serverPagination.test.ts",
+        "server/tests/recordsDateSorting.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "RUN-001",
+      "title": "Complete the three-role delivery handoff",
+      "module": "delivery-lifecycle",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "api-integration",
+        "database-integration",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "LOGISTICS",
+        "DRIVER"
+      ],
+      "fixture": "Company, active linked Driver, real PNG, scheduled-today Delivery",
+      "action": "Create/submit \u2192 assign \u2192 Driver Time In \u2192 upload proof \u2192 complete with recipient/remarks \u2192 reload",
+      "expected_result": "Each step succeeds in order; effective statuses/clocks match; final Delivered and server Time Out",
+      "side_effect_assertions": "Record/audit/remarks persist; creator/Logistics/TASS-related notifications only as applicable; no inventory movement",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/deliveryLifecycle.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/podRequirements.test.ts",
+        "server/tests/tsk120Regression.test.ts",
+        "client/tests/recordLifecycleMutations.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "RUN-002",
+      "title": "Time In is the sole start action",
+      "module": "delivery-lifecycle",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "api-integration"
+      ],
+      "roles": [
+        "DRIVER",
+        "LOGISTICS",
+        "ADMIN"
+      ],
+      "fixture": "Submitted assigned Scheduled, draft, unassigned, already-started variants",
+      "action": "POST time-in with/without remarks; PATCH status In Transit; repeat start",
+      "expected_result": "Only eligible dedicated action succeeds; missing prerequisite/repeat invalid; PATCH In Transit rejected",
+      "side_effect_assertions": "One server Time In and TIME_IN remark; no replacement fabricated clocks",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/deliveryLifecycle.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/podRequirements.test.ts",
+        "server/tests/tsk120Regression.test.ts",
+        "client/tests/recordLifecycleMutations.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "RUN-003",
+      "title": "Graph and role restrictions",
+      "module": "delivery-lifecycle",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "api-integration"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "LOGISTICS",
+        "DRIVER"
+      ],
+      "fixture": "Every effective state and valid prerequisites",
+      "action": "Try all allowed/disallowed source-target pairs plus SC operational transition",
+      "expected_result": "Graph+prerequisite+role checks agree; allowed_statuses is not sole authorization; terminal/no-op rejected",
+      "side_effect_assertions": "Failure leaves status/priority/audit/remarks unchanged",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/deliveryLifecycle.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/podRequirements.test.ts",
+        "server/tests/tsk120Regression.test.ts",
+        "client/tests/recordLifecycleMutations.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "RUN-004",
+      "title": "Completion proves persisted image bytes",
+      "module": "delivery-lifecycle",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "DRIVER",
+        "LOGISTICS",
+        "ADMIN"
+      ],
+      "fixture": "Started Delivery with real/fake/missing/PDF-only/deleted-storage proof",
+      "action": "PATCH Delivered with and without recipient/remarks and proof",
+      "expected_result": "Only real saved decodable JPG/PNG unlocks completion; metadata/filename/PDF alone insufficient",
+      "side_effect_assertions": "No Time Out/audit completion for rejected request; storage errors visible",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/deliveryLifecycle.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/podRequirements.test.ts",
+        "server/tests/tsk120Regression.test.ts",
+        "client/tests/recordLifecycleMutations.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "RUN-005",
+      "title": "Future, overdue and midnight actionability",
+      "module": "delivery-lifecycle",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "DRIVER"
+      ],
+      "fixture": "Frozen Manila clock; future/today/past and legacy-started Deliveries",
+      "action": "Try comment/upload/update/start/status around business midnight",
+      "expected_result": "Future unstarted Delivery read-only; past/today eligible; legacy start handled; completion records lateness at actual clock",
+      "side_effect_assertions": "completed_late/days_late persisted and not recomputed from later view day",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/deliveryLifecycle.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/podRequirements.test.ts",
+        "server/tests/tsk120Regression.test.ts",
+        "client/tests/recordLifecycleMutations.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "RUN-006",
+      "title": "Reschedule enforces a new business day atomically",
+      "module": "delivery-lifecycle",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "api-integration",
+        "component"
+      ],
+      "roles": [
+        "LOGISTICS",
+        "ADMIN"
+      ],
+      "fixture": "Delivery with old attempt clocks/recipient",
+      "action": "PATCH Rescheduled with missing/impossible/past/same date, then a new valid today/future date",
+      "expected_result": "Invalid400; valid changes status/date and clears prior ordinary attempt clocks/recipient",
+      "side_effect_assertions": "One matching audit/remark; rejected request no partial date/status write",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/deliveryLifecycle.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/podRequirements.test.ts",
+        "server/tests/tsk120Regression.test.ts",
+        "client/tests/recordLifecycleMutations.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "RUN-007",
+      "title": "Existing clocks can be corrected but not fabricated",
+      "module": "delivery-lifecycle",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "LOGISTICS",
+        "ADMIN",
+        "DRIVER",
+        "SALES_COORDINATOR"
+      ],
+      "fixture": "Started/completed/unstarted variants",
+      "action": "PUT full-zone ISO time corrections; use missing original stamp, invalid zone/order, wrong role; PATCH client clocks",
+      "expected_result": "Only authorized existing correction accepted; invalid ordering400; wrong role403; status clock injection400",
+      "side_effect_assertions": "Correction reason+actor logged; no initial start via PUT",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/deliveryLifecycle.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/podRequirements.test.ts",
+        "server/tests/tsk120Regression.test.ts",
+        "client/tests/recordLifecycleMutations.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "RUN-008",
+      "title": "Completed priority and completion concurrency",
+      "module": "delivery-lifecycle",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "LOGISTICS",
+        "ADMIN",
+        "DRIVER"
+      ],
+      "fixture": "Delivered row and in-progress row with proof",
+      "action": "Change Delivered priority; race completion against proof deletion or second completion",
+      "expected_result": "Priority change rejected; row/file locks maintain completion evidence and no duplicate terminal state",
+      "side_effect_assertions": "Verify DB/audit/remarks and actual stored proof after race; notification retries assessed separately",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/deliveryLifecycle.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/podRequirements.test.ts",
+        "server/tests/tsk120Regression.test.ts",
+        "client/tests/recordLifecycleMutations.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "RUN-009",
+      "title": "Notification failure after commit",
+      "module": "delivery-lifecycle",
+      "profile": "merged-dev",
+      "classification": "characterization-gap",
+      "priority": "P0",
+      "layers": [
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "LOGISTICS",
+        "DRIVER"
+      ],
+      "fixture": "Mock failing notify/mail provider after valid mutation",
+      "action": "Perform assignment/completion and let later side effect fail; reload record before retry",
+      "expected_result": "Persisted state truth distinguished from request/provider error; no assumption that postcommit failure rolled back",
+      "side_effect_assertions": "Retry must not duplicate business record or blindly replay successful step",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/deliveryLifecycle.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/podRequirements.test.ts",
+        "server/tests/tsk120Regression.test.ts",
+        "client/tests/recordLifecycleMutations.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "RMA-001",
+      "title": "TASS entry and Logistics read/print handoff",
+      "module": "rma",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "TASS",
+        "LOGISTICS",
+        "ADMIN"
+      ],
+      "fixture": "Company; valid priority/area/AM",
+      "action": "TASS create/save/edit/submit RMA; Logistics opens saved record and print flow; attempts each mutation",
+      "expected_result": "TASS/Admin entry works; Logistics reads/prints all approved fields but mutation403",
+      "side_effect_assertions": "No Logistics changes via comments/uploads/status/PUT; audit actor TASS/Admin",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/rmaRules.ts",
+        "server/src/services/recordAccess.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/rmaRules.test.ts",
+        "server/tests/recordsIntegration.test.ts",
+        "client/tests/rmaAutofill.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "RMA-002",
+      "title": "No SC or Driver RMA discovery",
+      "module": "rma",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "DRIVER"
+      ],
+      "fixture": "RMA records/files/audits and forged RMA grants",
+      "action": "Use lists/search/detail/transactions/attachment/audit URLs",
+      "expected_result": "RMA remains excluded/denied under every path",
+      "side_effect_assertions": "No detail/reference/contact leakage or writes",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/rmaRules.ts",
+        "server/src/services/recordAccess.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/rmaRules.test.ts",
+        "server/tests/recordsIntegration.test.ts",
+        "client/tests/rmaAutofill.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "RMA-003",
+      "title": "Manual reference and category normalization",
+      "module": "rma",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "api-integration",
+        "component"
+      ],
+      "roles": [
+        "TASS",
+        "ADMIN"
+      ],
+      "fixture": "New and legacy RMA labels/reference data",
+      "action": "Create without reference; edit rma_reference; attempt PUT reference; read legacy labels",
+      "expected_result": "Optional manual reference retained; reference alias correct; legacy SAP separate; PUT reference400; labels normalize",
+      "side_effect_assertions": "No auto-generated SAP/reference or historical overwrite",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/rmaRules.ts",
+        "server/src/services/recordAccess.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/rmaRules.test.ts",
+        "server/tests/recordsIntegration.test.ts",
+        "client/tests/rmaAutofill.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "RMA-004",
+      "title": "RMA required and optional field boundaries",
+      "module": "rma",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "api-integration"
+      ],
+      "roles": [
+        "TASS",
+        "ADMIN"
+      ],
+      "fixture": "Complete required core fields plus malformed optional values",
+      "action": "Omit required priority/area/AM for draft/submitted; invalid date/email/category; compare item type generic API and sampler",
+      "expected_result": "Core required fields400; optional empty/null fields allowed; date/email/category checked; item-type enforcement differs by entry point",
+      "side_effect_assertions": "No inferred contact source or requiredness beyond approved rules",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/rmaRules.ts",
+        "server/src/services/recordAccess.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/rmaRules.test.ts",
+        "server/tests/recordsIntegration.test.ts",
+        "client/tests/rmaAutofill.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "RMA-005",
+      "title": "Historical pre-240 RMA lifecycle gap",
+      "module": "rma",
+      "profile": "historical-efb0283",
+      "classification": "historical-characterization",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "api-integration"
+      ],
+      "roles": [
+        "TASS"
+      ],
+      "fixture": "New Scheduled RMA, no Driver/Time In",
+      "action": "Request Pending/Delivered on merged baseline",
+      "expected_result": "Inherited Time In/transition prerequisite rejects; this is #236 gap, not intended final behavior",
+      "side_effect_assertions": "No Admin/Driver permission workaround or fabricated proof",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/rmaRules.ts",
+        "server/src/services/recordAccess.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/rmaRules.test.ts",
+        "server/tests/recordsIntegration.test.ts",
+        "client/tests/rmaAutofill.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task",
+      "source_revision": "efb0283049d8d71ab35c9acb4d0954d17899970b"
+    },
+    {
+      "id": "AC-001",
+      "title": "Collection run and one-time TASS verification",
+      "module": "accounting-collection",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "database-integration",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "LOGISTICS",
+        "DRIVER",
+        "TASS"
+      ],
+      "fixture": "Accomplished Accounting Collection with amount",
+      "action": "TASS PATCH verify-collection without body; GET again",
+      "expected_result": "200 verified flag/name/server time; repeat400; pending/noncollection rejected",
+      "side_effect_assertions": "Audit+creator notification exist; no duplicate business completion",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "client/src/features/accounting/AccountingCollectionView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/majorDefects.test.ts",
+        "server/tests/recordsIntegration.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "AC-002",
+      "title": "Verification role differs from edit/status role",
+      "module": "accounting-collection",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "TASS",
+        "ADMIN",
+        "LOGISTICS"
+      ],
+      "fixture": "Readable Accounting Collection",
+      "action": "TASS PUT/status/comment mutations versus verify; Admin invokes verify",
+      "expected_result": "TASS ordinary non-RMA writes rejected where handler restricts them; only TASS verify endpoint; Admin verify403",
+      "side_effect_assertions": "Do not assume Admin override on every route",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "client/src/features/accounting/AccountingCollectionView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/majorDefects.test.ts",
+        "server/tests/recordsIntegration.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "AC-003",
+      "title": "Verification partial failure and concurrent requests",
+      "module": "accounting-collection",
+      "profile": "merged-dev",
+      "classification": "characterization-gap",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "TASS"
+      ],
+      "fixture": "Unverified collection, failing downstream audit/notify and simultaneous requests",
+      "action": "Race two verifies or fail audit/notify after update",
+      "expected_result": "Characterize separate awaited writes; record outcome after reload, duplicate/audit inconsistency treated as defect",
+      "side_effect_assertions": "Do not assert all-or-nothing verification that route does not implement",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "client/src/features/accounting/AccountingCollectionView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/majorDefects.test.ts",
+        "server/tests/recordsIntegration.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "OPS-001",
+      "title": "Procurement is our collection from supplier",
+      "module": "procurement-and-sales-orders",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "LOGISTICS",
+        "ADMIN"
+      ],
+      "fixture": "Procurement Pick-up fixture plus supplier collection RMA example",
+      "action": "Open/create/update Procurement via shared operational endpoints",
+      "expected_result": "Correct category/direction; no automatic supplier-collection/RMA conversion; ordinary prerequisites apply",
+      "side_effect_assertions": "No inventory receipt/stock change implied",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "client/src/routes/screenRouting.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "client/tests/permissions.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "OPS-002",
+      "title": "Sales Orders are a real deep-linkable category",
+      "module": "procurement-and-sales-orders",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "ADMIN"
+      ],
+      "fixture": "Sales Order with line items and Company",
+      "action": "Navigate /sales_orders?item=<id>; filter/search/export category; save item rows",
+      "expected_result": "Correct record screen despite no dedicated sidebar item; line rows persist and replacement semantics correct",
+      "side_effect_assertions": "No implicit price/tax/invoice/stock allocation/Delivery conversion",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "client/src/routes/screenRouting.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/recordsIntegration.test.ts",
+        "client/tests/permissions.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "FILE-001",
+      "title": "Upload, reload, preview and download actual bytes",
+      "module": "attachments",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "api-integration",
+        "database-integration",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "DRIVER",
+        "TASS"
+      ],
+      "fixture": "Readable writable record and real format fixtures",
+      "action": "POST multipart file; list; GET inline preview and attachment download",
+      "expected_result": "201 metadata matches actual bytes; list reload; correct Content-Type/Length/Disposition; API authenticated",
+      "side_effect_assertions": "Actual storage file and metadata exist once; no secret/public bucket URL exposed",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/attachmentRules.ts",
+        "server/src/services/podStorage.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/attachmentRules.test.ts",
+        "server/tests/upload-errors.test.ts",
+        "client/tests/recordAttachments.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "FILE-002",
+      "title": "Size and quota exact edges",
+      "module": "attachments",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "fixture": "Records at 9/10 files and near50MiB; exact10MiB file",
+      "action": "Upload exact/over file limit; 10th/11th file; total exactly/over cap; concurrent uploads",
+      "expected_result": "10MiB accepted if valid; over413; count/total quota409 code ATTACHMENT_QUOTA_EXCEEDED; lock prevents overflow",
+      "side_effect_assertions": "No rejected storage object/metadata; grandfathered overquota files readable",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/attachmentRules.ts",
+        "server/src/services/podStorage.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/attachmentRules.test.ts",
+        "server/tests/upload-errors.test.ts",
+        "client/tests/recordAttachments.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "FILE-003",
+      "title": "Content format is proven not guessed",
+      "module": "attachments",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "api-integration"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "fixture": "Valid PDF/JPG/PNG/DOC/DOCX plus spoofed/polyglot/macro/zip fixtures",
+      "action": "Upload filename/MIME matches and mismatches; corrupt encoded data; zip path/entry/unpacked-limit violations",
+      "expected_result": "Only valid allowlisted bytes accepted; unsafe/macro content400; genuine photo sets is_photo",
+      "side_effect_assertions": "Rejected quarantine cleaned; no metadata/POD unlock",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/attachmentRules.ts",
+        "server/src/services/podStorage.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/attachmentRules.test.ts",
+        "server/tests/upload-errors.test.ts",
+        "client/tests/recordAttachments.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "FILE-004",
+      "title": "DOCX plain-text preview and unsupported DOC",
+      "module": "attachments",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "component",
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "LOGISTICS"
+      ],
+      "fixture": "Readable valid PDF/DOCX/DOC/image",
+      "action": "Preview each; close/Escape/navigate/download; DOC unsupported",
+      "expected_result": "PDF/image usable; DOCX displays extracted escaped text, not full Word fidelity; DOC415+download option",
+      "side_effect_assertions": "No third-party viewer upload or arbitrary HTML/external resource execution",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/attachmentRules.ts",
+        "server/src/services/podStorage.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/attachmentRules.test.ts",
+        "server/tests/upload-errors.test.ts",
+        "client/tests/recordAttachments.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "FILE-005",
+      "title": "Every file URL enforces record and attachment ownership",
+      "module": "attachments",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "api-integration"
+      ],
+      "roles": [
+        "DRIVER",
+        "LOGISTICS",
+        "TASS",
+        "SALES_COORDINATOR"
+      ],
+      "fixture": "Driver A/B, RMA, wrong attachment ID under readable record",
+      "action": "Read/upload/delete using foreign/misnested IDs and wrong role",
+      "expected_result": "Shared record denial plus404 attachment mismatch; Driver delete403; Logistics RMA mutations403; TASS RMA-only management",
+      "side_effect_assertions": "No bytes or metadata disclosed across ownership",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/attachmentRules.ts",
+        "server/src/services/podStorage.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/attachmentRules.test.ts",
+        "server/tests/upload-errors.test.ts",
+        "client/tests/recordAttachments.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "FILE-006",
+      "title": "Last proof retention depends on baseline",
+      "module": "attachments",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "ADMIN",
+        "TASS"
+      ],
+      "fixture": "Completed ordinary record and completed legacy RMA with one photo",
+      "action": "DELETE sole proof then replace/remove",
+      "expected_result": "Current baseline permits removing optional RMA photo; ordinary completed records retain last-proof409; historical efb0283 RMA protection is an explicit historical comparison only",
+      "side_effect_assertions": "Proof retained when rejected; storage failure preserves metadata for retry",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/attachmentRules.ts",
+        "server/src/services/podStorage.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/attachmentRules.test.ts",
+        "server/tests/upload-errors.test.ts",
+        "client/tests/recordAttachments.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "FILE-007",
+      "title": "Create-plus-upload partial failure retries files only",
+      "module": "attachments",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "component",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "TASS"
+      ],
+      "fixture": "Staged actual File objects; second upload fails",
+      "action": "Create record, upload one success/one fail; reload and retry failed file",
+      "expected_result": "Created ID retained, successful attachment persists, failed file actionable; no duplicate record POST",
+      "side_effect_assertions": "No selection-only persistence; no duplicated business record or successful file",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/attachmentRules.ts",
+        "server/src/services/podStorage.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/attachmentRules.test.ts",
+        "server/tests/upload-errors.test.ts",
+        "client/tests/recordAttachments.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "FILE-008",
+      "title": "External storage/DB compensation",
+      "module": "attachments",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "fixture": "Mock DB commit fail after storage save; storage delete fail; aborted upload",
+      "action": "Exercise upload commit failure and removal failure",
+      "expected_result": "Saved object compensates where possible; delete failure500 preserves metadata; quarantine always cleaned",
+      "side_effect_assertions": "Inspect storage+DB, not only response; record orphan cleanup limitation explicitly",
+      "source_files": [
+        "server/src/routes/records.ts",
+        "server/src/services/attachmentRules.ts",
+        "server/src/services/podStorage.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/attachmentRules.test.ts",
+        "server/tests/upload-errors.test.ts",
+        "client/tests/recordAttachments.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "DRV-001",
+      "title": "Roster reads do not seed and protect linked identity",
+      "module": "driver-operations",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "LOGISTICS",
+        "ADMIN"
+      ],
+      "fixture": "Empty/inactive/linked Driver+Assistant fixtures",
+      "action": "GET /drivers and ?all=1 repeatedly as Logistics and Admin",
+      "expected_result": "Default active only; all includes inactive; is_linked exposed; linked_user identity Admin only",
+      "side_effect_assertions": "Zero writes/imports/renames on reads",
+      "source_files": [
+        "server/src/routes/drivers.ts",
+        "server/src/services/driverDirectory.ts",
+        "server/src/services/driverLogin.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/driversRoute.test.ts",
+        "server/tests/driverDirectory.test.ts",
+        "server/tests/driverIdentity.test.ts",
+        "client/tests/driversPage.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "DRV-002",
+      "title": "Directory management separates Driver and Assistant privileges",
+      "module": "driver-operations",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "api-integration"
+      ],
+      "roles": [
+        "LOGISTICS",
+        "ADMIN"
+      ],
+      "fixture": "Canonical coverage and both types",
+      "action": "Logistics creates Assistant then Driver; rename/type change; Admin create/rename; forged login fields",
+      "expected_result": "Assistant permitted; Logistics Driver creation/Driver rename/type change403; link fields400 Admin/403 Logistics",
+      "side_effect_assertions": "No login link changed through roster; audited allowed directory changes",
+      "source_files": [
+        "server/src/routes/drivers.ts",
+        "server/src/services/driverDirectory.ts",
+        "server/src/services/driverLogin.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/driversRoute.test.ts",
+        "server/tests/driverDirectory.test.ts",
+        "server/tests/driverIdentity.test.ts",
+        "client/tests/driversPage.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "DRV-003",
+      "title": "Coverage is exact and canonical",
+      "module": "driver-operations",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "component",
+        "api-integration"
+      ],
+      "roles": [
+        "LOGISTICS",
+        "ADMIN"
+      ],
+      "fixture": "One Area vs whole Subregion coverage; unknown and near-name inputs",
+      "action": "Create/update coverage; choose Driver suggestions for matched/unmatched areas",
+      "expected_result": "Canonical valid areas/subregions; invalid400; one area does not imply subregion; no substring coverage",
+      "side_effect_assertions": "Suggestions do not grant record ownership",
+      "source_files": [
+        "server/src/routes/drivers.ts",
+        "server/src/services/driverDirectory.ts",
+        "server/src/services/driverLogin.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/driversRoute.test.ts",
+        "server/tests/driverDirectory.test.ts",
+        "server/tests/driverIdentity.test.ts",
+        "client/tests/driversPage.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "DRV-004",
+      "title": "Assignment races directory updates safely",
+      "module": "driver-operations",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "LOGISTICS",
+        "ADMIN"
+      ],
+      "fixture": "Submitted unassigned row and active Driver",
+      "action": "Race assignment against deactivation/rename/login relink",
+      "expected_result": "Lock/active/profile invariants maintained; no assignment to invalid identity; historic data preserved",
+      "side_effect_assertions": "Audit and stable driverId align with winning valid operation",
+      "source_files": [
+        "server/src/routes/drivers.ts",
+        "server/src/services/driverDirectory.ts",
+        "server/src/services/driverLogin.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/driversRoute.test.ts",
+        "server/tests/driverDirectory.test.ts",
+        "server/tests/driverIdentity.test.ts",
+        "client/tests/driversPage.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "DRV-005",
+      "title": "Board batch failure and permission tabs",
+      "module": "driver-operations",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "component",
+        "e2e"
+      ],
+      "roles": [
+        "LOGISTICS"
+      ],
+      "fixture": "Several records, one inaccessible or stale; limited driver tabs",
+      "action": "Edit Board assignments individually/in batch UI; one request fails; switch tabs",
+      "expected_result": "Each request outcome visible; no all-or-nothing claim; denied tabs inaccessible; unsaved state protected",
+      "side_effect_assertions": "Successful assignments remain; failed rows unchanged",
+      "source_files": [
+        "server/src/routes/drivers.ts",
+        "server/src/services/driverDirectory.ts",
+        "server/src/services/driverLogin.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/driversRoute.test.ts",
+        "server/tests/driverDirectory.test.ts",
+        "server/tests/driverIdentity.test.ts",
+        "client/tests/driversPage.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "DRV-006",
+      "title": "Driver mobile actions and map handoff",
+      "module": "driver-operations",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "component",
+        "e2e"
+      ],
+      "roles": [
+        "DRIVER"
+      ],
+      "fixture": "Assigned today and future rows, mobile browser permissions",
+      "action": "Open mobile app; capture proof; enter receiver; confirm action; open map",
+      "expected_result": "Assigned-only tasks; clear loading/error; future action blocked; camera cancel safe; navigation URL correct",
+      "side_effect_assertions": "No completed state before successful API; no geolocation/tracking claim",
+      "source_files": [
+        "server/src/routes/drivers.ts",
+        "server/src/services/driverDirectory.ts",
+        "server/src/services/driverLogin.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/driversRoute.test.ts",
+        "server/tests/driverDirectory.test.ts",
+        "server/tests/driverIdentity.test.ts",
+        "client/tests/driversPage.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "DIR-001",
+      "title": "Company/customer/supplier IDs remain distinct",
+      "module": "directories",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "LOGISTICS",
+        "ADMIN"
+      ],
+      "fixture": "Each directory plus Company selection",
+      "action": "Create directory entries then select Company for record",
+      "expected_result": "201 directory shapes/metadata correct; Customer/Supplier ID is not a valid Company reference",
+      "side_effect_assertions": "No silent cross-directory link or automatic master sync",
+      "source_files": [
+        "server/src/routes/companies.ts",
+        "server/src/routes/customers.ts",
+        "server/src/routes/suppliers.ts",
+        "server/src/services/customerValidation.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/customers.test.ts",
+        "client/tests/customerEditConflict.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "DIR-002",
+      "title": "Customer field and reason boundaries",
+      "module": "directories",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "api-integration",
+        "component"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "LOGISTICS",
+        "ADMIN"
+      ],
+      "fixture": "Customer core/optional values at max lengths",
+      "action": "Create and edit trim/blank/name/email/phone/length cases; edit with0/1000/1001-char reason",
+      "expected_result": "Field errors keyed by API names; required name; optional clear allowed; reason required and capped1000",
+      "side_effect_assertions": "Invalid requests no DB/audit; successful create/update transactional audit",
+      "source_files": [
+        "server/src/routes/companies.ts",
+        "server/src/routes/customers.ts",
+        "server/src/routes/suppliers.ts",
+        "server/src/services/customerValidation.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/customers.test.ts",
+        "client/tests/customerEditConflict.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "DIR-003",
+      "title": "Customer optimistic concurrency and no-op",
+      "module": "directories",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "database-integration",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "LOGISTICS"
+      ],
+      "fixture": "Two reads of same modified_at",
+      "action": "Save competing edits using old timestamp; retry reload; submit unchanged values",
+      "expected_result": "One success, stale409 with values preserved in UI; reload/retry works; no-op400, not wire422",
+      "side_effect_assertions": "No lost update; before/after audit+reason match winner",
+      "source_files": [
+        "server/src/routes/companies.ts",
+        "server/src/routes/customers.ts",
+        "server/src/routes/suppliers.ts",
+        "server/src/services/customerValidation.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/customers.test.ts",
+        "client/tests/customerEditConflict.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "DIR-004",
+      "title": "Directory role/resource guards and unsupported CRUD",
+      "module": "directories",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "TASS",
+        "DRIVER",
+        "SALES_COORDINATOR",
+        "LOGISTICS",
+        "ADMIN"
+      ],
+      "fixture": "Default and granted customer/supplier resource snapshots",
+      "action": "Try create/edit/audit across roles; request nonexistent edit/delete endpoints",
+      "expected_result": "Roles plus resources/screens intersect; default Driver not granted staff directory; no documented unsupported CRUD success",
+      "side_effect_assertions": "No leaked customer audit or unauthorized rows",
+      "source_files": [
+        "server/src/routes/companies.ts",
+        "server/src/routes/customers.ts",
+        "server/src/routes/suppliers.ts",
+        "server/src/services/customerValidation.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/customers.test.ts",
+        "client/tests/customerEditConflict.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "DIR-005",
+      "title": "Supplier category validation gap",
+      "module": "directories",
+      "profile": "merged-dev",
+      "classification": "characterization-gap",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "component"
+      ],
+      "roles": [
+        "SALES_COORDINATOR"
+      ],
+      "fixture": "Valid name and undocumented supplier category/email/phone",
+      "action": "Compare UI choices against direct POST supplied arbitrary category",
+      "expected_result": "API checks presence not category whitelist/Customer validator; track intended validation separately",
+      "side_effect_assertions": "Do not bless arbitrary inputs as approved business values",
+      "source_files": [
+        "server/src/routes/companies.ts",
+        "server/src/routes/customers.ts",
+        "server/src/routes/suppliers.ts",
+        "server/src/services/customerValidation.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/customers.test.ts",
+        "client/tests/customerEditConflict.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "SKU-001",
+      "title": "Admin creates SKU plus zero inventory",
+      "module": "inventory",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "api-integration",
+        "database-integration",
+        "e2e"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "fixture": "Unique SKU code and warehouse location",
+      "action": "POST /skus valid fields; GET list/detail; duplicate code",
+      "expected_result": "201 product with inventory onhand/allocated/ATP0; duplicate409; detail last20 vs list empty transactions",
+      "side_effect_assertions": "Product+inventory+audit atomic; no stock from creation price fields",
+      "source_files": [
+        "server/src/routes/skus.ts",
+        "server/src/services/skuValidation.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/skuCreation.test.ts",
+        "server/tests/stagingAuditFixes.test.ts",
+        "client/tests/skuCreation.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "SKU-002",
+      "title": "SKU numeric/category limits",
+      "module": "inventory",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "api-integration"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "fixture": "Numeric and numeric-string variants; boundary reorder2147483647",
+      "action": "Negative/NaN/infinite cost/price, fractional/out-of-range reorder, bad A/B/C, blank code/name",
+      "expected_result": "400 invalid; finite nonnegative cost/price and whole supported reorder accepted; optional text validated",
+      "side_effect_assertions": "Rejected input does not change catalog/audit",
+      "source_files": [
+        "server/src/routes/skus.ts",
+        "server/src/services/skuValidation.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/skuCreation.test.ts",
+        "server/tests/stagingAuditFixes.test.ts",
+        "client/tests/skuCreation.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "SKU-003",
+      "title": "SKU read access does not grant adjustment",
+      "module": "inventory",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "LOGISTICS",
+        "TASS",
+        "DRIVER"
+      ],
+      "fixture": "Transaction Center read resource vs inventory screen grant",
+      "action": "GET SKU then POST adjust under roles/grants",
+      "expected_result": "Only Admin/Logistics with inventory screen can adjust; read resource alone insufficient; Driver inventory denied",
+      "side_effect_assertions": "No unauthorized stock transaction/audit",
+      "source_files": [
+        "server/src/routes/skus.ts",
+        "server/src/services/skuValidation.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/skuCreation.test.ts",
+        "server/tests/stagingAuditFixes.test.ts",
+        "client/tests/skuCreation.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "SKU-004",
+      "title": "Signed stock deltas and integer boundaries",
+      "module": "inventory",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "ADMIN",
+        "LOGISTICS"
+      ],
+      "fixture": "Inventory balance10; valid reference",
+      "action": "Post Goods Receipt/Sale/Adjustment/Transfer with positive/negative/zero/fraction/overflow changes",
+      "expected_result": "Allowed labels; caller sign applied; nonzero integer; balance cannot go below0 or above2147483647",
+      "side_effect_assertions": "Balance/transaction/resulting_balance/audit match; no automatic two-warehouse transfer",
+      "source_files": [
+        "server/src/routes/skus.ts",
+        "server/src/services/skuValidation.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/skuCreation.test.ts",
+        "server/tests/stagingAuditFixes.test.ts",
+        "client/tests/skuCreation.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "SKU-005",
+      "title": "Concurrent stock deduction and transactional rollback",
+      "module": "inventory",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "ADMIN",
+        "LOGISTICS"
+      ],
+      "fixture": "Balance1, two -1 requests; induced audit failure",
+      "action": "Run deductions concurrently; fail audit on otherwise valid adjustment",
+      "expected_result": "At most one -1 succeeds; other insufficient400; audit failure rolls back all transaction writes",
+      "side_effect_assertions": "No negative balance, duplicate transaction or stale resulting balance",
+      "source_files": [
+        "server/src/routes/skus.ts",
+        "server/src/services/skuValidation.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/skuCreation.test.ts",
+        "server/tests/stagingAuditFixes.test.ts",
+        "client/tests/skuCreation.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "SKU-006",
+      "title": "Warehouse grouping and nonimplemented relocation",
+      "module": "inventory",
+      "profile": "merged-dev",
+      "classification": "characterization-gap",
+      "priority": "P0",
+      "layers": [
+        "component",
+        "api-integration"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "fixture": "Products in multiple location strings; legacy missing inventory",
+      "action": "View bins/zone/low-stock; PUT warehouse_location; adjust missing inventory fixture",
+      "expected_result": "Bins derived from SKU locations; no Warehouse CRUD; PUT does not persist relocation; missing inventory is not repaired automatically",
+      "side_effect_assertions": "Track relocation/missing-inventory inconsistency instead of asserting invented repair",
+      "source_files": [
+        "server/src/routes/skus.ts",
+        "server/src/services/skuValidation.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/skuCreation.test.ts",
+        "server/tests/stagingAuditFixes.test.ts",
+        "client/tests/skuCreation.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "TXN-001",
+      "title": "Role-scoped merged sources",
+      "module": "transactions",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "LOGISTICS",
+        "TASS",
+        "ADMIN",
+        "DRIVER"
+      ],
+      "fixture": "All operation categories, stock transactions, linked Drivers A/B",
+      "action": "GET all/delivery/inventory plus direct details across roles",
+      "expected_result": "Correct category intersection; Driver own operations only; explicit unauthorized inventory403; denied detail404",
+      "side_effect_assertions": "No cross-role/category snapshot leakage",
+      "source_files": [
+        "server/src/routes/transactions.ts",
+        "server/src/services/transactionAccess.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/transactionAccess.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "TXN-002",
+      "title": "Transaction DTO differs from record DTO",
+      "module": "transactions",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "component"
+      ],
+      "roles": [
+        "LOGISTICS",
+        "ADMIN"
+      ],
+      "fixture": "Accomplished Delivery/RMA plus inventory row",
+      "action": "Read list/detail and compare operational /records serializer",
+      "expected_result": "Stored status enum preserved on Transaction API; raw record.reference may differ from RMA alias; inventory status null/creator null",
+      "side_effect_assertions": "Read-only; desired normalization changes need separate specification",
+      "source_files": [
+        "server/src/routes/transactions.ts",
+        "server/src/services/transactionAccess.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/transactionAccess.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "TXN-003",
+      "title": "Filter and timezone limits are characterized",
+      "module": "transactions",
+      "profile": "merged-dev",
+      "classification": "characterization-gap",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "component"
+      ],
+      "roles": [
+        "LOGISTICS"
+      ],
+      "fixture": "Mixed dates at UTC/Manila edge, source/category/status values",
+      "action": "Use page/limit extremes, invalid source, date bounds and status",
+      "expected_result": "Page/limit clamped; invalid source400; stored status filter operations only; inventory upper date server-local inconsistency tracked",
+      "side_effect_assertions": "No mutation; do not assume report-date semantics",
+      "source_files": [
+        "server/src/routes/transactions.ts",
+        "server/src/services/transactionAccess.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/transactionAccess.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "TXN-004",
+      "title": "Audit timeline redaction and related rows",
+      "module": "transactions",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration"
+      ],
+      "roles": [
+        "ADMIN",
+        "LOGISTICS"
+      ],
+      "fixture": "Record timeline with denied linked collection; >5 other SKU transactions",
+      "action": "GET delivery timeline and inventory detail",
+      "expected_result": "Timeline chronological/redacted; latest five other SKU tx rows; correct entity/source IDs",
+      "side_effect_assertions": "Read-only, no cross-product or denied collection data",
+      "source_files": [
+        "server/src/routes/transactions.ts",
+        "server/src/services/transactionAccess.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/transactionAccess.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "VIEW-001",
+      "title": "Role KPI payload and drill-down cohorts",
+      "module": "dashboard-calendar-am",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "LOGISTICS",
+        "TASS",
+        "ADMIN"
+      ],
+      "fixture": "Frozen Manila day; every state/draft/category; current and late completion",
+      "action": "GET stats; click each role KPI; reconcile record identities",
+      "expected_result": "Role-specific DTO counts and intended matching filters; completion by Time Out, scheduled by Delivery Date",
+      "side_effect_assertions": "Read-only; identify legacy/draft/permission discrepancies separately",
+      "source_files": [
+        "server/src/routes/dashboard.ts",
+        "server/src/routes/records.ts",
+        "client/src/utils/dashboardFilters.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/dashboardLifecycle.test.ts",
+        "client/src/utils/__tests__/dashboardFilters.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "VIEW-002",
+      "title": "Permission revocation and stored-status chart gaps",
+      "module": "dashboard-calendar-am",
+      "profile": "merged-dev",
+      "classification": "characterization-gap",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "component"
+      ],
+      "roles": [
+        "TASS",
+        "LOGISTICS",
+        "ADMIN"
+      ],
+      "fixture": "Explicit denied category; draft and legacy started rows",
+      "action": "Compare dashboard metrics/chart to scoped detail/list",
+      "expected_result": "Characterize role-count queries that omit recordScope and Admin stored-status grouping; do not invent universal equality",
+      "side_effect_assertions": "No detail disclosure; discrepancies reported to business owner",
+      "source_files": [
+        "server/src/routes/dashboard.ts",
+        "server/src/routes/records.ts",
+        "client/src/utils/dashboardFilters.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/dashboardLifecycle.test.ts",
+        "client/src/utils/__tests__/dashboardFilters.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "VIEW-003",
+      "title": "Manila day and Sunday-week boundary",
+      "module": "dashboard-calendar-am",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "api-integration"
+      ],
+      "roles": [
+        "ADMIN",
+        "SALES_COORDINATOR"
+      ],
+      "fixture": "Fixed clocks just before/after Manila midnight/Sunday/new year",
+      "action": "Compute KPI/report/audit day/week inclusion",
+      "expected_result": "Half-open timestamp day [midnight,next midnight); scheduled date remains date-only; Admin week starts Sunday",
+      "side_effect_assertions": "No timezone-dependent phantom duplicates",
+      "source_files": [
+        "server/src/routes/dashboard.ts",
+        "server/src/routes/records.ts",
+        "client/src/utils/dashboardFilters.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/dashboardLifecycle.test.ts",
+        "client/src/utils/__tests__/dashboardFilters.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "VIEW-004",
+      "title": "Calendar cap and category navigation",
+      "module": "dashboard-calendar-am",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "component",
+        "e2e"
+      ],
+      "roles": [
+        "LOGISTICS"
+      ],
+      "fixture": "501 scoped rows in calendar window; denied category",
+      "action": "GET calendar summary, invalid/reversed ranges; open record",
+      "expected_result": "Max500 sorted date/id; invalid400; correct category link; no assumption it is full export",
+      "side_effect_assertions": "Read-only; no missing-row claim of exhaustive completeness",
+      "source_files": [
+        "server/src/routes/dashboard.ts",
+        "server/src/routes/records.ts",
+        "client/src/utils/dashboardFilters.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/dashboardLifecycle.test.ts",
+        "client/src/utils/__tests__/dashboardFilters.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "VIEW-005",
+      "title": "AM aggregation is not an AM master",
+      "module": "dashboard-calendar-am",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "component"
+      ],
+      "roles": [
+        "SALES_COORDINATOR"
+      ],
+      "fixture": "Same/different AM labels, Unknown, repeated company names and states",
+      "action": "GET summary and expand Company/record rows",
+      "expected_result": "Totals/grouped statuses/sorted unique companies correct; Draft contributes scheduled, In Transit total only; no name-only false record join",
+      "side_effect_assertions": "No AM CRUD or unrelated record disclosure",
+      "source_files": [
+        "server/src/routes/dashboard.ts",
+        "server/src/routes/records.ts",
+        "client/src/utils/dashboardFilters.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/dashboardLifecycle.test.ts",
+        "client/src/utils/__tests__/dashboardFilters.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "EXP-001",
+      "title": "Report cohort versus completion count",
+      "module": "reports-exports",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "api-integration"
+      ],
+      "roles": [
+        "LOGISTICS",
+        "ADMIN"
+      ],
+      "fixture": "Different scheduled and completed days; scoped categories",
+      "action": "GET summary with Delivery Date range vs legacy aliases; mix basis params",
+      "expected_result": "date_basis explicit; accomplished from cohort, completed_in_range from Time Out; mixed aliases400; completion_rate rounded and0 for empty",
+      "side_effect_assertions": "Read-only; no false assertion completed_in_range equals accomplished",
+      "source_files": [
+        "server/src/routes/reports.ts",
+        "client/src/utils/routeSlip.ts",
+        "client/src/utils/routeSlipPeriod.ts",
+        "client/src/features/deliveries/DeliveryRecordsView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/reportsLifecycle.test.ts",
+        "client/tests/routeSlipExports.test.ts",
+        "client/tests/routeSlipMenu.test.ts",
+        "client/tests/driverReportCSV.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "EXP-002",
+      "title": "Three route-slip periods have exact record boundaries",
+      "module": "reports-exports",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "component",
+        "e2e"
+      ],
+      "roles": [
+        "LOGISTICS"
+      ],
+      "fixture": "Before/first/last/after/undated rows around selected days",
+      "action": "Choose day/from/range via shared controls",
+      "expected_result": "Day both bounds equal; From lower only; range inclusive; undated excluded; invalid/blank/partial/inverted cannot export",
+      "side_effect_assertions": "No lifecycle or receipt mutation",
+      "source_files": [
+        "server/src/routes/reports.ts",
+        "client/src/utils/routeSlip.ts",
+        "client/src/utils/routeSlipPeriod.ts",
+        "client/src/features/deliveries/DeliveryRecordsView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/reportsLifecycle.test.ts",
+        "client/tests/routeSlipExports.test.ts",
+        "client/tests/routeSlipMenu.test.ts",
+        "client/tests/driverReportCSV.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "EXP-003",
+      "title": "Every filtered page is exported under actual Drivers",
+      "module": "reports-exports",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "component",
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "LOGISTICS"
+      ],
+      "fixture": "101+ matching rows; cache-only excluded row; partial Alex matches two Driver names",
+      "action": "Export dedicated and Driver-filtered general menus",
+      "expected_result": "Complete filtered cursor set, no cached-only or forbidden rows; actual Driver names/grouping, no unassigned slip",
+      "side_effect_assertions": "GETs preserve all selected filters; no duplicates or table-only export",
+      "source_files": [
+        "server/src/routes/reports.ts",
+        "client/src/utils/routeSlip.ts",
+        "client/src/utils/routeSlipPeriod.ts",
+        "client/src/features/deliveries/DeliveryRecordsView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/reportsLifecycle.test.ts",
+        "client/tests/routeSlipExports.test.ts",
+        "client/tests/routeSlipMenu.test.ts",
+        "client/tests/driverReportCSV.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "EXP-004",
+      "title": "Artifact formats and status modes agree",
+      "module": "reports-exports",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "component",
+        "artifact",
+        "e2e"
+      ],
+      "roles": [
+        "LOGISTICS"
+      ],
+      "fixture": "One/multiple Drivers; lifetime statuses with transitions outside selected dates",
+      "action": "Generate Excel/PDF/Word x day/from/range x current/trail; inspect real files",
+      "expected_result": "Same record set/period heading; correct worksheets/groups; trail lifetime and may exceed total; CSV remains ordinary rows",
+      "side_effect_assertions": "Blob created only on valid selection; temporary object URLs cleaned",
+      "source_files": [
+        "server/src/routes/reports.ts",
+        "client/src/utils/routeSlip.ts",
+        "client/src/utils/routeSlipPeriod.ts",
+        "client/src/features/deliveries/DeliveryRecordsView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/reportsLifecycle.test.ts",
+        "client/tests/routeSlipExports.test.ts",
+        "client/tests/routeSlipMenu.test.ts",
+        "client/tests/driverReportCSV.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "EXP-005",
+      "title": "History outage does not prove complete trail",
+      "module": "reports-exports",
+      "profile": "merged-dev",
+      "classification": "characterization-gap",
+      "priority": "P1",
+      "layers": [
+        "component",
+        "api-integration"
+      ],
+      "roles": [
+        "LOGISTICS"
+      ],
+      "fixture": "Audit404/500/network errors on subset; large open-ended export",
+      "action": "Export Status Trail under failures and realistic volume",
+      "expected_result": "Current helper silently falls back to current status; known incompleteness/performance risk explicitly tracked",
+      "side_effect_assertions": "No fabricated complete-history evidence; avoid burst tests on shared backend",
+      "source_files": [
+        "server/src/routes/reports.ts",
+        "client/src/utils/routeSlip.ts",
+        "client/src/utils/routeSlipPeriod.ts",
+        "client/src/features/deliveries/DeliveryRecordsView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/reportsLifecycle.test.ts",
+        "client/tests/routeSlipExports.test.ts",
+        "client/tests/routeSlipMenu.test.ts",
+        "client/tests/driverReportCSV.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "EXP-006",
+      "title": "Menu keyboard/mobile/error usability",
+      "module": "reports-exports",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "component",
+        "e2e"
+      ],
+      "roles": [
+        "LOGISTICS"
+      ],
+      "fixture": "Mobile/narrow viewport and keyboard; failing export fetch",
+      "action": "Open both menus, edit fields, Escape, generate, fail/retry",
+      "expected_result": "Labels/period summary visible; invalid disabled; focus restored; error announced; no clipped controls or duplicate download",
+      "side_effect_assertions": "No hidden failed mutation; screenshot+artifact inspection complements JSDOM",
+      "source_files": [
+        "server/src/routes/reports.ts",
+        "client/src/utils/routeSlip.ts",
+        "client/src/utils/routeSlipPeriod.ts",
+        "client/src/features/deliveries/DeliveryRecordsView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/reportsLifecycle.test.ts",
+        "client/tests/routeSlipExports.test.ts",
+        "client/tests/routeSlipMenu.test.ts",
+        "client/tests/driverReportCSV.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "EXP-007",
+      "title": "Monthly Driver report input completeness and month boundary",
+      "module": "reports-exports",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "component",
+        "artifact",
+        "e2e"
+      ],
+      "roles": [
+        "LOGISTICS",
+        "ADMIN"
+      ],
+      "fixture": "Month-end/UTC-offset rows; dataset beyond supplied page",
+      "action": "Generate all monthly formats current/trail, reconcile detail and summary sections",
+      "expected_result": "Driver performance/time buckets/area/vehicle/remarks correct for supplied data; full-page coverage tested separately, not inferred from route-slip fix",
+      "side_effect_assertions": "Read-only; explicit limitations if supplied array omits records",
+      "source_files": [
+        "server/src/routes/reports.ts",
+        "client/src/utils/routeSlip.ts",
+        "client/src/utils/routeSlipPeriod.ts",
+        "client/src/features/deliveries/DeliveryRecordsView.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/reportsLifecycle.test.ts",
+        "client/tests/routeSlipExports.test.ts",
+        "client/tests/routeSlipMenu.test.ts",
+        "client/tests/driverReportCSV.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "NOTE-001",
+      "title": "Unread count and list have different bounds",
+      "module": "notifications",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR"
+      ],
+      "fixture": "60 unread notifications plus another user messages",
+      "action": "GET list/count; mark one/read-all twice; use other user ID",
+      "expected_result": "Latest50 list vs all unread count; own mark operations succeed; other owner404; idempotent read state",
+      "side_effect_assertions": "No other-user read state mutation",
+      "source_files": [
+        "server/src/routes/notifications.ts",
+        "client/src/components/NotificationBell.tsx",
+        "client/src/store/uiStore.ts"
+      ],
+      "existing_test_files": [
+        "client/tests/notificationNavigation.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "NOTE-002",
+      "title": "Email response does not guarantee delivered mail",
+      "module": "notifications",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "api-integration"
+      ],
+      "roles": [
+        "LOGISTICS",
+        "ADMIN"
+      ],
+      "fixture": "Accessible record, AM exact/surname/none; duplicate/unknown role tokens; mocked/failed provider",
+      "action": "POST send-email with AM/LOGISTICS/TASS labels; zero resolved/partial fail",
+      "expected_result": "200 includes sent/failed/resolvedCount; ok true can mean0 sent; no strict arbitrary trigger/recipient enum acceptance guarantee",
+      "side_effect_assertions": "Correct SENT/MOCKED/FAILED logs; no real external email in automated tests",
+      "source_files": [
+        "server/src/routes/notifications.ts",
+        "client/src/components/NotificationBell.tsx",
+        "client/src/store/uiStore.ts"
+      ],
+      "existing_test_files": [
+        "client/tests/notificationNavigation.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "NOTE-003",
+      "title": "Output defaults are browser-local opt-outs",
+      "module": "notifications",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "component",
+        "e2e"
+      ],
+      "roles": [
+        "LOGISTICS"
+      ],
+      "fixture": "Clean/migrated ui_store defaults",
+      "action": "Toggle Do not notify/Internal Only/Export PDF; reload; use new browser context",
+      "expected_result": "Positive flags invert checkbox; InternalOnly disables all outputs; persistence per browser, not global server policy",
+      "side_effect_assertions": "Only configured client action dispatched; automatic server hooks analyzed separately",
+      "source_files": [
+        "server/src/routes/notifications.ts",
+        "client/src/components/NotificationBell.tsx",
+        "client/src/store/uiStore.ts"
+      ],
+      "existing_test_files": [
+        "client/tests/notificationNavigation.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "NOTE-004",
+      "title": "Notification navigation respects current access",
+      "module": "notifications",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "component",
+        "e2e"
+      ],
+      "roles": [
+        "LOGISTICS",
+        "TASS"
+      ],
+      "fixture": "Notification points to missing/denied record after role change",
+      "action": "Open notification and follow target",
+      "expected_result": "Correct category route or unavailable feedback; no wrong-record fallback; does not grant access",
+      "side_effect_assertions": "No hidden data from stale cache",
+      "source_files": [
+        "server/src/routes/notifications.ts",
+        "client/src/components/NotificationBell.tsx",
+        "client/src/store/uiStore.ts"
+      ],
+      "existing_test_files": [
+        "client/tests/notificationNavigation.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "ADM-001",
+      "title": "User lifecycle and self-lockout boundaries",
+      "module": "administration",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "database-integration",
+        "e2e"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "fixture": "Separate Admin and staff accounts",
+      "action": "Create/update/activate/deactivate/delete; attempt self demote/deactivate/delete",
+      "expected_result": "Documented response variants; self operations400; inactive session revoked; duplicate email409",
+      "side_effect_assertions": "Passwords hashed/not returned; business-linked user delete409 retains data",
+      "source_files": [
+        "server/src/routes/users.ts",
+        "server/src/routes/admin.ts",
+        "server/src/services/deploymentStatus.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/ssoIdentity.test.ts",
+        "server/tests/deploymentStatus.test.ts",
+        "server/tests/adminAuditDateFilter.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "ADM-002",
+      "title": "Driver login link and role change ownership",
+      "module": "administration",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "fixture": "Active unlinked Driver/Assistant/profile already owned by other user",
+      "action": "Create Driver with existing/new profile; link/unlink/relink; change role away from Driver",
+      "expected_result": "Only valid stable Driver links; conflicts denied; role removal unlinks ownership",
+      "side_effect_assertions": "Atomic create/link where implemented; no historic run/profile name transfer",
+      "source_files": [
+        "server/src/routes/users.ts",
+        "server/src/routes/admin.ts",
+        "server/src/services/deploymentStatus.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/ssoIdentity.test.ts",
+        "server/tests/deploymentStatus.test.ts",
+        "server/tests/adminAuditDateFilter.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "ADM-003",
+      "title": "Microsoft preapproval and duplicate identity",
+      "module": "administration",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "fixture": "Valid/invalid/colliding GUIDs and legacy unapproved OID",
+      "action": "Create/link/unlink microsoft_oid; attempt another role",
+      "expected_result": "Valid approval/audit, null revocation, duplicate409 and wrong role403; microsoft_linked flag distinct from actual approved login",
+      "side_effect_assertions": "No OID/password/token leak outside approved diagnostics",
+      "source_files": [
+        "server/src/routes/users.ts",
+        "server/src/routes/admin.ts",
+        "server/src/services/deploymentStatus.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/ssoIdentity.test.ts",
+        "server/tests/deploymentStatus.test.ts",
+        "server/tests/adminAuditDateFilter.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "ADM-004",
+      "title": "Account-create validation gaps stay visible",
+      "module": "administration",
+      "profile": "merged-dev",
+      "classification": "characterization-gap",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "component"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "fixture": "Malformed email/weak password versus PATCH values",
+      "action": "Compare POST/HTML form/PATCH validation",
+      "expected_result": "Current POST presence checks are not a strong-password/email-format guarantee; intended policy reviewed separately",
+      "side_effect_assertions": "Do not codify weak account acceptance as approved business rule",
+      "source_files": [
+        "server/src/routes/users.ts",
+        "server/src/routes/admin.ts",
+        "server/src/services/deploymentStatus.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/ssoIdentity.test.ts",
+        "server/tests/deploymentStatus.test.ts",
+        "server/tests/adminAuditDateFilter.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "ADM-005",
+      "title": "Audit log filters and payload are endpoint-specific",
+      "module": "administration",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "api-integration",
+        "component"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "fixture": ">200 entries; midnight bounds; unsupported action",
+      "action": "Page/filter audit by user/action/Manila dates; open per-record audit separately",
+      "expected_result": "Summary entries vs snapshot DTO distinguished; limit cap200; unsupported action ignored currently; timestamp bounds correct",
+      "side_effect_assertions": "No forbidden non-Admin read; no claim that every mutation has an audit handler",
+      "source_files": [
+        "server/src/routes/users.ts",
+        "server/src/routes/admin.ts",
+        "server/src/services/deploymentStatus.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/ssoIdentity.test.ts",
+        "server/tests/deploymentStatus.test.ts",
+        "server/tests/adminAuditDateFilter.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "ADM-006",
+      "title": "Diagnostics are safe identities not secret values",
+      "module": "administration",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "api-integration"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "fixture": "Synthetic configuration/provider statuses; non-Admin callers",
+      "action": "GET integration/deployment status and health; POST test-email with fake provider",
+      "expected_result": "Safe nested identities/flags, no credentials; integration heuristic not identical to real SSO readiness; mocked email not inbox evidence",
+      "side_effect_assertions": "Test never reads/logs actual environment secrets or sends external mail",
+      "source_files": [
+        "server/src/routes/users.ts",
+        "server/src/routes/admin.ts",
+        "server/src/services/deploymentStatus.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/ssoIdentity.test.ts",
+        "server/tests/deploymentStatus.test.ts",
+        "server/tests/adminAuditDateFilter.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "SYS-001",
+      "title": "Sampler generates valid entry-state rows",
+      "module": "sampler-background",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "api-integration"
+      ],
+      "roles": [
+        "ADMIN"
+      ],
+      "fixture": "Isolated Companies/active Driver directory",
+      "action": "Get counts; generate each allowed module with count0/1/50/51 and field overrides",
+      "expected_result": "Count clamped1..50; unknown module/bad fields/nonScheduled status rejected; valid records start Scheduled with no completion clocks",
+      "side_effect_assertions": "Random generation not used as deterministic fixture source; actual storage prerequisites checked",
+      "source_files": [
+        "server/src/routes/data-sampler.ts",
+        "server/src/routes/dev.ts",
+        "server/src/index.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/seedResetSecurity.test.ts",
+        "server/tests/stagingSeed.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "SYS-002",
+      "title": "Destructive resets are capability guarded",
+      "module": "sampler-background",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "api-integration"
+      ],
+      "roles": [
+        "ADMIN",
+        "anonymous"
+      ],
+      "fixture": "Fake loopback/nonloopback and disposable/staging/production DB identities",
+      "action": "Test policy and handlers with mock reset function; GET reset-capability",
+      "expected_result": "Disallowed target403 before seed/DB writes; approved local capability only; removed anonymous endpoints unavailable",
+      "side_effect_assertions": "No real reset or staging/production seed as part of test",
+      "source_files": [
+        "server/src/routes/data-sampler.ts",
+        "server/src/routes/dev.ts",
+        "server/src/index.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/seedResetSecurity.test.ts",
+        "server/tests/stagingSeed.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "SYS-003",
+      "title": "Scheduled reminders and daily snapshot boundaries",
+      "module": "sampler-background",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "api-integration"
+      ],
+      "roles": [
+        "system"
+      ],
+      "fixture": "Controlled clock and mocked DB/provider; existing daily snapshot/logs",
+      "action": "Invoke services/scheduled behavior for16:00/18:00 Manila, Monday08:00, startup snapshot",
+      "expected_result": "Reminder audiences/cohorts and configured schedule match; AM-day dedup/snapshot idempotency verified; broad scheduled category scope characterized",
+      "side_effect_assertions": "No real email or production listener; no assumed distributed scheduler/notification dedup",
+      "source_files": [
+        "server/src/routes/data-sampler.ts",
+        "server/src/routes/dev.ts",
+        "server/src/index.ts"
+      ],
+      "existing_test_files": [
+        "server/tests/seedResetSecurity.test.ts",
+        "server/tests/stagingSeed.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "UI-001",
+      "title": "Search navigation/records and async close race",
+      "module": "search-local-ui",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "unit",
+        "component",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR",
+        "LOGISTICS",
+        "TASS"
+      ],
+      "fixture": "Permitted/denied category records and delayed search responses",
+      "action": "Search navigation/remote records/directories; Enter/click result then resolve old request",
+      "expected_result": "Correct permitted destination; overlay closes and does not reopen; no RMA to SC; remote limit8 respected",
+      "side_effect_assertions": "No global search endpoint invented; no stale account cache leakage",
+      "source_files": [
+        "client/src/components/GlobalSearch.tsx",
+        "client/src/components/AccessRequestModal.tsx",
+        "client/src/store/uiStore.ts"
+      ],
+      "existing_test_files": [
+        "client/tests/sessionNavigation.test.ts",
+        "client/tests/sidebarIcons.test.ts",
+        "client/tests/lazyLoadingRecovery.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "UI-002",
+      "title": "Local preferences and lazy routing recover safely",
+      "module": "search-local-ui",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P1",
+      "layers": [
+        "component",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR"
+      ],
+      "fixture": "Stored collapsed/zoom/output defaults; blocked storage/chunk network",
+      "action": "Navigate/reload/logout/back and simulate failed lazy chunk/offline",
+      "expected_result": "Persist only designed preferences; logout clears selected/filter/open state; recoverable loading/error",
+      "side_effect_assertions": "Local preference never grants module permissions",
+      "source_files": [
+        "client/src/components/GlobalSearch.tsx",
+        "client/src/components/AccessRequestModal.tsx",
+        "client/src/store/uiStore.ts"
+      ],
+      "existing_test_files": [
+        "client/tests/sessionNavigation.test.ts",
+        "client/tests/sidebarIcons.test.ts",
+        "client/tests/lazyLoadingRecovery.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "UI-003",
+      "title": "Access request is a UI-only placeholder",
+      "module": "search-local-ui",
+      "profile": "merged-dev",
+      "classification": "characterization-gap",
+      "priority": "P1",
+      "layers": [
+        "component",
+        "e2e"
+      ],
+      "roles": [
+        "SALES_COORDINATOR"
+      ],
+      "fixture": "Denied module and network request capture",
+      "action": "Submit nonblank access reason in modal",
+      "expected_result": "Current UI shows local sent state without API/admin notification; persisted approval is an unimplemented requirement",
+      "side_effect_assertions": "Do not assert real notification/temporary grant/expiry",
+      "source_files": [
+        "client/src/components/GlobalSearch.tsx",
+        "client/src/components/AccessRequestModal.tsx",
+        "client/src/store/uiStore.ts"
+      ],
+      "existing_test_files": [
+        "client/tests/sessionNavigation.test.ts",
+        "client/tests/sidebarIcons.test.ts",
+        "client/tests/lazyLoadingRecovery.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "RMA240-001",
+      "title": "Complete RMA without an internal delivery run",
+      "module": "rma-pr240",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "api-integration",
+        "database-integration",
+        "e2e"
+      ],
+      "roles": [
+        "TASS",
+        "ADMIN"
+      ],
+      "fixture": "Scheduled RMA with required core fields; no Driver/Time In/photo/date",
+      "action": "Actual workspace sends one PATCH status Delivered with received_by/remarks; reload",
+      "expected_result": "200 full RMA Delivered, server Completed at time_out, correct recipient and actor; no preliminary PUT/attachment dependency",
+      "side_effect_assertions": "Atomic status/recipient/time/audit/remark; no fabricated start/proof/assignment",
+      "source_files": [
+        "server/src/services/deliveryLifecycle.ts",
+        "server/src/routes/records.ts",
+        "client/src/features/deliveries/DeliveryRecordWorkspace.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/podRequirements.test.ts",
+        "client/tests/rmaCompletionWorkspace.test.ts",
+        "server/tests/statusHistoryLifecycle.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "RMA240-002",
+      "title": "RMA transitions and incomplete completion fail",
+      "module": "rma-pr240",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "api-integration",
+        "component"
+      ],
+      "roles": [
+        "TASS",
+        "ADMIN"
+      ],
+      "fixture": "Each RMA state including Rescheduled and Delivered",
+      "action": "Exercise approved graph; complete without recipient/remarks; repeat completion; inject timestamps",
+      "expected_result": "Correct graph; invalid400/no change; Rescheduled cannot direct complete; terminal immutable by status action",
+      "side_effect_assertions": "No partial recipient/time/audit on rejection",
+      "source_files": [
+        "server/src/services/deliveryLifecycle.ts",
+        "server/src/routes/records.ts",
+        "client/src/features/deliveries/DeliveryRecordWorkspace.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/podRequirements.test.ts",
+        "client/tests/rmaCompletionWorkspace.test.ts",
+        "server/tests/statusHistoryLifecycle.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "RMA240-003",
+      "title": "Legacy RMA clocks do not override explicit state",
+      "module": "rma-pr240",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "unit",
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "TASS",
+        "ADMIN"
+      ],
+      "fixture": "RMA Scheduled/Rescheduled with old Time In/Out",
+      "action": "Reschedule; return Scheduled; read detail/list Scheduled-vs-InTransit/AM/history",
+      "expected_result": "Historical clocks preserved; explicit Scheduled remains Scheduled; started legacy RMA cannot return Draft",
+      "side_effect_assertions": "No clock erasure or phantom In Transit/history aggregation",
+      "source_files": [
+        "server/src/services/deliveryLifecycle.ts",
+        "server/src/routes/records.ts",
+        "client/src/features/deliveries/DeliveryRecordWorkspace.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/podRequirements.test.ts",
+        "client/tests/rmaCompletionWorkspace.test.ts",
+        "server/tests/statusHistoryLifecycle.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "RMA240-004",
+      "title": "RMA proof optional while Delivery proof remains mandatory",
+      "module": "rma-pr240",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "api-integration",
+        "database-integration"
+      ],
+      "roles": [
+        "TASS",
+        "ADMIN",
+        "DRIVER"
+      ],
+      "fixture": "Completed RMA with sole photo; ordinary Delivery with sole proof",
+      "action": "Remove RMA photo; ordinary proof removal; ordinary completion without Time In/POD",
+      "expected_result": "RMA removal permitted; ordinary last-proof409 and no-proof/TimeIn completion400; Time In action rejects RMA",
+      "side_effect_assertions": "No Delivery regression or optional proof becoming universal",
+      "source_files": [
+        "server/src/services/deliveryLifecycle.ts",
+        "server/src/routes/records.ts",
+        "client/src/features/deliveries/DeliveryRecordWorkspace.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/podRequirements.test.ts",
+        "client/tests/rmaCompletionWorkspace.test.ts",
+        "server/tests/statusHistoryLifecycle.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "RMA240-005",
+      "title": "RMA roles unchanged and integrated route slips preserved",
+      "module": "rma-pr240",
+      "profile": "merged-dev",
+      "classification": "contract",
+      "priority": "P0",
+      "layers": [
+        "api-integration",
+        "e2e"
+      ],
+      "roles": [
+        "TASS",
+        "LOGISTICS",
+        "SALES_COORDINATOR",
+        "DRIVER",
+        "ADMIN"
+      ],
+      "fixture": "Integrated current dev plus PR240 tree",
+      "action": "Run RMA role suite and #238 export regression after branch update/merge-result checkout",
+      "expected_result": "Logistics read/print only; SC/Driver denied; all #238 modes/artifacts still work on merged8660bde",
+      "side_effect_assertions": "No branch-only145-client result presented as integrated186+ suite evidence",
+      "source_files": [
+        "server/src/services/deliveryLifecycle.ts",
+        "server/src/routes/records.ts",
+        "client/src/features/deliveries/DeliveryRecordWorkspace.tsx"
+      ],
+      "existing_test_files": [
+        "server/tests/podRequirements.test.ts",
+        "client/tests/rmaCompletionWorkspace.test.ts",
+        "server/tests/statusHistoryLifecycle.test.ts"
+      ],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "REQ-001",
+      "title": "Supplier movement directions and conditional Driver policy",
+      "module": "future-requirements",
+      "profile": "requirements-only",
+      "classification": "requirements-only",
+      "priority": "P1",
+      "layers": [
+        "requirements"
+      ],
+      "roles": [
+        "Operations",
+        "developer"
+      ],
+      "fixture": "Approved examples for our collection/supplier collection/supplier delivery",
+      "action": "Resolve #231/#239 movement ownership and representation before implementation",
+      "expected_result": "Named business owner confirms direction, Driver gate, Logistics involvement and handoff; then implement/test versioned contract",
+      "side_effect_assertions": "Do not fabricate driver or overwrite approved RMA print access",
+      "source_files": [
+        "docs/testing-reference/latest-pr.md"
+      ],
+      "existing_test_files": [],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "REQ-002",
+      "title": "Physical receiving and exception/correction policy",
+      "module": "future-requirements",
+      "profile": "requirements-only",
+      "classification": "requirements-only",
+      "priority": "P1",
+      "layers": [
+        "requirements"
+      ],
+      "roles": [
+        "Operations",
+        "developer"
+      ],
+      "fixture": "Defined destination/confirmer/quantities/evidence",
+      "action": "Confirm receipt event distinct from transport and collection; decide partial/damaged/correction effects",
+      "expected_result": "Approved role/event/evidence/quantity/status rules exist before executable acceptance assertions",
+      "side_effect_assertions": "No automatic inventory mutation or receipt based solely on assignment/status",
+      "source_files": [
+        "docs/testing-reference/latest-pr.md"
+      ],
+      "existing_test_files": [],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    },
+    {
+      "id": "REQ-003",
+      "title": "Excel replacement, history and UAT release decision",
+      "module": "future-requirements",
+      "profile": "requirements-only",
+      "classification": "requirements-only",
+      "priority": "P1",
+      "layers": [
+        "requirements"
+      ],
+      "roles": [
+        "Operations",
+        "developer"
+      ],
+      "fixture": "Redacted complete sample workbook and outstanding transactions",
+      "action": "Map fields/status/formulas/print/reconciliation; decide migration/cutover/estimate/UAT scope",
+      "expected_result": "Traceable approved mappings and first-release scenarios with owners; no invented deadline",
+      "side_effect_assertions": "No duplicate source of truth or destructive migration without approved scope",
+      "source_files": [
+        "docs/testing-reference/latest-pr.md"
+      ],
+      "existing_test_files": [],
+      "implementation_status": "planned-reference; inspect existing files for actual coverage",
+      "execution_status": "not executed by documentation task"
+    }
+  ],
+  "latest_pr": {
+    "number": 240,
+    "head": "c6661e41df073906a940ceace3e9694c078372ed",
+    "state_at_inspection": "MERGED",
+    "contains_merged_dev": true,
+    "inspected_ci_run": 40473515083,
+    "ci_client_passed": 189,
+    "ci_server_passed": 288,
+    "ci_e2e_passed": 67,
+    "merge_commit": "8660bdee15b502867716ca0c60683965c6cd87f6"
+  }
+}

@@ -1,270 +1,113 @@
-import { manilaToday } from '@/utils/recordLifecycle';
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Route, ChevronDown, Loader2, AlertTriangle, FileText, Clock, History } from 'lucide-react';
+import { Route, ChevronDown, Loader2, FileText, Clock, History } from 'lucide-react';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '../utils/documentSize';
 import DocumentSizeSelect from './DocumentSizeSelect';
+import RouteSlipPeriodFields, { type RouteSlipPeriodFieldsProps } from './RouteSlipPeriodFields';
 import { DeliveryRecord } from '../types';
 import type { ExportColumn, ExportMeta } from '../utils/export';
 import ExportPreviewDialog, { type ExportPreviewFormat } from './ExportPreviewDialog';
 import { downloadBlob } from '@/utils/downloadBlob';
-import {
-  downloadRouteSlipExcel,
-  downloadRouteSlipPDF,
-  downloadRouteSlipDocx,
-  downloadAllDriversRouteSlipExcel,
-  downloadAllDriversRouteSlipPDF,
-  downloadAllDriversRouteSlipDocx,
-  fetchHistoricStatusSets,
-} from '../utils/routeSlip';
+import { downloadRouteSlipForPeriod, type RouteSlipFormat } from '../utils/routeSlip';
+import { routeSlipPeriod, routeSlipSelectionError, filterRouteSlipRecords } from '../utils/routeSlipPeriod';
 
-interface Props {
-  records: DeliveryRecord[];
+interface Props extends RouteSlipPeriodFieldsProps {
   driverFilter: string;
-  dateFrom: string;
   preparedBy: string;
   filename: string;
-  onFocusDateFilter: () => void;
+  fetchRecords: () => Promise<DeliveryRecord[]>;
 }
 
-type Format  = 'excel' | 'pdf' | 'docx';
 type Variant = 'current' | 'trail';
-type LoadingKey = `${Format}-${Variant}`;
+type LoadingKey = `${RouteSlipFormat}-${Variant}`;
 
-export default function RouteSlipMenu({
-  records, driverFilter, dateFrom, preparedBy, filename, onFocusDateFilter,
-}: Props) {
-  const [open, setOpen]         = useState(false);
-  const [loading, setLoading]   = useState<LoadingKey | null>(null);
-  const [warning, setWarning]   = useState<Format | null>(null);
-  const [docSize, setDocSize]   = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
-  const [trailFallback, setTrailFallback] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [preview, setPreview] = useState<{ format: Format; variant: Variant; auditSets?: Map<string, Set<string>>; fileBlob?: Blob; fileName?: string } | null>(null);
+export default function RouteSlipMenu({ driverFilter, selection, onChange, preparedBy, filename, fetchRecords }: Props) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState<LoadingKey | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [docSize, setDocSize] = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
+  const [preview, setPreview] = useState<{ format: RouteSlipFormat; variant: Variant; records: DeliveryRecord[]; fileBlob: Blob; fileName: string } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const periodError = routeSlipSelectionError(selection);
+
+  const close = () => {
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-        setWarning(null);
-      }
+    const handler = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
   useEffect(() => {
-    if (!trailFallback) return;
-    const t = setTimeout(() => setTrailFallback(false), 4000);
-    return () => clearTimeout(t);
-  }, [trailFallback]);
+    if (open) ref.current?.querySelector<HTMLSelectElement>('select')?.focus();
+  }, [open]);
 
-  const doExport = async (fmt: Format, variant: Variant) => {
-    setOpen(false);
-    setWarning(null);
-    setPreviewError(null);
-    setLoading(`${fmt}-${variant}`);
-
-    let auditSets: Map<string, Set<string>> | undefined;
-
-    if (variant === 'trail') {
-      try {
-        auditSets = await fetchHistoricStatusSets(records);
-      } catch {
-        setTrailFallback(true);
-        auditSets = undefined;
-      }
-    }
-
+  const doExport = async (format: RouteSlipFormat, variant: Variant) => {
+    if (periodError) return;
+    setLoading(`${format}-${variant}`);
+    setError(null);
+    close();
     try {
-      let fileBlob: Blob;
+      const period = routeSlipPeriod(selection);
+      const fetchedRecords = await fetchRecords();
+      const filteredRecords = filterRouteSlipRecords(fetchedRecords, period)
+        .filter(record => !driverFilter || record.driver?.trim() === driverFilter);
+      const fileBlob = await downloadRouteSlipForPeriod(format, {
+        records: filteredRecords, ...period, preparedBy, filename, variant, documentSize: docSize,
+      }, true) as Blob;
       const stamp = new Date().toISOString().split('T')[0];
       const suffix = driverFilter ? 'route-slip' : 'route-slip-all-drivers';
-      const extension = fmt === 'excel' ? 'xlsx' : fmt;
-      const fileName = fmt === 'docx' ? `${filename}-${suffix}.docx` : `${filename}-${suffix}-${stamp}.${extension}`;
-      if (driverFilter) {
-        const params = { records, driverName: driverFilter, date: dateFrom || manilaToday(), preparedBy, filename, auditSets, documentSize: docSize };
-        if (fmt === 'excel') fileBlob = await downloadRouteSlipExcel(params, true) as Blob;
-        else if (fmt === 'pdf') fileBlob = await downloadRouteSlipPDF(params, true) as Blob;
-        else fileBlob = await downloadRouteSlipDocx(params, true) as Blob;
-      } else {
-        const params = { records, date: dateFrom, preparedBy, filename, auditSets, documentSize: docSize };
-        if (fmt === 'excel') fileBlob = await downloadAllDriversRouteSlipExcel(params, true) as Blob;
-        else if (fmt === 'pdf') fileBlob = await downloadAllDriversRouteSlipPDF(params, true) as Blob;
-        else fileBlob = await downloadAllDriversRouteSlipDocx(params, true) as Blob;
-      }
-      setPreview({ format: fmt, variant, auditSets, fileBlob, fileName });
-    } catch (error) {
-      console.error('Route slip preview failed:', error);
-      setPreviewError(error instanceof Error ? error.message : 'The route slip preview could not be prepared.');
-    } finally { setLoading(null); }
+      const extension = format === 'excel' ? 'xlsx' : format;
+      const fileName = format === 'docx' ? `${filename}-${suffix}.docx` : `${filename}-${suffix}-${stamp}.${extension}`;
+      setPreview({ format, variant, records: filteredRecords, fileBlob, fileName });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Route slip export failed. Please try again.');
+    } finally {
+      setLoading(null);
+    }
   };
 
   const closePreview = useCallback(() => setPreview(null), []);
   const downloadPreview = async () => {
-    if (!preview) return;
-    const { format: fmt, variant, auditSets } = preview;
-    setLoading(`${fmt}-${variant}`);
-    try {
-      if (preview.fileBlob) {
-        downloadBlob(preview.fileBlob, preview.fileName ?? `${filename}.xlsx`);
-        return;
-      }
-      if (driverFilter) {
-        const params = { records, driverName: driverFilter, date: dateFrom || manilaToday(), preparedBy, filename, auditSets, documentSize: docSize };
-        if (fmt === 'excel') await downloadRouteSlipExcel(params);
-        if (fmt === 'pdf') await downloadRouteSlipPDF(params);
-        if (fmt === 'docx') await downloadRouteSlipDocx(params);
-      } else {
-        const params = { records, date: dateFrom, preparedBy, filename, auditSets, documentSize: docSize };
-        if (fmt === 'excel') await downloadAllDriversRouteSlipExcel(params);
-        if (fmt === 'pdf') await downloadAllDriversRouteSlipPDF(params);
-        if (fmt === 'docx') await downloadAllDriversRouteSlipDocx(params);
-      }
-    } catch (err) {
-      console.error('Route slip export failed:', err);
-      throw err;
-    } finally { setLoading(null); }
+    if (preview) downloadBlob(preview.fileBlob, preview.fileName);
   };
-
-  const handleSelect = (fmt: Format, variant: Variant) => {
-    if (!driverFilter && !dateFrom) {
-      setOpen(false);
-      setWarning(fmt);
-      return;
-    }
-    doExport(fmt, variant);
-  };
-
-  const isLoading = loading !== null;
-  const driverCount = driverFilter
-    ? 1
-    : new Set(records.map(r => r.driver?.trim()).filter(d => d && d.toLowerCase() !== 'unassigned')).size;
-
-  const loadingLabel = loading
-    ? (() => {
-        const [fmt] = loading.split('-') as [Format, Variant];
-        return fmt.toUpperCase();
-      })()
-    : '';
 
   return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => { if (!isLoading) { setWarning(null); setOpen(o => !o); } }}
-        disabled={isLoading}
-        className="flex items-center gap-1.5 bg-[#1F3864] hover:bg-[#2a4d82] text-white text-[11px] font-bold uppercase tracking-wider px-3 py-2 rounded-lg transition-all cursor-pointer disabled:opacity-60 shadow-xs"
-      >
-        {isLoading
-          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          : <Route className="w-3.5 h-3.5" />
-        }
-        {isLoading ? `Exporting ${loadingLabel}…` : 'Route Slip'}
-        {!isLoading && <ChevronDown className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />}
+    <div className="relative" ref={ref} onKeyDown={event => {
+      if (event.key === 'Escape') { event.preventDefault(); close(); }
+    }}>
+      <button ref={triggerRef} type="button" aria-expanded={open} aria-haspopup="dialog"
+        onClick={() => { setError(null); setOpen(value => !value); }} disabled={loading !== null}
+        className="flex items-center gap-1.5 bg-[#1F3864] hover:bg-[#2a4d82] text-white text-[11px] font-bold uppercase tracking-wider px-3 py-2 rounded-lg transition-all cursor-pointer disabled:opacity-60 shadow-xs">
+        {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Route className="w-3.5 h-3.5" />}
+        {loading ? `Exporting ${loading.split('-')[0].toUpperCase()}…` : 'Route Slip'}
+        {!loading && <ChevronDown className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />}
       </button>
-
-      {open && (
-        <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg p-3 min-w-[220px]">
-          <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={isLoading} />
-          <div className="flex flex-col -mx-3">
-          {/* ── Current Status ── */}
-          <div className="px-3.5 pt-2 pb-1">
-            <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-slate-400">
-              <Clock className="w-3 h-3" /> Current Status
-            </div>
+      {open && <div role="dialog" aria-label="Generate route slip" className="absolute right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg p-3 w-80 max-w-[calc(100vw-2rem)]">
+        <RouteSlipPeriodFields selection={selection} onChange={onChange} />
+        <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={loading !== null} />
+        {(['current', 'trail'] as const).map(variant => <div key={variant} className="mt-2">
+          <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">
+            {variant === 'current' ? <Clock className="w-3 h-3" /> : <History className="w-3 h-3" />}
+            {variant === 'current' ? 'Current Status' : 'Status Trail'}
           </div>
-          <button
-            onClick={() => handleSelect('excel', 'current')}
-            className="w-full flex items-center gap-2.5 px-3.5 py-1.5 text-[11px] font-bold text-green-700 hover:bg-green-50 transition-colors cursor-pointer"
-          >
-            <Route className="w-3.5 h-3.5" /> Excel (Current)
-          </button>
-          <button
-            onClick={() => handleSelect('pdf', 'current')}
-            className="w-full flex items-center gap-2.5 px-3.5 py-1.5 text-[11px] font-bold text-red-700 hover:bg-red-50 transition-colors cursor-pointer"
-          >
-            <Route className="w-3.5 h-3.5" /> PDF (Current)
-          </button>
-          <button
-            onClick={() => handleSelect('docx', 'current')}
-            className="w-full flex items-center gap-2.5 px-3.5 py-1.5 text-[11px] font-bold text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer"
-          >
-            <FileText className="w-3.5 h-3.5" /> Word (Current)
-          </button>
-
-          <div className="mx-3 my-1.5 border-t border-slate-100" />
-
-          {/* ── Status Trail ── */}
-          <div className="px-3.5 pb-1">
-            <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-slate-400">
-              <History className="w-3 h-3" /> Status Trail
-            </div>
-          </div>
-          <button
-            onClick={() => handleSelect('excel', 'trail')}
-            className="w-full flex items-center gap-2.5 px-3.5 py-1.5 text-[11px] font-bold text-green-700 hover:bg-green-50 transition-colors cursor-pointer"
-          >
-            <Route className="w-3.5 h-3.5" /> Excel (Status Trail)
-          </button>
-          <button
-            onClick={() => handleSelect('pdf', 'trail')}
-            className="w-full flex items-center gap-2.5 px-3.5 py-1.5 text-[11px] font-bold text-red-700 hover:bg-red-50 transition-colors cursor-pointer"
-          >
-            <Route className="w-3.5 h-3.5" /> PDF (Status Trail)
-          </button>
-          <button
-            onClick={() => handleSelect('docx', 'trail')}
-            className="w-full flex items-center gap-2.5 px-3.5 py-1.5 text-[11px] font-bold text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer"
-          >
-            <FileText className="w-3.5 h-3.5" /> Word (Status Trail)
-          </button>
-
-          </div>
-          <div className="mx-3 mt-1.5 pt-1 border-t border-slate-100 text-[9px] text-slate-400 pb-1.5">
-            {driverFilter
-              ? `${records.length} record${records.length !== 1 ? 's' : ''} · ${driverFilter}`
-              : `${records.length} record${records.length !== 1 ? 's' : ''} · ${driverCount} driver${driverCount !== 1 ? 's' : ''}`
-            }
-          </div>
-        </div>
-      )}
-
-      {warning && (
-        <div className="absolute right-0 top-full mt-1 z-30 bg-amber-50 border border-amber-200 rounded-xl shadow-lg p-3.5 w-72">
-          <div className="flex items-start gap-2 mb-2">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
-            <p className="text-[11px] font-bold text-amber-800">No date filter set</p>
-          </div>
-          <p className="text-[11px] text-amber-700 mb-3 leading-relaxed">
-            Please set a date filter before exporting the full route slip. Exporting without a date may include all records across all time.
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => { setWarning(null); onFocusDateFilter(); }}
-              className="flex-1 text-[11px] font-bold text-[#1F3864] border border-[#1F3864] rounded-lg px-2 py-1.5 hover:bg-blue-50 transition-colors cursor-pointer"
-            >
-              Set a Date
-            </button>
-            <button
-              onClick={() => doExport(warning, 'current')}
-              className="flex-1 text-[11px] font-bold text-white bg-amber-600 rounded-lg px-2 py-1.5 hover:bg-amber-700 transition-colors cursor-pointer"
-            >
-              Export Anyway
-            </button>
-          </div>
-        </div>
-      )}
-
-      {trailFallback && (
-        <div className="absolute right-0 top-full mt-1 z-30 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl shadow-lg px-3.5 py-2.5 w-72 pointer-events-none">
-          <AlertTriangle className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
-          <p className="text-[11px] text-amber-800 leading-relaxed">
-            Could not load status history — exporting current status only.
-          </p>
-        </div>
-      )}
-      {previewError && <div role="alert" className="absolute right-0 top-full mt-1 z-30 max-w-xs rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{previewError}</div>}
-
+          {(['excel', 'pdf', 'docx'] as const).map(format => <button key={format} type="button"
+            disabled={Boolean(periodError) || loading !== null} onClick={() => doExport(format, variant)}
+            className="w-full flex items-center gap-2.5 py-2 px-1 text-[11px] font-bold text-[#1F3864] hover:bg-blue-50 rounded disabled:opacity-40 disabled:cursor-not-allowed">
+            {format === 'docx' ? <FileText className="w-3.5 h-3.5" /> : <Route className="w-3.5 h-3.5" />}
+            {format === 'docx' ? 'Word' : format === 'pdf' ? 'PDF' : 'Excel'} ({variant === 'current' ? 'Current' : 'Status Trail'})
+          </button>)}
+        </div>)}
+        <p className="text-[10px] text-slate-500 border-t border-slate-100 pt-2 mt-2">
+          {driverFilter ? `Driver filter: ${driverFilter}. ` : ''}One slip per assigned driver for the selected period. Status Trail includes each record’s full history.
+        </p>
+      </div>}
+      {error && <p role="alert" className="absolute right-0 top-full mt-1 z-30 bg-red-50 border border-red-200 rounded-lg p-3 w-80 max-w-[calc(100vw-2rem)] text-xs text-red-700">{error}</p>}
       {preview && (() => {
         const columns: ExportColumn[] = [
           { header: 'Record ID', key: 'id' }, { header: 'Company', key: 'company' },
@@ -272,12 +115,16 @@ export default function RouteSlipMenu({
           { header: 'Delivery Date', key: 'deliveryDate' }, { header: 'Driver', key: 'driver' },
           { header: 'Status', key: 'status' },
         ];
-        const rows = records.filter(record => !driverFilter || record.driver === driverFilter).map(record => ({
+        const rows = preview.records.map(record => ({
           id: record.id, company: record.company_name, reference: record.reference,
           area: record.area, deliveryDate: record.delivery_date, driver: record.driver,
           status: record.status,
         }));
-        const meta: ExportMeta = { reportName: 'Route Slip', dateRange: dateFrom || 'All dates', generatedByName: preparedBy, generatedByRole: '' };
+        const period = routeSlipPeriod(selection);
+        const meta: ExportMeta = {
+          reportName: 'Route Slip', dateRange: period.dateTo ? `${period.dateFrom} – ${period.dateTo}` : `From ${period.dateFrom} onward`,
+          generatedByName: preparedBy, generatedByRole: '',
+        };
         return <ExportPreviewDialog
           format={preview.format as ExportPreviewFormat}
           variant={preview.variant}

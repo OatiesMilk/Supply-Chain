@@ -668,6 +668,15 @@ export const AC_EXTRA_COLUMNS: ExportColumn[] = [
   { header: 'Verified At',         key: 'collection_verified_at_fmt', width: 22 },
 ];
 
+export const RMA_EXTRA_COLUMNS: ExportColumn[] = [
+  { header: 'Legacy SAP Reference', key: 'legacy_sap_reference', width: 24 },
+  { header: 'RMA Category', key: 'rma_type', width: 24 },
+  { header: 'Purchase Date', key: 'purchase_date_fmt', width: 18 },
+  { header: 'Customer Contact Name', key: 'customer_contact_name', width: 26 },
+  { header: 'Customer Contact Email', key: 'customer_contact_email', width: 30 },
+  { header: 'Customer Contact Phone', key: 'customer_contact_phone', width: 22 },
+];
+
 // ─── PDF-specific column sets (tighter, screen-matched) ──────────────────────
 // These are used only for PDF. CSV/Excel still uses DELIVERY_COLUMNS for full data.
 
@@ -681,6 +690,16 @@ export const PDF_DELIVERY_COLUMNS: ExportColumn[] = [
   { header: 'Driver',          key: 'driver',            width: 24, pdfWidth: 30                       },
   { header: 'Account Manager', key: 'account_manager',   width: 20, pdfWidth: 24                       },
   { header: 'Status',          key: 'status_fmt',        width: 14, pdfWidth: 26, pdfPill: true, pdfAlign: 'center' },
+];
+
+export const PDF_RMA_COLUMNS: ExportColumn[] = [
+  { header: 'Record ID', key: 'id', width: 18, pdfWidth: 22 },
+  { header: 'Company', key: 'company_name', width: 28, pdfWidth: 50 },
+  { header: 'RMA Document Reference', key: 'rma_reference', width: 28, pdfWidth: 38 },
+  { header: 'Legacy SAP Reference', key: 'legacy_sap_reference', width: 24, pdfWidth: 34 },
+  { header: 'RMA Category', key: 'rma_type', width: 22, pdfWidth: 35 },
+  { header: 'Purchase Date', key: 'purchase_date_fmt', width: 18, pdfWidth: 30 },
+  { header: 'Status', key: 'status_fmt', width: 14, pdfWidth: 28, pdfPill: true, pdfAlign: 'center' },
 ];
 
 // AC widths sum to 257mm — comfortably under the 277mm landscape usable width.

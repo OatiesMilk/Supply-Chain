@@ -10,6 +10,23 @@ import type { DeliveryRecord } from '../src/types';
 
 afterEach(() => mock.restoreAll());
 
+test('RMA completion patches recipient and remarks atomically without loading optional proof', async () => {
+  const client = createQueryClient();
+  mock.method(api, 'getRecord', async () => ({ id: 'rma', status: 'Scheduled', category: 'RMA', time_in: null, received_by: null }));
+  const files = mock.method(api, 'getRecordAttachments', async () => { throw new Error('Optional attachment service is unavailable'); });
+  const put = mock.method(api, 'updateRecord', async () => { throw new Error('RMA completion must use one status update'); });
+  const patch = mock.method(api, 'patchStatus', async () => ({ id: 'rma', status: 'Delivered', received_by: 'Collector' }));
+  const options = createUpdateRecordMutationOptions(client);
+  await assert.rejects(options.mutationFn({ id: 'rma', updates: { status: 'Delivered', received_by: ' ', remarks: 'Collected' } }), /Recipient \/ Collector/);
+  await assert.rejects(options.mutationFn({ id: 'rma', updates: { status: 'Delivered', received_by: 'Collector', remarks: ' ' } }), /Remarks/);
+  const saved = await options.mutationFn({ id: 'rma', updates: { status: 'Delivered', received_by: ' Collector ', remarks: 'Collected' } });
+  assert.equal(saved.status, 'Delivered');
+  assert.deepEqual(patch.mock.calls[0].arguments, ['rma', 'Delivered', 'Collected', { received_by: 'Collector' }]);
+  assert.equal(files.mock.callCount(), 0);
+  assert.equal(put.mock.callCount(), 0);
+  client.clear();
+});
+
 test('priority edits on an already completed legacy record do not trigger a new completion or require attachments', async () => {
   const client = createQueryClient();
   mock.method(api, 'getRecord', async () => ({ id: 'legacy', status: 'Delivered', time_in: null, received_by: null }));

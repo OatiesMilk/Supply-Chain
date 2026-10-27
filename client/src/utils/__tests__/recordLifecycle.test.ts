@@ -17,6 +17,21 @@ test('Save as Draft accepts an incomplete reference; Submit requires the referen
   assert.match(submissionErrors({ ...draft, company_name: '   ' }, false).company_name, /required/);
 });
 
+test('RMA drafts and submissions require company, priority, area and account manager only', () => {
+  const draft = {
+    company_name: 'Customer', company_id: 'company-1', reference: '', delivery_date: '2026-08-01', category: 'RMA',
+    rma_reference: '', rma_type: '', purchase_date: '', customer_contact_name: '', customer_contact_email: '', customer_contact_phone: '',
+  };
+  for (const isDraft of [true, false]) {
+    assert.deepEqual(Object.keys(submissionErrors(draft, isDraft)).sort(), ['account_manager', 'area', 'priority']);
+    const complete = { ...draft, priority: '2 - Moderate', area: 'Carmona', account_manager: 'Alex AM', delivery_date: '' };
+    assert.deepEqual(submissionErrors(complete, isDraft), {});
+    assert.match(submissionErrors({ ...complete, company_id: '' }, isDraft).company_name, /Select/);
+    assert.match(submissionErrors({ ...complete, priority: 'invalid' }, isDraft).priority, /valid/);
+    assert.match(submissionErrors({ ...complete, customer_contact_email: 'invalid' }, isDraft).customer_contact_email, /valid email/);
+  }
+});
+
 test('frontend choices use server transitions and limit Draft to SC/Admin before Time In', () => {
   const run = record();
   assert.deepEqual(selectableStatuses(run, 'Logistics'), ['On-Hold', 'Rescheduled']);
@@ -36,6 +51,7 @@ test('drafts can be submitted but cannot start runs or receive assignments', () 
 });
 
 test('only assigned, not-yet-started Scheduled/Rescheduled runs offer Time In', () => {
+  assert.equal(canRecordTimeIn(record({ category: 'RMA' })), false);
   assert.equal(canRecordTimeIn(record()), true);
   assert.equal(canRecordTimeIn(record({ status: 'Rescheduled' })), true);
   assert.equal(canRecordTimeIn(record({ driver: '' })), false);
