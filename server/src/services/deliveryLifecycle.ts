@@ -56,18 +56,33 @@ export const RUN_TRANSITIONS: Record<RunState, readonly RunState[]> = {
   Delivered: [],
 };
 
+// RMA is managed by TASS/Admin, independently of an internal driver run.
+export const RMA_TRANSITIONS: Record<RunState, readonly RunState[]> = {
+  Draft: ['Scheduled'],
+  Scheduled: ['Pending', 'On-Hold', 'Rescheduled', 'Delivered', 'Draft'],
+  Pending: ['On-Hold', 'Rescheduled', 'Delivered'],
+  'On-Hold': ['Scheduled', 'Pending', 'Rescheduled', 'Delivered', 'Draft'],
+  Rescheduled: ['Scheduled', 'On-Hold', 'Draft'],
+  // Existing started RMAs can finish without erasing their historical clocks.
+  'In Transit': ['Pending', 'On-Hold', 'Rescheduled', 'Delivered'],
+  Delivered: [],
+};
+
 const STATES: Record<string, RunState> = {
   SCHEDULED: 'Scheduled', IN_TRANSIT: 'In Transit', ACCOMPLISHED: 'Delivered',
   ON_HOLD: 'On-Hold', RESCHEDULED: 'Rescheduled', PENDING: 'Pending',
 };
 export function runState(record: RunRecord): RunState {
   if (record.draft) return 'Draft';
-  // Legacy saves recorded Time In without advancing Scheduled. Treat the valid
-  // existing stamp as the started attempt; never invent or overwrite its clock.
-  if (record.status === 'SCHEDULED' && isoTimestamp(record.timeIn)) return 'In Transit';
+  // Legacy internal runs recorded Time In without advancing Scheduled. RMA
+  // clocks are historical evidence and do not override its explicit status.
+  if (record.category !== 'RMA' && record.status === 'SCHEDULED' && isoTimestamp(record.timeIn)) return 'In Transit';
   return STATES[record.status] ?? record.status as RunState;
 }
 export function allowedStatuses(record: RunRecord): RunState[] {
+  if (record.category === 'RMA') {
+    return (RMA_TRANSITIONS[runState(record)] ?? []).filter(status => status !== 'Draft' || !record.timeIn);
+  }
   return (RUN_TRANSITIONS[runState(record)] ?? []).filter(status => {
     if (status === 'Draft' || status === 'Scheduled') return !record.timeIn;
     if (status === 'Delivered' || status === 'Pending') return Boolean(isoTimestamp(record.timeIn));
@@ -84,6 +99,7 @@ export function transitionError(record: RunRecord, target: RunState, role: Role)
   return null;
 }
 export function timeInError(record: RunRecord): string | null {
+  if (record.category === 'RMA') return 'RMA records use status updates instead of delivery Time In.';
   if (record.draft) return 'Submit the draft before recording Time In.';
   if (!record.driver?.trim()) return 'Assign a driver before recording Time In.';
   if (record.timeIn) return 'Time In has already been recorded for this attempt.';

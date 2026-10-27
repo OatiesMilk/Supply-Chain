@@ -376,11 +376,11 @@ test('hasStoredDeliveryPhoto queries attachments ordered by createdAt desc to ch
   assert.deepEqual(capturedQuery.orderBy, { createdAt: 'desc' });
 });
 
-test('Pending requires a started run and every category requires photo for completion', async () => {
+test('Pending requires a started run and non-RMA categories require photo for completion', async () => {
   const pending = database();
   assert.equal((await request('patch', '/:id/status', { body: { status: 'Pending', remarks: 'Customer unavailable' } })).status, 200);
   assert.equal(pending.events.includes('photos'), false);
-  for (const category of ['PROCUREMENT_PICKUP', 'ACCOUNTING_COLLECTION', 'RMA', 'SALES_ORDERS']) {
+  for (const category of ['PROCUREMENT_PICKUP', 'ACCOUNTING_COLLECTION', 'SALES_ORDERS']) {
     resetFixtures();
     const state = database(record({ category }));
     const result = await request('patch', '/:id/status', { role: 'ADMIN', body: { status: 'Delivered', remarks: 'Updated' } });
@@ -414,10 +414,19 @@ test('a replacement photo allows removal while preserving delivery proof', async
   assert.deepEqual(state.events, ['lock', 'photos', 'delete', 'audit']);
 });
 
+test('RMA supporting photos remain optional after completion', async () => {
+  const state = database(record({ category: 'RMA', status: 'ACCOMPLISHED' }), [attachment()]);
+  stub(podStorage, 'remove', async () => {});
+  const result = await request('delete', '/:id/attachments/:attachmentId', { role: 'TASS' });
+  assert.equal(result.status, 204);
+  assert.deepEqual(state.events, ['lock', 'delete', 'audit']);
+});
 
-test('completion enforces Time In, Received By and remarks for every role without partial writes', async () => {
+
+test('completion enforces receiver and remarks for every role and Time In for internal runs without partial writes', async () => {
   for (const role of ['DRIVER', 'LOGISTICS', 'ADMIN', 'TASS']) {
     for (const invalid of ['receiver', 'remarks', 'timeIn']) {
+      if (role === 'TASS' && invalid === 'timeIn') continue;
       resetFixtures();
       const state = database(record({ ...(role === 'TASS' ? { category: 'RMA' } : {}), ...(invalid === 'timeIn' ? { timeIn: null } : {}) }), [attachment()]);
       const result = await request('patch', '/:id/status', { role, body: { status: 'Delivered', remarks: invalid === 'remarks' ? '  ' : 'Completed', received_by: invalid === 'receiver' ? '   ' : 'Receiver' } });
@@ -453,6 +462,98 @@ test('Time In stamps once for an assigned actionable run, ignores client clock a
   assert.equal(again.status, 400);
   assert.equal(state.events.filter(event => event === 'update').length, 1);
   assert.equal(state.audit.length, 1);
+});
+
+test('RMA status graph is independent of Time In and preserves the approved reschedule restrictions', () => {
+  const expected = {
+    Draft: ['Scheduled'],
+    Scheduled: ['Pending', 'On-Hold', 'Rescheduled', 'Delivered', 'Draft'],
+    Pending: ['On-Hold', 'Rescheduled', 'Delivered'],
+    'On-Hold': ['Scheduled', 'Pending', 'Rescheduled', 'Delivered', 'Draft'],
+    Rescheduled: ['Scheduled', 'On-Hold', 'Draft'],
+    'In Transit': ['Pending', 'On-Hold', 'Rescheduled', 'Delivered'],
+    Delivered: [],
+  } as const;
+  for (const [status, targets] of Object.entries(expected)) {
+    const row = record({ category: 'RMA', status, draft: status === 'Draft', driver: '', driverId: null, timeIn: null });
+    assert.deepEqual(allowedStatuses(row), [...targets], status);
+    for (const target of targets) assert.equal(transitionError(row, target, 'TASS'), null, `${status}/${target}`);
+  }
+  assert.match(transitionError(record({ category: 'RMA', status: 'Rescheduled', timeIn: null }), 'Delivered', 'TASS')!, /Cannot change/);
+  assert.ok(!allowedStatuses(record({ category: 'RMA', status: 'ON_HOLD' })).includes('Draft'), 'legacy started RMA cannot return to Draft');
+});
+
+test('TASS and Admin complete unassigned RMA from each approved state with an atomic recipient, timestamp and audit', async () => {
+  for (const role of ['TASS', 'ADMIN']) {
+    for (const status of ['SCHEDULED', 'PENDING', 'ON_HOLD', 'IN_TRANSIT']) {
+      resetFixtures();
+      const legacyTimeIn = status === 'IN_TRANSIT' ? '2026-10-06T01:00:00.000Z' : null;
+      const state = database(record({ category: 'RMA', status, driver: '', driverId: null, timeIn: legacyTimeIn, receivedBy: null, deliveryDate: null }));
+      stub(prisma.podAttachment, 'findMany', async () => { throw new Error('RMA completion must not depend on attachment storage'); });
+      const before = Date.now();
+      const response = await request('patch', '/:id/status', { role, body: { status: 'Delivered', remarks: 'Collected and completed', received_by: ' Collector ' } });
+      assert.equal(response.status, 200, `${role}/${status}`);
+      assert.equal(response.body.status, 'Delivered');
+      assert.equal(response.body.received_by, 'Collector');
+      assert.equal(state.saved().timeIn, legacyTimeIn);
+      assert.ok(Date.parse(state.saved().timeOut!) >= before);
+      assert.equal(state.saved().modifiedById, 'test-user');
+      assert.deepEqual(state.events.slice(0, 4), ['lock', 'update', 'audit', 'remark']);
+      assert.equal(state.events.includes('photos'), false);
+      assert.equal(state.audit[0].changedById, 'test-user');
+      assert.equal(JSON.parse(state.audit[0].newValue).received_by, 'Collector');
+      assert.equal(state.remarks[0].body, 'Collected and completed');
+      assert.deepEqual(response.body.allowed_statuses, []);
+      const rejected = await request('patch', '/:id/status', { role, body: { status: 'Pending', remarks: 'Try reopening' } });
+      assert.equal(rejected.status, 400);
+      assert.equal(state.audit.length, 1);
+    }
+  }
+});
+
+test('RMA completion rejects missing recipient/remarks, drafts and rescheduled records without writes', async () => {
+  for (const role of ['TASS', 'ADMIN']) {
+    for (const invalid of ['recipient', 'remarks', 'draft', 'rescheduled']) {
+      resetFixtures();
+      const state = database(record({ category: 'RMA', status: invalid === 'rescheduled' ? 'RESCHEDULED' : 'SCHEDULED', draft: invalid === 'draft', timeIn: null, receivedBy: null }));
+      const response = await request('patch', '/:id/status', { role, body: { status: 'Delivered', remarks: invalid === 'remarks' ? '  ' : 'Completed', received_by: invalid === 'recipient' ? '  ' : 'Collector' } });
+      assert.equal(response.status, 400, `${role}/${invalid}`);
+      assert.equal(state.events.includes('update'), false);
+      assert.equal(state.audit.length, 0);
+    }
+  }
+});
+
+test('RMA Pending needs no Time In, legacy rescheduling preserves clocks, and new Time In is rejected', async () => {
+  let state = database(record({ category: 'RMA', status: 'SCHEDULED', driver: '', timeIn: null }));
+  assert.equal((await request('patch', '/:id/status', { role: 'TASS', body: { status: 'Pending', remarks: 'Awaiting return' } })).status, 200);
+  assert.equal(state.saved().timeIn, null);
+  resetFixtures();
+  state = database(record({ category: 'RMA', status: 'IN_TRANSIT' }));
+  const previousTimeIn = state.saved().timeIn;
+  assert.equal((await request('patch', '/:id/status', { role: 'TASS', body: { status: 'Rescheduled', remarks: 'Replanned return' } })).status, 200);
+  assert.equal(state.saved().timeIn, previousTimeIn);
+  const scheduled = await request('patch', '/:id/status', { role: 'TASS', body: { status: 'Scheduled', remarks: 'Resume the planned return' } });
+  assert.equal(scheduled.status, 200);
+  assert.equal(scheduled.body.status, 'Scheduled', 'historical Time In must not reclassify rescheduled RMA as In Transit');
+  assert.equal(state.saved().status, 'SCHEDULED');
+  assert.equal(state.saved().timeIn, previousTimeIn);
+  assert.deepEqual(scheduled.body.allowed_statuses, ['Pending', 'On-Hold', 'Rescheduled', 'Delivered']);
+  assert.deepEqual(allowedStatuses(state.saved()), ['Pending', 'On-Hold', 'Rescheduled', 'Delivered']);
+  resetFixtures();
+  state = database(record({ category: 'RMA', status: 'SCHEDULED', timeIn: null }));
+  assert.equal((await request('post', '/:id/time-in', { role: 'ADMIN', body: { remarks: 'Start internal run' } })).status, 400);
+  assert.equal(state.events.includes('update'), false);
+});
+
+test('Logistics, Sales Coordinator and Driver cannot complete RMA via direct API', async () => {
+  for (const role of ['LOGISTICS', 'SALES_COORDINATOR', 'DRIVER']) {
+    resetFixtures();
+    const state = database(record({ category: 'RMA', status: 'SCHEDULED', timeIn: null }));
+    const response = await request('patch', '/:id/status', { role, body: { status: 'Delivered', remarks: 'Complete', received_by: 'Collector' } });
+    assert.equal(response.status, 403, role);
+    assert.deepEqual(state.events, []);
+  }
 });
 
 test('Time In rejects drafts, unassigned, held, completed and other-driver runs', async () => {

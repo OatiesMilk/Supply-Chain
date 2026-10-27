@@ -11,8 +11,8 @@ function stub(target: any, key: string, implementation: (...args: any[]) => any)
 }
 afterEach(() => { while (restorers.length) restorers.pop()!(); mock.restoreAll(); });
 
-async function counts(status?: string, dateQuery: Record<string, string> = {}) {
-  const candidates = [
+async function counts(status?: string, dateQuery: Record<string, string> = {}, fixtures?: { records: any[]; audits: any[] }) {
+  const candidates = fixtures?.records ?? [
     { id: 'draft', status: 'SCHEDULED', draft: true, timeIn: null },
     { id: 'scheduled', status: 'SCHEDULED', draft: false, timeIn: null },
     { id: 'started', status: 'IN_TRANSIT', draft: false, timeIn: '2026-10-06T01:00:00Z' },
@@ -23,7 +23,7 @@ async function counts(status?: string, dateQuery: Record<string, string> = {}) {
   stub(prisma.deliveryRecord, 'findMany', async (query: any) => { recordQuery = query; return candidates; });
   stub(prisma.auditLog, 'findMany', async (query: any) => {
     auditQuery = query;
-    return [{ recordId: 'scheduled', previousValue: JSON.stringify({ status: 'Scheduled', is_draft: 'Yes' }), newValue: JSON.stringify({ status: 'Scheduled', is_draft: 'No' }) }];
+    return fixtures?.audits ?? [{ recordId: 'scheduled', previousValue: JSON.stringify({ status: 'Scheduled', is_draft: 'Yes' }), newValue: JSON.stringify({ status: 'Scheduled', is_draft: 'No' }) }];
   });
   const route = (records as any).stack.find((layer: any) => layer.route?.path === '/status-history-counts').route;
   const handler = route.stack[route.stack.length - 1].handle;
@@ -57,6 +57,27 @@ test('Draft filter does not include Scheduled records and In Transit includes le
   assert.equal(started.response.current['In Transit'], 2);
   assert.deepEqual(started.auditQuery.where.recordId.in, ['started', 'legacy-started']);
   assert.equal(started.recordQuery.select.timeIn, true);
+});
+
+test('legacy RMA clocks do not inflate current or historical In Transit counts after rescheduling', async () => {
+  const fixtures = {
+    records: [
+      { id: 'rma', category: 'RMA', status: 'SCHEDULED', draft: false, timeIn: '2026-10-06T01:00:00Z' },
+      { id: 'delivery', category: 'DELIVERY', status: 'SCHEDULED', draft: false, timeIn: '2026-10-06T01:00:00Z' },
+    ],
+    audits: [{ recordId: 'rma', previousValue: JSON.stringify({ status: 'Rescheduled', time_in: '2026-10-06T01:00:00Z' }), newValue: JSON.stringify({ status: 'Scheduled', time_in: '2026-10-06T01:00:00Z' }) }],
+  };
+  const scheduled = await counts('Scheduled', {}, fixtures);
+  assert.equal(scheduled.recordQuery.select.category, true);
+  assert.equal(scheduled.response.current.Scheduled, 1);
+  assert.equal(scheduled.response.current['In Transit'], 0);
+  assert.equal(scheduled.response.ever_held.Scheduled, 1);
+  assert.equal(scheduled.response.ever_held.Rescheduled, 1);
+  assert.equal(scheduled.response.ever_held['In Transit'], 0);
+  assert.deepEqual(scheduled.auditQuery.where.recordId.in, ['rma']);
+  const started = await counts('In Transit', {}, fixtures);
+  assert.equal(started.response.current['In Transit'], 1);
+  assert.deepEqual(started.auditQuery.where.recordId.in, ['delivery']);
 });
 
 test('operational status counts use the same Delivery Date cohort and identify lifetime history', async () => {

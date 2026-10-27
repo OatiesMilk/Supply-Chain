@@ -114,11 +114,11 @@ function statusFilterToWhere(status: string): Prisma.DeliveryRecordWhereInput {
     case 'Draft':
       return { draft: true };
     case 'Scheduled':
-      return { draft: false, status: 'SCHEDULED', timeIn: null };
+      return { draft: false, status: 'SCHEDULED', OR: [{ category: 'RMA' }, { timeIn: null }] };
     case 'In Transit':
       return {
         draft: false,
-        OR: [{ status: 'IN_TRANSIT' }, { status: 'SCHEDULED', NOT: { timeIn: null } }],
+        OR: [{ status: 'IN_TRANSIT' }, { status: 'SCHEDULED', category: { not: 'RMA' }, NOT: { timeIn: null } }],
       };
     case 'Delivered':
       return { status: 'ACCOMPLISHED' };
@@ -494,6 +494,7 @@ router.get('/am-summary', requireAuth, requireResource('records'), requireRecord
     select: {
       id: true,
       accountManager: true,
+      category: true,
       status: true,
       draft: true,
       timeIn: true,
@@ -652,7 +653,7 @@ router.get('/status-history-counts', requireAuth, requireResource('records'), re
   if (driver) where.driver = { contains: driver, mode: 'insensitive' };
   const candidates = await prisma.deliveryRecord.findMany({
     where,
-    select: { id: true, status: true, draft: true, timeIn: true }
+    select: { id: true, category: true, status: true, draft: true, timeIn: true }
   });
   // Draft shares its stored enum with Scheduled; legacy started runs can also
   // still carry SCHEDULED. Filter the same effective state returned to clients.
@@ -663,6 +664,7 @@ router.get('/status-history-counts', requireAuth, requireResource('records'), re
   const current: Record<string, number>  = Object.fromEntries(STATUSES.map(s => [s, 0]));
   const ever_held: Record<string, number> = Object.fromEntries(STATUSES.map(s => [s, 0]));
   const recordStatusMap = new Map<string, Set<string>>();
+  const recordCategories = new Map(records.map(record => [record.id, record.category]));
 
   for (const r of records) {
     const s = runState(r);
@@ -683,6 +685,7 @@ router.get('/status-history-counts', requireAuth, requireResource('records'), re
         const nv = entry.newValue  ? JSON.parse(entry.newValue)  : null;
         const pv = entry.previousValue ? JSON.parse(entry.previousValue) : null;
         for (const snapshot of [nv, pv]) if (snapshot?.status) set.add(runState({
+          category: CATEGORY_TO_DB[snapshot.category] ?? snapshot.category ?? recordCategories.get(entry.recordId),
           status: STATUS_TO_DB[snapshot.status] ?? snapshot.status,
           draft: snapshot.draft === true || snapshot.is_draft === 'Yes' || snapshot.status === 'Draft',
           timeIn: snapshot.timeIn ?? snapshot.time_in,
@@ -901,7 +904,7 @@ router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('re
     const record = await tx.deliveryRecord.findUnique({ where: { id: req.params.id } });
     if (req.user!.role === 'TASS' && record?.category !== 'RMA') return { status: 403, error: 'TASS may manage documents for RMA records only' };
     if (!record || !canWriteCategory(req.user!, record.category)) return { status: 403, error: 'Record access denied' };
-    if (record?.status === 'ACCOMPLISHED' &&
+    if (record.category !== 'RMA' && record.status === 'ACCOMPLISHED' &&
         await isStoredPodPhoto(attachment) && !await hasStoredDeliveryPhoto(tx, record.id, attachment.id)) {
       return { status: 409, error: 'Keep at least one delivery photo on an accomplished delivery. Upload a replacement before removing this photo.' };
     }
@@ -1374,7 +1377,10 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   // WAN storage downloads and image decoding can exceed Prisma's default 5s
   // transaction limit. Verify the actual persisted bytes before acquiring the
   // record lock; the transaction below still validates the identical attachment.
-  const verifiedPod = status === 'Delivered'
+  const completionRecord = status === 'Delivered'
+    ? await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] }, select: { category: true } })
+    : null;
+  const verifiedPod = status === 'Delivered' && completionRecord?.category !== 'RMA'
     ? await findVerifiedDeliveryPhoto(prisma, req.params.id)
     : null;
   const result = await prisma.$transaction(async tx => {
@@ -1401,7 +1407,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
       if (status === 'Delivered' && current.category === 'DELIVERY' && !deliveryScheduleState(current.deliveryDate).valid) {
         return { error: 'A valid Delivery Date is required before completing this delivery.', saved: null, previous: null };
       }
-      if ((status === 'Delivered' || status === 'Pending') && !isoTimestamp(current.timeIn)) return { error: 'Record a valid Time In before completing or marking this run Pending.', saved: null, previous: null };
+      if (current.category !== 'RMA' && (status === 'Delivered' || status === 'Pending') && !isoTimestamp(current.timeIn)) return { error: 'Record a valid Time In before completing or marking this run Pending.', saved: null, previous: null };
       const error = transitionError(current, status as RunState, req.user!.role);
       if (error) return { error, saved: null, previous: null };
     }
@@ -1425,9 +1431,9 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     if (current.status === 'ACCOMPLISHED' && received_by !== undefined && !received_by.trim()) return { error: 'Received By is required on completed runs.', saved: null, previous: null };
     if (received_by !== undefined) data.receivedBy = received_by.trim();
     if (statusChanged && status === 'Delivered') {
-      if (!isoTimestamp(current.timeIn)) return { error: 'Record a valid Time In before completing this run.', saved: null, previous: null };
-      if (!String(received_by ?? current.receivedBy ?? '').trim()) return { error: 'Received By is required before completing this run.', saved: null, previous: null };
-      if (!verifiedPod || !await tx.podAttachment.findFirst({
+      if (current.category !== 'RMA' && !isoTimestamp(current.timeIn)) return { error: 'Record a valid Time In before completing this run.', saved: null, previous: null };
+      if (!String(received_by ?? current.receivedBy ?? '').trim()) return { error: current.category === 'RMA' ? 'Recipient / Collector is required before completing this RMA.' : 'Received By is required before completing this run.', saved: null, previous: null };
+      if (current.category !== 'RMA' && (!verifiedPod || !await tx.podAttachment.findFirst({
         where: {
           id: verifiedPod.id,
           recordId: current.id,
@@ -1435,7 +1441,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
           mimeType: verifiedPod.mimeType,
           size: verifiedPod.size,
         },
-      })) return { error: DELIVERY_PHOTO_REQUIRED, saved: null, previous: null };
+      }))) return { error: DELIVERY_PHOTO_REQUIRED, saved: null, previous: null };
       data.receivedBy = String(received_by ?? current.receivedBy).trim();
       const completedAt = new Date();
       data.timeOut = completedAt.toISOString();
@@ -1445,7 +1451,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
         data.daysLate = schedule.valid ? schedule.daysLate : 0;
       }
     }
-    if (statusChanged && status === 'Rescheduled') { data.timeIn = null; data.timeOut = null; data.receivedBy = null; }
+    if (statusChanged && status === 'Rescheduled' && current.category !== 'RMA') { data.timeIn = null; data.timeOut = null; data.receivedBy = null; }
     if (requiresNewDate) data.deliveryDate = newDeliveryDate;
     const saved = await tx.deliveryRecord.update({ where: { id: current.id }, data, include: recordInclude });
     await tx.auditLog.create({ data: {

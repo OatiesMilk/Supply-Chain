@@ -397,8 +397,8 @@ function GeneralTab({
                 { label: 'Driver',            value: record.driver || 'Unassigned' },
                 { label: 'Driver Assistants', value: (record.driver_assistants ?? []).join(', ') || '—' },
                 { label: 'Time In',           value: formatTs(record.time_in) },
-                { label: 'Time Out',          value: formatTs(record.time_out) },
-                { label: 'Received By',       value: record.received_by || '—' },
+                { label: record.category === 'RMA' ? 'Completed at' : 'Time Out', value: formatTs(record.time_out) },
+                { label: record.category === 'RMA' ? 'Recipient / Collector' : 'Received By', value: record.received_by || '—' },
                 { label: 'Account Manager',   value: record.account_manager },
                 { label: 'Delivery Date',   value: record.delivery_date },
                 { label: 'Created At',      value: record.created_at ? formatTs(record.created_at) : '—' },
@@ -696,11 +696,11 @@ function GeneralTab({
                 { label: 'Driver',            value: record.driver || 'Unassigned' },
                 { label: 'Driver Assistants', value: (record.driver_assistants ?? []).join(', ') || '—' },
                 { label: 'Time In',           value: formatTs(record.time_in) },
-                { label: 'Time Out',          value: formatTs(record.time_out) },
-                { label: 'Received By',       value: record.received_by || '—' },
+                { label: record.category === 'RMA' ? 'Completed at' : 'Time Out', value: formatTs(record.time_out) },
+                { label: record.category === 'RMA' ? 'Recipient / Collector' : 'Received By', value: record.received_by || '—' },
               ].map(row => (
                 <div key={row.label} className="flex flex-col gap-0.5">
-                  <span className={labelCls}>{row.label} <span className="text-slate-300 normal-case tracking-normal font-normal">(Logistics only)</span></span>
+                  <span className={labelCls}>{row.label} {record.category !== 'RMA' && <span className="text-slate-300 normal-case tracking-normal font-normal">(Logistics only)</span>}</span>
                   <span className="font-semibold text-slate-400 italic">{row.value}</span>
                 </div>
               ))}
@@ -1040,7 +1040,7 @@ function ActionsTab({
   const [returnToDraftOpen, setReturnToDraftOpen] = useState(false);
 
   const draftRecord = isDraftRecord(record);
-  const tassRma = currentUserRole === 'TASS' && record.category === 'RMA';
+  const isRma = record.category === 'RMA';
   const statusOptions = selectableStatuses(record, currentUserRole);
 
   const statusChanged = selectedStatus !== record.status;
@@ -1053,7 +1053,7 @@ function ActionsTab({
     JSON.stringify(assistants.filter(a => a.trim())) !== JSON.stringify(record.driver_assistants ?? []) ||
     timeIn !== manilaDateTimeInput(record.time_in) ||
     timeOut !== manilaDateTimeInput(record.time_out) ||
-    (receivedBy || '') !== (record.received_by ?? '');
+    (!isRma && (receivedBy || '') !== (record.received_by ?? ''));
 
   const hasChanges = statusChanged || driverFieldsChanged;
 
@@ -1098,7 +1098,7 @@ function ActionsTab({
     let detailsSaved = false;
 
     try {
-      await uploadStaged();
+      if (!isRma) await uploadStaged();
 
       // The update hook routes status changes to PATCH /status and ordinary
       // dispatch fields to PUT /records/:id. Keep them as two ordered writes
@@ -1131,14 +1131,14 @@ function ActionsTab({
           status_remarks: actionRemarks.trim(),
           modified_by: `${currentUserName} (${currentUserRole})`,
           modified_at: now,
-          ...(selectedStatus === 'Delivered' && !tassRma ? { received_by: receivedBy.trim() } : {}),
+          ...(selectedStatus === 'Delivered' ? { received_by: receivedBy.trim() } : {}),
           ...(needsNewDate ? { delivery_date: newDeliveryDate } : {}),
         };
         await onUpdateRecord(record.id, statusUpdates);
       }
 
       setActionRemarks('');
-      notify.success('Dispatch & Logistics changes saved');
+      notify.success(isRma ? 'RMA changes saved' : 'Dispatch & Logistics changes saved');
 
       if (statusChanged) {
         const trigger = getOutputTrigger(record.category, selectedStatus);
@@ -1164,7 +1164,7 @@ function ActionsTab({
 
   return (
     <div className="space-y-6">
-      {!tassRma && record.status !== 'Delivered' && <PodUploader key={record.id} recordId={record.id} required disabled={saving} />}
+      {!isRma && record.status !== 'Delivered' && <PodUploader key={record.id} recordId={record.id} required disabled={saving} />}
       {canRecordTimeIn(record) && (currentUserRole === 'Logistics' || currentUserRole === 'Admin') && <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-2">
         <p className="text-xs text-blue-900">Record Time In to start this run. Enter remarks below before starting.</p>
         <button type="button" disabled={saving || !actionRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
@@ -1190,7 +1190,7 @@ function ActionsTab({
                   : 'border-slate-200 bg-white text-slate-700 hover:border-[#0078C1] hover:text-[#0078C1]'
               }`}
             >
-              {s === 'Draft' ? 'Return to Draft' : s}
+              {s === 'Draft' ? 'Return to Draft' : isRma && s === 'Delivered' ? 'Complete RMA' : s}
             </button>
           ))}
         </div>
@@ -1229,8 +1229,21 @@ function ActionsTab({
         {photoError && <p role="alert" className="text-xs font-semibold text-red-700">{photoError}</p>}
       </div>
 
-      {draftRecord && <p className="text-xs text-slate-600">Submit this draft before changing its assignment. Existing assignments are retained.</p>}
-      {!tassRma && <>
+      {isRma && <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+        {statusChanged && selectedStatus === 'Delivered' ? <>
+          <label htmlFor="rma-recipient" className="block text-xs font-bold text-slate-700">Recipient / Collector *</label>
+          <input id="rma-recipient" type="text" value={receivedBy} onChange={e => setReceivedBy(e.target.value)}
+            disabled={saving} required className={inputCls} />
+          <p className="text-xs text-slate-500">The recipient or collector name is saved with completion and required remarks. Completed at is recorded automatically.</p>
+        </> : <>
+          <p className="text-xs font-bold text-slate-700">Recipient / Collector</p>
+          <p className="text-xs text-slate-700">{record.received_by || 'Not recorded'}</p>
+          {record.status !== 'Delivered' && <p className="text-xs text-slate-500">Select Complete RMA to enter the recipient or collector name and save it with completion.</p>}
+        </>}
+        {record.time_out && <p className="text-xs text-slate-700">Completed at: {formatTs(record.time_out)}</p>}
+      </div>}
+      {draftRecord && !isRma && <p className="text-xs text-slate-600">Submit this draft before changing its assignment. Existing assignments are retained.</p>}
+      {!isRma && <>
       {/* Driver assignment + completion fields */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Driver &amp; Delivery Details</h4>
@@ -1444,7 +1457,7 @@ function ActionsTab({
             className="px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            {saving ? 'Saving…' : 'Save Changes'}
+            {saving ? 'Saving…' : isRma && statusChanged && selectedStatus === 'Delivered' ? 'Complete RMA' : 'Save Changes'}
           </button>
         </div>
       </div>
@@ -2193,7 +2206,7 @@ function RecordWorkspace({
             ['Driver', record.driver || 'Unassigned'],
             ['Delivery date', record.delivery_date],
             ['Time in', formatManilaTime(record.time_in)],
-            ['Time out', formatManilaTime(record.time_out)],
+            [record.category === 'RMA' ? 'Completed at' : 'Time out', formatManilaTime(record.time_out)],
           ].map(([label, value]) => <div key={label} className="flex gap-1"><dt className="text-slate-500">{label}:</dt><dd className="font-semibold">{value}</dd></div>)}
         </dl>
       </section>
