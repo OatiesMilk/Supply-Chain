@@ -39,8 +39,9 @@ export async function downloadDocx(
   summary?:     AllOpsSummary,
   summaryTitle?: string,
   statusHistoryCounts?: StatusHistoryCounts,
-  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
-): Promise<void> {
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE,
+  returnBlob = false
+): Promise<void | Blob> {
   const {
     Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun,
     AlignmentType, WidthType, HeadingLevel, PageOrientation,
@@ -297,6 +298,7 @@ export async function downloadDocx(
   });
 
   const blob = await Packer.toBlob(doc);
+  if (returnBlob) return blob;
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;

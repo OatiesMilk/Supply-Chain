@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Download, Eye, Loader2, X } from 'lucide-rea
 import type { ExportColumn, ExportMeta, StatusHistoryCounts } from '@/utils/export';
 import type { DocumentSize } from '@/utils/documentSize';
 import type { AllOpsSummary } from '@/utils/allOpsExport';
+import ExcelWorkbookPreview from './ExcelWorkbookPreview';
 
 export type ExportPreviewFormat = 'csv' | 'excel' | 'pdf' | 'docx';
 
@@ -11,8 +12,50 @@ const FORMAT_LABEL: Record<ExportPreviewFormat, string> = {
 };
 const PAGE_SIZE = 25;
 
+function parseCsv(source: string): string[][] {
+  const text = source.replace(/^\uFEFF/, '');
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let quoted = false;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    if (char === '"') {
+      if (quoted && text[index + 1] === '"') { field += '"'; index++; }
+      else quoted = !quoted;
+    } else if (char === ',' && !quoted) {
+      row.push(field); field = '';
+    } else if ((char === '\n' || char === '\r') && !quoted) {
+      if (char === '\r' && text[index + 1] === '\n') index++;
+      row.push(field);
+      if (row.some(value => value.length > 0)) rows.push(row);
+      row = []; field = '';
+    } else field += char;
+  }
+  row.push(field);
+  if (row.some(value => value.length > 0)) rows.push(row);
+  return rows;
+}
+
+function CsvArtifactPreview({ text }: { text: string }) {
+  const rows = useMemo(() => parseCsv(text), [text]);
+  const columnCount = Math.max(1, ...rows.map(row => row.length));
+  return <div className="h-full overflow-auto rounded-lg border border-slate-200 bg-white">
+    <table className="w-full min-w-max border-collapse text-left text-xs text-slate-700">
+      <tbody>{rows.map((row, rowIndex) => {
+        const isSectionHeading = row.length === 1 && row[0].length > 0;
+        const isColumnHeading = rowIndex > 0 && row.length === columnCount && rows[rowIndex - 1].length < columnCount;
+        return <tr key={rowIndex} className={isColumnHeading ? 'bg-[#1F3864] font-semibold text-white' : isSectionHeading ? 'bg-slate-50 font-semibold text-[#1F3864]' : rowIndex % 2 ? 'bg-white' : 'bg-slate-50'}>
+          {Array.from({ length: columnCount }, (_, columnIndex) => <td key={columnIndex} className={`max-w-72 whitespace-pre-wrap break-words border-b border-slate-100 px-3 py-2 align-top ${isColumnHeading ? 'text-white' : ''}`}>{row[columnIndex] ?? ''}</td>)}
+        </tr>;
+      })}</tbody>
+    </table>
+    {!rows.length && <p className="p-4 text-sm text-slate-500">This CSV contains no rows.</p>}
+  </div>;
+}
+
 export default function ExportPreviewDialog({
-  format, variant, rows, columns, meta, title, documentSize, statusHistoryCounts, summary, onClose, onDownload,
+  format, variant, rows, columns, meta, title, documentSize, statusHistoryCounts, summary, excelBlob, fileBlob, onClose, onDownload,
 }: {
   format: ExportPreviewFormat;
   variant: 'current' | 'trail';
@@ -23,17 +66,47 @@ export default function ExportPreviewDialog({
   documentSize: DocumentSize;
   statusHistoryCounts?: StatusHistoryCounts;
   summary?: AllOpsSummary;
+  excelBlob?: Blob;
+  fileBlob?: Blob;
   onClose: () => void;
   onDownload: () => Promise<void>;
 }) {
   const [page, setPage] = useState(0);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [artifactPreview, setArtifactPreview] = useState<{ url?: string; text?: string; html?: string; error?: string } | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const pageRows = useMemo(() => rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [rows, page]);
+
+  useEffect(() => {
+    if (!fileBlob || format === 'excel') { setArtifactPreview(null); return; }
+    let cancelled = false;
+    let objectUrl: string | undefined;
+    setArtifactPreview(null);
+    if (format === 'pdf') {
+      objectUrl = URL.createObjectURL(fileBlob);
+      setArtifactPreview({ url: objectUrl });
+    } else if (format === 'csv') {
+      fileBlob.text().then(text => { if (!cancelled) setArtifactPreview({ text }); });
+    } else {
+      import('mammoth').then(async mammothModule => {
+        const mammoth = mammothModule.default ?? mammothModule;
+        const result = await mammoth.convertToHtml({ arrayBuffer: await fileBlob.arrayBuffer() });
+        if (cancelled) return;
+        const parsed = new DOMParser().parseFromString(result.value, 'text/html');
+        const allowed = new Set(['P', 'BR', 'H1', 'H2', 'H3', 'STRONG', 'B', 'EM', 'I', 'U', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'UL', 'OL', 'LI', 'SPAN']);
+        parsed.body.querySelectorAll('*').forEach(element => {
+          if (!allowed.has(element.tagName)) { element.replaceWith(...Array.from(element.childNodes)); return; }
+          Array.from(element.attributes).forEach(attribute => element.removeAttribute(attribute.name));
+        });
+        setArtifactPreview({ html: parsed.body.innerHTML });
+      }).catch(error => { if (!cancelled) setArtifactPreview({ error: error instanceof Error ? error.message : 'Could not preview the Word document.' }); });
+    }
+    return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [fileBlob, format]);
 
   useEffect(() => {
     returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -96,18 +169,18 @@ export default function ExportPreviewDialog({
           </div>}
         </div>
 
-        {variant === 'trail' && statusHistoryCounts && <div className="border-b border-slate-100 px-5 py-3">
-          <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-slate-400">Lifetime status summary</p>
-          <div className="overflow-x-auto rounded-lg border border-slate-200">
-            <table className="w-full min-w-[28rem] text-left text-xs">
-              <thead className="bg-slate-100 text-slate-600"><tr><th className="px-3 py-2">Status</th><th className="px-3 py-2">Ever held</th><th className="px-3 py-2">Current</th></tr></thead>
-              <tbody>{['Draft', 'Scheduled', 'In Transit', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'].map(status => <tr key={status} className="border-t border-slate-100"><td className="px-3 py-2 font-medium text-slate-700">{status}</td><td className="px-3 py-2 text-slate-600">{statusHistoryCounts.ever_held[status] ?? 0}</td><td className="px-3 py-2 text-slate-600">{statusHistoryCounts.current[status] ?? 0}</td></tr>)}</tbody>
-            </table>
+        {variant === 'trail' && statusHistoryCounts && <div className="shrink-0 border-b border-slate-100 px-5 py-2">
+          <p className="mb-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">Lifetime status summary</p>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] sm:grid-cols-4">
+            {['Draft', 'Scheduled', 'In Transit', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'].map(status => <div key={status} className="flex min-w-0 items-center justify-between gap-2">
+              <span className="truncate font-medium text-slate-700">{status}</span>
+              <span className="shrink-0 text-slate-500">{statusHistoryCounts.ever_held[status] ?? 0} ever · {statusHistoryCounts.current[status] ?? 0} now</span>
+            </div>)}
           </div>
         </div>}
 
-        <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-5">
-          {rows.length === 0 ? (
+        <div className={`min-h-0 flex-1 overflow-auto p-4 sm:p-5 ${variant === 'trail' ? 'min-h-[280px]' : ''}`}>
+          {format === 'excel' && excelBlob ? <ExcelWorkbookPreview blob={excelBlob} /> : fileBlob && format === 'pdf' ? (artifactPreview?.url ? <iframe title={`Generated PDF preview: ${title}`} src={artifactPreview.url} className="h-full min-h-[32rem] w-full rounded-lg border border-slate-200 bg-slate-100" /> : <div className="flex h-full min-h-48 items-center justify-center text-sm text-slate-500">Preparing generated PDF preview…</div>) : fileBlob && format === 'csv' ? (artifactPreview?.text != null ? <CsvArtifactPreview text={artifactPreview.text} /> : <div className="flex h-full min-h-48 items-center justify-center text-sm text-slate-500">Loading generated CSV…</div>) : fileBlob && format === 'docx' ? (artifactPreview?.html != null ? <article className="h-full overflow-auto rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-800 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-slate-300 [&_td]:p-2 [&_th]:border [&_th]:border-slate-300 [&_th]:bg-slate-100 [&_th]:p-2 [&_p]:my-2" dangerouslySetInnerHTML={{ __html: artifactPreview.html }} /> : <div className="flex h-full min-h-48 items-center justify-center text-sm text-slate-500">{artifactPreview?.error ?? 'Preparing generated Word preview…'}</div>) : rows.length === 0 ? (
             <div className="flex min-h-48 items-center justify-center text-sm text-slate-500">No records match this export.</div>
           ) : (
             <div className="overflow-auto rounded-xl border border-slate-200">
@@ -129,12 +202,12 @@ export default function ExportPreviewDialog({
 
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-4 py-3 sm:px-5">
           <div className="flex min-h-11 items-center gap-2 text-xs text-slate-500">
-            {rows.length > PAGE_SIZE && <>
+            {format === 'excel' && excelBlob ? <span>Showing generated workbook sheets, values, merges, and cell formatting.</span> : fileBlob ? <span>Previewing the generated {FORMAT_LABEL[format]} file.</span> : rows.length > PAGE_SIZE && <>
               <button type="button" disabled={page === 0} onClick={() => setPage(value => value - 1)} aria-label="Previous preview page" className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
               <span>Rows {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, rows.length)} of {rows.length.toLocaleString()} · Page {page + 1} of {pageCount}</span>
               <button type="button" disabled={page + 1 >= pageCount} onClick={() => setPage(value => value + 1)} aria-label="Next preview page" className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
             </>}
-            {rows.length <= PAGE_SIZE && <span>{rows.length.toLocaleString()} record{rows.length === 1 ? '' : 's'} in preview</span>}
+            {!fileBlob && rows.length <= PAGE_SIZE && <span>{rows.length.toLocaleString()} record{rows.length === 1 ? '' : 's'} in preview</span>}
           </div>
           <div className="flex items-center gap-2">
             {downloadError && <p role="alert" className="mr-2 max-w-xs text-xs text-red-700">{downloadError}</p>}
