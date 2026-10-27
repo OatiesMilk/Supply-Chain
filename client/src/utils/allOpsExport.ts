@@ -168,8 +168,9 @@ export function downloadAllOpsCSV(
   meta: ExportMeta,
   summary: AllOpsSummary,
   reportTitle = 'All Operations — Comprehensive Report',
-  statusHistoryCounts?: StatusHistoryCounts
-): void {
+  statusHistoryCounts?: StatusHistoryCounts,
+  returnBlob = false
+): void | Blob {
   const q = (s: string) => `"${s.replace(/"/g, '""')}"`;
 
   const historyLines: string[] = statusHistoryCounts ? [
@@ -219,6 +220,7 @@ export function downloadAllOpsCSV(
 
   const now = new Date();
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  if (returnBlob) return blob;
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
@@ -242,8 +244,9 @@ export async function downloadAllOpsExcel(
   summary: AllOpsSummary,
   reportTitle = 'All Operations — Comprehensive Report',
   statusHistoryCounts?: StatusHistoryCounts,
-  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
-): Promise<void> {
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE,
+  returnBlob = false
+): Promise<void | Blob> {
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
   wb.creator = meta.generatedByName;
@@ -347,6 +350,7 @@ export async function downloadAllOpsExcel(
   const ws2 = wb.addWorksheet('Records', {
     pageSetup: getExcelPageSetup(documentSize)
   });
+  ws2.properties.defaultRowHeight = 24;
 
   const r1 = ws2.addRow(['Microgenesis Business Systems']);
   r1.getCell(1).font = { bold: true, size: 13, color: { argb: NAVY } };
@@ -374,16 +378,19 @@ export async function downloadAllOpsExcel(
     dr.eachCell({ includeEmpty: true }, cell => {
       if (isAlt) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GRAY } };
       cell.font = { size: 10 };
-      cell.alignment = { vertical: 'middle' };
+      cell.alignment = { vertical: 'middle', wrapText: true };
     });
-    dr.height = 18;
+    dr.height = 30;
   });
 
   const ftr = ws2.addRow([`Total Records: ${rows.length}`]);
   ftr.getCell(1).font = { bold: true, italic: true, size: 10, color: { argb: NAVY } };
   ftr.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: LIGHT_BLUE } };
 
-  ws2.columns = columns.map(c => ({ width: Math.max(c.width ?? 18, c.header.length + 4) }));
+  ws2.columns = columns.map(c => ({ width: Math.min(42, Math.max(14, c.width ?? 20, Math.min(c.header.length + 2, 28))) }));
+  ws2.views = [{ state: 'frozen', ySplit: hdr.number - 1, topLeftCell: `A${hdr.number}`, activeCell: `A${hdr.number}`, showGridLines: false }];
+  if (rows.length) ws2.autoFilter = { from: { row: hdr.number, column: 1 }, to: { row: hdr.number + rows.length, column: columns.length } };
+  ws2.pageSetup.printTitlesRow = `${hdr.number}:${hdr.number}`;
 
   const colCount = columns.length;
   if (colCount > 1) {
@@ -395,6 +402,7 @@ export async function downloadAllOpsExcel(
 
   const buffer = await wb.xlsx.writeBuffer();
   const blob   = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  if (returnBlob) return blob;
   const url    = URL.createObjectURL(blob);
   const a      = document.createElement('a');
   a.href       = url;
@@ -423,8 +431,9 @@ export async function downloadAllOpsPDF(
   summary: AllOpsSummary,
   reportTitle = 'All Operations — Comprehensive Report',
   statusHistoryCounts?: StatusHistoryCounts,
-  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
-): Promise<void> {
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE,
+  returnBlob = false
+): Promise<void | Blob> {
   const { jsPDF }          = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
 
@@ -773,5 +782,7 @@ export async function downloadAllOpsPDF(
     doc.text(`Page ${p} of ${totalPdfPages}`, pageW - 10, pageH - 5, { align: 'right' });
   }
 
+  const pdfBlob = doc.output('blob');
+  if (returnBlob) return pdfBlob;
   doc.save(`${filename}-${now.toISOString().split('T')[0]}.pdf`);
 }
