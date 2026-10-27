@@ -81,3 +81,17 @@ test('rejects an unsupported sort mode and disallows mixing cursor with non-defa
   assert.match(mixed.body.error, /cursor/);
   assert.equal(mixed.calls.length, 0);
 });
+
+test('status filters preserve Scheduled legacy RMA while internal Time In still implies In Transit', async () => {
+  const scheduled = await list({ status: 'Scheduled' });
+  const scheduledFilter = scheduled.calls[0].where.AND.find((filter: any) => filter.status === 'SCHEDULED');
+  assert.deepEqual(scheduledFilter, {
+    draft: false, status: 'SCHEDULED', OR: [{ category: 'RMA' }, { timeIn: null }],
+  });
+  const inTransit = await list({ status: 'In Transit' });
+  const transitFilter = inTransit.calls[0].where.AND.find((filter: any) => filter.OR?.some((state: any) => state.status === 'IN_TRANSIT'));
+  assert.deepEqual(transitFilter, {
+    draft: false,
+    OR: [{ status: 'IN_TRANSIT' }, { status: 'SCHEDULED', category: { not: 'RMA' }, NOT: { timeIn: null } }],
+  });
+});

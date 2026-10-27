@@ -47,7 +47,7 @@ export function returnToDraftConsequences(record: Pick<DeliveryRecord, 'driver' 
 }
 
 export function canRecordTimeIn(record: DeliveryRecord): boolean {
-  return !isDraftRecord(record) && !!record.driver && !record.time_in &&
+  return record.category !== 'RMA' && !isDraftRecord(record) && !!record.driver && !record.time_in &&
     (record.status === 'Scheduled' || record.status === 'Rescheduled');
 }
 

@@ -56,14 +56,24 @@ test('failed upload with no saved photo stays blocked; retry can recover', () =>
   assert.equal(deliveryPhotoError('Deliveries', 'Delivered', state), null);
 });
 
-test('all categories require a saved photo for completion, while side states do not', () => {
-  for (const category of ['RMA', 'Accounting Collection', 'Procurement Pick-up', 'Sales Orders'] as DeliveryCategory[]) {
+test('other run categories require a saved photo for completion, while side states do not', () => {
+  for (const category of ['Accounting Collection', 'Procurement Pick-up', 'Sales Orders'] as DeliveryCategory[]) {
     assert.ok(deliveryPhotoError(category, 'Delivered'));
     assert.equal(deliveryPhotoError(category, 'Delivered', ready()), null);
   }
   for (const status of ['Draft', 'Scheduled', 'In Transit', 'Pending', 'Rescheduled', 'On-Hold'] as DeliveryStatus[]) {
     assert.equal(deliveryPhotoError('Deliveries', status), null);
   }
+});
+
+test('RMA completion requires a recipient but no Time In or attachment readiness', () => {
+  const rma = { category: 'RMA' as DeliveryCategory, time_in: null };
+  for (const recipient of [null, undefined, '', '  ']) {
+    assert.match(completionError(rma, 'Delivered', recipient)!, /Recipient \/ Collector/);
+  }
+  assert.equal(completionError(rma, 'Delivered', 'Collector'), null);
+  assert.equal(completionError(rma, 'Delivered', 'Collector', ready({ hasPhoto: false, loadFailed: true, loading: true, uploading: true })), null);
+  assert.equal(deliveryPhotoError('RMA', 'Delivered'), null);
 });
 
 test('completion needs Time In and a nonblank receiver even with verified photos', () => {

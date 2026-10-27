@@ -104,7 +104,7 @@ export function createUpdateRecordMutationOptions(queryClient: ReturnType<typeof
           const record = normalizeApiRecord(await api.getRecord(id));
           if (record.status !== 'Delivered') {
             if (!(u.status_remarks ?? u.remarks ?? '').trim()) throw new Error('Remarks are required to complete this run.');
-            const files = await api.getRecordAttachments(id);
+            const files = record.category === 'RMA' ? [] : await api.getRecordAttachments(id);
             const receivedBy = updates.received_by !== undefined ? updates.received_by : record.received_by;
             const error = completionError(record, updates.status, receivedBy, {
               loading: false, uploading: false, loadFailed: false, hasPhoto: hasSavedPodPhoto(files), hasStagedFiles: false,

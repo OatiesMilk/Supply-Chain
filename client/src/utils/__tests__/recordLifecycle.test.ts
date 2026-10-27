@@ -51,6 +51,7 @@ test('drafts can be submitted but cannot start runs or receive assignments', () 
 });
 
 test('only assigned, not-yet-started Scheduled/Rescheduled runs offer Time In', () => {
+  assert.equal(canRecordTimeIn(record({ category: 'RMA' })), false);
   assert.equal(canRecordTimeIn(record()), true);
   assert.equal(canRecordTimeIn(record({ status: 'Rescheduled' })), true);
   assert.equal(canRecordTimeIn(record({ driver: '' })), false);
