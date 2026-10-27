@@ -1,4 +1,5 @@
 import express, { Router } from 'express';
+import mammoth from 'mammoth';
 import type { PodAttachment, Prisma } from '@prisma/client';
 import { prisma } from '../db';
 import { asyncRoute } from '../middleware/asyncRoute';
@@ -746,6 +747,13 @@ router.get('/:id/audit', requireAuth, requireResource('records'), requireRecordA
   );
 }));
 
+// MIME types that the /preview endpoint can render in-app.
+const PREVIEWABLE_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+]);
+
 router.get('/:id/attachments', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
   const attachments = await prisma.podAttachment.findMany({
     where: { recordId: req.params.id },
@@ -759,7 +767,7 @@ router.get('/:id/attachments', requireAuth, requireResource('records'), requireR
     size: attachment.size,
     uploaded_at: attachment.createdAt,
     download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`,
-    preview_url: attachment.mimeType === 'application/pdf'
+    preview_url: PREVIEWABLE_MIME_TYPES.has(attachment.mimeType)
       ? `/api/records/${req.params.id}/attachments/${attachment.id}/preview`
       : null
   }))));
@@ -855,7 +863,7 @@ router.post(
       size: attachment.size,
       uploaded_at: attachment.createdAt,
       download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`,
-      preview_url: attachment.mimeType === 'application/pdf'
+      preview_url: PREVIEWABLE_MIME_TYPES.has(attachment.mimeType)
         ? `/api/records/${req.params.id}/attachments/${attachment.id}/preview`
         : null
     });
@@ -888,13 +896,54 @@ router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResour
 router.get('/:id/attachments/:attachmentId/preview', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
   const attachment = await prisma.podAttachment.findFirst({
     where: { id: req.params.attachmentId, recordId: req.params.id },
-    select: { mimeType: true }
+    select: { mimeType: true, storageKey: true, originalName: true }
   });
   if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
-  if (attachment.mimeType !== 'application/pdf') {
-    return res.status(415).json({ error: 'In-app preview is currently available for PDF attachments only.' });
+
+  if (attachment.mimeType === 'application/pdf') {
+    return void await streamAttachment(req, res, 'inline');
   }
-  await streamAttachment(req, res, 'inline');
+
+  const isWord = attachment.mimeType === 'application/msword' ||
+    attachment.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (!isWord) {
+    return res.status(415).json({ error: 'In-app preview is available for PDF, DOC, and DOCX attachments only.' });
+  }
+
+  // Convert Word document to HTML locally using mammoth — no external service.
+  try {
+    const bytes = await podStorage.read(attachment.storageKey);
+    const { value: bodyHtml, messages } = await mammoth.convertToHtml({ buffer: bytes });
+    if (messages.some(m => m.type === 'error')) {
+      console.warn('[POD preview] mammoth conversion warnings for', attachment.originalName, messages);
+    }
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>${attachment.originalName.replace(/</g, '&lt;')}</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 13px; line-height: 1.6; margin: 0; padding: 20px 28px; color: #1e293b; background: #fff; word-break: break-word; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+  td, th { border: 1px solid #cbd5e1; padding: 4px 8px; }
+  th { background: #f1f5f9; }
+  img { max-width: 100%; height: auto; }
+  p { margin: 0 0 0.6em; }
+  h1,h2,h3,h4,h5,h6 { margin: 0.8em 0 0.4em; }
+</style>
+</head>
+<body>${bodyHtml}</body>
+</html>`;
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(attachment.originalName)}.html"`);
+    res.setHeader('Content-Length', String(Buffer.byteLength(html, 'utf8')));
+    res.send(html);
+  } catch (error) {
+    console.error('[POD preview] mammoth conversion failed', error);
+    res.status(500).json({ error: 'Document preview could not be generated. Download the file to open it in a compatible viewer.' });
+  }
 }));
 
 router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN'), asyncRoute(async (req, res) => {
