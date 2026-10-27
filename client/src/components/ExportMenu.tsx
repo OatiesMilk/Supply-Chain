@@ -16,14 +16,16 @@ import {
   downloadAllOpsExcel,
   downloadAllOpsPDF,
 } from '../utils/allOpsExport';
-import { downloadRouteSlipExcel, downloadRouteSlipPDF, downloadRouteSlipDocx } from '../utils/routeSlip';
+import { downloadRouteSlipForPeriod } from '../utils/routeSlip';
+import { routeSlipSelectionError } from '../utils/routeSlipPeriod';
+import RouteSlipPeriodFields, { type RouteSlipPeriodFieldsProps } from './RouteSlipPeriodFields';
 import { downloadDocx } from '../utils/exportDocx';
 import { DeliveryRecord } from '../types';
 
 interface RouteSlipProps {
   records: DeliveryRecord[];
-  driverName: string;
-  date: string;
+  dateFrom: string;
+  dateTo?: string;
   preparedBy: string;
 }
 
@@ -39,6 +41,7 @@ interface Props {
   pdfPortrait?: boolean;
   summary?: AllOpsSummary;
   routeSlipProps?: RouteSlipProps;
+  routeSlipPeriodFields?: RouteSlipPeriodFieldsProps;
   statusHistoryCounts?: StatusHistoryCounts;
   totalCount?: number;
   fetchExportData?: () => Promise<{
@@ -64,6 +67,7 @@ export default function ExportMenu({
   pdfPortrait = false,
   summary,
   routeSlipProps,
+  routeSlipPeriodFields,
   statusHistoryCounts,
   totalCount,
   fetchExportData,
@@ -71,7 +75,10 @@ export default function ExportMenu({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState<LoadingKey | null>(null);
   const [docSize, setDocSize] = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
+  const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const periodError = routeSlipProps && routeSlipPeriodFields ? routeSlipSelectionError(routeSlipPeriodFields.selection) : null;
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -84,7 +91,10 @@ export default function ExportMenu({
   const hasTrail = !!statusHistoryCounts;
 
   const run = async (fmt: Format, variant: Variant) => {
+    if (fmt !== 'csv' && periodError) return;
+    setError(null);
     setOpen(false);
+    triggerRef.current?.focus();
     const key: LoadingKey = `${fmt}-${variant}`;
     setLoading(key);
     const hist = variant === 'trail' ? statusHistoryCounts : undefined;
@@ -100,10 +110,7 @@ export default function ExportMenu({
       }
 
       if (exportRouteSlip && fmt !== 'csv') {
-        const rsParams = { ...exportRouteSlip, filename, documentSize: docSize };
-        if (fmt === 'excel') await downloadRouteSlipExcel(rsParams);
-        if (fmt === 'pdf')   await downloadRouteSlipPDF(rsParams);
-        if (fmt === 'docx')  await downloadRouteSlipDocx(rsParams);
+        await downloadRouteSlipForPeriod(fmt, { ...exportRouteSlip, filename, documentSize: docSize, variant });
       } else if (exportSummary) {
         const summaryTitle = pdfTitle.replace(/ records?$/i, '') + ' — Comprehensive Report';
         if (fmt === 'csv')   downloadAllOpsCSV(exportRows, columns, filename, meta, exportSummary, summaryTitle, hist);
@@ -117,7 +124,7 @@ export default function ExportMenu({
         if (fmt === 'docx')  await downloadDocx(exportRows, columns, pdfTitle, filename, meta, undefined, undefined, hist, docSize);
       }
     } catch (err) {
-      console.error('Export failed:', err);
+      setError(err instanceof Error ? err.message : 'Export failed. Please try again.');
     } finally {
       setLoading(null);
     }
@@ -132,7 +139,8 @@ export default function ExportMenu({
     <button
       key={`${fmt}-${variant}`}
       onClick={() => run(fmt, variant)}
-      className={`w-full flex items-center gap-2.5 px-3.5 py-1.5 text-[11px] font-bold transition-colors cursor-pointer ${color}`}
+      disabled={fmt !== 'csv' && Boolean(periodError)}
+      className={`w-full flex items-center gap-2.5 px-3.5 py-1.5 text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${color}`}
     >
       {icon} {label}
     </button>
@@ -149,8 +157,12 @@ export default function ExportMenu({
   const pdfLabel   = routeSlipProps ? 'Route Slip — PDF' : 'Export PDF';
 
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative" ref={ref} onKeyDown={event => {
+      if (event.key === 'Escape') { event.preventDefault(); setOpen(false); triggerRef.current?.focus(); }
+    }}>
       <button
+        ref={triggerRef}
+        aria-expanded={open}
         onClick={() => !isLoading && setOpen(o => !o)}
         disabled={isLoading}
         className="flex items-center gap-1.5 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-600 text-[11px] font-bold uppercase tracking-wider px-3 py-2 rounded-lg transition-all cursor-pointer disabled:opacity-60 shadow-xs"
@@ -164,7 +176,8 @@ export default function ExportMenu({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg p-3 min-w-[220px]">
+        <div className={`absolute right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg p-3 ${routeSlipProps ? 'w-80 max-w-[calc(100vw-2rem)]' : 'min-w-[220px]'}`}>
+          {routeSlipProps && routeSlipPeriodFields && <RouteSlipPeriodFields {...routeSlipPeriodFields} />}
           <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={isLoading} />
           <div className="flex flex-col -mx-3">
             {hasTrail ? (
@@ -207,6 +220,7 @@ export default function ExportMenu({
           </div>
         </div>
       )}
+      {error && <p role="alert" className="absolute right-0 top-full mt-1 z-30 bg-red-50 border border-red-200 rounded-lg p-3 w-80 max-w-[calc(100vw-2rem)] text-xs text-red-700">{error}</p>}
     </div>
   );
 }
