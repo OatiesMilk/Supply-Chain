@@ -16,6 +16,7 @@ import {
 } from '../utils/allOpsExport';
 import { downloadDocx } from '../utils/exportDocx';
 import ExportPreviewDialog, { type ExportPreviewFormat } from './ExportPreviewDialog';
+import { downloadBlob } from '@/utils/downloadBlob';
 
 interface Props {
   records: DeliveryRecord[];
@@ -34,7 +35,7 @@ export default function AllOpsExportMenu({ records, meta, activeFilterLabel, sta
   const [open,    setOpen]    = useState(false);
   const [loading, setLoading] = useState<LoadingKey | null>(null);
   const [docSize, setDocSize] = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
-  const [preview, setPreview] = useState<{ format: Format; variant: Variant; rows: ReturnType<typeof serializeAllOpsRow>[]; summary: AllOpsSummary; title: string } | null>(null);
+  const [preview, setPreview] = useState<{ format: Format; variant: Variant; rows: ReturnType<typeof serializeAllOpsRow>[]; summary: AllOpsSummary; title: string; fileBlob?: Blob; fileName?: string } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -58,8 +59,14 @@ export default function AllOpsExportMenu({ records, meta, activeFilterLabel, sta
       const reportTitle = activeFilterLabel
         ? `${activeFilterLabel} — Comprehensive Report`
         : 'All Operations — Comprehensive Report';
-
-      setPreview({ format: fmt, variant, rows, summary, title: reportTitle });
+      const stamp = new Date().toISOString().split('T')[0];
+      let fileBlob: Blob;
+      let fileName = `all-operations-${stamp}.${fmt === 'excel' ? 'xlsx' : fmt}`;
+      if (fmt === 'csv') fileBlob = downloadAllOpsCSV(rows, ALL_OPS_COLUMNS, 'all-operations', meta, summary, reportTitle, hist, true) as Blob;
+      else if (fmt === 'excel') fileBlob = await downloadAllOpsExcel(rows, ALL_OPS_COLUMNS, 'all-operations', meta, summary, reportTitle, hist, docSize, true) as Blob;
+      else if (fmt === 'pdf') fileBlob = await downloadAllOpsPDF(rows, PDF_ALL_OPS_COLUMNS, 'all-operations', meta, summary, reportTitle, hist, docSize, true) as Blob;
+      else { fileBlob = await downloadDocx(rows, ALL_OPS_COLUMNS, reportTitle, 'all-operations', meta, summary, reportTitle, hist, docSize, true) as Blob; fileName = 'all-operations.docx'; }
+      setPreview({ format: fmt, variant, rows, summary, title: reportTitle, fileBlob, fileName });
     } catch (err) {
       console.error('All Ops export failed:', err);
     } finally {
@@ -74,6 +81,10 @@ export default function AllOpsExportMenu({ records, meta, activeFilterLabel, sta
     const hist = variant === 'trail' ? statusHistoryCounts : undefined;
     setLoading(`${fmt}-${variant}`);
     try {
+      if (preview.fileBlob) {
+        downloadBlob(preview.fileBlob, preview.fileName ?? 'all-operations.xlsx');
+        return;
+      }
       if (fmt === 'csv') downloadAllOpsCSV(rows, ALL_OPS_COLUMNS, 'all-operations', meta, summary, title, hist);
       if (fmt === 'excel') await downloadAllOpsExcel(rows, ALL_OPS_COLUMNS, 'all-operations', meta, summary, title, hist, docSize);
       if (fmt === 'pdf') await downloadAllOpsPDF(rows, PDF_ALL_OPS_COLUMNS, 'all-operations', meta, summary, title, hist, docSize);
@@ -171,6 +182,8 @@ export default function AllOpsExportMenu({ records, meta, activeFilterLabel, sta
         documentSize={docSize}
         statusHistoryCounts={preview.variant === 'trail' ? statusHistoryCounts : undefined}
         summary={preview.summary}
+        excelBlob={preview.format === 'excel' ? preview.fileBlob : undefined}
+        fileBlob={preview.fileBlob}
         onClose={closePreview}
         onDownload={downloadPreview}
       />}

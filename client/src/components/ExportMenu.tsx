@@ -16,10 +16,14 @@ import {
   downloadAllOpsExcel,
   downloadAllOpsPDF,
 } from '../utils/allOpsExport';
-import { downloadRouteSlipExcel, downloadRouteSlipPDF, downloadRouteSlipDocx } from '../utils/routeSlip';
+import {
+  downloadRouteSlipExcel, downloadRouteSlipPDF, downloadRouteSlipDocx,
+  downloadAllDriversRouteSlipExcel, downloadAllDriversRouteSlipPDF, downloadAllDriversRouteSlipDocx,
+} from '../utils/routeSlip';
 import { downloadDocx } from '../utils/exportDocx';
 import { DeliveryRecord } from '../types';
 import ExportPreviewDialog, { type ExportPreviewFormat } from './ExportPreviewDialog';
+import { downloadBlob } from '@/utils/downloadBlob';
 
 interface RouteSlipProps {
   records: DeliveryRecord[];
@@ -58,6 +62,9 @@ type PreviewState = {
   rows: Record<string, string | number | null | undefined>[];
   summary?: AllOpsSummary;
   routeSlipProps?: RouteSlipProps;
+  excelBlob?: Blob;
+  fileBlob?: Blob;
+  fileName?: string;
 };
 
 export default function ExportMenu({
@@ -107,8 +114,38 @@ export default function ExportMenu({
         if (fetched.summary) exportSummary = fetched.summary;
         if (fetched.routeSlipProps) exportRouteSlip = fetched.routeSlipProps;
       }
-
-      setPreview({ format: fmt, variant, rows: exportRows, summary: exportSummary, routeSlipProps: exportRouteSlip });
+      let fileBlob: Blob | undefined;
+      const stamp = new Date().toISOString().split('T')[0];
+      const extension = fmt === 'excel' ? 'xlsx' : fmt;
+      let fileName = `${filename}-${stamp}.${extension}`;
+      const hist = variant === 'trail' ? statusHistoryCounts : undefined;
+      if (exportRouteSlip && fmt !== 'csv') {
+        const params = { ...exportRouteSlip, filename, documentSize: docSize };
+        if (fmt === 'excel') {
+          fileBlob = exportRouteSlip.driverName ? await downloadRouteSlipExcel(params, true) as Blob : await downloadAllDriversRouteSlipExcel(params, true) as Blob;
+          fileName = exportRouteSlip.driverName ? `${filename}-route-slip-${stamp}.xlsx` : `${filename}-route-slip-all-drivers-${stamp}.xlsx`;
+        }
+        if (fmt === 'pdf') {
+          fileBlob = exportRouteSlip.driverName ? await downloadRouteSlipPDF(params, true) as Blob : await downloadAllDriversRouteSlipPDF(params, true) as Blob;
+          fileName = exportRouteSlip.driverName ? `${filename}-route-slip-${stamp}.pdf` : `${filename}-route-slip-all-drivers-${stamp}.pdf`;
+        }
+        if (fmt === 'docx') {
+          fileBlob = exportRouteSlip.driverName ? await downloadRouteSlipDocx(params, true) as Blob : await downloadAllDriversRouteSlipDocx(params, true) as Blob;
+          fileName = exportRouteSlip.driverName ? `${filename}-route-slip.docx` : `${filename}-route-slip-all-drivers.docx`;
+        }
+      } else if (exportSummary) {
+        const summaryTitle = pdfTitle.replace(/ records?$/i, '') + ' — Comprehensive Report';
+        if (fmt === 'csv') fileBlob = downloadAllOpsCSV(exportRows, columns, filename, meta, exportSummary, summaryTitle, hist, true) as Blob;
+        if (fmt === 'excel') fileBlob = await downloadAllOpsExcel(exportRows, columns, filename, meta, exportSummary, summaryTitle, hist, docSize, true) as Blob;
+        if (fmt === 'pdf') fileBlob = await downloadAllOpsPDF(exportRows, pdfColumns ?? columns, filename, meta, exportSummary, summaryTitle, hist, docSize, true) as Blob;
+        if (fmt === 'docx') { fileBlob = await downloadDocx(exportRows, columns, pdfTitle, filename, meta, exportSummary, summaryTitle, hist, docSize, true) as Blob; fileName = `${filename}.docx`; }
+      } else {
+        if (fmt === 'csv') fileBlob = downloadCSV(exportRows, columns, filename, meta, hist, true) as Blob;
+        if (fmt === 'excel') fileBlob = await downloadExcel(exportRows, columns, sheetName, filename, meta, hist, docSize, true) as Blob;
+        if (fmt === 'pdf') fileBlob = await downloadPDF(exportRows, pdfColumns ?? columns, pdfTitle, filename, meta, !pdfPortrait, hist, docSize, true) as Blob;
+        if (fmt === 'docx') { fileBlob = await downloadDocx(exportRows, columns, pdfTitle, filename, meta, undefined, undefined, hist, docSize, true) as Blob; fileName = `${filename}.docx`; }
+      }
+      setPreview({ format: fmt, variant, rows: exportRows, summary: exportSummary, routeSlipProps: exportRouteSlip, excelBlob: fmt === 'excel' ? fileBlob : undefined, fileBlob, fileName });
     } catch (err) {
       console.error('Export failed:', err);
     } finally {
@@ -124,6 +161,10 @@ export default function ExportMenu({
     const key: LoadingKey = `${fmt}-${variant}`;
     setLoading(key);
     try {
+      if (preview.fileBlob) {
+        downloadBlob(preview.fileBlob, preview.fileName ?? `${filename}.${fmt}`);
+        return;
+      }
       if (exportRouteSlip && fmt !== 'csv') {
         const rsParams = { ...exportRouteSlip, filename, documentSize: docSize };
         if (fmt === 'excel') await downloadRouteSlipExcel(rsParams);
@@ -241,6 +282,8 @@ export default function ExportMenu({
         documentSize={docSize}
         statusHistoryCounts={preview.variant === 'trail' ? statusHistoryCounts : undefined}
         summary={preview.summary}
+        excelBlob={preview.excelBlob}
+        fileBlob={preview.fileBlob}
         onClose={closePreview}
         onDownload={downloadPreview}
       />}

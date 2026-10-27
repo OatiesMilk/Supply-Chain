@@ -6,6 +6,7 @@ import DocumentSizeSelect from './DocumentSizeSelect';
 import { DeliveryRecord } from '../types';
 import type { ExportColumn, ExportMeta } from '../utils/export';
 import ExportPreviewDialog, { type ExportPreviewFormat } from './ExportPreviewDialog';
+import { downloadBlob } from '@/utils/downloadBlob';
 import {
   downloadRouteSlipExcel,
   downloadRouteSlipPDF,
@@ -37,7 +38,8 @@ export default function RouteSlipMenu({
   const [warning, setWarning]   = useState<Format | null>(null);
   const [docSize, setDocSize]   = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
   const [trailFallback, setTrailFallback] = useState(false);
-  const [preview, setPreview] = useState<{ format: Format; variant: Variant; auditSets?: Map<string, Set<string>> } | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ format: Format; variant: Variant; auditSets?: Map<string, Set<string>>; fileBlob?: Blob; fileName?: string } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -60,6 +62,7 @@ export default function RouteSlipMenu({
   const doExport = async (fmt: Format, variant: Variant) => {
     setOpen(false);
     setWarning(null);
+    setPreviewError(null);
     setLoading(`${fmt}-${variant}`);
 
     let auditSets: Map<string, Set<string>> | undefined;
@@ -73,8 +76,28 @@ export default function RouteSlipMenu({
       }
     }
 
-    setPreview({ format: fmt, variant, auditSets });
-    setLoading(null);
+    try {
+      let fileBlob: Blob;
+      const stamp = new Date().toISOString().split('T')[0];
+      const suffix = driverFilter ? 'route-slip' : 'route-slip-all-drivers';
+      const extension = fmt === 'excel' ? 'xlsx' : fmt;
+      const fileName = fmt === 'docx' ? `${filename}-${suffix}.docx` : `${filename}-${suffix}-${stamp}.${extension}`;
+      if (driverFilter) {
+        const params = { records, driverName: driverFilter, date: dateFrom || manilaToday(), preparedBy, filename, auditSets, documentSize: docSize };
+        if (fmt === 'excel') fileBlob = await downloadRouteSlipExcel(params, true) as Blob;
+        else if (fmt === 'pdf') fileBlob = await downloadRouteSlipPDF(params, true) as Blob;
+        else fileBlob = await downloadRouteSlipDocx(params, true) as Blob;
+      } else {
+        const params = { records, date: dateFrom, preparedBy, filename, auditSets, documentSize: docSize };
+        if (fmt === 'excel') fileBlob = await downloadAllDriversRouteSlipExcel(params, true) as Blob;
+        else if (fmt === 'pdf') fileBlob = await downloadAllDriversRouteSlipPDF(params, true) as Blob;
+        else fileBlob = await downloadAllDriversRouteSlipDocx(params, true) as Blob;
+      }
+      setPreview({ format: fmt, variant, auditSets, fileBlob, fileName });
+    } catch (error) {
+      console.error('Route slip preview failed:', error);
+      setPreviewError(error instanceof Error ? error.message : 'The route slip preview could not be prepared.');
+    } finally { setLoading(null); }
   };
 
   const closePreview = useCallback(() => setPreview(null), []);
@@ -83,6 +106,10 @@ export default function RouteSlipMenu({
     const { format: fmt, variant, auditSets } = preview;
     setLoading(`${fmt}-${variant}`);
     try {
+      if (preview.fileBlob) {
+        downloadBlob(preview.fileBlob, preview.fileName ?? `${filename}.xlsx`);
+        return;
+      }
       if (driverFilter) {
         const params = { records, driverName: driverFilter, date: dateFrom || manilaToday(), preparedBy, filename, auditSets, documentSize: docSize };
         if (fmt === 'excel') await downloadRouteSlipExcel(params);
@@ -236,6 +263,7 @@ export default function RouteSlipMenu({
           </p>
         </div>
       )}
+      {previewError && <div role="alert" className="absolute right-0 top-full mt-1 z-30 max-w-xs rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{previewError}</div>}
 
       {preview && (() => {
         const columns: ExportColumn[] = [
@@ -258,6 +286,8 @@ export default function RouteSlipMenu({
           meta={meta}
           title={`${driverFilter || 'All Drivers'} Route Slip`}
           documentSize={docSize}
+          excelBlob={preview.format === 'excel' ? preview.fileBlob : undefined}
+          fileBlob={preview.fileBlob}
           onClose={closePreview}
           onDownload={downloadPreview}
         />;

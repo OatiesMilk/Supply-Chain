@@ -121,7 +121,7 @@ const TRAIL_FOOTNOTE = '* Status Trail counts reflect all statuses each record h
 
 export async function downloadRouteSlipExcel({
   records, driverName, date, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
-}: RouteSlipParams): Promise<void> {
+}: RouteSlipParams, returnBlob = false): Promise<void | Blob> {
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Route Slip', {
@@ -418,6 +418,7 @@ export async function downloadRouteSlipExcel({
   const blob   = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
+  if (returnBlob) return blob;
   const url = URL.createObjectURL(blob);
   const a   = document.createElement('a');
   a.href     = url;
@@ -430,7 +431,7 @@ export async function downloadRouteSlipExcel({
 
 export async function downloadRouteSlipPDF({
   records, driverName, date, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
-}: RouteSlipParams): Promise<void> {
+}: RouteSlipParams, returnBlob = false): Promise<void | Blob> {
   const { jsPDF }             = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
 
@@ -695,6 +696,8 @@ export async function downloadRouteSlipPDF({
   doc.setTextColor(100, 116, 139);
   doc.text('Logistics Coordinator', MARGIN + colW + 10, fy);
 
+  const pdfBlob = doc.output('blob');
+  if (returnBlob) return pdfBlob;
   doc.save(`${filename}-route-slip-${now.toISOString().split('T')[0]}.pdf`);
 }
 
@@ -733,7 +736,7 @@ function groupByDriver(records: DeliveryRecord[]): [string, DeliveryRecord[]][] 
 
 export async function downloadAllDriversRouteSlipExcel({
   records, date, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
-}: AllDriversRouteSlipParams): Promise<void> {
+}: AllDriversRouteSlipParams, returnBlob = false): Promise<void | Blob> {
   const ExcelJS = (await import('exceljs')).default;
   const wb      = new ExcelJS.Workbook();
   const logo    = await loadLogoBase64();
@@ -949,6 +952,7 @@ export async function downloadAllDriversRouteSlipExcel({
 
   const buffer = await wb.xlsx.writeBuffer();
   const blob   = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  if (returnBlob) return blob;
   const url    = URL.createObjectURL(blob);
   const a      = document.createElement('a');
   a.href     = url;
@@ -959,7 +963,7 @@ export async function downloadAllDriversRouteSlipExcel({
 
 export async function downloadAllDriversRouteSlipPDF({
   records, date, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
-}: AllDriversRouteSlipParams): Promise<void> {
+}: AllDriversRouteSlipParams, returnBlob = false): Promise<void | Blob> {
   const { jsPDF }             = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
   const logo = await loadLogoBase64();
@@ -1150,6 +1154,8 @@ export async function downloadAllDriversRouteSlipPDF({
     }
   }
 
+  const pdfBlob = doc.output('blob');
+  if (returnBlob) return pdfBlob;
   doc.save(`${filename}-route-slip-all-drivers-${now.toISOString().split('T')[0]}.pdf`);
 }
 
@@ -1157,7 +1163,7 @@ export async function downloadAllDriversRouteSlipPDF({
 
 export async function downloadRouteSlipDocx({
   records, driverName, date, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
-}: RouteSlipParams): Promise<void> {
+}: RouteSlipParams, returnBlob = false): Promise<void | Blob> {
   const {
     Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, ImageRun,
     AlignmentType, WidthType, PageOrientation, VerticalAlign,
@@ -1310,6 +1316,7 @@ export async function downloadRouteSlipDocx({
   });
 
   const blob = await Packer.toBlob(doc);
+  if (returnBlob) return blob;
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
@@ -1320,7 +1327,7 @@ export async function downloadRouteSlipDocx({
 
 export async function downloadAllDriversRouteSlipDocx({
   records, date, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
-}: AllDriversRouteSlipParams): Promise<void> {
+}: AllDriversRouteSlipParams, returnBlob = false): Promise<void | Blob> {
   const {
     Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, ImageRun,
     AlignmentType, WidthType, PageOrientation, VerticalAlign,
@@ -1483,6 +1490,7 @@ export async function downloadAllDriversRouteSlipDocx({
   });
 
   const blob = await Packer.toBlob(doc);
+  if (returnBlob) return blob;
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;

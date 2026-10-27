@@ -7,6 +7,7 @@ import { DELIVERY_STATUSES } from '@/data';
 import { ExportColumn, ExportMeta, fmtDate, fmtTime, downloadCSV, downloadExcel, downloadPDF } from '@/utils/export';
 import { downloadDocx } from '@/utils/exportDocx';
 import ExportPreviewDialog, { type ExportPreviewFormat } from '@/components/ExportPreviewDialog';
+import { downloadBlob } from '@/utils/downloadBlob';
 
 const CATEGORIES = ['Deliveries', 'RMA', 'Accounting Collection', 'Procurement Pick-up', 'Sales Orders'];
 
@@ -82,7 +83,7 @@ function StatReportExportMenu({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState<ExportFmt | null>(null);
   const [docSize, setDocSize] = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
-  const [preview, setPreview] = useState<{ format: ExportFmt; rows: ReturnType<typeof buildReportRows>; meta: ExportMeta; title: string } | null>(null);
+  const [preview, setPreview] = useState<{ format: ExportFmt; rows: ReturnType<typeof buildReportRows>; meta: ExportMeta; title: string; fileBlob?: Blob; fileName?: string } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -109,7 +110,14 @@ function StatReportExportMenu({
       generatedByRole: currentUserRole,
     };
     try {
-      setPreview({ format: fmt, rows, meta, title });
+      const stamp = new Date().toISOString().split('T')[0];
+      let fileBlob: Blob;
+      let fileName = `mg-statistical-report-${stamp}.${fmt === 'excel' ? 'xlsx' : fmt}`;
+      if (fmt === 'csv') fileBlob = downloadCSV(rows, REPORT_COLUMNS, 'mg-statistical-report', meta, undefined, true) as Blob;
+      else if (fmt === 'excel') fileBlob = await downloadExcel(rows, REPORT_COLUMNS, 'Statistical Report', 'mg-statistical-report', meta, undefined, docSize, true) as Blob;
+      else if (fmt === 'pdf') fileBlob = await downloadPDF(rows, REPORT_COLUMNS, title, 'mg-statistical-report', meta, false, undefined, docSize, true) as Blob;
+      else { fileBlob = await downloadDocx(rows, REPORT_COLUMNS, title, `mg-statistical-report-${stamp}`, meta, undefined, undefined, undefined, docSize, true) as Blob; fileName = `mg-statistical-report-${stamp}.docx`; }
+      setPreview({ format: fmt, rows, meta, title, fileBlob, fileName });
     } catch (err) {
       console.error('Statistical report export failed:', err);
     } finally {
@@ -123,6 +131,10 @@ function StatReportExportMenu({
     const { format: fmt, rows, meta, title } = preview;
     setLoading(fmt);
     try {
+      if (preview.fileBlob) {
+        downloadBlob(preview.fileBlob, preview.fileName ?? 'mg-statistical-report.xlsx');
+        return;
+      }
       if (fmt === 'csv') downloadCSV(rows, REPORT_COLUMNS, 'mg-statistical-report', meta);
       if (fmt === 'excel') await downloadExcel(rows, REPORT_COLUMNS, 'Statistical Report', 'mg-statistical-report', meta, undefined, docSize);
       if (fmt === 'pdf') await downloadPDF(rows, REPORT_COLUMNS, title, 'mg-statistical-report', meta, false, undefined, docSize);
@@ -176,6 +188,8 @@ function StatReportExportMenu({
         meta={preview.meta}
         title={preview.title}
         documentSize={docSize}
+        excelBlob={preview.format === 'excel' ? preview.fileBlob : undefined}
+        fileBlob={preview.fileBlob}
         onClose={closePreview}
         onDownload={downloadPreview}
       />}
