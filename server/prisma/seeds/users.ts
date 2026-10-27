@@ -1,6 +1,7 @@
 
 import { prisma } from '../../src/db';
 import bcrypt from 'bcryptjs';
+import { initializePermissionFoundation } from '../../src/services/permissionBackfill';
 
 const USERS = [
   { name: 'Maria Reyes',  email: 'sales@microgenesis.com',     password: 'password123', role: 'SALES_COORDINATOR' as const, isActive: true },
@@ -19,6 +20,7 @@ export async function seedUsers() {
     });
     users[u.role] = { id: created.id, name: created.name };
   }
+  await initializePermissionFoundation(prisma, users.ADMIN.id);
   return users;
 }
 
