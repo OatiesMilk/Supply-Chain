@@ -19,6 +19,7 @@ import {
 import ExportMenu from '@/components/ExportMenu';
 import DriverReportModal from '@/features/drivers/DriverReportModal';
 import RouteSlipMenu from '@/components/RouteSlipMenu';
+import { routeSlipModeForDates, routeSlipPeriod, routeSlipSelectionError, type RouteSlipPeriodMode, type RouteSlipPeriodSelection } from '@/utils/routeSlipPeriod';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, RMA_EXTRA_COLUMNS, PDF_DELIVERY_COLUMNS, PDF_AC_COLUMNS, PDF_RMA_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
@@ -106,6 +107,7 @@ export default function DeliveryRecordsView({
   const [areaFilter, setAreaFilter] = useState<string>('All Areas');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [routeSlipMode, setRouteSlipMode] = useState<RouteSlipPeriodMode>('day');
   const [dateSort, setDateSort] = useState<'default' | 'nearest' | 'oldest' | 'furthest'>('default');
   const [amFilter, setAmFilter] = useState('');
   const [driverFilter, setDriverFilter] = useState('');
@@ -172,7 +174,7 @@ export default function DeliveryRecordsView({
       setRegionFilter('All Regions');
       setSubregionFilter('All Subregions');
       setAreaFilter('All Areas');
-      setDateFrom('');
+      setRouteSlipMode('day'); setDateFrom('');
       setDateTo('');
       setShowDateRangePicker(false);
       setDateSort('default');
@@ -197,7 +199,7 @@ export default function DeliveryRecordsView({
     setRegionFilter('All Regions');
     setSubregionFilter('All Subregions');
     setAreaFilter('All Areas');
-    setDateFrom('');
+    setRouteSlipMode('day'); setDateFrom('');
     setDateTo('');
     setDateSort('default');
     setAmFilter('');
@@ -207,7 +209,7 @@ export default function DeliveryRecordsView({
       if (dashboardFilterId === 'sc-scheduled-today') {
         const today = manilaToday();
         setStatusFilter('Scheduled');
-        setDateFrom(today);
+        setRouteSlipMode('day'); setDateFrom(today);
         setDateTo(today);
       } else if (dashboardFilterId === 'sc-on-hold' || dashboardFilterId === 'log-on-hold') {
         setStatusFilter('On-Hold');
@@ -215,7 +217,7 @@ export default function DeliveryRecordsView({
         setStatusFilter('Rescheduled');
       } else if (dashboardFilterId === 'log-assigned-today') {
         const today = manilaToday();
-        setDateFrom(today);
+        setRouteSlipMode('day'); setDateFrom(today);
         setDateTo(today);
       } else if (dashboardFilterId === 'sc-completed-today' || dashboardFilterId === 'log-completed-today') {
         setStatusFilter('Delivered');
@@ -542,14 +544,33 @@ export default function DeliveryRecordsView({
     dateSort === 'default' ? 'nearest' : dateSort
   );
 
+  const routeSlipSelection: RouteSlipPeriodSelection = { mode: routeSlipMode, dateFrom, dateTo };
+  const changeRouteSlipSelection = (selection: RouteSlipPeriodSelection) => {
+    setRouteSlipMode(selection.mode);
+    setDateFrom(selection.dateFrom);
+    setDateTo(selection.mode === 'day' ? selection.dateFrom : selection.mode === 'from' ? '' : selection.dateTo);
+  };
   const routeSlipProps = driverFilter
-    ? {
-      records: sortedFiltered,
-      driverName: driverFilter,
-      date: appliedDateFrom || manilaToday(),
-      preparedBy: currentUserName,
-    }
+    ? { records: sortedFiltered, ...routeSlipPeriod(routeSlipSelection), preparedBy: currentUserName }
     : undefined;
+
+  const fetchRouteSlipRecords = async () => {
+    const error = routeSlipSelectionError(routeSlipSelection);
+    if (error) throw new Error(error);
+    const raw = await api.getAllRecordsForExport({
+      category,
+      status: effectiveStatusFilter,
+      search: searchQuery || undefined,
+      driver: driverFilter || undefined,
+      area: effectiveAreaFilter,
+      region: regionFilter !== 'All Regions' ? regionFilter : undefined,
+      subregion: subregionFilter !== 'All Subregions' ? subregionFilter : undefined,
+      account_manager: effectiveAmFilter,
+      ...routeSlipPeriod(routeSlipSelection),
+      dashboard_filter: dashboardFilterId || undefined,
+    });
+    return sortRows(raw.map(normalizeApiRecord));
+  };
 
   const fetchExportData = async () => {
     const rawAll = await api.getAllRecordsForExport({
@@ -607,8 +628,7 @@ export default function DeliveryRecordsView({
     const rsProps = driverFilter
       ? {
         records: sortedAll,
-        driverName: driverFilter,
-        date: appliedDateFrom || manilaToday(),
+        ...routeSlipPeriod(routeSlipSelection),
         preparedBy: currentUserName,
       }
       : undefined;
@@ -628,7 +648,7 @@ export default function DeliveryRecordsView({
   const clearAllFilters = () => {
     setSearchQuery(''); setStatusFilter('All'); setRegionFilter('All Regions');
     setSubregionFilter('All Subregions'); setAreaFilter('All Areas');
-    setAmFilter(''); setDriverFilter(''); setDateFrom(''); setDateTo(''); setDateSort('default');
+    setAmFilter(''); setDriverFilter(''); setRouteSlipMode('day'); setDateFrom(''); setDateTo(''); setDateSort('default');
     clearDashboardFilter();
   };
 
@@ -677,6 +697,7 @@ export default function DeliveryRecordsView({
               meta={exportMeta}
               summary={exportSummary}
               routeSlipProps={routeSlipProps}
+              routeSlipPeriodFields={{ selection: routeSlipSelection, onChange: changeRouteSlipSelection }}
               statusHistoryCounts={statusHistoryCounts}
               totalCount={displayTotalCount}
               fetchExportData={fetchExportData}
@@ -684,16 +705,12 @@ export default function DeliveryRecordsView({
           )}
           {showExports && (
             <RouteSlipMenu
-              records={sortedFiltered}
               driverFilter={driverFilter}
-              dateFrom={appliedDateFrom}
+              selection={routeSlipSelection}
+              onChange={changeRouteSlipSelection}
+              fetchRecords={fetchRouteSlipRecords}
               preparedBy={currentUserName}
               filename={category.toLowerCase().replace(/\s+/g, '-')}
-              onFocusDateFilter={() => {
-                setShowAdvancedFilters(false);
-                setShowForm(false);
-                setShowDateRangePicker(true);
-              }}
             />
           )}
           {/* Monthly Driver Report — Logistics / Admin, Deliveries only */}
@@ -782,7 +799,7 @@ export default function DeliveryRecordsView({
         <div className="grid grid-cols-1 min-[400px]:grid-cols-2 lg:grid-cols-4 gap-3 items-start text-xs" id="date-range-filters">
         <div className="min-w-0 min-[400px]:col-span-2">
           <DateRangePicker dateFrom={dateFrom} dateTo={dateTo} open={showDateRangePicker} onOpenChange={setShowDateRangePicker}
-            onChange={range => { setDateFrom(range.from); setDateTo(range.to); }} />
+            onChange={range => { setRouteSlipMode(routeSlipModeForDates(range.from, range.to)); setDateFrom(range.from); setDateTo(range.to); }} />
         </div>
         <div className="space-y-1 min-w-0">
           <label htmlFor="recordStatusFilter" className="font-bold text-slate-700 block">Status</label>
