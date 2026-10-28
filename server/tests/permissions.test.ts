@@ -95,7 +95,8 @@ test('invalid, unknown and duplicate permission inputs fail validation', () => {
 });
 
 test('permission replacement is atomic, audited, rejects stale editors and can reset to defaults', async () => {
-  let row = account();
+  let row = { ...account(), authorizationRevision: 1n, permissionOverrides: [], permissionConversion: null, driverProfile: null };
+  let actor = { ...row, id: 'admin', role: 'ADMIN' };
   let audits: unknown[] = [];
   let auditFailure = false;
   const db = { $transaction: async (fn: any) => {
@@ -103,20 +104,24 @@ test('permission replacement is atomic, audited, rejects stale editors and can r
     const beforeAudits = [...audits];
     try {
       return await fn({
+        $executeRaw: async () => 1,
         $queryRaw: async () => [{ id: row.id }],
-        user: { findUnique: async () => row },
+        user: { findUnique: async ({ where }: any) => where.id === actor.id ? actor : where.id === row.id ? row : null },
         userPermission: {
-          deleteMany: async () => { row.permissions = []; },
-          createMany: async ({ data }: any) => { row.permissions = data.map(({ screen, granted }: Permission) => ({ screen, granted })); },
+          deleteMany: async () => { row.authorizationRevision += BigInt(row.permissions.length); row.permissions = []; },
+          createMany: async ({ data }: any) => {
+            row.permissions = data.map(({ screen, granted }: Permission) => ({ screen, granted }));
+            row.authorizationRevision += BigInt(data.length);
+          },
         },
         auditLog: { create: async (data: unknown) => { if (auditFailure) throw new Error('audit failed'); audits.push(data); } },
       });
     } catch (error) { row = before; audits = beforeAudits; throw error; }
   } } as unknown as PrismaClient;
-  const originalVersion = permissionSnapshot(row.role, row.permissions).permissionVersion;
+  const originalVersion = permissionEditor(row).permissionVersion;
   const denied = await replacePermissions(db, row.id, 'admin', [{ screen: 'dashboard', granted: false }], originalVersion);
   assert.ok(!denied.effectiveScreens.includes('dashboard'));
-  assert.equal(audits.length, 1);
+  assert.equal(audits.length, 2, 'legacy permission diff and account authorization change are audited atomically');
   await assert.rejects(replacePermissions(db, row.id, 'admin', [], originalVersion), /changed/);
   await assert.rejects(replacePermissions(db, row.id, 'admin', [{ screen: 'admin', granted: true }], denied.permissionVersion), /cannot customize/);
   auditFailure = true;
@@ -125,7 +130,10 @@ test('permission replacement is atomic, audited, rejects stale editors and can r
   auditFailure = false;
   const reset = await replacePermissions(db, row.id, 'admin', [], denied.permissionVersion);
   assert.ok(reset.effectiveScreens.includes('dashboard'));
-  assert.equal(audits.length, 2);
+  assert.equal(audits.length, 4);
+  actor = { ...actor, role: 'LOGISTICS' };
+  await assert.rejects(replacePermissions(db, row.id, actor.id, [], reset.permissionVersion), /active ADMIN/);
+  assert.equal(audits.length, 4, 'a demoted actor cannot write or append a success audit');
 });
 
 test('record scopes retain role limits and explicit denials even through shared views', () => {

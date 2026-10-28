@@ -3,12 +3,23 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../db';
 import { requireResource, requireAuth, requireRole } from '../middleware/auth';
 
-import { asyncRoute } from '../middleware/asyncRoute';
 import { DriverLinkError, linkDriverLogin, unlinkDriverLogin } from '../services/driverLogin';
 import { permissionEditor, permissionInputError, PermissionSaveError, replacePermissions } from '../services/permissions';
 import { isMicrosoftGuid } from '../services/ssoState';
+import { assertAdminSurvives, administrativeTransaction, getUserPermissionEditor, mutateAdminAccount, permissionMode, PolicyManagementError, requireV1Mutation, saveUserPermissions } from '../services/permissionManagement';
+import { policyRoute } from '../middleware/policyRoute';
+import { planPermissionConversion } from '../services/permissionBackfill';
 
 const router = Router();
+
+function accountBodyError(value: unknown, fields: readonly string[]): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || Object.keys(value).some(k => ![...fields, 'contractVersion', 'expectedVersion'].includes(k))) return 'Unknown or malformed account fields';
+  const body = value as Record<string, unknown>;
+  if (body.contractVersion !== undefined && body.contractVersion !== 1) return 'Unsupported account contractVersion';
+  if (body.expectedVersion !== undefined && (typeof body.expectedVersion !== 'string' || !/^v1:[a-f0-9]{64}$/.test(body.expectedVersion))) return 'Malformed account expectedVersion';
+  return null;
+}
 
 // User management — ADMIN only.
 router.get('/', requireAuth, requireResource('users'), requireRole('ADMIN'), async (_req: Request, res: Response) => {
@@ -28,10 +39,14 @@ router.get('/', requireAuth, requireResource('users'), requireRole('ADMIN'), asy
 // Create user — ADMIN only. A DRIVER login is linked to a Driver profile in the
 // same transaction: `driver_profile_id` links an existing unlinked profile,
 // omitting it creates a new profile named after the login.
-router.post('/', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (req: Request, res: Response) => {
+router.post('/', requireAuth, requireResource('users'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
+  const bodyError = accountBodyError(req.body, ['name', 'email', 'password', 'role', 'driver_profile_id', 'microsoft_oid']);
+  if (bodyError) return res.status(400).json({ error: bodyError });
+  if (req.body.contractVersion === 1) requireV1Mutation();
   const { name, email, password, role, driver_profile_id, microsoft_oid } = req.body ?? {};
-  if (!name || !email || !password || !role) {
-    return res.status(400).json({ error: 'name, email, password, and role are required' });
+  if (typeof name !== 'string' || !name.trim() || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+    || typeof password !== 'string' || !password.trim() || typeof role !== 'string') {
+    return res.status(400).json({ error: 'A non-empty name and password, valid email, and built-in role are required' });
   }
   const validRoles = ['SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'ADMIN', 'DRIVER'];
   if (!validRoles.includes(role)) {
@@ -46,10 +61,10 @@ router.post('/', requireAuth, requireResource('users'), requireRole('ADMIN'), as
   const microsoftOid = microsoft_oid?.toLowerCase();
   const hashed = await bcrypt.hash(password, 10);
   try {
-    const { created, profile } = await prisma.$transaction(async tx => {
+    const { created, profile } = await administrativeTransaction(prisma, req.user!.id, null, async (tx, actor) => {
       const created = await tx.user.create({
         data: {
-          name, email: String(email).toLowerCase(), password: hashed, role, isActive: true,
+          name: name.trim(), email: email.trim().toLowerCase(), password: hashed, role, isActive: true,
           ...(microsoftOid ? { microsoftOid, microsoftApprovedAt: new Date() } : {}),
         }
       });
@@ -63,9 +78,15 @@ router.post('/', requireAuth, requireResource('users'), requireRole('ADMIN'), as
           },
         });
       }
-      const profile = role === 'DRIVER' ? await linkDriverLogin(tx, created, driver_profile_id, req.user!) : null;
+      const profile = role === 'DRIVER' ? await linkDriverLogin(tx, created, driver_profile_id, actor) : null;
+      if (permissionMode() === 'V1') {
+        const conversion = planPermissionConversion({ id: created.id, role: created.role, permissions: [], driverProfile: profile });
+        await tx.permissionConversion.create({ data: { userId: created.id, catalogVersion: 1, sourceHash: conversion.sourceHash, report: conversion.report } });
+      }
+      await tx.auditLog.create({ data: { recordId: created.id, recordType: 'UserAuthorization', action: 'CREATE', changedById: actor.id,
+        newValue: JSON.stringify({ role: created.role, isActive: created.isActive, authorizationRevision: String(created.authorizationRevision) }) } });
       return { created, profile };
-    });
+    }, 'CREATE');
     res.status(201).json({
       id: created.id,
       name: created.name,
@@ -93,16 +114,16 @@ router.post('/', requireAuth, requireResource('users'), requireRole('ADMIN'), as
 
 // Link, relink or unlink a DRIVER login's Driver profile — ADMIN only.
 // Body: { driver_profile_id: string | null }.
-router.put('/:id/driver-profile', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (req: Request, res: Response) => {
+router.put('/:id/driver-profile', requireAuth, requireResource('users'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
+  const bodyError = accountBodyError(req.body, ['driver_profile_id']);
+  if (bodyError) return res.status(400).json({ error: bodyError });
   const profileId = req.body?.driver_profile_id;
   if (profileId !== null && (typeof profileId !== 'string' || !profileId)) {
     return res.status(400).json({ error: 'driver_profile_id must be a Driver profile id or null.' });
   }
   try {
-    const profile = await prisma.$transaction(async tx => {
-      const user = await tx.user.findUnique({ where: { id: req.params.id } });
-      if (!user) throw new DriverLinkError('User not found', 404);
-      return linkDriverLogin(tx, user, profileId, req.user!);
+    const profile = await mutateAdminAccount(prisma, req.user!.id, req.params.id, req.body, async (tx, actor, user) => {
+      return linkDriverLogin(tx, user, profileId, actor);
     });
     res.json({ user_id: req.params.id, driver_profile: profile ? { id: profile.id, name: profile.name } : null });
   } catch (error) {
@@ -114,15 +135,15 @@ router.put('/:id/driver-profile', requireAuth, requireResource('users'), require
 // An Admin explicitly pre-provisions the tenant-scoped Microsoft object ID;
 // never let SSO email claims implicitly take over an existing account.
 // A null OID deliberately unlinks the identity; relinking is audited.
-router.put('/:id/microsoft-identity', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (req: Request, res: Response) => {
+router.put('/:id/microsoft-identity', requireAuth, requireResource('users'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
+  const bodyError = accountBodyError(req.body, ['microsoft_oid']);
+  if (bodyError) return res.status(400).json({ error: bodyError });
   const oid = req.body?.microsoft_oid;
   if (oid !== null && !isMicrosoftGuid(oid)) {
     return res.status(400).json({ error: 'microsoft_oid must be a Microsoft Entra object GUID or null' });
   }
   try {
-    const updated = await prisma.$transaction(async tx => {
-      const user = await tx.user.findUnique({ where: { id: req.params.id } });
-      if (!user) return null;
+    const updated = await mutateAdminAccount(prisma, req.user!.id, req.params.id, req.body, async (tx, _actor, user) => {
       const result = await tx.user.update({
         where: { id: user.id },
         data: { microsoftOid: oid?.toLowerCase() ?? null, microsoftApprovedAt: oid ? new Date() : null }
@@ -136,7 +157,7 @@ router.put('/:id/microsoft-identity', requireAuth, requireResource('users'), req
         }
       });
       return result;
-    });
+    }, { identity: true });
     if (!updated) return res.status(404).json({ error: 'User not found' });
     res.json({ user_id: updated.id, microsoft_linked: !!updated.microsoftOid });
   } catch (error) {
@@ -146,17 +167,16 @@ router.put('/:id/microsoft-identity', requireAuth, requireResource('users'), req
 }));
 
 // Update user details — ADMIN only.
-router.patch('/:id', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (req: Request, res: Response) => {
+router.patch('/:id', requireAuth, requireResource('users'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
+  const bodyError = accountBodyError(req.body, ['name', 'email', 'role', 'removedOverrideKeys']);
+  if (bodyError) return res.status(400).json({ error: bodyError });
   const { id } = req.params;
   const { name, email, role } = req.body ?? {};
 
   if (email !== undefined && (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))) return res.status(400).json({ error: 'Enter a valid email address.' });
   if (name !== undefined && (typeof name !== 'string' || !name.trim())) return res.status(400).json({ error: 'Name must be non-empty text.' });
-  const user = await prisma.user.findUnique({ where: { id } });
-  if (!user) return res.status(404).json({ error: 'User not found' });
-
   const validRoles = ['SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'ADMIN', 'DRIVER'];
-  if (role && !validRoles.includes(role)) {
+  if (role !== undefined && !validRoles.includes(role)) {
     return res.status(400).json({ error: `role must be one of: ${validRoles.join(', ')}` });
   }
   if (role && role !== 'ADMIN' && req.user!.id === id) {
@@ -174,11 +194,15 @@ router.patch('/:id', requireAuth, requireResource('users'), requireRole('ADMIN')
 
   // A login that stops being a DRIVER also stops owning runs.
   let updated: Awaited<ReturnType<typeof prisma.user.update>>;
+  if (req.body.removedOverrideKeys !== undefined && (!Array.isArray(req.body.removedOverrideKeys) || req.body.removedOverrideKeys.some((key: unknown) => typeof key !== 'string'))) {
+    return res.status(400).json({ error: 'removedOverrideKeys must be an array of keys from the role-change preview' });
+  }
   try {
-    updated = await prisma.$transaction(async tx => {
-      if (user.role === 'DRIVER' && role && role !== 'DRIVER') await unlinkDriverLogin(tx, id, req.user!);
+    updated = await mutateAdminAccount(prisma, req.user!.id, id, req.body, async (tx, actor, user) => {
+      await assertAdminSurvives(tx, actor.id, user, role ?? user.role, user.isActive);
+      if (user.role === 'DRIVER' && role && role !== 'DRIVER') await unlinkDriverLogin(tx, id, actor);
       return tx.user.update({ where: { id }, data });
-    });
+    }, { role, removedOverrideKeys: req.body.removedOverrideKeys });
   } catch (error) {
     if ((error as { code?: string })?.code === 'P2002') return res.status(409).json({ error: 'An account with this email already exists.' });
     throw error;
@@ -195,7 +219,9 @@ router.patch('/:id', requireAuth, requireResource('users'), requireRole('ADMIN')
 }));
 
 // Soft-deactivate a user — ADMIN only. Deactivated users cannot log in.
-router.patch('/:id/deactivate', requireAuth, requireResource('users'), requireRole('ADMIN'), async (req: Request, res: Response) => {
+router.patch('/:id/deactivate', requireAuth, requireResource('users'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
+  const bodyError = accountBodyError(req.body ?? {}, []);
+  if (bodyError) return res.status(400).json({ error: bodyError });
   const { id } = req.params;
 
   // Prevent an admin from deactivating themselves
@@ -203,13 +229,10 @@ router.patch('/:id/deactivate', requireAuth, requireResource('users'), requireRo
     return res.status(400).json({ error: 'You cannot deactivate your own account' });
   }
 
-  const user = await prisma.user.findUnique({ where: { id } });
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  if (!user.isActive) return res.status(400).json({ error: 'User is already deactivated' });
-
-  const updated = await prisma.user.update({
-    where: { id },
-    data: { isActive: false }
+  const updated = await mutateAdminAccount(prisma, req.user!.id, id, req.body, async (tx, actor, user) => {
+    await assertAdminSurvives(tx, actor.id, user, user.role, false);
+    if (!user.isActive) throw new PolicyManagementError(400, 'User is already deactivated');
+    return tx.user.update({ where: { id }, data: { isActive: false } });
   });
 
   res.json({
@@ -221,18 +244,16 @@ router.patch('/:id/deactivate', requireAuth, requireResource('users'), requireRo
     microsoft_linked: !!updated.microsoftOid,
     created_at: updated.createdAt,
   });
-});
+}));
 
 // Reactivate a user — ADMIN only.
-router.patch('/:id/activate', requireAuth, requireResource('users'), requireRole('ADMIN'), async (req: Request, res: Response) => {
+router.patch('/:id/activate', requireAuth, requireResource('users'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
+  const bodyError = accountBodyError(req.body ?? {}, []);
+  if (bodyError) return res.status(400).json({ error: bodyError });
   const { id } = req.params;
-  const user = await prisma.user.findUnique({ where: { id } });
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  if (user.isActive) return res.status(400).json({ error: 'User is already active' });
-
-  const updated = await prisma.user.update({
-    where: { id },
-    data: { isActive: true }
+  const updated = await mutateAdminAccount(prisma, req.user!.id, id, req.body, async (tx, _actor, user) => {
+    if (user.isActive) throw new PolicyManagementError(400, 'User is already active');
+    return tx.user.update({ where: { id }, data: { isActive: true } });
   });
 
   res.json({
@@ -244,13 +265,15 @@ router.patch('/:id/activate', requireAuth, requireResource('users'), requireRole
     microsoft_linked: !!updated.microsoftOid,
     created_at: updated.createdAt,
   });
-});
+}));
 
 // Hard-delete a user — ADMIN only. Only allowed if the user has no associated
 // business records (deliveries, audit entries, products, customers, suppliers,
 // comments, or remark logs). If the user has any of these, the admin should
 // deactivate instead to preserve data integrity and audit trails.
-router.delete('/:id', requireAuth, requireResource('users'), requireRole('ADMIN'), async (req: Request, res: Response) => {
+router.delete('/:id', requireAuth, requireResource('users'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
+  const bodyError = accountBodyError(req.body ?? {}, []);
+  if (bodyError) return res.status(400).json({ error: bodyError });
   const { id } = req.params;
 
   // Prevent an admin from deleting themselves
@@ -258,8 +281,8 @@ router.delete('/:id', requireAuth, requireResource('users'), requireRole('ADMIN'
     return res.status(400).json({ error: 'You cannot delete your own account' });
   }
 
-  const user = await prisma.user.findUnique({ where: { id } });
-  if (!user) return res.status(404).json({ error: 'User not found' });
+  await mutateAdminAccount(prisma, req.user!.id, id, req.body, async (tx, actor, user) => {
+  await assertAdminSurvives(tx, actor.id, user, user.role, false);
 
   // Check for associated business records that would make deletion unsafe
   const [
@@ -275,17 +298,17 @@ router.delete('/:id', requireAuth, requireResource('users'), requireRole('ADMIN'
     comments,
     remarkLogs,
   ] = await Promise.all([
-    prisma.deliveryRecord.count({ where: { createdById: id } }),
-    prisma.deliveryRecord.count({ where: { modifiedById: id } }),
-    prisma.auditLog.count({ where: { changedById: id } }),
-    prisma.product.count({ where: { createdById: id } }),
-    prisma.product.count({ where: { modifiedById: id } }),
-    prisma.customer.count({ where: { createdById: id } }),
-    prisma.customer.count({ where: { modifiedById: id } }),
-    prisma.supplier.count({ where: { createdById: id } }),
-    prisma.supplier.count({ where: { modifiedById: id } }),
-    prisma.comment.count({ where: { authorId: id } }),
-    prisma.remarkLog.count({ where: { authorId: id } }),
+    tx.deliveryRecord.count({ where: { createdById: id } }),
+    tx.deliveryRecord.count({ where: { modifiedById: id } }),
+    tx.auditLog.count({ where: { changedById: id } }),
+    tx.product.count({ where: { createdById: id } }),
+    tx.product.count({ where: { modifiedById: id } }),
+    tx.customer.count({ where: { createdById: id } }),
+    tx.customer.count({ where: { modifiedById: id } }),
+    tx.supplier.count({ where: { createdById: id } }),
+    tx.supplier.count({ where: { modifiedById: id } }),
+    tx.comment.count({ where: { authorId: id } }),
+    tx.remarkLog.count({ where: { authorId: id } }),
   ]);
 
   const totalLinked = createdRecords + modifiedRecords + auditEntries
@@ -293,28 +316,35 @@ router.delete('/:id', requireAuth, requireResource('users'), requireRole('ADMIN'
     + createdSuppliers + modifiedSuppliers + comments + remarkLogs;
 
   if (totalLinked > 0) {
-    return res.status(409).json({
-      error: `Cannot delete this user because they have ${totalLinked} associated record(s) in the system (delivery records, audit logs, products, etc.). Deactivate the account instead to preserve data integrity.`,
-      linked_records: totalLinked,
-    });
+    throw new PolicyManagementError(409, 'Cannot delete a user with business records; deactivate the account to retain history', { linked_records: totalLinked });
   }
 
   // Safe to delete — clean up owned non-business data first, then remove the user
-  await prisma.userPermission.deleteMany({ where: { userId: id } });
-  await prisma.notification.deleteMany({ where: { userId: id } });
-  await prisma.user.delete({ where: { id } });
+  await tx.userPermission.deleteMany({ where: { userId: id } });
+  await tx.notification.deleteMany({ where: { userId: id } });
+  await tx.user.delete({ where: { id } });
+  }, { action: 'DELETE' });
 
   res.json({ ok: true, deleted_id: id });
-});
+}));
 
 // The editor and login consume the same policy, including locked modules.
-router.get('/:id/permissions', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (req, res) => {
+router.get('/:id/permissions', requireAuth, requireResource('users'), requireRole('ADMIN'), policyRoute(async (req, res) => {
+  if (req.query.contractVersion !== undefined && req.query.contractVersion !== '1') return res.status(400).json({ error: 'Unsupported editor contractVersion' });
+  if (req.query.role !== undefined && typeof req.query.role !== 'string') return res.status(400).json({ error: 'role must be a built-in role' });
+  if (req.query.contractVersion === '1' || permissionMode() === 'V1') {
+    return res.json(await getUserPermissionEditor(prisma, req.user!.id, req.params.id, req.query.role as string | undefined));
+  }
   const user = await prisma.user.findUnique({ where: { id: req.params.id }, include: { permissions: true } });
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json(permissionEditor(user));
 }));
 
-router.put('/:id/permissions', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (req, res) => {
+router.put('/:id/permissions', requireAuth, requireResource('users'), requireRole('ADMIN'), policyRoute(async (req, res) => {
+  if (req.body?.contractVersion !== undefined || permissionMode() === 'V1') {
+    return res.json(await saveUserPermissions(prisma, req.user!.id, req.params.id, req.body));
+  }
+  if (Object.keys(req.body ?? {}).some(k => !['permissions', 'expectedVersion'].includes(k))) return res.status(400).json({ error: 'Unknown permission save fields' });
   const { permissions, expectedVersion } = req.body ?? {};
   const error = permissionInputError(permissions);
   if (error) return res.status(400).json({ error });
@@ -325,6 +355,10 @@ router.put('/:id/permissions', requireAuth, requireResource('users'), requireRol
     if (error instanceof PermissionSaveError) return res.status(error.status).json({ error: error.message });
     throw error;
   }
+}));
+
+router.post('/:id/permissions/reset', requireAuth, requireResource('users'), requireRole('ADMIN'), policyRoute(async (req, res) => {
+  res.json(await saveUserPermissions(prisma, req.user!.id, req.params.id, req.body, true));
 }));
 
 export default router;
