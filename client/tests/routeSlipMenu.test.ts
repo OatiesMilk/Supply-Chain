@@ -13,7 +13,7 @@ const filters: RecordListFilters = {
   region: 'Luzon', subregion: 'NCR', account_manager: 'Casey', dashboard_filter: 'log-assigned-today',
 };
 const row = (id: string, day: string): DeliveryRecord => ({
-  id, company_name: id, company_id: 'c1', reference: id, delivery_date: day, driver: 'Alex One',
+  id, company_name: id, company_id: 'c1', reference: id, delivery_date: day, driver: 'Alex',
   driver_assistants: [], status: 'Scheduled', priority: '2 - Moderate', area: 'Makati', category: 'Deliveries',
   account_manager: 'Casey', vehicle: 'Van', item_type: 'Unit', remarks: '',
 } as DeliveryRecord);
@@ -87,7 +87,18 @@ async function inputDate(dom: JSDOM, index: number, value: string) {
   const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!;
   await act(async () => { setter.call(node, value); node.dispatchEvent(new dom.window.Event('input', { bubbles: true })); node.dispatchEvent(new dom.window.Event('change', { bubbles: true })); });
 }
-async function waitDownload(state: { blob?: Blob }) {
+async function waitDownload(dom: JSDOM, state: { blob?: Blob }) {
+  let downloadButton: HTMLButtonElement | undefined;
+  for (let tries = 0; !downloadButton && tries < 100; tries++) {
+    downloadButton = [...dom.window.document.querySelectorAll<HTMLButtonElement>('button')]
+      .find(node => node.textContent?.trim().startsWith('Download'));
+    if (!downloadButton) await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  if (!downloadButton) {
+    throw new Error([...dom.window.document.querySelectorAll<HTMLButtonElement>('button')]
+      .map(node => node.textContent?.trim()).join(' | '));
+  }
+  await click(downloadButton);
   await act(async () => {
     for (let tries = 0; !state.blob && tries < 100; tries++) await new Promise(resolve => setTimeout(resolve, 20));
   });
@@ -134,7 +145,7 @@ test('dedicated and general export paths include later pages and retain every ac
       state.blob = undefined; state.calls = [];
       await click(button(dom, entry === 'dedicated' ? 'Route Slip' : 'Export'));
       await click(button(dom, entry === 'dedicated' ? 'Excel (Current)' : 'Route Slip — Excel'));
-      const text = await waitDownload(state);
+      const text = await waitDownload(dom, state);
       assert.match(text, /MATCH0/);
       assert.match(text, /LATEPAGE/);
       assert.match(text, /Period: 27 Oct 2026 – 29 Oct 2026/);
@@ -180,7 +191,7 @@ test('the actual DeliveryRecordsView fetches every page with its selected filter
     await inputDate(dom, 1, '2026-10-29');
     state.calls = [];
     await click(button(dom, 'Excel (Current)'));
-    const text = await waitDownload(state);
+    const text = await waitDownload(dom, state);
     assert.match(text, /LATEPAGE/);
     assert.match(text, /MATCH0/);
     assert.equal(text.includes('CACHEDONLY'), false);
