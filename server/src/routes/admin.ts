@@ -4,8 +4,18 @@ import { requireResource, requireAuth, requireRole } from '../middleware/auth';
 import { sendEmail } from '../services/mailer';
 import { asyncRoute } from '../middleware/asyncRoute';
 import { deploymentStatus } from '../services/deploymentStatus';
+import { getRolePermissionEditor, saveRolePermissions, safePolicyAudit } from '../services/permissionManagement';
+import { policyRoute } from '../middleware/policyRoute';
 
 const router = Router();
+
+router.get('/roles/:role/permissions', requireAuth, requireResource('admin'), requireRole('ADMIN'), policyRoute(async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await getRolePermissionEditor(prisma, req.user!.id, req.params.role));
+}));
+router.put('/roles/:role/permissions', requireAuth, requireResource('admin'), requireRole('ADMIN'), policyRoute(async (req, res) => {
+  res.json(await saveRolePermissions(prisma, req.user!.id, req.params.role, req.body));
+}));
 
 // Full audit log with pagination and optional filters — ADMIN only.
 router.get('/audit-log', requireAuth, requireResource('admin'), requireRole('ADMIN'), async (req, res) => {
@@ -65,7 +75,9 @@ router.get('/audit-log', requireAuth, requireResource('admin'), requireRole('ADM
       action: e.action,
       changed_by: e.changedBy.name,
       changed_by_id: e.changedById,
-      timestamp: e.timestamp
+      timestamp: e.timestamp,
+      previous: safePolicyAudit(e.recordType, e.previousValue),
+      next: safePolicyAudit(e.recordType, e.newValue)
     }))
   });
 });

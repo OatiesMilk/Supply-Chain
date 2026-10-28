@@ -147,12 +147,22 @@ test('duplicate user email returns 409 and unexpected failures are forwarded', a
   await assert.rejects(invoke(users, 'patch', '/:id', 'ADMIN', { email: 'test@example.com' }), /database unavailable/);
 });
 test('valid user email edits normalize email; invalid input is rejected without writing', async () => {
-  stub(prisma.user, 'findUnique', async () => ({ id: 'record', role: 'SALES_COORDINATOR' }));
-  const transaction = stub(prisma, '$transaction', async (fn: any) => fn({ user: { update: async ({ data }: any) => ({ id: 'record', ...data }) } }));
+  let target = { id: 'record', name: 'User', email: 'old@example.com', role: 'SALES_COORDINATOR', isActive: true,
+    authorizationRevision: 1n, permissions: [], permissionOverrides: [], permissionConversion: null, driverProfile: null };
+  const admin = { ...target, id: 'actor', role: 'ADMIN' };
+  const audit = mock.fn(async () => ({}));
+  const update = mock.fn(async ({ data }: any) => { target = { ...target, ...data }; return target; });
+  const transaction = stub(prisma, '$transaction', async (fn: any) => fn({
+    $executeRaw: async () => 1, $queryRaw: async () => [],
+    user: { findUnique: async ({ where }: any) => where.id === admin.id ? admin : where.id === target.id ? target : null, update },
+    auditLog: { create: audit },
+  }));
   for (const email of [null, {}, '', 'bad']) assert.equal((await invoke(users, 'patch', '/:id', 'ADMIN', { email })).status, 400);
   assert.equal(transaction.mock.callCount(), 0);
   const result = await invoke(users, 'patch', '/:id', 'ADMIN', { email: ' TEST@example.com ' });
   assert.equal(result.status, 200); assert.equal(result.body.email, 'test@example.com');
+  assert.equal(update.mock.callCount(), 1);
+  assert.equal(audit.mock.callCount(), 1, 'the accepted account edit is audited in its transaction');
 });
 
 test('customer creation rejects malformed/empty/invalid text without writes', async () => {
