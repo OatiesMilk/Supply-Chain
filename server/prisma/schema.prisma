@@ -28,6 +28,7 @@ model User {
   password            String
   role                String // SALES_COORDINATOR | LOGISTICS | TASS | ADMIN
   isActive            Boolean   @default(true)
+  authorizationRevision BigInt @default(1)
   microsoftOid        String?   @unique
   microsoftApprovedAt DateTime? // Admin approval; legacy auto-created links are denied
   createdAt           DateTime  @default(now())
@@ -45,6 +46,8 @@ model User {
   notifications          Notification[]
   comments               Comment[]
   permissions            UserPermission[]
+  permissionOverrides    UserPermissionOverride[]
+  permissionConversion   PermissionConversion?
   remarkLogs             RemarkLog[]
   podAttachmentsUploaded PodAttachment[]
   driverProfile          Driver?          @relation("DriverLogin")
@@ -60,6 +63,108 @@ model UserPermission {
   updatedAt DateTime @updatedAt
 
   @@unique([userId, screen])
+}
+
+// Permission foundation is additive. Legacy UserPermission and AuditLog stay
+// authoritative until the evaluator/rollout steps explicitly activate V1.
+enum PermissionEffect {
+  ALLOW
+  DENY
+}
+
+enum PermissionScope {
+  SCREEN
+  RESOURCE
+  CATEGORY
+}
+
+enum PermissionAction {
+  READ
+  WRITE
+  CREATE
+  UPDATE
+  ASSIGN
+  STATUS
+  TIME_IN
+  POD
+  COMMENT
+  SUBMIT
+  RECEIVE
+  COMPLETE
+  VERIFY_COLLECTION
+  DELETE
+  ADJUST
+}
+
+model PermissionDefinition {
+  key       String @id
+  scope     PermissionScope
+  module    String
+  action    PermissionAction
+  roles     RolePermission[]
+  overrides UserPermissionOverride[]
+
+  @@unique([scope, module, action])
+}
+
+model RolePolicy {
+  role        String @id // Five built-in roles; constrained in migration SQL.
+  revision    BigInt @default(1)
+  catalogVersion Int @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  permissions RolePermission[]
+}
+
+model RolePermission {
+  role          String
+  policy        RolePolicy @relation(fields: [role], references: [role], onDelete: Restrict)
+  permissionKey String
+  permission    PermissionDefinition @relation(fields: [permissionKey], references: [key], onDelete: Restrict)
+  effect        PermissionEffect
+
+  @@id([role, permissionKey])
+}
+
+// Absence is Inherit. An explicit Allow/Deny is retained even when equal to a
+// role default; sourceLegacyIds preserves conversion provenance.
+model UserPermissionOverride {
+  userId        String
+  user          User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissionKey String
+  permission    PermissionDefinition @relation(fields: [permissionKey], references: [key], onDelete: Restrict)
+  effect        PermissionEffect
+  source        String @default("MANUAL")
+  sourceLegacyIds String[] @default([])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@id([userId, permissionKey])
+}
+
+// One transaction/checkpoint per user makes interrupted conversion resumable.
+// A changed legacy source is reported, never silently overwritten on rerun.
+model PermissionConversion {
+  userId        String @id
+  user          User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceHash    String
+  catalogVersion Int @default(1)
+  report        Json
+  completedAt   DateTime @default(now())
+}
+
+// Retained source evidence for unknown/protected entries; no FK to the legacy
+// row, so a future compatibility writer cannot erase quarantine evidence.
+model PermissionQuarantine {
+  legacyId      String @id
+  userId        String
+  screen        String
+  granted       Boolean
+  reason        String
+  sourceHash    String
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
 }
 
 model Company {
