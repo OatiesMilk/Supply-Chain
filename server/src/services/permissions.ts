@@ -117,3 +117,8 @@ export async function replacePermissions(db: PrismaClient, userId: string, actor
     return permissionEditor({ ...user, permissions });
   });
 }
+
+// V1 action-aware contract for Steps 03/04. Legacy session/editor functions
+// above remain authoritative until the coordinated downstream activation.
+export { actionPermissionInputError, evaluatePermissions, hasActionPermission, loadEffectivePermissions, PERMISSION_CATALOG_VERSION } from './permissionEvaluator';
+export type { ActionPermissionDecision, ActionPermissionRow, EffectivePermissionSnapshot, ModuleCapabilities, PermissionEvaluationInput, PermissionReason, PermissionRevision } from './permissionEvaluator';
