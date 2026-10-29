@@ -1050,7 +1050,6 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
     return res.status(400).json({ error: `Missing required fields: ${missing.join(', ')}` });
   }
 
-  const dbCategory = CATEGORY_TO_DB[b.category] ?? b.category;
   if (dbCategory === 'RMA') {
     const rmaError = rmaInputError(b, true);
     if (rmaError) return res.status(400).json({ error: rmaError });
