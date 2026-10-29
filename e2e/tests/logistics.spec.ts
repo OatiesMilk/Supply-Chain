@@ -530,10 +530,16 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     await expect(page.getByText(pdfName)).toBeVisible();
     const preview = page.getByRole('button', { name: `Preview ${pdfName}` });
     await expect(preview).toBeVisible();
+    const previewResponsePromise = page.waitForResponse(response =>
+      response.request().method() === 'GET' && new URL(response.url()).pathname.endsWith('/preview'),
+    );
     await preview.click();
+    const previewResponse = await previewResponsePromise;
+    expect(previewResponse.ok()).toBeTruthy();
+    expect(previewResponse.headers()['content-type']).toMatch(/^application\/pdf\b/i);
     const documentPreview = page.getByRole('dialog', { name: `Preview ${pdfName}` });
     await expect(documentPreview).toBeVisible();
-    await expect(documentPreview.locator('iframe')).toHaveAttribute('src', /\/preview$/);
+    await expect(documentPreview.locator('iframe')).toHaveAttribute('src', /^blob:/);
     await documentPreview.getByRole('button', { name: 'Close document preview' }).click();
     await expect(documentPreview).toBeHidden();
     await expect(page.getByRole('link', { name: `Download ${pdfName}` })).toHaveAttribute('download', pdfName);
