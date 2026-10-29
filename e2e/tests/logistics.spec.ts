@@ -538,12 +538,24 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     const previewResponse = await previewResponsePromise;
     expect(previewResponse.ok()).toBeTruthy();
     expect(previewResponse.headers()['content-type']).toMatch(/^application\/pdf\b/i);
+    expect(previewResponse.headers()['cache-control']).toMatch(/private.*no-store/i);
     const documentPreview = page.getByRole('dialog', { name: `Preview ${pdfName}` });
     await expect(documentPreview).toBeVisible();
     await expect(documentPreview.locator('iframe')).toHaveAttribute('src', /^blob:/);
-    await documentPreview.getByRole('button', { name: 'Close document preview' }).click();
+    await page.keyboard.press('Shift+Tab');
+    await expect(documentPreview.getByRole('link', { name: `Download ${pdfName}` })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(documentPreview.getByRole('button', { name: 'Close document preview' })).toBeFocused();
+    await page.keyboard.press('Escape');
     await expect(documentPreview).toBeHidden();
+    await expect(preview).toBeFocused();
     await expect(page.getByRole('link', { name: `Download ${pdfName}` })).toHaveAttribute('download', pdfName);
+    const [pdfDownload] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('link', { name: `Download ${pdfName}` }).click(),
+    ]);
+    expect(pdfDownload.suggestedFilename()).toBe(pdfName);
+    expect(fs.readFileSync(await pdfDownload.path()!)).toEqual(fs.readFileSync(pdfPath));
     await page.getByRole('button', { name: `Remove ${pdfName}` }).click();
     await page.getByRole('alertdialog', { name: 'Remove Attachment' }).getByRole('button', { name: 'Remove', exact: true }).click();
     await expect(page.getByText(pdfName)).toHaveCount(0);
@@ -589,6 +601,12 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     await documentPreview.getByRole('tab', { name: 'Totals' }).click();
     await expect(documentPreview.locator('tbody tr').nth(1).locator('td').first()).toHaveText('1');
     await documentPreview.getByRole('button', { name: 'Close document preview' }).click();
+    const [workbookDownload] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('link', { name: `Download ${fileName}` }).click(),
+    ]);
+    expect(workbookDownload.suggestedFilename()).toBe(fileName);
+    expect(fs.readFileSync(await workbookDownload.path()!)).toEqual(bytes);
     await page.getByRole('button', { name: `Remove ${fileName}` }).click();
     await page.getByRole('alertdialog', { name: 'Remove Attachment' }).getByRole('button', { name: 'Remove', exact: true }).click();
     await expect(page.getByText(fileName)).toHaveCount(0);
@@ -613,6 +631,10 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
 
     const preview = page.getByRole('button', { name: `Preview ${photoName}` });
     await expect(preview).toBeVisible({ timeout: 15_000 });
+    const thumbnail = page.getByRole('img', { name: photoName });
+    await expect(thumbnail).toBeVisible();
+    await expect.poll(() => thumbnail.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+    await expect(thumbnail).toHaveAttribute('src', /\/preview$/);
     await expect(page.getByRole('link', { name: `Download ${photoName}` })).toHaveAttribute('download', photoName);
     await expect(page.getByRole('button', { name: `Remove ${photoName}` })).toBeVisible();
     await page.setViewportSize({ width: 375, height: 812 });
@@ -620,6 +642,9 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     await preview.click();
     const lightbox = page.getByRole('dialog', { name: `Preview ${photoName}` });
     await expect(lightbox).toBeVisible();
+    const fullImage = lightbox.getByRole('img', { name: photoName });
+    await expect(fullImage).toHaveAttribute('src', /\/preview$/);
+    await expect.poll(() => fullImage.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
     const bounds = await lightbox.boundingBox();
     expect(bounds?.width).toBeLessThanOrEqual(375);
     expect(bounds?.height).toBeLessThanOrEqual(812);
