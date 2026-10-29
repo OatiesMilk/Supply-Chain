@@ -1,3 +1,4 @@
+import { usePermissions } from '@/hooks/usePermissions';
 import { ReturnToDraftDialog } from '@/features/deliveries/ReturnToDraftDialog';
 import { selectableStatuses, canRecordTimeIn, isDraftRecord, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
 import { completionError } from '@/utils/podRequirement';
@@ -166,6 +167,7 @@ function ScaffoldTab({ icon: Icon, label, detail }: { icon: typeof FileText; lab
 
 // ─── Audit Trail Tab ──────────────────────────────────────────────────────────
 function AuditTrailTab({ recordId }: { recordId: string }) {
+  const canComment = usePermissions().canRecord('Accounting Collection', 'COMMENT');
   const [entries, setEntries] = useState<ApiAuditEntry[] | null>(null);
   const [comments, setComments] = useState<ApiComment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -189,7 +191,7 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
 
   const handleSubmitComment = async () => {
     const body = commentBody.trim();
-    if (!body || submitting) return;
+    if (!canComment || !body || submitting) return;
     setSubmitting(true);
     try {
       const created = await api.createRecordComment(recordId, body);
@@ -333,7 +335,7 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
         )}
 
         {/* New comment input */}
-        <CommentComposer
+        <CommentComposer disabled={!canComment}
           id="accounting-comment-body"
           describedBy="accounting-comment-help"
           value={commentBody}
@@ -361,7 +363,8 @@ function VerificationTab({
   const [error, setError] = useState<string | null>(null);
   useWorkspaceDraft('verification', false, verifying);
 
-  const canVerify = currentUserRole === 'TASS' || currentUserRole === 'Admin';
+  const access = usePermissions();
+  const canVerify = currentUserRole === 'TASS' && access.canRecord('Accounting Collection', 'VERIFY_COLLECTION');
 
   if (!canVerify) {
     return (
@@ -491,12 +494,13 @@ function OverviewTab({
     draftReference !== record.reference || !!statusRemarks || receivedBy !== (record.received_by ?? ''),
     updating
   );
-  const canEdit = currentUserRole === 'Sales Coordinator' || currentUserRole === 'Logistics' || currentUserRole === 'Admin';
+  const access = usePermissions();
+  const canEdit = (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Logistics' || currentUserRole === 'Admin') && access.canRecord(record.category, 'WRITE');
 
   const [returnToDraftOpen, setReturnToDraftOpen] = useState(false);
 
   const handleStatusChange = async (newStatus: DeliveryStatus) => {
-    if (!canEdit || newStatus === record.status || updating) return;
+    if (!canEdit || !access.canRecord(record.category, 'STATUS') || newStatus === 'Delivered' && !access.canRecord(record.category, 'COMPLETE') || newStatus === 'Draft' && !access.canRecord(record.category, 'SUBMIT') || newStatus === record.status || updating) return;
     if (newStatus === 'Draft') { setReturnToDraftOpen(true); return; }
     const error = completionError(record, newStatus, receivedBy, readiness);
     if (error) { setStatusError(error); return; }
@@ -524,7 +528,7 @@ function OverviewTab({
         {statusError && <p role="alert" className="text-xs text-red-700">{statusError}</p>}
         {canEdit ? (
           <>
-            {isDraftRecord(record) && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && <div className="space-y-2">
+            {access.canRecord(record.category, 'UPDATE') && isDraftRecord(record) && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && <div className="space-y-2">
               <label className="block text-xs font-bold text-slate-700">Reference (required to submit)</label>
               <input value={draftReference} onChange={e => setDraftReference(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
               <button type="button" disabled={updating || !statusRemarks.trim() || !draftReference.trim() || draftReference === record.reference} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold disabled:opacity-50"
@@ -534,7 +538,7 @@ function OverviewTab({
               <PodUploader recordId={record.id} required disabled={updating} />
               <label className="block text-xs font-bold text-slate-700">Received By *</label>
               <input value={receivedBy} onChange={e => setReceivedBy(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
-              {canRecordTimeIn(record) && (currentUserRole === 'Logistics' || currentUserRole === 'Admin') && <button type="button" disabled={updating || !statusRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs text-white disabled:opacity-50"
+              {access.canRecord(record.category, 'TIME_IN') && canRecordTimeIn(record) && (currentUserRole === 'Logistics' || currentUserRole === 'Admin') && <button type="button" disabled={updating || !statusRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs text-white disabled:opacity-50"
                 onClick={async () => { setUpdating(true); setStatusError(null); try { await timeInMutation.mutateAsync({ id: record.id, remarks: statusRemarks.trim() }); setStatusRemarks(''); notify.success('Time In recorded'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not record Time In.'); } finally { setUpdating(false); } }}>Record Time In</button>}
               {completionError(record, 'Delivered', receivedBy, readiness) && <p className="text-xs text-slate-600">{completionError(record, 'Delivered', receivedBy, readiness)}</p>}
             </>}
@@ -560,7 +564,7 @@ function OverviewTab({
                   <button
                     key={s}
                     onClick={() => handleStatusChange(s)}
-                    disabled={isActive || updating || !!completionError(record, s, receivedBy, readiness)}
+                    disabled={isActive || updating || !access.canRecord(record.category, 'STATUS') || (s === 'Delivered' && !access.canRecord(record.category, 'COMPLETE')) || (s === 'Draft' && !access.canRecord(record.category, 'SUBMIT')) || !!completionError(record, s, receivedBy, readiness)}
                     className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all disabled:cursor-default ${
                       isActive
                         ? (STATUS_ACTIVE[s] ?? 'bg-slate-700 text-white border-slate-700')

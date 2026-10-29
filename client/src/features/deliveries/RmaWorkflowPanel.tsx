@@ -1,3 +1,4 @@
+import { usePermissions } from '@/hooks/usePermissions';
 import { useEffect, useId, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '@/api';
@@ -19,6 +20,7 @@ type Action = 'assign' | 'start' | 'transport-complete' | 'receive' | 'complete'
 export default function RmaWorkflowPanel({ record: initialRecord, currentUserRole }: {
   record: DeliveryRecord; currentUserRole: UserRole;
 }) {
+  const access = usePermissions();
   const id = useId();
   const client = useQueryClient();
   const detail = useRecordDetailQuery(initialRecord);
@@ -34,12 +36,12 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
   const internalTransport = record.rma_movement === 'LOGISTICS_TRANSPORT';
   const awaitingTransport = internalTransport && record.rma_transport_status !== 'COMPLETED';
   const caps = allowed ? {
-    assign: allowed.assign && submitted && !finished && awaitingTransport && !record.rma_received_at && (currentUserRole === 'Logistics' || currentUserRole === 'Admin'),
-    transport: allowed.transport && submitted && !finished && awaitingTransport && currentUserRole === 'Driver',
-    receive: allowed.receive && submitted && !finished && !!record.rma_movement && !awaitingTransport && !record.rma_received_at && currentUserRole === 'TASS',
-    complete: allowed.complete && submitted && !finished && !awaitingTransport && !!record.rma_received_at && currentUserRole === 'TASS',
-    pod: allowed.pod && submitted && !finished && internalTransport && currentUserRole === 'Driver',
-    status: allowed.status && !finished && (currentUserRole === 'TASS' || currentUserRole === 'Admin'),
+    assign: access.canRecord('RMA', 'ASSIGN') && allowed.assign && submitted && !finished && awaitingTransport && !record.rma_received_at && (currentUserRole === 'Logistics' || currentUserRole === 'Admin'),
+    transport: access.canRecord('RMA', 'STATUS') && allowed.transport && submitted && !finished && awaitingTransport && currentUserRole === 'Driver',
+    receive: access.canRecord('RMA', 'RECEIVE') && allowed.receive && submitted && !finished && !!record.rma_movement && !awaitingTransport && !record.rma_received_at && currentUserRole === 'TASS',
+    complete: access.canRecord('RMA', 'COMPLETE') && allowed.complete && submitted && !finished && !awaitingTransport && !!record.rma_received_at && currentUserRole === 'TASS',
+    pod: access.canRecord('RMA', 'POD') && allowed.pod && submitted && !finished && internalTransport && currentUserRole === 'Driver',
+    status: access.canRecord('RMA', 'STATUS') && allowed.status && !finished && (currentUserRole === 'TASS' || currentUserRole === 'Admin'),
   } : undefined;
   const directory = useDriversQuery(caps?.assign === true);
   const { readiness, uploadStaged } = usePodAttachments(record.id);
@@ -69,6 +71,8 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
   };
   const mutation = useMutation({
     mutationFn: async (action: Action) => {
+      const permission = action === 'assign' ? caps?.assign : action === 'start' || action === 'transport-complete' ? caps?.transport : action === 'receive' ? caps?.receive : action === 'status' ? caps?.status : caps?.complete;
+      if (!permission) throw new Error('This action is no longer available for your account.');
       const precondition = { expected_version: dirty ? editVersion : version, remarks: remarks.trim() };
       if (!precondition.remarks) throw new Error('Enter remarks before saving.');
       if (action === 'assign') return api.assignRma(record.id, {

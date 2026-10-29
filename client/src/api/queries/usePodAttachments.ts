@@ -1,3 +1,4 @@
+import { assertCurrentRecord, canCurrentRecord, permissionStagingKey } from '../permissionRuntime';
 import { useIsMutating, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { api, type ApiPodAttachment } from '@/api';
 import { hasSavedPodPhoto, type PodReadiness } from '@/utils/podRequirement';
@@ -9,8 +10,9 @@ export const podStagedKey = (recordId: string) => ['pod-staged', recordId] as co
 
 export async function uploadStagedFiles(recordId: string, client?: QueryClient): Promise<void> {
   if (!recordId) return;
-  const staged = await getStagedFiles(recordId);
+  const staged = await getStagedFiles(permissionStagingKey(recordId));
   if (staged.length === 0) return;
+  assertCurrentRecord(recordId, 'POD');
   const queryKey = podAttachmentsKey(recordId);
   const stagedKey = podStagedKey(recordId);
   if (client) await client.cancelQueries({ queryKey });
@@ -43,8 +45,8 @@ export function usePodAttachments(recordId: string) {
 
   const stagedQuery = useQuery({
     queryKey: stagedKey,
-    queryFn: () => getStagedFiles(recordId),
-    enabled: Boolean(recordId),
+    queryFn: () => getStagedFiles(permissionStagingKey(recordId)),
+    enabled: Boolean(recordId) && canCurrentRecord(recordId, 'POD'),
   });
 
   const upload = useMutation({
@@ -62,10 +64,11 @@ export function usePodAttachments(recordId: string) {
 
   const stage = useMutation({
     mutationFn: async (files: readonly File[]) => {
+      assertCurrentRecord(recordId, 'POD');
       for (const file of files) {
         await saveStagedFile({
           id: Math.random().toString(36).substring(2, 15),
-          recordId,
+          recordId: permissionStagingKey(recordId),
           file,
           stagedAt: Date.now(),
         });
@@ -101,12 +104,12 @@ export function usePodAttachments(recordId: string) {
 
   const uploading = useIsMutating({ mutationKey }) > 0;
   const files = query.data ?? [];
-  const stagedFiles = stagedQuery.data ?? [];
+  const stagedFiles = canCurrentRecord(recordId, 'POD') ? stagedQuery.data ?? [] : [];
 
   const combinedHasPhoto = hasSavedPodPhoto(files) || stagedFiles.some(s => s.file.type.startsWith('image/'));
 
   const readiness: PodReadiness = {
-    loading: query.isPending || stagedQuery.isPending,
+    loading: query.isPending || canCurrentRecord(recordId, 'POD') && stagedQuery.isPending,
     uploading,
     hasPhoto: combinedHasPhoto,
     loadFailed: query.isError,

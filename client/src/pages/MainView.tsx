@@ -1,3 +1,4 @@
+import { usePermissions } from '@/hooks/usePermissions';
 import { useState, useMemo, useEffect } from "react";
 import { Layers, Plus } from "lucide-react";
 import { DeliveryRecord, DeliveryCategory, UserRole } from "@/types";
@@ -84,6 +85,7 @@ export default function MainView({
   onCreateRecord,
   effectiveScreens,
 }: MainViewProps) {
+  const access = usePermissions();
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createCategory, setCreateCategory] = useState<DeliveryCategory | null>(
@@ -103,10 +105,7 @@ export default function MainView({
     if (dateFrom) params.set("deliveryDateFrom", dateFrom);
     if (dateTo) params.set("deliveryDateTo", dateTo);
 
-    fetch(`${apiUrl("/records/status-history-counts")}?${params}`, {
-      credentials: "include",
-    })
-      .then((r) => (r.ok ? r.json() : null))
+    api.getStatusHistoryCounts(params)
       .then((data) => setStatusHistoryCounts(data ?? undefined))
       .catch(() => setStatusHistoryCounts(undefined));
   }, [activeFilter, dateFrom, dateTo]);
@@ -116,8 +115,9 @@ export default function MainView({
       Object.entries(CATEGORY_TO_SCREEN)
         .filter(([, screen]) => effectiveScreens.has(screen))
         .map(([cat]) => cat as DeliveryCategory)
+        .filter(cat => access.canRecord(cat, 'CREATE'))
         .filter((cat) => !(currentUserRole === "Logistics" && cat === "RMA")),
-    [effectiveScreens, currentUserRole],
+    [effectiveScreens, currentUserRole, access],
   );
 
   const sorted = useMemo(

@@ -21,6 +21,7 @@ import {
   useResetDemoDataMutation,
 } from '@/api/queries';
 
+import { permissionsFor } from '@/utils/permissions';
 import { getPageDataState, pageResources, type PageQueryState } from './pageDataState';
 
 const EMPTY_DRIVERS: ApiDriver[] = [];
@@ -30,10 +31,13 @@ export function isResourceQueryEnabled(
   user: ApiUser | null,
   currentScreen?: string
 ): boolean {
-  if (!user?.resources.includes(resource)) return false;
+  const p = permissionsFor(user);
+  if (!p.canResource(resource) || currentScreen && !p.canAccess(currentScreen)) return false;
   if (!currentScreen) return true;
   switch (resource) {
     case 'records':
+      if (CATEGORY_SCREENS[currentScreen] && !p.canCategory(CATEGORY_SCREENS[currentScreen])) return false;
+      if (p.v1 && !user?.snapshot?.readableCategories.length) return false;
       // Full lists belong on operational screens; global badges use aggregates.
       return (
         Boolean(CATEGORY_SCREENS[currentScreen]) ||
@@ -73,7 +77,8 @@ export function useAppData(
 ) {
   const queryClient = useQueryClient();
   // A forbidden screen cannot initiate protected data loading.
-  const routeAllowed = !currentScreen || Boolean(authUser?.effectiveScreens.includes(currentScreen));
+  const permissions = permissionsFor(authUser);
+  const routeAllowed = permissions.valid && (!currentScreen || permissions.canAccess(currentScreen));
   const searchableResourceAllowed = (resource: string) => {
     const screens = authUser?.effectiveScreens ?? [];
     switch (resource) {
@@ -92,11 +97,11 @@ export function useAppData(
   const allowed = (resource: string) =>
     routeAllowed && (isResourceQueryEnabled(resource, authUser, currentScreen) ||
       // Opening global search explicitly requests its data; normal visits do not.
-      (searchOpen && authUser?.resources.includes(resource) === true && searchableResourceAllowed(resource)));
+      (searchOpen && permissions.canResource(resource) && searchableResourceAllowed(resource)));
 
   const recordsQuery = useRecordsQuery(allowed('records'));
   const { data: deliveryRecords = [] } = recordsQuery;
-  const { data: activeRecordCounts = null } = useRecordActiveCountsQuery(Boolean(authUser?.resources.includes('records')));
+  const { data: activeRecordCounts = null } = useRecordActiveCountsQuery(routeAllowed && permissions.canResource('records'));
   const companiesQuery = useCompaniesQuery(allowed('companies'));
   const customersQuery = useCustomersQuery(allowed('customers'));
   const suppliersQuery = useSuppliersQuery(allowed('suppliers'));

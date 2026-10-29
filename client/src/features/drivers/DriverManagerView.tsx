@@ -1,3 +1,4 @@
+import { usePermissions } from '@/hooks/usePermissions';
 import { useState, useRef, FormEvent } from 'react';
 import { Plus, X, Truck, UserCheck, Search, ToggleLeft, ToggleRight, Edit3, Check, MapPin } from 'lucide-react';
 import { ApiDriver } from '@/api';
@@ -47,7 +48,8 @@ export default function DriverManagerView({
     finally { actionPending.current = false; setSaving(false); }
   };
 
-  const canManage = currentUserRole === 'Logistics' || currentUserRole === 'Admin';
+  const access = usePermissions();
+  const canManage = (currentUserRole === 'Logistics' || currentUserRole === 'Admin') && access.canResource('drivers', 'WRITE');
   // TSK-119: only Admin adds or renames Drivers; Logistics adds Assistants and
   // keeps coverage/status edits. The server enforces the same rules.
   const isAdmin = currentUserRole === 'Admin';
@@ -64,6 +66,7 @@ export default function DriverManagerView({
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!access.canResource('drivers', 'CREATE')) return;
     const name = form.name.trim();
     if (!name) { setFormError('Name is required'); return; }
     const existing = drivers.find(d => d.name.toLowerCase() === name.toLowerCase() && d.type === form.type);
@@ -80,6 +83,7 @@ export default function DriverManagerView({
   };
 
   const saveEdit = async (d: ApiDriver) => {
+    if (!access.canResource('drivers', 'UPDATE')) return;
     const name = editForm.name.trim();
     if (!name || legacyCoverage(editForm.coverage_areas).length > 0) return;
     if (!await runAction(() => onUpdateDriver(d.id, { ...(canRename(d) ? { name } : {}), coverage_areas: editForm.coverage_areas }))) return;
@@ -87,10 +91,12 @@ export default function DriverManagerView({
   };
 
   const toggleActive = async (d: ApiDriver) => {
+    if (!access.canResource('drivers', 'UPDATE')) return;
     await runAction(() => onUpdateDriver(d.id, { is_active: !d.is_active }));
   };
 
   const handleDelete = async (id: string) => {
+    if (!access.canResource('drivers', 'DELETE')) return;
     if (!await runAction(() => onDeleteDriver(id))) return;
     setConfirmDeleteId(null);
   };
@@ -154,7 +160,7 @@ export default function DriverManagerView({
           </button>
 
           {/* Add button */}
-          {canManage && (
+          {canManage && access.canResource('drivers', 'CREATE') && (
             <button
               onClick={() => { setForm({ ...EMPTY_FORM, type: isAdmin ? typeFilter : 'ASSISTANT' }); setShowCreate(true); }}
               className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-[#0078C1] text-white hover:bg-[#1F3864] transition-all border-2 border-transparent"
@@ -277,14 +283,14 @@ export default function DriverManagerView({
                           ) : (
                             <>
                               <button
-                                onClick={() => startEdit(d)}
+                                disabled={!access.canResource('drivers', 'UPDATE')} onClick={() => startEdit(d)}
                                 className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
                                 title="Edit"
                               >
                                 <Edit3 className="w-3.5 h-3.5" />
                               </button>
                               {!d.is_active && <button
-                                onClick={() => toggleActive(d)}
+                                disabled={!access.canResource('drivers', 'UPDATE')} onClick={() => toggleActive(d)}
                                 className={`p-1.5 rounded-lg transition-colors ${
                                   d.is_active
                                     ? 'text-amber-500 hover:bg-amber-50'
@@ -294,7 +300,7 @@ export default function DriverManagerView({
                               >
                                 {d.is_active ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
                               </button>}
-                              {d.is_active && (confirmDeleteId === d.id ? (
+                              {access.canResource('drivers', 'DELETE') && d.is_active && (confirmDeleteId === d.id ? (
                                 <div className="flex items-center gap-1">
                                   <button
                                     onClick={() => handleDelete(d.id)}

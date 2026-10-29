@@ -1,3 +1,4 @@
+import { fetchProtectedAttachment } from '@/api';
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, ChevronLeft, ChevronRight, Download, Eye, File, FileText, ImageOff, Loader2, X } from 'lucide-react';
 import type { ApiPodAttachment } from '@/api';
@@ -326,7 +327,7 @@ function PodDocumentPreview({
     setPreviewUrl(null);
     setSpreadsheet(null);
     setActiveSheetIndex(0);
-    fetch(file.preview_url, { credentials: 'include', signal: controller.signal })
+    fetchProtectedAttachment(file.preview_url, controller.signal)
       .then(async response => {
         if (!response.ok) throw new Error(`Preview request failed (${response.status})`);
         if (isSpreadsheet) {

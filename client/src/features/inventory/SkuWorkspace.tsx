@@ -1,3 +1,4 @@
+import { usePermissions } from '@/hooks/usePermissions';
 import { useState, useEffect, useCallback } from 'react';
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Package, Layers,
@@ -198,7 +199,8 @@ function InventoryTab({
   const atp = inv?.atp ?? 0;
   const onHand = inv?.on_hand_qty ?? 0;
 
-  const canAdjust = currentUserRole === 'Admin' || currentUserRole === 'Logistics';
+  const access = usePermissions();
+  const canAdjust = (currentUserRole === 'Admin' || currentUserRole === 'Logistics') && access.canResource('skus', 'ADJUST');
 
   const [adjType, setAdjType] = useState<string>('Adjustment');
   const [adjQty, setAdjQty] = useState<string>('');

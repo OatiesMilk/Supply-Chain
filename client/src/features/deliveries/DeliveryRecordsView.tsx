@@ -1,3 +1,4 @@
+import { usePermissions } from '@/hooks/usePermissions';
 import { rmaWorkflowExportFields } from '@/utils/rmaTransport';
 import { selectableStatuses, manilaToday, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -98,6 +99,7 @@ export default function DeliveryRecordsView({
   clearDashboardFilter,
   onRefresh
 }: DeliveryRecordsViewProps) {
+  const access = usePermissions();
   const showAccountManagerFilter = category !== 'RMA';
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -250,8 +252,7 @@ export default function DeliveryRecordsView({
     if (driverFilter) params.set('driver', driverFilter);
     if (statusFilter !== 'All') params.set('status', statusFilter);
 
-    fetch(`${apiUrl('/records/status-history-counts')}?${params}`, { credentials: 'include' })
-      .then(r => r.ok ? r.json() : null)
+    api.getStatusHistoryCounts(params)
       .then(data => { if (active) setStatusHistoryCounts(data ?? undefined); })
       .catch(() => { if (active) setStatusHistoryCounts(undefined); });
     return () => { active = false; };
@@ -259,13 +260,14 @@ export default function DeliveryRecordsView({
 
 
 
-  const canEdit =
+  const roleCanEdit =
     currentUserRole === 'Sales Coordinator' ||
     (currentUserRole === 'Logistics' && category !== 'RMA') ||
     (currentUserRole === 'TASS' && category === 'RMA');
-  const canCreateRecord = canEdit && !(currentUserRole === 'Logistics' && category === 'Deliveries');
+  const canEdit = roleCanEdit && access.canRecord(category, 'UPDATE');
+  const canCreateRecord = roleCanEdit && access.canRecord(category, 'CREATE') && !(currentUserRole === 'Logistics' && category === 'Deliveries');
   // Driver assignment is Logistics-only (SoD enforcement)
-  const canAssignDriver = currentUserRole === 'Logistics' && category !== 'RMA';
+  const canAssignDriver = currentUserRole === 'Logistics' && category !== 'RMA' && access.canRecord(category, 'STATUS');
 
   // ── Record list filtering ──────────────────────────────────────────────────
   const categoryRecords = records.filter(r => r.category === category);
@@ -735,7 +737,7 @@ export default function DeliveryRecordsView({
             />
           )}
           {/* Generate Sample — Admin only */}
-          {currentUserRole === 'Admin' && (
+          {currentUserRole === 'Admin' && access.canResource('dataSampler', 'WRITE') && (
             <div className="relative">
               <button
                 onClick={() => { setShowSampler(p => !p); setSamplerResult(null); }}

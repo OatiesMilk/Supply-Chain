@@ -5,6 +5,7 @@ import { renderToString } from 'react-dom/server';
 import { type ApiUser } from '../src/api';
 import { AppRouter, type AppRouterProps } from '../src/routes/AppRouter';
 import { isResourceQueryEnabled } from '../src/hooks/useAppData';
+import { PERMISSION_SCREENS } from '../src/types/permissions';
 
 const mockUser = (role = 'ADMIN'): ApiUser => ({
   id: 'usr-1',
@@ -12,7 +13,7 @@ const mockUser = (role = 'ADMIN'): ApiUser => ({
   email: 'test@example.com',
   role: role as any,
   permissions: [],
-  effectiveScreens: ['dashboard', 'customers', 'suppliers', 'inventory'],
+  effectiveScreens: [...PERMISSION_SCREENS],
   resources: ['records', 'companies', 'customers', 'suppliers', 'skus', 'drivers', 'dashboard'],
   permissionVersion: 'v1',
 });
@@ -105,5 +106,6 @@ test('driver directory loads on every operational creation and assignment screen
   assert.equal(isResourceQueryEnabled('drivers', user, 'customers'), false);
   assert.equal(isResourceQueryEnabled('drivers', { ...user, resources: ['records'] }, 'deliveries'), false);
   const driver: ApiUser = { ...user, role: 'DRIVER', effectiveScreens: ['driver_dashboard'] };
-  assert.equal(isResourceQueryEnabled('records', driver, 'dashboard'), true);
+  assert.equal(isResourceQueryEnabled('records', driver, 'driver_dashboard'), true);
+  assert.equal(isResourceQueryEnabled('records', driver, 'dashboard'), false, 'a denied route cannot initiate a query');
 });

@@ -1,3 +1,4 @@
+import { usePermissions } from '@/hooks/usePermissions';
 import { manilaToday, manilaDateTimeInput, submissionErrors } from '@/utils/recordLifecycle';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
@@ -169,13 +170,13 @@ export default function AccountingCollectionView({
     const params = new URLSearchParams({ category: 'ACCOUNTING_COLLECTION', dateBasis: 'deliveryDate' });
     if (statusFilter !== 'All') params.set('status', statusFilter);
 
-    fetch(`${apiUrl('/records/status-history-counts')}?${params}`, { credentials: 'include' })
-      .then(r => r.ok ? r.json() : null)
+    api.getStatusHistoryCounts(params)
       .then(data => setStatusHistoryCounts(data ?? undefined))
       .catch(() => setStatusHistoryCounts(undefined));
   }, [statusFilter]);
 
-  const canEdit = currentUserRole === 'Sales Coordinator' || currentUserRole === 'Logistics';
+  const access = usePermissions();
+  const canEdit = (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Logistics') && access.canRecord('Accounting Collection', 'CREATE');
 
   const amOptions = useMemo(
     () => [...new Set(records.map(r => r.account_manager).filter(Boolean))].sort(),

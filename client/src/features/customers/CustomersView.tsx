@@ -1,3 +1,4 @@
+import { usePermissions } from '@/hooks/usePermissions';
 import { useState, FormEvent } from 'react';
 import { Plus, X } from 'lucide-react';
 import { Customer } from '@/types';
@@ -33,7 +34,8 @@ export default function CustomersView({
   const totalPages = Math.max(1, Math.ceil(customers.length / pageSize));
   const safeCurrentPage = Math.min(Math.max(1, page), totalPages);
 
-  const canCreate = currentUserRole !== 'TASS';
+  const access = usePermissions();
+  const canCreate = currentUserRole !== 'TASS' && access.canResource('customers', 'CREATE');
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();

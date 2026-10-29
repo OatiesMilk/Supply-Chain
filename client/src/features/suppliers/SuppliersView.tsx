@@ -1,3 +1,4 @@
+import { usePermissions } from '@/hooks/usePermissions';
 import { useState, FormEvent } from 'react';
 import { Plus, X } from 'lucide-react';
 import { Supplier, DeliveryRecord } from '@/types';
@@ -37,7 +38,8 @@ export default function SuppliersView({ suppliers, deliveryRecords, currentUserR
   const totalPages = Math.max(1, Math.ceil(suppliers.length / pageSize));
   const safeCurrentPage = Math.min(Math.max(1, page), totalPages);
 
-  const canCreate = currentUserRole !== 'TASS';
+  const access = usePermissions();
+  const canCreate = currentUserRole !== 'TASS' && access.canResource('suppliers', 'CREATE');
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();

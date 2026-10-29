@@ -1,3 +1,4 @@
+import { usePermissions } from '@/hooks/usePermissions';
 import RmaWorkflowPanel from '@/features/deliveries/RmaWorkflowPanel';
 import { useState, useCallback } from "react";
 import {
@@ -52,10 +53,11 @@ export default function DriverDashboard({
   onLogout,
   dataLoading,
 }: DriverDashboardProps) {
+  const access = usePermissions();
   const today = manilaToday();
   const timeInMutation = useRecordTimeInMutation();
   const queryClient = useQueryClient();
-  records = records.filter(record => !isDraftRecord(record));
+  records = records.filter(record => access.canRecord(record.category) && !isDraftRecord(record));
   const rmaRecords = records.filter(record => record.category === 'RMA' && record.rma_movement === 'LOGISTICS_TRANSPORT');
   records = records.filter(record => record.category !== 'RMA');
   const todayLabel = new Date().toLocaleDateString("en-PH", {
@@ -99,6 +101,7 @@ export default function DriverDashboard({
   const runsInScope = activeRecs.length + doneRecs.length;
 
   const handleTimeIn = (rec: DeliveryRecord) => {
+    if (!access.canRecord(rec.category, 'TIME_IN')) return;
     setPendingAction({ rec, status: "In Transit" });
     setRemarksInput("");
     setSaveFeedback(null);
@@ -109,6 +112,7 @@ export default function DriverDashboard({
     status: DeliveryStatus,
     remarks: string,
   ) => {
+    if (!access.canRecord(rec.category, 'STATUS') || status === 'Delivered' && !access.canRecord(rec.category, 'COMPLETE')) throw new Error('This action is no longer available for your account.');
     const extra =
       status === "Delivered"
         ? {
@@ -280,7 +284,7 @@ export default function DriverDashboard({
                   {!rec.time_in ? (
                     <button
                       onClick={() => handleTimeIn(rec)}
-                      disabled={saving || !canRecordTimeIn(rec)}
+                      disabled={saving || !access.canRecord(rec.category, 'TIME_IN') || !canRecordTimeIn(rec)}
                       className="w-full py-2.5 rounded-xl font-bold text-xs tracking-wide uppercase bg-blue-600 hover:bg-blue-700 text-white transition-all flex items-center justify-center gap-2"
                     >
                       <Clock className="w-4 h-4" /> Record Time In
@@ -323,7 +327,7 @@ export default function DriverDashboard({
                         setRemarksInput("");
                         setSaveFeedback(null);
                       }}
-                      disabled={saving || !(rec.allowed_statuses ?? []).includes("Delivered") || !!completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}
+                      disabled={saving || !access.canRecord(rec.category, 'COMPLETE') || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes("Delivered") || !!completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}
                       className="disabled:opacity-40 disabled:cursor-not-allowed py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-emerald-600 hover:bg-emerald-700 text-white transition-all flex flex-col items-center gap-1 cursor-pointer"
                     >
                       <CheckCircle className="w-4 h-4" /> Accomplish
@@ -334,7 +338,7 @@ export default function DriverDashboard({
                         setRemarksInput("");
                         setSaveFeedback(null);
                       }}
-                      disabled={saving || !(rec.allowed_statuses ?? []).includes("Pending")}
+                      disabled={saving || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes("Pending")}
                       className="disabled:opacity-40 py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-amber-500 hover:bg-amber-600 text-white transition-all flex flex-col items-center gap-1"
                     >
                       <Navigation className="w-4 h-4" /> Pending
@@ -345,7 +349,7 @@ export default function DriverDashboard({
                         setRemarksInput("");
                         setSaveFeedback(null);
                       }}
-                      disabled={saving || !(rec.allowed_statuses ?? []).includes("Rescheduled")}
+                      disabled={saving || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes("Rescheduled")}
                       className="disabled:opacity-40 py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-purple-500 hover:bg-purple-600 text-white transition-all flex flex-col items-center gap-1"
                     >
                       <RefreshCw className="w-4 h-4" /> Reschedule

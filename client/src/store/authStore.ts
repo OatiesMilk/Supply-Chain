@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { api, ApiUser } from '@/api';
 import { UserRole } from '@/types';
+import { completePermissionSession, permissionSessionKey } from '@/utils/permissions';
+import { installPermissionContext } from '@/api/permissionRuntime';
 import { useUIStore } from './uiStore';
 
 export const roleFromApi = (role: ApiUser['role']): UserRole => {
@@ -68,8 +70,7 @@ function needsLogout() {
 }
 
 export function requireCompleteSession(user: ApiUser): ApiUser {
-  if (!user || !Array.isArray(user.permissions) || !Array.isArray(user.effectiveScreens)
-    || !Array.isArray(user.resources) || typeof user.permissionVersion !== 'string') {
+  if (!completePermissionSession(user) || !Array.isArray(user.permissions)) {
     throw new Error('Unable to load account permissions. Please try signing in again.');
   }
   return user;
@@ -82,6 +83,7 @@ export const useAuthStore = create<AuthStore>()(
     logoutPending: false,
 
     setAuthUser: (user: ApiUser | null) => {
+      if (user) requireCompleteSession(user);
       authRevision++;
       set({ authUser: user });
     },
@@ -121,14 +123,16 @@ export const useAuthStore = create<AuthStore>()(
         try {
           const user = requireCompleteSession(await api.me());
           if (revision !== authRevision || get().authUser?.id !== account.id) return;
-          if (user.id !== account.id) {
+          if (user.id !== account.id || account.activeMode === 'V1' && user.activeMode !== 'V1') {
             authRevision++;
             useUIStore.getState().resetSession();
             set({ authUser: null, authChecked: true });
             return;
           }
           if (JSON.stringify(user) !== JSON.stringify(get().authUser)) {
-            useUIStore.setState({ searchOpen: false, selectedRecordId: null, selectedProductId: null, accessRequestOpen: false });
+            if (permissionSessionKey(user) !== permissionSessionKey(account)) {
+              useUIStore.setState({ searchOpen: false, selectedRecordId: null, selectedProductId: null, accessRequestOpen: false, dashboardFilterId: null });
+            }
             set({ authUser: user });
           }
         } catch {
@@ -195,3 +199,5 @@ export function useAuth() {
     checkAuth,
   };
 }
+
+installPermissionContext(() => ({ user: useAuthStore.getState().authUser, screen: useAuthStore.getState().authUser?.role === 'DRIVER' ? 'driver_dashboard' : useUIStore.getState().currentScreen, epoch: authRevision }));

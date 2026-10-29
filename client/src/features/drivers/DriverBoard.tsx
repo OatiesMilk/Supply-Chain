@@ -1,3 +1,4 @@
+import { usePermissions } from '@/hooks/usePermissions';
 import React, { useEffect, useId, useState } from 'react';
 import { Truck, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { DeliveryRecord } from '@/types';
@@ -68,6 +69,7 @@ interface CardProps {
 
 const RecordCard: React.FC<CardProps> = function RecordCard({ record, onNavigate, onAssign, assignment, onEdit }) {
   const id = useId();
+  const canAssign = usePermissions().canRecord(record.category, 'ASSIGN');
 
   return (
     <article aria-label={`${record.reference}: ${record.company_name}`} aria-busy={assignment.pending} className="min-w-0 bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-3">
@@ -93,7 +95,7 @@ const RecordCard: React.FC<CardProps> = function RecordCard({ record, onNavigate
         <div className="flex gap-2"><dt className="shrink-0 text-slate-500">Module</dt><dd className="text-slate-800">{record.category}</dd></div>
       </dl>
       <div className="border-t border-slate-100 pt-3">
-        {assignment.editing ? (
+        {assignment.editing && canAssign ? (
           <div>
           <label htmlFor={`${id}-driver`} className="mb-1 block text-sm font-medium text-slate-700">Assign driver</label>
           <select
@@ -138,6 +140,7 @@ const RecordCard: React.FC<CardProps> = function RecordCard({ record, onNavigate
             <button
               type="button"
               aria-label={`Reassign ${record.reference || record.id}`}
+              disabled={!canAssign}
               onClick={() => onEdit(record.id, true)}
               className={`min-h-11 shrink-0 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-blue-700 hover:bg-blue-50 ${focusStyle}`}
             >
@@ -154,6 +157,7 @@ const RecordCard: React.FC<CardProps> = function RecordCard({ record, onNavigate
 
 export default function DriverBoard({ records, onNavigate, onUpdateRecord, currentUserName }: Props) {
   const id = useId();
+  const access = usePermissions();
   const driverColumnCount = useDriverColumnCount();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [areaFilter, setAreaFilter] = useState<string>('All');
@@ -180,14 +184,17 @@ export default function DriverBoard({ records, onNavigate, onUpdateRecord, curre
   }
 
   const onEdit = (recordId: string, editing: boolean) => {
-    if (records.find(record => record.id === recordId)?.category === 'RMA') {
+    const record = records.find(record => record.id === recordId);
+    if (!record || !access.canRecord(record.category, 'ASSIGN')) return;
+    if (record.category === 'RMA') {
       onNavigate('rma', recordId);
       return;
     }
     setAssignments(previous => ({ ...previous, [recordId]: { ...(previous[recordId] ?? idleAssignment), editing, error: '' } }));
   };
   const handleAssign = async (recordId: string, driver: string) => {
-    if (assignments[recordId]?.pending) return;
+    const record = records.find(record => record.id === recordId);
+    if (!record || !access.canRecord(record.category, 'ASSIGN') || assignments[recordId]?.pending) return;
     setAssignments(previous => ({ ...previous, [recordId]: { editing: true, pending: true, error: '' } }));
     try {
       // Save the stable Driver profile id; the server copies the display name.

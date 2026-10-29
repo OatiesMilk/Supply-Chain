@@ -11,6 +11,7 @@ import { syncAuthenticatedRoute } from '@/routes/screenRouting';
 import { lazyPage } from '@/routes/lazyPage';
 import { PageDataContext } from '@/routes/PageDataGate';
 import { useServerAvailability } from '@/hooks/useServerAvailability';
+import { permissionSessionKey } from '@/utils/permissions';
 import { DashboardFilterId } from '@/utils/dashboardFilters';
 import ServerUnavailableView from '@/features/auth/ServerUnavailableView';
 
@@ -63,7 +64,7 @@ function AppContent() {
   if (logoutPending) return <div role="status" className="min-h-screen flex items-center justify-center">Signing out...</div>;
   if (!authUser) return <LoginView onLoggedIn={login} />;
 
-  return <SessionApp key={`${authUser.id}:${authUser.name}:${authUser.permissionVersion}`} />;
+  return <SessionApp key={`${authUser.name}:${permissionSessionKey(authUser)}`} />;
 }
 
 function SessionApp() {

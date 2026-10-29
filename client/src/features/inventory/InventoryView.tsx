@@ -1,3 +1,4 @@
+import { usePermissions } from '@/hooks/usePermissions';
 import React, { useState, useEffect, useRef } from 'react';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { Search, Filter } from 'lucide-react';
@@ -24,6 +25,7 @@ export default function InventoryView({
   selectedProductIdFromDashboard,
   clearSelectedProductId
 }: InventoryViewProps) {
+  const access = usePermissions();
   const [creating, setCreating] = useState(false);
   const [createdCode, setCreatedCode] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -127,7 +129,7 @@ export default function InventoryView({
 
   return (
     <div className="space-y-4" id="inventory-view-container">
-      {currentUserRole === 'Admin' && creating && <CreateSkuForm onCancel={() => setCreating(false)} onCreated={sku => {
+      {currentUserRole === 'Admin' && access.canResource('skus', 'CREATE') && creating && <CreateSkuForm onCancel={() => setCreating(false)} onCreated={sku => {
         setCreating(false); setCreatedCode(sku.sku_code);
         setSearchTerm(''); setAppliedSearchTerm(''); setCategoryFilter('ALL'); setWarehouseFilter('ALL'); setStatusFilter('ALL'); setPage(1);
       }} />}
@@ -146,8 +148,8 @@ export default function InventoryView({
                 className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-[#1F3864] focus:bg-white transition-all font-mono"
               />
             </div>
-            {currentUserRole === 'Admin' && !creating && <button type="button" onClick={() => { setCreating(true); setCreatedCode(null); }} className="rounded-lg bg-[#0078C1] px-4 py-2 text-xs font-semibold text-white">Create SKU</button>}
-            {(currentUserRole === 'Admin' || currentUserRole === 'Logistics') && (
+            {currentUserRole === 'Admin' && access.canResource('skus', 'CREATE') && !creating && <button type="button" onClick={() => { setCreating(true); setCreatedCode(null); }} className="rounded-lg bg-[#0078C1] px-4 py-2 text-xs font-semibold text-white">Create SKU</button>}
+            {(currentUserRole === 'Admin' || currentUserRole === 'Logistics') && access.canResource('skus') && (
               <ExportMenu
                 rows={filteredSkus.map(sku => ({
                   sku_code: sku.sku_code,
