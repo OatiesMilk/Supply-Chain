@@ -1,6 +1,7 @@
 ﻿import { afterEach, beforeEach, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
+import sharp from 'sharp';
 import { prisma } from '../src/db';
 import records from '../src/routes/records';
 import { signToken } from '../src/middleware/auth';
@@ -180,14 +181,15 @@ test('missing attachment returns 404', async () => {
   assert.equal(r.status, 404);
 });
 
-test('verified PNG preview streams inline with private no-store headers', async () => {
+test('verified JPG preview streams inline with private no-store headers', async () => {
   stub(prisma.deliveryRecord, 'findFirst', async () => deliveryRecord as any);
-  stub(prisma.podAttachment, 'findFirst', async () => imageAttachment as any);
-  const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
+  const imageBytes = await sharp({ create: { width: 1, height: 1, channels: 3, background: '#336699' } }).jpeg().toBuffer();
+  stub(prisma.podAttachment, 'findFirst', async () => ({ ...imageAttachment, size: imageBytes.length }) as any);
   const { Readable } = await import('node:stream');
-  stub(podStorage as any, 'read', async () => imageBytes);
+  const readSpy = stub(podStorage as any, 'read', async () => imageBytes);
   stub(podStorage as any, 'open', async () => Readable.from([imageBytes]));
   const r = await previewRequest('att-img');
+  assert.equal(readSpy.mock.callCount(), 1);
   assert.equal(r.status, 200);
   assert.ok(r.bytes?.equals(imageBytes));
   assert.match(r.headers?.['Content-Disposition'] ?? '', /^inline;/);
@@ -244,8 +246,10 @@ test('DOCX preview keeps hostile document text inert and strips unsafe HTML attr
   const r = await previewRequest('att-docx');
   assert.equal(r.status, 200);
   assert.ok(r.html);
-  assert.doesNotMatch(r.html!, /<script\b|\sonerror\s*=|<img\b/i);
-  assert.match(r.html!, /&lt;script&gt;alert\(2\)&lt;\/script&gt;/i);
+  const body = r.html!.match(/<body>([\s\S]*?)<\/body>/i)?.[1] ?? '';
+  assert.doesNotMatch(body, /<(?:script|img)\b/i);
+  assert.doesNotMatch(body, /<[^>]*\sonerror\s*=/i);
+  assert.match(body, /&lt;img src=x onerror=alert\(1\)&gt;&lt;script&gt;alert\(2\)&lt;\/script&gt;/i);
   assert.match(r.headers?.['Content-Security-Policy'] ?? '', /default-src 'none'/);
   assert.match(r.headers?.['Content-Security-Policy'] ?? '', /frame-ancestors 'self'/);
 });

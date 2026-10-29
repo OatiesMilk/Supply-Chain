@@ -18,16 +18,16 @@ const row = (id: string, day: string): DeliveryRecord => ({
   account_manager: 'Casey', vehicle: 'Van', item_type: 'Unit', remarks: '',
 } as DeliveryRecord);
 
-async function withMenus(run: (dom: JSDOM, state: { current: RouteSlipPeriodSelection; blob?: Blob; calls: RecordListFilters[] }) => Promise<void>, actualView = false) {
+async function withMenus(run: (dom: JSDOM, state: { current: RouteSlipPeriodSelection; blob?: Blob; filename?: string; calls: RecordListFilters[] }) => Promise<void>, actualView = false) {
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost', pretendToBeVisual: true });
   const saved = Object.getOwnPropertyDescriptors(globalThis);
   const globals = { window: dom.window, document: dom.window.document, navigator: dom.window.navigator, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement, Node: dom.window.Node, Document: dom.window.Document, MutationObserver: dom.window.MutationObserver, getComputedStyle: dom.window.getComputedStyle.bind(dom.window), requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window), cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window), IS_REACT_ACT_ENVIRONMENT: true };
   for (const [key, value] of Object.entries(globals)) Object.defineProperty(globalThis, key, { value, configurable: true });
   const oldCreate = URL.createObjectURL, oldRevoke = URL.revokeObjectURL, oldFetch = globalThis.fetch;
-  const state: { current: RouteSlipPeriodSelection; blob?: Blob; calls: RecordListFilters[] } = { current: { mode: 'range', dateFrom: '2026-10-27', dateTo: '2026-10-29' }, calls: [] };
+  const state: { current: RouteSlipPeriodSelection; blob?: Blob; filename?: string; calls: RecordListFilters[] } = { current: { mode: 'range', dateFrom: '2026-10-27', dateTo: '2026-10-29' }, calls: [] };
   URL.createObjectURL = blob => { state.blob = blob as Blob; return 'blob:route-slip'; };
   URL.revokeObjectURL = () => {};
-  dom.window.HTMLAnchorElement.prototype.click = function() {};
+  dom.window.HTMLAnchorElement.prototype.click = function() { state.filename = this.download; };
   globalThis.fetch = async () => new Response('', { status: 404 });
   const pages = mock.method(api, 'getPagedRecords', async (query: RecordListFilters) => {
     state.calls.push({ ...query });
@@ -87,22 +87,12 @@ async function inputDate(dom: JSDOM, index: number, value: string) {
   const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!;
   await act(async () => { setter.call(node, value); node.dispatchEvent(new dom.window.Event('input', { bubbles: true })); node.dispatchEvent(new dom.window.Event('change', { bubbles: true })); });
 }
-async function waitDownload(dom: JSDOM, state: { blob?: Blob }) {
-  let downloadButton: HTMLButtonElement | undefined;
-  for (let tries = 0; !downloadButton && tries < 100; tries++) {
-    downloadButton = [...dom.window.document.querySelectorAll<HTMLButtonElement>('button')]
-      .find(node => node.textContent?.trim().startsWith('Download'));
-    if (!downloadButton) await new Promise(resolve => setTimeout(resolve, 20));
-  }
-  if (!downloadButton) {
-    throw new Error([...dom.window.document.querySelectorAll<HTMLButtonElement>('button')]
-      .map(node => node.textContent?.trim()).join(' | '));
-  }
-  await click(downloadButton);
+async function waitDownload(state: { blob?: Blob; filename?: string }) {
   await act(async () => {
     for (let tries = 0; !state.blob && tries < 100; tries++) await new Promise(resolve => setTimeout(resolve, 20));
   });
   assert.ok(state.blob, 'generated an actual download');
+  assert.match(state.filename ?? '', /\.xlsx$/i, 'download keeps the Excel filename');
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(Buffer.from(await state.blob!.arrayBuffer()) as any);
   const values: string[] = [];
@@ -145,7 +135,7 @@ test('dedicated and general export paths include later pages and retain every ac
       state.blob = undefined; state.calls = [];
       await click(button(dom, entry === 'dedicated' ? 'Route Slip' : 'Export'));
       await click(button(dom, entry === 'dedicated' ? 'Excel (Current)' : 'Route Slip — Excel'));
-      const text = await waitDownload(dom, state);
+      const text = await waitDownload(state);
       assert.match(text, /MATCH0/);
       assert.match(text, /LATEPAGE/);
       assert.match(text, /Period: 27 Oct 2026 – 29 Oct 2026/);
@@ -191,7 +181,7 @@ test('the actual DeliveryRecordsView fetches every page with its selected filter
     await inputDate(dom, 1, '2026-10-29');
     state.calls = [];
     await click(button(dom, 'Excel (Current)'));
-    const text = await waitDownload(dom, state);
+    const text = await waitDownload(state);
     assert.match(text, /LATEPAGE/);
     assert.match(text, /MATCH0/);
     assert.equal(text.includes('CACHEDONLY'), false);
