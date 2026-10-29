@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db';
 import { requireResource, requireAuth } from '../middleware/auth';
+import { recordScope } from '../services/recordAccess';
 import { manilaTodayRange, manilaWeekStart } from '../services/dateSemantics';
 
 const router = Router();
@@ -8,15 +9,16 @@ const router = Router();
 router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res) => {
   const { start, end, dateStr } = manilaTodayRange();
   const role = req.user!.role;
+  const scope = recordScope(req.user!);
 
   // ── SALES_COORDINATOR ────────────────────────────────────────────────────────
   if (role === 'SALES_COORDINATOR') {
     const [deliveriesToday, pendingDriverAssignment, onHold, rescheduled, accomplishedToday] = await Promise.all([
-      prisma.deliveryRecord.count({ where: { deletedAt: null, category: 'DELIVERY', draft: false, deliveryDate: dateStr, status: 'SCHEDULED' } }),
-      prisma.deliveryRecord.count({ where: { deletedAt: null, category: 'DELIVERY', draft: false, driver: '', status: { not: 'ACCOMPLISHED' } } }),
-      prisma.deliveryRecord.count({ where: { deletedAt: null, category: 'DELIVERY', draft: false, status: 'ON_HOLD' } }),
-      prisma.deliveryRecord.count({ where: { deletedAt: null, category: 'DELIVERY', draft: false, status: 'RESCHEDULED' } }),
-      prisma.deliveryRecord.count({ where: { deletedAt: null, category: 'DELIVERY', draft: false, status: 'ACCOMPLISHED', timeOut: { gte: start.toISOString(), lt: end.toISOString() } } })
+      prisma.deliveryRecord.count({ where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, deliveryDate: dateStr, status: 'SCHEDULED' } }),
+      prisma.deliveryRecord.count({ where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, driver: '', status: { not: 'ACCOMPLISHED' } } }),
+      prisma.deliveryRecord.count({ where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, status: 'ON_HOLD' } }),
+      prisma.deliveryRecord.count({ where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, status: 'RESCHEDULED' } }),
+      prisma.deliveryRecord.count({ where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, status: 'ACCOMPLISHED', timeOut: { gte: start.toISOString(), lt: end.toISOString() } } })
     ]);
     return res.json({
       role: 'SALES_COORDINATOR',
@@ -32,16 +34,16 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
   if (role === 'LOGISTICS') {
     const [assignedToday, unassignedCount, completedToday, onHoldRescheduled] = await Promise.all([
       prisma.deliveryRecord.count({
-        where: { deletedAt: null, category: 'DELIVERY', draft: false, deliveryDate: dateStr, NOT: { driver: '' }, status: { not: 'ACCOMPLISHED' } }
+        where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, deliveryDate: dateStr, NOT: { driver: '' }, status: { not: 'ACCOMPLISHED' } }
       }),
       prisma.deliveryRecord.count({
-        where: { deletedAt: null, category: 'DELIVERY', draft: false, driver: '', status: { not: 'ACCOMPLISHED' } }
+        where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, driver: '', status: { not: 'ACCOMPLISHED' } }
       }),
       prisma.deliveryRecord.count({
-        where: { deletedAt: null, category: 'DELIVERY', draft: false, status: 'ACCOMPLISHED', timeOut: { gte: start.toISOString(), lt: end.toISOString() } }
+        where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, status: 'ACCOMPLISHED', timeOut: { gte: start.toISOString(), lt: end.toISOString() } }
       }),
       prisma.deliveryRecord.count({
-        where: { deletedAt: null, category: 'DELIVERY', draft: false, status: { in: ['ON_HOLD', 'RESCHEDULED'] } }
+        where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, status: { in: ['ON_HOLD', 'RESCHEDULED'] } }
       })
     ]);
     return res.json({
@@ -57,20 +59,20 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
   if (role === 'TASS') {
     const [openRma, rmaOnHold, pendingProcurementPickup, pendingVerification, verifiedToday] = await Promise.all([
       prisma.deliveryRecord.count({
-        where: { deletedAt: null, category: 'RMA', status: { in: ['SCHEDULED', 'PENDING'] } }
+        where: { AND: [scope], deletedAt: null, category: 'RMA', status: { in: ['SCHEDULED', 'PENDING'] } }
       }),
       prisma.deliveryRecord.count({
-        where: { deletedAt: null, category: 'RMA', status: 'ON_HOLD' }
+        where: { AND: [scope], deletedAt: null, category: 'RMA', status: 'ON_HOLD' }
       }),
       prisma.deliveryRecord.count({
-        where: { deletedAt: null, category: 'PROCUREMENT_PICKUP', status: { in: ['SCHEDULED', 'PENDING'] } }
+        where: { AND: [scope], deletedAt: null, category: 'PROCUREMENT_PICKUP', status: { in: ['SCHEDULED', 'PENDING'] } }
       }),
       prisma.deliveryRecord.count({
-        where: { deletedAt: null, category: 'ACCOUNTING_COLLECTION', status: 'ACCOMPLISHED', collectionVerified: false }
+        where: { AND: [scope], deletedAt: null, category: 'ACCOUNTING_COLLECTION', status: 'ACCOMPLISHED', collectionVerified: false }
       }),
       prisma.deliveryRecord.count({
         where: {
-          deletedAt: null,
+          AND: [scope], deletedAt: null,
           category: 'ACCOUNTING_COLLECTION',
           collectionVerified: true,
           collectionVerifiedAt: { gte: start, lt: end }
@@ -103,17 +105,17 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
     ] = await Promise.all([
       prisma.user.count({ where: { isActive: true } }),
       prisma.user.groupBy({ by: ['role'], where: { isActive: true }, _count: { _all: true } }),
-      prisma.deliveryRecord.count({ where: { deletedAt: null, createdAt: { gte: weekStart } } }),
+      prisma.deliveryRecord.count({ where: { AND: [scope], deletedAt: null, createdAt: { gte: weekStart } } }),
       prisma.deliveryRecord.count({
         where: {
-          deletedAt: null,
+          AND: [scope], deletedAt: null,
           category: 'ACCOUNTING_COLLECTION',
           status: 'ACCOMPLISHED',
           collectionVerified: false
         }
       }),
       prisma.auditLog.count({ where: { timestamp: { gte: start, lt: end } } }),
-      prisma.deliveryRecord.groupBy({ by: ['status'], where: { deletedAt: null }, _count: { _all: true } }),
+      prisma.deliveryRecord.groupBy({ by: ['status'], where: { AND: [scope], deletedAt: null }, _count: { _all: true } }),
       prisma.auditLog.findMany({
         orderBy: { timestamp: 'desc' },
         take: 10,

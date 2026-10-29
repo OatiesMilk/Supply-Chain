@@ -28,6 +28,7 @@ export default function LogisticsDashboard({
   onRefresh,
 }: Props) {
   const today = manilaToday();
+  const rmaRequests = deliveryRecords.filter(record => record.category === 'RMA' && record.rma_movement === 'LOGISTICS_TRANSPORT' && record.is_draft !== 'Yes' && record.status !== 'Draft' && record.status !== 'Delivered' && record.rma_transport_status !== 'COMPLETED');
 
   // Derive lists from deliveryRecords (already filtered to Logistics-visible records by API)
   const unassignedRecords = filterRecordsForDashboard(deliveryRecords, 'log-unassigned', today);
@@ -41,7 +42,7 @@ export default function LogisticsDashboard({
     { driver: string; records: DeliveryRecord[] }
   > = {};
   for (const r of deliveryRecords) {
-    if (r.category === 'Deliveries' && r.is_draft !== 'Yes' && r.status !== 'Draft' && r.driver && r.delivery_date === today && r.status !== "Delivered") {
+    if ((r.category === 'Deliveries' || r.category === 'RMA' && r.rma_movement === 'LOGISTICS_TRANSPORT' && r.rma_transport_status !== 'COMPLETED') && r.is_draft !== 'Yes' && r.status !== 'Draft' && r.driver && r.delivery_date === today && r.status !== "Delivered") {
       if (!driversOutMap[r.driver])
         driversOutMap[r.driver] = { driver: r.driver, records: [] };
       driversOutMap[r.driver].records.push(r);
@@ -60,6 +61,10 @@ export default function LogisticsDashboard({
 
   return (
     <div className="space-y-6" id="logistics-dashboard">
+      <section aria-label="RMA transport requests" className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+        <h2 className="font-bold text-slate-900">RMA transport requests <span className="text-slate-500">({rmaRequests.length})</span></h2>
+        {rmaRequests.length === 0 ? <p className="text-sm text-slate-600">No RMA transport requests need dispatch.</p> : <ul className="divide-y divide-slate-100">{rmaRequests.map(record => <li key={record.id}><button type="button" onClick={() => onNavigate("rma", record.id)} className="min-h-11 w-full py-3 text-left text-sm text-blue-800"><span className="font-semibold">{record.rma_reference || record.id}</span> · {record.company_name} · {record.area} · {record.delivery_date} · {record.driver || "Needs driver"}</button></li>)}</ul>}
+      </section>
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Assigned Today */}

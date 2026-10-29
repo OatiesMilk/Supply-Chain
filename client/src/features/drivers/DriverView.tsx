@@ -1,3 +1,4 @@
+import RmaWorkflowPanel from '@/features/deliveries/RmaWorkflowPanel';
 import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft, CheckCircle2, ChevronRight, Clock3, MapPin, Package,
@@ -43,7 +44,7 @@ const statusTone: Record<DeliveryStatus, string> = {
 export default function DriverView({
   records, onUpdateRecord, outputActionConfigs, onNavigate,
 }: DriverViewProps) {
-  records = records.filter(record => !isDraftRecord(record));
+  records = records.filter(record => !isDraftRecord(record) && (record.category !== 'RMA' || record.rma_movement === 'LOGISTICS_TRANSPORT' && record.rma_transport_status !== 'COMPLETED'));
   const timeInMutation = useRecordTimeInMutation();
   const [search, setSearch] = useState('');
   const [selectedDriver, setSelectedDriver] = useState<string | null>(null);
@@ -323,7 +324,7 @@ export default function DriverView({
                       )}
 
                       {selectedRecord.category === 'RMA' && (
-                        <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">RMA runs are view only for Logistics.</p>
+                        <RmaWorkflowPanel record={selectedRecord} currentUserRole="Logistics" />
                       )}
 
                       {selectedRecord.category !== 'RMA' && <div className="flex flex-col gap-4 border-t border-slate-200 pt-4">

@@ -251,6 +251,16 @@ model DeliveryRecord {
   customerContactName  String?
   customerContactEmail String?
   customerContactPhone String?
+  // Explicit responsibility; null historical rows stay outside driver dispatch.
+  rmaMovement          String?
+  rmaTransportStatus   String?
+  rmaTransportStartedAt DateTime?
+  rmaTransportCompletedAt DateTime?
+  rmaReceivedAt        DateTime?
+  rmaReceivedBy        String?
+  rmaRecipient         String?
+  rmaCompletedAt       DateTime?
+  rmaVersion           Int        @default(0)
 
   collectionVerified   Boolean   @default(false)
   collectionVerifiedBy String?
@@ -279,6 +289,7 @@ model DeliveryRecord {
   @@index([accountManager])
   @@index([linkedCollectionId])
   @@index([category, rmaReference])
+  @@index([category, rmaMovement, rmaTransportStatus])
 }
 
 model PodAttachment {

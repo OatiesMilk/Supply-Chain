@@ -161,7 +161,7 @@ export default function DriverBoard({ records, onNavigate, onUpdateRecord, curre
   const [assignments, setAssignments] = useState<Record<string, AssignmentState>>({});
 
   // Active (non-Delivered) records only for the board
-  const activeRecords = records.filter(r => r.status !== 'Delivered' && !isDraftRecord(r));
+  const activeRecords = records.filter(r => r.status !== 'Delivered' && !isDraftRecord(r) && (r.category !== 'RMA' || r.rma_movement === 'LOGISTICS_TRANSPORT' && r.rma_transport_status !== 'COMPLETED'));
 
   // Collect distinct areas for filter chips
   const allAreas = ['All', ...Array.from(new Set(activeRecords.map(r => r.area).filter(Boolean))).sort()];
@@ -179,9 +179,13 @@ export default function DriverBoard({ records, onNavigate, onUpdateRecord, curre
     byDriver[r.driver].push(r);
   }
 
-  const onEdit = (recordId: string, editing: boolean) => setAssignments(previous => ({
-    ...previous, [recordId]: { ...(previous[recordId] ?? idleAssignment), editing, error: '' },
-  }));
+  const onEdit = (recordId: string, editing: boolean) => {
+    if (records.find(record => record.id === recordId)?.category === 'RMA') {
+      onNavigate('rma', recordId);
+      return;
+    }
+    setAssignments(previous => ({ ...previous, [recordId]: { ...(previous[recordId] ?? idleAssignment), editing, error: '' } }));
+  };
   const handleAssign = async (recordId: string, driver: string) => {
     if (assignments[recordId]?.pending) return;
     setAssignments(previous => ({ ...previous, [recordId]: { editing: true, pending: true, error: '' } }));
@@ -192,7 +196,6 @@ export default function DriverBoard({ records, onNavigate, onUpdateRecord, curre
         ...(driver && !driverId ? { driver } : { driver_id: driverId }),
         remarks: driver ? `Driver assigned: ${driver}` : 'Driver unassigned',
         modified_by: `${currentUserName} (Logistics)`,
-        modified_at: new Date().toISOString()
       });
       setAssignments(previous => ({ ...previous, [recordId]: { ...idleAssignment, feedback: { message: driver ? 'Driver assigned successfully.' : 'Driver unassigned successfully.', type: 'success' } } }));
       setTimeout(() => setAssignments(prev => ({ ...prev, [recordId]: { ...(prev[recordId] ?? idleAssignment), feedback: undefined } })), 3000);

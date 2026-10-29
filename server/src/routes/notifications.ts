@@ -4,15 +4,18 @@ import { requireAuth, requireResource } from '../middleware/auth';
 import { sendEmail } from '../services/mailer';
 
 import { recordScope } from '../services/recordAccess';
+import { notificationVisibility } from '../services/notificationVisibility';
+import type { Notification } from '@prisma/client';
 
 const router = Router();
 
 router.get('/', requireAuth, async (req, res) => {
-  const notifications = await prisma.notification.findMany({
-    where: { userId: req.user!.id },
-    orderBy: { createdAt: 'desc' },
-    take: 50
-  });
+  const notifications = await prisma.$queryRaw<Notification[]>`
+    SELECT n.* FROM "Notification" n
+    LEFT JOIN "DeliveryRecord" r ON n."recordType" = 'DeliveryRecord' AND r."id" = n."recordId"
+    WHERE n."userId" = ${req.user!.id} AND ${notificationVisibility(req.user!)}
+    ORDER BY n."createdAt" DESC LIMIT 50
+  `;
   res.json(
     notifications.map(n => ({
       id: n.id,
@@ -27,10 +30,12 @@ router.get('/', requireAuth, async (req, res) => {
 });
 
 router.get('/unread-count', requireAuth, async (req, res) => {
-  const count = await prisma.notification.count({
-    where: { userId: req.user!.id, isRead: false }
-  });
-  res.json({ count });
+  const [result] = await prisma.$queryRaw<Array<{ count: number }>>`
+    SELECT COUNT(*)::integer AS count FROM "Notification" n
+    LEFT JOIN "DeliveryRecord" r ON n."recordType" = 'DeliveryRecord' AND r."id" = n."recordId"
+    WHERE n."userId" = ${req.user!.id} AND n."isRead" = false AND ${notificationVisibility(req.user!)}
+  `;
+  res.json({ count: result?.count ?? 0 });
 });
 
 router.patch('/read-all', requireAuth, async (req, res) => {

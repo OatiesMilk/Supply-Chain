@@ -1,3 +1,4 @@
+import { matchesRecordWhere } from './rmaTestPolicy';
 import { afterEach, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
@@ -35,14 +36,7 @@ test('transaction policy explicitly denies unknown roles and driver inventory de
 
 // Evaluate the actual query predicates against fixtures, so missing ownership,
 // category, and deletion restrictions expose records and fail the HTTP tests.
-function matches(record: any, where: any): boolean {
-  if (where.AND && !(Array.isArray(where.AND) ? where.AND : [where.AND]).every((part: any) => matches(record, part))) return false;
-  return Object.entries(where).every(([key, value]: [string, any]) => {
-    if (key === 'AND') return true;
-    if (value && typeof value === 'object' && 'in' in value) return value.in.includes(record[key]);
-    return record[key] === value;
-  });
-}
+const matches = matchesRecordWhere;
 
 test('HTTP transaction reads enforce driver ownership, category, inventory denial and live module revocation', async () => {
   let user = account();

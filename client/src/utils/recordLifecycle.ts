@@ -2,7 +2,7 @@ import type { DeliveryRecord, DeliveryStatus, UserRole } from '../types';
 
 export function submissionErrors(data: {
   company_name: string; company_id: string; reference: string; delivery_date: string; category?: string;
-  rma_reference?: string; rma_type?: string; purchase_date?: string;
+  rma_reference?: string; rma_type?: string; purchase_date?: string; rma_movement?: string | null;
   priority?: string; area?: string; account_manager?: string;
   customer_contact_name?: string; customer_contact_email?: string; customer_contact_phone?: string;
 }, isDraft: boolean): Record<string, string> {
@@ -13,6 +13,8 @@ export function submissionErrors(data: {
   if (!isRma && !isDraft && !data.reference.trim()) errors.reference = 'Reference (SAP number) is required';
   if (!isRma && !isDraft && !data.delivery_date) errors.delivery_date = 'Delivery Date is required';
   if (isRma) {
+    if (!isDraft && !['LOGISTICS_TRANSPORT', 'SUPPLIER_COLLECTION', 'INTERNAL_NO_DRIVER'].includes(data.rma_movement ?? '')) errors.rma_movement = 'Select a movement method before submitting';
+    if (!isDraft && data.rma_movement === 'LOGISTICS_TRANSPORT' && !deliveryScheduleState(data.delivery_date).valid) errors.delivery_date = 'A valid Delivery Date is required for Logistics transport';
     if (!data.priority?.trim()) errors.priority = 'Priority is required';
     else if (!['1 - Low', '2 - Moderate', '3 - High'].includes(data.priority)) errors.priority = 'Select a valid Priority';
     if (!data.area?.trim()) errors.area = 'Area is required';
@@ -29,6 +31,7 @@ export function isDraftRecord(record: Pick<DeliveryRecord, 'status' | 'is_draft'
 
 export function selectableStatuses(record: DeliveryRecord, role: UserRole): DeliveryStatus[] {
   return (record.allowed_statuses ?? []).filter(status => status !== 'In Transit' &&
+    (record.category !== 'RMA' || status !== 'Delivered' || role === 'TASS') &&
     (role !== 'Sales Coordinator' || status === 'Draft' || (isDraftRecord(record) && status === 'Scheduled')) &&
     (status !== 'Draft' || ((role === 'Sales Coordinator' || role === 'Admin' || (role === 'TASS' && record.category === 'RMA')) && !record.time_in)));
 }

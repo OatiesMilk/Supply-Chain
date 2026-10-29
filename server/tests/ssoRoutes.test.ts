@@ -1,4 +1,5 @@
-import { afterEach, mock, test } from 'node:test';
+import { installRmaPolicyLookup, rmaTestAccount } from './rmaTestPolicy';
+import { beforeEach, afterEach, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import cookieParser from 'cookie-parser';
@@ -16,7 +17,9 @@ const admin = { id: 'admin-1', name: 'Admin', email: 'admin@example.com', role: 
   authorizationRevision: 1n, permissions: [], permissionOverrides: [], permissionConversion: null, driverProfile: null };
 const sales = { ...admin, id: 'sales-1', role: 'SALES_COORDINATOR' as const };
 const target = { ...sales, id: 'target-1', email: 'approved@example.com', microsoftOid: null as string | null, microsoftApprovedAt: null as Date | null };
-afterEach(() => mock.restoreAll());
+let restoreRmaPolicy: (() => void) | undefined;
+beforeEach(() => { restoreRmaPolicy = installRmaPolicyLookup(); });
+afterEach(() => { restoreRmaPolicy?.(); mock.restoreAll(); });
 
 async function appServer() {
   const app = express();

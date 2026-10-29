@@ -1,6 +1,7 @@
 import type { Role } from '../middleware/auth';
 
 export type RunState = 'Draft' | 'Scheduled' | 'In Transit' | 'Delivered' | 'Pending' | 'On-Hold' | 'Rescheduled';
+export const RMA_COMPLETION_ROLE_ERROR = 'Only TASS may confirm receipt or complete an RMA.';
 export interface RunRecord {
   draft?: boolean; status: string; timeIn?: string | null; timeOut?: string | null;
   driver?: string; receivedBy?: string | null; category?: string; deliveryDate?: string | null;
@@ -90,6 +91,7 @@ export function allowedStatuses(record: RunRecord): RunState[] {
   });
 }
 export function transitionError(record: RunRecord, target: RunState, role: Role): string | null {
+  if (record.category === 'RMA' && target === 'Delivered' && role !== 'TASS') return RMA_COMPLETION_ROLE_ERROR;
   const tassRma = role === 'TASS' && record.category === 'RMA';
   if (record.draft && target === 'Scheduled' && !tassRma && !['SALES_COORDINATOR', 'ADMIN'].includes(role)) return 'Only Sales Coordinator, TASS for RMA, or Admin may submit or return drafts.';
   if (target === 'In Transit') return 'Use Record Time In to start this run.';

@@ -12,9 +12,9 @@ import { lazyPage } from '@/routes/lazyPage';
 import { PageDataContext } from '@/routes/PageDataGate';
 import { useServerAvailability } from '@/hooks/useServerAvailability';
 import { DashboardFilterId } from '@/utils/dashboardFilters';
+import ServerUnavailableView from '@/features/auth/ServerUnavailableView';
 
 const LoginView = lazyPage(() => import('@/features/auth/LoginView'));
-const ServerUnavailableView = lazyPage(() => import('@/features/auth/ServerUnavailableView'));
 const DriverDashboard = lazyPage(() => import('@/features/dashboard/DriverDashboard'));
 
 function AppContent() {

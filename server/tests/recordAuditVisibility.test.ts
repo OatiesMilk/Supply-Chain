@@ -1,3 +1,4 @@
+import { matchesRecordWhere } from './rmaTestPolicy';
 import { afterEach, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { prisma } from '../src/db';
@@ -16,13 +17,7 @@ function stub(target: any, key: string, handler: (...args: any[]) => any) {
 afterEach(() => { while (restores.length) restores.pop()!(); });
 
 // Evaluate the actual Prisma predicates so omitted scoping makes the tests fail.
-function matches(row: any, where: any): boolean {
-  return Object.entries(where).every(([key, value]: [string, any]) => {
-    if (key === 'AND') return (Array.isArray(value) ? value : [value]).every(part => matches(row, part));
-    if (value && typeof value === 'object' && 'in' in value) return value.in.includes(row[key]);
-    return row[key] === value;
-  });
-}
+const matches = matchesRecordWhere;
 
 // Invoke all real route middleware, including cookie auth, without a dev server.
 async function read(router: any, path: string, account: any) {
