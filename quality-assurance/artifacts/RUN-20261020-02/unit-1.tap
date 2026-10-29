@@ -1,0 +1,86 @@
+TAP version 13
+# Subtest: Layer 1 (Unit): Attachment Validation & Storage Quotas
+    # Subtest: File Extension & MIME Type Resolution
+        # Subtest: test_accepts_supported_document_and_image_extensions
+        ok 1 - test_accepts_supported_document_and_image_extensions
+          ---
+          duration_ms: 0.748824
+          type: 'test'
+          ...
+        # Subtest: test_rejects_unsupported_or_executable_extensions
+        ok 2 - test_rejects_unsupported_or_executable_extensions
+          ---
+          duration_ms: 0.172065
+          type: 'test'
+          ...
+        1..2
+    ok 1 - File Extension & MIME Type Resolution
+      ---
+      duration_ms: 1.783541
+      type: 'suite'
+      ...
+    # Subtest: Storage Quota Calculations (10 files / 50MB per record)
+        # Subtest: test_permits_upload_when_within_count_and_byte_limits
+        ok 1 - test_permits_upload_when_within_count_and_byte_limits
+          ---
+          duration_ms: 0.232857
+          type: 'test'
+          ...
+        # Subtest: test_rejects_upload_when_record_already_has_10_attachments
+        ok 2 - test_rejects_upload_when_record_already_has_10_attachments
+          ---
+          duration_ms: 0.183652
+          type: 'test'
+          ...
+        # Subtest: test_rejects_upload_when_cumulative_bytes_exceed_50mb
+        ok 3 - test_rejects_upload_when_cumulative_bytes_exceed_50mb
+          ---
+          duration_ms: 0.13676
+          type: 'test'
+          ...
+        1..3
+    ok 2 - Storage Quota Calculations (10 files / 50MB per record)
+      ---
+      duration_ms: 0.803032
+      type: 'suite'
+      ...
+    # Subtest: Magic Bytes Verification (Defense in Depth against Polyglots)
+        # Subtest: test_accepts_valid_pdf_structure_with_header_and_trailer
+        ok 1 - test_accepts_valid_pdf_structure_with_header_and_trailer
+          ---
+          duration_ms: 0.458125
+          type: 'test'
+          ...
+        # Subtest: test_rejects_spoofed_pdf_files_missing_header_or_eof
+        ok 2 - test_rejects_spoofed_pdf_files_missing_header_or_eof
+          ---
+          duration_ms: 0.269585
+          type: 'test'
+          ...
+        # Subtest: test_rejects_fake_word_documents_missing_ole_signature
+        ok 3 - test_rejects_fake_word_documents_missing_ole_signature
+          ---
+          duration_ms: 0.211215
+          type: 'test'
+          ...
+        1..3
+    ok 3 - Magic Bytes Verification (Defense in Depth against Polyglots)
+      ---
+      duration_ms: 1.279127
+      type: 'suite'
+      ...
+    1..3
+ok 1 - Layer 1 (Unit): Attachment Validation & Storage Quotas
+  ---
+  duration_ms: 4.481739
+  type: 'suite'
+  ...
+1..1
+# tests 8
+# suites 4
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 16.694297
