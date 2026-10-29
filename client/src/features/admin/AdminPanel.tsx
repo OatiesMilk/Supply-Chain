@@ -8,8 +8,12 @@ import { DashboardFilterId } from '@/utils/dashboardFilters';
 import { manilaToday } from '@/utils/recordLifecycle';
 
 import { useAuthStore } from '@/store/authStore';
+import RolesPermissions, { PolicyEditor } from './PolicyEditor';
+import PolicyAuditDiff from './PolicyAuditDiff';
+import { accountPolicyVersion, roleChangeVersion } from './accountPolicy';
+import type { UserPermissionEditor } from '@/types/permissionEditor';
 
-type Tab = 'users' | 'audit' | 'integrations';
+type Tab = 'users' | 'audit' | 'integrations' | 'permissions';
 
 const ROLE_OPTIONS = ['SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'ADMIN', 'DRIVER'] as const;
 const ROLE_LABELS: Record<string, string> = {
@@ -195,6 +199,7 @@ interface AdminPanelProps {
 }
 
 export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: AdminPanelProps) {
+  const activePermissionMode = useAuthStore(state => state.authUser?.activeMode);
   const initialAuditDate = dashboardFilterId === 'admin-audit-today' ? manilaToday() : '';
   const [tab, setTab] = useState<Tab>('users');
 
@@ -217,6 +222,8 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: '', email: '', role: '' });
   const [editLoading, setEditLoading] = useState(false);
+  const [actionPolicy, setActionPolicy] = useState<UserPermissionEditor | null>(null);
+  const [roleReview, setRoleReview] = useState<{ userId: string; form: typeof editForm; editor: UserPermissionEditor } | null>(null);
 
   const loadUsers = async () => {
     setUsersLoading(true);
@@ -240,7 +247,8 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
     setLinkingUserId(user.id);
     setEditNotice(null);
     try {
-      const { driver_profile } = await api.setUserDriverProfile(user.id, profileId || null);
+      const policy = await api.getUserPermissionEditor(user.id);
+      const { driver_profile } = await api.setUserDriverProfile(user.id, profileId || null, accountPolicyVersion(policy));
       setUsers(prev => prev.map(u => u.id === user.id ? { ...u, driver_profile } : u));
       setDriverProfiles((await api.getDrivers(true)).filter(p => p.type === 'DRIVER'));
     } catch (err) {
@@ -304,30 +312,39 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
     }
   };
 
-  const requestUserAction = (kind: 'deactivate' | 'activate' | 'delete', user: ApiUserAdmin) => {
+  const requestUserAction = async (kind: 'deactivate' | 'activate' | 'delete', user: ApiUserAdmin) => {
     setUserActionError(null);
     setUserAction({ kind, user });
+    setActionPolicy(null);
+    setUserActionLoading(true);
+    try { setActionPolicy(await api.getUserPermissionEditor(user.id)); }
+    catch (err) { setUserActionError(err instanceof Error ? err.message : 'Could not load current account policy'); }
+    finally { setUserActionLoading(false); }
   };
 
   const confirmUserAction = async () => {
-    if (!userAction || userActionLoading) return;
+    if (!userAction || userActionLoading || !actionPolicy) return;
     const { kind, user } = userAction;
     setUserActionError(null);
     setUserActionLoading(true);
     try {
       if (kind === 'delete') {
-        await api.deleteUser(user.id);
+        await api.deleteUser(user.id, accountPolicyVersion(actionPolicy));
         setUsers(prev => prev.filter(u => u.id !== user.id));
       } else {
         const updated = kind === 'deactivate'
-          ? await api.deactivateUser(user.id)
-          : await api.activateUser(user.id);
+          ? await api.deactivateUser(user.id, accountPolicyVersion(actionPolicy))
+          : await api.activateUser(user.id, accountPolicyVersion(actionPolicy));
         // Keep the Driver profile link, which this response does not include.
         setUsers(prev => prev.map(u => u.id === updated.id ? { ...u, ...updated } : u));
       }
       setUserAction(null);
     } catch (err) {
       setUserActionError(err instanceof ApiError ? err.message : `Failed to ${kind} user`);
+      if (err instanceof ApiError && err.status === 409) {
+        setActionPolicy(null);
+        setUserActionError(`${err.message}. Cancel and reopen this action to review the latest account before retrying.`);
+      }
     } finally {
       setUserActionLoading(false);
     }
@@ -338,20 +355,36 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
     setEditForm({ name: u.name, email: u.email, role: u.role });
   };
 
-  const handleEditSave = async (userId: string) => {
+  const persistUserEdit = async (userId: string, form: typeof editForm, editor?: UserPermissionEditor) => {
     setEditLoading(true);
     try {
-      const updated = await api.updateUser(userId, editForm);
+      const updated = await api.updateUser(userId, { ...form, ...(editor ? roleChangeVersion(editor) : {}) });
       // Leaving the DRIVER role unlinks the profile on the server.
       setUsers(prev => prev.map(u => u.id === updated.id
         ? { ...u, ...updated, driver_profile: u.role === 'DRIVER' && updated.role === 'DRIVER' ? u.driver_profile : null }
         : u));
       setEditingUserId(null);
+      setRoleReview(null);
     } catch (err) {
       setEditNotice(err instanceof ApiError ? err.message : 'Failed to update user');
+      if (err instanceof ApiError && err.status === 409) setRoleReview(null);
     } finally {
       setEditLoading(false);
     }
+  };
+
+  const handleEditSave = async (userId: string) => {
+    setEditLoading(true);
+    try {
+      const editor = await api.getUserPermissionEditor(userId, editForm.role);
+      if (editor.activeMode === 'V1' && editor.roleChange) {
+        setRoleReview({ userId, form: { ...editForm }, editor });
+      } else {
+        await persistUserEdit(userId, { ...editForm }, editor);
+      }
+    } catch (err) {
+      setEditNotice(err instanceof Error ? err.message : 'Could not review account permissions');
+    } finally { setEditLoading(false); }
   };
 
   // ── Integrations ──────────────────────────────────────────────────────────
@@ -452,7 +485,8 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
         onClear={clearDashboardFilter}
       />
       {/* Tab bar */}
-      <div className="flex border-b border-slate-200">
+      <div className="flex flex-wrap border-b border-slate-200">
+        <button className={tabClass('permissions')} onClick={() => setTab('permissions')}>Roles &amp; Permissions</button>
         <button className={tabClass('users')} onClick={() => setTab('users')}>
           <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> User Management</span>
         </button>
@@ -465,6 +499,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
       </div>
 
       {/* ── Tab 1: User Management ── */}
+      {tab === 'permissions' && <RolesPermissions users={users} />}
       {tab === 'users' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -718,10 +753,10 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                       {openPermissionsUserId === u.id && (
                         <tr>
                           <td colSpan={6} className="px-4 py-3 bg-slate-50 border-b border-slate-100">
-                            <PermissionsPanel
+                            {activePermissionMode === 'V1' ? <PolicyEditor role={u.role} user={u} onClose={() => setOpenPermissionsUserId(null)} /> : <PermissionsPanel
                               user={u}
                               onClose={() => setOpenPermissionsUserId(null)}
-                            />
+                            />}
                           </td>
                         </tr>
                       )}
@@ -913,7 +948,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                           </span>
                         </td>
                         <td className="px-4 py-3 font-mono text-[10px] text-slate-700">{e.record_id}</td>
-                        <td className="px-4 py-3 text-slate-600">{e.record_type}</td>
+                        <td className="px-4 py-3 text-slate-600">{e.record_type}<PolicyAuditDiff recordType={e.record_type} previous={e.previous} next={e.next} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -944,6 +979,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
       )}
       <ActionDialog
         open={userAction !== null}
+        confirmDisabled={!actionPolicy}
         title={userAction?.kind === 'delete' ? `Permanently delete ${userAction.user.name}?` : userAction?.kind === 'deactivate' ? `Deactivate ${userAction.user.name}?` : `Activate ${userAction?.user.name ?? 'user'}?`}
         description={userAction?.kind === 'delete'
           ? `${userAction.user.email} and their permissions will be removed. This cannot be undone. Users linked to business records cannot be deleted.`
@@ -957,6 +993,22 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
         onConfirm={confirmUserAction}
         onDismiss={() => { setUserAction(null); setUserActionError(null); }}
       />
+      <ActionDialog
+        open={roleReview !== null}
+        title="Review role change"
+        description={roleReview ? `Change this account from ${ROLE_LABELS[roleReview.editor.role]} to ${ROLE_LABELS[roleReview.form.role]}. Valid individual exceptions remain. Leaving Driver unlinks the Driver profile. Review any removed exceptions below before confirming.` : ''}
+        confirmLabel="Apply reviewed role change"
+        pending={editLoading}
+        confirmDisabled={!!roleReview?.editor.roleChange?.validationError}
+        error={roleReview?.editor.roleChange?.validationError}
+        onDismiss={() => setRoleReview(null)}
+        onConfirm={() => { if (roleReview) void persistUserEdit(roleReview.userId, roleReview.form, roleReview.editor); }}
+      >
+        <p className="text-sm text-slate-700">{roleReview?.editor.roleChange?.removedOverrides.length ? 'These exceptions will be removed:' : 'No individual exceptions need removal.'}</p>
+        <ul className="max-h-48 overflow-auto break-words text-sm text-slate-700">
+          {roleReview?.editor.roleChange?.removedOverrides.map(row => <li key={row.permissionKey}>{row.permissionKey}: {row.effect}</li>)}
+        </ul>
+      </ActionDialog>
       <ActionDialog
         open={editNotice !== null}
         title="Could not update user"
