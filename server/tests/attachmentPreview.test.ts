@@ -5,7 +5,7 @@ import { prisma } from '../src/db';
 import records from '../src/routes/records';
 import { signToken } from '../src/middleware/auth';
 import { podStorage } from '../src/services/podStorage';
-import { pdf, zipOf, oleFile, xlsx } from './attachmentFixtures';
+import { pdf, zipOf, xlsx } from './attachmentFixtures';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -59,7 +59,7 @@ function makeDocxBuffer(bodyText: string): Buffer {
   ]);
 }
 
-type PreviewResult = { status: number; body?: any; html?: string; bytes?: Buffer };
+type PreviewResult = { status: number; body?: any; html?: string; bytes?: Buffer; headers?: Record<string, string> };
 
 async function previewRequest(attachmentId: string, opts: { authenticated?: boolean } = {}): Promise<PreviewResult> {
   const routePath = '/:id/attachments/:attachmentId/preview';
@@ -82,8 +82,8 @@ async function previewRequest(attachmentId: string, opts: { authenticated?: bool
         clearTimeout(timer);
         const ct = headers['Content-Type'] ?? '';
         const all = Buffer.concat(chunks);
-        if (ct.includes('text/html')) resolve({ status: statusCode, html: all.toString('utf8') });
-        else resolve({ status: statusCode, bytes: all });
+        if (ct.includes('text/html')) resolve({ status: statusCode, html: all.toString('utf8'), headers });
+        else resolve({ status: statusCode, bytes: all, headers });
         cb();
       },
     });
@@ -103,7 +103,7 @@ async function previewRequest(attachmentId: string, opts: { authenticated?: bool
         if (typeof body === 'string') chunks.push(Buffer.from(body));
         const ct = headers['Content-Type'] ?? '';
         const all = Buffer.concat(chunks);
-        if (ct.includes('text/html')) resolve({ status: statusCode, html: all.toString('utf8') });
+        if (ct.includes('text/html')) resolve({ status: statusCode, html: all.toString('utf8'), headers });
         else { try { resolve({ status: statusCode, body: JSON.parse(all.toString()) }); } catch { resolve({ status: statusCode, body: all.toString() }); } }
         return this;
       },
@@ -122,7 +122,7 @@ async function previewRequest(attachmentId: string, opts: { authenticated?: bool
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-test('preview_url is set for PDF, DOC, DOCX and XLSX but is null for images', async () => {
+test('preview_url is set for PDF, DOCX, XLSX and verified image types, but not legacy DOC', async () => {
   stub(prisma.deliveryRecord, 'findFirst', async () => deliveryRecord as any);
   stub(prisma.podAttachment, 'findMany', async () => [pdfAttachment, docxAttachment, docAttachment, xlsxAttachment, imageAttachment] as any);
   stub(podStorage as any, 'read', async () => Buffer.alloc(0));
@@ -154,9 +154,9 @@ test('preview_url is set for PDF, DOC, DOCX and XLSX but is null for images', as
   const byId = Object.fromEntries((result.body as any[]).map(a => [a.id, a]));
   assert.match(byId['att-pdf'].preview_url, /\/preview$/);
   assert.match(byId['att-docx'].preview_url, /\/preview$/);
-  assert.match(byId['att-doc'].preview_url, /\/preview$/);
+  assert.equal(byId['att-doc'].preview_url, null);
   assert.match(byId['att-xlsx'].preview_url, /\/preview$/);
-  assert.equal(byId['att-img'].preview_url, null);
+  assert.match(byId['att-img'].preview_url, /\/preview$/);
 });
 
 test('unauthenticated request is rejected with 401', async () => {
@@ -166,6 +166,13 @@ test('unauthenticated request is rejected with 401', async () => {
   assert.equal(r.status, 401);
 });
 
+test('authenticated user without record access is denied before attachment lookup', async () => {
+  stub(prisma.deliveryRecord, 'findFirst', async () => null);
+  const r = await previewRequest('att-pdf');
+  assert.equal(r.status, 403);
+  assert.match(String(r.body?.error), /access denied/i);
+});
+
 test('missing attachment returns 404', async () => {
   stub(prisma.deliveryRecord, 'findFirst', async () => deliveryRecord as any);
   stub(prisma.podAttachment, 'findFirst', async () => null);
@@ -173,12 +180,18 @@ test('missing attachment returns 404', async () => {
   assert.equal(r.status, 404);
 });
 
-test('preview of an image returns 415 with a message listing supported types', async () => {
+test('verified PNG preview streams inline with private no-store headers', async () => {
   stub(prisma.deliveryRecord, 'findFirst', async () => deliveryRecord as any);
   stub(prisma.podAttachment, 'findFirst', async () => imageAttachment as any);
+  const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
+  const { Readable } = await import('node:stream');
+  stub(podStorage as any, 'read', async () => imageBytes);
+  stub(podStorage as any, 'open', async () => Readable.from([imageBytes]));
   const r = await previewRequest('att-img');
-  assert.equal(r.status, 415);
-  assert.match(String(r.body?.error), /PDF, DOC/);
+  assert.equal(r.status, 200);
+  assert.ok(r.bytes?.equals(imageBytes));
+  assert.match(r.headers?.['Content-Disposition'] ?? '', /^inline;/);
+  assert.equal(r.headers?.['Cache-Control'], 'private, no-store');
 });
 
 test('PDF preview streams bytes inline', async () => {
@@ -218,20 +231,40 @@ test('DOCX preview returns HTML containing the document text', async () => {
   assert.match(r.html!, /<!DOCTYPE html>/i);
   assert.match(r.html!, /Hello Preview/);
   assert.match(r.html!, /letter\.docx/);
+  assert.match(r.headers?.['Content-Security-Policy'] ?? '', /sandbox/);
+  assert.equal(r.headers?.['Cache-Control'], 'private, no-store');
 });
 
-test('DOC preview returns an HTML page (mammoth handles legacy OLE format)', async () => {
+test('DOCX preview keeps hostile document text inert and strips unsafe HTML attributes', async () => {
+  stub(prisma.deliveryRecord, 'findFirst', async () => deliveryRecord as any);
+  stub(prisma.podAttachment, 'findFirst', async () => docxAttachment as any);
+  // XML-escaped attacker content is representative of text copied into a Word document.
+  stub(podStorage as any, 'read', async () => makeDocxBuffer('&lt;img src=x onerror=alert(1)&gt;&lt;script&gt;alert(2)&lt;/script&gt;'));
+
+  const r = await previewRequest('att-docx');
+  assert.equal(r.status, 200);
+  assert.ok(r.html);
+  assert.doesNotMatch(r.html!, /<script\b|\sonerror\s*=|<img\b/i);
+  assert.match(r.html!, /&lt;script&gt;alert\(2\)&lt;\/script&gt;/i);
+  assert.match(r.headers?.['Content-Security-Policy'] ?? '', /default-src 'none'/);
+  assert.match(r.headers?.['Content-Security-Policy'] ?? '', /frame-ancestors 'self'/);
+});
+
+test('DOCX conversion failure returns a distinct actionable preview error', async () => {
+  stub(prisma.deliveryRecord, 'findFirst', async () => deliveryRecord as any);
+  stub(prisma.podAttachment, 'findFirst', async () => docxAttachment as any);
+  stub(podStorage as any, 'read', async () => Buffer.from('not a DOCX package'));
+  const r = await previewRequest('att-docx');
+  assert.equal(r.status, 500);
+  assert.match(String(r.body?.error), /preview could not be generated/i);
+});
+
+test('legacy DOC preview is explicitly unsupported and directs users to download or convert', async () => {
   stub(prisma.deliveryRecord, 'findFirst', async () => deliveryRecord as any);
   stub(prisma.podAttachment, 'findFirst', async () => docAttachment as any);
-  stub(podStorage as any, 'read', async () => oleFile('WordDocument'));
-
   const r = await previewRequest('att-doc');
-  // A structurally minimal OLE fixture may produce an empty body, but must not crash.
-  assert.ok(r.status === 200 || r.status === 500, `unexpected status ${r.status}`);
-  if (r.status === 200) {
-    assert.ok(r.html, 'expected HTML for DOC');
-    assert.match(r.html!, /<!DOCTYPE html>/i);
-  }
+  assert.equal(r.status, 415);
+  assert.match(String(r.body?.error), /legacy DOC files/i);
 });
 
 test('preview does not call podStorage.save (read-only, no duplicate uploads)', async () => {

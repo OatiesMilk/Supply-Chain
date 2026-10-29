@@ -32,7 +32,8 @@ function isPreviewable(file: ApiPodAttachment) {
 function previewLabel(file: ApiPodAttachment) {
   const kind = documentType(file);
   if (kind === 'PDF') return 'PDF';
-  if (kind === 'DOCX' || kind === 'DOC') return 'Word document';
+  if (kind === 'DOCX') return 'Word document';
+  if (kind === 'DOC') return 'Legacy Word document';
   if (kind === 'XLSX') return 'Excel spreadsheet';
   return kind;
 }
@@ -481,6 +482,7 @@ function PodDocumentPreview({
             <iframe
               title={`${previewLabel(file)} preview: ${file.name}`}
               src={previewUrl}
+              sandbox={file.mime_type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ? '' : undefined}
               onLoad={() => setLoading(false)}
               onError={() => {
                 setLoading(false);
@@ -566,7 +568,9 @@ export function PodAttachmentList({ files, onRemove, removeDisabled = false }: {
                   <span className="hidden sm:inline">Download</span>
                 </a>
                 {!isPreviewable(file) && (
-                  <span className="hidden max-w-44 text-[10px] text-slate-500 md:inline">Preview is unavailable for this format.</span>
+                  <span className="hidden max-w-52 text-[10px] text-slate-500 md:inline">
+                    {kind === 'DOC' ? 'Legacy .doc cannot be previewed. Convert to DOCX or PDF, or download to open locally.' : 'Preview is unavailable for this format.'}
+                  </span>
                 )}
                 {onRemove && (
                   <button

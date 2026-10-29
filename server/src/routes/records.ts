@@ -1,5 +1,6 @@
 import express, { Router } from 'express';
 import mammoth from 'mammoth';
+import sanitizeHtml from 'sanitize-html';
 import type { PodAttachment, Prisma } from '@prisma/client';
 import { prisma } from '../db';
 import { asyncRoute } from '../middleware/asyncRoute';
@@ -756,9 +757,10 @@ router.get('/:id/audit', requireAuth, requireResource('records'), requireRecordA
 // MIME types that the /preview endpoint can render in-app.
 const PREVIEWABLE_MIME_TYPES = new Set([
   'application/pdf',
-  'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'image/jpeg',
+  'image/png',
 ]);
 
 router.get('/:id/attachments', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
@@ -903,9 +905,20 @@ router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResour
 router.get('/:id/attachments/:attachmentId/preview', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
   const attachment = await prisma.podAttachment.findFirst({
     where: { id: req.params.attachmentId, recordId: req.params.id },
-    select: { mimeType: true, storageKey: true, originalName: true }
+    select: { mimeType: true, storageKey: true, originalName: true, size: true }
   });
   if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
+
+  // Preview responses contain private record content and must never be cached.
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  if (attachment.mimeType === 'image/jpeg' || attachment.mimeType === 'image/png') {
+    const isPhoto = await isStoredPodPhoto(attachment);
+    if (!isPhoto) return res.status(415).json({ error: 'This attachment is not a valid JPG or PNG image.' });
+    return void await streamAttachment(req, res, 'inline');
+  }
 
   if (
     attachment.mimeType === 'application/pdf' ||
@@ -914,16 +927,27 @@ router.get('/:id/attachments/:attachmentId/preview', requireAuth, requireResourc
     return void await streamAttachment(req, res, 'inline');
   }
 
-  const isWord = attachment.mimeType === 'application/msword' ||
-    attachment.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  const isWord = attachment.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   if (!isWord) {
-    return res.status(415).json({ error: 'In-app preview is available for PDF, DOC, DOCX, and XLSX attachments.' });
+    return res.status(415).json({ error: 'In-app preview is available for PDF, DOCX, XLSX, JPG, and PNG attachments. Convert legacy DOC files to DOCX or PDF, or download them to open locally.' });
   }
 
   // Convert Word document to HTML locally using mammoth — no external service.
   try {
     const bytes = await podStorage.read(attachment.storageKey);
-    const { value: bodyHtml, messages } = await mammoth.convertToHtml({ buffer: bytes });
+    const { value: convertedHtml, messages } = await mammoth.convertToHtml({ buffer: bytes });
+    const bodyHtml = sanitizeHtml(convertedHtml, {
+      allowedTags: ['p', 'br', 'div', 'span', 'strong', 'em', 'b', 'i', 'u', 's', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'a', 'img'],
+      allowedAttributes: { a: ['href', 'title'], img: ['src', 'alt', 'title', 'width', 'height'] },
+      allowedSchemes: ['http', 'https', 'mailto'],
+      allowedSchemesByTag: { img: ['data'] },
+      transformTags: {
+        img: (_tagName, attribs) => ({
+          tagName: 'img',
+          attribs: { ...attribs, ...(/^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(attribs.src ?? '') ? {} : { src: '' }) },
+        }),
+      },
+    });
     if (messages.some(m => m.type === 'error')) {
       console.warn('[POD preview] mammoth conversion warnings for', attachment.originalName, messages);
     }
@@ -931,6 +955,7 @@ router.get('/:id/attachments/:attachmentId/preview', requireAuth, requireResourc
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none';" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>${attachment.originalName.replace(/</g, '&lt;')}</title>
 <style>
@@ -946,6 +971,9 @@ router.get('/:id/attachments/:attachmentId/preview', requireAuth, requireResourc
 <body>${bodyHtml}</body>
 </html>`;
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox");
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(attachment.originalName)}.html"`);
     res.setHeader('Content-Length', String(Buffer.byteLength(html, 'utf8')));
