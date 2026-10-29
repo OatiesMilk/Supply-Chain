@@ -143,6 +143,7 @@ The final branch passed the following checks in the isolated local environment:
 | Browser spec/config TypeScript | Passed |
 | Production client build | Passed; existing large-chunk advisory remains |
 | `npx playwright test --config rma-dispatch.config.ts` from `e2e` | Three passed |
+| Existing Logistics sidebar/navigation regression, with the revised RMA action boundary | One passed |
 
 Browser verification used independent authenticated TASS, Logistics and Driver
 contexts, plus a second linked Driver to verify reassignment. The observations

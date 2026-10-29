@@ -447,7 +447,14 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
       await expect(page.locator('[id^="delivery-record-workspace-"]')).toBeVisible();
 
       if (module.path === 'rma') {
-        await expect(page.getByRole('tab', { name: 'Status & Actions', exact: true })).not.toBeVisible();
+        // RMA transport is visible to Logistics; physical receipt and final
+        // completion remain TASS-only even when assignment is available.
+        await page.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
+        const workflow = page.getByRole('region', { name: 'RMA transport', exact: true });
+        await expect(workflow).toBeVisible();
+        await expect(workflow.getByRole('button', {
+          name: /^(Confirm physical receipt|Complete RMA|Save RMA status)$/,
+        })).toHaveCount(0);
       }
 
       await page.getByRole('navigation').getByRole('button', { name: module.sidebarName }).click();
