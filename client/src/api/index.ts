@@ -1,3 +1,5 @@
+export interface RmaCapabilities { assign: boolean; transport: boolean; receive: boolean; complete: boolean; pod: boolean; status?: boolean; }
+
 /**
  * Thin fetch wrapper for the real Express + Prisma backend (server/). All
  * requests go through the Vite dev proxy at /api/* (see vite.config.ts), so
@@ -324,7 +326,7 @@ export interface ApiPodAttachment {
   size: number;
   uploaded_at: string;
   download_url: string;
-  preview_url?: string;
+  preview_url: string | null;
 }
 
 export interface ApiReportSummary {
@@ -526,6 +528,13 @@ export const api = {
     return request<any[]>(`/records/calendar-summary${qs ? `?${qs}` : ''}`);
   },
   getRecord: (id: string) => request<any>(`/records/${id}`),
+  getRmaCapabilities: (id: string) => request<RmaCapabilities>(`/records/${id}/rma-capabilities`),
+  assignRma: (id: string, data: { driver_id: string | null; vehicle?: string; driver_assistants?: string[]; expected_version: number; remarks: string }) =>
+    request<any>(`/records/${id}/rma-assignment`, { method: 'PATCH', body: JSON.stringify(data) }),
+  progressRmaTransport: (id: string, data: { transport_status: 'IN_TRANSIT' | 'COMPLETED'; expected_version: number; remarks: string }) =>
+    request<any>(`/records/${id}/rma-transport`, { method: 'PATCH', body: JSON.stringify(data) }),
+  receiveRma: (id: string, data: { recipient: string; expected_version: number; remarks: string }) =>
+    request<any>(`/records/${id}/rma-receipt`, { method: 'POST', body: JSON.stringify(data) }),
   getRecordAudit: (id: string) => request<ApiAuditEntry[]>(`/records/${id}/audit`),
   createRecord: (data: Record<string, unknown>) =>
     request<any>('/records', { method: 'POST', body: JSON.stringify(data) }),
@@ -533,7 +542,7 @@ export const api = {
     request<any>(`/records/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   recordTimeIn: (id: string, remarks: string) =>
     request<any>(`/records/${id}/time-in`, { method: 'POST', body: JSON.stringify({ remarks }) }),
-  patchStatus: (id: string, status: string, remarks?: string, extra?: { time_out?: string; received_by?: string; priority?: string; delivery_date?: string }) =>
+  patchStatus: (id: string, status: string, remarks?: string, extra?: { time_out?: string; received_by?: string; priority?: string; delivery_date?: string; expected_version?: number }) =>
     request<any>(`/records/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, remarks: remarks ?? '', ...extra }) }),
   verifyCollection: (id: string) =>
     request<any>(`/records/${id}/verify-collection`, { method: 'PATCH' }),

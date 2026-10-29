@@ -8,9 +8,9 @@ import type { Server } from 'node:http';
 import net from 'node:net';
 import {
   ATTACHMENT_MIME_TYPES, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS_PER_RECORD, MAX_RECORD_ATTACHMENT_BYTES,
-  attachmentMimeType, attachmentQuotaError, isDocxDocument, isPdfDocument, isWordDocument,
+  attachmentMimeType, attachmentQuotaError, isDocxDocument, isPdfDocument, isWordDocument, isXlsxDocument,
 } from '../src/services/attachmentRules';
-import { DOCX_CONTENT_TYPES, docx, docxEntries, oleFile, pdf, zipOf } from './attachmentFixtures';
+import { DOCX_CONTENT_TYPES, XLSX_CONTENT_TYPES, docx, docxEntries, oleFile, pdf, zipOf, xlsx, xlsxEntries } from './attachmentFixtures';
 import { uploadErrorHandler } from '../src/middleware/uploadErrors';
 
 // SEC-07 / SEC-08: content signatures, the per-record quota, and the
@@ -83,7 +83,7 @@ test('a ZIP archive is a .docx only when it is a complete, ordinary Word package
     'no main document part': without('word/document.xml'),
     'no package relationships': without('_rels/.rels'),
     'manifest does not declare a Word document': manifest('<Types/>'),
-    'macro-enabled manifest (.docm)': manifest(DOCX_CONTENT_TYPES.replace('wordprocessingml.document.main+xml', 'wordprocessingml.document.main+xml"/><Override ContentType="application/vnd.ms-word.document.macroEnabled.main+xml')),
+    'macro-enabled manifest (.docm)': manifest(DOCX_CONTENT_TYPES.replace('wordprocessingml.document.main+xml', 'wordprocessingml.document.macroEnabled.main+xml')),
     'macro project inside': withEntry({ name: 'word/vbaProject.bin', content: 'macro' }),
     'encrypted entry': withEntry({ name: 'word/secret.xml', content: 'x', encrypted: true }),
     'unknown compression method': withEntry({ name: 'word/odd.bin', content: 'x', method: 14 }),
@@ -104,12 +104,38 @@ test('a ZIP archive is a .docx only when it is a complete, ordinary Word package
   for (const [name, bytes] of Object.entries(cases)) assert.equal(isDocxDocument(bytes), false, name);
 });
 
+test('a ZIP archive is an .xlsx only when it is a complete, ordinary spreadsheet package', () => {
+  const valid = xlsx();
+  assert.equal(isXlsxDocument(valid), true);
+  const ordinaryWithLibraryDefaults = zipOf(xlsxEntries().map(entry => entry.name === '[Content_Types].xml'
+    ? { ...entry, content: XLSX_CONTENT_TYPES.replace('</Types>', '<Default Extension="bin" ContentType="application/vnd.ms-excel.sheet.binary.macroEnabled.main"/></Types>') }
+    : entry));
+  assert.equal(isXlsxDocument(ordinaryWithLibraryDefaults), true, 'unrelated default content types do not make the main workbook macro-enabled');
+  const without = (name: string) => zipOf(xlsxEntries().filter(entry => entry.name !== name));
+  const cases: Record<string, Buffer> = {
+    'ordinary ZIP archive': zipOf([{ name: 'notes.txt', content: 'hello' }]),
+    'Word package renamed to XLSX': docx(),
+    'no workbook part': without('xl/workbook.xml'),
+    'no package relationships': without('_rels/.rels'),
+    'wrong content type': zipOf(xlsxEntries().map(entry => entry.name === '[Content_Types].xml'
+      ? { ...entry, content: DOCX_CONTENT_TYPES }
+      : entry)),
+    'macro-enabled workbook': zipOf(xlsxEntries().map(entry => entry.name === '[Content_Types].xml'
+      ? { ...entry, content: XLSX_CONTENT_TYPES.replace('spreadsheetml.sheet.main+xml', 'spreadsheetml.sheet.macroEnabled.main+xml') }
+      : entry)),
+    'VBA project inside': zipOf([...xlsxEntries(), { name: 'xl/vbaProject.bin', content: 'macro' }]),
+    'payload appended': Buffer.concat([valid, Buffer.from('MZ payload')]),
+  };
+  for (const [name, bytes] of Object.entries(cases)) assert.equal(isXlsxDocument(bytes), false, name);
+});
+
 test('the stored content type comes from the allow-list, never from the client', () => {
-  assert.deepEqual(Object.keys(ATTACHMENT_MIME_TYPES).sort(), ['.docx', '.jpeg', '.jpg', '.pdf', '.png']);
+  assert.deepEqual(Object.keys(ATTACHMENT_MIME_TYPES).sort(), ['.docx', '.jpeg', '.jpg', '.pdf', '.png', '.xlsx']);
   assert.equal(attachmentMimeType('Scan.PDF'), 'application/pdf');
   assert.equal(attachmentMimeType('photo.JPeG'), 'image/jpeg');
   assert.equal(attachmentMimeType('Letter.DOCX'), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-  for (const name of ['macro.docm', 'sheet.xlsx', 'run.exe', 'page.html', 'archive.zip', 'photo.png.exe', 'noextension', '.pdf/../x']) {
+  assert.equal(attachmentMimeType('Monthly Report.XLSX'), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  for (const name of ['macro.docm', 'sheet.xls', 'run.exe', 'page.html', 'archive.zip', 'photo.png.exe', 'noextension', '.pdf/../x']) {
     assert.equal(attachmentMimeType(name), undefined, name);
   }
 });

@@ -18,8 +18,9 @@ export const ATTACHMENT_MIME_TYPES: Record<string, string> = {
   '.jpeg': 'image/jpeg',
   '.png': 'image/png',
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
-export const UNSUPPORTED_FILE_TYPE = 'Unsupported file type. Allowed formats: PDF, JPG, PNG, and DOCX.';
+export const UNSUPPORTED_FILE_TYPE = 'Unsupported file type. Allowed formats: PDF, JPG, PNG, DOCX, and XLSX.';
 
 export function attachmentMimeType(originalName: string): string | undefined {
   return ATTACHMENT_MIME_TYPES[path.extname(originalName).toLowerCase()];
@@ -77,16 +78,17 @@ const ZIP_LOCAL_HEADER = 0x04034b50;
 const ZIP_CENTRAL_HEADER = 0x02014b50;
 const ZIP_END_RECORD = 0x06054b50;
 const DOCX_MAIN_PART = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml';
+const XLSX_MAIN_PART = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml';
 const DOCX_MAX_ENTRIES = 1000;
 const DOCX_MAX_UNPACKED_BYTES = 200 * 1024 * 1024;
 
-// A .docx is a ZIP package, and so are spreadsheets, Java archives and plain
+// Office Open XML files are ZIP packages, as are Java archives and plain
 // archives, so the ZIP signature proves nothing. The whole file must be one
-// well-formed archive (nothing before, between or after its parts), its index
-// must list the Word parts, and its content-type manifest must declare an
-// ordinary Word document. Macro-enabled packages and encrypted or oversized
-// entries are refused. Only the small manifest is ever decompressed.
-export function isDocxDocument(buffer: Buffer): boolean {
+// well-formed archive, its index must contain the requested main part, and its
+// content-type manifest must declare the matching Office document. Macro-
+// enabled packages and encrypted or oversized entries are refused. Only the
+// small manifest is ever decompressed.
+function isOpenXmlDocument(buffer: Buffer, mainPart: string, contentType: string): boolean {
   try {
     const end = buffer.length - 22;
     if (end < 0 || buffer.readUInt32LE(0) !== ZIP_LOCAL_HEADER || buffer.readUInt32LE(end) !== ZIP_END_RECORD) return false;
@@ -119,8 +121,8 @@ export function isDocxDocument(buffer: Buffer): boolean {
     }
     if (offset !== end) return false;
 
-    if (!entries.has('word/document.xml') || !entries.has('_rels/.rels')) return false;
-    if ([...entries.keys()].some(name => /(^|\/)vba(Project\.bin|Data\.xml)$/i.test(name))) return false;
+    if (!entries.has(mainPart) || !entries.has('_rels/.rels')) return false;
+    if ([...entries.keys()].some(name => /(^|\/)(vbaProject\.bin|vbaData\.xml)$/i.test(name))) return false;
 
     const manifest = entries.get('[Content_Types].xml');
     if (!manifest) return false;
@@ -128,9 +130,22 @@ export function isDocxDocument(buffer: Buffer): boolean {
     if (dataStart + manifest.packed > indexStart) return false;
     const packedManifest = buffer.subarray(dataStart, dataStart + manifest.packed);
     const xml = (manifest.method === 0 ? packedManifest : zlib.inflateRawSync(packedManifest, { maxOutputLength: 1024 * 1024 })).toString('utf8');
-    return xml.includes(DOCX_MAIN_PART) && !/macroEnabled/i.test(xml);
+    const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const mainPartOverride = xml.match(/<Override\b[^>]*\/?>/gi)?.find(tag =>
+      new RegExp(`\\bPartName=["']/${escapeRegex(mainPart)}["']`, 'i').test(tag),
+    );
+    const declaredType = mainPartOverride?.match(/\bContentType=["']([^"']+)["']/i)?.[1];
+    return declaredType === contentType;
   } catch {
     // Out-of-range offsets and corrupt compressed data are simply not a document.
     return false;
   }
+}
+
+export function isDocxDocument(buffer: Buffer): boolean {
+  return isOpenXmlDocument(buffer, 'word/document.xml', DOCX_MAIN_PART);
+}
+
+export function isXlsxDocument(buffer: Buffer): boolean {
+  return isOpenXmlDocument(buffer, 'xl/workbook.xml', XLSX_MAIN_PART);
 }

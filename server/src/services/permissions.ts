@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
+import { mutateAdminAccount, permissionMode, PolicyManagementError } from './permissionManagement';
 
 export const SCREEN_LABELS = {
   main: 'Main', dashboard: 'Dashboard', deliveries: 'Deliveries', rma: 'RMA',
@@ -61,20 +62,20 @@ export function resourcesFor(screens: readonly string[]): Resource[] {
     RESOURCE_SCREENS[resource].some(screen => screens.includes(screen)));
 }
 
-export function permissionSnapshot(role: string, permissions: readonly Permission[]) {
+export function permissionSnapshot(role: string, permissions: readonly Permission[], authorizationRevision?: bigint | string) {
   const overrides = permissions.map(({ screen, granted }) => ({ screen, granted })).sort((a, b) => a.screen.localeCompare(b.screen));
   const screens = effectiveScreens(role, overrides);
-  const version = createHash('sha256').update(JSON.stringify({ role, overrides, screens })).digest('hex');
+  const version = createHash('sha256').update(JSON.stringify({ role, overrides, screens, ...(authorizationRevision === undefined ? {} : { authorizationRevision: String(authorizationRevision) }) })).digest('hex');
   return { permissions: overrides, effectiveScreens: screens, resources: resourcesFor(screens), permissionVersion: version };
 }
 
-export function sessionUser(user: { id: string; name: string; email: string; role: string; permissions: Permission[] }) {
-  return { id: user.id, name: user.name, email: user.email, role: user.role, ...permissionSnapshot(user.role, user.permissions) };
+export function sessionUser(user: { id: string; name: string; email: string; role: string; permissions: Permission[]; authorizationRevision?: bigint | string }) {
+  return { id: user.id, name: user.name, email: user.email, role: user.role, ...permissionSnapshot(user.role, user.permissions, user.authorizationRevision) };
 }
 
-export function permissionEditor(user: { id: string; role: string; permissions: Permission[] }) {
+export function permissionEditor(user: { id: string; role: string; permissions: Permission[]; authorizationRevision?: bigint | string }) {
   return {
-    userId: user.id, ...permissionSnapshot(user.role, user.permissions),
+    userId: user.id, ...permissionSnapshot(user.role, user.permissions, user.authorizationRevision),
     roleDefaults: ROLE_DEFAULTS[user.role] ?? [],
     catalog: Object.entries(SCREEN_LABELS).map(([screen, label]) => ({ screen, label })),
     editableScreens: editableScreens(user.role),
@@ -99,12 +100,9 @@ export class PermissionSaveError extends Error {
 }
 
 export async function replacePermissions(db: PrismaClient, userId: string, actorId: string, permissions: Permission[], expectedVersion: string) {
-  return db.$transaction(async tx => {
-    // Serialize changes for this account, including competing full replacements.
-    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
-    const user = await tx.user.findUnique({ where: { id: userId }, include: { permissions: true } });
-    if (!user) throw new PermissionSaveError(404, 'User not found');
-    const previous = permissionSnapshot(user.role, user.permissions);
+  if (permissionMode() !== 'LEGACY') throw new PolicyManagementError(400, 'Legacy Boolean permission writes are no longer supported');
+  return mutateAdminAccount(db, actorId, userId, {}, async (tx, _actor, user) => {
+    const previous = permissionSnapshot(user.role, user.permissions, user.authorizationRevision);
     if (expectedVersion !== previous.permissionVersion) throw new PermissionSaveError(409, 'Permissions or role changed. Reload module access before saving.');
     const editable = new Set<string>(editableScreens(user.role));
     if (permissions.some(p => !editable.has(p.screen))) throw new PermissionSaveError(400, 'This account cannot customize one or more submitted modules');
@@ -114,6 +112,12 @@ export async function replacePermissions(db: PrismaClient, userId: string, actor
       recordId: userId, recordType: 'UserPermission', action: 'UPDATE', changedById: actorId,
       previousValue: JSON.stringify(previous.permissions), newValue: JSON.stringify(permissions),
     } });
-    return permissionEditor({ ...user, permissions });
-  });
+    const updated = await tx.user.findUnique({ where: { id: userId }, include: { permissions: true } });
+    return permissionEditor(updated!);
+  }, { finish: async tx => permissionEditor((await tx.user.findUnique({ where: { id: userId }, include: { permissions: true } }))!) });
 }
+
+// V1 action-aware contract for Steps 03/04. Legacy session/editor functions
+// above remain authoritative until the coordinated downstream activation.
+export { actionPermissionInputError, evaluatePermissions, hasActionPermission, loadEffectivePermissions, PERMISSION_CATALOG_VERSION } from './permissionEvaluator';
+export type { ActionPermissionDecision, ActionPermissionRow, EffectivePermissionSnapshot, ModuleCapabilities, PermissionEvaluationInput, PermissionReason, PermissionRevision } from './permissionEvaluator';

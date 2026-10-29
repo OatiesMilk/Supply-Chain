@@ -1,4 +1,6 @@
 import express, { Router } from 'express';
+import mammoth from 'mammoth';
+import sanitizeHtml from 'sanitize-html';
 import type { PodAttachment, Prisma } from '@prisma/client';
 import { prisma } from '../db';
 import { asyncRoute } from '../middleware/asyncRoute';
@@ -20,10 +22,16 @@ import { deliveryScheduleState, driverDeliveryDateError, isValidDateOnly, isoTim
 import { manilaDateRange } from '../services/dateSemantics';
 import { RMA_CONTACT_FIELDS, normalizeRmaCategory, rmaInputError } from '../services/rmaRules';
 import { areasForLocation } from '../areaHierarchy';
+import { RmaActionError, canUploadRmaPod, rmaActionPolicy, rmaCapabilities, rmaVersionError } from './rmaDispatch';
+import { dispatchMovementScope, eligibleRmaTransport, isLogisticsRma, needsLogisticsHandoff, rmaMovementInputError, rmaTransportContext } from '../services/rmaMovement';
+import { canPerformPolicyRecordAction } from '../services/recordAccess';
+import { notifyRmaRecipients } from '../services/rmaNotifications';
+import { RMA_COMPLETION_ROLE_ERROR } from '../services/deliveryLifecycle';
+import { readRmaPermissions } from '../services/rmaDispatchPermissions';
 
 const router = Router();
 const PRIORITY_LOCKED_ERROR = "Priority can't be changed after a record is Delivered.";
-const requireRecordAccess = asyncRoute(async (req, res, next) => {
+const recordAccess = (allowDriverRmaPod = false) => asyncRoute(async (req, res, next) => {
   if (req.params.id) {
     const record = await prisma.deliveryRecord.findFirst({
       where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] },
@@ -33,7 +41,7 @@ const requireRecordAccess = asyncRoute(async (req, res, next) => {
     if (req.method !== 'GET' && req.user!.role === 'LOGISTICS' && record.category === 'RMA') {
       return res.status(403).json({ error: 'Logistics has view-only access to RMA records' });
     }
-    if (req.method !== 'GET' && !canWriteCategory(req.user!, record.category)) {
+    if (req.method !== 'GET' && !canWriteCategory(req.user!, record.category) && !(allowDriverRmaPod && record.category === 'RMA' && req.user!.role === 'DRIVER')) {
       return res.status(403).json({ error: req.user!.role === 'LOGISTICS' && record.category === 'RMA' ? 'Logistics has view-only access to RMA records' : 'Module access denied' });
     }
   } else if (req.method === 'POST' && req.body?.category) {
@@ -42,6 +50,8 @@ const requireRecordAccess = asyncRoute(async (req, res, next) => {
   }
   next();
 });
+const requireRecordAccess = recordAccess();
+const requireRecordPodAccess = recordAccess(true);
 
 const recordInclude = {
   company: true,
@@ -114,11 +124,11 @@ function statusFilterToWhere(status: string): Prisma.DeliveryRecordWhereInput {
     case 'Draft':
       return { draft: true };
     case 'Scheduled':
-      return { draft: false, status: 'SCHEDULED', timeIn: null };
+      return { draft: false, status: 'SCHEDULED', OR: [{ category: 'RMA' }, { timeIn: null }] };
     case 'In Transit':
       return {
         draft: false,
-        OR: [{ status: 'IN_TRANSIT' }, { status: 'SCHEDULED', NOT: { timeIn: null } }],
+        OR: [{ status: 'IN_TRANSIT' }, { status: 'SCHEDULED', category: { not: 'RMA' }, NOT: { timeIn: null } }],
       };
     case 'Delivered':
       return { status: 'ACCOMPLISHED' };
@@ -494,6 +504,7 @@ router.get('/am-summary', requireAuth, requireResource('records'), requireRecord
     select: {
       id: true,
       accountManager: true,
+      category: true,
       status: true,
       draft: true,
       timeIn: true,
@@ -652,7 +663,7 @@ router.get('/status-history-counts', requireAuth, requireResource('records'), re
   if (driver) where.driver = { contains: driver, mode: 'insensitive' };
   const candidates = await prisma.deliveryRecord.findMany({
     where,
-    select: { id: true, status: true, draft: true, timeIn: true }
+    select: { id: true, category: true, status: true, draft: true, timeIn: true }
   });
   // Draft shares its stored enum with Scheduled; legacy started runs can also
   // still carry SCHEDULED. Filter the same effective state returned to clients.
@@ -663,6 +674,7 @@ router.get('/status-history-counts', requireAuth, requireResource('records'), re
   const current: Record<string, number>  = Object.fromEntries(STATUSES.map(s => [s, 0]));
   const ever_held: Record<string, number> = Object.fromEntries(STATUSES.map(s => [s, 0]));
   const recordStatusMap = new Map<string, Set<string>>();
+  const recordCategories = new Map(records.map(record => [record.id, record.category]));
 
   for (const r of records) {
     const s = runState(r);
@@ -683,6 +695,7 @@ router.get('/status-history-counts', requireAuth, requireResource('records'), re
         const nv = entry.newValue  ? JSON.parse(entry.newValue)  : null;
         const pv = entry.previousValue ? JSON.parse(entry.previousValue) : null;
         for (const snapshot of [nv, pv]) if (snapshot?.status) set.add(runState({
+          category: CATEGORY_TO_DB[snapshot.category] ?? snapshot.category ?? recordCategories.get(entry.recordId),
           status: STATUS_TO_DB[snapshot.status] ?? snapshot.status,
           draft: snapshot.draft === true || snapshot.is_draft === 'Yes' || snapshot.status === 'Draft',
           timeIn: snapshot.timeIn ?? snapshot.time_in,
@@ -741,6 +754,15 @@ router.get('/:id/audit', requireAuth, requireResource('records'), requireRecordA
   );
 }));
 
+// MIME types that the /preview endpoint can render in-app.
+const PREVIEWABLE_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'image/jpeg',
+  'image/png',
+]);
+
 router.get('/:id/attachments', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
   const attachments = await prisma.podAttachment.findMany({
     where: { recordId: req.params.id },
@@ -754,7 +776,9 @@ router.get('/:id/attachments', requireAuth, requireResource('records'), requireR
     size: attachment.size,
     uploaded_at: attachment.createdAt,
     download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`,
-    preview_url: `/api/records/${req.params.id}/attachments/${attachment.id}/preview`
+    preview_url: PREVIEWABLE_MIME_TYPES.has(attachment.mimeType)
+      ? `/api/records/${req.params.id}/attachments/${attachment.id}/preview`
+      : null
   }))));
 }));
 
@@ -762,7 +786,7 @@ router.post(
   '/:id/attachments',
   requireAuth,
   requireResource('records'),
-  requireRecordAccess,
+  requireRecordPodAccess,
   requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'),
   podUpload.single('file'),
   asyncRoute(async (req, res) => {
@@ -788,8 +812,14 @@ router.post(
         if (req.user!.role === 'DRIVER' && !isAssignedDriver(req.user!, record)) {
           return { status: 403, error: 'Drivers may only upload to their own assigned records', attachment: null };
         }
-        if (!canWriteCategory(req.user!, record.category) || (req.user!.role === 'LOGISTICS' && record.category === 'RMA')) {
+        if (record.category === 'RMA' && req.user!.role === 'DRIVER') {
+          if (!await canUploadRmaPod(tx, req.user!, record)) return { status: 403, error: 'RMA transport proof upload is not permitted.', attachment: null };
+        } else if (!canWriteCategory(req.user!, record.category) || (req.user!.role === 'LOGISTICS' && record.category === 'RMA')) {
           return { status: 403, error: 'Record access denied', attachment: null };
+        }
+        if (record.category === 'RMA' && req.user!.role !== 'DRIVER') {
+          const policy = await readRmaPermissions(tx, req.user!.id);
+          if (!policy || !canPerformPolicyRecordAction(policy, record, 'POD', { path: 'rma' })) return { status: 403, error: 'RMA document changes are not permitted.', attachment: null };
         }
         if (req.user!.role === 'TASS' && record.category !== 'RMA') return { status: 403, error: 'TASS may manage documents for RMA records only', attachment: null };
         const dateError = driverDeliveryDateError(record, req.user!.role);
@@ -807,7 +837,7 @@ router.post(
           recordId: record.id, originalName: upload.originalname, storageKey,
           mimeType: inspection.mimeType, size: inspection.size, uploadedById: req.user!.id,
         } });
-        if (record.category === 'DELIVERY') {
+        if (record.category === 'DELIVERY' || record.category === 'RMA') {
           const schedule = deliveryScheduleState(record.deliveryDate);
           await tx.auditLog.create({ data: {
             recordId: record.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id,
@@ -842,12 +872,14 @@ router.post(
       size: attachment.size,
       uploaded_at: attachment.createdAt,
       download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`,
-      preview_url: `/api/records/${req.params.id}/attachments/${attachment.id}/preview`
+      preview_url: PREVIEWABLE_MIME_TYPES.has(attachment.mimeType)
+        ? `/api/records/${req.params.id}/attachments/${attachment.id}/preview`
+        : null
     });
   })
 );
 
-router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
+async function streamAttachment(req: express.Request, res: express.Response, disposition: 'attachment' | 'inline') {
   const attachment = await prisma.podAttachment.findFirst({
     where: { id: req.params.attachmentId, recordId: req.params.id }
   });
@@ -857,37 +889,98 @@ router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResour
     const content = await podStorage.open(attachment.storageKey);
     res.setHeader('Content-Type', attachment.mimeType);
     res.setHeader('Content-Length', String(attachment.size));
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(attachment.originalName)}"`);
+    res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(attachment.originalName)}"`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     await pipeline(content, res);
   } catch (error) {
     if (!res.headersSent) res.status(404).json({ error: 'Attachment file not found' });
     else console.error('[POD] Failed to read attachment', error);
   }
+}
+
+router.get('/:id/attachments/:attachmentId/download', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
+  await streamAttachment(req, res, 'attachment');
 }));
 
 router.get('/:id/attachments/:attachmentId/preview', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
-  const attachment = await prisma.podAttachment.findFirst({ where: { id: req.params.attachmentId, recordId: req.params.id } });
+  const attachment = await prisma.podAttachment.findFirst({
+    where: { id: req.params.attachmentId, recordId: req.params.id },
+    select: { mimeType: true, storageKey: true, originalName: true, size: true }
+  });
   if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
-  const photo = await isStoredPodPhoto(attachment);
-  const pdf = attachment.mimeType === 'application/pdf';
-  const docx = attachment.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-  if (!photo && !pdf && !docx) {
-    return res.status(415).json({ error: 'Preview is available for PDF, DOCX, and image files. Legacy DOC files require conversion to PDF or DOCX.' });
+
+  // Preview responses contain private record content and must never be cached.
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  if (attachment.mimeType === 'image/jpeg' || attachment.mimeType === 'image/png') {
+    const isPhoto = await isStoredPodPhoto(attachment);
+    if (!isPhoto) return res.status(415).json({ error: 'This attachment is not a valid JPG or PNG image.' });
+    return void await streamAttachment(req, res, 'inline');
   }
+
+  if (
+    attachment.mimeType === 'application/pdf' ||
+    attachment.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  ) {
+    return void await streamAttachment(req, res, 'inline');
+  }
+
+  const isWord = attachment.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (!isWord) {
+    return res.status(415).json({ error: 'In-app preview is available for PDF, DOCX, XLSX, JPG, and PNG attachments. Convert legacy DOC files to DOCX or PDF, or download them to open locally.' });
+  }
+
+  // Convert Word document to HTML locally using mammoth — no external service.
   try {
-    const content = await podStorage.open(attachment.storageKey);
-    const safeName = attachment.originalName.replace(/[\"\\\r\n]/g, '_');
-    res.setHeader('Content-Type', photo || docx ? attachment.mimeType : 'application/pdf');
-    res.setHeader('Content-Length', String(attachment.size));
-    res.setHeader('Content-Disposition', `inline; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(attachment.originalName)}`);
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-    res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'self'");
+    const bytes = await podStorage.read(attachment.storageKey);
+    const { value: convertedHtml, messages } = await mammoth.convertToHtml({ buffer: bytes });
+    const bodyHtml = sanitizeHtml(convertedHtml, {
+      allowedTags: ['p', 'br', 'div', 'span', 'strong', 'em', 'b', 'i', 'u', 's', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'a', 'img'],
+      allowedAttributes: { a: ['href', 'title'], img: ['src', 'alt', 'title', 'width', 'height'] },
+      allowedSchemes: ['http', 'https', 'mailto'],
+      allowedSchemesByTag: { img: ['data'] },
+      transformTags: {
+        img: (_tagName, attribs) => ({
+          tagName: 'img',
+          attribs: { ...attribs, ...(/^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(attribs.src ?? '') ? {} : { src: '' }) },
+        }),
+      },
+    });
+    if (messages.some(m => m.type === 'error')) {
+      console.warn('[POD preview] mammoth conversion warnings for', attachment.originalName, messages);
+    }
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none';" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>${attachment.originalName.replace(/</g, '&lt;')}</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 13px; line-height: 1.6; margin: 0; padding: 20px 28px; color: #1e293b; background: #fff; word-break: break-word; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+  td, th { border: 1px solid #cbd5e1; padding: 4px 8px; }
+  th { background: #f1f5f9; }
+  img { max-width: 100%; height: auto; }
+  p { margin: 0 0 0.6em; }
+  h1,h2,h3,h4,h5,h6 { margin: 0.8em 0 0.4em; }
+</style>
+</head>
+<body>${bodyHtml}</body>
+</html>`;
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox");
     res.setHeader('Cache-Control', 'private, no-store');
-    await pipeline(content, res);
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(attachment.originalName)}.html"`);
+    res.setHeader('Content-Length', String(Buffer.byteLength(html, 'utf8')));
+    res.send(html);
   } catch (error) {
-    if (!res.headersSent) res.status(404).json({ error: 'Attachment file not found' });
-    else console.error('[POD] Failed to preview attachment', error);
+    console.error('[POD preview] mammoth conversion failed', error);
+    res.status(500).json({ error: 'Document preview could not be generated. Download the file to open it in a compatible viewer.' });
   }
 }));
 
@@ -901,7 +994,12 @@ router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('re
     const record = await tx.deliveryRecord.findUnique({ where: { id: req.params.id } });
     if (req.user!.role === 'TASS' && record?.category !== 'RMA') return { status: 403, error: 'TASS may manage documents for RMA records only' };
     if (!record || !canWriteCategory(req.user!, record.category)) return { status: 403, error: 'Record access denied' };
-    if (record?.status === 'ACCOMPLISHED' &&
+    if (record.category === 'RMA') {
+      const policy = await readRmaPermissions(tx, req.user!.id);
+      if (!policy || !canPerformPolicyRecordAction(policy, record, 'POD', { path: 'rma' })) return { status: 403, error: 'RMA document changes are not permitted.' };
+      if (record.rmaTransportStatus === 'COMPLETED' && await isStoredPodPhoto(attachment) && !await hasStoredDeliveryPhoto(tx, record.id, attachment.id)) return { status: 409, error: 'Keep at least one transport proof photo. Upload a replacement before removing this photo.' };
+    }
+    if (record.category !== 'RMA' && record.status === 'ACCOMPLISHED' &&
         await isStoredPodPhoto(attachment) && !await hasStoredDeliveryPhoto(tx, record.id, attachment.id)) {
       return { status: 409, error: 'Keep at least one delivery photo on an accomplished delivery. Upload a replacement before removing this photo.' };
     }
@@ -955,6 +1053,8 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
   if (dbCategory === 'RMA') {
     const rmaError = rmaInputError(b, true);
     if (rmaError) return res.status(400).json({ error: rmaError });
+    const movementError = rmaMovementInputError(b, !isDraft);
+    if (movementError) return res.status(400).json({ error: movementError });
   }
 
   if (req.user!.role === 'LOGISTICS' && dbCategory === 'RMA') {
@@ -1003,6 +1103,8 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
           itemType: b.item_type ?? 'Small Item',
           draft: isDraft,
           rmaType: dbCategory === 'RMA' ? normalizeRmaCategory(b.rma_type) : null,
+          rmaMovement: dbCategory === 'RMA' ? b.rma_movement || null : null,
+          rmaTransportStatus: dbCategory === 'RMA' && b.rma_movement === 'LOGISTICS_TRANSPORT' ? 'PENDING' : null,
           purchaseDate: dbCategory === 'RMA' ? (b.purchase_date || null) : null,
           customerContactName: dbCategory === 'RMA' && typeof b.customer_contact_name === 'string' ? b.customer_contact_name.trim() || null : null,
           customerContactEmail: dbCategory === 'RMA' && typeof b.customer_contact_email === 'string' ? b.customer_contact_email.trim() || null : null,
@@ -1029,6 +1131,7 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
         newValue: JSON.stringify(serializeRecord(created)),
       } });
       if (typeof b.remarks === 'string' && b.remarks.trim()) await tx.remarkLog.create({ data: { recordId: created.id, body: b.remarks.trim(), context: 'CREATION', authorId: req.user!.id } });
+      if (dbCategory === 'RMA' && needsLogisticsHandoff(created)) await notifyRmaRecipients(tx, created, ['LOGISTICS'], 'New RMA request — driver needed', `${created.rmaReference || created.id} · ${created.company.name}${created.deliveryDate ? ` on ${created.deliveryDate}` : ''} · ${created.address || created.area}`);
       return created;
     });
   } catch (error) {
@@ -1036,7 +1139,7 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
     throw error;
   }
 
-  if (!isDraft) await notifyRole(
+  if (!isDraft && dbCategory !== 'RMA') await notifyRole(
     'LOGISTICS',
     `New ${dbCategory.replace(/_/g, ' ')} record — driver needed`,
     `${created.company.name} · ${(dbCategory === 'RMA' ? created.rmaReference : created.reference) || '(no reference)'}${created.deliveryDate ? ` on ${created.deliveryDate}` : ''} requires driver assignment.`,
@@ -1064,6 +1167,12 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
 
   const b = req.body ?? {};
   if (b.status !== undefined) return res.status(400).json({ error: 'Use the status action to change status.' });
+  if (existing.category === 'RMA' && ['driver', 'driver_id', 'vehicle', 'driver_assistants'].some(field => field in b)) {
+    return res.status(403).json({ error: 'Use the dedicated RMA assignment action for Driver, vehicle and assistant changes.' });
+  }
+  if (existing.category === 'RMA' && (b.received_by !== undefined || b.time_in !== undefined || b.time_out !== undefined)) {
+    return res.status(req.user!.role === 'TASS' ? 400 : 403).json({ error: req.user!.role === 'TASS' ? 'Use the physical receipt action; RMA transport has separate timestamps.' : RMA_COMPLETION_ROLE_ERROR });
+  }
   const hasTimestamp = b.time_in !== undefined || b.time_out !== undefined;
   if (hasTimestamp && !['LOGISTICS', 'ADMIN'].includes(req.user!.role)) return res.status(403).json({ error: 'Only Logistics or Admin may correct recorded timestamps.' });
   for (const [field, current] of [['time_in', existing.timeIn], ['time_out', existing.timeOut]] as const) {
@@ -1220,7 +1329,11 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (b.customer_contact_email !== undefined) data.customerContactEmail = typeof b.customer_contact_email === 'string' ? b.customer_contact_email.trim() || null : null;
     if (b.customer_contact_phone !== undefined) data.customerContactPhone = typeof b.customer_contact_phone === 'string' ? b.customer_contact_phone.trim() || null : null;
   }
-
+  if (existing.category === 'RMA' && b.rma_movement !== undefined) {
+    const movementError = rmaMovementInputError(b);
+    if (movementError) return res.status(400).json({ error: movementError });
+    data.rmaMovement = b.rma_movement || null;
+  }
   if (existing.category === 'DELIVERY' && (req.user!.role === 'SALES_COORDINATOR' || req.user!.role === 'ADMIN') && b.delivery_date !== undefined && !isValidDateOnly(b.delivery_date)) {
     return res.status(400).json({ error: 'Delivery Date must be a valid YYYY-MM-DD date.' });
   }
@@ -1252,6 +1365,26 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     const current = await tx.deliveryRecord.findUnique({ where: { id: existing.id } });
     if (!current || current.deletedAt) return { error: 'Record not found', updated: null };
     if (!canWriteCategory(req.user!, current.category) || (req.user!.role === 'DRIVER' && !isAssignedDriver(req.user!, current))) return { error: 'Record access denied', updated: null };
+    if (current.category === 'RMA') {
+      const policy = await rmaActionPolicy(tx, req.user!, current);
+      const operation = data.draft === true && !current.draft ? 'STATUS' : data.draft === false && current.draft ? 'SUBMIT' : 'UPDATE';
+      if (!canPerformPolicyRecordAction(policy, current, operation, { path: 'rma', targetStatus: data.draft ? 'Draft' : 'Scheduled' })) return { error: 'Record access denied', updated: null };
+      const editsDetails = Object.keys(b).some(key => !['is_draft', 'remarks', 'expected_version'].includes(key));
+      if (editsDetails && !canPerformPolicyRecordAction(policy, current, 'UPDATE', { path: 'rma' })) return { error: 'Record access denied', updated: null };
+      const stale = rmaVersionError(current, b.expected_version);
+      if (stale) return { error: stale, updated: null, rmaStatus: Number.isSafeInteger(b.expected_version) ? 409 : 400 };
+      const movement = data.rmaMovement === undefined ? current.rmaMovement : data.rmaMovement;
+      const movementError = rmaMovementInputError({ rma_movement: movement, delivery_date: data.deliveryDate ?? current.deliveryDate }, !(data.draft ?? current.draft));
+      if (movementError) return { error: movementError, updated: null };
+      const movementChanged = movement !== current.rmaMovement;
+      if ((movementChanged || data.deliveryDate !== undefined && data.deliveryDate !== current.deliveryDate || data.draft === true)
+        && (current.rmaTransportStartedAt || current.rmaReceivedAt || current.status === 'ACCOMPLISHED')) return { error: 'Movement responsibility, date and submission cannot change after transport starts or receipt is confirmed.', updated: null };
+      if (movementChanged) {
+        data.rmaTransportStatus = movement === 'LOGISTICS_TRANSPORT' ? 'PENDING' : null;
+        data.driverId = null; data.driver = ''; data.vehicle = '(None)'; data.driverAssistants = '[]';
+      }
+      data.rmaVersion = { increment: 1 };
+    }
     const dateError = driverDeliveryDateError(current, req.user!.role);
     if (dateError) return { error: dateError, updated: null };
     if (data.priority !== undefined && data.priority !== current.priority && runState(current) === 'Delivered') return { error: PRIORITY_LOCKED_ERROR, updated: null };
@@ -1305,13 +1438,17 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (typeof b.remarks === 'string' && b.remarks.trim()) await tx.remarkLog.create({ data: {
       recordId: updated.id, body: b.remarks.trim(), context: hasTimestamp ? 'TIMESTAMP_CORRECTION' : 'GENERAL_EDIT', authorId: req.user!.id,
     } });
+    if (current.category === 'RMA' && needsLogisticsHandoff(updated) && (current.draft || !isLogisticsRma(current))) {
+      await notifyRmaRecipients(tx, updated, ['LOGISTICS'], 'RMA request — driver needed', `${updated.rmaReference || updated.id} · ${updated.company.name} on ${updated.deliveryDate} · ${updated.address || updated.area}`);
+    }
     return { error: null, updated };
   }).catch(error => {
+    if (error instanceof RmaActionError) return { error: error.message, updated: null, rmaStatus: error.status };
     // The Company can disappear between the lookup and the write; the transaction has rolled back.
     if ((error as { code?: string })?.code === 'P2003' && data.companyId !== undefined) return { error: 'Select an existing Company.', updated: null };
     throw error;
   });
-  if (result.error) return res.status(result.error === 'Record not found' ? 404 : result.error === 'Record access denied' || result.error.startsWith('Only Sales Coordinator') ? 403 : 400).json({ error: result.error });
+  if (result.error) return res.status('rmaStatus' in result ? Number(result.rmaStatus) : result.error === 'Record not found' ? 404 : result.error === 'Record access denied' || result.error.startsWith('Only Sales Coordinator') ? 403 : 400).json({ error: result.error });
   const updated = result.updated!;
 
   // Notify the record creator (Sales Coordinator) when Logistics assigns a driver
@@ -1374,13 +1511,32 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   // WAN storage downloads and image decoding can exceed Prisma's default 5s
   // transaction limit. Verify the actual persisted bytes before acquiring the
   // record lock; the transaction below still validates the identical attachment.
-  const verifiedPod = status === 'Delivered'
+  const completionRecord = status === 'Delivered'
+    ? await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] }, select: { category: true } })
+    : null;
+  const verifiedPod = status === 'Delivered' && completionRecord?.category !== 'RMA'
     ? await findVerifiedDeliveryPhoto(prisma, req.params.id)
     : null;
   const result = await prisma.$transaction(async tx => {
     await lockPodRecord(tx, req.params.id);
     const current = await tx.deliveryRecord.findUnique({ where: { id: req.params.id }, include: recordInclude });
     if (!current || current.deletedAt || (req.user!.role === 'DRIVER' && !isAssignedDriver(req.user!, current)) || !canWriteCategory(req.user!, current.category)) return { error: 'Record access denied', saved: null, previous: null };
+    if (current.category === 'RMA') {
+      if (req.user!.role !== 'TASS' && (status === 'Delivered' || received_by !== undefined)) return { error: RMA_COMPLETION_ROLE_ERROR, saved: null, previous: null };
+      const policy = await rmaActionPolicy(tx, req.user!, current);
+      const operation = status === 'Delivered' ? 'COMPLETE' : current.draft && status === 'Scheduled' ? 'SUBMIT' : 'STATUS';
+      if (!canPerformPolicyRecordAction(policy, current, operation, { path: 'rma', targetStatus: status as RunState, rmaTransport: rmaTransportContext(current) })) return { error: 'Record access denied', saved: null, previous: null };
+      if (hasPriority && !canPerformPolicyRecordAction(policy, current, 'UPDATE', { path: 'rma' })) return { error: 'Record access denied', saved: null, previous: null };
+      const stale = rmaVersionError(current, req.body.expected_version);
+      if (stale) return { error: stale, saved: null, previous: null, rmaStatus: Number.isSafeInteger(req.body.expected_version) ? 409 : 400 };
+      if (status === 'Delivered' && !rmaCapabilities(policy, current).complete) return { error: 'Confirm physical receipt and complete any Logistics transport before completing this RMA.', saved: null, previous: null };
+      if (received_by !== undefined && (status !== 'Delivered' || received_by.trim() !== current.rmaRecipient)) return { error: 'Use the confirmed physical receipt recipient for RMA completion.', saved: null, previous: null };
+      if (status === 'Draft' && (current.rmaTransportStartedAt || current.rmaReceivedAt)) return { error: 'An RMA with started transport or confirmed receipt cannot return to Draft.', saved: null, previous: null };
+      if (current.draft && status === 'Scheduled') {
+        const movementError = rmaMovementInputError({ rma_movement: current.rmaMovement, delivery_date: current.deliveryDate }, true);
+        if (movementError) return { error: movementError, saved: null, previous: null };
+      }
+    }
     const dateError = driverDeliveryDateError(current, req.user!.role);
     if (dateError) return { error: dateError, saved: null, previous: null };
     if (req.user!.role === 'TASS' && current.category !== 'RMA') return { error: 'TASS status updates are limited to RMA records', saved: null, previous: null };
@@ -1401,7 +1557,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
       if (status === 'Delivered' && current.category === 'DELIVERY' && !deliveryScheduleState(current.deliveryDate).valid) {
         return { error: 'A valid Delivery Date is required before completing this delivery.', saved: null, previous: null };
       }
-      if ((status === 'Delivered' || status === 'Pending') && !isoTimestamp(current.timeIn)) return { error: 'Record a valid Time In before completing or marking this run Pending.', saved: null, previous: null };
+      if (current.category !== 'RMA' && (status === 'Delivered' || status === 'Pending') && !isoTimestamp(current.timeIn)) return { error: 'Record a valid Time In before completing or marking this run Pending.', saved: null, previous: null };
       const error = transitionError(current, status as RunState, req.user!.role);
       if (error) return { error, saved: null, previous: null };
     }
@@ -1423,11 +1579,12 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     const data: any = { ...(statusChanged ? { status: STATUS_TO_DB[status], draft: status === 'Draft' } : {}), remarks: remarks.trim(), modifiedById: req.user!.id };
     if (hasPriority) data.priority = priority;
     if (current.status === 'ACCOMPLISHED' && received_by !== undefined && !received_by.trim()) return { error: 'Received By is required on completed runs.', saved: null, previous: null };
-    if (received_by !== undefined) data.receivedBy = received_by.trim();
+    if (received_by !== undefined && current.category !== 'RMA') data.receivedBy = received_by.trim();
     if (statusChanged && status === 'Delivered') {
-      if (!isoTimestamp(current.timeIn)) return { error: 'Record a valid Time In before completing this run.', saved: null, previous: null };
-      if (!String(received_by ?? current.receivedBy ?? '').trim()) return { error: 'Received By is required before completing this run.', saved: null, previous: null };
-      if (!verifiedPod || !await tx.podAttachment.findFirst({
+      if (current.category !== 'RMA' && !isoTimestamp(current.timeIn)) return { error: 'Record a valid Time In before completing this run.', saved: null, previous: null };
+      const recipient = current.category === 'RMA' ? current.rmaRecipient : received_by ?? current.receivedBy;
+      if (!String(recipient ?? '').trim()) return { error: current.category === 'RMA' ? 'Recipient / Collector is required before completing this RMA.' : 'Received By is required before completing this run.', saved: null, previous: null };
+      if (current.category !== 'RMA' && (!verifiedPod || !await tx.podAttachment.findFirst({
         where: {
           id: verifiedPod.id,
           recordId: current.id,
@@ -1435,27 +1592,34 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
           mimeType: verifiedPod.mimeType,
           size: verifiedPod.size,
         },
-      })) return { error: DELIVERY_PHOTO_REQUIRED, saved: null, previous: null };
-      data.receivedBy = String(received_by ?? current.receivedBy).trim();
+      }))) return { error: DELIVERY_PHOTO_REQUIRED, saved: null, previous: null };
+      data.receivedBy = String(recipient).trim();
       const completedAt = new Date();
-      data.timeOut = completedAt.toISOString();
+      if (current.category === 'RMA') data.rmaCompletedAt = completedAt;
+      else data.timeOut = completedAt.toISOString();
       if (current.category === 'DELIVERY') {
         const schedule = deliveryScheduleState(current.deliveryDate, completedAt);
         data.completedLate = schedule.valid && schedule.overdue;
         data.daysLate = schedule.valid ? schedule.daysLate : 0;
       }
     }
-    if (statusChanged && status === 'Rescheduled') { data.timeIn = null; data.timeOut = null; data.receivedBy = null; }
+    if (statusChanged && status === 'Rescheduled' && current.category !== 'RMA') { data.timeIn = null; data.timeOut = null; data.receivedBy = null; }
     if (requiresNewDate) data.deliveryDate = newDeliveryDate;
+    if (current.category === 'RMA') data.rmaVersion = { increment: 1 };
     const saved = await tx.deliveryRecord.update({ where: { id: current.id }, data, include: recordInclude });
     await tx.auditLog.create({ data: {
       recordId: saved.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id,
       previousValue: JSON.stringify(serializeRecord(current)), newValue: JSON.stringify(serializeRecord(saved)),
     } });
     await tx.remarkLog.create({ data: { recordId: saved.id, body: remarks.trim(), context: 'STATUS_CHANGE', authorId: req.user!.id } });
+    if (current.category === 'RMA' && current.draft && needsLogisticsHandoff(saved)) await notifyRmaRecipients(tx, saved, ['LOGISTICS'], 'RMA request — driver needed', `${saved.rmaReference || saved.id} · ${saved.company.name} on ${saved.deliveryDate} · ${saved.address || saved.area}`);
+    if (current.category === 'RMA' && status === 'Delivered') await notifyRmaRecipients(tx, saved, ['TASS', 'LOGISTICS'], 'RMA completed', `${saved.rmaReference || saved.id} · ${saved.company.name} · Final completion recorded by TASS.`, req.user!.id);
     return { error: null, saved, previous: current };
-  }, { timeout: 30_000, maxWait: 10_000 });
-  if (result.error) return res.status(result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' || result.error.startsWith('Only Sales Coordinator') ? 403 : 400).json({ error: result.error });
+  }, { timeout: 30_000, maxWait: 10_000 }).catch(error => {
+    if (error instanceof RmaActionError) return { error: error.message, saved: null, previous: null, rmaStatus: error.status };
+    throw error;
+  });
+  if (result.error) return res.status('rmaStatus' in result ? Number(result.rmaStatus) : result.error === RMA_COMPLETION_ROLE_ERROR || result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' || result.error.startsWith('Only Sales Coordinator') ? 403 : 400).json({ error: result.error });
   const updated = result.saved!;
   if (result.previous!.draft && !updated.draft && updated.category === 'DELIVERY' && !String(updated.driver ?? '').trim()) {
     await notifyRole(
@@ -1466,7 +1630,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
       'DeliveryRecord'
     );
   }
-  if (status === 'Delivered' && result.previous!.status !== 'ACCOMPLISHED') {
+  if (status === 'Delivered' && updated.category !== 'RMA' && result.previous!.status !== 'ACCOMPLISHED') {
     await notifyAccomplished({
       id: updated.id, companyName: updated.company.name, deliveryDate: updated.deliveryDate,
       reference: updated.reference, accountManager: updated.accountManager, accomplishedByName: req.user!.name,
@@ -1551,7 +1715,7 @@ router.get('/:id/comments', requireAuth, requireResource('records'), requireReco
   );
 });
 
-router.post('/:id/comments', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), async (req, res) => {
+router.post('/:id/comments', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER', 'TASS'), asyncRoute(async (req, res) => {
   const { body } = req.body ?? {};
   if (!body || !String(body).trim()) {
     return res.status(400).json({ error: 'Comment body is required' });
@@ -1564,7 +1728,7 @@ router.post('/:id/comments', requireAuth, requireResource('records'), requireRec
   const dateError = driverDeliveryDateError(record, req.user!.role);
   if (dateError) return res.status(400).json({ error: dateError });
 
-  const comment = await prisma.comment.create({
+  const commentInput = {
     data: {
       recordId: req.params.id,
       recordType: 'DeliveryRecord',
@@ -1572,7 +1736,15 @@ router.post('/:id/comments', requireAuth, requireResource('records'), requireRec
       authorId: req.user!.id
     },
     include: { author: { select: { name: true } } }
-  });
+  };
+  const comment = record.category === 'RMA' ? await prisma.$transaction(async tx => {
+    await lockPodRecord(tx, record.id);
+    const current = await tx.deliveryRecord.findUnique({ where: { id: record.id } });
+    const policy = await readRmaPermissions(tx, req.user!.id);
+    if (!current || current.deletedAt || !policy || !canPerformPolicyRecordAction(policy, current, 'COMMENT', { path: 'rma' })) return null;
+    return tx.comment.create(commentInput);
+  }) : await prisma.comment.create(commentInput);
+  if (!comment) return res.status(403).json({ error: 'RMA comments are not permitted.' });
 
   res.status(201).json({
     id: comment.id,
@@ -1581,6 +1753,6 @@ router.post('/:id/comments', requireAuth, requireResource('records'), requireRec
     created_at: comment.createdAt,
     updated_at: comment.updatedAt
   });
-});
+}));
 
 export default router;

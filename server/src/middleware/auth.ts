@@ -4,6 +4,7 @@ import { createHmac } from 'node:crypto';
 import { prisma } from '../db';
 import { asyncRoute } from './asyncRoute';
 import { sessionUser, type Screen, type Resource, type Permission } from '../services/permissions';
+import { evaluatePermissions, type EffectivePermissionSnapshot } from '../services/permissionEvaluator';
 
 export type Role = 'SALES_COORDINATOR' | 'LOGISTICS' | 'TASS' | 'ADMIN' | 'DRIVER';
 
@@ -19,6 +20,8 @@ export interface AuthUser {
   // DRIVER only: the Admin-linked Driver profile that owns assigned runs.
   // Null means no runs are visible; display names never decide ownership.
   driverProfileId?: string | null;
+  // Request-scoped RMA policy. Null denies RMA when the foundation is unavailable.
+  rmaPermissions?: EffectivePermissionSnapshot | null;
 }
 
 declare global {
@@ -98,7 +101,7 @@ export const requireAuth = asyncRoute(async (req: Request, res: Response, next: 
   // or admin cleanup can wipe/recreate users while old browser sessions are
   // still around. Writes that reference req.user.id (createdById, etc.) would
   // otherwise fail a DB foreign-key check downstream instead of failing here.
-  const user = await prisma.user.findUnique({ where: { id: payload.id }, include: { permissions: true, driverProfile: { select: { id: true, type: true } } } });
+  const user = await prisma.user.findUnique({ where: { id: payload.id }, include: { permissions: true, permissionOverrides: true, driverProfile: { select: { id: true, type: true, isActive: true } } } });
   if (!user || !user.isActive) {
     clearSessionCookie(res);
     return res.status(401).json({ error: 'Session no longer valid — please log in again' });
@@ -108,6 +111,17 @@ export const requireAuth = asyncRoute(async (req: Request, res: Response, next: 
   req.user = user.role === 'DRIVER'
     ? { ...session, driverProfileId: user.driverProfile?.type === 'DRIVER' ? user.driverProfile.id : null }
     : session;
+  // Missing/incomplete policy never grants the new RMA workflow. Other category
+  // activation remains with the separate permission rollout (#247).
+  Object.defineProperty(req.user, 'rmaPermissions', { value: null, writable: true, enumerable: false });
+  if (Array.isArray(user.permissionOverrides)) {
+    const rolePolicy = await prisma.rolePolicy.findUnique({ where: { role: user.role }, include: { permissions: true } });
+    req.user.rmaPermissions = evaluatePermissions({
+      userId: user.id, role: user.role, isActive: user.isActive,
+      authorizationRevision: user.authorizationRevision, overrides: user.permissionOverrides,
+      driverProfile: user.driverProfile, rolePolicy,
+    });
+  }
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader(CSRF_HEADER, csrfToken(payload));
   next();

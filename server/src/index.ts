@@ -13,6 +13,8 @@ import { saveDailyStatusSnapshot as writeDailyStatusSnapshot } from './services/
 
 import authRoutes from './routes/auth';
 import recordsRoutes from './routes/records';
+import rmaDispatchRoutes from './routes/rmaDispatch';
+import { dispatchMovementScope } from './services/rmaMovement';
 import companiesRoutes from './routes/companies';
 import customersRoutes from './routes/customers';
 import suppliersRoutes from './routes/suppliers';
@@ -92,6 +94,7 @@ app.get('/api/health', async (_req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/records', rmaDispatchRoutes);
 app.use('/api/records', recordsRoutes);
 app.use('/api/companies', companiesRoutes);
 app.use('/api/customers', customersRoutes);
@@ -164,7 +167,7 @@ async function notify4PM() {
   try {
     // 4 PM logistics alert: unassigned scheduled records
     const unassigned = await prisma.deliveryRecord.findMany({
-      where: { status: 'SCHEDULED', draft: false, driver: '', deletedAt: null }
+      where: { status: 'SCHEDULED', draft: false, driver: '', deletedAt: null, AND: [dispatchMovementScope] }
     });
     if (unassigned.length > 0) {
       await notifyRole(

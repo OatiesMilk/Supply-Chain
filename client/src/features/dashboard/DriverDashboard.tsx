@@ -1,3 +1,4 @@
+import RmaWorkflowPanel from '@/features/deliveries/RmaWorkflowPanel';
 import { useState, useCallback } from "react";
 import {
   CheckCircle,
@@ -55,6 +56,8 @@ export default function DriverDashboard({
   const timeInMutation = useRecordTimeInMutation();
   const queryClient = useQueryClient();
   records = records.filter(record => !isDraftRecord(record));
+  const rmaRecords = records.filter(record => record.category === 'RMA' && record.rma_movement === 'LOGISTICS_TRANSPORT');
+  records = records.filter(record => record.category !== 'RMA');
   const todayLabel = new Date().toLocaleDateString("en-PH", {
     timeZone: "Asia/Manila",
     weekday: "long",
@@ -196,6 +199,12 @@ export default function DriverDashboard({
         </div>
       )}
 
+      {rmaRecords.length > 0 && <section aria-label="RMA tasks" className="space-y-4 px-4 pt-5 max-w-lg mx-auto w-full">
+        <h2 className="font-bold text-slate-900">RMA transport tasks</h2>
+        <p className="text-sm text-slate-600">{rmaRecords.filter(record => record.rma_transport_status !== 'COMPLETED').length} active · {rmaRecords.filter(record => record.rma_transport_status === 'COMPLETED').length} completed transports</p>
+        {rmaRecords.map(record => <div key={record.id} className="space-y-2"><h3 className="font-bold text-slate-900">{record.rma_reference || record.reference || record.id} · {record.company_name}</h3><RmaWorkflowPanel record={record} currentUserRole="Driver" /></div>)}
+      </section>}
+
       {/* Body */}
       <div className="flex-1 px-4 py-5 space-y-4 max-w-lg mx-auto w-full">
         {dataLoading && (
@@ -204,7 +213,7 @@ export default function DriverDashboard({
           </div>
         )}
 
-        {!dataLoading && runsInScope === 0 && (
+        {!dataLoading && runsInScope === 0 && rmaRecords.length === 0 && (
           <div className="text-center py-16 text-slate-400">
             <CheckCircle className="w-10 h-10 mx-auto mb-3 text-emerald-400" />
             <p className="font-bold text-slate-600">

@@ -1,4 +1,5 @@
-import { afterEach, mock, test } from 'node:test';
+import { installRmaPolicyLookup, rmaTestAccount } from './rmaTestPolicy';
+import { beforeEach, afterEach, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import cookieParser from 'cookie-parser';
@@ -12,10 +13,13 @@ import { approvedMicrosoftUser } from '../src/services/ssoIdentity';
 
 const GUID = 'ce7af71e-cdd0-4be6-93a9-ec280e1c10df';
 const TENANT = '7411f7e0-fb01-415c-8136-f9c30b06393f';
-const admin = { id: 'admin-1', name: 'Admin', email: 'admin@example.com', role: 'ADMIN' as const, isActive: true, permissions: [], driverProfile: null };
+const admin = { id: 'admin-1', name: 'Admin', email: 'admin@example.com', role: 'ADMIN' as const, isActive: true,
+  authorizationRevision: 1n, permissions: [], permissionOverrides: [], permissionConversion: null, driverProfile: null };
 const sales = { ...admin, id: 'sales-1', role: 'SALES_COORDINATOR' as const };
 const target = { ...sales, id: 'target-1', email: 'approved@example.com', microsoftOid: null as string | null, microsoftApprovedAt: null as Date | null };
-afterEach(() => mock.restoreAll());
+let restoreRmaPolicy: (() => void) | undefined;
+beforeEach(() => { restoreRmaPolicy = installRmaPolicyLookup(); });
+afterEach(() => { restoreRmaPolicy?.(); mock.restoreAll(); });
 
 async function appServer() {
   const app = express();
@@ -31,7 +35,7 @@ async function appServer() {
     close: async () => { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve())); }
   };
 }
-const cookieFor = (user: typeof admin | typeof sales) => 'mg_session=' + signToken(user);
+const cookieFor = (user: typeof admin | typeof sales) => 'mg_session=' + signToken({ id: user.id, name: user.name, email: user.email, role: user.role });
 
 test('Admin can approve Microsoft sign-in at creation, while ordinary accounts remain unlinked', async () => {
   const originalLookup = prisma.user.findUnique;
@@ -41,8 +45,11 @@ test('Admin can approve Microsoft sign-in at creation, while ordinary accounts r
   const audits: any[] = [];
   prisma.user.findUnique = mock.fn(async () => admin) as any;
   prisma.$transaction = mock.fn(async (fn: any) => fn({
-    user: { create: async ({ data }: any) => {
-      const row = { id: 'new-' + rows.length, microsoftOid: null, microsoftApprovedAt: null, createdAt: new Date(), ...data };
+    $executeRaw: async () => 1,
+    $queryRaw: async () => [],
+    user: { findUnique: async ({ where }: any) => where.id === admin.id ? admin : rows.find(row => row.id === where.id),
+    create: async ({ data }: any) => {
+      const row = { id: 'new-' + rows.length, authorizationRevision: 1n, microsoftOid: null, microsoftApprovedAt: null, createdAt: new Date(), ...data };
       rows.push(row);
       return row;
     } },
@@ -67,17 +74,19 @@ test('Admin can approve Microsoft sign-in at creation, while ordinary accounts r
     }, TENANT);
     assert.equal('user' in approval, true, 'created approval permits the matching tenant identity to sign in');
     assert.equal(await bcrypt.compare('password', rows[0].password), true);
-    assert.equal(audits.length, 1);
-    assert.equal(audits[0].recordId, rows[0].id);
-    assert.equal(audits[0].changedById, admin.id);
-    assert.equal(audits[0].action, 'CREATE');
-    assert.deepEqual(JSON.parse(audits[0].newValue), { microsoft_linked: true, microsoft_oid: GUID, approved_at: rows[0].microsoftApprovedAt.toISOString() });
+    const identityAudits = audits.filter(entry => entry.recordType === 'User');
+    assert.equal(identityAudits.length, 1);
+    assert.equal(identityAudits[0].recordId, rows[0].id);
+    assert.equal(identityAudits[0].changedById, admin.id);
+    assert.equal(identityAudits[0].action, 'CREATE');
+    assert.deepEqual(JSON.parse(identityAudits[0].newValue), { microsoft_linked: true, microsoft_oid: GUID, approved_at: rows[0].microsoftApprovedAt.toISOString() });
     const ordinary = await create();
     assert.equal(ordinary.status, 201);
     assert.equal((await ordinary.json() as any).microsoft_linked, false);
     assert.equal(rows[1].microsoftOid, null);
     assert.equal(rows[1].microsoftApprovedAt, null);
-    assert.equal(audits.length, 1);
+    assert.equal(audits.filter(entry => entry.recordType === 'User').length, 1);
+    assert.equal(audits.filter(entry => entry.recordType === 'UserAuthorization').length, 2, 'both creations have attributable authorization audits');
   } finally {
     prisma.user.findUnique = originalLookup;
     prisma.$transaction = originalTransaction;
@@ -122,7 +131,10 @@ test('identity/email conflicts preserve 409 responses and an audit failure canno
   prisma.$transaction = mock.fn(async (fn: any) => {
     const pending: any[] = [];
     const result = await fn({
-      user: { create: async ({ data }: any) => {
+      $executeRaw: async () => 1,
+      $queryRaw: async () => [],
+      user: { findUnique: async ({ where }: any) => where.id === admin.id ? admin : null,
+      create: async ({ data }: any) => {
         if (failure === 'adapter') throw { code: 'P2002', meta: { driverAdapterError: { cause: { constraint: { index: 'User_microsoftOid_key' } } } } };
         if (failure !== 'audit') throw { code: 'P2002', meta: { target: [failure === 'identity' ? 'microsoftOid' : 'email'] } };
         const row = { id: 'new-user', ...data };
@@ -200,9 +212,15 @@ test('Microsoft account prelink is Admin-only, audited, rejects bad IDs and dupl
   let updates = 0;
   prisma.user.findUnique = mock.fn(async ({ where }: any) => where.id === admin.id ? admin : where.id === sales.id ? sales : actedOn) as any;
   prisma.$transaction = mock.fn(async (fn: any) => fn({
+    $executeRaw: async () => 1,
+    $queryRaw: async () => [],
     user: {
-      findUnique: async () => actedOn,
+      findUnique: async ({ where }: any) => where.id === admin.id ? admin : where.id === target.id ? actedOn : null,
       update: async ({ data }: any) => {
+        if (data.authorizationRevision) {
+          actedOn = { ...actedOn, authorizationRevision: actedOn.authorizationRevision + BigInt(data.authorizationRevision.increment) };
+          return actedOn;
+        }
         updates++;
         if (data.microsoftOid === '00000000-0000-0000-0000-000000000000') throw { code: 'P2002' };
         actedOn = { ...actedOn, microsoftOid: data.microsoftOid, microsoftApprovedAt: data.microsoftApprovedAt };
@@ -226,13 +244,15 @@ test('Microsoft account prelink is Admin-only, audited, rejects bad IDs and dupl
     assert.deepEqual(await linked.json(), { user_id: target.id, microsoft_linked: true });
     assert.equal(actedOn.microsoftOid, GUID);
     assert.ok(actedOn.microsoftApprovedAt instanceof Date);
-    assert.equal(entries.length, 1);
+    assert.equal(entries.length, 2, 'identity prelink and authorization revision are audited together');
     assert.equal(entries[0].changedById, admin.id);
+    assert.equal(actedOn.authorizationRevision, 2n);
     assert.equal((await req(admin, '00000000-0000-0000-0000-000000000000')).status, 409);
     const removed = await req(admin, null);
     assert.equal(removed.status, 200);
     assert.equal(actedOn.microsoftOid, null);
     assert.equal(actedOn.microsoftApprovedAt, null);
+    assert.equal(actedOn.authorizationRevision, 3n);
   } finally {
     prisma.user.findUnique = originalUserLookup;
     prisma.$transaction = originalTransaction;

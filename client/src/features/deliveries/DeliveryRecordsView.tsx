@@ -1,3 +1,4 @@
+import { rmaWorkflowExportFields } from '@/utils/rmaTransport';
 import { selectableStatuses, manilaToday, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
@@ -505,6 +506,7 @@ export default function DeliveryRecordsView({
     rma_reference: r.rma_reference ?? '',
     legacy_sap_reference: r.legacy_sap_reference ?? '',
     rma_type: r.rma_type ?? '',
+    ...rmaWorkflowExportFields(r),
     purchase_date_fmt: r.purchase_date ? fmtDate(r.purchase_date) : '',
     customer_contact_name: r.customer_contact_name ?? '',
     customer_contact_email: r.customer_contact_email ?? '',
@@ -596,6 +598,7 @@ export default function DeliveryRecordsView({
       rma_reference: r.rma_reference ?? '',
       legacy_sap_reference: r.legacy_sap_reference ?? '',
       rma_type: r.rma_type ?? '',
+    ...rmaWorkflowExportFields(r),
       purchase_date_fmt: r.purchase_date ? fmtDate(r.purchase_date) : '',
       customer_contact_name: r.customer_contact_name ?? '',
       customer_contact_email: r.customer_contact_email ?? '',

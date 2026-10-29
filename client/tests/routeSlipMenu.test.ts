@@ -13,21 +13,21 @@ const filters: RecordListFilters = {
   region: 'Luzon', subregion: 'NCR', account_manager: 'Casey', dashboard_filter: 'log-assigned-today',
 };
 const row = (id: string, day: string): DeliveryRecord => ({
-  id, company_name: id, company_id: 'c1', reference: id, delivery_date: day, driver: 'Alex One',
+  id, company_name: id, company_id: 'c1', reference: id, delivery_date: day, driver: 'Alex',
   driver_assistants: [], status: 'Scheduled', priority: '2 - Moderate', area: 'Makati', category: 'Deliveries',
   account_manager: 'Casey', vehicle: 'Van', item_type: 'Unit', remarks: '',
 } as DeliveryRecord);
 
-async function withMenus(run: (dom: JSDOM, state: { current: RouteSlipPeriodSelection; blob?: Blob; calls: RecordListFilters[] }) => Promise<void>, actualView = false) {
+async function withMenus(run: (dom: JSDOM, state: { current: RouteSlipPeriodSelection; blob?: Blob; filename?: string; calls: RecordListFilters[] }) => Promise<void>, actualView = false) {
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost', pretendToBeVisual: true });
   const saved = Object.getOwnPropertyDescriptors(globalThis);
   const globals = { window: dom.window, document: dom.window.document, navigator: dom.window.navigator, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement, Node: dom.window.Node, Document: dom.window.Document, MutationObserver: dom.window.MutationObserver, getComputedStyle: dom.window.getComputedStyle.bind(dom.window), requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window), cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window), IS_REACT_ACT_ENVIRONMENT: true };
   for (const [key, value] of Object.entries(globals)) Object.defineProperty(globalThis, key, { value, configurable: true });
   const oldCreate = URL.createObjectURL, oldRevoke = URL.revokeObjectURL, oldFetch = globalThis.fetch;
-  const state: { current: RouteSlipPeriodSelection; blob?: Blob; calls: RecordListFilters[] } = { current: { mode: 'range', dateFrom: '2026-10-27', dateTo: '2026-10-29' }, calls: [] };
+  const state: { current: RouteSlipPeriodSelection; blob?: Blob; filename?: string; calls: RecordListFilters[] } = { current: { mode: 'range', dateFrom: '2026-10-27', dateTo: '2026-10-29' }, calls: [] };
   URL.createObjectURL = blob => { state.blob = blob as Blob; return 'blob:route-slip'; };
   URL.revokeObjectURL = () => {};
-  dom.window.HTMLAnchorElement.prototype.click = function() {};
+  dom.window.HTMLAnchorElement.prototype.click = function() { state.filename = this.download; };
   globalThis.fetch = async () => new Response('', { status: 404 });
   const pages = mock.method(api, 'getPagedRecords', async (query: RecordListFilters) => {
     state.calls.push({ ...query });
@@ -87,11 +87,12 @@ async function inputDate(dom: JSDOM, index: number, value: string) {
   const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!;
   await act(async () => { setter.call(node, value); node.dispatchEvent(new dom.window.Event('input', { bubbles: true })); node.dispatchEvent(new dom.window.Event('change', { bubbles: true })); });
 }
-async function waitDownload(state: { blob?: Blob }) {
+async function waitDownload(state: { blob?: Blob; filename?: string }) {
   await act(async () => {
     for (let tries = 0; !state.blob && tries < 100; tries++) await new Promise(resolve => setTimeout(resolve, 20));
   });
   assert.ok(state.blob, 'generated an actual download');
+  assert.match(state.filename ?? '', /\.xlsx$/i, 'download keeps the Excel filename');
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(Buffer.from(await state.blob!.arrayBuffer()) as any);
   const values: string[] = [];

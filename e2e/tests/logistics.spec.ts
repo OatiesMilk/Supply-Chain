@@ -11,6 +11,7 @@ import { test, expect, Page, type Browser } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import path from 'path';
 import fs from 'fs';
+import * as XLSX from 'xlsx';
 
 const BASE_URL = 'http://localhost:3000';
 
@@ -447,7 +448,14 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
       await expect(page.locator('[id^="delivery-record-workspace-"]')).toBeVisible();
 
       if (module.path === 'rma') {
-        await expect(page.getByRole('tab', { name: 'Status & Actions', exact: true })).not.toBeVisible();
+        // RMA transport is visible to Logistics; physical receipt and final
+        // completion remain TASS-only even when assignment is available.
+        await page.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
+        const workflow = page.getByRole('region', { name: 'RMA transport', exact: true });
+        await expect(workflow).toBeVisible();
+        await expect(workflow.getByRole('button', {
+          name: /^(Confirm physical receipt|Complete RMA|Save RMA status)$/,
+        })).toHaveCount(0);
       }
 
       await page.getByRole('navigation').getByRole('button', { name: module.sidebarName }).click();
@@ -496,7 +504,7 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     const fileInput = page.locator('input[type="file"]').last();
     await fileInput.setInputFiles({ name: fileName, mimeType: 'application/octet-stream', buffer: Buffer.from('not an allowed attachment') });
 
-    const message = 'invoice.exe — file type not allowed. Use JPG, PNG, PDF or DOCX.';
+    const message = 'invoice.exe — file type not allowed. Use JPG, PNG, PDF, DOCX or XLSX.';
     await expect(page.getByText(message, { exact: true })).toBeVisible();
     await expect(page.locator('p', { hasText: message })).toHaveCount(0);
   });
@@ -523,13 +531,31 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     await expect(page.getByText(pdfName)).toBeVisible();
     const preview = page.getByRole('button', { name: `Preview ${pdfName}` });
     await expect(preview).toBeVisible();
+    const previewResponsePromise = page.waitForResponse(response =>
+      response.request().method() === 'GET' && new URL(response.url()).pathname.endsWith('/preview'),
+    );
     await preview.click();
+    const previewResponse = await previewResponsePromise;
+    expect(previewResponse.ok()).toBeTruthy();
+    expect(previewResponse.headers()['content-type']).toMatch(/^application\/pdf\b/i);
+    expect(previewResponse.headers()['cache-control']).toMatch(/private.*no-store/i);
     const documentPreview = page.getByRole('dialog', { name: `Preview ${pdfName}` });
     await expect(documentPreview).toBeVisible();
-    await expect(documentPreview.locator('iframe')).toHaveAttribute('src', /\/preview$/);
-    await documentPreview.getByRole('button', { name: 'Close document preview' }).click();
+    await expect(documentPreview.locator('iframe')).toHaveAttribute('src', /^blob:/);
+    await page.keyboard.press('Shift+Tab');
+    await expect(documentPreview.getByRole('link', { name: `Download ${pdfName}` })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(documentPreview.getByRole('button', { name: 'Close document preview' })).toBeFocused();
+    await page.keyboard.press('Escape');
     await expect(documentPreview).toBeHidden();
+    await expect(preview).toBeFocused();
     await expect(page.getByRole('link', { name: `Download ${pdfName}` })).toHaveAttribute('download', pdfName);
+    const [pdfDownload] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('link', { name: `Download ${pdfName}` }).click(),
+    ]);
+    expect(pdfDownload.suggestedFilename()).toBe(pdfName);
+    expect(fs.readFileSync(await pdfDownload.path()!)).toEqual(fs.readFileSync(pdfPath));
     await page.getByRole('button', { name: `Remove ${pdfName}` }).click();
     await page.getByRole('alertdialog', { name: 'Remove Attachment' }).getByRole('button', { name: 'Remove', exact: true }).click();
     await expect(page.getByText(pdfName)).toHaveCount(0);
@@ -537,7 +563,56 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     fs.unlinkSync(pdfPath);
   });
 
-  test('B-4.3 Persisted photos open in the shared preview with visible actions', async ({ page }) => {
+  test('B-4.3 Excel attachments open in the in-app workbook preview', async ({ page }) => {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      ['Reference', 'Status'],
+      ['REC-XL-9001', 'Ready'],
+    ]), 'Summary');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      ['Total'],
+      [1],
+    ]), 'Totals');
+    const bytes = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' }) as Buffer;
+    const fileName = `uat-test-${Date.now()}.xlsx`;
+
+    await openFirstRecord(page);
+    await page.getByRole('tab', { name: /documents/i }).click();
+    await page.locator('input[type="file"]').last().setInputFiles({
+      name: fileName,
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer: bytes,
+    });
+    await expect(page.getByText(fileName)).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Save Files' }).click();
+    await expect(page.getByText('Waiting to upload', { exact: true })).not.toBeVisible({ timeout: 15_000 });
+
+    const preview = page.getByRole('button', { name: `Preview ${fileName}` });
+    const previewResponsePromise = page.waitForResponse(response =>
+      response.request().method() === 'GET' && new URL(response.url()).pathname.endsWith('/preview'),
+    );
+    await preview.click();
+    const previewResponse = await previewResponsePromise;
+    expect(previewResponse.ok()).toBeTruthy();
+    expect(previewResponse.headers()['content-type']).toMatch(/spreadsheetml\.sheet/i);
+
+    const documentPreview = page.getByRole('dialog', { name: `Preview ${fileName}` });
+    await expect(documentPreview.getByText('REC-XL-9001', { exact: true })).toBeVisible();
+    await documentPreview.getByRole('tab', { name: 'Totals' }).click();
+    await expect(documentPreview.locator('tbody tr').nth(1).locator('td').first()).toHaveText('1');
+    await documentPreview.getByRole('button', { name: 'Close document preview' }).click();
+    const [workbookDownload] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('link', { name: `Download ${fileName}` }).click(),
+    ]);
+    expect(workbookDownload.suggestedFilename()).toBe(fileName);
+    expect(fs.readFileSync(await workbookDownload.path()!)).toEqual(bytes);
+    await page.getByRole('button', { name: `Remove ${fileName}` }).click();
+    await page.getByRole('alertdialog', { name: 'Remove Attachment' }).getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(page.getByText(fileName)).toHaveCount(0);
+  });
+
+  test('B-4.4 Persisted photos open in the shared preview with visible actions', async ({ page }) => {
     const photoName = `logistics-preview-${Date.now()}.png`;
     const onePixelPng = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -556,6 +631,10 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
 
     const preview = page.getByRole('button', { name: `Preview ${photoName}` });
     await expect(preview).toBeVisible({ timeout: 15_000 });
+    const thumbnail = page.getByRole('img', { name: photoName });
+    await expect(thumbnail).toBeVisible();
+    await expect.poll(() => thumbnail.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+    await expect(thumbnail).toHaveAttribute('src', /\/preview$/);
     await expect(page.getByRole('link', { name: `Download ${photoName}` })).toHaveAttribute('download', photoName);
     await expect(page.getByRole('button', { name: `Remove ${photoName}` })).toBeVisible();
     await page.setViewportSize({ width: 375, height: 812 });
@@ -563,6 +642,9 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     await preview.click();
     const lightbox = page.getByRole('dialog', { name: `Preview ${photoName}` });
     await expect(lightbox).toBeVisible();
+    const fullImage = lightbox.getByRole('img', { name: photoName });
+    await expect(fullImage).toHaveAttribute('src', /\/preview$/);
+    await expect.poll(() => fullImage.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
     const bounds = await lightbox.boundingBox();
     expect(bounds?.width).toBeLessThanOrEqual(375);
     expect(bounds?.height).toBeLessThanOrEqual(812);
@@ -573,6 +655,56 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     const confirmation = page.getByRole('alertdialog', { name: 'Remove Attachment' });
     await expect(confirmation).toBeVisible();
     await expect(confirmation.getByRole('textbox')).toHaveCount(0);
+    await confirmation.getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(preview).toHaveCount(0);
+  });
+
+  test('B-4.5 Persisted JPG thumbnails and lightbox preview inline without downloading', async ({ page }) => {
+    const photoName = `logistics-preview-${Date.now()}.jpg`;
+    const jpegBase64 = await page.evaluate(() => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 2;
+      canvas.height = 2;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Canvas is unavailable');
+      context.fillStyle = '#2563eb';
+      context.fillRect(0, 0, 2, 2);
+      return canvas.toDataURL('image/jpeg').split(',')[1];
+    });
+    const downloads: string[] = [];
+    page.on('download', download => downloads.push(download.suggestedFilename()));
+
+    await openFirstRecord(page);
+    await page.getByRole('tab', { name: /documents/i }).click();
+    await page.locator('input[type="file"]').last().setInputFiles({
+      name: photoName,
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from(jpegBase64, 'base64'),
+    });
+    await expect(page.getByText('Waiting to upload', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Save Files' }).click();
+
+    const preview = page.getByRole('button', { name: `Preview ${photoName}` });
+    await expect(preview).toBeVisible({ timeout: 15_000 });
+    const thumbnail = page.getByRole('img', { name: photoName });
+    await expect.poll(() => thumbnail.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+    await expect(thumbnail).toHaveAttribute('src', /\/preview$/);
+    await preview.click();
+
+    const lightbox = page.getByRole('dialog', { name: `Preview ${photoName}` });
+    await expect(lightbox).toBeVisible();
+    const fullImage = lightbox.getByRole('img', { name: photoName });
+    await expect(fullImage).toHaveAttribute('src', /\/preview$/);
+    await expect.poll(() => fullImage.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+    expect(downloads).toEqual([]);
+
+    await page.keyboard.press('Escape');
+    await expect(lightbox).not.toBeVisible();
+    await expect(preview).toBeFocused();
+    expect(downloads).toEqual([]);
+
+    await page.getByRole('button', { name: `Remove ${photoName}` }).click();
+    const confirmation = page.getByRole('alertdialog', { name: 'Remove Attachment' });
     await confirmation.getByRole('button', { name: 'Remove', exact: true }).click();
     await expect(preview).toHaveCount(0);
   });

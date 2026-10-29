@@ -110,6 +110,7 @@ interface RecordFormState {
   item_type: string;
   is_draft: string;
   rma_type: RmaCategory | '';
+  rma_movement: DeliveryRecord['rma_movement'] | '';
   purchase_date: string;
   customer_contact_name: string;
   customer_contact_email: string;
@@ -137,6 +138,7 @@ const buildEmptyForm = (category: DeliveryCategory): RecordFormState => ({
   item_type: 'Small Item',
   is_draft: 'No',
   rma_type: '',
+  rma_movement: '',
   purchase_date: '',
   customer_contact_name: '',
   customer_contact_email: '',
@@ -219,6 +221,7 @@ export default function RecordCreateForm({
       item_type: cat === 'RMA' ? afPick(RMA_ITEM_TYPES) : afPick(ITEM_TYPES),
       is_draft: 'No',
       rma_type: rmaFields?.rma_type ?? '',
+      rma_movement: '',
       purchase_date: '',
       customer_contact_name: company.contact_person ?? '',
       customer_contact_email: '',
@@ -333,6 +336,7 @@ export default function RecordCreateForm({
         reference: form.category === 'RMA' ? '' : form.reference,
         rma_reference: form.category === 'RMA' ? form.reference.trim() || null : null,
         rma_type: form.category === 'RMA' && form.rma_type ? form.rma_type : null,
+        rma_movement: form.category === 'RMA' && form.rma_movement ? form.rma_movement : null,
         driver: '',
         driver_assistants: [],
         category: form.category,
@@ -405,7 +409,7 @@ export default function RecordCreateForm({
             <Plus className="w-5 h-5 text-[#0078C1]" />
             {categoryLocked ? `Create New ${cat} Record` : 'Create New Record'}
           </h3>
-          <p className="text-[11.5px] text-slate-500 font-medium">{cat === 'RMA' ? 'Company Name, Priority, Area and Account Manager are required. All other fields are optional, including when saving a draft.' : 'Submit requires a company, reference and delivery date. Drafts may be incomplete.'}</p>
+          <p className="text-[11.5px] text-slate-500 font-medium">{cat === 'RMA' ? 'Company Name, Priority, Area and Account Manager are required. Choose a movement method to submit; Logistics transport also needs a Delivery Date.' : 'Submit requires a company, reference and delivery date. Drafts may be incomplete.'}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -475,6 +479,16 @@ export default function RecordCreateForm({
           </div>
 
           {cat === 'RMA' && <>
+            <div className="space-y-1.5">
+              <label htmlFor="create-rma-movement" className="font-bold text-slate-700">Movement method</label>
+              <select id="create-rma-movement" value={form.rma_movement ?? ''} onChange={e => updateField('rma_movement', e.target.value as RecordFormState['rma_movement'])} aria-invalid={!!formErrors.rma_movement} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">
+                <option value="">— Select before submitting —</option>
+                <option value="LOGISTICS_TRANSPORT">Logistics transport</option>
+                <option value="SUPPLIER_COLLECTION">Supplier collection</option>
+                <option value="INTERNAL_NO_DRIVER">Internal / no driver</option>
+              </select>
+              {formErrors.rma_movement && <p role="alert" className="text-red-600 text-xs">{formErrors.rma_movement}</p>}
+            </div>
             <div className="space-y-1.5">
               <label className="font-bold text-slate-700">Category <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
               <select value={form.rma_type} onChange={e => updateField('rma_type', e.target.value as RecordFormState['rma_type'])} aria-invalid={!!formErrors.rma_type} className={`w-full px-3 py-2 border rounded-lg bg-white ${formErrors.rma_type ? 'border-red-500' : 'border-slate-300'}`}>
@@ -547,7 +561,7 @@ export default function RecordCreateForm({
 
           {/* Delivery Date */}
           <div className="space-y-1.5">
-            <label htmlFor={deliveryDateId} className="font-bold text-slate-700">Delivery Date {cat !== 'RMA' && form.is_draft !== 'Yes' ? <span className="text-red-500">*</span> : <span className="text-[10px] font-normal text-slate-400">(optional)</span>}</label>
+            <label htmlFor={deliveryDateId} className="font-bold text-slate-700">Delivery Date {(cat !== 'RMA' || form.rma_movement === 'LOGISTICS_TRANSPORT') && form.is_draft !== 'Yes' ? <span className="text-red-500">*</span> : <span className="text-[10px] font-normal text-slate-400">(optional)</span>}</label>
             <input id={deliveryDateId} type="date" value={form.delivery_date} onChange={e => updateField('delivery_date', e.target.value)}
               aria-invalid={!!formErrors.delivery_date}
               className={`w-full px-3 py-2 border rounded-lg ${formErrors.delivery_date ? 'border-red-500' : 'border-slate-300'}`} />
@@ -631,7 +645,7 @@ export default function RecordCreateForm({
             >
               <UploadCloud className="w-8 h-8 text-slate-400" />
               <p className="font-bold text-slate-600">Click to select files</p>
-              <p className="text-[10px] text-slate-400">PDF, JPG/JPEG, PNG or DOCX — previewable without downloading, up to 10 MB each</p>
+              <p className="text-[10px] text-slate-400">PDF, JPG/JPEG, PNG, DOCX or XLSX — previewable without downloading, up to 10 MB each</p>
               <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept={POD_ATTACHMENT_ACCEPT} multiple className="hidden" />
             </div>
             {stagedAttachments.length > 0 && (

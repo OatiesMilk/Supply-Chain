@@ -2,12 +2,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type RecordActiveCounts } from '@/api';
 import { DeliveryRecord } from '@/types';
 import { completionError, hasSavedPodPhoto } from '@/utils/podRequirement';
+import { useEffect } from 'react';
+import { invalidateOperationalQueries, newerRecord, operationalSyncOptions, recordDetailKey, saveRecordToCache, shareOperationalRecords } from './operationalSync';
+export { invalidateOperationalQueries, saveRecordToCache } from './operationalSync';
 
 export const RECORDS_QUERY_KEY = ['records'] as const;
 export const RECORD_ACTIVE_COUNTS_KEY = ['records', 'active-counts'] as const;
 // Existing ['records'] invalidations also refresh the sidebar aggregates.
 export function useRecordActiveCountsQuery(enabled = true) {
   return useQuery<RecordActiveCounts, Error>({
+    ...operationalSyncOptions,
     queryKey: RECORD_ACTIVE_COUNTS_KEY,
     queryFn: api.getRecordActiveCounts,
     enabled,
@@ -17,6 +21,7 @@ export function useRecordActiveCountsQuery(enabled = true) {
 export function normalizeApiRecord(r: any): DeliveryRecord {
   return {
     ...r,
+    ...(r.category === 'RMA' ? { rma_version: r.rma_version ?? 0 } : {}),
     driver_assistants: Array.isArray(r.driver_assistants) ? r.driver_assistants : [],
     output_actions_log: r.output_actions_log ?? [],
     email_notification_sent: r.status === 'Delivered',
@@ -25,10 +30,29 @@ export function normalizeApiRecord(r: any): DeliveryRecord {
 
 export function useRecordsQuery(enabled = true) {
   return useQuery<DeliveryRecord[], Error>({
+    ...operationalSyncOptions,
+    structuralSharing: shareOperationalRecords,
     queryKey: RECORDS_QUERY_KEY,
     queryFn: async () => (await api.getRecords()).map(normalizeApiRecord),
     enabled,
   });
+}
+
+export function useRecordDetailQuery(record: DeliveryRecord, enabled = true) {
+  const client = useQueryClient();
+  const queryKey = recordDetailKey(record.id);
+  const query = useQuery<DeliveryRecord, Error>({
+    ...operationalSyncOptions,
+    queryKey,
+    queryFn: async () => normalizeApiRecord(await api.getRecord(record.id)),
+    initialData: record,
+    structuralSharing: shareOperationalRecords,
+    enabled,
+  });
+  useEffect(() => {
+    if (enabled) client.setQueryData<DeliveryRecord>(queryKey, previous => newerRecord(previous, record));
+  }, [client, enabled, record]);
+  return query;
 }
 
 export interface PagedRecordResult {
@@ -42,6 +66,8 @@ export interface PagedRecordResult {
 
 export function usePagedRecordsQuery(filters: import('@/api').RecordListFilters = {}, enabled = true) {
   return useQuery<PagedRecordResult, Error>({
+    ...operationalSyncOptions,
+    structuralSharing: shareOperationalRecords,
     queryKey: ['records', 'paged', filters] as const,
     queryFn: async () => {
       const res = await api.getPagedRecords(filters);
@@ -57,6 +83,7 @@ export function usePagedRecordsQuery(filters: import('@/api').RecordListFilters 
 export const AM_SUMMARY_QUERY_KEY = ['records', 'am-summary'] as const;
 export function useAmSummaryQuery(enabled = true) {
   return useQuery({
+    ...operationalSyncOptions,
     queryKey: AM_SUMMARY_QUERY_KEY,
     queryFn: api.getAmSummary,
     enabled,
@@ -65,6 +92,8 @@ export function useAmSummaryQuery(enabled = true) {
 
 export function useCalendarSummaryQuery(dateFrom?: string, dateTo?: string, enabled = true) {
   return useQuery<DeliveryRecord[], Error>({
+    ...operationalSyncOptions,
+    structuralSharing: shareOperationalRecords,
     queryKey: ['records', 'calendar-summary', dateFrom, dateTo] as const,
     queryFn: async () => {
       const res = await api.getCalendarSummary(dateFrom, dateTo);
@@ -86,9 +115,7 @@ export function useCreateRecordMutation(currentUser: { name: string; role: strin
     ) => {
       return normalizeApiRecord(await api.createRecord(data as unknown as Record<string, unknown>));
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: RECORDS_QUERY_KEY });
-    },
+    onSuccess: () => invalidateOperationalQueries(queryClient),
   });
 }
 
@@ -97,15 +124,23 @@ export function createUpdateRecordMutationOptions(queryClient: ReturnType<typeof
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<DeliveryRecord> }) => {
       if (updates.status) {
         const u = updates as any;
-        const extra: { received_by?: string; priority?: string; delivery_date?: string } = {};
+        const extra: { received_by?: string; priority?: string; delivery_date?: string; expected_version?: number } = {};
+        if (u.expected_version !== undefined) extra.expected_version = u.expected_version;
         if (u.received_by) extra.received_by = u.received_by;
         if (updates.status === 'Rescheduled' && u.delivery_date) extra.delivery_date = u.delivery_date;
         if (updates.status === 'Delivered') {
           const record = normalizeApiRecord(await api.getRecord(id));
           if (record.status !== 'Delivered') {
             if (!(u.status_remarks ?? u.remarks ?? '').trim()) throw new Error('Remarks are required to complete this run.');
-            const files = await api.getRecordAttachments(id);
-            const receivedBy = updates.received_by !== undefined ? updates.received_by : record.received_by;
+            const files = record.category === 'RMA' ? [] : await api.getRecordAttachments(id);
+            const receivedBy = updates.received_by !== undefined ? updates.received_by : record.rma_recipient ?? record.received_by;
+            if (record.category === 'RMA') {
+              if (!record.rma_received_at) throw new Error('Confirm physical receipt before completing this RMA.');
+              if (extra.expected_version === undefined) {
+                const cached = queryClient.getQueryData<DeliveryRecord>(recordDetailKey(id));
+                extra.expected_version = cached?.rma_version ?? record.rma_version ?? 0;
+              }
+            }
             const error = completionError(record, updates.status, receivedBy, {
               loading: false, uploading: false, loadFailed: false, hasPhoto: hasSavedPodPhoto(files), hasStagedFiles: false,
             });
@@ -141,14 +176,8 @@ export function createUpdateRecordMutationOptions(queryClient: ReturnType<typeof
       }
     },
     onSuccess: async (saved: DeliveryRecord | undefined) => {
-      if (saved) {
-        await queryClient.cancelQueries({ queryKey: RECORDS_QUERY_KEY });
-        queryClient.setQueryData<DeliveryRecord[]>(RECORDS_QUERY_KEY, previous => {
-          const records = (previous ?? []).map(record => record.id === saved.id ? saved : record);
-          return records;
-        });
-      }
-      await queryClient.invalidateQueries({ queryKey: RECORDS_QUERY_KEY });
+      if (saved) await saveRecordToCache(queryClient, saved);
+      await invalidateOperationalQueries(queryClient);
     },
   };
 }
@@ -177,8 +206,6 @@ export function useVerifyCollectionMutation(currentUser: { name: string }) {
     mutationFn: async (id: string) => {
       await api.verifyCollection(id);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: RECORDS_QUERY_KEY });
-    },
+    onSuccess: () => invalidateOperationalQueries(queryClient),
   });
 }
