@@ -30,13 +30,14 @@ async function postFile(name: string, type: string, size: number) {
   return fetch(`http://127.0.0.1:${address.port}/upload`, { method: 'POST', body: form });
 }
 
-test('previewable PDF, JPG, JPEG, PNG and DOCX uploads with matching MIME types are accepted', async () => {
+test('previewable PDF, JPG, JPEG, PNG, DOCX and XLSX uploads with matching MIME types are accepted', async () => {
   const allowed = [
     ['file.pdf', 'application/pdf'],
     ['photo.jpg', 'image/jpeg'],
     ['photo.jpeg', 'image/jpeg'],
     ['photo.png', 'image/png'],
     ['document.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+    ['workbook.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
   ];
 
   for (const [name, type] of allowed) {
@@ -51,7 +52,6 @@ test('unsupported formats and extension/MIME mismatches return actionable 400 re
     ['payload.exe', 'application/x-msdownload'],
     ['macro.docm', 'application/vnd.ms-word.document.macroEnabled.12'],
     ['document.docx', 'application/zip'],
-    ['spreadsheet.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
     ['file.pdf', 'image/jpeg'],
     ['photo.png', 'application/pdf'],
   ];
@@ -60,7 +60,7 @@ test('unsupported formats and extension/MIME mismatches return actionable 400 re
     const response = await postFile(name, type, 32);
     assert.equal(response.status, 400, `${name} (${type}) should be rejected`);
     assert.deepEqual(await response.json(), {
-      error: 'Unsupported file type. Allowed formats: PDF, JPG, PNG, and DOCX.',
+      error: 'Unsupported file type. Allowed formats: PDF, JPG, PNG, DOCX, and XLSX.',
     });
   }
 });

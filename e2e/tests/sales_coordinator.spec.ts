@@ -220,7 +220,7 @@ test.describe('A-2 Create a Delivery Record', () => {
     const fileInput = page.locator('input[type="file"]').first();
     await fileInput.setInputFiles({ name: 'malicious.exe', mimeType: 'application/octet-stream', buffer: Buffer.from('MZ') });
 
-    await expect(page.getByText('malicious.exe — file type not allowed. Use JPG, PNG, PDF or DOCX.', { exact: true })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('malicious.exe — file type not allowed. Use JPG, PNG, PDF, DOCX or XLSX.', { exact: true })).toBeVisible({ timeout: 5_000 });
   });
 });
 

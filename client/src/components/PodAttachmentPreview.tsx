@@ -18,13 +18,14 @@ function documentType(file: ApiPodAttachment) {
   const extension = file.name.split('.').pop()?.toUpperCase();
   if (file.mime_type === 'application/pdf' || extension === 'PDF') return 'PDF';
   if (extension === 'DOCX' || file.mime_type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'DOCX';
+  if (extension === 'XLSX' || file.mime_type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') return 'XLSX';
   if (file.mime_type.includes('word') || extension === 'DOC') return 'DOC';
   return extension || 'FILE';
 }
 
 /** True when the server exposes a preview_url for this attachment. */
 function isPreviewable(file: ApiPodAttachment) {
-  return file.preview_url !== null;
+  return Boolean(file.preview_url);
 }
 
 /** Human-readable document type for the preview dialog header. */
@@ -32,7 +33,43 @@ function previewLabel(file: ApiPodAttachment) {
   const kind = documentType(file);
   if (kind === 'PDF') return 'PDF';
   if (kind === 'DOCX' || kind === 'DOC') return 'Word document';
+  if (kind === 'XLSX') return 'Excel spreadsheet';
   return kind;
+}
+
+const SPREADSHEET_PREVIEW_ROWS = 100;
+const SPREADSHEET_PREVIEW_COLUMNS = 20;
+const SPREADSHEET_PREVIEW_SHEETS = 20;
+
+type SpreadsheetSheetPreview = { name: string; rows: string[][]; truncated: boolean };
+type SpreadsheetPreviewData = { sheets: SpreadsheetSheetPreview[]; totalSheetCount: number };
+
+async function readSpreadsheetPreview(data: ArrayBuffer): Promise<SpreadsheetPreviewData> {
+  const XLSX = await import('xlsx');
+  const workbook = XLSX.read(data, { type: 'array', sheetRows: SPREADSHEET_PREVIEW_ROWS + 1 });
+  const sheets = workbook.SheetNames.slice(0, SPREADSHEET_PREVIEW_SHEETS).map(name => {
+    const sheet = workbook.Sheets[name];
+    const fullRef = (sheet as unknown as { '!fullref'?: string })['!fullref'] ?? sheet['!ref'] ?? 'A1';
+    const range = XLSX.utils.decode_range(fullRef);
+    const rows = XLSX.utils.sheet_to_json(sheet, {
+      header: 1,
+      defval: '',
+      raw: false,
+      range: {
+        s: { r: 0, c: 0 },
+        e: {
+          r: Math.min(range.e.r, SPREADSHEET_PREVIEW_ROWS - 1),
+          c: Math.min(range.e.c, SPREADSHEET_PREVIEW_COLUMNS - 1),
+        },
+      },
+    }) as unknown[][];
+    return {
+      name,
+      rows: rows.map(row => row.slice(0, SPREADSHEET_PREVIEW_COLUMNS).map(value => String(value ?? ''))),
+      truncated: range.e.r >= SPREADSHEET_PREVIEW_ROWS || range.e.c >= SPREADSHEET_PREVIEW_COLUMNS,
+    };
+  });
+  return { sheets, totalSheetCount: workbook.SheetNames.length };
 }
 
 function PhotoThumbnail({ file, onOpen, onRemove, removeDisabled = false }: {
@@ -68,7 +105,7 @@ function PhotoThumbnail({ file, onOpen, onRemove, removeDisabled = false }: {
         >
           {!loaded && <span aria-hidden="true" className="absolute inset-0 animate-pulse bg-slate-200" />}
           <img
-            src={file.download_url}
+            src={file.preview_url ?? file.download_url}
             alt={file.name}
             loading="lazy"
             onLoad={() => setLoaded(true)}
@@ -216,7 +253,7 @@ export function PodPhotoLightbox({
         </div>
 
         <div className="relative flex min-h-0 flex-1 items-center justify-center p-3 sm:p-4">
-          <img src={file.download_url} alt={file.name} className="max-h-[70dvh] max-w-full object-contain sm:max-h-[80dvh]" />
+          <img src={file.preview_url ?? file.download_url} alt={file.name} className="max-h-[70dvh] max-w-full object-contain sm:max-h-[80dvh]" />
           {files.length > 1 && (
             <>
               <button
@@ -270,6 +307,9 @@ function PodDocumentPreview({
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [spreadsheet, setSpreadsheet] = useState<SpreadsheetPreviewData | null>(null);
+  const [activeSheetIndex, setActiveSheetIndex] = useState(0);
+  const isSpreadsheet = documentType(file) === 'XLSX';
 
   useEffect(() => {
     if (!file.preview_url) {
@@ -282,13 +322,21 @@ function PodDocumentPreview({
     let objectUrl: string | null = null;
     setLoading(true);
     setFailed(false);
+    setPreviewUrl(null);
+    setSpreadsheet(null);
+    setActiveSheetIndex(0);
     fetch(file.preview_url, { credentials: 'include', signal: controller.signal })
-      .then(response => {
+      .then(async response => {
         if (!response.ok) throw new Error(`Preview request failed (${response.status})`);
-        return response.blob();
-      })
-      .then(blob => {
-        objectUrl = URL.createObjectURL(blob);
+        if (isSpreadsheet) {
+          const parsed = await readSpreadsheetPreview(await response.arrayBuffer());
+          if (!controller.signal.aborted) {
+            setSpreadsheet(parsed);
+            setLoading(false);
+          }
+          return;
+        }
+        objectUrl = URL.createObjectURL(await response.blob());
         setPreviewUrl(objectUrl);
       })
       .catch(error => {
@@ -301,7 +349,7 @@ function PodDocumentPreview({
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [file.preview_url]);
+  }, [file.preview_url, isSpreadsheet]);
 
   useEffect(() => {
     returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -384,11 +432,54 @@ function PodDocumentPreview({
             <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-slate-200">
               <AlertTriangle aria-hidden="true" className="h-8 w-8 text-amber-400" />
               <p className="text-sm font-semibold">Preview unavailable</p>
-              <p className="max-w-md text-xs text-slate-400">The PDF could not be loaded. Download the file to open it in a compatible viewer.</p>
+              <p className="max-w-md text-xs text-slate-400">This file could not be previewed. Download it to open it in a compatible viewer.</p>
             </div>
-          ) : previewUrl ? (
+          ) : isSpreadsheet && spreadsheet ? (
+            <div className="flex h-full min-h-0 flex-col bg-white text-slate-800">
+              {spreadsheet.sheets.length > 1 && (
+                <div role="tablist" aria-label="Workbook sheets" className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 px-3">
+                  {spreadsheet.sheets.map((sheet, index) => (
+                    <button
+                      key={sheet.name}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeSheetIndex === index}
+                      onClick={() => setActiveSheetIndex(index)}
+                      className={`min-h-10 shrink-0 border-b-2 px-3 text-xs font-semibold ${activeSheetIndex === index ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+                    >
+                      {sheet.name}
+                    </button>
+                  ))}
+                  {spreadsheet.totalSheetCount > spreadsheet.sheets.length && (
+                    <span className="self-center px-2 text-[10px] text-slate-400">Showing first {spreadsheet.sheets.length} sheets</span>
+                  )}
+                </div>
+              )}
+              {spreadsheet.sheets.length === 0 ? (
+                <p className="p-6 text-sm text-slate-500">This workbook has no visible sheets.</p>
+              ) : (
+                <div className="min-h-0 flex-1 overflow-auto">
+                  <table className="min-w-full border-collapse text-xs">
+                    <tbody>
+                      {spreadsheet.sheets[activeSheetIndex]?.rows.map((row, rowIndex) => (
+                        <tr key={rowIndex}>
+                          <th scope="row" className="sticky left-0 border border-slate-200 bg-slate-100 px-2 py-1 text-right font-mono text-[10px] text-slate-400">{rowIndex + 1}</th>
+                          {row.map((value, columnIndex) => (
+                            <td key={columnIndex} className="max-w-64 whitespace-pre-wrap break-words border border-slate-200 px-2 py-1 align-top">{value}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {spreadsheet.sheets[activeSheetIndex]?.truncated && (
+                <p className="shrink-0 border-t border-slate-200 bg-slate-50 px-3 py-2 text-[10px] text-slate-500">Preview limited to the first {SPREADSHEET_PREVIEW_ROWS} rows and {SPREADSHEET_PREVIEW_COLUMNS} columns.</p>
+              )}
+            </div>
+          ) : isSpreadsheet ? null : previewUrl ? (
             <iframe
-              title={`PDF preview: ${file.name}`}
+              title={`${previewLabel(file)} preview: ${file.name}`}
               src={previewUrl}
               onLoad={() => setLoading(false)}
               onError={() => {
@@ -474,6 +565,9 @@ export function PodAttachmentList({ files, onRemove, removeDisabled = false }: {
                   <Download aria-hidden="true" className="h-4 w-4" />
                   <span className="hidden sm:inline">Download</span>
                 </a>
+                {!isPreviewable(file) && (
+                  <span className="hidden max-w-44 text-[10px] text-slate-500 md:inline">Preview is unavailable for this format.</span>
+                )}
                 {onRemove && (
                   <button
                     type="button"
