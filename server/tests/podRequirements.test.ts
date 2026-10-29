@@ -8,7 +8,7 @@ import { signToken } from '../src/middleware/auth';
 import { podStorage } from '../src/services/podStorage';
 import sharp from 'sharp';
 import { PassThrough } from 'node:stream';
-import { docx, oleFile, pdf, zipOf } from './attachmentFixtures';
+import { docx, oleFile, pdf, zipOf, xlsx } from './attachmentFixtures';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -1338,6 +1338,10 @@ test('document uploads are verified by content and stored under the server-deriv
   const word = await request('post', '/:id/attachments', { file: uploaded(docx(), 'Letter.DOCX', wordType) });
   assert.equal(word.status, 201, 'DOCX should be accepted');
   assert.equal(create.mock.calls.at(-1)!.arguments[0].data.mimeType, wordType);
+  const spreadsheetType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const spreadsheet = await request('post', '/:id/attachments', { file: uploaded(xlsx(), 'Monthly Report.XLSX', spreadsheetType) });
+  assert.equal(spreadsheet.status, 201, 'XLSX should be accepted');
+  assert.equal(create.mock.calls.at(-1)!.arguments[0].data.mimeType, spreadsheetType);
   const legacyWord = await request('post', '/:id/attachments', { file: uploaded(oleFile('WordDocument'), 'letter.doc', 'application/msword') });
   assert.equal(legacyWord.status, 400, 'legacy DOC should be rejected for new uploads because it cannot be previewed');
 
@@ -1345,6 +1349,7 @@ test('document uploads are verified by content and stored under the server-deriv
     ['archive renamed to DOCX', zipOf([{ name: 'setup.exe', content: 'MZ' }]), 'invoice.docx', wordType],
     ['macro-enabled document', zipOf([{ name: 'word/vbaProject.bin', content: 'macro' }]), 'invoice.docx', wordType],
     ['legacy DOC renamed to DOCX', oleFile('WordDocument'), 'letter.docx', wordType],
+    ['DOCX renamed to XLSX', docx(), 'report.xlsx', spreadsheetType],
     ['DOCX renamed to DOC', docx(), 'letter.doc', 'application/msword'],
     ['PDF header only', Buffer.from('%PDF-1.4 UAT supporting document'), 'fake.pdf', 'application/pdf'],
     ['photo renamed to PDF', photo, 'photo.pdf', 'application/pdf'],
@@ -1361,8 +1366,8 @@ test('document uploads are verified by content and stored under the server-deriv
     assert.match(response.body.error, /not a valid|Unsupported file type/, name);
     assert.equal(fs.existsSync(file.path), false, `${name}: quarantined file removed`);
   }
-  assert.equal(save.mock.callCount(), 3);
-  assert.equal(create.mock.callCount(), 3);
+  assert.equal(save.mock.callCount(), 4);
+  assert.equal(create.mock.callCount(), 4);
 });
 
 test('a record at its attachment quota refuses another file before anything is stored', async () => {

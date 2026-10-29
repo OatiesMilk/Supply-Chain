@@ -11,6 +11,7 @@ import { test, expect, Page, type Browser } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import path from 'path';
 import fs from 'fs';
+import * as XLSX from 'xlsx';
 
 const BASE_URL = 'http://localhost:3000';
 
@@ -503,7 +504,7 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     const fileInput = page.locator('input[type="file"]').last();
     await fileInput.setInputFiles({ name: fileName, mimeType: 'application/octet-stream', buffer: Buffer.from('not an allowed attachment') });
 
-    const message = 'invoice.exe — file type not allowed. Use JPG, PNG, PDF or DOCX.';
+    const message = 'invoice.exe — file type not allowed. Use JPG, PNG, PDF, DOCX or XLSX.';
     await expect(page.getByText(message, { exact: true })).toBeVisible();
     await expect(page.locator('p', { hasText: message })).toHaveCount(0);
   });
@@ -550,7 +551,50 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     fs.unlinkSync(pdfPath);
   });
 
-  test('B-4.3 Persisted photos open in the shared preview with visible actions', async ({ page }) => {
+  test('B-4.3 Excel attachments open in the in-app workbook preview', async ({ page }) => {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      ['Reference', 'Status'],
+      ['REC-XL-9001', 'Ready'],
+    ]), 'Summary');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      ['Total'],
+      [1],
+    ]), 'Totals');
+    const bytes = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' }) as Buffer;
+    const fileName = `uat-test-${Date.now()}.xlsx`;
+
+    await openFirstRecord(page);
+    await page.getByRole('tab', { name: /documents/i }).click();
+    await page.locator('input[type="file"]').last().setInputFiles({
+      name: fileName,
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer: bytes,
+    });
+    await expect(page.getByText(fileName)).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Save Files' }).click();
+    await expect(page.getByText('Waiting to upload', { exact: true })).not.toBeVisible({ timeout: 15_000 });
+
+    const preview = page.getByRole('button', { name: `Preview ${fileName}` });
+    const previewResponsePromise = page.waitForResponse(response =>
+      response.request().method() === 'GET' && new URL(response.url()).pathname.endsWith('/preview'),
+    );
+    await preview.click();
+    const previewResponse = await previewResponsePromise;
+    expect(previewResponse.ok()).toBeTruthy();
+    expect(previewResponse.headers()['content-type']).toMatch(/spreadsheetml\.sheet/i);
+
+    const documentPreview = page.getByRole('dialog', { name: `Preview ${fileName}` });
+    await expect(documentPreview.getByText('REC-XL-9001', { exact: true })).toBeVisible();
+    await documentPreview.getByRole('tab', { name: 'Totals' }).click();
+    await expect(documentPreview.locator('tbody tr').nth(1).locator('td').first()).toHaveText('1');
+    await documentPreview.getByRole('button', { name: 'Close document preview' }).click();
+    await page.getByRole('button', { name: `Remove ${fileName}` }).click();
+    await page.getByRole('alertdialog', { name: 'Remove Attachment' }).getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(page.getByText(fileName)).toHaveCount(0);
+  });
+
+  test('B-4.4 Persisted photos open in the shared preview with visible actions', async ({ page }) => {
     const photoName = `logistics-preview-${Date.now()}.png`;
     const onePixelPng = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',

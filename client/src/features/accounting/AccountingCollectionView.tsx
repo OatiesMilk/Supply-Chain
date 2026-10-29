@@ -677,7 +677,7 @@ export default function AccountingCollectionView({
                 >
                   <UploadCloud className="w-8 h-8 text-slate-400" />
                   <p className="font-bold text-slate-600">Click to select files</p>
-                  <p className="text-[10px] text-slate-400">PDF, JPG/JPEG, PNG or DOCX — previewable without downloading, up to 10 MB each</p>
+                  <p className="text-[10px] text-slate-400">PDF, JPG/JPEG, PNG, DOCX or XLSX — previewable without downloading, up to 10 MB each</p>
                   <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept={POD_ATTACHMENT_ACCEPT} multiple className="hidden" />
                 </div>
                 {stagedAttachments.length > 0 && (

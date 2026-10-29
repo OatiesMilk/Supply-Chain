@@ -5,7 +5,7 @@ import { prisma } from '../src/db';
 import records from '../src/routes/records';
 import { signToken } from '../src/middleware/auth';
 import { podStorage } from '../src/services/podStorage';
-import { pdf, zipOf, oleFile } from './attachmentFixtures';
+import { pdf, zipOf, oleFile, xlsx } from './attachmentFixtures';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -14,6 +14,7 @@ const actor = { id: 'test-user', name: 'Tester', email: 'tester@test.com', role:
 const pdfAttachment  = { id: 'att-pdf',  recordId: 'rec-1', originalName: 'report.pdf',  mimeType: 'application/pdf', storageKey: 'report.pdf', size: 100, createdAt: new Date() };
 const docxAttachment = { id: 'att-docx', recordId: 'rec-1', originalName: 'letter.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', storageKey: 'letter.docx', size: 200, createdAt: new Date() };
 const docAttachment  = { id: 'att-doc',  recordId: 'rec-1', originalName: 'old.doc',     mimeType: 'application/msword', storageKey: 'old.doc', size: 150, createdAt: new Date() };
+const xlsxAttachment = { id: 'att-xlsx', recordId: 'rec-1', originalName: 'report.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', storageKey: 'report.xlsx', size: 250, createdAt: new Date() };
 const imageAttachment= { id: 'att-img',  recordId: 'rec-1', originalName: 'photo.jpg',   mimeType: 'image/jpeg',        storageKey: 'photo.jpg', size: 80, createdAt: new Date() };
 
 const deliveryRecord = { id: 'rec-1', category: 'DELIVERY', status: 'IN_TRANSIT', draft: false, reference: 'REF', driverAssistants: '[]', priority: '2 - Moderate', driver: 'Driver A', driverId: 'profile-a', company: { name: 'Co' }, accountManager: 'AM', deliveryDate: '2026-10-27', timeIn: null, receivedBy: null, timeOut: null, deletedAt: null };
@@ -121,9 +122,9 @@ async function previewRequest(attachmentId: string, opts: { authenticated?: bool
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-test('preview_url is set for PDF, DOC and DOCX but is null for images', async () => {
+test('preview_url is set for PDF, DOC, DOCX and XLSX but is null for images', async () => {
   stub(prisma.deliveryRecord, 'findFirst', async () => deliveryRecord as any);
-  stub(prisma.podAttachment, 'findMany', async () => [pdfAttachment, docxAttachment, docAttachment, imageAttachment] as any);
+  stub(prisma.podAttachment, 'findMany', async () => [pdfAttachment, docxAttachment, docAttachment, xlsxAttachment, imageAttachment] as any);
   stub(podStorage as any, 'read', async () => Buffer.alloc(0));
 
   const listPath = '/:id/attachments';
@@ -154,6 +155,7 @@ test('preview_url is set for PDF, DOC and DOCX but is null for images', async ()
   assert.match(byId['att-pdf'].preview_url, /\/preview$/);
   assert.match(byId['att-docx'].preview_url, /\/preview$/);
   assert.match(byId['att-doc'].preview_url, /\/preview$/);
+  assert.match(byId['att-xlsx'].preview_url, /\/preview$/);
   assert.equal(byId['att-img'].preview_url, null);
 });
 
@@ -190,6 +192,19 @@ test('PDF preview streams bytes inline', async () => {
   assert.equal(r.status, 200);
   assert.ok(r.bytes, 'expected binary response');
   assert.ok(r.bytes!.equals(pdfBytes), 'PDF bytes pass through unchanged');
+});
+
+test('XLSX preview streams workbook bytes inline', async () => {
+  stub(prisma.deliveryRecord, 'findFirst', async () => deliveryRecord as any);
+  stub(prisma.podAttachment, 'findFirst', async () => xlsxAttachment as any);
+  const xlsxBytes = xlsx();
+  const { Readable } = await import('node:stream');
+  stub(podStorage as any, 'open', async () => Readable.from([xlsxBytes]));
+
+  const r = await previewRequest('att-xlsx');
+  assert.equal(r.status, 200);
+  assert.ok(r.bytes, 'expected binary response');
+  assert.ok(r.bytes!.equals(xlsxBytes), 'XLSX bytes pass through unchanged');
 });
 
 test('DOCX preview returns HTML containing the document text', async () => {

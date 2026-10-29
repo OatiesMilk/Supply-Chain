@@ -89,12 +89,12 @@ test('completion needs Time In and a nonblank receiver even with verified photos
 });
 
 test('previewable supporting documents remain valid while count, format and size limits apply', () => {
-  assert.equal(validatePodAttachments([{ name: 'signed.pdf', size: 100 }, { name: 'Letter.DOCX', size: 100 }, { name: 'photo.JPG', size: 100 }]), null);
-  assert.match(validatePodAttachments([{ name: 'legacy.doc', size: 100 }])!, /Use JPG, PNG, PDF or DOCX/);
+  assert.equal(validatePodAttachments([{ name: 'signed.pdf', size: 100 }, { name: 'Letter.DOCX', size: 100 }, { name: 'Totals.XLSX', size: 100 }, { name: 'photo.JPG', size: 100 }]), null);
+  assert.match(validatePodAttachments([{ name: 'legacy.doc', size: 100 }])!, /Use JPG, PNG, PDF, DOCX or XLSX/);
   assert.match(validatePodAttachments([{ name: 'photo.jpg', size: 10 * 1024 * 1024 + 1 }])!, /^photo\.jpg is 10\.0 MB — maximum is 10 MB\.$/);
   assert.equal(
     validatePodAttachments([{ name: 'invoice.exe', size: 100 }]),
-    'invoice.exe — file type not allowed. Use JPG, PNG, PDF or DOCX.'
+    'invoice.exe — file type not allowed. Use JPG, PNG, PDF, DOCX or XLSX.'
   );
   assert.equal(
     validatePodAttachments(Array.from({ length: 11 }, (_, index) => ({ name: `file-${index + 1}.pdf`, size: 100 }))),

@@ -1904,7 +1904,7 @@ function DocumentsTab({ record, readOnly = false }: { record: DeliveryRecord; re
         <Paperclip className={`w-8 h-8 transition-colors ${dragging ? 'text-[#0078C1]' : 'text-slate-300'}`} />
         <div className="text-center">
           <p className="text-sm font-bold text-slate-700">{readOnly ? 'Documents are read-only for Logistics' : staging ? 'Adding files…' : uploading ? 'Uploading…' : 'Drop files here or click to add'}</p>
-            <p className="text-xs text-slate-400 mt-0.5">{readOnly ? 'TASS manages RMA document uploads.' : 'PDF, JPG, PNG or DOCX — all can be previewed before download; up to 10 MB each'}</p>
+            <p className="text-xs text-slate-400 mt-0.5">{readOnly ? 'TASS manages RMA document uploads.' : 'PDF, JPG, PNG, DOCX or XLSX — supported documents can be previewed in app; up to 10 MB each'}</p>
         </div>
         <input
           ref={inputRef}
