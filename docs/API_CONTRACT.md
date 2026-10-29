@@ -1,5 +1,7 @@
 # System API Contract
 
+> **Automation reference:** use [System capabilities, payloads and test boundaries](testing-reference/README.md) for the source-pinned 2026-10-27 module inventory, all 74 API endpoints, request/response examples, proposed test matrix, and current-versus-historical PR behavior. The older descriptions below have known differences from that baseline, including operational record deletion and RMA ownership/lifecycle; do not use them alone as test acceptance criteria.
+
 > Last verified: 2026-10-09 against commit `ccbf192` (`dev`). Derived from `server/src/routes/*.ts` and `server/src/index.ts`.
 
 This document describes the REST API of the Microgenesis Supply Chain Portal. All endpoints are prefixed with `/api`. Unless marked **Public**, an endpoint requires a valid session cookie (`mg_session`), and the account and its permissions are reloaded on every request.
