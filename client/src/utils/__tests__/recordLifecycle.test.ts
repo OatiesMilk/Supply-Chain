@@ -17,14 +17,14 @@ test('Save as Draft accepts an incomplete reference; Submit requires the referen
   assert.match(submissionErrors({ ...draft, company_name: '   ' }, false).company_name, /required/);
 });
 
-test('RMA drafts and submissions require company, priority, area and account manager only', () => {
+test('RMA submissions add explicit movement and conditional transport date to shared required fields', () => {
   const draft = {
     company_name: 'Customer', company_id: 'company-1', reference: '', delivery_date: '2026-08-01', category: 'RMA',
     rma_reference: '', rma_type: '', purchase_date: '', customer_contact_name: '', customer_contact_email: '', customer_contact_phone: '',
   };
   for (const isDraft of [true, false]) {
-    assert.deepEqual(Object.keys(submissionErrors(draft, isDraft)).sort(), ['account_manager', 'area', 'priority']);
-    const complete = { ...draft, priority: '2 - Moderate', area: 'Carmona', account_manager: 'Alex AM', delivery_date: '' };
+    assert.deepEqual(Object.keys(submissionErrors(draft, isDraft)).sort(), isDraft ? ['account_manager', 'area', 'priority'] : ['account_manager', 'area', 'priority', 'rma_movement']);
+    const complete = { ...draft, priority: '2 - Moderate', area: 'Carmona', account_manager: 'Alex AM', delivery_date: '', rma_movement: 'INTERNAL_NO_DRIVER' };
     assert.deepEqual(submissionErrors(complete, isDraft), {});
     assert.match(submissionErrors({ ...complete, company_id: '' }, isDraft).company_name, /Select/);
     assert.match(submissionErrors({ ...complete, priority: 'invalid' }, isDraft).priority, /valid/);
@@ -121,4 +121,20 @@ test('TSK-125: Return to Draft consequences name the driver only when assigned a
   const rma = returnToDraftConsequences({ driver: '  ', category: 'RMA' });
   assert.deepEqual(rma, ['You can edit the details, then press Submit to send it again.']);
   assert.equal(returnToDraftConsequences({ driver: 'Leo Driver', category: 'RMA' }).some(line => /Logistics/.test(line)), false);
+});
+
+test('Logistics RMA submission needs a valid date; no-driver and supplier movements never require a driver or date', () => {
+  const fields = { company_name: 'Company', company_id: 'company', reference: '', delivery_date: '', category: 'RMA', priority: '2 - Moderate', area: 'Carmona', account_manager: 'AM' };
+  for (const rma_movement of ['SUPPLIER_COLLECTION', 'INTERNAL_NO_DRIVER']) assert.deepEqual(submissionErrors({ ...fields, rma_movement }, false), {});
+  assert.match(submissionErrors({ ...fields, rma_movement: 'LOGISTICS_TRANSPORT' }, false).delivery_date, /valid Delivery Date/);
+  assert.match(submissionErrors({ ...fields, rma_movement: 'LOGISTICS_TRANSPORT', delivery_date: '2026-02-30' }, false).delivery_date, /valid Delivery Date/);
+  assert.deepEqual(submissionErrors({ ...fields, rma_movement: 'LOGISTICS_TRANSPORT', delivery_date: '2026-10-28' }, false), {});
+  assert.deepEqual(submissionErrors({ ...fields, rma_movement: null }, true), {});
+});
+
+test('final RMA completion is selectable only by TASS while Admin Delivery completion remains available', () => {
+  const rma = record({ category: 'RMA', allowed_statuses: ['Pending', 'Delivered'] });
+  assert.deepEqual(selectableStatuses(rma, 'TASS'), ['Pending', 'Delivered']);
+  for (const role of ['Admin', 'Logistics', 'Driver', 'Sales Coordinator'] as const) assert.equal(selectableStatuses(rma, role).includes('Delivered'), false);
+  assert.deepEqual(selectableStatuses(record({ category: 'Deliveries', allowed_statuses: ['Delivered'] }), 'Admin'), ['Delivered']);
 });

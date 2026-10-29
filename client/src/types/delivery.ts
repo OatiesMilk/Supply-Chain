@@ -14,6 +14,9 @@ export type DeliveryCategory =
 
 export type DeliveryStatus = 'Draft' | 'Scheduled' | 'In Transit' | 'Delivered' | 'On-Hold' | 'Rescheduled' | 'Pending';
 
+export type RmaMovement = 'LOGISTICS_TRANSPORT' | 'SUPPLIER_COLLECTION' | 'INTERNAL_NO_DRIVER';
+export type RmaTransportStatus = 'PENDING' | 'IN_TRANSIT' | 'COMPLETED';
+
 export type PriorityLevel = '1 - Low' | '2 - Moderate' | '3 - High';
 
 export type ItemType = 'Small Item' | 'Unit' | 'Medium Item' | 'Large / Pallet';
@@ -72,6 +75,16 @@ export interface DeliveryRecord extends AuditFields {
   deleted_at?: string | null;
   document_attachment?: string | null;
   rma_type?: RmaCategory | null;
+  rma_movement?: RmaMovement | null;
+  rma_transport_status?: RmaTransportStatus | null;
+  rma_version?: number;
+  expected_version?: number; // Mutation precondition; never substitutes for the server version.
+  rma_transport_started_at?: string | null;
+  rma_transport_completed_at?: string | null;
+  rma_received_at?: string | null;
+  rma_received_by?: string | null;
+  rma_recipient?: string | null;
+  rma_completed_at?: string | null;
   purchase_date?: string | null;
   customer_contact_name?: string | null;
   customer_contact_email?: string | null;

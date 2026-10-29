@@ -1,4 +1,5 @@
-import { afterEach, test, mock } from 'node:test';
+import { installRmaPolicyLookup, rmaTestAccount } from './rmaTestPolicy';
+import { beforeEach, afterEach, test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import type { PrismaClient } from '@prisma/client';
 import express from 'express';
@@ -16,10 +17,12 @@ import { effectiveScreens, permissionEditor, permissionInputError, permissionSna
 import { canCreateCategory, canWriteCategory, recordScope } from '../src/services/recordAccess';
 import type { AuthUser } from '../src/middleware/auth';
 
-afterEach(() => mock.restoreAll());
+let restoreRmaPolicy: (() => void) | undefined;
+beforeEach(() => { restoreRmaPolicy = installRmaPolicyLookup(); });
+afterEach(() => { restoreRmaPolicy?.(); mock.restoreAll(); });
 const account = (role = 'SALES_COORDINATOR', permissions: Permission[] = []) => ({
   id: 'test-account', name: 'Test User', email: 'test@example.com', role, permissions,
-  isActive: true, password: bcrypt.hashSync('test-password', 4),
+  isActive: true, password: bcrypt.hashSync('test-password', 4), authorizationRevision: 1n, permissionOverrides: [],
 });
 
 test('editor, login and restored sessions share defaults, overrides, catalog and locked modules', () => {

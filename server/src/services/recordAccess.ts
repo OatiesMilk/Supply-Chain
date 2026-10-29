@@ -4,6 +4,7 @@ import type { Screen } from './permissions';
 import { hasActionPermission, type EffectivePermissionSnapshot } from './permissionEvaluator';
 import { POLICY_CATEGORIES, type PolicyAction, type PolicyCategory } from './permissionCatalog';
 import { driverDeliveryDateError, isoTimestamp, runState, timeInError, transitionError, type RunRecord, type RunState } from './deliveryLifecycle';
+import { eligibleRmaTransport as isEligibleRmaMovement } from './rmaMovement';
 
 export const CATEGORY_SCREEN: Record<string, Screen> = {
   DELIVERY: 'deliveries', RMA: 'rma', ACCOUNTING_COLLECTION: 'accounting_collection',
@@ -18,7 +19,11 @@ export function readableCategories(user: AuthUser): string[] {
   return Object.keys(CATEGORY_SCREEN).filter(category => {
     const screen = CATEGORY_SCREEN[category];
     // Sales Coordinator must not discover RMA records through aggregate views.
-    if (category === 'RMA' && !['TASS', 'LOGISTICS', 'ADMIN'].includes(user.role)) return false;
+    if (category === 'RMA') {
+      if (!['TASS', 'LOGISTICS', 'ADMIN', 'DRIVER'].includes(user.role)) return false;
+      if (user.rmaPermissions !== undefined && (!user.rmaPermissions || !hasActionPermission(user.rmaPermissions, 'CATEGORY', 'RMA', 'READ'))) return false;
+      if (user.role === 'DRIVER' && !user.rmaPermissions?.driverProfileId) return false;
+    }
     if (user.role === 'TASS' && !['ACCOUNTING_COLLECTION', 'RMA'].includes(category)) return false;
     if (user.permissions.some(p => p.screen === screen && p.granted === false)) return false;
     return shared || user.effectiveScreens.includes(screen);
@@ -32,7 +37,9 @@ export function recordScope(user: AuthUser): Prisma.DeliveryRecordWhereInput {
   return {
     category: { in: readableCategories(user) },
     ...(user.role === 'DRIVER'
-      ? (user.driverProfileId ? { driverId: user.driverProfileId, draft: false } : { id: { in: [] } })
+      ? (user.driverProfileId ? { driverId: user.driverProfileId, draft: false,
+        OR: [{ category: { not: 'RMA' } }, { category: 'RMA', rmaMovement: 'LOGISTICS_TRANSPORT' }],
+      } : { id: { in: [] } })
       : {}),
   };
 }
@@ -43,7 +50,7 @@ export function isAssignedDriver(user: AuthUser, record: { driverId?: string | n
 
 export function canReadRecord(
   user: AuthUser,
-  record: { category?: string | null; driverId?: string | null; draft?: boolean }
+  record: { category?: string | null; driverId?: string | null; draft?: boolean; rmaMovement?: string | null }
 ): boolean {
   const category = record.category ?? 'ACCOUNTING_COLLECTION';
   if (!readableCategories(user).includes(category)) return false;
@@ -51,6 +58,7 @@ export function canReadRecord(
     if (!user.driverProfileId) return false;
     if (record.driverId !== user.driverProfileId) return false;
     if (record.draft) return false;
+    if (category === 'RMA' && !isEligibleRmaMovement({ ...record, category })) return false;
   }
   return true;
 }
@@ -60,6 +68,7 @@ export function canWriteCategory(user: AuthUser, category: string): boolean {
   if (!screen || !readableCategories(user).includes(category)) return false;
   if (user.role === 'LOGISTICS' && category === 'RMA') return false;
   if (category === 'RMA' && !['TASS', 'ADMIN'].includes(user.role)) return false;
+  if (category === 'RMA' && user.rmaPermissions !== undefined && (!user.rmaPermissions || !hasActionPermission(user.rmaPermissions, 'CATEGORY', 'RMA', 'WRITE'))) return false;
   // Scheduling views can edit their records, subject to the existing action
   // and field-level role restrictions in records.ts.
   const editors: Screen[] = [screen, 'driver_dashboard', 'driver', 'calendar', 'driver_board'];
@@ -69,6 +78,7 @@ export function canWriteCategory(user: AuthUser, category: string): boolean {
 /** Creating a record can be narrower than managing an existing operational record. */
 export function canCreateCategory(user: AuthUser, category: string): boolean {
   if (!canWriteCategory(user, category)) return false;
+  if (category === 'RMA' && user.rmaPermissions !== undefined && (!user.rmaPermissions || !hasActionPermission(user.rmaPermissions, 'CATEGORY', 'RMA', 'CREATE'))) return false;
   // Logistics retains assignment and run management for saved Deliveries but
   // Sales Coordinator owns creation of new Delivery records.
   if (user.role === 'LOGISTICS' && category === 'DELIVERY') return false;

@@ -1,4 +1,5 @@
-import { afterEach, test, mock } from 'node:test';
+import { installRmaPolicyLookup, rmaTestAccount } from './rmaTestPolicy';
+import { beforeEach, afterEach, test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import cookieParser from 'cookie-parser';
@@ -7,7 +8,9 @@ import { prisma } from '../src/db';
 import authRoutes from '../src/routes/auth';
 import recordsRoutes from '../src/routes/records';
 
-afterEach(() => mock.restoreAll());
+let restoreRmaPolicy: (() => void) | undefined;
+beforeEach(() => { restoreRmaPolicy = installRmaPolicyLookup(); });
+afterEach(() => { restoreRmaPolicy?.(); mock.restoreAll(); });
 
 const setupApp = async () => {
   const app = express();
@@ -38,7 +41,7 @@ const createUser = (role = 'SALES_COORDINATOR') => ({
   role,
   permissions: [],
   isActive: true,
-  password: bcrypt.hashSync('test-password', 4),
+  password: bcrypt.hashSync('test-password', 4), authorizationRevision: 1n, permissionOverrides: [],
 });
 
 test('Logistics cannot create a Delivery but retains access to existing Delivery operations', async () => {

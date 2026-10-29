@@ -664,6 +664,13 @@ export const AC_EXTRA_COLUMNS: ExportColumn[] = [
 ];
 
 export const RMA_EXTRA_COLUMNS: ExportColumn[] = [
+  { header: 'Movement method', key: 'rma_movement_fmt', width: 26 },
+  { header: 'Transport status', key: 'rma_transport_status_fmt', width: 20 },
+  { header: 'Transport started (Manila)', key: 'rma_transport_started_at_fmt', width: 26 },
+  { header: 'Transport completed (Manila)', key: 'rma_transport_completed_at_fmt', width: 26 },
+  { header: 'Physical receipt recipient', key: 'rma_recipient', width: 26 },
+  { header: 'Physical receipt confirmed (Manila)', key: 'rma_received_at_fmt', width: 28 },
+  { header: 'RMA completed (Manila)', key: 'rma_completed_at_fmt', width: 26 },
   { header: 'Legacy SAP Reference', key: 'legacy_sap_reference', width: 24 },
   { header: 'RMA Category', key: 'rma_type', width: 24 },
   { header: 'Purchase Date', key: 'purchase_date_fmt', width: 18 },
@@ -688,6 +695,8 @@ export const PDF_DELIVERY_COLUMNS: ExportColumn[] = [
 ];
 
 export const PDF_RMA_COLUMNS: ExportColumn[] = [
+  { header: 'Movement', key: 'rma_movement_fmt', width: 24, pdfWidth: 28 },
+  { header: 'Transport', key: 'rma_transport_status_fmt', width: 18, pdfWidth: 22 },
   { header: 'Record ID', key: 'id', width: 18, pdfWidth: 22 },
   { header: 'Company', key: 'company_name', width: 28, pdfWidth: 50 },
   { header: 'RMA Document Reference', key: 'rma_reference', width: 28, pdfWidth: 38 },

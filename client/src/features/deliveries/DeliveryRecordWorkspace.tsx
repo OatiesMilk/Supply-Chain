@@ -1,3 +1,7 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { operationalSyncOptions } from '@/api/queries/operationalSync';
+import RmaWorkflowPanel from './RmaWorkflowPanel';
+import { useRecordDetailQuery } from '@/api/queries/useRecordsQuery';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ArrowLeft, ChevronLeft, ChevronRight,
@@ -8,7 +12,7 @@ import {
   ScrollText, Link2, X as XCircle
 } from 'lucide-react';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel, ItemType } from '@/types';
-import { api, ApiAuditEntry, ApiComment, ApiCompany, ApiRemarkLog } from '@/api';
+import { api, ApiError, ApiAuditEntry, ApiComment, ApiCompany, ApiRemarkLog } from '@/api';
 import { printSingleManifest, ManifestDocumentationData } from '@/features/deliveries/DeliveryManifest';
 import { rankDriversByCoverage } from '@/utils/driverCoverage';
 import { DRIVERS, driverIdForName,DRIVER_ASSISTANTS, DELIVERY_STATUSES, AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, RMA_ITEM_TYPES, ACCOUNT_MANAGERS, DRIVER_COVERAGE_AREAS, getSubregion, getNearbyAreas } from '@/data';
@@ -127,6 +131,7 @@ type EditDraft = {
   item_type: ItemType; is_draft: 'Yes' | 'No'; remarks: string; item_description: string; line_items: { sku: string, quantity: number }[];
   address: string;
   rma_type: RmaCategory | '';
+  rma_movement: DeliveryRecord['rma_movement'] | '';
   purchase_date: string;
   customer_contact_name: string;
   customer_contact_email: string;
@@ -151,6 +156,7 @@ function GeneralTab({
   const canEditFull = !readOnly && (tassRma || ((currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && (record.status === 'Scheduled' || isDraftRecord(record))));
   const canManageDraft = !readOnly && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin' || tassRma) && !record.time_in;
   const [lifecycleRemarks, setLifecycleRemarks] = useState('');
+  const [editVersion, setEditVersion] = useState(record.rma_version ?? 0);
   const [returnToDraftOpen, setReturnToDraftOpen] = useState(false);
   const canEditAreaAddress = !readOnly && currentUserRole === 'Logistics' && record.category !== 'RMA';
   const canEditDeliveryDate = !readOnly && currentUserRole === 'Logistics' && record.category === 'Deliveries';
@@ -177,6 +183,7 @@ function GeneralTab({
     address: record.address ?? '',
     line_items: record.line_items || [],
     rma_type: record.rma_type ?? '',
+    rma_movement: record.rma_movement ?? '',
     purchase_date: record.purchase_date ?? '',
     customer_contact_name: record.customer_contact_name ?? '',
     customer_contact_email: record.customer_contact_email ?? '',
@@ -202,6 +209,7 @@ function GeneralTab({
       address: record.address ?? '',
       line_items: record.line_items || [],
       rma_type: record.rma_type ?? '',
+      rma_movement: record.rma_movement ?? '',
       purchase_date: record.purchase_date ?? '',
       customer_contact_name: record.customer_contact_name ?? '',
       customer_contact_email: record.customer_contact_email ?? '',
@@ -215,7 +223,8 @@ function GeneralTab({
     setRemarksError(false);
     setRmaErrors({});
     // A bulk priority change can update this record while the workspace stays open.
-    setDraft(d => ({ ...d, priority: record.priority }));
+    setEditVersion(record.rma_version ?? 0);
+    setDraft(d => ({ ...d, priority: record.priority, reference: record.reference, area: record.area, address: record.address ?? '', vehicle: record.vehicle || '(None)', account_manager: record.account_manager, delivery_date: record.delivery_date, item_type: record.item_type, item_description: record.item_description, line_items: record.line_items ?? [], rma_type: record.rma_type ?? '', rma_movement: record.rma_movement ?? '', purchase_date: record.purchase_date ?? '', customer_contact_name: record.customer_contact_name ?? '', customer_contact_email: record.customer_contact_email ?? '', customer_contact_phone: record.customer_contact_phone ?? '' }));
     // Keep the saved note in read mode; every edit starts with a fresh reason.
     setDraft(d => ({ ...d, remarks: '' }));
     setEditing(true);
@@ -231,6 +240,7 @@ function GeneralTab({
         rma_reference: draft.reference,
         delivery_date: draft.delivery_date,
         category: 'RMA',
+        rma_movement: draft.rma_movement,
         priority: draft.priority,
         area: draft.area,
         account_manager: draft.account_manager,
@@ -239,10 +249,10 @@ function GeneralTab({
         customer_contact_name: draft.customer_contact_name,
         customer_contact_email: draft.customer_contact_email,
         customer_contact_phone: draft.customer_contact_phone,
-      }, false);
+      }, isDraftRecord(record));
       const fieldErrors: Record<string, string> = {};
       if (validation.reference) fieldErrors.rma_reference = validation.reference;
-      for (const field of ['priority', 'area', 'account_manager', 'customer_contact_email']) {
+      for (const field of ['priority', 'area', 'account_manager', 'customer_contact_email', 'rma_movement', 'delivery_date']) {
         if (validation[field]) fieldErrors[field] = validation[field];
       }
       if (Object.keys(fieldErrors).length) {
@@ -256,13 +266,13 @@ function GeneralTab({
     }
     setRemarksError(false);
     setSaving(true);
-    const updates: any = { remarks: draft.remarks };
+    const updates: any = { remarks: draft.remarks, ...(record.category === 'RMA' ? { expected_version: editVersion } : {}) };
     if (canEditFull) {
       updates.priority = draft.priority;
       if (record.category === 'RMA') updates.rma_reference = draft.reference.trim() || null;
       else updates.reference = draft.reference;
       updates.area = draft.area;
-      updates.vehicle = draft.vehicle;
+      if (record.category !== 'RMA') updates.vehicle = draft.vehicle;
       updates.account_manager = draft.account_manager;
       updates.delivery_date = draft.delivery_date;
       updates.item_type = draft.item_type;
@@ -271,6 +281,7 @@ function GeneralTab({
       updates.address = draft.address;
       if (record.category === 'RMA') {
         updates.rma_type = draft.rma_type || null;
+        if (tassRma) updates.rma_movement = draft.rma_movement || null;
         updates.purchase_date = draft.purchase_date || null;
         updates.customer_contact_name = draft.customer_contact_name || null;
         updates.customer_contact_email = draft.customer_contact_email || null;
@@ -290,7 +301,7 @@ function GeneralTab({
       await onUpdateRecord(record.id, {
         ...updates,
         modified_by: `${currentUserName} (${currentUserRole})`,
-        modified_at: new Date().toISOString(),
+
       });
       setEditing(false);
       notify.success('Record changes saved');
@@ -317,6 +328,7 @@ function GeneralTab({
       address: record.address ?? '',
       line_items: record.line_items || [],
       rma_type: record.rma_type ?? '',
+      rma_movement: record.rma_movement ?? '',
       purchase_date: record.purchase_date ?? '',
       customer_contact_name: record.customer_contact_name ?? '',
       customer_contact_email: record.customer_contact_email ?? '',
@@ -352,7 +364,7 @@ function GeneralTab({
         record={record}
         open={returnToDraftOpen}
         onDismiss={() => setReturnToDraftOpen(false)}
-        onSubmit={async reason => { await onUpdateRecord(record.id, { status: 'Draft', remarks: reason }); notify.success('Record returned to Draft'); }}
+        onSubmit={async reason => { await onUpdateRecord(record.id, { status: 'Draft', remarks: reason, ...(record.category === 'RMA' ? { expected_version: record.rma_version ?? 0 } : {}) }); notify.success('Record returned to Draft'); }}
       />
 
       {canManageDraft && isDraftRecord(record) && selectableStatuses(record, currentUserRole).some(status => status === 'Draft' || status === 'Scheduled') && (
@@ -362,7 +374,7 @@ function GeneralTab({
           <textarea id="submission-change-remarks" aria-describedby="submission-change-remarks-help" required value={lifecycleRemarks} onChange={e => setLifecycleRemarks(e.target.value)} rows={2} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" placeholder="Reason for submitting or returning to draft" />
           {selectableStatuses(record, currentUserRole).filter(status => isDraftRecord(record) ? status === 'Scheduled' : status === 'Draft').map(status => (
             <button key={status} type="button" disabled={saving || !lifecycleRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
-              onClick={async () => { setSaving(true); try { await onUpdateRecord(record.id, { status, remarks: lifecycleRemarks.trim() }); setLifecycleRemarks(''); notify.success(isDraftRecord(record) ? 'Record submitted' : 'Record returned to Draft'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not change submission status.'); } finally { setSaving(false); } }}>
+              onClick={async () => { setSaving(true); try { await onUpdateRecord(record.id, { status, remarks: lifecycleRemarks.trim(), ...(record.category === 'RMA' ? { expected_version: record.rma_version ?? 0 } : {}) }); setLifecycleRemarks(''); notify.success(isDraftRecord(record) ? 'Record submitted' : 'Record returned to Draft'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not change submission status.'); } finally { setSaving(false); } }}>
               {isDraftRecord(record) ? 'Submit' : 'Return to Draft'}
             </button>
           ))}
@@ -397,7 +409,7 @@ function GeneralTab({
                 { label: 'Driver',            value: record.driver || 'Unassigned' },
                 { label: 'Driver Assistants', value: (record.driver_assistants ?? []).join(', ') || '—' },
                 { label: 'Time In',           value: formatTs(record.time_in) },
-                { label: record.category === 'RMA' ? 'Completed at' : 'Time Out', value: formatTs(record.time_out) },
+                { label: record.category === 'RMA' ? 'Completed at' : 'Time Out', value: formatTs(record.category === 'RMA' ? record.rma_completed_at ?? record.time_out : record.time_out) },
                 { label: record.category === 'RMA' ? 'Recipient / Collector' : 'Received By', value: record.received_by || '—' },
                 { label: 'Account Manager',   value: record.account_manager },
                 { label: 'Delivery Date',   value: record.delivery_date },
@@ -483,6 +495,16 @@ function GeneralTab({
                 </div>
               )}
               {canEditFull && record.category === 'RMA' && <>
+                {tassRma && <div className="space-y-1">
+                  <label htmlFor="edit-rma-movement" className={labelCls}>Movement method</label>
+                  <select id="edit-rma-movement" value={draft.rma_movement ?? ''} onChange={event => set('rma_movement', event.target.value as EditDraft['rma_movement'])} className={fieldInputCls('rma_movement')} aria-invalid={!!rmaErrors.rma_movement}>
+                    <option value="">— Select before submitting —</option>
+                    <option value="LOGISTICS_TRANSPORT">Logistics transport</option>
+                    <option value="SUPPLIER_COLLECTION">Supplier collection</option>
+                    <option value="INTERNAL_NO_DRIVER">Internal / no driver</option>
+                  </select>
+                  {rmaErrors.rma_movement && <p role="alert" className="text-xs text-red-600">{rmaErrors.rma_movement}</p>}
+                </div>}
                 <div className="space-y-1">
                   <label className={labelCls}>Category <span className="normal-case tracking-normal font-normal">(optional)</span></label>
                   <select
@@ -568,7 +590,7 @@ function GeneralTab({
               </>)}
               {canEditFull && (
                 <>
-                  {!tassRma && <div className="space-y-1">
+                  {record.category !== 'RMA' && <div className="space-y-1">
                     <label className={labelCls}>Vehicle</label>
                     <select value={draft.vehicle} onChange={e => set('vehicle', e.target.value)} className={inputCls}>
                       {VEHICLES.map(v => <option key={v} value={v}>{v}</option>)}
@@ -590,7 +612,7 @@ function GeneralTab({
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className={labelCls}>Delivery Date{record.category === 'RMA' && ' (optional)'}</label>
+                    <label className={labelCls}>Delivery Date{record.category === 'RMA' && (draft.rma_movement === 'LOGISTICS_TRANSPORT' ? ' *' : ' (optional)')}</label>
                     <input
                       type="date"
                       value={draft.delivery_date}
@@ -696,7 +718,7 @@ function GeneralTab({
                 { label: 'Driver',            value: record.driver || 'Unassigned' },
                 { label: 'Driver Assistants', value: (record.driver_assistants ?? []).join(', ') || '—' },
                 { label: 'Time In',           value: formatTs(record.time_in) },
-                { label: record.category === 'RMA' ? 'Completed at' : 'Time Out', value: formatTs(record.time_out) },
+                { label: record.category === 'RMA' ? 'Completed at' : 'Time Out', value: formatTs(record.category === 'RMA' ? record.rma_completed_at ?? record.time_out : record.time_out) },
                 { label: record.category === 'RMA' ? 'Recipient / Collector' : 'Received By', value: record.received_by || '—' },
               ].map(row => (
                 <div key={row.label} className="flex flex-col gap-0.5">
@@ -926,18 +948,10 @@ const CONTEXT_LABEL: Record<string, string> = {
 };
 
 function RemarksTab({ recordId }: { recordId: string }) {
-  const [remarks, setRemarks]   = useState<ApiRemarkLog[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState<string | null>(null);
-
-  useEffect(() => {
-    setLoading(true);
-    setError(null);
-    api.getRecordRemarks(recordId)
-      .then(setRemarks)
-      .catch(e => setError(e.message ?? 'Failed to load remarks.'))
-      .finally(() => setLoading(false));
-  }, [recordId]);
+  const query = useQuery({ ...operationalSyncOptions, queryKey: ['record-remarks', recordId], queryFn: () => api.getRecordRemarks(recordId) });
+  const remarks = query.data ?? [];
+  const loading = query.isPending;
+  const error = query.isError ? (query.error.message || 'Failed to load remarks.') : null;
 
   if (loading) {
     return (
@@ -1198,7 +1212,7 @@ function ActionsTab({
           record={record}
           open={returnToDraftOpen}
           onDismiss={() => setReturnToDraftOpen(false)}
-          onSubmit={async reason => { await onUpdateRecord(record.id, { status: 'Draft', remarks: reason }); notify.success('Record returned to Draft'); }}
+          onSubmit={async reason => { await onUpdateRecord(record.id, { status: 'Draft', remarks: reason, ...(record.category === 'RMA' ? { expected_version: record.rma_version ?? 0 } : {}) }); notify.success('Record returned to Draft'); }}
         />
         {needsNewDate && (
           <div className="space-y-1.5">
@@ -1468,22 +1482,14 @@ function ActionsTab({
 // ─── Comments Tab ─────────────────────────────────────────────────────────────
 
 function CommentsTab({ recordId, readOnly = false }: { recordId: string; readOnly?: boolean }) {
-  const [comments, setComments] = useState<ApiComment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const client = useQueryClient();
+  const query = useQuery({ ...operationalSyncOptions, queryKey: ['record-comments', recordId], queryFn: () => api.getRecordComments(recordId) });
+  const comments = query.data ?? [];
+  const loading = query.isPending;
+  const loadError = query.isError ? 'Could not load comments. Please try again.' : '';
   const [commentBody, setCommentBody] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [loadError, setLoadError] = useState('');
-  const [retry, setRetry] = useState(0);
   useWorkspaceDraft('comments', !!commentBody, submitting);
-
-  useEffect(() => {
-    setLoading(true);
-    setLoadError('');
-    api.getRecordComments(recordId)
-      .then(setComments)
-      .catch(() => setLoadError('Could not load comments. Please try again.'))
-      .finally(() => setLoading(false));
-  }, [recordId, retry]);
 
   const handleSubmit = async () => {
     const body = commentBody.trim();
@@ -1491,7 +1497,8 @@ function CommentsTab({ recordId, readOnly = false }: { recordId: string; readOnl
     setSubmitting(true);
     try {
       const created = await api.createRecordComment(recordId, body);
-      setComments(prev => [...prev, created]);
+      client.setQueryData<ApiComment[]>(['record-comments', recordId], previous => [...(previous ?? []), created]);
+      void client.invalidateQueries({ queryKey: ['record-comments', recordId] });
       setCommentBody('');
     } catch {
       notify.error('Could not send your comment. Your text is kept below; try again.');
@@ -1520,7 +1527,7 @@ function CommentsTab({ recordId, readOnly = false }: { recordId: string; readOnl
         )}
       </h4>
       <p id="record-comment-help" className="text-sm text-slate-600">Optional discussion about this record. Comments do not replace the remarks required when making changes.</p>
-      {loadError && <div role="alert" className="text-sm text-red-700">{loadError} <button type="button" onClick={() => setRetry(value => value + 1)} className="min-h-11 rounded px-3 font-semibold underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700">Retry loading comments</button></div>}
+      {loadError && <div role="alert" className="text-sm text-red-700">{loadError} <button type="button" onClick={() => void query.refetch()} className="min-h-11 rounded px-3 font-semibold underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700">Retry loading comments</button></div>}
       {readOnly && <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">RMA is view only for Logistics. You can read the discussion here.</p>}
 
       {comments.length > 0 && (
@@ -1587,6 +1594,14 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
   rma_reference: 'RMA Document Reference',
   legacy_sap_reference: 'Legacy SAP Reference',
   rma_type: 'RMA Category',
+  rma_movement: 'Movement method',
+  rma_transport_status: 'Transport status',
+  rma_transport_started_at: 'Transport started',
+  rma_transport_completed_at: 'Transport completed',
+  rma_received_at: 'Physical receipt confirmed',
+  rma_received_by: 'Receipt confirmed by',
+  rma_recipient: 'Recipient',
+  rma_completed_at: 'RMA completed',
   purchase_date: 'Purchase Date',
   customer_contact_name: 'Customer Contact Name',
   customer_contact_email: 'Customer Contact Email',
@@ -1600,7 +1615,7 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
 const AUDIT_SKIP_FIELDS = new Set([
   'id', 'company_id', 'customer_id', 'created_by_id',
   'created_at', 'updated_at', 'created_by', 'modified_by', 'modified_at',
-  'document_attachment', 'attachments', 'output_actions_log', 'email_notification_sent',
+  'document_attachment', 'attachments', 'output_actions_log', 'email_notification_sent', 'rma_version', 'rma_received_by',
 ]);
 
 function shouldSkipAuditField(key: string): boolean {
@@ -1617,6 +1632,7 @@ function isEmptyAuditValue(v: unknown): boolean {
 }
 
 function formatAuditValue(v: unknown): string {
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v) && Number.isFinite(Date.parse(v))) return formatTs(v);
   return isEmptyAuditValue(v) ? '—' : String(v);
 }
 
@@ -1656,18 +1672,10 @@ function diffAuditEntry(oldVal: unknown, newVal: unknown): AuditDiffRow[] {
 // ─── Audit Trail Tab ──────────────────────────────────────────────────────────
 
 function AuditTrailTab({ recordId }: { recordId: string }) {
-  const [entries, setEntries] = useState<ApiAuditEntry[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setLoading(true);
-    setError(null);
-    api.getRecordAudit(recordId)
-      .then(setEntries)
-      .catch(e => setError(e.message ?? 'Failed to load audit trail.'))
-      .finally(() => setLoading(false));
-  }, [recordId]);
+  const query = useQuery({ ...operationalSyncOptions, queryKey: ['record-audit', recordId], queryFn: () => api.getRecordAudit(recordId) });
+  const entries = query.data ?? null;
+  const loading = query.isPending;
+  const error = query.isError ? (query.error.message || 'Failed to load audit trail.') : null;
 
   if (loading) {
     return (
@@ -2012,7 +2020,7 @@ export default function DeliveryRecordWorkspace(props: DeliveryRecordWorkspacePr
 }
 
 function RecordWorkspace({
-  record,
+  record: initialRecord,
   allRecordIds,
   allRecords = [],
   currentUserRole,
@@ -2024,6 +2032,8 @@ function RecordWorkspace({
   outputActionConfigs,
   forceReadOnly = false,
 }: DeliveryRecordWorkspaceProps) {
+  const detail = useRecordDetailQuery(initialRecord, initialRecord.category === 'RMA');
+  const record = initialRecord.category === 'RMA' ? detail.data ?? initialRecord : initialRecord;
   const { requestLeave, pending } = useWorkspaceNavigation();
   const navigationNonce = useUIStore(s => s.navigationNonce);
   const currentScreen = useUIStore(s => s.currentScreen);
@@ -2065,7 +2075,7 @@ function RecordWorkspace({
 
   // Determine visible tabs per role; forceReadOnly hides the Assign tab
   const visibleTabs = ALL_TABS.filter(t =>
-    t.roles.includes(currentUserRole) && !(forceReadOnly && t.id === 'actions')
+    t.roles.includes(currentUserRole) && !(forceReadOnly && t.id === 'actions' && record.category !== 'RMA')
   );
 
   const currentIndex = allRecordIds.indexOf(record.id);
@@ -2088,6 +2098,7 @@ function RecordWorkspace({
         );
 
       case 'actions':
+        if (record.category === 'RMA') return <RmaWorkflowPanel key={record.id} record={record} currentUserRole={currentUserRole} />;
         return (
           <ActionsTab
             record={record}
@@ -2116,8 +2127,13 @@ function RecordWorkspace({
     }
   };
 
+  if (detail.error instanceof ApiError && [401, 403, 404].includes(detail.error.status)) {
+    return <div role="alert" className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-700">This record is no longer available to your account. <button type="button" onClick={onBack} className="min-h-11 px-3 font-semibold text-blue-700">Back to records</button></div>;
+  }
+
   return (
     <div className="space-y-4" id={`delivery-record-workspace-${record.id}`}>
+      {detail.isError && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">The latest record could not sync. Saved information is shown. <button type="button" className="min-h-11 underline" onClick={() => void detail.refetch()}>Retry sync</button></p>}
       {/* Navigation bar */}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-gray-100 pb-4">
         <div className="flex min-w-[14rem] flex-1 items-center gap-3">
@@ -2206,7 +2222,7 @@ function RecordWorkspace({
             ['Driver', record.driver || 'Unassigned'],
             ['Delivery date', record.delivery_date],
             ['Time in', formatManilaTime(record.time_in)],
-            [record.category === 'RMA' ? 'Completed at' : 'Time out', formatManilaTime(record.time_out)],
+            [record.category === 'RMA' ? 'Completed at' : 'Time out', formatManilaTime(record.category === 'RMA' ? record.rma_completed_at ?? record.time_out : record.time_out)],
           ].map(([label, value]) => <div key={label} className="flex gap-1"><dt className="text-slate-500">{label}:</dt><dd className="font-semibold">{value}</dd></div>)}
         </dl>
       </section>

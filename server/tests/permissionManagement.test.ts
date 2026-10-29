@@ -1,4 +1,5 @@
-import { afterEach, test, mock } from 'node:test';
+import { installRmaPolicyLookup, rmaTestAccount } from './rmaTestPolicy';
+import { beforeEach, afterEach, test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import cookieParser from 'cookie-parser';
@@ -10,7 +11,9 @@ import { defaultRolePermissions, type PolicyRole } from '../src/services/permiss
 import { actionPermissionInputError } from '../src/services/permissionEvaluator';
 import { permissionMode, permissionSaveBody, PolicyManagementError, safePolicyAudit } from '../src/services/permissionManagement';
 
-afterEach(() => mock.restoreAll());
+let restoreRmaPolicy: (() => void) | undefined;
+beforeEach(() => { restoreRmaPolicy = installRmaPolicyLookup(); });
+afterEach(() => { restoreRmaPolicy?.(); mock.restoreAll(); });
 const version = `v1:${'a'.repeat(64)}`;
 const body = (permissions: unknown) => ({ contractVersion: 1, catalogVersion: 1, expectedVersion: version, permissions });
 const status = (n: number) => (error: unknown) => error instanceof PolicyManagementError && error.status === n;

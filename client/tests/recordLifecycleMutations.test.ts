@@ -10,9 +10,9 @@ import type { DeliveryRecord } from '../src/types';
 
 afterEach(() => mock.restoreAll());
 
-test('RMA completion patches recipient and remarks atomically without loading optional proof', async () => {
+test('RMA completion patches the confirmed receipt recipient and version without loading optional proof', async () => {
   const client = createQueryClient();
-  mock.method(api, 'getRecord', async () => ({ id: 'rma', status: 'Scheduled', category: 'RMA', time_in: null, received_by: null }));
+  mock.method(api, 'getRecord', async () => ({ id: 'rma', status: 'Scheduled', category: 'RMA', time_in: null, received_by: null, rma_received_at: '2026-10-28T01:00:00Z', rma_recipient: 'Collector', rma_version: 3 }));
   const files = mock.method(api, 'getRecordAttachments', async () => { throw new Error('Optional attachment service is unavailable'); });
   const put = mock.method(api, 'updateRecord', async () => { throw new Error('RMA completion must use one status update'); });
   const patch = mock.method(api, 'patchStatus', async () => ({ id: 'rma', status: 'Delivered', received_by: 'Collector' }));
@@ -21,9 +21,25 @@ test('RMA completion patches recipient and remarks atomically without loading op
   await assert.rejects(options.mutationFn({ id: 'rma', updates: { status: 'Delivered', received_by: 'Collector', remarks: ' ' } }), /Remarks/);
   const saved = await options.mutationFn({ id: 'rma', updates: { status: 'Delivered', received_by: ' Collector ', remarks: 'Collected' } });
   assert.equal(saved.status, 'Delivered');
-  assert.deepEqual(patch.mock.calls[0].arguments, ['rma', 'Delivered', 'Collected', { received_by: 'Collector' }]);
+  assert.deepEqual(patch.mock.calls[0].arguments, ['rma', 'Delivered', 'Collected', { received_by: 'Collector', expected_version: 3 }]);
   assert.equal(files.mock.callCount(), 0);
   assert.equal(put.mock.callCount(), 0);
+  client.clear();
+});
+
+test('RMA completion requires saved physical receipt and preserves an explicit stale version for server conflict detection', async () => {
+  const client = createQueryClient();
+  const read = mock.method(api, 'getRecord', async () => ({ id: 'rma', category: 'RMA', status: 'Scheduled', rma_version: 8, rma_recipient: 'Collector', rma_received_at: null }));
+  const patch = mock.method(api, 'patchStatus', async () => { throw new Error('The record changed. Reload before saving.'); });
+  const options = createUpdateRecordMutationOptions(client);
+  await assert.rejects(options.mutationFn({ id: 'rma', updates: { status: 'Delivered', remarks: 'Complete' } }), /Confirm physical receipt/);
+  assert.equal(patch.mock.callCount(), 0);
+  read.mock.mockImplementation(async () => ({ id: 'rma', category: 'RMA', status: 'Scheduled', rma_version: 8, rma_recipient: 'Collector', rma_received_at: '2026-10-28T01:00:00Z' }));
+  const cached = { id: 'rma', category: 'RMA', rma_version: 8 } as DeliveryRecord;
+  client.setQueryData(['records', 'detail', 'rma'], cached);
+  await assert.rejects(options.mutationFn({ id: 'rma', updates: { status: 'Delivered', remarks: 'Complete', expected_version: 5 } }), /record changed/);
+  assert.deepEqual(patch.mock.calls[0].arguments, ['rma', 'Delivered', 'Complete', { received_by: 'Collector', expected_version: 5 }]);
+  assert.equal(client.getQueryData(['records', 'detail', 'rma']), cached, 'failed save leaves the committed cache intact');
   client.clear();
 });
 
@@ -74,4 +90,15 @@ test('the assignment board hides new and retained-assignment drafts until submis
   assert.ok(html.includes('scheduled-run'));
   assert.ok(html.includes('started-run'));
   assert.match(html.replace(/<!--.*?-->/g, ''), /1 unassigned, 2 shown/);
+});
+
+test('dispatch workload includes only submitted internal-driver RMA transport and ordinary runs', () => {
+  const row = (id: string, updates: Partial<DeliveryRecord> = {}) => ({ id, reference: id, company_name: id, category: 'RMA', status: 'Scheduled', is_draft: 'No', driver: '', area: 'Carmona', delivery_date: '2026-10-28', rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'PENDING', ...updates } as DeliveryRecord);
+  const html = renderToString(React.createElement(DriverBoard, {
+    records: [row('eligible-rma'), row('supplier-rma', { rma_movement: 'SUPPLIER_COLLECTION' }), row('internal-rma', { rma_movement: 'INTERNAL_NO_DRIVER' }), row('legacy-rma', { rma_movement: null }), row('draft-rma', { is_draft: 'Yes' }), row('finished-transport', { rma_transport_status: 'COMPLETED' }), row('ordinary-delivery', { category: 'Deliveries' })],
+    currentUserName: 'Logistics', onNavigate: () => {}, onUpdateRecord: async () => {},
+  }));
+  assert.ok(html.includes('eligible-rma')); assert.ok(html.includes('ordinary-delivery'));
+  for (const hidden of ['supplier-rma', 'internal-rma', 'legacy-rma', 'draft-rma', 'finished-transport']) assert.equal(html.includes(hidden), false, hidden);
+  assert.match(html.replace(/<!--.*?-->/g, ''), /2 unassigned, 2 shown/);
 });

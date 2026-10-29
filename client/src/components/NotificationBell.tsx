@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Bell,
   X,
@@ -10,6 +11,7 @@ import {
 import { api, ApiNotification } from "../api";
 import { DeliveryRecord } from "../types";
 import { notificationScreen } from "../utils/notificationNavigation";
+import { operationalSyncOptions } from '../api/queries/operationalSync';
 
 interface Props {
   onNavigate: (screen: string, item_id?: string) => void;
@@ -29,28 +31,16 @@ export default function NotificationBell({
   deliveryRecords,
 }: Props) {
   const [open, setOpen] = useState(false);
-  const [notifications, setNotifications] = useState<ApiNotification[]>([]);
-  const [loading, setLoading] = useState(false);
+  const client = useQueryClient();
+  const notificationKey = ['notifications'] as const;
+  const query = useQuery({ ...operationalSyncOptions, queryKey: notificationKey, queryFn: api.getNotifications });
+  const notifications = query.data ?? [];
+  const loading = query.isPending;
+  const [saveError, setSaveError] = useState('');
   const [markingAll, setMarkingAll] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;
-
-  const load = useCallback(async () => {
-    try {
-      const data = await api.getNotifications();
-      setNotifications(data);
-    } catch {
-      // silently fail — bell is non-blocking
-    }
-  }, []);
-
-  // Initial load + poll every 60 seconds
-  useEffect(() => {
-    load();
-    const id = setInterval(load, 60_000);
-    return () => clearInterval(id);
-  }, [load]);
 
   // Close on outside click
   useEffect(() => {
@@ -64,27 +54,39 @@ export default function NotificationBell({
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  const handleOpen = async () => {
+  const handleOpen = () => {
     setOpen((v) => !v);
-    if (!open) {
-      setLoading(true);
-      await load();
-      setLoading(false);
-    }
+    if (!open) void query.refetch();
   };
 
   const handleMarkOne = async (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)),
-    );
-    await api.markNotificationRead(id).catch(() => {});
+    await client.cancelQueries({ queryKey: notificationKey });
+    const previous = client.getQueryData<ApiNotification[]>(notificationKey);
+    setSaveError('');
+    client.setQueryData<ApiNotification[]>(notificationKey, data => data?.map(n => n.id === id ? { ...n, is_read: true } : n));
+    try { await api.markNotificationRead(id); }
+    catch {
+      client.setQueryData(notificationKey, previous);
+      setSaveError('Could not mark the notification as read. Try again.');
+    }
+    finally { await client.invalidateQueries({ queryKey: notificationKey }); }
   };
 
   const handleMarkAll = async () => {
     setMarkingAll(true);
-    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-    await api.markAllNotificationsRead().catch(() => {});
-    setMarkingAll(false);
+    await client.cancelQueries({ queryKey: notificationKey });
+    const previous = client.getQueryData<ApiNotification[]>(notificationKey);
+    setSaveError('');
+    client.setQueryData<ApiNotification[]>(notificationKey, data => data?.map(n => ({ ...n, is_read: true })));
+    try { await api.markAllNotificationsRead(); }
+    catch {
+      client.setQueryData(notificationKey, previous);
+      setSaveError('Could not mark notifications as read. Try again.');
+    }
+    finally {
+      setMarkingAll(false);
+      await client.invalidateQueries({ queryKey: notificationKey });
+    }
   };
 
   const handleClickNotification = async (n: ApiNotification) => {
@@ -157,6 +159,10 @@ export default function NotificationBell({
           </div>
 
           {/* List */}
+          {(query.isError || saveError) && <p role="alert" className="px-4 py-3 text-xs text-red-700">
+            {saveError || 'Notifications could not sync. Saved notifications remain visible.'}
+            <button type="button" onClick={() => { setSaveError(''); void query.refetch(); }} className="ml-2 font-bold underline">Retry notifications</button>
+          </p>}
           <div className="overflow-y-auto flex-1">
             {loading ? (
               <div className="flex justify-center py-10">

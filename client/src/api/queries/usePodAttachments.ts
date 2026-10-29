@@ -2,6 +2,7 @@ import { useIsMutating, useMutation, useQuery, useQueryClient, type QueryClient 
 import { api, type ApiPodAttachment } from '@/api';
 import { hasSavedPodPhoto, type PodReadiness } from '@/utils/podRequirement';
 import { getStagedFiles, saveStagedFile, removeStagedFile, clearStagedFiles, type StagedFile } from '@/utils/idbFiles';
+import { invalidateOperationalQueries, operationalSyncOptions } from './operationalSync';
 
 export const podAttachmentsKey = (recordId: string) => ['pod-attachments', recordId] as const;
 export const podStagedKey = (recordId: string) => ['pod-staged', recordId] as const;
@@ -23,6 +24,7 @@ export async function uploadStagedFiles(recordId: string, client?: QueryClient):
   if (client) {
     await client.invalidateQueries({ queryKey: stagedKey });
     await client.invalidateQueries({ queryKey });
+    await invalidateOperationalQueries(client);
   }
 }
 
@@ -33,6 +35,7 @@ export function usePodAttachments(recordId: string) {
   const mutationKey = ['pod-attachment-write', recordId];
   
   const query = useQuery({
+    ...operationalSyncOptions,
     queryKey,
     queryFn: () => api.getRecordAttachments(recordId),
     enabled: Boolean(recordId),
@@ -87,13 +90,13 @@ export function usePodAttachments(recordId: string) {
         client.setQueryData<ApiPodAttachment[]>(queryKey, previous => [saved, ...(previous ?? [])]);
       }
     },
-    onSettled: () => client.invalidateQueries({ queryKey }),
+    onSettled: () => invalidateOperationalQueries(client),
   });
 
   const remove = useMutation({
     mutationKey,
     mutationFn: ({ id: attachmentId, remarks }: { id: string; remarks: string }) => api.deleteRecordAttachment(recordId, attachmentId, remarks),
-    onSettled: () => client.invalidateQueries({ queryKey }),
+    onSettled: () => invalidateOperationalQueries(client),
   });
 
   const uploading = useIsMutating({ mutationKey }) > 0;
@@ -103,7 +106,7 @@ export function usePodAttachments(recordId: string) {
   const combinedHasPhoto = hasSavedPodPhoto(files) || stagedFiles.some(s => s.file.type.startsWith('image/'));
 
   const readiness: PodReadiness = {
-    loading: query.isPending || query.isFetching || stagedQuery.isPending,
+    loading: query.isPending || stagedQuery.isPending,
     uploading,
     hasPhoto: combinedHasPhoto,
     loadFailed: query.isError,

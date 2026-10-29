@@ -6,6 +6,8 @@
  *
  * Clean layout — no sidebar or header chrome. Uses jsPDF.
  */
+import { rmaWorkflowExportFields } from '@/utils/rmaTransport';
+import { formatManilaTimestamp } from '@/utils/manilaTimestamp';
 import { fmtDate } from '@/utils/export';
 import { DeliveryRecord } from '@/types';
 import { ApiCompany, ApiAuditEntry, ApiComment, ApiRemarkLog, ApiPodAttachment } from '@/api';
@@ -113,11 +115,19 @@ export async function printSingleManifest(
       ...(record.attachments ?? []),
       ...(docData?.attachments ?? []).map(file => file.name),
     ];
+    const workflow = rmaWorkflowExportFields(record);
     const fields: [string, string][] = [
       ['Record ID', record.id],
       ['RMA Document Reference', record.rma_reference ?? record.reference],
       ['Legacy SAP Reference', record.legacy_sap_reference ?? '—'],
       ['RMA Category', record.rma_type ?? '—'],
+      ['Movement method', workflow.rma_movement_fmt || 'Not selected'],
+      ['Transport status', workflow.rma_transport_status_fmt || 'Not applicable'],
+      ['Transport started', workflow.rma_transport_started_at_fmt || '—'],
+      ['Transport completed', workflow.rma_transport_completed_at_fmt || '—'],
+      ['Physical receipt recipient', workflow.rma_recipient || '—'],
+      ['Physical receipt confirmed', workflow.rma_received_at_fmt || 'Not confirmed'],
+      ['RMA completed', workflow.rma_completed_at_fmt || '—'],
       ['Status', record.status],
       ['Priority', record.priority],
       ['Company', record.company_name],
@@ -136,8 +146,8 @@ export async function printSingleManifest(
       ['Driver', record.driver || 'Unassigned'],
       ['Driver ID', record.driver_id || '—'],
       ['Driver Assistants', record.driver_assistants?.join(', ') || '—'],
-      ['Time In', record.time_in || '—'],
-      ['Time Out', record.time_out || '—'],
+      ['Time In (legacy)', formatManilaTimestamp(record.time_in)],
+      ['Time Out (legacy)', formatManilaTimestamp(record.time_out)],
       ['Received By', record.received_by || '—'],
       ['Completed Late', record.completed_late ? 'Yes' : 'No'],
       ['Days Late', String(record.days_late ?? 0)],
@@ -147,15 +157,15 @@ export async function printSingleManifest(
       ['Attachments', attachments.join(', ') || '—'],
       ['Created By', record.created_by || '—'],
       ['Created By ID', record.created_by_id ?? '—'],
-      ['Created At', record.created_at || '—'],
+      ['Created At', formatManilaTimestamp(record.created_at)],
       ['Modified By', record.modified_by || '—'],
       ['Modified By ID', record.modified_by_id ?? '—'],
-      ['Modified At', record.modified_at || '—'],
-      ['Deleted At', record.deleted_at || '—'],
+      ['Modified At', formatManilaTimestamp(record.modified_at)],
+      ['Deleted At', formatManilaTimestamp(record.deleted_at)],
       ['Amount', record.amount == null ? '—' : String(record.amount)],
       ['Collection Verified', record.collection_verified ? 'Yes' : 'No'],
       ['Collection Verified By', record.collection_verified_by ?? '—'],
-      ['Collection Verified At', record.collection_verified_at ?? '—'],
+      ['Collection Verified At', formatManilaTimestamp(record.collection_verified_at)],
       ['Linked Collection', record.linked_collection ? `${record.linked_collection.id} · ${record.linked_collection.reference}` : record.linked_collection_id ?? '—'],
     ];
     autoTable(doc, {
