@@ -1,4 +1,5 @@
 import { manilaToday, submissionErrors } from '@/utils/recordLifecycle';
+import { usePermissions } from '@/hooks/usePermissions';
 import React, { useId, useRef, useState } from 'react';
 import { Plus, X, Check, FileText, UploadCloud, Wand2 } from 'lucide-react';
 import { DeliveryRecord, DeliveryCategory, DeliveryStatus, OutputActionConfig, OutputActionTrigger } from '@/types';
@@ -178,6 +179,7 @@ export default function RecordCreateForm({
   onUpdateOutputActionConfig,
   onAfterSubmit,
 }: RecordCreateFormProps) {
+  const access = usePermissions();
   const deliveryDateId = useId();
   const [form, setForm] = useState<RecordFormState>(() => buildEmptyForm(category));
   const [saving, setSaving] = useState(false);
@@ -234,6 +236,7 @@ export default function RecordCreateForm({
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!access.canRecord(form.category, 'POD')) return;
     const input = e.currentTarget;
     const selectedFiles = Array.from(input.files ?? []);
     input.value = '';
@@ -303,6 +306,7 @@ export default function RecordCreateForm({
     e.preventDefault();
     if (saving || createdRecordInfo) return;
     const isDraft = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "draft";
+    if (!access.canRecord(form.category, 'CREATE') || !isDraft && !access.canRecord(form.category, 'SUBMIT')) return;
     const errors = submissionErrors({ ...form, rma_reference: form.category === 'RMA' ? form.reference : undefined }, isDraft);
 
     if (Object.keys(errors).length > 0) {
@@ -640,13 +644,13 @@ export default function RecordCreateForm({
           <div className="space-y-1.5 md:col-span-2">
             <label className="font-bold text-slate-700">Document Attachments <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
             <div
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => { if (access.canRecord(form.category, 'POD')) fileInputRef.current?.click(); }}
               className="border-2 border-dashed border-slate-300 rounded-xl p-5 text-center flex flex-col items-center justify-center gap-2 cursor-pointer bg-slate-50/50 hover:bg-slate-50 transition-all"
             >
               <UploadCloud className="w-8 h-8 text-slate-400" />
               <p className="font-bold text-slate-600">Click to select files</p>
               <p className="text-[10px] text-slate-400">PDF, JPG/JPEG, PNG, DOCX or XLSX — previewable without downloading, up to 10 MB each</p>
-              <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept={POD_ATTACHMENT_ACCEPT} multiple className="hidden" />
+              <input type="file" disabled={!access.canRecord(form.category, 'POD')} ref={fileInputRef} onChange={handleFileSelect} accept={POD_ATTACHMENT_ACCEPT} multiple className="hidden" />
             </div>
             {stagedAttachments.length > 0 && (
               <div className="mt-2 space-y-1">
@@ -675,8 +679,8 @@ export default function RecordCreateForm({
           <button type="button" onClick={onCancel} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors text-[11px] uppercase">
             Cancel
           </button>
-          <button type="submit" value="draft" disabled={saving} className="px-5 py-2.5 border border-slate-300 text-slate-700 font-bold rounded-lg disabled:opacity-50">Save as Draft</button>
-          <button type="submit" value="submit" disabled={saving} className="px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5">
+          <button type="submit" value="draft" disabled={saving || !access.canRecord(form.category, 'CREATE')} className="px-5 py-2.5 border border-slate-300 text-slate-700 font-bold rounded-lg disabled:opacity-50">Save as Draft</button>
+          <button type="submit" value="submit" disabled={saving || !access.canRecord(form.category, 'CREATE') || !access.canRecord(form.category, 'SUBMIT')} className="px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5">
             <Check className="w-4 h-4" /> {saving ? "Saving…" : "Submit"}
           </button>
         </div>

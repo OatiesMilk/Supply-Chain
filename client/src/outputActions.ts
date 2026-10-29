@@ -75,7 +75,8 @@ export async function runOutputActions(
           recipients,
         });
       } catch (err) {
-        console.error('Email notification failed:', err);
+        // Keep a forbidden/failed dispatch as an error, never a successful notification.
+        throw err;
       }
     }
 

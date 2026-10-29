@@ -4,7 +4,7 @@
  */
 
 import { DeliveryRecord } from '../types';
-import { apiUrl } from '../api';
+import { api } from '../api';
 import { filterRouteSlipRecords, routeSlipDriverNames, routeSlipPeriodLabel, type RouteSlipPeriod } from './routeSlipPeriod';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE, getExcelPageSetup, getPdfFormat, fitColumnWidths, getDocxDimensions, getDocxLandscapeContentWidth } from './documentSize';
 
@@ -87,9 +87,7 @@ export async function fetchHistoricStatusSets(records: DeliveryRecord[]): Promis
 
   await Promise.all(records.map(async r => {
     try {
-      const res = await fetch(`${apiUrl(`/records/${r.id}/audit`)}`, { credentials: 'include' });
-      if (!res.ok) return;
-      const entries: { previous_value: unknown; new_value: unknown }[] = await res.json();
+      const entries = await api.getRecordAudit(r.id);
       const set = sets.get(r.id)!;
       for (const e of entries) {
         const nv = e.new_value  as Record<string, unknown> | null;

@@ -8,6 +8,9 @@ import { ApiError, api } from '../src/api';
 import { CUSTOMERS_QUERY_KEY, useCustomersQuery } from '../src/api/queries/useCompaniesQuery';
 import CustomerWorkspace from '../src/features/customers/CustomerWorkspace';
 import type { Customer } from '../src/types/customer';
+import { beforeEach } from 'node:test';
+import { installLegacySession } from './helpers/permissionSession';
+beforeEach(() => { installLegacySession('SALES_COORDINATOR', 'customers'); });
 
 afterEach(() => mock.restoreAll());
 

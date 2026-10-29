@@ -1,3 +1,6 @@
+import { beforeEach } from 'node:test';
+import { installLegacySession } from './helpers/permissionSession';
+beforeEach(() => { installLegacySession('ADMIN', 'inventory'); });
 import { afterEach, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
@@ -13,13 +16,18 @@ import { createSkuMutationOptions, SKUS_QUERY_KEY } from '../src/api/queries/use
 
 afterEach(() => mock.restoreAll());
 
-test('only Admin sees SKU creation', () => {
-  for (const currentUserRole of ['Admin', 'Logistics', 'Sales Coordinator', 'Driver', 'TASS']) {
-    const html = renderToString(React.createElement(InventoryView, {
-      skus: [], currentUserRole, currentUserName: 'Test', onRefresh: () => {}, clearSelectedProductId: () => {},
-    }));
-    assert.equal(html.includes('Create SKU'), currentUserRole === 'Admin', currentUserRole);
-  }
+test('only Admin sees SKU creation', async () => {
+  await withDom(async (dom, root) => {
+    for (const [currentUserRole, apiRole] of [['Admin', 'ADMIN'], ['Logistics', 'LOGISTICS'], ['Sales Coordinator', 'SALES_COORDINATOR'], ['Driver', 'DRIVER'], ['TASS', 'TASS']] as const) {
+      await act(async () => {
+        installLegacySession(apiRole, 'inventory');
+        root.render(React.createElement(InventoryView, {
+          skus: [], currentUserRole, currentUserName: 'Test', onRefresh: () => {}, clearSelectedProductId: () => {},
+        }));
+      });
+      assert.equal(dom.window.document.body.textContent!.includes('Create SKU'), currentUserRole === 'Admin', currentUserRole);
+    }
+  });
 });
 
 test('successful SKU creation updates catalog cache and refreshes', async () => {

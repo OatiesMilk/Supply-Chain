@@ -1,3 +1,4 @@
+import { usePermissions } from '@/hooks/usePermissions';
 import { useCallback, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -80,7 +81,8 @@ export default function CustomerWorkspace({
   const [pendingLeave, setPendingLeave] = useState<(() => void) | null>(null);
   const handleDirtyChange = useCallback((value: boolean) => setDirty(value), []);
 
-  const canEdit = CUSTOMER_EDITOR_ROLES.includes(currentUserRole);
+  const access = usePermissions();
+  const canEdit = CUSTOMER_EDITOR_ROLES.includes(currentUserRole) && access.canResource('customers', 'UPDATE');
   const customer = customers.find(c => c.id === customerId);
 
   useEffect(() => { setEditing(false); setSavedNotice(false); }, [customerId]);

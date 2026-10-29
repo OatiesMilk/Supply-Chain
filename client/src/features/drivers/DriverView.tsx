@@ -1,3 +1,4 @@
+import { usePermissions } from '@/hooks/usePermissions';
 import RmaWorkflowPanel from '@/features/deliveries/RmaWorkflowPanel';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -44,7 +45,8 @@ const statusTone: Record<DeliveryStatus, string> = {
 export default function DriverView({
   records, onUpdateRecord, outputActionConfigs, onNavigate,
 }: DriverViewProps) {
-  records = records.filter(record => !isDraftRecord(record) && (record.category !== 'RMA' || record.rma_movement === 'LOGISTICS_TRANSPORT' && record.rma_transport_status !== 'COMPLETED'));
+  const access = usePermissions();
+  records = records.filter(record => access.canRecord(record.category) && !isDraftRecord(record) && (record.category !== 'RMA' || record.rma_movement === 'LOGISTICS_TRANSPORT' && record.rma_transport_status !== 'COMPLETED'));
   const timeInMutation = useRecordTimeInMutation();
   const [search, setSearch] = useState('');
   const [selectedDriver, setSelectedDriver] = useState<string | null>(null);
@@ -106,6 +108,7 @@ export default function DriverView({
   };
 
   const save = async (record: DeliveryRecord, updates: Partial<DeliveryRecord>, failureMessage: string) => {
+    if (!access.canRecord(record.category, updates.status ? 'STATUS' : 'ASSIGN') || updates.status === 'Delivered' && !access.canRecord(record.category, 'COMPLETE')) return false;
     setSaving(true);
     setFeedback(null);
     try {
@@ -135,7 +138,7 @@ export default function DriverView({
     }, 'Could not remove the assistant. Please try again.');
 
   const confirmStatus = async () => {
-    if (!selectedRecord || !pendingStatus || !remarks.trim()) return;
+    if (!selectedRecord || !pendingStatus || !remarks.trim() || !access.canRecord(selectedRecord.category, pendingStatus === 'In Transit' ? 'TIME_IN' : 'STATUS') || pendingStatus === 'Delivered' && !access.canRecord(selectedRecord.category, 'COMPLETE')) return;
     if (completionError(selectedRecord, pendingStatus, receiverInputs[selectedRecord.id] ?? selectedRecord.received_by, podReadiness)) return;
     
     if (pendingStatus === selectedRecord.status) {
@@ -330,7 +333,7 @@ export default function DriverView({
                       {selectedRecord.category !== 'RMA' && <div className="flex flex-col gap-4 border-t border-slate-200 pt-4">
                         <div>
                           <label htmlFor="driver-run-vehicle" className="mb-1 block text-sm font-medium text-slate-700">Vehicle</label>
-                          <select id="driver-run-vehicle" value={selectedRecord.vehicle} disabled={saving}
+                          <select id="driver-run-vehicle" value={selectedRecord.vehicle} disabled={saving || !access.canRecord(selectedRecord.category, 'ASSIGN')}
                             onChange={event => changeVehicle(selectedRecord, event.target.value)}
                             className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600">
                             {VEHICLES.map(vehicle => <option key={vehicle} value={vehicle}>{vehicle}</option>)}
@@ -338,7 +341,7 @@ export default function DriverView({
                         </div>
 
                         <AssistantPicker key={selectedRecord.id} selected={selectedRecord.driver_assistants}
-                          options={DRIVER_ASSISTANTS} saving={saving}
+                          options={DRIVER_ASSISTANTS} saving={saving || !access.canRecord(selectedRecord.category, 'ASSIGN')}
                           onAdd={name => addAssistant(selectedRecord, name)}
                           onRemove={name => removeAssistant(selectedRecord, name)} />
                       </div>}
@@ -348,7 +351,7 @@ export default function DriverView({
                       {selectedRecord.category !== 'RMA' && selectedRecord.status !== 'Delivered' && (
                         <div className="space-y-4 border-t border-slate-200 pt-4">
                           {!selectedRecord.time_in ? (
-                            <button type="button" disabled={saving || !canRecordTimeIn(selectedRecord)}
+                            <button type="button" disabled={saving || !access.canRecord(selectedRecord.category, 'TIME_IN') || !canRecordTimeIn(selectedRecord)}
                               onClick={event => { lastTrigger.current = event.currentTarget; setPendingStatus("In Transit"); setRemarks(""); setFeedback(null); }}
                               className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white disabled:opacity-50">
                               <Clock3 aria-hidden="true" className="h-4 w-4" /> Record time in
@@ -370,7 +373,7 @@ export default function DriverView({
                           {photoError && <p className="text-xs text-slate-600">{photoError}</p>}
                           <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
                             {(['Delivered', 'Pending', 'Rescheduled'] as const).map(status => (
-                              <button key={status} type="button" disabled={saving || !(selectedRecord.allowed_statuses ?? []).includes(status) || (status === 'Delivered' && (!!photoError || !selectedRecord.time_in || !(receiverInputs[selectedRecord.id]?.trim() || selectedRecord.received_by?.trim())))}
+                              <button key={status} type="button" disabled={saving || !access.canRecord(selectedRecord.category, 'STATUS') || (status === 'Delivered' && !access.canRecord(selectedRecord.category, 'COMPLETE')) || !(selectedRecord.allowed_statuses ?? []).includes(status) || (status === 'Delivered' && (!!photoError || !selectedRecord.time_in || !(receiverInputs[selectedRecord.id]?.trim() || selectedRecord.received_by?.trim())))}
                                 onClick={event => { lastTrigger.current = event.currentTarget; setPendingStatus(status); setRemarks(''); setFeedback(null); }}
                                 className={`min-h-11 rounded-lg px-2 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${status === 'Delivered' ? 'bg-emerald-700 text-white' : status === 'Pending' ? 'bg-amber-100 text-amber-900' : 'bg-violet-100 text-violet-900'}`}>
                                 {status === 'Delivered' ? 'Accomplish' : status === 'Rescheduled' ? 'Reschedule' : status}

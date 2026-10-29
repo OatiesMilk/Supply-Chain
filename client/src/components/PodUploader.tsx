@@ -1,3 +1,4 @@
+import { canCurrentRecord } from '@/api/permissionRuntime';
 import { useEffect, useRef } from 'react';
 import { FileText, Loader2, Paperclip, X } from 'lucide-react';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
@@ -10,6 +11,7 @@ export default function PodUploader({ recordId, required = false, disabled = fal
   disabled?: boolean;
   onReadinessChange?: (recordId: string, readiness: PodReadiness) => void;
 }) {
+  disabled = disabled || !canCurrentRecord(recordId, 'POD');
   const { files, stagedFiles, readiness, stageFiles, unstageFile, reload } = usePodAttachments(recordId);
   const { loading, uploading, hasPhoto, loadFailed } = readiness;
   const inputRef = useRef<HTMLInputElement>(null);

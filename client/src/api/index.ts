@@ -7,6 +7,8 @@ export interface RmaCapabilities { assign: boolean; transport: boolean; receive:
  * sent automatically via `credentials: 'include'`.
  */
 
+import { assertPermissionRequest, checkPermissionResponse, permissionRequestVersion, assertPermissionRequestVersion, ClientPermissionError } from './permissionRuntime';
+import type { PermissionSession } from '../types/permissions';
 import { requestServerCheck } from './availability';
 
 export const API_BASE = '';
@@ -55,6 +57,8 @@ async function send(path: string, options: RequestInit): Promise<Response> {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  assertPermissionRequest(path, options);
+  const permissionVersion = permissionRequestVersion();
   let res: Response;
   try {
     res = await send(path, options);
@@ -62,10 +66,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     // (for example in another tab) is refused. Fetch the current one and retry once.
     if (res.status === 403 && res.headers.get('X-CSRF-Error') === 'token') {
       await send('/auth/me', {});
+      assertPermissionRequestVersion(permissionVersion);
+      assertPermissionRequest(path, options);
       res = await send(path, options);
     }
   } catch (error) {
-    if (!(error instanceof DOMException && error.name === 'AbortError')) requestServerCheck();
+    if (!(error instanceof ClientPermissionError) && !(error instanceof DOMException && error.name === 'AbortError')) requestServerCheck();
     throw error;
   }
 
@@ -88,8 +94,23 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new ApiError(message, res.status, fields);
   }
 
+  if (!path.startsWith('/auth/')) assertPermissionRequestVersion(permissionVersion);
   if (res.status === 204) return undefined as unknown as T;
-  return res.json() as Promise<T>;
+  const body = await res.json() as T;
+  if (!path.startsWith('/auth/')) assertPermissionRequestVersion(permissionVersion);
+  return checkPermissionResponse(path, body);
+}
+
+/** All attachment previews use the same authorization guard as JSON requests. */
+export async function fetchProtectedAttachment(url: string, signal?: AbortSignal): Promise<Response> {
+  const target = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'https://permission.local');
+  if (!target.pathname.startsWith('/api/records/')) throw new ApiError('Attachment is not available.', 403);
+  const path = target.pathname.slice(4) + target.search;
+  assertPermissionRequest(path);
+  const version = permissionRequestVersion();
+  const response = await send(path, { signal });
+  assertPermissionRequestVersion(version);
+  return response;
 }
 
 /** Optional server-side filters for GET /records; the server always applies the user's record scope. */
@@ -123,7 +144,7 @@ export interface PagedRecordResponse {
   limit: number;
 }
 
-export interface ApiUser {
+export interface ApiUser extends PermissionSession {
   id: string;
   name: string;
   email: string;
@@ -486,6 +507,7 @@ export const api = {
     return request<any[]>(`/records${query ? `?${query}` : ''}`);
   },
   getRecordActiveCounts: () => request<RecordActiveCounts>('/records/active-counts'),
+  getStatusHistoryCounts: (params: URLSearchParams) => request<import('../utils/export').StatusHistoryCounts>(`/records/status-history-counts?${params}`),
   getPagedRecords: (filters: RecordListFilters = {}) => {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries({ ...filters, paged: true })) {

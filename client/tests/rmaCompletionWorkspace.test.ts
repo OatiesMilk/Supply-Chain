@@ -1,3 +1,6 @@
+import { beforeEach } from 'node:test';
+import { installLegacySession } from './helpers/permissionSession';
+beforeEach(() => { installLegacySession('TASS', 'rma'); });
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';

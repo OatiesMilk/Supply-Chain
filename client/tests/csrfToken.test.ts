@@ -1,6 +1,9 @@
 import { afterEach, test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { api } from '../src/api';
+import { beforeEach } from 'node:test';
+import { installLegacySession } from './helpers/permissionSession';
+beforeEach(() => { installLegacySession(); });
 
 // AUD-003: the API wrapper keeps the session's CSRF token from response
 // headers and sends it back on later requests.

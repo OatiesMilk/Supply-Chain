@@ -1,3 +1,4 @@
+import { rememberPermissionRecord } from '../permissionRuntime';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type RecordActiveCounts } from '@/api';
 import { DeliveryRecord } from '@/types';
@@ -19,6 +20,7 @@ export function useRecordActiveCountsQuery(enabled = true) {
 }
 
 export function normalizeApiRecord(r: any): DeliveryRecord {
+  rememberPermissionRecord(r);
   return {
     ...r,
     ...(r.category === 'RMA' ? { rma_version: r.rma_version ?? 0 } : {}),
@@ -39,6 +41,7 @@ export function useRecordsQuery(enabled = true) {
 }
 
 export function useRecordDetailQuery(record: DeliveryRecord, enabled = true) {
+  rememberPermissionRecord(record);
   const client = useQueryClient();
   const queryKey = recordDetailKey(record.id);
   const query = useQuery<DeliveryRecord, Error>({

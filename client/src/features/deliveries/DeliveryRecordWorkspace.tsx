@@ -1,3 +1,4 @@
+import { usePermissions } from '@/hooks/usePermissions';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { operationalSyncOptions } from '@/api/queries/operationalSync';
 import RmaWorkflowPanel from './RmaWorkflowPanel';
@@ -152,16 +153,17 @@ function GeneralTab({
   readOnly?: boolean;
 }) {
   // SC can edit all fields while the record is still Scheduled; Logistics can always edit Area + Address
+  const access = usePermissions();
   const tassRma = currentUserRole === 'TASS' && record.category === 'RMA';
-  const canEditFull = !readOnly && (tassRma || ((currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && (record.status === 'Scheduled' || isDraftRecord(record))));
-  const canManageDraft = !readOnly && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin' || tassRma) && !record.time_in;
+  const canEditFull = !readOnly && access.canRecord(record.category, 'UPDATE') && (tassRma || ((currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && (record.status === 'Scheduled' || isDraftRecord(record))));
+  const canManageDraft = !readOnly && access.canRecord(record.category, 'SUBMIT') && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin' || tassRma) && !record.time_in;
   const [lifecycleRemarks, setLifecycleRemarks] = useState('');
   const [editVersion, setEditVersion] = useState(record.rma_version ?? 0);
   const [returnToDraftOpen, setReturnToDraftOpen] = useState(false);
-  const canEditAreaAddress = !readOnly && currentUserRole === 'Logistics' && record.category !== 'RMA';
-  const canEditDeliveryDate = !readOnly && currentUserRole === 'Logistics' && record.category === 'Deliveries';
+  const canEditAreaAddress = !readOnly && access.canRecord(record.category, 'UPDATE') && currentUserRole === 'Logistics' && record.category !== 'RMA';
+  const canEditDeliveryDate = !readOnly && access.canRecord(record.category, 'UPDATE') && currentUserRole === 'Logistics' && record.category === 'Deliveries';
   const priorityLocked = isPriorityLocked(record);
-  const canEditPriority = !readOnly && !priorityLocked && ((currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') || (currentUserRole === 'Logistics' && record.category !== 'RMA') || tassRma);
+  const canEditPriority = !readOnly && access.canRecord(record.category, 'UPDATE') && !priorityLocked && ((currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') || (currentUserRole === 'Logistics' && record.category !== 'RMA') || tassRma);
   const canEdit = canEditFull || canEditAreaAddress || canEditDeliveryDate || canEditPriority;
 
   const [editing, setEditing] = useState(false);
@@ -272,7 +274,7 @@ function GeneralTab({
       if (record.category === 'RMA') updates.rma_reference = draft.reference.trim() || null;
       else updates.reference = draft.reference;
       updates.area = draft.area;
-      if (record.category !== 'RMA') updates.vehicle = draft.vehicle;
+      if (record.category !== 'RMA' && access.canRecord(record.category, 'ASSIGN') && draft.vehicle !== record.vehicle) updates.vehicle = draft.vehicle;
       updates.account_manager = draft.account_manager;
       updates.delivery_date = draft.delivery_date;
       updates.item_type = draft.item_type;
@@ -592,7 +594,7 @@ function GeneralTab({
                 <>
                   {record.category !== 'RMA' && <div className="space-y-1">
                     <label className={labelCls}>Vehicle</label>
-                    <select value={draft.vehicle} onChange={e => set('vehicle', e.target.value)} className={inputCls}>
+                    <select value={draft.vehicle} disabled={!access.canRecord(record.category, 'ASSIGN')} onChange={e => set('vehicle', e.target.value)} className={inputCls}>
                       {VEHICLES.map(v => <option key={v} value={v}>{v}</option>)}
                     </select>
                   </div>}
@@ -810,7 +812,8 @@ function LinkedCollectionCard({
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   readOnly?: boolean;
 }) {
-  const canLink = !readOnly && (currentUserRole === 'Logistics' || currentUserRole === 'Admin');
+  const access = usePermissions();
+  const canLink = !readOnly && access.canRecord(record.category, 'UPDATE') && (currentUserRole === 'Logistics' || currentUserRole === 'Admin');
   const [linkInput, setLinkInput]   = useState('');
   const [linkRemarks, setLinkRemarks] = useState('');
   const [linking, setLinking]       = useState(false);
@@ -1034,6 +1037,8 @@ function ActionsTab({
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;
 }) {
+  const access = usePermissions();
+  const canAssign = access.canRecord(record.category, 'ASSIGN');
   const [saving, setSaving] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<DeliveryStatus>(record.status);
 
@@ -1055,7 +1060,7 @@ function ActionsTab({
 
   const draftRecord = isDraftRecord(record);
   const isRma = record.category === 'RMA';
-  const statusOptions = selectableStatuses(record, currentUserRole);
+  const statusOptions = selectableStatuses(record, currentUserRole).filter(status => access.canRecord(record.category, 'STATUS') && (status !== 'Delivered' || access.canRecord(record.category, 'COMPLETE')) && (status !== 'Draft' || access.canRecord(record.category, 'SUBMIT')));
 
   const statusChanged = selectedStatus !== record.status;
   const photoError = statusChanged ? completionError(record, selectedStatus, receivedBy, podReadiness) : null;
@@ -1068,6 +1073,8 @@ function ActionsTab({
     timeIn !== manilaDateTimeInput(record.time_in) ||
     timeOut !== manilaDateTimeInput(record.time_out) ||
     (!isRma && (receivedBy || '') !== (record.received_by ?? ''));
+  const assignmentFieldsChanged = selectedDriver !== (record.driver ?? '') ||
+    JSON.stringify(assistants.filter(a => a.trim())) !== JSON.stringify(record.driver_assistants ?? []);
 
   const hasChanges = statusChanged || driverFieldsChanged;
 
@@ -1088,7 +1095,11 @@ function ActionsTab({
   useWorkspaceDraft('dispatch', hasChanges || !!actionRemarks || podReadiness.hasStagedFiles, saving || podReadiness.uploading);
 
   const handleSave = async () => {
-    if (saving || photoError || newDateError) return;
+    if (saving || photoError || newDateError || !access.canRecord(record.category, 'WRITE')) return;
+    if (statusChanged && (!access.canRecord(record.category, 'STATUS') || selectedStatus === 'Delivered' && !access.canRecord(record.category, 'COMPLETE'))) return;
+    if (assignmentFieldsChanged && !canAssign) return;
+    if (timeIn !== manilaDateTimeInput(record.time_in) && !access.canRecord(record.category, 'TIME_IN')) return;
+    if ((timeOut !== manilaDateTimeInput(record.time_out) || receivedBy !== (record.received_by ?? '')) && !access.canRecord(record.category, 'COMPLETE')) return;
 
     if (!hasChanges && !actionRemarks.trim() && !podReadiness.hasStagedFiles) {
       setSaveFeedback('No changes detected to save.');
@@ -1179,7 +1190,7 @@ function ActionsTab({
   return (
     <div className="space-y-6">
       {!isRma && record.status !== 'Delivered' && <PodUploader key={record.id} recordId={record.id} required disabled={saving} />}
-      {canRecordTimeIn(record) && (currentUserRole === 'Logistics' || currentUserRole === 'Admin') && <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-2">
+      {access.canRecord(record.category, 'TIME_IN') && canRecordTimeIn(record) && (currentUserRole === 'Logistics' || currentUserRole === 'Admin') && <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-2">
         <p className="text-xs text-blue-900">Record Time In to start this run. Enter remarks below before starting.</p>
         <button type="button" disabled={saving || !actionRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
           onClick={async () => { setSaving(true); setSaveFeedback(null); try { await timeInMutation.mutateAsync({ id: record.id, remarks: actionRemarks.trim() }); setActionRemarks(''); notify.success('Time In recorded'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not record Time In.'); } finally { setSaving(false); } }}>
@@ -1288,7 +1299,7 @@ function ActionsTab({
                 <>
                   <select
                     value={selectedDriver}
-                    disabled={draftRecord || saving}
+                    disabled={draftRecord || saving || !canAssign}
                     onChange={e => setSelectedDriver(e.target.value)}
                     className={`w-full px-3 py-2 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${
                       !selectedDriver ? 'border-amber-400 bg-amber-50' : 'border-slate-300'
@@ -1347,7 +1358,7 @@ function ActionsTab({
                 <div key={index} className="flex items-center gap-2">
                   <select
                     value={assistant}
-                    disabled={draftRecord || saving}
+                    disabled={draftRecord || saving || !canAssign}
                     onChange={e => {
                       const newAssistants = [...assistants];
                       newAssistants[index] = e.target.value;
@@ -1366,7 +1377,7 @@ function ActionsTab({
                       const newAssistants = assistants.filter((_, i) => i !== index);
                       setAssistants(newAssistants);
                     }}
-                    disabled={draftRecord || saving}
+                    disabled={draftRecord || saving || !canAssign}
                     className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
                   >
                     <XIcon className="w-4 h-4" />
@@ -1375,7 +1386,7 @@ function ActionsTab({
               ))}
               <button
                 type="button"
-                disabled={draftRecord || saving}
+                disabled={draftRecord || saving || !canAssign}
                 onClick={() => setAssistants([...assistants, ''])}
                 className="flex items-center gap-1 text-[11px] font-semibold text-[#0078C1] hover:text-[#1F3864] disabled:opacity-50"
               >
@@ -1389,7 +1400,7 @@ function ActionsTab({
             <input
               type="text"
               value={receivedBy}
-              disabled={saving}
+              disabled={saving || !access.canRecord(record.category, 'COMPLETE')}
               onChange={e => setReceivedBy(e.target.value)}
               placeholder="Name of receiver (if any)"
               className={inputCls}
@@ -1401,7 +1412,7 @@ function ActionsTab({
               <input
                 type="datetime-local"
                 value={timeIn}
-                disabled={!record.time_in || saving}
+                disabled={!record.time_in || saving || !access.canRecord(record.category, 'TIME_IN')}
                 onChange={e => setTimeIn(e.target.value)}
                 className={inputCls}
               />
@@ -1411,7 +1422,7 @@ function ActionsTab({
               <input
                 type="datetime-local"
                 value={timeOut}
-                disabled={!record.time_out || saving}
+                disabled={!record.time_out || saving || !access.canRecord(record.category, 'COMPLETE')}
                 onChange={e => setTimeOut(e.target.value)}
                 className={inputCls}
               />
@@ -1467,7 +1478,7 @@ function ActionsTab({
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || !!photoError || !!newDateError}
+            disabled={saving || !access.canRecord(record.category, 'WRITE') || !!photoError || !!newDateError}
             className="px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -1528,7 +1539,7 @@ function CommentsTab({ recordId, readOnly = false }: { recordId: string; readOnl
       </h4>
       <p id="record-comment-help" className="text-sm text-slate-600">Optional discussion about this record. Comments do not replace the remarks required when making changes.</p>
       {loadError && <div role="alert" className="text-sm text-red-700">{loadError} <button type="button" onClick={() => void query.refetch()} className="min-h-11 rounded px-3 font-semibold underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700">Retry loading comments</button></div>}
-      {readOnly && <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">RMA is view only for Logistics. You can read the discussion here.</p>}
+      {readOnly && <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">You have read-only access to this discussion.</p>}
 
       {comments.length > 0 && (
         <div className="space-y-3">
@@ -1903,8 +1914,8 @@ function DocumentsTab({ record, readOnly = false }: { record: DeliveryRecord; re
       >
         <Paperclip className={`w-8 h-8 transition-colors ${dragging ? 'text-[#0078C1]' : 'text-slate-300'}`} />
         <div className="text-center">
-          <p className="text-sm font-bold text-slate-700">{readOnly ? 'Documents are read-only for Logistics' : staging ? 'Adding files…' : uploading ? 'Uploading…' : 'Drop files here or click to add'}</p>
-            <p className="text-xs text-slate-400 mt-0.5">{readOnly ? 'TASS manages RMA document uploads.' : 'PDF, JPG, PNG, DOCX or XLSX — supported documents can be previewed in app; up to 10 MB each'}</p>
+          <p className="text-sm font-bold text-slate-700">{readOnly ? 'Documents are read-only for your account' : staging ? 'Adding files…' : uploading ? 'Uploading…' : 'Drop files here or click to add'}</p>
+            <p className="text-xs text-slate-400 mt-0.5">{readOnly ? 'Document uploads require permission.' : 'PDF, JPG, PNG, DOCX or XLSX — supported documents can be previewed in app; up to 10 MB each'}</p>
         </div>
         <input
           ref={inputRef}
@@ -2012,6 +2023,8 @@ function DocumentsTab({ record, readOnly = false }: { record: DeliveryRecord; re
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function DeliveryRecordWorkspace(props: DeliveryRecordWorkspaceProps) {
+  const access = usePermissions();
+  if (!access.canRecord(props.record.category)) return <div role="alert">This record is not available for your account.</div>;
   return (
     <WorkspaceDraftProvider key={`${props.record.id}-${props.currentUserRole}-${props.forceReadOnly ?? false}`}>
       <RecordWorkspace {...props} />
@@ -2032,6 +2045,7 @@ function RecordWorkspace({
   outputActionConfigs,
   forceReadOnly = false,
 }: DeliveryRecordWorkspaceProps) {
+  const access = usePermissions();
   const detail = useRecordDetailQuery(initialRecord, initialRecord.category === 'RMA');
   const record = initialRecord.category === 'RMA' ? detail.data ?? initialRecord : initialRecord;
   const { requestLeave, pending } = useWorkspaceNavigation();
@@ -2111,7 +2125,7 @@ function RecordWorkspace({
         );
 
       case 'comments':
-        return <CommentsTab recordId={record.id} readOnly={forceReadOnly} />;
+        return <CommentsTab recordId={record.id} readOnly={forceReadOnly || !access.canRecord(record.category, 'COMMENT')} />;
 
       case 'remarks':
         return <RemarksTab recordId={record.id} />;
@@ -2120,7 +2134,7 @@ function RecordWorkspace({
         return <AuditTrailTab recordId={record.id} />;
 
       case 'documents':
-        return <DocumentsTab record={record} readOnly={forceReadOnly} />;
+        return <DocumentsTab record={record} readOnly={forceReadOnly || !access.canRecord(record.category, 'POD')} />;
 
       default:
         return null;
