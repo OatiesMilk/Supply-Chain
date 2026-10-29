@@ -9,6 +9,7 @@ export interface RmaCapabilities { assign: boolean; transport: boolean; receive:
 
 import { assertPermissionRequest, checkPermissionResponse, permissionRequestVersion, assertPermissionRequestVersion, ClientPermissionError } from './permissionRuntime';
 import type { PermissionSession } from '../types/permissions';
+import type { RolePermissionEditor, UserPermissionEditor, PolicySave, PolicyAuditState } from '../types/permissionEditor';
 import { requestServerCheck } from './availability';
 
 export const API_BASE = '';
@@ -25,7 +26,10 @@ export interface RecordActiveCounts {
   procurement_pickup: number;
 }
 
+export type AccountPolicyVersion = { contractVersion?: 1; expectedVersion?: string; removedOverrideKeys?: string[] };
+
 export class ApiError extends Error {
+  details?: { userIds?: string[] };
   status: number;
   /** Per-field validation messages from the server, keyed by API field name. */
   fields: Record<string, string>;
@@ -84,14 +88,18 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
     let fields: Record<string, string> = {};
+    let details: { userIds?: string[] } | undefined;
     try {
       const body = await res.json();
       if (body?.error) message = body.error;
       if (body?.fields && typeof body.fields === 'object') fields = body.fields;
+      if (Array.isArray(body?.details?.userIds)) details = { userIds: body.details.userIds.filter((id: unknown): id is string => typeof id === 'string') };
     } catch {
       // ignore non-JSON error bodies
     }
-    throw new ApiError(message, res.status, fields);
+    const error = new ApiError(message, res.status, fields);
+    error.details = details;
+    throw error;
   }
 
   if (!path.startsWith('/auth/')) assertPermissionRequestVersion(permissionVersion);
@@ -365,6 +373,8 @@ export interface ApiReportSummary {
 }
 
 export interface ApiAdminAuditEntry {
+  previous?: PolicyAuditState | null;
+  next?: PolicyAuditState | null;
   id: string;
   record_id: string;
   record_type: string;
@@ -597,18 +607,23 @@ export const api = {
   // DRIVER logins: driver_profile_id links an existing profile; omit it to create one.
   createUser: (data: { name: string; email: string; password: string; role: string; driver_profile_id?: string; microsoft_oid?: string }) =>
     request<ApiUserAdmin>('/users', { method: 'POST', body: JSON.stringify(data) }),
-  setUserDriverProfile: (userId: string, driverProfileId: string | null) =>
-    request<{ user_id: string; driver_profile: { id: string; name: string } | null }>(`/users/${userId}/driver-profile`, { method: 'PUT', body: JSON.stringify({ driver_profile_id: driverProfileId }) }),
-  updateUser: (id: string, data: { name?: string; email?: string; role?: string }) =>
+  setUserDriverProfile: (userId: string, driverProfileId: string | null, version: AccountPolicyVersion = {}) =>
+    request<{ user_id: string; driver_profile: { id: string; name: string } | null }>(`/users/${userId}/driver-profile`, { method: 'PUT', body: JSON.stringify({ driver_profile_id: driverProfileId, ...version }) }),
+  updateUser: (id: string, data: { name?: string; email?: string; role?: string } & AccountPolicyVersion) =>
     request<ApiUserAdmin>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  deactivateUser: (id: string) =>
-    request<ApiUserAdmin>(`/users/${id}/deactivate`, { method: 'PATCH' }),
-  activateUser: (id: string) =>
-    request<ApiUserAdmin>(`/users/${id}/activate`, { method: 'PATCH' }),
-  deleteUser: (id: string) =>
-    request<{ ok: boolean; deleted_id: string }>(`/users/${id}`, { method: 'DELETE' }),
+  deactivateUser: (id: string, version: AccountPolicyVersion = {}) =>
+    request<ApiUserAdmin>(`/users/${id}/deactivate`, { method: 'PATCH', body: JSON.stringify(version) }),
+  activateUser: (id: string, version: AccountPolicyVersion = {}) =>
+    request<ApiUserAdmin>(`/users/${id}/activate`, { method: 'PATCH', body: JSON.stringify(version) }),
+  deleteUser: (id: string, version: AccountPolicyVersion = {}) =>
+    request<{ ok: boolean; deleted_id: string }>(`/users/${id}`, { method: 'DELETE', body: JSON.stringify(version) }),
   getUserPermissions: (userId: string) =>
     request<ApiPermissionEditor>(`/users/${userId}/permissions`),
+  getRolePermissionEditor: (role: string) => request<RolePermissionEditor>(`/admin/roles/${encodeURIComponent(role)}/permissions`),
+  saveRolePermissionEditor: (role: string, body: PolicySave) => request<RolePermissionEditor>(`/admin/roles/${encodeURIComponent(role)}/permissions`, { method: 'PUT', body: JSON.stringify(body) }),
+  getUserPermissionEditor: (id: string, proposedRole?: string) => request<UserPermissionEditor>(`/users/${encodeURIComponent(id)}/permissions?contractVersion=1${proposedRole ? `&role=${encodeURIComponent(proposedRole)}` : ''}`),
+  saveUserPermissionEditor: (id: string, body: PolicySave) => request<UserPermissionEditor>(`/users/${encodeURIComponent(id)}/permissions`, { method: 'PUT', body: JSON.stringify(body) }),
+  resetUserPermissionEditor: (id: string, expectedVersion: string) => request<UserPermissionEditor>(`/users/${encodeURIComponent(id)}/permissions/reset`, { method: 'POST', body: JSON.stringify({ contractVersion: 1, catalogVersion: 1, expectedVersion }) }),
   setUserPermissions: (userId: string, permissions: { screen: string; granted: boolean }[], expectedVersion: string) =>
     request<ApiPermissionEditor>(`/users/${userId}/permissions`, {
       method: 'PUT',
