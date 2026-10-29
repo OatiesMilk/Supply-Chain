@@ -658,6 +658,56 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     await confirmation.getByRole('button', { name: 'Remove', exact: true }).click();
     await expect(preview).toHaveCount(0);
   });
+
+  test('B-4.5 Persisted JPG thumbnails and lightbox preview inline without downloading', async ({ page }) => {
+    const photoName = `logistics-preview-${Date.now()}.jpg`;
+    const jpegBase64 = await page.evaluate(() => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 2;
+      canvas.height = 2;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Canvas is unavailable');
+      context.fillStyle = '#2563eb';
+      context.fillRect(0, 0, 2, 2);
+      return canvas.toDataURL('image/jpeg').split(',')[1];
+    });
+    const downloads: string[] = [];
+    page.on('download', download => downloads.push(download.suggestedFilename()));
+
+    await openFirstRecord(page);
+    await page.getByRole('tab', { name: /documents/i }).click();
+    await page.locator('input[type="file"]').last().setInputFiles({
+      name: photoName,
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from(jpegBase64, 'base64'),
+    });
+    await expect(page.getByText('Waiting to upload', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Save Files' }).click();
+
+    const preview = page.getByRole('button', { name: `Preview ${photoName}` });
+    await expect(preview).toBeVisible({ timeout: 15_000 });
+    const thumbnail = page.getByRole('img', { name: photoName });
+    await expect.poll(() => thumbnail.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+    await expect(thumbnail).toHaveAttribute('src', /\/preview$/);
+    await preview.click();
+
+    const lightbox = page.getByRole('dialog', { name: `Preview ${photoName}` });
+    await expect(lightbox).toBeVisible();
+    const fullImage = lightbox.getByRole('img', { name: photoName });
+    await expect(fullImage).toHaveAttribute('src', /\/preview$/);
+    await expect.poll(() => fullImage.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+    expect(downloads).toEqual([]);
+
+    await page.keyboard.press('Escape');
+    await expect(lightbox).not.toBeVisible();
+    await expect(preview).toBeFocused();
+    expect(downloads).toEqual([]);
+
+    await page.getByRole('button', { name: `Remove ${photoName}` }).click();
+    const confirmation = page.getByRole('alertdialog', { name: 'Remove Attachment' });
+    await confirmation.getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(preview).toHaveCount(0);
+  });
 });
 
 test.describe('B-5 Reports', () => {
