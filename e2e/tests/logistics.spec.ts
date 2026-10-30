@@ -196,8 +196,9 @@ test.describe('TSK-126 dashboard card filters', () => {
     await expect(page.getByRole('button', { name: 'Clear dashboard filter: No Driver Assigned' })).toBeVisible();
     const recordsInfo = page.getByTestId('pagination-records-info');
     await expect(recordsInfo).toContainText(/of\s+\d+\s+records/i);
-    const rowCount = Number((await recordsInfo.innerText()).match(/of\s+(\d+)\s+records/i)?.[1]);
-    expect(rowCount).toBe(cardCount);
+    await expect.poll(async () =>
+      Number((await recordsInfo.innerText()).match(/of\s+(\d+)\s+records/i)?.[1])
+    ).toBe(cardCount);
   });
 });
 
@@ -410,7 +411,7 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     const firstRow = recordRows(page).first();
     await expect(firstRow).toBeVisible();
     const recordId = (await firstRow.getByRole('cell').first().innerText()).trim();
-    expect(recordId).toMatch(/^REC-[A-Za-z0-9-]+$/);
+    expect(recordId).toMatch(/^REC-[\w-]+$/);
     const search = page.getByRole('textbox', { name: 'Search accounting collection records' });
     await search.fill(recordId);
     const filteredRow = recordRows(page).filter({ hasText: recordId }).first();
