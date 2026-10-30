@@ -177,7 +177,15 @@ test.describe.serial('GH250 actual application permission workflow', () => {
       a.once('dialog', dialog => dialog.dismiss());
       await a.getByRole('button', { name: 'System Audit Log', exact: true }).click();
       await expect(a.getByLabel('Search permission modules')).toBeVisible();
-      expect(await a.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      const widths = await a.evaluate(() => ({
+        viewport: window.innerWidth,
+        main: document.getElementById('main-routed-view')?.scrollWidth,
+        matrix: document.querySelector<HTMLElement>('[aria-label="Permission matrix"]')?.scrollWidth,
+        matrixViewport: document.querySelector<HTMLElement>('[aria-label="Permission matrix"]')?.clientWidth,
+      }));
+      // The matrix intentionally scrolls its wide action table internally; the routed page must not.
+      expect(widths.main, JSON.stringify(widths)).toBeLessThanOrEqual(widths.viewport);
+      expect(widths.matrix).toBeGreaterThan(widths.matrixViewport!);
       await a.screenshot({ path: testInfo.outputPath('actual-admin-narrow.png') });
       await a.getByRole('button', { name: 'Cancel changes', exact: true }).click();
       await a.getByRole('button', { name: 'System Audit Log', exact: true }).click();

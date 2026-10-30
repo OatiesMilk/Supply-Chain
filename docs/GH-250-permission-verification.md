@@ -1,7 +1,7 @@
 # Integrated permission verification (GH-250)
 
-Verification date: 2026-10-30. Baseline: `0e33fa7` on `dev`, containing
-#246, #247, #248 and #249. This report describes executed checks, not deployment
+Verification date: 2026-10-30. Final baseline: `d5ababa` on `dev`, containing
+#246, #247, #248 and #249 plus the current export/attachment update. This report describes executed checks, not deployment
 authorization. No existing application database, production configuration or
 deployed permission activation was changed. The functional integration and UI
 checks required by #250 are recorded below; production release still requires
@@ -73,8 +73,8 @@ only for that isolated test process and synthetic database.
 | --- | --- |
 | Client TypeScript | Passed |
 | Server TypeScript | Passed |
-| Full client node:test suite | 235 passed, 1 optional workflow-DB test skipped |
-| Full server node:test suite | 372 passed, 3 optional PostgreSQL tests skipped |
+| Full client node:test suite | 241 passed, 1 optional workflow-DB test skipped |
+| Full server node:test suite | 377 passed, 3 optional PostgreSQL tests skipped |
 | Separate HTTP/client/PostgreSQL workflow suite | 5 passed, zero skipped |
 | Offline Chromium permission UI | 6 passed, zero skipped; desktop and narrow |
 | Real built application + API + PostgreSQL Chromium journeys | 4 passed, zero skipped; all five roles, real UI saves/reset, two-admin conflict/review, same-cookie revocation, audit, narrow/keyboard, deep links, empty/no-access and deactivation |
@@ -88,10 +88,10 @@ port 55450. Rehearsal ran on a separate PostgreSQL 17 cluster at local port 5545
 The first-phase task clusters were stopped after verification; synthetic
 workflow users were confirmed removed. A fresh `gh250_live_test` database on the
 isolated PostgreSQL 16 cluster was then created, migrated and seeded for live
-browser verification. The scoped live helpers and disposable database container
-were stopped after the successful four-journey run. Synthetic live fixtures
-remain only inside that stopped disposable container for reproducibility. No
-application databases on ports 5432/5433 were used.
+browser verification. The scoped live helpers stopped after the successful
+four-journey run. Synthetic live fixtures remain only inside the dedicated
+disposable container for reproducibility. No application databases on ports
+5432/5433 were used.
 Private logs, JSON evidence, screenshots and dumps are not committed.
 
 The original live checks used the free requested ports 3000/4000. After the
