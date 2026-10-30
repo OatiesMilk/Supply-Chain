@@ -5,4 +5,3 @@ import type { Page } from '@playwright/test';
 export function recordRows(page: Page) {
   return page.getByRole('row').filter({ has: page.getByRole('cell', { name: /^REC-[A-Za-z0-9-]+$/ }) });
 }
-
