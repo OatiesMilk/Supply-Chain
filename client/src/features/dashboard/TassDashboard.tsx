@@ -11,12 +11,13 @@ import {
   RotateCw,
 } from "lucide-react";
 import { DeliveryRecord } from "@/types";
-import { ApiDashboardStats } from "@/api";
+import { ApiDashboardStats, ApiDashboardOverview } from "@/api";
 import { DashboardFilterId, filterRecordsForDashboard } from '@/utils/dashboardFilters';
 
 interface Props {
   stats: Extract<ApiDashboardStats, { role: "TASS" }> | null;
   deliveryRecords: DeliveryRecord[];
+  overview: ApiDashboardOverview;
   onNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
   onRefresh?: () => void;
 }
@@ -29,6 +30,7 @@ function daysSince(dateStr: string): number {
 
 export default function TassDashboard({
   stats,
+  overview,
   deliveryRecords,
   onNavigate,
   onRefresh,
@@ -59,17 +61,8 @@ export default function TassDashboard({
       ).length;
     })();
 
-  // Needs Attention table — open RMA records sorted oldest first
-  const openRmaRecords = deliveryRecords
-    .filter(
-      (r) =>
-        r.category === "RMA" &&
-        ["Scheduled", "Pending", "On-Hold"].includes(r.status),
-    )
-    .sort(
-      (a, b) =>
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-    );
+  const openRmaRecords = overview.record_previews.rma_attention;
+  const attentionTotal = overview.counts.rma_attention ?? 0;
 
   return (
     <div className="space-y-6" id="tass-dashboard">
@@ -170,6 +163,7 @@ export default function TassDashboard({
         </div>
       </div>
 
+      {attentionTotal > 0 && <button type="button" onClick={() => onNavigate('rma')} className="text-sm text-blue-800 underline">View all {attentionTotal} open RMA records (showing {openRmaRecords.length})</button>}
       {/* Needs Attention: Open RMA Records */}
       <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
@@ -179,16 +173,16 @@ export default function TassDashboard({
           </h4>
           <span
             className={`text-xs px-2.5 py-0.5 rounded font-extrabold uppercase tracking-wide ${
-              openRmaRecords.length > 0
+              attentionTotal > 0
                 ? "bg-blue-100 text-blue-800"
                 : "bg-emerald-100 text-emerald-800"
             }`}
           >
-            {openRmaRecords.length} open
+            {attentionTotal} open
           </span>
         </div>
 
-        {openRmaRecords.length === 0 ? (
+        {attentionTotal === 0 ? (
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <ShieldCheck className="w-10 h-10 text-emerald-500 mb-2" />
             <p className="text-base font-bold text-slate-700">

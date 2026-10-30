@@ -29,7 +29,9 @@ import {
   DeliveryRecord,
   DeliveryStatus,
 } from "@/types";
-import { ApiDashboardStats } from "@/api";
+import { api, ApiDashboardStats } from "@/api";
+import { useQuery } from "@tanstack/react-query";
+import { operationalSyncOptions } from "@/api/queries/operationalSync";
 import LogisticsDashboard from "@/features/dashboard/LogisticsDashboard";
 import TassDashboard from "@/features/dashboard/TassDashboard";
 import AdminDashboard from "@/features/dashboard/AdminDashboard";
@@ -54,6 +56,10 @@ export default function DashboardView({
   currentUserRole,
   onRefresh,
 }: DashboardViewProps) {
+  const overviewQuery = useQuery({ ...operationalSyncOptions, queryKey: ['dashboard-overview'], queryFn: api.getDashboardOverview });
+  if (overviewQuery.isPending) return <p role="status" className="p-5 text-sm text-slate-600">Loading dashboard totals…</p>;
+  if (overviewQuery.isError) return <div role="alert" className="p-5 text-sm text-red-700">Could not load dashboard totals. <button type="button" className="underline" onClick={() => void overviewQuery.refetch()}>Retry dashboard</button></div>;
+  const overview = overviewQuery.data;
   // Narrow the discriminated union to the correct branch per role
   const salesStats =
     dashboardStats?.role === "SALES_COORDINATOR" ? dashboardStats : null;
@@ -67,6 +73,7 @@ export default function DashboardView({
     return (
       <LogisticsDashboard
         stats={logisticsStats}
+        overview={overview}
         deliveryRecords={deliveryRecords}
         onNavigate={onNavigate}
         onRefresh={onRefresh}
@@ -78,6 +85,7 @@ export default function DashboardView({
     return (
       <TassDashboard
         stats={tassStats}
+        overview={overview}
         deliveryRecords={deliveryRecords}
         onNavigate={onNavigate}
         onRefresh={onRefresh}
@@ -89,6 +97,7 @@ export default function DashboardView({
     return (
       <AdminDashboard
         stats={adminStats}
+        overview={overview}
         deliveryRecords={deliveryRecords}
         onNavigate={onNavigate}
         onRefresh={onRefresh}
@@ -122,29 +131,29 @@ export default function DashboardView({
   }[] = [
     {
       name: "Scheduled",
-      count: deliveryRecords.filter((r) => r.status === "Scheduled").length,
+      count: overview.status_totals.Scheduled ?? 0,
       fill: "#0078C1",
     },
     {
       name: "Pending",
-      count: deliveryRecords.filter((r) => r.status === "Pending").length,
+      count: overview.status_totals.Pending ?? 0,
       fill: "#d97706",
     },
-    { name: "On-Hold", count: onHoldCount, fill: "#dc2626" },
-    { name: "Rescheduled", count: rescheduledCount, fill: "#9333ea" },
+    { name: "In Transit", count: overview.status_totals["In Transit"] ?? 0, fill: "#0891b2" },
+    { name: "On-Hold", count: overview.status_totals["On-Hold"] ?? 0, fill: "#dc2626" },
+    { name: "Rescheduled", count: overview.status_totals.Rescheduled ?? 0, fill: "#9333ea" },
     {
       name: "Delivered",
-      count: deliveryRecords.filter((r) => r.status === "Delivered").length,
+      count: overview.status_totals.Delivered ?? 0,
       fill: "#059669",
     },
   ];
 
-  const noDriverApproaching = filterRecordsForDashboard(deliveryRecords, 'sc-attention-no-driver', today);
-  const onHoldOrRescheduled = filterRecordsForDashboard(deliveryRecords, 'sc-attention-on-hold-rescheduled', today);
-  const pendingConfirmation = filterRecordsForDashboard(deliveryRecords, 'sc-attention-pending-confirmation', today);
-  const needsAttentionCount = filterRecordsForDashboard(deliveryRecords, 'sc-attention-all', today).length;
-
-  const totalRecordCount = deliveryRecords.length + products.length;
+  const noDriverApproachingCount = overview.counts['sc-attention-no-driver'] ?? 0;
+  const onHoldOrRescheduledCount = overview.counts['sc-attention-on-hold-rescheduled'] ?? 0;
+  const pendingConfirmationCount = overview.counts['sc-attention-pending-confirmation'] ?? 0;
+  const needsAttentionCount = overview.counts['sc-attention-all'] ?? 0;
+  const totalRecordCount = overview.record_total + products.length;
 
   return (
     <div className="space-y-6" id="dashboard-view-container">
@@ -344,7 +353,7 @@ export default function DashboardView({
                 <span>No Driver, Due Soon</span>
               </span>
               <p className="text-2xl font-black text-slate-900">
-                {noDriverApproaching.length}
+                {noDriverApproachingCount}
               </p>
               <p className="text-[11px] text-slate-400 font-medium flex-1">
                 Deliveries with no driver assigned, due within 2 days.
@@ -362,7 +371,7 @@ export default function DashboardView({
                 <span>On-Hold / Rescheduled</span>
               </span>
               <p className="text-2xl font-black text-slate-900">
-                {onHoldOrRescheduled.length}
+                {onHoldOrRescheduledCount}
               </p>
               <p className="text-[11px] text-slate-400 font-medium flex-1">
                 Records blocked or bumped to a new date.
@@ -380,7 +389,7 @@ export default function DashboardView({
                 <span>Pending Confirmation</span>
               </span>
               <p className="text-2xl font-black text-slate-900">
-                {pendingConfirmation.length}
+                {pendingConfirmationCount}
               </p>
               <p className="text-[11px] text-slate-400 font-medium flex-1">
                 Scheduled or pending records awaiting confirmation.
@@ -406,10 +415,10 @@ export default function DashboardView({
           <span className="font-black text-slate-800">
             {totalRecordCount.toLocaleString()}
           </span>{" "}
-          ({deliveryRecords.length} delivery records, {products.length} SKUs)
+          ({overview.record_total} operational records, {products.length} SKUs)
         </span>
         <span className="text-emerald-600 font-bold">
-          No list-view threshold — unlimited record growth supported.
+          Counts include all records you can access.
         </span>
       </div>
     </div>

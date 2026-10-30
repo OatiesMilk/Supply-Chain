@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import { prisma } from '../src/db';
+import { recordEditVersion } from '../src/services/recordEditVersion';
 import { signToken } from '../src/middleware/auth';
 import authRoutes from '../src/routes/auth';
 import recordsRoutes from '../src/routes/records';
@@ -313,4 +314,21 @@ test('V1 collection verification reports repeats as conflicts while explicit act
   state.setRecords([savedRecord('collection-one', 'ACCOUNTING_COLLECTION', { status: 'ACCOMPLISHED', collectionVerified: false })]);
   assert.equal((await state.request('/api/records/collection-one/verify-collection', 'PATCH', {})).status, 403);
   assert.deepEqual(state.effects, [], 'neither duplicate nor denied requests write anything');
+});
+
+
+test('V1 metadata writes reject stale editors and enforce the Sales post-dispatch lock', async t => {
+ const state=await fixture(t,'SALES_COORDINATOR');
+ const old=savedRecord('record-one','DELIVERY',{reference:'REF-original'});
+ state.setRecords([{...old,reference:'REF-new'}]);
+ const stale=await state.request('/api/records/record-one','PUT',{expected_edit_version:recordEditVersion(old),address:'New address',remarks:'Stale edit'});
+ assert.equal(stale.status,409);assert.deepEqual(state.effects,[]);
+ const missing=await state.request('/api/records/record-one','PUT',{address:'New address',remarks:'Missing version'});
+ assert.equal(missing.status,428);assert.deepEqual(state.effects,[]);
+ state.setRecords([{...old,status:'ACCOMPLISHED'}]);
+ const locked=await state.request('/api/records/record-one','PUT',{expected_edit_version:recordEditVersion(state.records()[0]),reference:'After completion',remarks:'Disallowed edit'});
+ assert.equal(locked.status,403);assert.deepEqual(state.effects,[]);
+ state.deny('CATEGORY:DELIVERY:UPDATE');
+ assert.equal((await state.request('/api/records/record-one','PUT',{expected_edit_version:recordEditVersion(state.records()[0]),address:'Denied',remarks:'Denied edit'})).status,403);
+ assert.deepEqual(state.effects,[]);
 });

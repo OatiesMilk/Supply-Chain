@@ -18,7 +18,9 @@ import { DeliveryRecord, DeliveryStatus } from "@/types";
 import PodUploader from "@/components/PodUploader";
 import { completionError, type PodReadiness } from "@/utils/podRequirement";
 
-import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
+import { useRecordTimeInMutation, usePagedRecordsQuery } from '@/api/queries/useRecordsQuery';
+import { useDriverOverviewQuery, useClampRecordPage } from '@/api/queries/useOperationalViews';
+import RecordPageControls from '@/components/RecordPageControls';
 import { canRecordTimeIn, dashboardRunDaysLate, deliveryScheduleState, hasValidRunTimeIn, isDashboardRunActionable, isDraftRecord, manilaToday } from '@/utils/recordLifecycle';
 import DoneRecordModal from "./DoneRecordModal";
 import { uploadStagedFiles } from '@/api/queries/usePodAttachments';
@@ -31,6 +33,8 @@ interface DriverDashboardProps {
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   onLogout: () => void;
   dataLoading: boolean;
+  serverPaging?: boolean;
+  dashboardCounts?: { today: number; remaining: number; completed: number; rma_active: number; rma_completed: number };
 }
 
 const STATUS_VERB: Record<string, string> = {
@@ -47,12 +51,34 @@ function fmtTime(iso: string) {
   });
 }
 
-export default function DriverDashboard({
+export default function DriverDashboard(props: DriverDashboardProps) {
+  return props.serverPaging ? <PagedDriverDashboard {...props} /> : <DriverDashboardContent {...props} />;
+}
+function PagedDriverDashboard(props: DriverDashboardProps) {
+  const [page, setPage] = useState(1);
+  const [queue, setQueue] = useState<'active' | 'completed'>('active');
+  const query = usePagedRecordsQuery({ view: 'driver_dashboard', queue, page, limit: 25 });
+  const overview = useDriverOverviewQuery();
+  useClampRecordPage(page, query.data?.total, setPage);
+  return <div>
+    <nav aria-label="Run queues" className="flex gap-2 bg-slate-100 p-3">
+      {(['active', 'completed'] as const).map(value => <button key={value} type="button" aria-pressed={queue === value}
+        onClick={() => { setQueue(value); setPage(1); }} className="min-h-11 rounded border bg-white px-4 font-semibold">
+        {value === 'active' ? 'Active work' : 'Completed today / RMA awaiting receipt'}
+      </button>)}
+    </nav>
+    <RecordPageControls page={page} total={query.data?.total ?? 0} onPageChange={setPage} loading={query.isFetching}
+      error={query.error ?? overview.error} retry={() => { void query.refetch(); void overview.refetch(); }} />
+    <DriverDashboardContent {...props} records={query.data?.rows ?? []} dashboardCounts={overview.data?.dashboard}
+      dataLoading={query.isPending} />
+  </div>;
+}
+function DriverDashboardContent({
   records,
   currentUserName,
   onUpdateRecord,
   onLogout,
-  dataLoading,
+  dataLoading, dashboardCounts,
 }: DriverDashboardProps) {
   const access = usePermissions();
   const today = manilaToday();
@@ -96,7 +122,7 @@ export default function DriverDashboard({
   const actionableRecs = records.filter(record => isDashboardRunActionable(record, today));
   const activeRecs = actionableRecs.filter((r) => r.status !== "Delivered");
   const doneRecs = records.filter((r) => r.status === "Delivered" &&
-    (r.category === 'Deliveries'
+    (dashboardCounts ? true : r.category === 'Deliveries'
       ? r.delivery_date === today || !!r.completed_late || (deliveryScheduleState(r.delivery_date, today).future && hasValidRunTimeIn(r.time_in))
       : r.delivery_date === today));
   const runsInScope = activeRecs.length + doneRecs.length;
@@ -155,17 +181,17 @@ export default function DriverDashboard({
           {[
             {
               label: "Today's Runs",
-              value: todayRecs.length,
+              value: dashboardCounts?.today ?? todayRecs.length,
               color: "text-white",
             },
             {
               label: "Accomplished",
-              value: doneRecs.length,
+              value: dashboardCounts?.completed ?? doneRecs.length,
               color: "text-emerald-300",
             },
             {
               label: "Remaining",
-              value: activeRecs.length,
+              value: dashboardCounts?.remaining ?? activeRecs.length,
               color: "text-amber-300",
             },
           ].map((s) => (
@@ -192,7 +218,7 @@ export default function DriverDashboard({
 
       {rmaRecords.length > 0 && <section aria-label="RMA tasks" className="space-y-4 px-4 pt-5 max-w-lg mx-auto w-full">
         <h2 className="font-bold text-slate-900">RMA transport tasks</h2>
-        <p className="text-sm text-slate-600">{rmaRecords.filter(record => record.rma_transport_status !== 'COMPLETED').length} active · {rmaRecords.filter(record => record.rma_transport_status === 'COMPLETED').length} completed transports</p>
+        <p className="text-sm text-slate-600">{dashboardCounts?.rma_active ?? rmaRecords.filter(record => record.rma_transport_status !== 'COMPLETED').length} active · {dashboardCounts?.rma_completed ?? rmaRecords.filter(record => record.rma_transport_status === 'COMPLETED').length} awaiting receipt</p>
         {rmaRecords.map(record => <div key={record.id} className="space-y-2"><h3 className="font-bold text-slate-900">{record.rma_reference || record.reference || record.id} · {record.company_name}</h3><RmaWorkflowPanel record={record} currentUserRole="Driver" /></div>)}
       </section>}
 
@@ -208,7 +234,7 @@ export default function DriverDashboard({
           <div className="text-center py-16 text-slate-400">
             <CheckCircle className="w-10 h-10 mx-auto mb-3 text-emerald-400" />
             <p className="font-bold text-slate-600">
-              No runs ready for execution today.
+              {dashboardCounts ? 'No records in this queue.' : 'No runs ready for execution today.'}
             </p>
             <p className="text-xs mt-1">
               Check back later or contact Logistics.

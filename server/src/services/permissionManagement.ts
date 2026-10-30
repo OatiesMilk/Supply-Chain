@@ -60,14 +60,14 @@ function input(user: Account, policy: Awaited<ReturnType<typeof readPolicy>>, ov
     driverProfile: user.driverProfile, rolePolicy: policy, overrides };
 }
 function accountVersion(user: Account, policy: Awaited<ReturnType<typeof readPolicy>>, proposed?: Awaited<ReturnType<typeof readPolicy>>) {
-  return token({ userId: user.id, role: user.role, account: String(user.authorizationRevision), policy: String(policy.revision),
+  return token({ userId: user.id, name: user.name, email: user.email, role: user.role, account: String(user.authorizationRevision), policy: String(policy.revision),
     catalogVersion: policy.catalogVersion, proposedRole: proposed?.role, proposedRevision: proposed && String(proposed.revision) });
 }
 function roleVersion(policy: Awaited<ReturnType<typeof readPolicy>>) {
   return token({ role: policy.role, revision: String(policy.revision), catalogVersion: policy.catalogVersion });
 }
 function state(user: Account, rolePolicyRevision?: bigint) {
-  return { catalogVersion: 1, role: user.role, isActive: user.isActive, authorizationRevision: String(user.authorizationRevision),
+  return { catalogVersion: 1, name: user.name, email: user.email, role: user.role, isActive: user.isActive, authorizationRevision: String(user.authorizationRevision),
     ...(rolePolicyRevision === undefined ? {} : { rolePolicyRevision: String(rolePolicyRevision) }),
     driverProfileId: user.driverProfile?.id ?? null, driverActive: user.driverProfile?.isActive ?? null,
     microsoftLinked: !!user.microsoftOid, permissions: rows(user.permissionOverrides) };
@@ -234,7 +234,7 @@ async function syncLegacyConversion(tx: Tx, before: Account, after: Account) {
 /** Shared account lifecycle transaction. Existing legacy clients remain usable;
  * V1 callers must hold a current editor (or role-change preview) token. */
 export async function mutateAdminAccount<T>(db: PrismaClient, actorId: string, userId: string, body: unknown,
-  work: (tx: Tx, actor: Account, user: Account) => Promise<T>, options: { role?: string; action?: 'UPDATE' | 'DELETE'; identity?: boolean; removedOverrideKeys?: string[]; finish?: (tx: Tx, result: T) => Promise<T> } = {}) {
+  work: (tx: Tx, actor: Account, user: Account) => Promise<T>, options: { role?: string; action?: 'UPDATE' | 'DELETE'; identity?: boolean; metadata?: boolean; removedOverrideKeys?: string[]; finish?: (tx: Tx, result: T) => Promise<T> } = {}) {
   if (object(body) && body.contractVersion === 1) requireV1Mutation();
   return administrativeTransaction(db, actorId, userId, async (tx, actor, target) => {
     const user = target!, active = permissionMode() === 'V1';
@@ -243,6 +243,9 @@ export async function mutateAdminAccount<T>(db: PrismaClient, actorId: string, u
     const proposed = active && options.role && options.role !== user.role ? await readPolicy(tx, options.role) : undefined;
     if (active && (!object(body) || body.contractVersion !== 1 || body.expectedVersion !== accountVersion(user, policy!, proposed))) {
       return fail(409, 'A current V1 account editor or role-change preview is required');
+    }
+    if (options.metadata && (!object(body) || body.expectedMetadataVersion !== accountMetadataVersion(user))) {
+      return fail(409, 'This account changed. Load the latest account values and review your draft before saving.');
     }
     const before = state(user, policy?.revision);
     if (proposed) {
@@ -282,9 +285,15 @@ export function safePolicyAudit(recordType: string, value: string | null) {
     if (!object(parsed)) return null;
     const safe: Record<string, unknown> = {};
     for (const key of ['role', 'revision', 'rolePolicyRevision', 'authorizationRevision', 'driverProfileId']) if (typeof parsed[key] === 'string' || parsed[key] === null) safe[key] = parsed[key];
+    if (recordType === 'UserAuthorization') for (const key of ['name', 'email']) if (typeof parsed[key] === 'string') safe[key] = parsed[key];
     if (parsed.catalogVersion === 1) safe.catalogVersion = 1;
     for (const key of ['isActive', 'driverActive', 'microsoftLinked']) if (typeof parsed[key] === 'boolean' || parsed[key] === null) safe[key] = parsed[key];
     if (Array.isArray(parsed.permissions)) safe.permissions = parsed.permissions.filter(p => object(p) && PERMISSION_CATALOG.some(c => c.key === p.permissionKey) && ['ALLOW', 'DENY'].includes(p.effect as string)).map(p => ({ permissionKey: p.permissionKey, effect: p.effect }));
     return safe;
   } catch { return null; }
+}
+
+/** Metadata precondition independent of permission mode and policy-preview refresh. */
+export function accountMetadataVersion(user: { id: string; name: string; email: string; role: string; isActive: boolean; authorizationRevision?: bigint | string }) {
+  return `meta:${createHash('sha256').update(JSON.stringify({ id: user.id, name: user.name, email: user.email, role: user.role, isActive: user.isActive, authorizationRevision: String(user.authorizationRevision ?? '') })).digest('hex')}`;
 }

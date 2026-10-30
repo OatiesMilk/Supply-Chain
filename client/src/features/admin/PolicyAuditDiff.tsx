@@ -13,7 +13,7 @@ function safeRows(value: unknown): PolicyRow[] {
 }
 export function auditChanges(previous: PolicyAuditState | null | undefined, next: PolicyAuditState | null | undefined) {
   const changes = policyChanges(safeRows(previous?.permissions), safeRows(next?.permissions)).map(c => `${c.key}: ${c.before} → ${c.after}`);
-  for (const key of ['role', 'revision', 'rolePolicyRevision', 'authorizationRevision', 'isActive', 'driverActive', 'microsoftLinked'] as const) {
+  for (const key of ['name', 'email', 'role', 'revision', 'rolePolicyRevision', 'authorizationRevision', 'isActive', 'driverActive', 'microsoftLinked'] as const) {
     const a = previous?.[key], b = next?.[key];
     if (a !== b && [a, b].every(v => v === undefined || v === null || typeof v === 'string' || typeof v === 'boolean')) changes.push(`${key}: ${a ?? 'none'} → ${b ?? 'none'}`);
   }

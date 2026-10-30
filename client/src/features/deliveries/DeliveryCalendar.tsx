@@ -4,7 +4,10 @@ import { useState } from 'react';
 import { ChevronLeft, ChevronRight, Truck, X } from 'lucide-react';
 import { DeliveryRecord } from '@/types';
 
-import { useCalendarSummaryQuery } from '@/api/queries/useRecordsQuery';
+import { usePagedRecordsQuery } from '@/api/queries/useRecordsQuery';
+import { useCalendarCountsQuery } from '@/api/queries/useOperationalViews';
+import { useClampRecordPage } from '@/api/queries/useOperationalViews';
+import RecordPageControls from '@/components/RecordPageControls';
 
 interface Props {
   records: DeliveryRecord[];
@@ -56,22 +59,19 @@ export default function DeliveryCalendar({ records, onNavigate }: Props) {
   const [todayYear, todayMonth] = todayStr.split("-").map(Number);
   const [year, setYear] = useState(todayYear);
   const [month, setMonth] = useState(todayMonth - 1);
-  const [dayPopup, setDayPopup] = useState<{ date: string; records: DeliveryRecord[] } | null>(null);
+  const [dayPopup, setDayPopup] = useState<{ date: string } | null>(null);
+  const [dayPage, setDayPage] = useState(1);
 
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
   const startStr = isoDate(year, month, 1);
   const endStr = isoDate(year, month, daysInMonth);
-  const { data: calendarRecords } = useCalendarSummaryQuery(startStr, endStr);
-  const effectiveRecords = calendarRecords ?? records;
-
-  // Build a lookup: dateStr -> records
-  const byDate: Record<string, DeliveryRecord[]> = {};
-  for (const r of effectiveRecords) {
-    if (!byDate[r.delivery_date]) byDate[r.delivery_date] = [];
-    byDate[r.delivery_date].push(r);
-  }
+  const monthQuery = useCalendarCountsQuery(startStr, endStr);
+  const dayQuery = usePagedRecordsQuery({ dateFrom: dayPopup?.date, dateTo: dayPopup?.date, page: dayPage, limit: 25 }, !!dayPopup);
+  useClampRecordPage(dayPage, dayQuery.data?.total, setDayPage);
+  const byDate: Record<string, { date: string; total: number; statuses: Record<string, number> }> = {};
+  for (const day of monthQuery.data ?? []) byDate[day.date] = day;
 
   const prevMonth = () => {
     if (month === 0) { setYear(y => y - 1); setMonth(11); }
@@ -120,6 +120,8 @@ export default function DeliveryCalendar({ records, onNavigate }: Props) {
         </div>
       </div>
 
+      {monthQuery.isPending && <p role="status" className="text-sm text-slate-600">Loading calendar counts…</p>}
+      {monthQuery.error && <p role="alert" className="text-sm text-red-700">Could not load calendar. <button type="button" className="underline" onClick={() => void monthQuery.refetch()}>Retry</button></p>}
       {/* Calendar grid */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         {/* Day-of-week header */}
@@ -138,15 +140,17 @@ export default function DeliveryCalendar({ records, onNavigate }: Props) {
               return <div key={`blank-${idx}`} className="min-h-[80px] bg-slate-50/50" />;
             }
             const dateStr = isoDate(year, month, day);
-            const dayRecs = byDate[dateStr] || [];
+            const daySummary = byDate[dateStr];
+            const dayTotal = daySummary?.total ?? 0;
+            const dayStatuses = Object.entries(daySummary?.statuses ?? {});
             const isToday = dateStr === todayStr;
             const MAX_SHOW = 3;
 
             return (
               <div
                 key={dateStr}
-                onClick={() => dayRecs.length > 0 && setDayPopup({ date: dateStr, records: dayRecs })}
-                className={`min-h-[80px] p-1.5 transition-colors ${dayRecs.length > 0 ? 'hover:bg-blue-50 cursor-pointer' : ''} ${isToday ? 'bg-blue-50/60' : ''}`}
+                onClick={() => { if (dayTotal > 0) { setDayPage(1); setDayPopup({ date: dateStr }); } }}
+                className={`min-h-[80px] p-1.5 transition-colors ${dayTotal > 0 ? 'hover:bg-blue-50 cursor-pointer' : ''} ${isToday ? 'bg-blue-50/60' : ''}`}
               >
                 <div className={`text-[11px] font-bold mb-1 w-5 h-5 flex items-center justify-center rounded-full ${
                   isToday ? 'bg-[#0078C1] text-white' : 'text-slate-500'
@@ -154,23 +158,13 @@ export default function DeliveryCalendar({ records, onNavigate }: Props) {
                   {day}
                 </div>
                 <div className="space-y-0.5">
-                  {dayRecs.slice(0, MAX_SHOW).map(r => (
-                    <div
-                      key={r.id}
-                      className={`flex items-center gap-1 rounded px-1 py-0.5 ${STATUS_CHIP[r.status] ?? 'bg-slate-100 text-slate-600'}`}
-                      title={`${r.company_name} · ${r.category}`}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLOR[r.status] ?? 'bg-slate-400'}`} />
-                      <span className="text-[9px] font-semibold truncate leading-tight">
-                        {r.company_name}
-                      </span>
-                    </div>
-                  ))}
-                  {dayRecs.length > MAX_SHOW && (
-                    <div className="text-[9px] text-slate-400 font-bold pl-1">
-                      +{dayRecs.length - MAX_SHOW} more
-                    </div>
-                  )}
+                  {dayStatuses.slice(0, MAX_SHOW).map(([status, count]) => <div key={status}
+                    className={`flex items-center gap-1 rounded px-1 py-0.5 ${STATUS_CHIP[status] ?? 'bg-slate-100 text-slate-600'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLOR[status] ?? 'bg-slate-400'}`} />
+                    <span className="text-[9px] font-semibold truncate">{status}: {count}</span>
+                  </div>)}
+                  {dayTotal > 0 && <div className="text-[9px] text-slate-500 font-bold pl-1">{dayTotal} records · View all</div>}
+
                 </div>
               </div>
             );
@@ -190,7 +184,7 @@ export default function DeliveryCalendar({ records, onNavigate }: Props) {
                 <Truck className="w-4 h-4 text-[#0078C1]" />
                 <span className="font-bold text-slate-900 text-sm">{dayPopup.date}</span>
                 <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-bold">
-                  {dayPopup.records.length} record{dayPopup.records.length !== 1 ? 's' : ''}
+                  {dayQuery.data?.total ?? 0} record{dayQuery.data?.total !== 1 ? 's' : ''}
                 </span>
               </div>
               <button onClick={() => setDayPopup(null)} className="text-slate-400 hover:text-slate-700 p-1 rounded cursor-pointer">
@@ -198,7 +192,7 @@ export default function DeliveryCalendar({ records, onNavigate }: Props) {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
-              {dayPopup.records.map(r => (
+              {(dayQuery.data?.rows ?? []).map(r => (
                 <button
                   key={r.id}
                   onClick={() => { onNavigate(CATEGORY_SCREEN[r.category] ?? 'deliveries', r.id); setDayPopup(null); }}
@@ -218,6 +212,8 @@ export default function DeliveryCalendar({ records, onNavigate }: Props) {
                 </button>
               ))}
             </div>
+            <RecordPageControls page={dayPage} total={dayQuery.data?.total ?? 0} onPageChange={setDayPage}
+              loading={dayQuery.isPending} error={dayQuery.error} retry={() => void dayQuery.refetch()} />
           </div>
         </div>
       )}

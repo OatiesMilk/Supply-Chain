@@ -4,10 +4,12 @@ import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
 import DocumentSizeSelect from '@/components/DocumentSizeSelect';
 import { DeliveryRecord } from '@/types';
 import { downloadDriverReport } from '@/utils/exportDriverReport';
-import { fetchHistoricStatusSets } from '@/utils/routeSlip';
+import { api } from '@/api';
+import { normalizeApiRecord, usePagedRecordsQuery } from '@/api/queries/useRecordsQuery';
 
 interface Props {
   records: DeliveryRecord[];
+  serverPaging?: boolean;
   onClose: () => void;
   generatedByName: string;
   generatedByRole: string;
@@ -32,7 +34,7 @@ function deriveDefaultMonthYear(records: DeliveryRecord[]): { month: number; yea
   return { month: mo, year: yr };
 }
 
-export default function DriverReportModal({ records, onClose, generatedByName, generatedByRole }: Props) {
+export default function DriverReportModal({ records, serverPaging = false, onClose, generatedByName, generatedByRole }: Props) {
   const defaultMY = useMemo(() => deriveDefaultMonthYear(records), [records]);
   const [month, setMonth]       = useState(defaultMY.month);
   const [year, setYear]         = useState(defaultMY.year);
@@ -48,21 +50,38 @@ export default function DriverReportModal({ records, onClose, generatedByName, g
     return d.getFullYear() === year && d.getMonth() + 1 === month;
   }), [records, month, year]);
 
-  const filteredCount = filteredRecords.length;
+  const validPeriod = Number.isInteger(year) && year >= 2020 && year <= 2099;
+  const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+  const monthEnd = `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`;
+  const reportFilters = { category: 'Deliveries', dateFrom: monthStart, dateTo: monthEnd };
+  const preview = usePagedRecordsQuery({ ...reportFilters, page: 1, limit: 1 }, serverPaging && validPeriod);
+  const filteredCount = serverPaging ? preview.data?.total ?? 0 : filteredRecords.length;
 
   async function handleGenerate() {
     setError(null);
     setLoading(true);
     try {
-      let auditSets: Map<string, Set<string>> | undefined;
-      if (statusMode === 'trail') {
-        try {
-          auditSets = await fetchHistoricStatusSets(filteredRecords);
-        } catch {
-          auditSets = undefined;
+      const reportRecords = serverPaging
+        ? (await api.getAllRecordsForExport(reportFilters)).map(normalizeApiRecord)
+        : filteredRecords;
+      if (!reportRecords.length) throw new Error('No delivery records remain for this month. Refresh the report and try again.');
+      const auditSets = statusMode === 'trail' ? new Map<string, Set<string>>() : undefined;
+      if (auditSets) {
+        // Do not label a current-status fallback as a complete status trail.
+        for (let start = 0; start < reportRecords.length; start += 20) {
+          await Promise.all(reportRecords.slice(start, start + 20).map(async record => {
+            const entries = await api.getRecordAudit(record.id);
+            const statuses = new Set<string>([record.status]);
+            for (const entry of entries) {
+              for (const snapshot of [entry.previous_value, entry.new_value]) {
+                if (snapshot && typeof snapshot === 'object' && 'status' in snapshot && typeof snapshot.status === 'string') statuses.add(snapshot.status);
+              }
+            }
+            auditSets.set(record.id, statuses);
+          }));
         }
       }
-      await downloadDriverReport(records, month, year, format, generatedByName, generatedByRole, auditSets, docSize);
+      await downloadDriverReport(reportRecords, month, year, format, generatedByName, generatedByRole, auditSets, docSize);
       onClose();
     } catch (e: any) {
       setError(e?.message ?? 'Export failed. Please try again.');
@@ -98,6 +117,7 @@ export default function DriverReportModal({ records, onClose, generatedByName, g
             <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Month</label>
             <select
               value={month}
+              disabled={loading}
               onChange={e => setMonth(Number(e.target.value))}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1F3864]/30 focus:border-[#1F3864]"
             >
@@ -115,6 +135,7 @@ export default function DriverReportModal({ records, onClose, generatedByName, g
               min={2020}
               max={2099}
               value={year}
+              disabled={loading}
               onChange={e => setYear(Number(e.target.value))}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1F3864]/30 focus:border-[#1F3864]"
             />
@@ -125,6 +146,7 @@ export default function DriverReportModal({ records, onClose, generatedByName, g
             <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">File Format</label>
             <select
               value={format}
+              disabled={loading}
               onChange={e => setFormat(e.target.value as 'excel' | 'pdf' | 'docx' | 'csv')}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1F3864]/30 focus:border-[#1F3864]"
             >
@@ -144,6 +166,7 @@ export default function DriverReportModal({ records, onClose, generatedByName, g
             <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Status Counting</label>
             <div className="flex gap-2">
               <button
+                disabled={loading}
                 onClick={() => setStatusMode('current')}
                 className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
                   statusMode === 'current'
@@ -154,6 +177,7 @@ export default function DriverReportModal({ records, onClose, generatedByName, g
                 <Clock className="w-3 h-3" /> Current Status
               </button>
               <button
+                disabled={loading}
                 onClick={() => setStatusMode('trail')}
                 className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
                   statusMode === 'trail'
@@ -173,11 +197,17 @@ export default function DriverReportModal({ records, onClose, generatedByName, g
 
           {/* Record count hint */}
           <p className="text-xs text-slate-400">
-            {filteredCount > 0
+            {!validPeriod ? 'Enter a year between 2020 and 2099.' : serverPaging && preview.isLoading ? 'Loading report count…' : serverPaging && preview.isError ? 'Report count unavailable.' : filteredCount > 0
               ? `${filteredCount} delivery record${filteredCount !== 1 ? 's' : ''} found for ${MONTHS[month - 1]} ${year}`
               : `No delivery records found for ${MONTHS[month - 1]} ${year}`}
           </p>
 
+          {serverPaging && preview.isError && (
+            <div role="alert" className="text-xs text-red-600 space-y-2">
+              <p>Could not load the report count.</p>
+              <button onClick={() => void preview.refetch()}>Retry loading report count</button>
+            </div>
+          )}
           {error && (
             <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
           )}
@@ -194,7 +224,7 @@ export default function DriverReportModal({ records, onClose, generatedByName, g
           </button>
           <button
             onClick={handleGenerate}
-            disabled={loading || filteredCount === 0}
+            disabled={loading || !validPeriod || filteredCount === 0 || (serverPaging && (preview.isLoading || preview.isError))}
             className="flex items-center gap-1.5 px-4 py-2 bg-[#1F3864] hover:bg-[#162952] text-white text-sm font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading

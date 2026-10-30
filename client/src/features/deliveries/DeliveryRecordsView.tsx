@@ -28,7 +28,8 @@ import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, RMA_EXTRA_COLUMNS, PDF_DELIVERY_COLUMNS, PDF_AC_COLUMNS, PDF_RMA_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel } from '@/types';
 import { ApiCompany, api, apiUrl, ApiError } from '@/api';
-import { usePagedRecordsQuery, normalizeApiRecord } from '@/api/queries/useRecordsQuery';
+import { usePagedRecordsQuery, useSelectedRecordQuery, normalizeApiRecord } from '@/api/queries/useRecordsQuery';
+import { useRecordFilterOptionsQuery } from '@/api/queries/useOperationalViews';
 import { sortDeliveryRows } from '@/utils/dateSort';
 import { DELIVERY_STATUSES, AREA_HIERARCHY, getRegion, getSubregion } from '@/data';
 import DeliveryRecordWorkspace from '@/features/deliveries/DeliveryRecordWorkspace';
@@ -116,6 +117,7 @@ export default function DeliveryRecordsView({
 
   // Bulk selection (Logistics only)
   const [selectedBulkIds, setSelectedBulkIds] = useState<Set<string>>(new Set());
+  const bulkSnapshots = useRef(new Map<string, DeliveryRecord>());
   const [bulkStatus, setBulkStatus] = useState<DeliveryStatus | ''>('');
   const [bulkApplying, setBulkApplying] = useState(false);
   const [bulkPriority, setBulkPriority] = useState<PriorityLevel | ''>('');
@@ -261,15 +263,11 @@ export default function DeliveryRecordsView({
   // ── Record list filtering ──────────────────────────────────────────────────
   const categoryRecords = records.filter(r => r.category === category);
 
-  const amOptions = useMemo(
-    () => [...new Set(categoryRecords.map(r => r.account_manager).filter(Boolean))].sort(),
-    [categoryRecords]
-  );
-
-  const driverOptions = useMemo(
-    () => [...new Set(categoryRecords.map(r => r.driver).filter(Boolean))].sort(),
-    [categoryRecords]
-  );
+  const filterOptions = useRecordFilterOptionsQuery(category);
+  const amOptions = filterOptions.isError ? [] : filterOptions.data?.accountManagers
+    ?? [...new Set(categoryRecords.map(r => r.account_manager).filter(Boolean))].sort();
+  const driverOptions = filterOptions.isError ? [] : filterOptions.data?.drivers
+    ?? [...new Set(categoryRecords.map(r => r.driver).filter(Boolean))].sort();
 
   // Areas visible in the specific-area dropdown, scoped by current region+subregion selection
   const areasInScope = (() => {
@@ -282,7 +280,7 @@ export default function DeliveryRecordsView({
 
   const distinctAreasForFilter = [
     'All Areas',
-    ...Array.from(new Set(categoryRecords.filter(r => areasInScope.has(r.area)).map(r => r.area).filter(Boolean))).sort(),
+    ...(filterOptions.isError ? [] : filterOptions.data?.areas ?? [...new Set(categoryRecords.map(r => r.area).filter(Boolean))]).filter(area => areasInScope.has(area)).sort(),
   ];
 
   const baseFiltered = categoryRecords.filter(r => {
@@ -326,7 +324,7 @@ export default function DeliveryRecordsView({
   const effectiveDateTo = appliedDateTo || undefined;
   const effectiveAreaFilter = areaFilter !== 'All Areas' ? areaFilter : undefined;
 
-  const { data: pagedData, isLoading: pagedLoading } = usePagedRecordsQuery({
+  const { data: pagedData, isLoading: pagedLoading, isError: pagedError, refetch: retryPage } = usePagedRecordsQuery({
     category,
     dateSort,
     page: currentPage,
@@ -373,15 +371,25 @@ export default function DeliveryRecordsView({
     return sortedFiltered.slice(startIndex, startIndex + pageSize);
   }, [sortedFiltered, safeCurrentPage, pageSize]);
 
-  // Apply the client-side sort to server-paged rows so the sort dropdown
-  // works even when the API does not support an order-by parameter.
-  const displayRecords = hasInvalidDateRange ? [] : pagedData ? pagedData.rows : paginatedRecords;
+  // Server pages are already sorted; only fixture fallback rows are sliced locally.
+  const displayRecords = hasInvalidDateRange || pagedError ? [] : pagedData ? pagedData.rows : paginatedRecords;
 
-  const activeRecord = (pagedData?.rows ?? []).find(r => r.id === selectedId) || records.find(r => r.id === selectedId);
+  const selectedRecord = useSelectedRecordQuery(selectedId,
+    displayRecords.find(r => r.id === selectedId) ?? categoryRecords.find(r => r.id === selectedId));
+  const activeRecord = selectedRecord.isError ? undefined : selectedRecord.data;
+
+  // Bulk edits retain the version the user selected, including across polling.
+  // Changing the page or filters starts a new selection.
+  useEffect(() => {
+    bulkSnapshots.current.clear();
+    setSelectedBulkIds(new Set());
+    setBulkResult(null);
+  }, [category, currentPage, pageSize, searchQuery, statusFilter, regionFilter, subregionFilter,
+    areaFilter, dateFrom, dateTo, dateSort, amFilter, driverFilter, dashboardFilterId]);
 
   // Delivered records keep their Priority, so a bulk Priority never applies to them (TSK-124).
   const allSelectedPriorityLocked = selectedBulkIds.size > 0 && [...selectedBulkIds].every(id => {
-    const record = categoryRecords.find(r => r.id === id);
+    const record = bulkSnapshots.current.get(id);
     return !!record && isPriorityLocked(record);
   });
   const effectiveBulkPriority: PriorityLevel | '' = allSelectedPriorityLocked ? '' : bulkPriority;
@@ -397,10 +405,11 @@ export default function DeliveryRecordsView({
     let unchangedCount = 0;
     let lockedCount = 0;
     const ids = [...selectedBulkIds];
+    const snapshots = new Map(bulkSnapshots.current);
     try {
       for (const id of ids) {
         try {
-          const record = categoryRecords.find(record => record.id === id);
+          const record = snapshots.get(id);
           if (!record) throw new Error('The selected record is no longer available. Refresh and try again.');
           const updates: Partial<DeliveryRecord> = {};
           const remarks: string[] = [];
@@ -420,6 +429,7 @@ export default function DeliveryRecordsView({
             continue;
           }
           updates.remarks = remarks.join('; ');
+          if (!updates.status || updates.priority !== undefined) updates.expected_edit_version = record.edit_version;
           await onUpdateRecord(id, updates);
           savedCount++;
         } catch (error) {
@@ -460,16 +470,22 @@ export default function DeliveryRecordsView({
   const toggleBulkId = (id: string) => {
     setSelectedBulkIds(prev => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) { next.delete(id); bulkSnapshots.current.delete(id); }
+      else {
+        const record = displayRecords.find(row => row.id === id);
+        if (record) { next.add(id); bulkSnapshots.current.set(id, record); }
+      }
       return next;
     });
   };
 
   const toggleAllBulk = () => {
-    if (selectedBulkIds.size === sortedFiltered.length) {
+    if (displayRecords.every(record => selectedBulkIds.has(record.id))) {
+      bulkSnapshots.current.clear();
       setSelectedBulkIds(new Set());
     } else {
-      setSelectedBulkIds(new Set(sortedFiltered.map(r => r.id)));
+      bulkSnapshots.current = new Map(displayRecords.map(record => [record.id, record]));
+      setSelectedBulkIds(new Set(displayRecords.map(record => record.id)));
     }
   };
 
@@ -720,6 +736,7 @@ export default function DeliveryRecordsView({
           {showDriverReportModal && (
             <DriverReportModal
               records={records}
+              serverPaging
               onClose={() => setShowDriverReportModal(false)}
               generatedByName={currentUserName}
               generatedByRole={currentUserRole}
@@ -850,7 +867,7 @@ export default function DeliveryRecordsView({
                 className="text-[11px] font-bold bg-white/10 border border-white/20 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
               >
                 <option value="" className="text-slate-900 bg-white">Keep unchanged</option>
-                {DELIVERY_STATUSES.filter(s => s !== 'In Transit' && s !== 'Delivered' && s !== 'Draft' && !(category === 'Deliveries' && s === 'Rescheduled') && [...selectedBulkIds].every(id => { const record = categoryRecords.find(r => r.id === id); return record && (record.status === s || selectableStatuses(record, currentUserRole).includes(s)); })).map(s => (
+                {DELIVERY_STATUSES.filter(s => s !== 'In Transit' && s !== 'Delivered' && s !== 'Draft' && !(category === 'Deliveries' && s === 'Rescheduled') && [...selectedBulkIds].every(id => { const record = bulkSnapshots.current.get(id); return record && (record.status === s || selectableStatuses(record, currentUserRole).includes(s)); })).map(s => (
                   <option key={s} value={s} className="text-slate-900 bg-white">{s}</option>
                 ))}
               </select>
@@ -926,12 +943,18 @@ export default function DeliveryRecordsView({
             setCreationBanner({ recordId, referenceLabel, lines })
           }
         />
+      ) : selectedId && (selectedRecord.isError || !activeRecord || activeRecord.category !== category) ? (
+        <div role={selectedRecord.isError || activeRecord ? 'alert' : 'status'} className="rounded-xl border border-slate-200 bg-white p-6 space-y-3">
+          <p>{selectedRecord.isError ? 'Could not load this record.' : activeRecord ? 'This record belongs to another category.' : 'Loading record…'}</p>
+          {selectedRecord.isError && <button onClick={() => void selectedRecord.refetch()} className="px-3 py-2 rounded-lg border">Retry loading record</button>}
+          <button onClick={() => setSelectedId(null)} className="px-3 py-2 rounded-lg border">Back to records</button>
+        </div>
       ) : selectedId && activeRecord ? (
         /* ── Full-page Entity Workspace ─────────────────────────────────────── */
         <DeliveryRecordWorkspace
           record={activeRecord}
-          allRecordIds={sortedFiltered.map(r => r.id)}
-          allRecords={records}
+          allRecordIds={[...new Set([...displayRecords.map(r => r.id), selectedId])]}
+          allRecords={displayRecords}
           currentUserRole={currentUserRole}
           currentUserName={currentUserName}
           companies={companies}
@@ -943,6 +966,10 @@ export default function DeliveryRecordsView({
         />
       ) : (
         <div className="grid grid-cols-1 gap-6 items-start">
+          {pagedError && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4">
+            <p>Could not load records.</p>
+            <button onClick={() => void retryPage()}>Retry loading records</button>
+          </div>}
           {/* List — full width, no drawer */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm lg:col-span-3">
             <div className="p-4 border-b border-slate-200 space-y-0 print:hidden">
@@ -1016,7 +1043,7 @@ export default function DeliveryRecordsView({
                       </fieldset>
                     </FilterPopover>
 
-                  <span className="text-[11px] font-bold text-slate-400 tabular-nums shrink-0">{sortedFiltered.length}</span>
+                  <span className="text-[11px] font-bold text-slate-400 tabular-nums shrink-0">{displayTotalCount}</span>
                 </div>
               </div>
             </div>
@@ -1040,7 +1067,8 @@ export default function DeliveryRecordsView({
                         <input
                           type="checkbox"
                           className="rounded cursor-pointer"
-                          checked={sortedFiltered.length > 0 && selectedBulkIds.size === sortedFiltered.length}
+                          aria-label="Select all records on this page"
+                          checked={displayRecords.length > 0 && displayRecords.every(record => selectedBulkIds.has(record.id))}
                           onChange={toggleAllBulk}
                         />
                       </th>

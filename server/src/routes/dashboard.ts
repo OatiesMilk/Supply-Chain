@@ -5,7 +5,15 @@ import { recordScope } from '../services/recordAccess';
 import { manilaTodayRange, manilaWeekStart } from '../services/dateSemantics';
 import { visibleAuditEntries, visibleAuditCount } from '../services/auditVisibility';
 
+import { asyncRoute } from '../middleware/asyncRoute';
+import { dashboardOverview } from '../services/dashboardOverview';
+
 const router = Router();
+
+router.get('/overview', requireAuth, requireResource('dashboard'), asyncRoute(async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await dashboardOverview(prisma, req.user!));
+}));
 
 router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res) => {
   const { start, end, dateStr } = manilaTodayRange();
@@ -15,7 +23,7 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
   // ── SALES_COORDINATOR ────────────────────────────────────────────────────────
   if (role === 'SALES_COORDINATOR') {
     const [deliveriesToday, pendingDriverAssignment, onHold, rescheduled, accomplishedToday] = await Promise.all([
-      prisma.deliveryRecord.count({ where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, deliveryDate: dateStr, status: 'SCHEDULED' } }),
+      prisma.deliveryRecord.count({ where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, deliveryDate: dateStr, status: 'SCHEDULED', timeIn: null } }),
       prisma.deliveryRecord.count({ where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, driver: '', status: { not: 'ACCOMPLISHED' } } }),
       prisma.deliveryRecord.count({ where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, status: 'ON_HOLD' } }),
       prisma.deliveryRecord.count({ where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, status: 'RESCHEDULED' } }),

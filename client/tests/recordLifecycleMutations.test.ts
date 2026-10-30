@@ -102,3 +102,18 @@ test('dispatch workload includes only submitted internal-driver RMA transport an
   for (const hidden of ['supplier-rma', 'internal-rma', 'legacy-rma', 'draft-rma', 'finished-transport']) assert.equal(html.includes(hidden), false, hidden);
   assert.match(html.replace(/<!--.*?-->/g, ''), /2 unassigned, 2 shown/);
 });
+
+test('ordinary edit preconditions preserve the editor snapshot instead of refreshing it at save time', async () => {
+  const client = createQueryClient();
+  client.setQueryData(['records', 'detail', 'run'], { id: 'run', category: 'Deliveries', edit_version: 'record:new' });
+  const read = mock.method(api, 'getRecord', async () => { throw new Error('Fetching a fresh version would hide a stale draft'); });
+  const put = mock.method(api, 'updateRecord', async (_id, data) => ({ id: 'run', category: 'Deliveries', ...data }));
+  const patch = mock.method(api, 'patchStatus', async () => ({ id: 'run', category: 'Deliveries', status: 'Scheduled', priority: '3 - High' }));
+  const options = createUpdateRecordMutationOptions(client);
+  await options.mutationFn({ id: 'run', updates: { reference: 'Draft reference', remarks: 'Change', expected_edit_version: 'record:old' } });
+  assert.equal(put.mock.calls[0].arguments[1].expected_edit_version, 'record:old');
+  await options.mutationFn({ id: 'run', updates: { status: 'Scheduled', priority: '3 - High', remarks: 'Priority', expected_edit_version: 'record:old' } });
+  assert.equal(patch.mock.calls[0].arguments[3]?.expected_edit_version, 'record:old');
+  assert.equal(read.mock.callCount(), 0);
+  client.clear();
+});

@@ -7,6 +7,7 @@
 import { allowedStatuses, deliveryScheduleState, runState } from './services/deliveryLifecycle';
 import { canReadRecord, readableCategories } from './services/recordAccess';
 import type { AuthUser } from './middleware/auth';
+import { recordEditVersion } from './services/recordEditVersion';
 import { normalizeRmaCategory } from './services/rmaRules';
 
 export const CATEGORY_TO_DB: Record<string, string> = {
@@ -65,6 +66,7 @@ export function serializeRecord(r: any, user?: AuthUser) {
   );
   return {
     id: r.id,
+    edit_version: recordEditVersion(r),
     company_name: r.company?.name ?? '',
     company_id: r.companyId,
     priority: r.priority,

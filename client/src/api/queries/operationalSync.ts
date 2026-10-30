@@ -64,7 +64,7 @@ export async function saveRecordToCache(client: QueryClient, saved: DeliveryReco
 
 export async function invalidateOperationalQueries(client: QueryClient): Promise<void> {
   await Promise.all([
-    ['records'], ['dashboard-stats'], ['notifications'], ['pod-attachments'],
+    ['records'], ['dashboard-stats'], ['dashboard-overview'], ['notifications'], ['pod-attachments'],
     ['record-audit'], ['record-remarks'], ['record-comments'],
   ].map(queryKey => client.invalidateQueries({ queryKey })));
 }

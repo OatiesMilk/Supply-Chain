@@ -13,7 +13,8 @@ import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus } from '@/types';
 import { AREAS, PRIORITIES, ITEM_TYPES, DELIVERY_STATUSES, ACCOUNT_MANAGERS, acStatusLabel } from '@/data';
 import { ApiCompany, api, apiUrl } from '@/api';
-import { usePagedRecordsQuery, normalizeApiRecord } from '@/api/queries/useRecordsQuery';
+import { usePagedRecordsQuery, useSelectedRecordQuery, normalizeApiRecord } from '@/api/queries/useRecordsQuery';
+import { useRecordFilterOptionsQuery } from '@/api/queries/useOperationalViews';
 import { sortDeliveryRows } from '@/utils/dateSort';
 import AccountingCollectionWorkspace from '@/features/accounting/AccountingCollectionWorkspace';
 import { WorkspaceDraftProvider } from '@/features/deliveries/WorkspaceDrafts';
@@ -178,10 +179,9 @@ export default function AccountingCollectionView({
   const access = usePermissions();
   const canEdit = (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Logistics') && access.canRecord('Accounting Collection', 'CREATE');
 
-  const amOptions = useMemo(
-    () => [...new Set(records.map(r => r.account_manager).filter(Boolean))].sort(),
-    [records]
-  );
+  const filterOptions = useRecordFilterOptionsQuery(CATEGORY);
+  const amOptions = filterOptions.isError ? [] : filterOptions.data?.accountManagers
+    ?? [...new Set(records.filter(r => r.category === CATEGORY).map(r => r.account_manager).filter(Boolean))].sort();
 
   const updateField = <K extends keyof RecordFormState>(key: K, value: RecordFormState[K]) =>
     setForm(prev => ({ ...prev, [key]: value }));
@@ -393,16 +393,29 @@ export default function AccountingCollectionView({
   // Apply the client-side sort to server-paged rows so the sort dropdown
   // works even when the API does not support an order-by parameter.
   const displayRecords = pagedData ? pagedData.rows : paginatedRecords;
+  const selectedRecord = useSelectedRecordQuery(selectedRecordId,
+    displayRecords.find(r => r.id === selectedRecordId) ?? records.find(r => r.id === selectedRecordId));
 
   // If a record is selected, render full-page workspace
   if (selectedRecordId) {
-    const record = (pagedData?.rows ?? []).find(r => r.id === selectedRecordId) || records.find(r => r.id === selectedRecordId);
+    const record = selectedRecord.data;
+    // A denied refresh must hide any previously cached detail.
+    if (selectedRecord.isError || !record || record.category !== CATEGORY) {
+      return (
+        <section className="space-y-4 p-6">
+          <button type="button" onClick={() => setSelectedRecordId(null)} className="min-h-11 rounded px-3 font-semibold underline">Back to collections</button>
+          {selectedRecord.isError ? <p role="alert">Could not load this record. <button type="button" onClick={() => void selectedRecord.refetch()} className="min-h-11 rounded px-3 font-semibold underline">Retry loading record</button></p>
+            : !record ? <p role="status">Loading record…</p>
+            : <p role="alert">This record is not an Accounting Collection.</p>}
+        </section>
+      );
+    }
     if (record) {
       return (
         <WorkspaceDraftProvider key={`${record.id}-${currentUserRole}`}>
           <AccountingCollectionWorkspace
             record={record}
-            allRecordIds={(displayRecords.length > 0 ? displayRecords : sortedFiltered).map(r => r.id)}
+            allRecordIds={[...new Set([...displayRecords.map(r => r.id), record.id])]}
             currentUserRole={currentUserRole}
             currentUserName={currentUserName}
             onBack={() => setSelectedRecordId(null)}

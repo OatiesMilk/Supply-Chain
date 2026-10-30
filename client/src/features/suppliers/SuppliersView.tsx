@@ -6,6 +6,8 @@ import SupplierWorkspace from '@/features/suppliers/SupplierWorkspace';
 import ExportMenu from '@/components/ExportMenu';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { SUPPLIER_COLUMNS } from '@/utils/export';
+import { api } from '@/api';
+import { useSupplierPickupCountsQuery } from '@/api/queries/useOperationalViews';
 
 const CATEGORY_COLOR: Record<string, string> = {
   'Electronics':  'bg-blue-50 text-blue-700 border-blue-200',
@@ -39,6 +41,9 @@ export default function SuppliersView({ suppliers, deliveryRecords, currentUserR
   const safeCurrentPage = Math.min(Math.max(1, page), totalPages);
 
   const access = usePermissions();
+  const pageSuppliers = suppliers.slice((safeCurrentPage - 1) * pageSize, safeCurrentPage * pageSize);
+  const counts = useSupplierPickupCountsQuery(access.canResource('records') ? pageSuppliers.map(s => s.id) : []);
+  const pickupCounts = new Map(counts.data?.map(row => [row.id, row.count]));
   const canCreate = currentUserRole !== 'TASS' && access.canResource('suppliers', 'CREATE');
 
   const handleSubmit = (e: FormEvent) => {
@@ -60,7 +65,8 @@ export default function SuppliersView({ suppliers, deliveryRecords, currentUserR
       <SupplierWorkspace
         supplier={activeSupplier}
         allSupplierIds={suppliers.map(s => s.id)}
-        deliveryRecords={deliveryRecords}
+        deliveryRecords={[]}
+        pickupCount={pickupCounts.get(activeSupplier.id)}
         onBack={() => setSelectedId(null)}
         onNavigateToSupplier={setSelectedId}
       />
@@ -76,11 +82,7 @@ export default function SuppliersView({ suppliers, deliveryRecords, currentUserR
     city: s.city,
     address: s.address,
     category: s.category,
-    pickup_count: deliveryRecords.filter(r =>
-      r.category === 'Procurement Pick-up' &&
-      (r.item_description.toLowerCase().includes(s.name.toLowerCase()) ||
-       r.company_name.toLowerCase().includes(s.name.toLowerCase()))
-    ).length,
+    pickup_count: pickupCounts.get(s.id) ?? null,
   }));
 
   return (
@@ -104,6 +106,16 @@ export default function SuppliersView({ suppliers, deliveryRecords, currentUserR
             )}
             <ExportMenu
               rows={exportRows}
+              totalCount={suppliers.length}
+              fetchExportData={async () => {
+                const all = new Map<string, number>();
+                if (access.canResource('records')) {
+                  for (let offset = 0; offset < suppliers.length; offset += 100) {
+                    for (const row of await api.getSupplierPickupCounts(suppliers.slice(offset, offset + 100).map(s => s.id))) all.set(row.id, row.count);
+                  }
+                }
+                return { rows: exportRows.map(row => ({ ...row, pickup_count: all.get(row.id) ?? null })) };
+              }}
               columns={SUPPLIER_COLUMNS}
               sheetName="Suppliers"
               filename="suppliers"
@@ -119,6 +131,7 @@ export default function SuppliersView({ suppliers, deliveryRecords, currentUserR
           </div>
         </div>
 
+        {counts.error && <p role="alert" className="px-4 py-2 text-sm text-red-700">Pick-up counts unavailable. <button type="button" className="underline" onClick={() => void counts.refetch()}>Retry</button></p>}
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-sm">
             <thead>
@@ -133,11 +146,7 @@ export default function SuppliersView({ suppliers, deliveryRecords, currentUserR
             </thead>
             <tbody className="divide-y divide-slate-100">
               {suppliers.slice((safeCurrentPage - 1) * pageSize, safeCurrentPage * pageSize).map(s => {
-                const pickupCount = deliveryRecords.filter(r =>
-                  r.category === 'Procurement Pick-up' &&
-                  (r.item_description.toLowerCase().includes(s.name.toLowerCase()) ||
-                   r.company_name.toLowerCase().includes(s.name.toLowerCase()))
-                ).length;
+                const pickupCount = pickupCounts.get(s.id);
 
                 return (
                   <tr
@@ -157,7 +166,7 @@ export default function SuppliersView({ suppliers, deliveryRecords, currentUserR
                         {s.category}
                       </span>
                     </td>
-                    <td className="px-4 py-3.5 text-center font-bold text-slate-800">{pickupCount}</td>
+                    <td className="px-4 py-3.5 text-center font-bold text-slate-800">{pickupCount ?? '—'}</td>
                   </tr>
                 );
               })}

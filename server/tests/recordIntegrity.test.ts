@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import { prisma } from '../src/db';
 import { signToken, type Role } from '../src/middleware/auth';
 import recordsRoutes from '../src/routes/records';
+import { recordEditVersion } from '../src/services/recordEditVersion';
 
 function record(extra: Record<string, unknown> = {}) {
   return { id: 'REC-legacy', category: 'DELIVERY', draft: true, status: 'SCHEDULED', deletedAt: null,
@@ -42,6 +43,7 @@ async function fixture(t: TestContext, role: Role = 'ADMIN') {
   stub(prisma.company, 'findUnique', async () => ({ id: 'company-one' }));
   stub(prisma.deliveryRecord, 'findFirst', async () => structuredClone(row));
   const tx = {
+    user: { findMany: async () => [{ id: 'logistics-user' }] },
     $queryRaw: async () => [], $executeRaw: async () => 1,
     deliveryRecord: {
       findFirst: async () => { const current = structuredClone(row); await onRead?.(); return current; },
@@ -62,7 +64,7 @@ async function fixture(t: TestContext, role: Role = 'ADMIN') {
     },
     auditLog: { create: async ({ data }: any) => { if (failAudit) throw new Error('Audit unavailable'); audits.push(data); } },
     remarkLog: { create: async () => ({}) },
-    notification: { create: async ({ data }: any) => { if (failNotification) throw new Error('Notification unavailable'); notifications.push(data); } },
+    notification: { create: async ({ data }: any) => { if (failNotification) throw new Error('Notification unavailable'); notifications.push(data); }, createMany: async ({ data }: any) => { if (failNotification) throw new Error('Notification unavailable'); notifications.push(...data); return { count: data.length }; } },
   };
   stub(prisma, '$transaction', async (work: any) => {
     const before = structuredClone(row);
@@ -91,7 +93,8 @@ async function fixture(t: TestContext, role: Role = 'ADMIN') {
       const barrier = new Promise<void>(resolve => { release = resolve; });
       onRead = async () => { if (++reads === 2) release(); await barrier; };
     },
-    request(path: string, method: string, body: unknown) {
+    request(path: string, method: string, body: unknown, withPrecondition = true) {
+      if (method === 'PUT' && row.category !== 'RMA' && withPrecondition) body = { expected_edit_version: recordEditVersion(row), ...(body as any) };
       return fetch(origin + path, { method, headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     },
   };
@@ -211,4 +214,75 @@ test('Admin cannot verify collections despite having broad record access', async
   state.setRow({ category: 'ACCOUNTING_COLLECTION', draft: false, status: 'ACCOMPLISHED' });
   assert.equal((await state.request('/records/REC-legacy/verify-collection', 'PATCH', {})).status, 403);
   assert.equal(state.updates.length, 0);
+});
+
+
+test('ordinary editor requires a precondition and rejects a stale overwrite without audit effects', async t => {
+ const state=await fixture(t,'SALES_COORDINATOR');
+ state.setRow({draft:false,deliveryDate:'2026-10-30',reference:'REF-original',address:'Original address'});
+ const version=recordEditVersion(state.row());
+ assert.equal((await state.request('/records/REC-legacy','PUT',{address:'Missing',remarks:'Missing token'},false)).status,428);
+ const first=await state.request('/records/REC-legacy','PUT',{expected_edit_version:version,reference:'REF-new',remarks:'Correct reference'});
+ assert.equal(first.status,200,await first.text());
+ const second=await state.request('/records/REC-legacy','PUT',{expected_edit_version:version,reference:'REF-original',address:'New address',remarks:'Stale draft'});
+ assert.equal(second.status,409);assert.equal(state.row().reference,'REF-new');assert.equal(state.row().address,'Original address');
+ assert.equal(state.updates.length,1);assert.equal(state.audits.length,1);
+});
+
+test('edit versions detect same-timestamp state and line-item changes, but allow independent POD uploads',()=>{
+ const row=record({updatedAt:new Date('2026-10-30T01:00:00Z'),lineItems:[{sku:'SKU',quantity:1}]});
+ const version=recordEditVersion(row);
+ assert.notEqual(recordEditVersion({...row,reference:'Changed'}),version);
+ assert.notEqual(recordEditVersion({...row,lineItems:[{sku:'SKU',quantity:2}]}),version);
+ assert.equal(recordEditVersion({...row,podAttachments:[{id:'new-photo'}]}),version);
+});
+
+test('Sales metadata is locked after dispatch',async t=>{
+ const state=await fixture(t,'SALES_COORDINATOR');
+ for(const status of ['IN_TRANSIT','ACCOMPLISHED','ON_HOLD','RESCHEDULED']){
+  state.setRow({draft:false,status,deliveryDate:'2026-10-30',timeIn:'2026-10-30T01:00:00Z'});
+  assert.equal((await state.request('/records/REC-legacy','PUT',{reference:'Changed',remarks:'Disallowed correction'})).status,403);
+ }
+ assert.equal(state.updates.length,0);
+});
+
+for(const category of ['DELIVERY','PROCUREMENT_PICKUP','ACCOUNTING_COLLECTION','SALES_ORDERS']){
+ test(`${category}: equivalent PUT/PATCH submissions notify Logistics once`,async t=>{
+  const state=await fixture(t);
+  state.setRow({category,deliveryDate:'2026-10-30'});
+  const put=await state.request('/records/REC-legacy','PUT',{is_draft:'No',remarks:'Submit by PUT'});
+  assert.equal(put.status,200,await put.text());assert.equal(state.notifications.length,1);
+  assert.equal((state.notifications[0] as any).userId,'logistics-user');
+  state.setRow({category,deliveryDate:'2026-10-30'});
+  const patch=await state.request('/records/REC-legacy/status','PATCH',{status:'Scheduled',remarks:'Submit by PATCH'});
+  assert.equal(patch.status,200,await patch.text());assert.equal(state.notifications.length,2);
+  const repeat=await state.request('/records/REC-legacy','PUT',{is_draft:'No',remarks:'Same state'});
+  assert.equal(repeat.status,200,await repeat.text());assert.equal(state.notifications.length,2);
+ });
+}
+
+test('submission and audit roll back if Logistics alert persistence fails',async t=>{
+ const state=await fixture(t);state.setRow({deliveryDate:'2026-10-30'});state.failNotification();
+ assert.equal((await state.request('/records/REC-legacy','PUT',{is_draft:'No',remarks:'Submit'})).status,500);
+ assert.equal(state.row().draft,true);assert.equal(state.audits.length,0);
+});
+
+
+test('status priority extras cannot bypass metadata version checks', async t=>{
+ const state=await fixture(t);state.setRow({draft:false,deliveryDate:'2026-10-30',priority:'2 - Moderate'});
+ const version=recordEditVersion(state.row());
+ const body={status:'Scheduled',priority:'3 - High',remarks:'Priority correction'};
+ assert.equal((await state.request('/records/REC-legacy/status','PATCH',body)).status,428);
+ assert.equal((await state.request('/records/REC-legacy/status','PATCH',{...body,expected_edit_version:version})).status,200);
+ assert.equal((await state.request('/records/REC-legacy/status','PATCH',{...body,priority:'1 - Low',expected_edit_version:version})).status,409);
+ assert.equal(state.row().priority,'3 - High');assert.equal(state.audits.length,1);
+});
+
+test('Admin retains audited metadata correction authority on completed records', async t => {
+  const state = await fixture(t, 'ADMIN');
+  state.setRow({ draft: false, status: 'ACCOMPLISHED', deliveryDate: '2026-10-30' });
+  const response = await state.request('/records/REC-legacy', 'PUT', { reference: 'Corrected reference', remarks: 'Approved administrative correction' });
+  assert.equal(response.status, 200, await response.text());
+  assert.equal(state.row().reference, 'Corrected reference');
+  assert.equal(state.audits.length, 1);
 });
