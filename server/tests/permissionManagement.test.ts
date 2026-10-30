@@ -66,7 +66,10 @@ test('permission management routes enforce cookies, ADMIN, version negotiation a
   let transactions = 0;
   let currentRole = 'ADMIN';
   const account = (id: string, role: string) => ({ id, name: id, email: `${id}@example.test`, role, isActive: true, authorizationRevision: 1n,
-    password: 'never serialize', microsoftOid: 'never serialize', permissions: [], permissionOverrides: [], driverProfile: null, permissionConversion: null });
+    password: 'never serialize', microsoftOid: 'never serialize', permissions: [], permissionOverrides: [], driverProfile: null,
+    // The V1 validation case below must authenticate a converted account so it
+    // reaches request-body validation instead of correctly failing closed in requireAuth.
+    permissionConversion: { catalogVersion: 1 } });
   prisma.user.findUnique = mock.fn(async ({ where }: any) => account(where.id, where.id === 'sales' ? 'SALES_COORDINATOR' : currentRole)) as any;
   prisma.$transaction = mock.fn(async (work: any) => {
     transactions++;

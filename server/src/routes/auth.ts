@@ -5,6 +5,9 @@ import { clearSessionCookie, requireAuth, setSessionCookie, signToken, Role } fr
 
 import { asyncRoute } from '../middleware/asyncRoute';
 import { sessionUser } from '../services/permissions';
+import { permissionMode } from '../services/permissionManagement';
+import { loadPermissionSession } from '../services/sessionPermissions';
+import { policyRoute } from '../middleware/policyRoute';
 import { createSsoState, validateSsoState, registerSsoState, consumeSsoState, getMsalConfig, SSO_STATE_COOKIE, SSO_STATE_MAX_AGE_MS } from '../services/ssoState';
 import { approvedMicrosoftUser } from '../services/ssoIdentity';
 import { ssoFailureDetails, type SsoStage } from '../services/ssoDiagnostics';
@@ -13,7 +16,7 @@ const router = Router();
 
 // ─── Email + password login ──────────────────────────────────────────────────
 
-router.post('/login', asyncRoute(async (req, res) => {
+router.post('/login', policyRoute(async (req, res) => {
   const { email, password } = req.body ?? {};
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' });
@@ -33,10 +36,14 @@ router.post('/login', asyncRoute(async (req, res) => {
     return res.status(401).json({ error: 'Account is deactivated' });
   }
 
-  const token = signToken({ id: user.id, name: user.name, email: user.email, role: user.role as Role });
+  const loaded = permissionMode() === 'V1' ? await loadPermissionSession(prisma, user.id) : null;
+  if (permissionMode() === 'V1' && !loaded?.isActive) return res.status(401).json({ error: 'Account is deactivated' });
+  if (loaded && !loaded.session.snapshot.valid) return res.status(503).json({ error: 'Permission foundation is unavailable or this account requires verified conversion' });
+  const identity = loaded?.session ?? user;
+  const token = signToken({ id: identity.id, name: identity.name, email: identity.email, role: identity.role as Role });
   setSessionCookie(res, token);
   res.setHeader('Cache-Control', 'no-store');
-  res.json(sessionUser(user));
+  res.json(loaded?.session ?? sessionUser(user));
 }));
 
 router.post('/logout', (_req, res) => {
@@ -154,6 +161,11 @@ router.get('/microsoft/callback', asyncRoute(async (req: Request, res: Response)
     const user = approval.user;
 
     stage = 'session';
+    if (permissionMode() === 'V1') {
+      const loaded = await loadPermissionSession(prisma, user.id);
+      if (!loaded?.isActive) return res.redirect('/?error=account_deactivated');
+      if (!loaded.session.snapshot.valid) return res.redirect('/?error=permissions_unavailable');
+    }
     const token = signToken({
       id: user.id,
       name: user.name,

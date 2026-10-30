@@ -49,7 +49,7 @@ router.get('/', requireAuth, requireResource('drivers'), driverRoute(async (req,
 }));
 
 // Create a roster entry — Admin adds Drivers; Logistics adds Assistants only (TSK-119).
-router.post('/', requireAuth, requireResource('drivers'), requireScreen('driver_manager'), requireRole('LOGISTICS', 'ADMIN'), driverRoute(async (req, res) => {
+router.post('/', requireAuth, requireResource('drivers', 'CREATE'), requireScreen('driver_manager'), requireRole('LOGISTICS', 'ADMIN'), driverRoute(async (req, res) => {
   if (linkingFieldError(req, res)) return;
   const { name, type, coverage_areas } = req.body ?? {};
   const invalid = driverInputError(req.body ?? {}, true);
@@ -67,7 +67,7 @@ router.post('/', requireAuth, requireResource('drivers'), requireScreen('driver_
 
 // Update a roster entry — Logistics keeps coverage/status edits; type changes
 // and Driver renames are Admin only (TSK-119).
-router.put('/:id', requireAuth, requireResource('drivers'), requireScreen('driver_manager'), requireRole('LOGISTICS', 'ADMIN'), driverRoute(async (req, res) => {
+router.put('/:id', requireAuth, requireResource('drivers', 'UPDATE'), requireScreen('driver_manager'), requireRole('LOGISTICS', 'ADMIN'), driverRoute(async (req, res) => {
   if (linkingFieldError(req, res)) return;
   const { name, type, coverage_areas, is_active } = req.body ?? {};
   const invalid = driverInputError(req.body ?? {});
@@ -83,7 +83,7 @@ router.put('/:id', requireAuth, requireResource('drivers'), requireScreen('drive
 }));
 
 // Deactivate a driver — Logistics + Admin only
-router.delete('/:id', requireAuth, requireResource('drivers'), requireScreen('driver_manager'), requireRole('LOGISTICS', 'ADMIN'), driverRoute(async (req, res) => {
+router.delete('/:id', requireAuth, requireResource('drivers', 'DELETE'), requireScreen('driver_manager'), requireRole('LOGISTICS', 'ADMIN'), driverRoute(async (req, res) => {
   const updated = await updateDriverDirectory(prisma, req.params.id, { isActive: false }, req.user!, true);
   if (!updated) return res.status(404).json({ error: 'Driver not found' });
   res.status(204).end();

@@ -23,7 +23,7 @@ test('admin audit date filters cover the full Manila day', async () => {
   const handler = route.stack[route.stack.length - 1].handle;
 
   await handler(
-    { query: { from: '2026-10-06', to: '2026-10-06' } },
+    { user: { activeMode: 'LEGACY' }, query: { from: '2026-10-06', to: '2026-10-06' } },
     { json() {} },
   );
 

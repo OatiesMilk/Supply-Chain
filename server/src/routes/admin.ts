@@ -6,6 +6,7 @@ import { asyncRoute } from '../middleware/asyncRoute';
 import { deploymentStatus } from '../services/deploymentStatus';
 import { getRolePermissionEditor, saveRolePermissions, safePolicyAudit } from '../services/permissionManagement';
 import { policyRoute } from '../middleware/policyRoute';
+import { visibleAuditEntries, visibleAuditCount } from '../services/auditVisibility';
 
 const router = Router();
 
@@ -13,7 +14,7 @@ router.get('/roles/:role/permissions', requireAuth, requireResource('admin'), re
   res.setHeader('Cache-Control', 'no-store');
   res.json(await getRolePermissionEditor(prisma, req.user!.id, req.params.role));
 }));
-router.put('/roles/:role/permissions', requireAuth, requireResource('admin'), requireRole('ADMIN'), policyRoute(async (req, res) => {
+router.put('/roles/:role/permissions', requireAuth, requireResource('admin', 'WRITE'), requireRole('ADMIN'), policyRoute(async (req, res) => {
   res.json(await saveRolePermissions(prisma, req.user!.id, req.params.role, req.body));
 }));
 
@@ -53,14 +54,14 @@ router.get('/audit-log', requireAuth, requireResource('admin'), requireRole('ADM
   }
 
   const [entries, total] = await Promise.all([
-    prisma.auditLog.findMany({
+    req.user!.activeMode === 'V1' ? visibleAuditEntries(prisma, req.user!, limit, skip, where) : prisma.auditLog.findMany({
       where,
       include: { changedBy: true },
       orderBy: { timestamp: 'desc' },
       skip,
       take: limit
     }),
-    prisma.auditLog.count({ where })
+    req.user!.activeMode === 'V1' ? visibleAuditCount(prisma, req.user!, where) : prisma.auditLog.count({ where })
   ]);
 
   res.json({
@@ -129,7 +130,7 @@ router.get('/deployment-status', requireAuth, requireResource('admin'), requireR
 
 // ─── Test email — ADMIN only ───────────────────────────────────────────────
 
-router.post('/test-email', requireAuth, requireResource('admin'), requireRole('ADMIN'), async (req, res) => {
+router.post('/test-email', requireAuth, requireResource('admin', 'WRITE'), requireRole('ADMIN'), async (req, res) => {
   const { to } = req.body ?? {};
   if (!to || typeof to !== 'string') {
     return res.status(400).json({ error: 'A "to" email address is required' });

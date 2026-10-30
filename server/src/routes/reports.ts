@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { Prisma } from '@prisma/client';
 import { asyncRoute } from '../middleware/asyncRoute';
 import { prisma } from '../db';
-import { requireAuth, requireScreen } from '../middleware/auth';
+import { requireAuth, requireScreen, requireResource } from '../middleware/auth';
 import { CATEGORY_TO_DB, CATEGORY_FROM_DB, STATUS_FROM_DB } from '../mappings';
 import { runState } from '../services/deliveryLifecycle';
 import { recordScope } from '../services/recordAccess';
@@ -12,7 +12,7 @@ const router = Router();
 
 // GET /reports/summary — delivery-date cohort with a distinct Time Out count.
 // Legacy dateFrom/dateTo aliases remain supported for existing API clients.
-router.get('/summary', requireAuth, requireScreen('statistical_reports'), asyncRoute(async (req, res) => {
+router.get('/summary', requireAuth, requireResource('records'), requireScreen('statistical_reports'), asyncRoute(async (req, res) => {
   const queryValue = (key: string): string | undefined => {
     const value = req.query[key];
     return typeof value === 'string' ? value : undefined;

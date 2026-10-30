@@ -94,7 +94,7 @@ router.get('/:id/audit', requireAuth, requireResource('skus'), requireRole('ADMI
 });
 
 // PUT /api/skus/:id — Admin only, update product fields
-router.put('/:id', requireAuth, requireResource('skus'), requireRole('ADMIN'), asyncRoute(async (req, res) => {
+router.put('/:id', requireAuth, requireResource('skus', 'UPDATE'), requireRole('ADMIN'), asyncRoute(async (req, res) => {
   const b = req.body ?? {};
   const error = skuInputError(b, true);
   if (error) return res.status(400).json({ error });
@@ -125,7 +125,7 @@ router.put('/:id', requireAuth, requireResource('skus'), requireRole('ADMIN'), a
 }));
 
 // POST /api/skus — Admin only, create product + inventory row
-router.post('/', requireAuth, requireResource('skus'), requireRole('ADMIN'), asyncRoute(async (req, res) => {
+router.post('/', requireAuth, requireResource('skus', 'CREATE'), requireRole('ADMIN'), asyncRoute(async (req, res) => {
   const b = req.body ?? {};
   const error = skuInputError(b);
   if (error) return res.status(400).json({ error });
@@ -189,7 +189,7 @@ async function withProductLock<T>(productId: string, fn: () => Promise<T>): Prom
 
 // POST /api/skus/:id/adjust — Admin + Logistics, stock adjustment
 // Stock adjustment is a SKU Master action: read-only SKU lookup is not enough (TSK-118).
-router.post('/:id/adjust', requireAuth, requireResource('skus'), requireScreen('inventory'), requireRole('ADMIN', 'LOGISTICS'), asyncRoute(async (req, res) => {
+router.post('/:id/adjust', requireAuth, requireResource('skus', 'ADJUST'), requireScreen('inventory'), requireRole('ADMIN', 'LOGISTICS'), asyncRoute(async (req, res) => {
   const { type, qty_change, reference } = req.body ?? {};
   if (!['Goods Receipt', 'Sale', 'Adjustment', 'Transfer'].includes(type)) return res.status(400).json({ error: 'Invalid stock adjustment type.' });
   if (typeof reference !== 'string' || !reference.trim()) return res.status(400).json({ error: 'Reference is required.' });

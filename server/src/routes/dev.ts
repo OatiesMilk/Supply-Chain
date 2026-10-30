@@ -11,7 +11,7 @@ export function createDevRouter(resetSeed: () => Promise<void> = () => runSeed(t
     res.json({ enabled: canResetLocalDemo(req) });
   });
 
-  router.post('/reset-seed', requireAuth, requireResource('admin'), requireRole('ADMIN'), async (req, res) => {
+  router.post('/reset-seed', requireAuth, requireResource('admin', 'WRITE'), requireRole('ADMIN'), async (req, res) => {
     if (!canResetLocalDemo(req)) {
       return res.status(403).json({ error: 'Demo reset is available only on a verified local disposable database' });
     }

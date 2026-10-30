@@ -3,6 +3,7 @@ import { prisma } from '../db';
 import { requireResource, requireAuth } from '../middleware/auth';
 import { recordScope } from '../services/recordAccess';
 import { manilaTodayRange, manilaWeekStart } from '../services/dateSemantics';
+import { visibleAuditEntries, visibleAuditCount } from '../services/auditVisibility';
 
 const router = Router();
 
@@ -114,9 +115,9 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
           collectionVerified: false
         }
       }),
-      prisma.auditLog.count({ where: { timestamp: { gte: start, lt: end } } }),
+      req.user!.activeMode === 'V1' ? visibleAuditCount(prisma, req.user!, { timestamp: { gte: start, lt: end } }) : prisma.auditLog.count({ where: { timestamp: { gte: start, lt: end } } }),
       prisma.deliveryRecord.groupBy({ by: ['status'], where: { AND: [scope], deletedAt: null }, _count: { _all: true } }),
-      prisma.auditLog.findMany({
+      req.user!.activeMode === 'V1' ? visibleAuditEntries(prisma, req.user!, 10) : prisma.auditLog.findMany({
         orderBy: { timestamp: 'desc' },
         take: 10,
         include: { changedBy: true }

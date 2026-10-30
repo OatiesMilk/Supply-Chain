@@ -6,6 +6,8 @@ import { accessLog } from './middleware/accessLog';
 import path from 'path';
 import fs from 'fs';
 import { prisma } from './db';
+import { permissionMode } from './services/permissionManagement';
+import { runScopedSummaries } from './services/scopedSummaries';
 import { notifyRole, notifyUser } from './services/inAppNotify';
 import { sendMailReal, sendEmail } from './services/mailer';
 import { manilaToday } from './services/deliveryLifecycle';
@@ -165,6 +167,7 @@ function scheduleDaily(hour: number, minute: number, task: () => void) {
 
 async function notify4PM() {
   try {
+    if (permissionMode() === 'V1') return await runScopedSummaries('4PM');
     // 4 PM logistics alert: unassigned scheduled records
     const unassigned = await prisma.deliveryRecord.findMany({
       where: { status: 'SCHEDULED', draft: false, driver: '', deletedAt: null, AND: [dispatchMovementScope] }
@@ -238,6 +241,7 @@ async function notify4PM() {
 
 async function notify6PM() {
   try {
+    if (permissionMode() === 'V1') { await runScopedSummaries('6PM'); await saveDailyStatusSnapshot(); return; }
     const stillOpen = await prisma.deliveryRecord.findMany({
       where: { status: { in: ['SCHEDULED', 'IN_TRANSIT'] }, draft: false, deletedAt: null }
     });
@@ -285,6 +289,7 @@ function scheduleWeekly(dayOfWeek: number, hour: number, minute: number, task: (
 
 async function notifyWeeklyReport() {
   try {
+    if (permissionMode() === 'V1') return await runScopedSummaries('WEEKLY');
     const now     = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const dateTo   = manilaToday(now);
