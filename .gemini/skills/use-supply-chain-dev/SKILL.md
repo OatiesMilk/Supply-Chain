@@ -1,46 +1,38 @@
 ---
 name: use-supply-chain-dev
 description: >
-  Routes coding, debugging, feature development, and ticket-linked implementation
-  tasks for the Supply Chain Management System to the supply-chain-dev agent.
-  Trigger whenever the user asks to fix a bug, build a feature, update a route,
-  change the schema, write a component, or audit code in this project.
+  Routes Supply Chain implementation, debugging, code audits, and technical
+  documentation to the supply-chain-dev workflow. Use for project routes,
+  permissions, role workflows, modules, schema changes, and their integrations.
 ---
 
 # Use supply-chain-dev
 
-When the user asks for **any development work** in the Supply Chain project — fixing bugs, building features, writing tests, updating API routes, or modifying the frontend — delegate the task to the `supply-chain-dev` subagent instead of handling it in the main thread.
+Preserve the user's requested outcome and choose the task mode before routing:
 
-## When to delegate
+| Request | Mode and result |
+| --- | --- |
+| Fix, implement, refactor, or write tests | Implementation: focused changes and relevant validation |
+| Audit, review, assess, or explain a defect | Audit: evidence and recommendations; no application changes unless requested |
+| Document findings or explain architecture | Documentation: verified documentation within the requested scope |
 
-| User says / context | Action |
-|---|---|
-| "fix TSK-XX" / "fix the bug in..." | Delegate to `supply-chain-dev` |
-| "add a new route / endpoint" | Delegate to `supply-chain-dev` |
-| "build the [module] page / feature" | Delegate to `supply-chain-dev` |
-| "update the schema / add a column" | Delegate to `supply-chain-dev` |
-| "write a test for..." | Delegate to `supply-chain-dev` |
-| "check the code for [module]" | Delegate to `supply-chain-dev` |
-| "why is [feature] broken?" | Delegate to `supply-chain-dev` |
-| "refactor [file or module]" | Delegate to `supply-chain-dev` |
-| Simple one-liner question about the project | Handle in main thread |
-| Notion ticket read/list only | Handle in main thread |
+An audit that includes writing its findings stays in Audit mode; use Documentation mode when the requested work is documenting existing findings or verified behavior.
 
-## How to delegate
+Read the repository's `AGENTS.md` and [agent definition](../../agents/supply-chain-dev.md). Resolve application paths from the repository root; resolve links in this skill from its directory.
 
-Package the user's request with the following context and send it to the `supply-chain-dev` subagent:
+## Routing
 
-1. The user's exact request (verbatim)
-2. Any linked Notion ticket number (e.g., TSK-49) and its description if available
-3. Any file paths or module names the user has mentioned
-4. Any error messages, screenshots descriptions, or logs the user has shared
+Delegate substantial project work to `supply-chain-dev` when the runtime exposes that agent. Pass the user's exact request, selected mode, scope, constraints, relevant files, and ticket details if supplied. A worker already fulfilling this role should execute the task without delegating it back to itself.
 
-## What to expect back
+The `.gemini` definition and its model field describe Antigravity configuration; they do not establish availability in other runtimes. When the named agent is unavailable, use the runtime's supported delegation mechanism if permitted and provide the agent instructions. Otherwise apply those instructions directly and state the fallback briefly. Do not claim a particular agent or model ran unless it did.
 
-The agent will return a structured response with:
-- **What I read** — files it examined before implementing
-- **What I changed** — specific files and what was modified
-- **Validation** — TypeScript compile check and/or test results (✅ PASS / ❌ FAIL)
-- **Next steps** — optional Notion ticket update or PR suggestion
+Simple factual questions and ticket reads can stay in the main thread. Updating this skill or its agent is instruction-maintenance work: apply the skill-authoring workflow available in the runtime rather than recursively delegating to the skill being edited.
 
-Present the response as-is to the user, then offer to create a PR or update the linked Notion ticket if appropriate.
+## Focused references
+
+- For permission, identity, dispatch, or lifecycle work, read [permissions and lifecycle](references/permissions-and-lifecycle.md).
+- For code audits or integration reviews, read [audit workflow](references/audit-workflow.md). Implementation work needs this reference only when its integration risks warrant it.
+
+## Returning results
+
+Check delegated findings against their source and validation evidence before summarizing them. Resolve contradictory claims, especially checks hidden in shared middleware. Report severity, evidence, changes if any, exact checks and skips, and remaining limits. Audit findings do not authorize fixes, ticket updates, commits, publishing, or database changes beyond the user's scope.
