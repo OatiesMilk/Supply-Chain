@@ -74,8 +74,9 @@ export default function ExportPreviewDialog({
   const [page, setPage] = useState(0);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
-  const [artifactPreview, setArtifactPreview] = useState<{ url?: string; text?: string; html?: string; error?: string } | null>(null);
+  const [artifactPreview, setArtifactPreview] = useState<{ url?: string; text?: string; docxRendered?: boolean; error?: string } | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const docxHostRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
@@ -91,21 +92,28 @@ export default function ExportPreviewDialog({
       setArtifactPreview({ url: objectUrl });
     } else if (format === 'csv') {
       fileBlob.text().then(text => { if (!cancelled) setArtifactPreview({ text }); });
-    } else {
-      import('mammoth').then(async mammothModule => {
-        const mammoth = mammothModule.default ?? mammothModule;
-        const result = await mammoth.convertToHtml({ arrayBuffer: await fileBlob.arrayBuffer() });
-        if (cancelled) return;
-        const parsed = new DOMParser().parseFromString(result.value, 'text/html');
-        const allowed = new Set(['P', 'BR', 'H1', 'H2', 'H3', 'STRONG', 'B', 'EM', 'I', 'U', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'UL', 'OL', 'LI', 'SPAN']);
-        parsed.body.querySelectorAll('*').forEach(element => {
-          if (!allowed.has(element.tagName)) { element.replaceWith(...Array.from(element.childNodes)); return; }
-          Array.from(element.attributes).forEach(attribute => element.removeAttribute(attribute.name));
+    } else if (format === 'docx') {
+      const host = docxHostRef.current;
+      if (!host) return;
+      host.replaceChildren();
+      import('docx-preview').then(async ({ renderAsync }) => {
+        await renderAsync(await fileBlob.arrayBuffer(), host, host, {
+          breakPages: true,
+          ignoreLastRenderedPageBreak: false,
+          renderHeaders: true,
+          renderFooters: true,
+          renderFootnotes: true,
+          renderEndnotes: true,
+          useBase64URL: true,
         });
-        setArtifactPreview({ html: parsed.body.innerHTML });
+        if (!cancelled) setArtifactPreview({ docxRendered: true });
       }).catch(error => { if (!cancelled) setArtifactPreview({ error: error instanceof Error ? error.message : 'Could not preview the Word document.' }); });
     }
-    return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (docxHostRef.current) docxHostRef.current.replaceChildren();
+    };
   }, [fileBlob, format]);
 
   useEffect(() => {
@@ -180,7 +188,12 @@ export default function ExportPreviewDialog({
         </div>}
 
         <div className={`min-h-0 flex-1 overflow-auto p-4 sm:p-5 ${variant === 'trail' ? 'min-h-[280px]' : ''}`}>
-          {format === 'excel' && excelBlob ? <ExcelWorkbookPreview blob={excelBlob} /> : fileBlob && format === 'pdf' ? (artifactPreview?.url ? <iframe title={`Generated PDF preview: ${title}`} src={artifactPreview.url} className="h-full min-h-[32rem] w-full rounded-lg border border-slate-200 bg-slate-100" /> : <div className="flex h-full min-h-48 items-center justify-center text-sm text-slate-500">Preparing generated PDF preview…</div>) : fileBlob && format === 'csv' ? (artifactPreview?.text != null ? <CsvArtifactPreview text={artifactPreview.text} /> : <div className="flex h-full min-h-48 items-center justify-center text-sm text-slate-500">Loading generated CSV…</div>) : fileBlob && format === 'docx' ? (artifactPreview?.html != null ? <article className="h-full overflow-auto rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-800 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-slate-300 [&_td]:p-2 [&_th]:border [&_th]:border-slate-300 [&_th]:bg-slate-100 [&_th]:p-2 [&_p]:my-2" dangerouslySetInnerHTML={{ __html: artifactPreview.html }} /> : <div className="flex h-full min-h-48 items-center justify-center text-sm text-slate-500">{artifactPreview?.error ?? 'Preparing generated Word preview…'}</div>) : rows.length === 0 ? (
+          {format === 'excel' && excelBlob ? <ExcelWorkbookPreview blob={excelBlob} /> : fileBlob && format === 'pdf' ? (artifactPreview?.url ? <iframe title={`Generated PDF preview: ${title}`} src={artifactPreview.url} className="h-full min-h-[32rem] w-full rounded-lg border border-slate-200 bg-slate-100" /> : <div className="flex h-full min-h-48 items-center justify-center text-sm text-slate-500">Preparing generated PDF preview…</div>) : fileBlob && format === 'csv' ? (artifactPreview?.text != null ? <CsvArtifactPreview text={artifactPreview.text} /> : <div className="flex h-full min-h-48 items-center justify-center text-sm text-slate-500">Loading generated CSV…</div>) : fileBlob && format === 'docx' ? (
+            <div className="relative h-full min-h-[32rem] overflow-auto rounded-lg border border-slate-200 bg-slate-100 p-4 sm:p-8">
+              <div ref={docxHostRef} className="mx-auto w-fit min-w-full" />
+              {!artifactPreview?.docxRendered && <div className="absolute inset-0 flex items-center justify-center bg-slate-100/90 text-sm text-slate-500">{artifactPreview?.error ?? 'Preparing Word page preview…'}</div>}
+            </div>
+          ) : rows.length === 0 ? (
             <div className="flex min-h-48 items-center justify-center text-sm text-slate-500">No records match this export.</div>
           ) : (
             <div className="overflow-auto rounded-xl border border-slate-200">
