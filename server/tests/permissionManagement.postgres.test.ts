@@ -90,6 +90,45 @@ test('PostgreSQL management transactions, revisions, races and rollback on an ex
       await assert.rejects(saveUserPermissions(db, admin, sales, request(staleUser.expectedVersion, [])), status(409));
     });
 
+    await t.test('competing role-policy replacements persist one complete winner and one audit', async () => {
+      const before = await getRolePermissionEditor(db, admin, 'SALES_COORDINATOR');
+      const change = (screen: string) => before.permissions.map(p =>
+        [`SCREEN:${screen}:READ`, `SCREEN:${screen}:WRITE`].includes(p.permissionKey) ? { ...p, effect: 'DENY' as const } : p) as Parameters<typeof request>[1];
+      const dashboard = change('dashboard'), main = change('main');
+      const auditsBefore = await db.auditLog.count({ where: { recordId: 'SALES_COORDINATOR', recordType: 'RolePolicy', action: 'UPDATE' } });
+      const results = await Promise.allSettled([
+        saveRolePermissions(db, admin, 'SALES_COORDINATOR', request(before.expectedVersion, dashboard)),
+        saveRolePermissions(db, admin2, 'SALES_COORDINATOR', request(before.expectedVersion, main)),
+      ]);
+      assert.equal(results.filter(r => r.status === 'fulfilled').length, 1);
+      assert.equal(results.filter(r => r.status === 'rejected' && status(409)(r.reason)).length, 1);
+      const winner = await getRolePermissionEditor(db, admin, 'SALES_COORDINATOR');
+      assert.deepEqual(winner.permissions, results[0].status === 'fulfilled' ? dashboard : main);
+      assert.equal(await db.auditLog.count({ where: { recordId: 'SALES_COORDINATOR', recordType: 'RolePolicy', action: 'UPDATE' } }), auditsBefore + 1);
+      await saveRolePermissions(db, admin, 'SALES_COORDINATOR', request(winner.expectedVersion, before.permissions as Parameters<typeof request>[1]));
+    });
+
+    await t.test('a competing account role change and permission save cannot overwrite each other', async () => {
+      const id = `${prefix}-role-race`; ids.push(id);
+      await db.user.create({ data: { id, name: id, email: `${id}@example.test`, password: 'unused', role: 'SALES_COORDINATOR' } });
+      await convertPermissionAccount(db, id, admin);
+      const editor = await getUserPermissionEditor(db, admin, id);
+      const preview = await getUserPermissionEditor(db, admin2, id, 'LOGISTICS');
+      const auditCount = await db.auditLog.count({ where: { recordId: id, action: 'UPDATE' } });
+      const results = await Promise.allSettled([
+        saveUserPermissions(db, admin, id, request(editor.expectedVersion, deniedDashboard)),
+        mutateAdminAccount(db, admin2, id, { contractVersion: 1, expectedVersion: preview.expectedVersion },
+          tx => tx.user.update({ where: { id }, data: { role: 'LOGISTICS' } }), { role: 'LOGISTICS' }),
+      ]);
+      assert.equal(results.filter(r => r.status === 'fulfilled').length, 1);
+      assert.equal(results.filter(r => r.status === 'rejected' && status(409)(r.reason)).length, 1);
+      const after = await getUserPermissionEditor(db, admin, id);
+      assert.equal(after.role, results[0].status === 'fulfilled' ? 'SALES_COORDINATOR' : 'LOGISTICS');
+      assert.deepEqual(after.permissions, results[0].status === 'fulfilled' ? deniedDashboard : []);
+      assert.ok(BigInt(after.authorizationRevision) > BigInt(editor.authorizationRevision));
+      assert.equal(await db.auditLog.count({ where: { recordId: id, action: 'UPDATE' } }), auditCount + 1);
+    });
+
     await t.test('a role default cannot silently invalidate an explicit Write exception', async () => {
       const user = await getUserPermissionEditor(db, admin, sales);
       const edited = await saveUserPermissions(db, admin, sales, request(user.expectedVersion, [{ permissionKey: 'SCREEN:deliveries:WRITE', effect: 'ALLOW' }]));

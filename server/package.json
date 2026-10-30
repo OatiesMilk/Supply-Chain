@@ -27,7 +27,8 @@
     "db:clean": "prisma migrate reset --force",
     "permissions:backfill": "tsx prisma/backfill-permissions.ts",
     "permissions:provision-local": "tsx prisma/provision-local-permissions.ts",
-    "permissions:activate-rma-dispatch": "tsx prisma/activate-rma-dispatch.ts"
+    "permissions:activate-rma-dispatch": "tsx prisma/activate-rma-dispatch.ts",
+    "permissions:rehearse": "tsx prisma/rehearse-permissions.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
