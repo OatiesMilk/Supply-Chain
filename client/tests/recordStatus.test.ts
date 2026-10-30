@@ -37,3 +37,24 @@ test('Sales, Logistics and Driver ordinary record labels keep the saved lifecycl
     }
   }
 });
+
+test('status cells show exactly one unprefixed status through RMA transport and completion', () => {
+  const compact = (record: DeliveryRecord) => {
+    const html = renderToStaticMarkup(React.createElement(RecordStatus, { record, compact: true }));
+    assert.equal((html.match(/<span\b/g) ?? []).length, 1);
+    return html.replace(/<[^>]*>/g, '');
+  };
+  assert.equal(compact(rma({ is_draft: 'Yes' })), 'Draft');
+  assert.equal(compact(rma()), 'Scheduled');
+  assert.equal(compact(rma({ rma_transport_status: 'IN_TRANSIT' })), 'In Transit');
+  const transported = rma({ rma_transport_status: 'COMPLETED' });
+  assert.equal(compact(transported), 'Transport Complete');
+  const received = { ...transported, rma_received_at: '2026-10-30T01:00:00Z' };
+  assert.equal(compact(received), 'Received');
+  assert.equal(compact({ ...received, status: 'Delivered' }), 'Complete');
+  for (const status of ['On-Hold', 'Rescheduled'] as const) assert.equal(compact({ ...transported, status }), status);
+  for (const status of ['Draft', 'Scheduled', 'In Transit', 'Delivered'] as const) {
+    assert.equal(compact(rma({ category: 'Deliveries', status })), status);
+    assert.equal(compact(rma({ category: 'Sales Orders', status })), status);
+  }
+});

@@ -370,7 +370,7 @@ export default function MainView({
                         </span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <RecordStatus record={record} />
+                        <RecordStatus record={record} compact />
                       </td>
                       <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
                         {record.area || "—"}

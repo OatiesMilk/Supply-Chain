@@ -1088,7 +1088,7 @@ export default function DeliveryRecordsView({
                         <td className="px-4 py-3.5 text-center text-slate-600 tabular-nums">{rec.delivery_date}</td>
                         <td className="px-4 py-3.5 truncate text-slate-600" title={rec.driver}>{rec.driver || <span className="text-xs text-slate-400 italic">Unassigned</span>}</td>
                         <td className="px-4 py-3.5 text-center">
-                          <RecordStatus record={rec} />
+                          <RecordStatus record={rec} compact />
                         </td>
                         {currentUserRole === 'TASS' && category === 'Accounting Collection' && (
                           <td className="px-4 py-3.5 text-center">

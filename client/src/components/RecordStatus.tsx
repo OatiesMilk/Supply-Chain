@@ -18,9 +18,18 @@ function Badge({ label, tone }: { label: string; tone: string }) {
 }
 
 /** RMA transport progress and final completion are separate saved states. */
-export default function RecordStatus({ record }: { record: StatusRecord }) {
+export default function RecordStatus({ record, compact = false }: { record: StatusRecord; compact?: boolean }) {
   const draft = record.is_draft === 'Yes' || record.status === 'Draft';
   if (record.category !== 'RMA') return <Badge label={record.status} tone={record.status} />;
+  if (compact) {
+    const status = draft ? 'Draft' : record.status === 'Delivered' ? 'Complete'
+      : record.rma_received_at ? 'Received'
+      : ['On-Hold', 'Rescheduled'].includes(record.status) ? record.status
+      : record.rma_movement === 'LOGISTICS_TRANSPORT' && record.rma_transport_status === 'COMPLETED' ? 'Transport Complete'
+      : record.rma_movement === 'LOGISTICS_TRANSPORT' && record.rma_transport_status === 'IN_TRANSIT' ? 'In Transit'
+      : record.status;
+    return <Badge label={status} tone={status === 'Transport Complete' || status === 'Received' ? 'Complete' : status} />;
+  }
   const transport = !draft && record.rma_movement === 'LOGISTICS_TRANSPORT' && record.rma_transport_status
     ? RMA_TRANSPORT_LABELS[record.rma_transport_status] : null;
   return <span className="inline-flex flex-wrap items-center gap-1" aria-label="RMA status">

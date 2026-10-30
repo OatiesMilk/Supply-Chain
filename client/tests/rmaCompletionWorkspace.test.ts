@@ -207,16 +207,28 @@ test('record rows update from saved transport and ordinary status changes across
         onVerifyCollection: async () => {}, outputActionConfigs: {} as any, onUpdateOutputActionConfig: () => {},
         dashboardFilterId: null, clearDashboardFilter: () => {},
       }));
-      const row = () => ui.dom.window.document.querySelector('tbody tr')!.textContent!;
-      assert.match(row(), category === 'RMA' ? /Transport: Pending/ : /Scheduled/);
+      const statusCell = () => {
+        const headers = [...ui.dom.window.document.querySelectorAll('thead th')];
+        const index = headers.findIndex(header => header.textContent === 'Status');
+        return ui.dom.window.document.querySelector('tbody tr')!.children[index];
+      };
+      assert.equal(statusCell().textContent, 'Scheduled');
       for (const [index, status] of ['In Transit', 'Delivered'].entries()) {
         record = category === 'RMA'
           ? { ...record, rma_version: index + 1, rma_transport_status: index === 0 ? 'IN_TRANSIT' : 'COMPLETED' }
           : { ...record, status: status as DeliveryRecord['status'], modified_at: `2026-10-30T01:00:0${index + 1}Z` };
         await act(async () => { await saveRecordToCache(ui.client, record); }); await ui.flush();
-        assert.match(row(), category === 'RMA' ? index === 0 ? /Transport: In Transit/ : /Transport: Complete/ : new RegExp(status));
-        if (category === 'RMA') { assert.match(row(), /RMA: Scheduled/); assert.doesNotMatch(row(), /RMA: Complete/); }
-        else assert.doesNotMatch(row(), /Scheduled|Transport:/);
+        assert.equal(statusCell().textContent, category === 'RMA' && index === 1 ? 'Transport Complete' : status);
+        assert.equal(statusCell().querySelectorAll('span').length, 1);
+      }
+      if (category === 'RMA') {
+        for (const status of ['Received', 'Complete']) {
+          record = { ...record, rma_version: (record.rma_version ?? 0) + 1,
+            rma_received_at: '2026-10-30T02:00:00Z', status: status === 'Complete' ? 'Delivered' : record.status };
+          await act(async () => { await saveRecordToCache(ui.client, record); }); await ui.flush();
+          assert.equal(statusCell().textContent, status);
+          assert.equal(statusCell().querySelectorAll('span').length, 1);
+        }
       }
     } finally { await ui.close(); }
   }
