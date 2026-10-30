@@ -81,6 +81,11 @@ const DOCX_MAIN_PART = 'application/vnd.openxmlformats-officedocument.wordproces
 const XLSX_MAIN_PART = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml';
 const DOCX_MAX_ENTRIES = 1000;
 const DOCX_MAX_UNPACKED_BYTES = 200 * 1024 * 1024;
+// Preview conversion is deliberately much tighter than upload acceptance. The
+// three shared in-memory slots therefore bound actual DOCX expansion to 96 MiB
+// total, in addition to the 10 MiB compressed attachment cap.
+export const DOCX_PREVIEW_MAX_UNPACKED_BYTES = 32 * 1024 * 1024;
+export const DOCX_PREVIEW_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 
 // Office Open XML files are ZIP packages, as are Java archives and plain
 // archives, so the ZIP signature proves nothing. The whole file must be one
@@ -144,6 +149,56 @@ function isOpenXmlDocument(buffer: Buffer, mainPart: string, contentType: string
 
 export function isDocxDocument(buffer: Buffer): boolean {
   return isOpenXmlDocument(buffer, 'word/document.xml', DOCX_MAIN_PART);
+}
+
+export type DocxPreviewArchiveResult = 'valid' | 'oversized' | 'invalid';
+
+// Verify actual decompressed sizes before Mammoth sees the archive. ZIP central
+// directory sizes are untrusted declarations, so each member is inflated with
+// a cap based on the remaining preview budget and checked against its declared
+// size. Only one member's output is retained at a time.
+export function inspectDocxPreviewArchive(buffer: Buffer): DocxPreviewArchiveResult {
+  if (!isDocxDocument(buffer)) return 'invalid';
+  try {
+    const end = buffer.length - 22;
+    const entryCount = buffer.readUInt16LE(end + 10);
+    const indexStart = buffer.readUInt32LE(end + 16);
+    let offset = indexStart;
+    let actualTotal = 0;
+
+    for (let index = 0; index < entryCount; index++) {
+      if (offset + 46 > end || buffer.readUInt32LE(offset) !== ZIP_CENTRAL_HEADER) return 'invalid';
+      const method = buffer.readUInt16LE(offset + 10);
+      const packed = buffer.readUInt32LE(offset + 20);
+      const declared = buffer.readUInt32LE(offset + 24);
+      const nameLength = buffer.readUInt16LE(offset + 28);
+      const local = buffer.readUInt32LE(offset + 42);
+      const next = offset + 46 + nameLength + buffer.readUInt16LE(offset + 30) + buffer.readUInt16LE(offset + 32);
+      if (next > end || local + 30 > indexStart || buffer.readUInt32LE(local) !== ZIP_LOCAL_HEADER) return 'invalid';
+      const dataStart = local + 30 + buffer.readUInt16LE(local + 26) + buffer.readUInt16LE(local + 28);
+      if (dataStart + packed > indexStart) return 'invalid';
+
+      const remaining = DOCX_PREVIEW_MAX_UNPACKED_BYTES - actualTotal;
+      const compressed = buffer.subarray(dataStart, dataStart + packed);
+      let expanded: Buffer;
+      try {
+        expanded = method === 0
+          ? compressed
+          : zlib.inflateRawSync(compressed, { maxOutputLength: Math.max(1, remaining + 1) });
+      } catch (error) {
+        // zlib reports a bounded-output breach as ERR_BUFFER_TOO_LARGE.
+        if ((error as NodeJS.ErrnoException).code === 'ERR_BUFFER_TOO_LARGE') return 'oversized';
+        return 'invalid';
+      }
+      if (expanded.length > remaining) return 'oversized';
+      if (expanded.length !== declared) return 'invalid';
+      actualTotal += expanded.length;
+      offset = next;
+    }
+    return offset === end ? 'valid' : 'invalid';
+  } catch {
+    return 'invalid';
+  }
 }
 
 export function isXlsxDocument(buffer: Buffer): boolean {

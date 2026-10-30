@@ -7,8 +7,8 @@ import express from 'express';
 import type { Server } from 'node:http';
 import net from 'node:net';
 import {
-  ATTACHMENT_MIME_TYPES, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS_PER_RECORD, MAX_RECORD_ATTACHMENT_BYTES,
-  attachmentMimeType, attachmentQuotaError, isDocxDocument, isPdfDocument, isWordDocument, isXlsxDocument,
+  ATTACHMENT_MIME_TYPES, DOCX_PREVIEW_MAX_UNPACKED_BYTES, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS_PER_RECORD, MAX_RECORD_ATTACHMENT_BYTES,
+  attachmentMimeType, attachmentQuotaError, inspectDocxPreviewArchive, isDocxDocument, isPdfDocument, isWordDocument, isXlsxDocument,
 } from '../src/services/attachmentRules';
 import { DOCX_CONTENT_TYPES, XLSX_CONTENT_TYPES, docx, docxEntries, oleFile, pdf, zipOf, xlsx, xlsxEntries } from './attachmentFixtures';
 import { uploadErrorHandler } from '../src/middleware/uploadErrors';
@@ -102,6 +102,18 @@ test('a ZIP archive is a .docx only when it is a complete, ordinary Word package
     'PDF renamed to .docx': pdf(),
   };
   for (const [name, bytes] of Object.entries(cases)) assert.equal(isDocxDocument(bytes), false, name);
+});
+
+test('DOCX preview expansion checks actual inflated bytes against its preview budget', () => {
+  assert.equal(inspectDocxPreviewArchive(docx()), 'valid');
+  const bomb = zipOf([
+    ...docxEntries(),
+    // The central directory lies about the expanded size. Validation must
+    // still inflate with a hard output cap before Mammoth receives the file.
+    { name: 'word/media/image.bin', content: Buffer.alloc(DOCX_PREVIEW_MAX_UNPACKED_BYTES + 1, 0x61), deflate: true, declaredSize: 1 },
+  ]);
+  assert.equal(bomb.length < MAX_ATTACHMENT_BYTES, true, 'fixture stays within the stored attachment cap');
+  assert.equal(inspectDocxPreviewArchive(bomb), 'oversized');
 });
 
 test('a ZIP archive is an .xlsx only when it is a complete, ordinary spreadsheet package', () => {
@@ -255,6 +267,7 @@ test('storage copies an upload from disk, streams it back and stays inside its f
   for await (const chunk of await storage.podStorage.open(key)) chunks.push(chunk as Buffer);
   assert.ok(Buffer.concat(chunks).equals(bytes));
   assert.ok((await storage.podStorage.read(key)).equals(bytes));
+  await assert.rejects(storage.podStorage.read(key, bytes.length - 1), /exceeds its byte limit/);
 
   await storage.podStorage.remove(key);
   await assert.rejects(storage.podStorage.open(key));

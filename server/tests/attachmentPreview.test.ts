@@ -2,10 +2,12 @@
 import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
 import sharp from 'sharp';
+import mammoth from 'mammoth';
 import { prisma } from '../src/db';
 import records from '../src/routes/records';
 import { signToken } from '../src/middleware/auth';
 import { podStorage } from '../src/services/podStorage';
+import { DOCX_PREVIEW_MAX_OUTPUT_BYTES } from '../src/services/attachmentRules';
 import { pdf, zipOf, xlsx } from './attachmentFixtures';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -257,10 +259,58 @@ test('DOCX preview keeps hostile document text inert and strips unsafe HTML attr
 test('DOCX conversion failure returns a distinct actionable preview error', async () => {
   stub(prisma.deliveryRecord, 'findFirst', async () => deliveryRecord as any);
   stub(prisma.podAttachment, 'findFirst', async () => docxAttachment as any);
-  stub(podStorage as any, 'read', async () => Buffer.from('not a DOCX package'));
+  stub(podStorage as any, 'read', async () => makeDocxBuffer('valid package'));
+  let shouldFail = true;
+  stub(mammoth as any, 'convertToHtml', async () => {
+    if (shouldFail) { shouldFail = false; throw new Error('synthetic conversion failure'); }
+    return { value: '<p>recovered</p>', messages: [] };
+  });
   const r = await previewRequest('att-docx');
   assert.equal(r.status, 500);
   assert.match(String(r.body?.error), /preview could not be generated/i);
+  const recovered = await previewRequest('att-docx');
+  assert.equal(recovered.status, 200, 'conversion failure must release its shared slot');
+});
+
+test('DOCX preview returns a controlled download-friendly error when generated HTML exceeds its budget', async () => {
+  stub(prisma.deliveryRecord, 'findFirst', async () => deliveryRecord as any);
+  stub(prisma.podAttachment, 'findFirst', async () => docxAttachment as any);
+  stub(podStorage as any, 'read', async () => makeDocxBuffer('x'.repeat(DOCX_PREVIEW_MAX_OUTPUT_BYTES + 1)));
+  const r = await previewRequest('att-docx');
+  assert.equal(r.status, 413);
+  assert.match(String(r.body?.error), /too large to preview/i);
+  assert.match(String(r.body?.error), /download the file/i);
+});
+
+test('DOCX conversion holds shared file slots from storage read through conversion', async () => {
+  stub(prisma.deliveryRecord, 'findFirst', async () => deliveryRecord as any);
+  stub(prisma.podAttachment, 'findFirst', async () => docxAttachment as any);
+  stub(podStorage as any, 'read', async () => makeDocxBuffer('bounded concurrency'));
+
+  let activeConversions = 0;
+  let peakConversions = 0;
+  const conversionReleases: (() => void)[] = [];
+  stub(mammoth as any, 'convertToHtml', async () => {
+    activeConversions++;
+    peakConversions = Math.max(peakConversions, activeConversions);
+    await new Promise<void>(resolve => conversionReleases.push(resolve));
+    activeConversions--;
+    return { value: '<p>bounded</p>', messages: [] };
+  });
+
+  const requests = Array.from({ length: 4 }, () => previewRequest('att-docx'));
+  while (conversionReleases.length < 3) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(conversionReleases.length, 3, 'only three conversions should enter the shared gate');
+  assert.equal(peakConversions, 3);
+
+  conversionReleases.splice(0).forEach(release => release());
+  while (conversionReleases.length < 1) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(peakConversions, 3, 'the queued conversion starts only after a slot is released');
+  conversionReleases.splice(0).forEach(release => release());
+
+  const responses = await Promise.all(requests);
+  assert.deepEqual(responses.map(response => response.status), [200, 200, 200, 200]);
+  assert.equal(peakConversions, 3);
 });
 
 test('legacy DOC preview is explicitly unsupported and directs users to download or convert', async () => {
