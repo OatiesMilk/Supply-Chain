@@ -1,3 +1,4 @@
+import { RecordStatusProgress } from '@/components/RecordStatus';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useEffect, useId, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -10,7 +11,7 @@ import { useDriversQuery } from '@/api/queries/useDriversQuery';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
 import { invalidateOperationalQueries, normalizeApiRecord, saveRecordToCache, useRecordDetailQuery } from '@/api/queries/useRecordsQuery';
 import { operationalSyncOptions } from '@/api/queries/operationalSync';
-import { RMA_MOVEMENT_LABELS, RMA_TRANSPORT_LABELS } from '@/utils/rmaTransport';
+import { RMA_MOVEMENT_LABELS } from '@/utils/rmaTransport';
 import { formatManilaTimestamp } from '@/utils/manilaTimestamp';
 import { rankDriversByCoverage } from '@/utils/driverCoverage';
 
@@ -131,9 +132,9 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
   return <section role="region" aria-label="RMA transport" data-record-id={record.id} className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
     <div className="space-y-1">
       <h3 className="font-bold text-slate-900">RMA transport</h3>
+      <RecordStatusProgress record={record} />
       <p className="text-sm text-slate-700">Movement: {record.rma_movement ? RMA_MOVEMENT_LABELS[record.rma_movement] : 'Choose a movement method in Overview'}</p>
       {record.rma_movement === 'LOGISTICS_TRANSPORT' && <>
-        <p className="text-sm text-slate-700">Transport: {record.rma_transport_status ? RMA_TRANSPORT_LABELS[record.rma_transport_status] : 'Pending'}</p>
         <p className="text-sm text-slate-700">Driver: {record.driver || 'Unassigned'}</p>
         <p className="text-sm text-slate-700">Vehicle: {record.vehicle || '(None)'}</p>
         {record.rma_transport_started_at && <p className="text-xs text-slate-500">Started: {formatManilaTimestamp(record.rma_transport_started_at)}</p>}
@@ -141,7 +142,6 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
       </>}
       {record.rma_movement && record.rma_movement !== 'LOGISTICS_TRANSPORT' && <p className="text-sm text-slate-600">No internal Driver assignment is required.</p>}
       <p className="text-sm text-slate-700">Physical receipt: {record.rma_received_at ? `${record.rma_recipient} · ${formatManilaTimestamp(record.rma_received_at)}` : 'Not confirmed'}</p>
-      <p className="text-sm text-slate-700">Final RMA: {record.status === 'Delivered' ? 'Complete' : record.status}</p>
       {record.rma_completed_at && <p className="text-xs text-slate-500">RMA completed: {formatManilaTimestamp(record.rma_completed_at)}</p>}
     </div>
     {(detail.isError || capabilities.isError) && <div role="alert" className="text-sm text-red-700">

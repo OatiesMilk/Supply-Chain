@@ -1,3 +1,4 @@
+import RecordStatus from '@/components/RecordStatus';
 import { manilaToday } from '@/utils/recordLifecycle';
 import { useState } from 'react';
 import { ChevronLeft, ChevronRight, Truck, X } from 'lucide-react';
@@ -211,7 +212,7 @@ export default function DeliveryCalendar({ records, onNavigate }: Props) {
                     </div>
                     <p className="text-xs font-bold text-slate-800 truncate">{r.company_name}</p>
                     <p className="text-[10px] text-slate-500">
-                      {r.driver || 'No driver'} · {r.area} · {r.status}
+                      {r.driver || 'No driver'} · {r.area} · <RecordStatus record={r} />
                     </p>
                   </div>
                 </button>

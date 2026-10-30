@@ -20,7 +20,7 @@ import { DRIVERS, driverIdForName,DRIVER_ASSISTANTS, DELIVERY_STATUSES, AREAS, A
 import ComboboxField from '@/components/ComboboxField';
 import { Pencil, X as XIcon, Save, Plus } from 'lucide-react';
 import { getOutputTrigger, runOutputActions } from '@/outputActions';
-import StatusStepper from '@/components/StatusStepper';
+import RecordStatus, { RecordStatusProgress } from '@/components/RecordStatus';
 import { POD_ATTACHMENT_ACCEPT, getPodAttachmentRejection } from '@/utils/attachmentValidation';
 import PodUploader from '@/components/PodUploader';
 import CommentComposer from '@/components/CommentComposer';
@@ -46,15 +46,6 @@ import { formatManilaTime, formatManilaTimestamp as formatTs } from '@/utils/man
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const STATUS_COLOR: Record<string, string> = {
-  'Draft': 'bg-slate-100 text-slate-700 border-slate-300',
-  'In Transit': 'bg-cyan-50 text-cyan-700 border-cyan-200',
-  'Delivered':   'bg-emerald-50 text-emerald-700 border-emerald-200',
-  'On-Hold':     'bg-red-50 text-red-700 border-red-200',
-  'Rescheduled': 'bg-purple-50 text-purple-700 border-purple-200',
-  'Pending':     'bg-amber-50 text-amber-700 border-amber-200',
-  'Scheduled':   'bg-blue-50 text-blue-700 border-blue-200',
-};
 
 const PRIORITY_COLOR: Record<string, string> = {
   '1 - Low':      'bg-slate-100 text-slate-700 border-slate-200',
@@ -350,7 +341,7 @@ function GeneralTab({
       {/* Status stepper */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Status Progression</p>
-        <StatusStepper status={record.status} />
+        <RecordStatusProgress record={record} />
       </div>
 
       {canManageDraft && !isDraftRecord(record) && selectableStatuses(record, currentUserRole).includes('Draft') && (
@@ -2228,7 +2219,7 @@ function RecordWorkspace({
             onOpenRecord={(screen, id) => requestLeave(() => navigate(screen, id))}
           />
           <span className="text-slate-500">{record.category}</span>
-          <span className={`rounded-full border px-2 py-0.5 font-semibold ${STATUS_COLOR[record.status] ?? 'bg-slate-50 text-slate-700 border-slate-200'}`}>{record.status}</span>
+          <RecordStatus record={record} />
           <span className={`rounded-full border px-2 py-0.5 ${PRIORITY_COLOR[record.priority] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}>Priority: {record.priority}</span>
         </div>
         <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-700">

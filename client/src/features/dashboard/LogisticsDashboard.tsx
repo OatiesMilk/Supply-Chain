@@ -1,3 +1,4 @@
+import RecordStatus from '@/components/RecordStatus';
 import { manilaToday } from '@/utils/recordLifecycle';
 import {
   Truck,
@@ -63,7 +64,7 @@ export default function LogisticsDashboard({
     <div className="space-y-6" id="logistics-dashboard">
       <section aria-label="RMA transport requests" className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
         <h2 className="font-bold text-slate-900">RMA transport requests <span className="text-slate-500">({rmaRequests.length})</span></h2>
-        {rmaRequests.length === 0 ? <p className="text-sm text-slate-600">No RMA transport requests need dispatch.</p> : <ul className="divide-y divide-slate-100">{rmaRequests.map(record => <li key={record.id}><button type="button" onClick={() => onNavigate("rma", record.id)} className="min-h-11 w-full py-3 text-left text-sm text-blue-800"><span className="font-semibold">{record.rma_reference || record.id}</span> · {record.company_name} · {record.area} · {record.delivery_date} · {record.driver || "Needs driver"}</button></li>)}</ul>}
+        {rmaRequests.length === 0 ? <p className="text-sm text-slate-600">No RMA transport requests need dispatch.</p> : <ul className="divide-y divide-slate-100">{rmaRequests.map(record => <li key={record.id}><button type="button" onClick={() => onNavigate("rma", record.id)} className="min-h-11 w-full py-3 text-left text-sm text-blue-800"><span className="font-semibold">{record.rma_reference || record.id}</span> · {record.company_name} · {record.area} · {record.delivery_date} · {record.driver || "Needs driver"}<span className="mt-1 block"><RecordStatus record={record} /></span></button></li>)}</ul>}
       </section>
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

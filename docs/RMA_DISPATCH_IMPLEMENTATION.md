@@ -33,6 +33,13 @@ the final RMA status or imply physical receipt. Reassignment transfers access
 immediately; an in-progress task must retain a Driver. Responsibility/date/draft
 changes are blocked after transport begins or physical receipt is confirmed.
 
+Record rows, summaries and operational views show the saved transport progress
+alongside the separately labeled final RMA status. For example, `Transport:
+Complete` with `RMA: Scheduled` means the Driver finished transport and TASS
+still needs to confirm receipt and complete the RMA. The RMA list's **Final RMA
+status** filter applies to that final status; transport completion alone does
+not move a record into the final Delivered filter.
+
 Only TASS confirms physical receipt, recording the recipient, authenticated
 actor and server timestamp. Only TASS then performs final RMA completion.
 Supplier/internal movements follow the same separate receipt/completion actions

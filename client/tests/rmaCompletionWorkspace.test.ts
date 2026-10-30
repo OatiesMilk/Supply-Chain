@@ -8,6 +8,7 @@ import { JSDOM } from 'jsdom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { api } from '../src/api';
 import type { DeliveryRecord, UserRole } from '../src/types';
+import { saveRecordToCache } from '../src/api/queries/operationalSync';
 
 const base = (updates: Partial<DeliveryRecord> = {}) => ({
   id: 'rma-ui', company_id: 'company', company_name: 'RMA customer', category: 'RMA',
@@ -30,7 +31,7 @@ async function fixture() {
     queueMicrotask(() => request.onsuccess?.()); return request;
   } };
   dom.window.HTMLElement.prototype.scrollIntoView = () => {};
-  for (const [name, value] of Object.entries({ window: dom.window, document: dom.window.document, navigator: dom.window.navigator, indexedDB, requestAnimationFrame: (callback: () => void) => { callback(); return 0; }, IDBKeyRange: { only: (value: unknown) => value }, IS_REACT_ACT_ENVIRONMENT: true })) Object.defineProperty(globalThis, name, { value, configurable: true });
+  for (const [name, value] of Object.entries({ window: dom.window, document: dom.window.document, navigator: dom.window.navigator, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement, Node: dom.window.Node, getComputedStyle: dom.window.getComputedStyle.bind(dom.window), indexedDB, requestAnimationFrame: (callback: () => void) => { callback(); return 0; }, IDBKeyRange: { only: (value: unknown) => value }, IS_REACT_ACT_ENVIRONMENT: true })) Object.defineProperty(globalThis, name, { value, configurable: true });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const { createRoot } = await import('react-dom/client');
   const { default: Workspace } = await import('../src/features/deliveries/DeliveryRecordWorkspace');
@@ -57,7 +58,7 @@ async function fixture() {
   const renderElement = async (element: React.ReactNode) => { await act(async () => root.render(React.createElement(QueryClientProvider, { client }, element))); await flush(); };
   return { dom, client, flush, render, renderElement, button, field, input, close: async () => {
     await act(async () => root.unmount()); client.clear(); mock.restoreAll(); dom.window.close();
-    for (const name of ['window', 'document', 'navigator', 'indexedDB', 'IDBKeyRange', 'requestAnimationFrame', 'IS_REACT_ACT_ENVIRONMENT']) { if (original[name]) Object.defineProperty(globalThis, name, original[name]); else Reflect.deleteProperty(globalThis, name); }
+    for (const name of ['window', 'document', 'navigator', 'Element', 'HTMLElement', 'Node', 'getComputedStyle', 'indexedDB', 'IDBKeyRange', 'requestAnimationFrame', 'IS_REACT_ACT_ENVIRONMENT']) { if (original[name]) Object.defineProperty(globalThis, name, original[name]); else Reflect.deleteProperty(globalThis, name); }
   } };
 }
 const none = { assign: false, transport: false, receive: false, complete: false, pod: false };
@@ -110,16 +111,24 @@ test('Logistics reuses coverage-ranked assignment in its read-only workspace and
 
 test('Driver transport completion requires POD and never calls the final RMA status action', async () => {
   const ui = await fixture(); let record = base({ rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'IN_TRANSIT', driver_id: 'driver-a', driver: 'Driver A' }); let photos: any[] = [];
+  const initialRecord = record;
   mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => photos);
   mock.method(api, 'getRmaCapabilities', async () => ({ ...none, transport: record.rma_transport_status !== 'COMPLETED', pod: true }));
   const final = mock.method(api, 'patchStatus', async () => { throw new Error('Driver cannot finalize RMA'); });
   const transport = mock.method(api, 'progressRmaTransport', async () => record = { ...record, rma_version: 1, rma_transport_status: 'COMPLETED', rma_transport_completed_at: '2026-10-28T02:00:00Z' });
   try {
-    await ui.render(record, 'Driver'); await ui.input('Remarks', 'Transport finished'); assert.equal(ui.button('Complete transport')!.disabled, true);
+    await ui.render(record, 'Driver');
+    await ui.input('Remarks', 'Transport finished'); assert.equal(ui.button('Complete transport')!.disabled, true);
     photos = [{ id: 'photo', original_name: 'pod.png', mime_type: 'image/png', is_photo: true }]; await act(async () => { await ui.client.invalidateQueries({ queryKey: ['pod-attachments', record.id] }); }); await ui.flush();
     assert.equal(ui.button('Complete transport')!.disabled, false); await act(async () => ui.button('Complete transport')!.click()); await ui.flush();
     assert.equal(transport.mock.callCount(), 1); assert.equal(final.mock.callCount(), 0); assert.equal(record.status, 'Scheduled'); assert.equal(record.rma_received_at, undefined);
     assert.match(ui.dom.window.document.body.textContent!, /Transport: Complete/); assert.equal(ui.button('Complete RMA'), undefined);
+    await ui.render(initialRecord, 'Logistics', true);
+    const summary = () => ui.dom.window.document.querySelector('[aria-label="Record summary"]')!.textContent!;
+    assert.match(summary(), /Transport: Complete/);
+    assert.match(summary(), /RMA: Scheduled/);
+    assert.doesNotMatch(summary(), /Transport: In Transit|RMA: Complete/);
+    assert.match(ui.dom.window.document.body.textContent!, /Awaiting physical receipt confirmation by TASS/);
   } finally { await ui.close(); }
 });
 
@@ -177,4 +186,38 @@ test('existing RMA rescheduling can resume Scheduled through a versioned non-fin
     assert.deepEqual(patch.mock.calls[0].arguments, [record.id, 'Scheduled', 'Resume the planned return', { expected_version: 4 }]);
     assert.equal(ui.button('Complete RMA'), undefined);
   } finally { await ui.close(); }
+});
+
+test('record rows update from saved transport and ordinary status changes across operational roles', async () => {
+  const { default: RecordsView } = await import('../src/features/deliveries/DeliveryRecordsView');
+  const cases: Array<{ category: DeliveryRecord['category']; role: UserRole }> = [
+    { category: 'RMA', role: 'Logistics' }, { category: 'RMA', role: 'TASS' },
+    { category: 'Sales Orders', role: 'Sales Coordinator' },
+    { category: 'Deliveries', role: 'Logistics' }, { category: 'Deliveries', role: 'Driver' },
+  ];
+  for (const { category, role } of cases) {
+    const ui = await fixture();
+    let record = base({ category, rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'PENDING' });
+    mock.method(api, 'getPagedRecords', async () => ({ rows: [record], total: 1, page: 1, limit: 25, hasMore: false, nextCursor: null }));
+    mock.method(api, 'getStatusHistoryCounts', async () => ({} as any));
+    try {
+      await ui.renderElement(React.createElement(RecordsView, {
+        category, records: [record], companies: [], currentUserRole: role, currentUserName: role,
+        onCreateRecord: async () => { throw new Error('No record creation expected'); }, onUpdateRecord: async () => {},
+        onVerifyCollection: async () => {}, outputActionConfigs: {} as any, onUpdateOutputActionConfig: () => {},
+        dashboardFilterId: null, clearDashboardFilter: () => {},
+      }));
+      const row = () => ui.dom.window.document.querySelector('tbody tr')!.textContent!;
+      assert.match(row(), category === 'RMA' ? /Transport: Pending/ : /Scheduled/);
+      for (const [index, status] of ['In Transit', 'Delivered'].entries()) {
+        record = category === 'RMA'
+          ? { ...record, rma_version: index + 1, rma_transport_status: index === 0 ? 'IN_TRANSIT' : 'COMPLETED' }
+          : { ...record, status: status as DeliveryRecord['status'], modified_at: `2026-10-30T01:00:0${index + 1}Z` };
+        await act(async () => { await saveRecordToCache(ui.client, record); }); await ui.flush();
+        assert.match(row(), category === 'RMA' ? index === 0 ? /Transport: In Transit/ : /Transport: Complete/ : new RegExp(status));
+        if (category === 'RMA') { assert.match(row(), /RMA: Scheduled/); assert.doesNotMatch(row(), /RMA: Complete/); }
+        else assert.doesNotMatch(row(), /Scheduled|Transport:/);
+      }
+    } finally { await ui.close(); }
+  }
 });

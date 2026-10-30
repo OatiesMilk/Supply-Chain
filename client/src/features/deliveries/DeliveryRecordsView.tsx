@@ -1,3 +1,4 @@
+import RecordStatus from '@/components/RecordStatus';
 import { usePermissions } from '@/hooks/usePermissions';
 import { rmaWorkflowExportFields } from '@/utils/rmaTransport';
 import { selectableStatuses, manilaToday, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
@@ -66,18 +67,6 @@ const outputLineIcon = (message: string) => {
   return <Send className="w-3 h-3 shrink-0" />;
 };
 
-const statusColor = (status: DeliveryStatus) => {
-  switch (status) {
-    case 'Draft': return 'bg-slate-100 text-slate-700 border-slate-300';
-    case 'In Transit': return 'bg-cyan-50 text-cyan-700 border-cyan-200';
-    case 'Delivered': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-    case 'On-Hold': return 'bg-red-50 text-red-700 border-red-200';
-    case 'Rescheduled': return 'bg-purple-50 text-purple-700 border-purple-200';
-    case 'Pending': return 'bg-amber-50 text-amber-700 border-amber-200';
-    case 'Scheduled':
-    default: return 'bg-blue-50 text-blue-700 border-blue-200';
-  }
-};
 
 
 export default function DeliveryRecordsView({
@@ -807,7 +796,7 @@ export default function DeliveryRecordsView({
             onChange={range => { setRouteSlipMode(routeSlipModeForDates(range.from, range.to)); setDateFrom(range.from); setDateTo(range.to); }} />
         </div>
         <div className="space-y-1 min-w-0">
-          <label htmlFor="recordStatusFilter" className="font-bold text-slate-700 block">Status</label>
+          <label htmlFor="recordStatusFilter" className="font-bold text-slate-700 block">{category === 'RMA' ? 'Final RMA status' : 'Status'}</label>
           <select
             id="recordStatusFilter"
             value={statusFilter}
@@ -1099,7 +1088,7 @@ export default function DeliveryRecordsView({
                         <td className="px-4 py-3.5 text-center text-slate-600 tabular-nums">{rec.delivery_date}</td>
                         <td className="px-4 py-3.5 truncate text-slate-600" title={rec.driver}>{rec.driver || <span className="text-xs text-slate-400 italic">Unassigned</span>}</td>
                         <td className="px-4 py-3.5 text-center">
-                          <span className={`px-2.5 py-0.5 rounded-full border text-[10.5px] font-semibold inline-block ${statusColor(rec.status)}`}>{rec.status}</span>
+                          <RecordStatus record={rec} />
                         </td>
                         {currentUserRole === 'TASS' && category === 'Accounting Collection' && (
                           <td className="px-4 py-3.5 text-center">

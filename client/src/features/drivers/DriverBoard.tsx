@@ -1,3 +1,4 @@
+import RecordStatus from '@/components/RecordStatus';
 import { usePermissions } from '@/hooks/usePermissions';
 import React, { useEffect, useId, useState } from 'react';
 import { Truck, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
@@ -27,14 +28,6 @@ const CATEGORY_SCREEN: Record<string, string> = {
   'Sales Orders':          'sales_orders'
 };
 
-const STATUS_COLOR: Record<string, string> = {
-  'In Transit': 'bg-cyan-100 text-cyan-700 border-cyan-200',
-  Delivered:   'bg-emerald-100 text-emerald-700 border-emerald-200',
-  Scheduled:   'bg-blue-100 text-blue-700 border-blue-200',
-  Pending:     'bg-amber-100 text-amber-700 border-amber-200',
-  'On-Hold':   'bg-red-100 text-red-700 border-red-200',
-  Rescheduled: 'bg-purple-100 text-purple-700 border-purple-200'
-};
 
 function initials(name: string) {
   return name.split(/\s+/).map(p => p[0]).join('').slice(0, 2).toUpperCase();
@@ -84,9 +77,7 @@ const RecordCard: React.FC<CardProps> = function RecordCard({ record, onNavigate
         </button>
         <div className="flex flex-wrap gap-2">
           <span className={`text-xs font-semibold border px-2.5 py-1 rounded-full ${record.priority === '3 - High' ? 'bg-red-50 text-red-800 border-red-200' : record.priority === '2 - Moderate' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-slate-50 text-slate-700 border-slate-200'}`}>Priority: {record.priority}</span>
-          <span className={`text-xs font-semibold border px-2.5 py-1 rounded-full ${STATUS_COLOR[record.status] ?? 'bg-slate-100 text-slate-600 border-slate-200'}`}>
-            {record.status}
-          </span>
+          <RecordStatus record={record} />
         </div>
       </div>
       <dl className="text-sm space-y-1.5">

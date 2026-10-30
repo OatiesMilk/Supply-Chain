@@ -42,6 +42,36 @@ test('saving a server result updates matching cached views and discards a stale 
   client.clear();
 });
 
+test('sales, Logistics and Driver status updates stay current in lists, pages, calendars and open details', async () => {
+  for (const category of ['Deliveries', 'Sales Orders', 'Accounting Collection', 'Procurement Pick-up'] as const) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const scheduled = record(0, { category, status: 'Scheduled', modified_at: '2026-10-30T02:00:00.000Z' });
+    const started = { ...scheduled, status: 'In Transit' as const, time_in: '2026-10-30T03:00:00.000Z', modified_at: '2026-10-30T03:00:00.000Z' };
+    const delivered = { ...started, status: 'Delivered' as const, time_out: '2026-10-30T04:00:00.000Z', modified_at: '2026-10-30T04:00:00.000Z' };
+    const pageKey = ['records', 'paged', { category }];
+    const calendarKey = ['records', 'calendar-summary', '2026-10-30'];
+    client.setQueryData(['records'], [scheduled]);
+    client.setQueryData(pageKey, { rows: [scheduled], total: 1 });
+    client.setQueryData(calendarKey, [scheduled]);
+    client.setQueryData(recordDetailKey(scheduled.id), scheduled);
+    try {
+      for (const saved of [started, delivered]) {
+        await saveRecordToCache(client, saved);
+        assert.equal(client.getQueryData<DeliveryRecord[]>(['records'])![0].status, saved.status, category);
+        assert.equal(client.getQueryData<{ rows: DeliveryRecord[] }>(pageKey)!.rows[0].status, saved.status, category);
+        assert.equal(client.getQueryData<DeliveryRecord[]>(calendarKey)![0].status, saved.status, category);
+        assert.equal(client.getQueryData<DeliveryRecord>(recordDetailKey(saved.id))!.status, saved.status, category);
+        assert.equal(newerRecord(saved, scheduled), saved, 'an old Scheduled response must not roll back progress');
+        assert.deepEqual(shareOperationalRecords([saved], [scheduled]), [saved]);
+        assert.deepEqual(shareOperationalRecords({ rows: [saved], total: 1 }, { rows: [scheduled], total: 1 }), { rows: [saved], total: 1 });
+      }
+      await saveRecordToCache(client, started);
+      assert.equal(client.getQueryData<DeliveryRecord>(recordDetailKey(scheduled.id))!.status, 'Delivered', 'a delayed start response cannot undo delivery');
+      assert.deepEqual(shareOperationalRecords([delivered], []), [], 'server removals still revoke visibility');
+    } finally { client.clear(); }
+  }
+});
+
 test('operational invalidation includes counts, capabilities, history, POD and notifications without unrelated lookups', async () => {
   const client = new QueryClient();
   const keys = [
