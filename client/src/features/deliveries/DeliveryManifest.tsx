@@ -93,7 +93,7 @@ export async function printSingleManifest(
   companies: ApiCompany[],
   docData?: ManifestDocumentationData,
   documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
-): Promise<void> {
+): Promise<Blob> {
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: getPdfFormat(documentSize) });
   const logo = await loadLogo();
@@ -440,7 +440,7 @@ export async function printSingleManifest(
     });
   }
 
-  doc.save(`manifest-${record.id}-${record.delivery_date}.pdf`);
+  return doc.output('blob');
 }
 
 /** Generate a driver-day manifest (all records for one driver on one date) */

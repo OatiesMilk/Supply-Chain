@@ -22,10 +22,14 @@ export function podStorageKeys(): Promise<string[]> {
 
 export interface PodStorage {
   save(file: PodFile): Promise<string>;
-  read(storageKey: string): Promise<Buffer>;
+  read(storageKey: string, maxBytes?: number): Promise<Buffer>;
   // Streams the stored bytes; rejects if the object does not exist.
   open(storageKey: string): Promise<Readable>;
   remove(storageKey: string): Promise<void>;
+}
+
+export class PodStorageFileTooLargeError extends Error {
+  constructor() { super('Stored attachment exceeds its byte limit'); this.name = 'PodStorageFileTooLargeError'; }
 }
 
 // SEC-07: whole files are only ever held in memory a few at a time. Uploads
@@ -65,8 +69,24 @@ const localPodStorage: PodStorage = {
     else await fs.promises.writeFile(localPathFor(storageKey), file.buffer);
     return storageKey;
   },
-  read(storageKey) {
-    return fs.promises.readFile(localPathFor(storageKey));
+  async read(storageKey, maxBytes = MAX_ATTACHMENT_BYTES) {
+    const filePath = localPathFor(storageKey);
+    const stats = await fs.promises.stat(filePath);
+    if (stats.size > maxBytes) throw new PodStorageFileTooLargeError();
+    const stream = fs.createReadStream(filePath);
+    const chunks: Buffer[] = [];
+    let total = 0;
+    try {
+      for await (const chunk of stream) {
+        const bytes = chunk as Buffer;
+        total += bytes.length;
+        if (total > maxBytes) throw new PodStorageFileTooLargeError();
+        chunks.push(bytes);
+      }
+    } finally {
+      stream.destroy();
+    }
+    return Buffer.concat(chunks, total);
   },
   async open(storageKey) {
     const stream = fs.createReadStream(localPathFor(storageKey));
@@ -105,10 +125,33 @@ function supabaseStorage(): PodStorage {
       if (!response.ok) throw new Error(`Supabase storage upload failed (${response.status})`);
       return storageKey;
     },
-    async read(storageKey) {
+    async read(storageKey, maxBytes = MAX_ATTACHMENT_BYTES) {
       const response = await fetch(`${endpoint}/${encodeURIComponent(storageKey)}`, { headers });
       if (!response.ok) throw new Error(`Supabase storage download failed (${response.status})`);
-      return Buffer.from(await response.arrayBuffer());
+      const declaredLength = Number(response.headers.get('content-length'));
+      if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+        await response.body?.cancel();
+        throw new PodStorageFileTooLargeError();
+      }
+      if (!response.body) return Buffer.alloc(0);
+      const reader = response.body.getReader();
+      const chunks: Buffer[] = [];
+      let total = 0;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          total += value.byteLength;
+          if (total > maxBytes) {
+            await reader.cancel();
+            throw new PodStorageFileTooLargeError();
+          }
+          chunks.push(Buffer.from(value));
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      return Buffer.concat(chunks, total);
     },
     async open(storageKey) {
       const response = await fetch(`${endpoint}/${encodeURIComponent(storageKey)}`, { headers });

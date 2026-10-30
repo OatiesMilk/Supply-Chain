@@ -13,9 +13,9 @@ import { notifyRole, notifyUser } from '../services/inAppNotify';
 import { CATEGORY_TO_DB, STATUS_TO_DB, STATUS_FROM_DB, serializeRecord } from '../mappings';
 import { recordActiveCounts } from '../services/activeRecordCounts';
 import { pipeline } from 'node:stream/promises';
-import { discardUpload, podStorage, podUpload } from '../services/podStorage';
+import { discardUpload, PodStorageFileTooLargeError, podStorage, podUpload, withFileInMemory } from '../services/podStorage';
 import { DELIVERY_PHOTO_REQUIRED, findVerifiedDeliveryPhoto, hasStoredDeliveryPhoto, inspectUpload, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
-import { ATTACHMENT_QUOTA_EXCEEDED, attachmentQuotaError } from '../services/attachmentRules';
+import { ATTACHMENT_QUOTA_EXCEEDED, attachmentQuotaError, DOCX_PREVIEW_MAX_OUTPUT_BYTES, inspectDocxPreviewArchive } from '../services/attachmentRules';
 
 import { canCreateCategory, canWriteCategory, canPerformRecordAction, isAssignedDriver, recordScope } from '../services/recordAccess';
 import { deliveryScheduleState, driverDeliveryDateError, isValidDateOnly, isoTimestamp, manilaToday, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
@@ -938,26 +938,47 @@ router.get('/:id/attachments/:attachmentId/preview', requireAuth, requireResourc
     return res.status(415).json({ error: 'In-app preview is available for PDF, DOCX, XLSX, JPG, and PNG attachments. Convert legacy DOC files to DOCX or PDF, or download them to open locally.' });
   }
 
-  // Convert Word document to HTML locally using mammoth — no external service.
+  // Keep the full DOCX memory pipeline in the shared whole-file gate. Database
+  // access and record locks have completed before taking this slot.
   try {
-    const bytes = await podStorage.read(attachment.storageKey);
-    const { value: convertedHtml, messages } = await mammoth.convertToHtml({ buffer: bytes });
-    const bodyHtml = sanitizeHtml(convertedHtml, {
-      allowedTags: ['p', 'br', 'div', 'span', 'strong', 'em', 'b', 'i', 'u', 's', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'a', 'img'],
-      allowedAttributes: { a: ['href', 'title'], img: ['src', 'alt', 'title', 'width', 'height'] },
-      allowedSchemes: ['http', 'https', 'mailto'],
-      allowedSchemesByTag: { img: ['data'] },
-      transformTags: {
-        img: (_tagName, attribs) => ({
-          tagName: 'img',
-          attribs: { ...attribs, ...(/^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(attribs.src ?? '') ? {} : { src: '' }) },
+    const result = await withFileInMemory(async () => {
+      const bytes = await podStorage.read(attachment.storageKey);
+      const archive = inspectDocxPreviewArchive(bytes);
+      if (archive === 'oversized') return { kind: 'oversized' as const };
+      if (archive !== 'valid') throw new Error('Invalid DOCX preview archive');
+
+      // The 32 MiB actual expansion cap bounds Mammoth's archive/XML/image
+      // working set. Repeated references can inline one image many times, so
+      // cap cumulative generated image data before Mammoth adds it to the HTML.
+      let embeddedImageOutputBytes = 0;
+      let embeddedImageOutputExceeded = false;
+      const { value: convertedHtml } = await mammoth.convertToHtml({ buffer: bytes }, {
+        convertImage: mammoth.images.imgElement(async image => {
+          const imageBytes = await image.readAsBuffer();
+          const base64Length = Math.ceil(imageBytes.length / 3) * 4;
+          if (embeddedImageOutputBytes + base64Length > DOCX_PREVIEW_MAX_OUTPUT_BYTES) {
+            embeddedImageOutputExceeded = true;
+            return { src: '' };
+          }
+          embeddedImageOutputBytes += base64Length;
+          return { src: `data:${image.contentType};base64,${imageBytes.toString('base64')}` };
         }),
-      },
-    });
-    if (messages.some(m => m.type === 'error')) {
-      console.warn('[POD preview] mammoth conversion warnings for', attachment.originalName, messages);
-    }
-    const html = `<!DOCTYPE html>
+      });
+      if (embeddedImageOutputExceeded) return { kind: 'oversized' as const };
+      if (Buffer.byteLength(convertedHtml, 'utf8') > DOCX_PREVIEW_MAX_OUTPUT_BYTES) return { kind: 'oversized' as const };
+      const bodyHtml = sanitizeHtml(convertedHtml, {
+        allowedTags: ['p', 'br', 'div', 'span', 'strong', 'em', 'b', 'i', 'u', 's', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'a', 'img'],
+        allowedAttributes: { a: ['href', 'title'], img: ['src', 'alt', 'title', 'width', 'height'] },
+        allowedSchemes: ['http', 'https', 'mailto'],
+        allowedSchemesByTag: { img: ['data'] },
+        transformTags: {
+          img: (_tagName, attribs) => ({
+            tagName: 'img',
+            attribs: { ...attribs, ...(/^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(attribs.src ?? '') ? {} : { src: '' }) },
+          }),
+        },
+      });
+      const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -976,6 +997,13 @@ router.get('/:id/attachments/:attachmentId/preview', requireAuth, requireResourc
 </head>
 <body>${bodyHtml}</body>
 </html>`;
+      if (Buffer.byteLength(html, 'utf8') > DOCX_PREVIEW_MAX_OUTPUT_BYTES) return { kind: 'oversized' as const };
+      return { kind: 'html' as const, html };
+    });
+    if (result.kind === 'oversized') {
+      return res.status(413).json({ error: 'This document is too large to preview. Download the file to open it in a compatible viewer.' });
+    }
+    const html = result.html;
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox");
     res.setHeader('Cache-Control', 'private, no-store');
@@ -985,7 +1013,10 @@ router.get('/:id/attachments/:attachmentId/preview', requireAuth, requireResourc
     res.setHeader('Content-Length', String(Buffer.byteLength(html, 'utf8')));
     res.send(html);
   } catch (error) {
-    console.error('[POD preview] mammoth conversion failed', error);
+    if (error instanceof PodStorageFileTooLargeError) {
+      return res.status(413).json({ error: 'This document is too large to preview. Download the file to open it in a compatible viewer.' });
+    }
+    console.error('[POD preview] DOCX conversion failed');
     res.status(500).json({ error: 'Document preview could not be generated. Download the file to open it in a compatible viewer.' });
   }
 }));

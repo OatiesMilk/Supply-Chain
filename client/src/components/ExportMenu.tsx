@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { FileDown, FileSpreadsheet, FileText, ChevronDown, Loader2, Route, Clock, History } from 'lucide-react';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '../utils/documentSize';
 import DocumentSizeSelect from './DocumentSizeSelect';
@@ -17,10 +17,12 @@ import {
   downloadAllOpsPDF,
 } from '../utils/allOpsExport';
 import { downloadRouteSlipForPeriod } from '../utils/routeSlip';
-import { routeSlipSelectionError } from '../utils/routeSlipPeriod';
+import { filterRouteSlipRecords, routeSlipDriverNames, routeSlipSelectionError } from '../utils/routeSlipPeriod';
 import RouteSlipPeriodFields, { type RouteSlipPeriodFieldsProps } from './RouteSlipPeriodFields';
 import { downloadDocx } from '../utils/exportDocx';
 import { DeliveryRecord } from '../types';
+import ExportPreviewDialog, { type ExportPreviewFormat } from './ExportPreviewDialog';
+import { downloadBlob } from '../utils/downloadBlob';
 
 interface RouteSlipProps {
   records: DeliveryRecord[];
@@ -76,6 +78,17 @@ export default function ExportMenu({
   const [loading, setLoading] = useState<LoadingKey | null>(null);
   const [docSize, setDocSize] = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{
+    format: 'pdf' | 'docx';
+    variant: Variant;
+    rows: Record<string, string | number | null | undefined>[];
+    columns: ExportColumn[];
+    title: string;
+    fileBlob: Blob;
+    fileName: string;
+    statusHistoryCounts?: StatusHistoryCounts;
+    summary?: AllOpsSummary;
+  } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const periodError = routeSlipProps && routeSlipPeriodFields ? routeSlipSelectionError(routeSlipPeriodFields.selection) : null;
@@ -109,19 +122,43 @@ export default function ExportMenu({
         if (fetched.routeSlipProps) exportRouteSlip = fetched.routeSlipProps;
       }
 
+      // Generate once, preview those exact bytes, and download the same Blob
+      // only after the user confirms in the preview dialog.
+      if (fmt === 'pdf' || fmt === 'docx') {
+        const summaryTitle = pdfTitle.replace(/ records?$/i, '') + ' — Comprehensive Report';
+        const title = exportRouteSlip ? 'Courier/Daily Route Slip Report' : exportSummary && fmt === 'pdf' ? summaryTitle : pdfTitle;
+        const previewColumns = fmt === 'pdf' ? pdfColumns ?? columns : columns;
+        const fileBlob = exportRouteSlip
+          ? await downloadRouteSlipForPeriod(fmt, { ...exportRouteSlip, filename, documentSize: docSize, variant }, true) as Blob
+          : exportSummary
+            ? fmt === 'pdf'
+              ? await downloadAllOpsPDF(exportRows, previewColumns, filename, meta, exportSummary, summaryTitle, hist, docSize, true) as Blob
+              : await downloadDocx(exportRows, previewColumns, pdfTitle, filename, meta, exportSummary, summaryTitle, hist, docSize, true) as Blob
+            : fmt === 'pdf'
+              ? await downloadPDF(exportRows, previewColumns, pdfTitle, filename, meta, !pdfPortrait, hist, docSize, true) as Blob
+              : await downloadDocx(exportRows, previewColumns, pdfTitle, filename, meta, undefined, undefined, hist, docSize, true) as Blob;
+        const dateStamp = new Date().toISOString().split('T')[0];
+        const routeSlipSingleDriver = exportRouteSlip && routeSlipDriverNames(filterRouteSlipRecords(exportRouteSlip.records, {
+          dateFrom: exportRouteSlip.dateFrom,
+          dateTo: exportRouteSlip.dateTo,
+        })).length === 1;
+        const routeSlipSuffix = routeSlipSingleDriver ? '-route-slip' : '-route-slip-all-drivers';
+        const fileName = exportRouteSlip
+          ? `${filename}${routeSlipSuffix}-${dateStamp}.${fmt === 'pdf' ? 'pdf' : 'docx'}`
+          : fmt === 'pdf' ? `${filename}-${dateStamp}.pdf` : `${filename}.docx`;
+        setPreview({ format: fmt, variant, rows: exportRows, columns: previewColumns, title, fileBlob, fileName, statusHistoryCounts: hist, summary: exportSummary });
+        return;
+      }
+
       if (exportRouteSlip && fmt !== 'csv') {
         await downloadRouteSlipForPeriod(fmt, { ...exportRouteSlip, filename, documentSize: docSize, variant });
       } else if (exportSummary) {
         const summaryTitle = pdfTitle.replace(/ records?$/i, '') + ' — Comprehensive Report';
         if (fmt === 'csv')   downloadAllOpsCSV(exportRows, columns, filename, meta, exportSummary, summaryTitle, hist);
         if (fmt === 'excel') await downloadAllOpsExcel(exportRows, columns, filename, meta, exportSummary, summaryTitle, hist, docSize);
-        if (fmt === 'pdf')   await downloadAllOpsPDF(exportRows, pdfColumns ?? columns, filename, meta, exportSummary, summaryTitle, hist, docSize);
-        if (fmt === 'docx')  await downloadDocx(exportRows, columns, pdfTitle, filename, meta, exportSummary, summaryTitle, hist, docSize);
       } else {
         if (fmt === 'csv')   downloadCSV(exportRows, columns, filename, meta, hist);
         if (fmt === 'excel') await downloadExcel(exportRows, columns, sheetName, filename, meta, hist, docSize);
-        if (fmt === 'pdf')   await downloadPDF(exportRows, pdfColumns ?? columns, pdfTitle, filename, meta, !pdfPortrait, hist, docSize);
-        if (fmt === 'docx')  await downloadDocx(exportRows, columns, pdfTitle, filename, meta, undefined, undefined, hist, docSize);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Export failed. Please try again.');
@@ -131,6 +168,10 @@ export default function ExportMenu({
   };
 
   const isLoading = loading !== null;
+  const closePreview = useCallback(() => setPreview(null), []);
+  const downloadPreview = useCallback(async () => {
+    if (preview) downloadBlob(preview.fileBlob, preview.fileName);
+  }, [preview]);
   const loadingLabel = loading
     ? (() => { const [fmt] = loading.split('-') as [Format, Variant]; return fmt.toUpperCase(); })()
     : '';
@@ -221,6 +262,20 @@ export default function ExportMenu({
         </div>
       )}
       {error && <p role="alert" className="absolute right-0 top-full mt-1 z-30 bg-red-50 border border-red-200 rounded-lg p-3 w-80 max-w-[calc(100vw-2rem)] text-xs text-red-700">{error}</p>}
+      {preview && <ExportPreviewDialog
+        format={preview.format as ExportPreviewFormat}
+        variant={preview.variant}
+        rows={preview.rows}
+        columns={preview.columns}
+        meta={meta}
+        title={preview.title}
+        documentSize={docSize}
+        statusHistoryCounts={preview.statusHistoryCounts}
+        summary={preview.summary}
+        fileBlob={preview.fileBlob}
+        onClose={closePreview}
+        onDownload={downloadPreview}
+      />}
     </div>
   );
 }
