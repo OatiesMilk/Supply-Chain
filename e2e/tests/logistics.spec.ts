@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'path';
 import fs from 'fs';
 import * as XLSX from 'xlsx';
+import { recordRows } from '../support/recordRows';
 
 const BASE_URL = 'http://localhost:3000';
 
@@ -21,7 +22,7 @@ async function openFirstRecord(page: Page, status?: string) {
   await page.goto(`${BASE_URL}/deliveries`);
   await page.waitForLoadState('networkidle');
   if (status) await page.getByRole('button', { name: status, exact: true }).click();
-  const firstRow = page.getByRole('row').nth(1);
+  const firstRow = recordRows(page).first();
   await firstRow.waitFor({ state: 'visible', timeout: 10_000 });
   await firstRow.click();
   await page.waitForTimeout(800);
@@ -369,7 +370,7 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     await page.waitForLoadState('networkidle');
     await page.getByRole('button', { name: 'Scheduled', exact: true }).click();
 
-    const firstRow = page.getByRole('row').nth(1);
+    const firstRow = recordRows(page).first();
     await expect(firstRow).toBeVisible();
     await firstRow.click();
     await page.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
@@ -406,12 +407,13 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     await page.waitForLoadState('networkidle');
     await page.getByRole('button', { name: 'Scheduled', exact: true }).click();
 
-    const firstRow = page.getByRole('row').nth(1);
+    const firstRow = recordRows(page).first();
     await expect(firstRow).toBeVisible();
     const recordId = (await firstRow.getByRole('cell').first().innerText()).trim();
+    expect(recordId).toMatch(/^REC-[A-Za-z0-9-]+$/);
     const search = page.getByRole('textbox', { name: 'Search accounting collection records' });
     await search.fill(recordId);
-    const filteredRow = page.getByRole('row').filter({ hasText: recordId }).first();
+    const filteredRow = recordRows(page).filter({ hasText: recordId }).first();
     await expect(filteredRow).toBeVisible();
     await filteredRow.click();
     await expect(page.locator('#accounting-collection-workspace')).toBeVisible();
@@ -442,7 +444,7 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
       await page.waitForLoadState('networkidle');
       await expect(page.getByRole('table')).toBeVisible();
 
-      const firstRow = page.getByRole('row').nth(1);
+      const firstRow = recordRows(page).first();
       await expect(firstRow).toBeVisible();
       await firstRow.click();
       await expect(page.locator('[id^="delivery-record-workspace-"]')).toBeVisible();
