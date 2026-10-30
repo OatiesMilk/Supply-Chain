@@ -90,8 +90,8 @@ export default function DriverDashboard({
     ? completionError(pendingAction.rec, pendingAction.status, receivedByInputs[pendingAction.rec.id] ?? pendingAction.rec.received_by, podStates[pendingAction.rec.id])
     : null;
 
-  // The server returns all assigned non-draft records. Deliveries use the latest
-  // saved date: overdue runs are actionable, while future unstarted runs are read-only.
+  // The server returns the linked Driver's assigned non-draft records. Every
+  // non-RMA category keeps overdue and started runs active across Manila midnight.
   const todayRecs = records.filter((r) => r.delivery_date === today);
   const actionableRecs = records.filter(record => isDashboardRunActionable(record, today));
   const activeRecs = actionableRecs.filter((r) => r.status !== "Delivered");

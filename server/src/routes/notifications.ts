@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db';
 import { requireAuth, requireResource, requireRole } from '../middleware/auth';
-import { sendEmail } from '../services/mailer';
+import { sendEmail, type SendResult } from '../services/mailer';
 
 import { recordScope } from '../services/recordAccess';
 import { notificationVisibility } from '../services/notificationVisibility';
@@ -92,7 +92,8 @@ router.post('/send-email', requireAuth, requireResource('records'), requireRole(
 
   const companyName = record.company?.name || (record as any).companyName || 'Unknown';
   const subjectFn = TRIGGER_SUBJECTS[trigger] || ((c: string) => `${trigger} — ${c}`);
-  const subject = subjectFn(companyName);
+  const subject = trigger === 'Accomplished' && record.category === 'ACCOUNTING_COLLECTION'
+    ? `Collection Collected — ${companyName}` : subjectFn(companyName);
 
   const body = [
     `Trigger: ${trigger}`,
@@ -102,29 +103,46 @@ router.post('/send-email', requireAuth, requireResource('records'), requireRole(
     `Updated by: ${req.user!.name}`,
   ].join('\n');
 
-  const targets = await recordMailRecipients(recipients, record);
-
+  // Resolve each selector separately so missing/denied destinations have a
+  // persisted outcome, while recipients shared by selectors receive one email.
+  const targets = new Map<string, { id: string; name: string; email: string; roles: string[] }>();
+  let skipped = 0;
+  for (const selector of recipients as string[]) {
+    const resolved = await recordMailRecipients([selector], record);
+    if (!resolved.length) {
+      skipped++;
+      await prisma.notificationLog.create({ data: {
+        triggerEvent: trigger.toUpperCase().replace(/\s+/g, '_'),
+        recipientRole: selector === 'AM' ? 'ACCOUNT_MANAGER' : selector,
+        recipientName: selector === 'AM' ? record.accountManager : selector,
+        message: `${subject}\nRecord: ${record.id}\nSkipped: no unique active recipient with record access.`, status: 'SKIPPED',
+      } });
+    }
+    for (const target of resolved) {
+      const key = target.email.trim().toLowerCase();
+      const previous = targets.get(key);
+      if (previous) previous.roles.push(selector);
+      else targets.set(key, { ...target, roles: [selector] });
+    }
+  }
   let sent = 0;
   let failed = 0;
-
-  for (const t of targets) {
-    const result = await sendEmail({ to: t.email, subject, text: body });
-
-    await prisma.notificationLog.create({
-      data: {
-        triggerEvent: trigger.toUpperCase().replace(/\s+/g, '_'),
-        recipientRole: recipients.find(r => r === 'AM') ? 'ACCOUNT_MANAGER' : recipients[0],
-        recipientName: t.name,
-        message: `${subject}\n${body}`,
-        status: result.ok ? (result.method === 'mock' ? 'MOCKED' : 'SENT') : 'FAILED',
-      },
-    });
-
-    if (result.ok) sent++;
+  let mocked = 0;
+  for (const target of targets.values()) {
+    let result: SendResult;
+    try { result = await sendEmail({ to: target.email, subject, text: body }); }
+    catch { result = { ok: false, method: 'mock' }; }
+    const status = !result.ok ? 'FAILED' : result.method === 'mock' ? 'MOCKED' : 'SENT';
+    await prisma.notificationLog.create({ data: {
+      triggerEvent: trigger.toUpperCase().replace(/\s+/g, '_'),
+      recipientRole: target.roles.map(role => role === 'AM' ? 'ACCOUNT_MANAGER' : role).join(','),
+      recipientName: target.name, message: `${subject}\nRecord: ${record.id}\n${body}`, status,
+    } });
+    if (status === 'SENT') sent++;
+    else if (status === 'MOCKED') mocked++;
     else failed++;
   }
-
-  res.json({ ok: true, sent, failed, resolvedCount: targets.length });
+  res.json({ ok: failed === 0 && skipped === 0, sent, failed, mocked, skipped, resolvedCount: targets.size });
 }));
 
 export default router;

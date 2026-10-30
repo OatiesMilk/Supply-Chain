@@ -75,8 +75,31 @@ test('Delivery actionability uses the latest date, allows overdue runs, and keep
   assert.equal(dashboardRunDaysLate(record({ category: 'Deliveries', delivery_date: '2026-10-06' }), today), 2);
   assert.equal(isDashboardRunActionable(record({ category: 'Deliveries', delivery_date: '2026-10-09' }), today), false);
   assert.equal(isDashboardRunActionable(record({ category: 'Deliveries', delivery_date: '2026-10-09', time_in: '2026-10-09T01:00:00Z' }), today), true);
-  assert.equal(isDashboardRunActionable(record({ category: 'Accounting Collection', delivery_date: '2026-10-06' }), today), false);
+  assert.equal(isDashboardRunActionable(record({ category: 'Accounting Collection', delivery_date: '2026-10-06' }), today), true);
   assert.equal(isDashboardRunActionable(record({ category: 'Deliveries', delivery_date: '2026-02-30' }), today), false);
+});
+
+test('every non-RMA category keeps unfinished overdue and started runs actionable across Manila midnight', () => {
+  const beforeMidnight = manilaToday(new Date('2026-10-08T15:59:59Z'));
+  const afterMidnight = manilaToday(new Date('2026-10-08T16:00:00Z'));
+  for (const category of ['Deliveries', 'Procurement Pick-up', 'Accounting Collection', 'Sales Orders'] as const) {
+    const run = record({ category, delivery_date: beforeMidnight });
+    assert.equal(isDashboardRunActionable(run, beforeMidnight), true, category);
+    assert.equal(isDashboardRunActionable(run, afterMidnight), true, category);
+    assert.equal(isDashboardRunActionable({ ...run, time_in: '2026-10-08T15:00:00Z' }, afterMidnight), true, category);
+    assert.equal(isDashboardRunActionable({ ...run, delivery_date: '2026-10-10' }, afterMidnight), false, category);
+    assert.equal(isDashboardRunActionable({ ...run, delivery_date: '2026-10-10', time_in: '2026-10-08T15:00:00Z' }, afterMidnight), true, category);
+    assert.equal(isDashboardRunActionable({ ...run, delivery_date: '2026-02-30' }, afterMidnight), false, category);
+    assert.equal(isDashboardRunActionable({ ...run, delivery_date: '', time_in: 'bad timestamp' }, afterMidnight), false, category);
+    assert.equal(isDashboardRunActionable({ ...run, status: 'Delivered' }, afterMidnight), false, category);
+    assert.equal(isDashboardRunActionable({ ...run, status: 'Draft' }, afterMidnight), false, category);
+    assert.equal(isDashboardRunActionable({ ...run, is_draft: 'Yes' }, afterMidnight), false, category);
+    assert.equal(isDashboardRunActionable({ ...run, driver: '' }, afterMidnight), false, category);
+    for (const status of ['Scheduled', 'Rescheduled', 'In Transit', 'Pending', 'On-Hold'] as const) {
+      assert.equal(isDashboardRunActionable({ ...run, status }, afterMidnight), true, `${category}: ${status}`);
+    }
+  }
+  assert.equal(isDashboardRunActionable(record({ category: 'RMA', delivery_date: beforeMidnight, time_in: '2026-10-08T15:00:00Z' }), afterMidnight), false);
 });
 
 test('completed-late display uses the persisted completion value', () => {

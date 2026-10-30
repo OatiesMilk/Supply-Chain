@@ -803,6 +803,20 @@ test('RMA samples never generate document references and preserve manually suppl
   }
 });
 
+test('data sampler creates distinct UUID record IDs even when its random sample values repeat', async () => {
+  const state = database();
+  stub(prisma.company, 'findMany', async () => [{ id: 'company-1', name: 'Test Company' }] as any);
+  stub(prisma.driver, 'findMany', async () => [] as any);
+  stub(Math, 'random', () => 0);
+  const response = await request('post', '/generate', { role: 'ADMIN', router: sampler, body: { module: 'deliveries', count: 3 } });
+  assert.equal(response.status, 201);
+  assert.equal(response.body.created, 3);
+  const ids = response.body.records.map((row: any) => row.id);
+  assert.equal(new Set(ids).size, 3);
+  for (const id of ids) assert.match(id, /^REC-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.deepEqual(state.audit.map(entry => entry.recordId), ids);
+});
+
 test('RMA sampler rejects unsupported categories and item types before database work', async () => {
   const companyRead = stub(prisma.company, 'findMany', async () => { throw new Error('Unexpected database read'); });
   for (const fields of [{ rma_type: 'Unsupported' }, { item_type: 'Medium Item' }, { rma_reference: 123 }]) {

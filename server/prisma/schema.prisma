@@ -404,7 +404,7 @@ model NotificationLog {
   recipientName String
   message       String
   sentAt        DateTime @default(now())
-  status        String // SENT | FAILED | MOCKED
+  status        String // SENT | FAILED | MOCKED | SKIPPED
 }
 
 // Daily rollup of record counts by category + status, written once per day by

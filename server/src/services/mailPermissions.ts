@@ -3,6 +3,7 @@ import { prisma } from '../db';
 import { canCreateCategory, canPerformRecordAction, canReadRecord, canWriteCategory } from './recordAccess';
 import { loadPermissionSession } from './sessionPermissions';
 import { permissionMode } from './permissionManagement';
+import { sessionUser } from './permissions';
 
 export const MAIL_TRIGGERS = ['Accomplished', 'Rescheduled', 'On-Hold', 'RMA Completed', 'Collection Verified', 'Record Created'] as const;
 export function mailInputError(value: unknown): string | null {
@@ -18,13 +19,13 @@ export function mailInputError(value: unknown): string | null {
 }
 export function canDispatchRecordMail(user: AuthUser, record: any, trigger: string): boolean {
   if (!canReadRecord(user, record) || !canWriteCategory(user, record.category)) return false;
-  if (user.activeMode !== 'V1') return true;
   const operation = trigger === 'Record Created' ? 'CREATE' : trigger === 'Collection Verified' ? 'VERIFY_COLLECTION'
     : ['Accomplished', 'RMA Completed'].includes(trigger) ? 'COMPLETE' : 'STATUS';
   if (trigger === 'Accomplished' && (record.category === 'RMA' || record.status !== 'ACCOMPLISHED')) return false;
   if (trigger === 'RMA Completed' && (record.category !== 'RMA' || record.status !== 'ACCOMPLISHED')) return false;
-  if (trigger === 'Collection Verified' && (record.category !== 'ACCOUNTING_COLLECTION' || !record.collectionVerified || user.role !== 'TASS')) return false;
+  if (trigger === 'Collection Verified' && (record.category !== 'ACCOUNTING_COLLECTION' || record.status !== 'ACCOMPLISHED' || record.draft || !record.collectionVerified || user.role !== 'TASS')) return false;
   if (trigger === 'Rescheduled' && record.status !== 'RESCHEDULED' || trigger === 'On-Hold' && record.status !== 'ON_HOLD') return false;
+  if (user.activeMode !== 'V1') return true;
   return operation === 'CREATE' ? canCreateCategory(user, record.category) : canPerformRecordAction(user, record, operation, undefined, true);
 }
 
@@ -41,12 +42,32 @@ export async function recordMailRecipients(recipients: readonly string[], record
   const allowed = [] as Array<{ id: string; name: string; email: string }>;
   const emails = new Set<string>();
   for (const user of candidates.values()) {
-    if (permissionMode() === 'V1') {
-      const session = await loadPermissionSession(prisma, user.id);
-      if (!session?.isActive || !canReadRecord(session.session as AuthUser, record)) continue;
-    }
+    if (!await recipientCanReadRecord(user.id, record)) continue;
     const email = user.email.trim().toLowerCase();
     if (!emails.has(email)) { allowed.push(user); emails.add(email); }
   }
   return allowed;
+}
+
+/** Mail disclosures follow the recipient's current account permissions in either mode. */
+async function recipientCanReadRecord(id: string, record: any): Promise<boolean> {
+  if (permissionMode() === 'V1') {
+    const loaded = await loadPermissionSession(prisma, id);
+    return !!loaded?.isActive && canReadRecord(loaded.session as AuthUser, record);
+  }
+  const user = await prisma.user.findUnique({ where: { id }, include: { permissions: true, driverProfile: true } });
+  if (!user?.isActive) return false;
+  const session = { ...sessionUser(user), driverProfileId: user.driverProfile?.type === 'DRIVER' && user.driverProfile.isActive ? user.driverProfile.id : null } as AuthUser;
+  return canReadRecord(session, record);
+}
+
+/** Deployment-owned mapping, never a request-supplied address or inferred display label.
+ * The mapped mailbox must belong to one active portal account allowed to read the collection. */
+export async function billingMailRecipients(record: any) {
+  const email = process.env.BILLING_NOTIFICATION_USER_EMAIL?.trim();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return [];
+  const users = await prisma.user.findMany({ where: { email: { equals: email, mode: 'insensitive' }, isActive: true },
+    select: { id: true, name: true, email: true } });
+  if (users.length !== 1 || !await recipientCanReadRecord(users[0].id, record)) return [];
+  return users;
 }

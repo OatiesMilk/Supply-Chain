@@ -83,3 +83,20 @@ Staging data preparation is optional and never runs automatically during startup
 or deployment. The commented `STAGING_SEED_*` settings in the API template are
 used only by the [guarded staging seed commands](./staging-seed.md); supply them
 only for that separate reviewed operation.
+
+## Collection billing notifications
+
+Set `BILLING_NOTIFICATION_USER_EMAIL` in the API environment to the exact email
+of the approved billing recipient's existing active portal account. The account
+must currently be allowed to read Accounting Collection records. This mapping
+works in LEGACY and V1; V1 also requires verified permission conversion. It does
+not grant permissions or create an account. Missing, ambiguous, inactive or denied
+mappings are recorded as `SKIPPED` in the notification log, with no placeholder
+address or inferred mailbox. Account Manager completion emails similarly require
+one exact active portal identity with record access.
+
+Completion workflow notifications run automatically. The UI's additional output
+preferences govern extra emails and PDF exports, and cannot suppress the required
+completion handoff. A mock provider records `MOCKED`, not `SENT`; a configured
+provider's acceptance still does not prove inbox delivery. Review recipient
+mapping and provider configuration separately before enabling live delivery.

@@ -20,6 +20,7 @@ import { DRIVERS, driverIdForName,DRIVER_ASSISTANTS, DELIVERY_STATUSES, AREAS, A
 import ComboboxField from '@/components/ComboboxField';
 import { Pencil, X as XIcon, Save, Plus } from 'lucide-react';
 import { getOutputTrigger, runOutputActions } from '@/outputActions';
+import { exportRecordOutputPDF } from '@/utils/recordOutputPdf';
 import RecordStatus, { RecordStatusProgress } from '@/components/RecordStatus';
 import { POD_ATTACHMENT_ACCEPT, getPodAttachmentRejection } from '@/utils/attachmentValidation';
 import PodUploader from '@/components/PodUploader';
@@ -1159,9 +1160,12 @@ function ActionsTab({
       if (statusChanged) {
         const trigger = getOutputTrigger(record.category, selectedStatus);
         if (trigger) {
-          await runOutputActions(trigger, outputActionConfigs[trigger], {
-            amName: record.account_manager, at: now, recordId: record.id, api,
+          const output = await runOutputActions(trigger, outputActionConfigs[trigger], {
+            amName: record.account_manager, at: now, recordId: record.id, category: record.category, api,
+            exportPDF: async () => exportRecordOutputPDF(await api.getRecord(record.id)),
           });
+          if (output.email.failed || output.pdf === 'failed') notify.error(`Changes saved. ${output.banners.join(' ')}`);
+          else output.banners.forEach(message => notify.info(message));
         }
       }
     } catch (error) {
