@@ -1,3 +1,4 @@
+import { RecordStatusProgress } from '@/components/RecordStatus';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useEffect, useId, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -10,8 +11,9 @@ import { useDriversQuery } from '@/api/queries/useDriversQuery';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
 import { invalidateOperationalQueries, normalizeApiRecord, saveRecordToCache, useRecordDetailQuery } from '@/api/queries/useRecordsQuery';
 import { operationalSyncOptions } from '@/api/queries/operationalSync';
-import { RMA_MOVEMENT_LABELS, RMA_TRANSPORT_LABELS } from '@/utils/rmaTransport';
+import { RMA_MOVEMENT_LABELS } from '@/utils/rmaTransport';
 import { formatManilaTimestamp } from '@/utils/manilaTimestamp';
+import { rankDriversByCoverage } from '@/utils/driverCoverage';
 
 type Action = 'assign' | 'start' | 'transport-complete' | 'receive' | 'complete' | 'status';
 
@@ -117,6 +119,8 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
   const busy = mutation.isPending;
   const canSave = !!remarks.trim() && !busy && !staleForm && !detail.isError && !capabilities.isError;
   const drivers = (directory.data ?? []).filter(entry => entry.type === 'DRIVER' && entry.is_active);
+  const rankedDrivers = rankDriversByCoverage(drivers, entry => entry.coverage_areas, record.area);
+  const coveringCount = rankedDrivers.area.length + rankedDrivers.subregion.length;
   const assistantOptions = (directory.data ?? []).filter(entry => entry.type === 'ASSISTANT' && entry.is_active);
   const canStart = caps?.transport && record.rma_transport_status === 'PENDING';
   const canFinishTransport = caps?.transport && record.rma_transport_status === 'IN_TRANSIT';
@@ -128,9 +132,9 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
   return <section role="region" aria-label="RMA transport" data-record-id={record.id} className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
     <div className="space-y-1">
       <h3 className="font-bold text-slate-900">RMA transport</h3>
+      <RecordStatusProgress record={record} />
       <p className="text-sm text-slate-700">Movement: {record.rma_movement ? RMA_MOVEMENT_LABELS[record.rma_movement] : 'Choose a movement method in Overview'}</p>
       {record.rma_movement === 'LOGISTICS_TRANSPORT' && <>
-        <p className="text-sm text-slate-700">Transport: {record.rma_transport_status ? RMA_TRANSPORT_LABELS[record.rma_transport_status] : 'Pending'}</p>
         <p className="text-sm text-slate-700">Driver: {record.driver || 'Unassigned'}</p>
         <p className="text-sm text-slate-700">Vehicle: {record.vehicle || '(None)'}</p>
         {record.rma_transport_started_at && <p className="text-xs text-slate-500">Started: {formatManilaTimestamp(record.rma_transport_started_at)}</p>}
@@ -138,7 +142,6 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
       </>}
       {record.rma_movement && record.rma_movement !== 'LOGISTICS_TRANSPORT' && <p className="text-sm text-slate-600">No internal Driver assignment is required.</p>}
       <p className="text-sm text-slate-700">Physical receipt: {record.rma_received_at ? `${record.rma_recipient} · ${formatManilaTimestamp(record.rma_received_at)}` : 'Not confirmed'}</p>
-      <p className="text-sm text-slate-700">Final RMA: {record.status === 'Delivered' ? 'Complete' : record.status}</p>
       {record.rma_completed_at && <p className="text-xs text-slate-500">RMA completed: {formatManilaTimestamp(record.rma_completed_at)}</p>}
     </div>
     {(detail.isError || capabilities.isError) && <div role="alert" className="text-sm text-red-700">
@@ -152,7 +155,15 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
         <select id={`${id}-driver`} value={driverId} className={input} disabled={directory.isPending || directory.isError} onChange={event => { beginEdit(); setDriverId(event.target.value); }}>
           <option value="">Unassigned</option>
           {record.driver_id && !drivers.some(entry => entry.id === record.driver_id) && <option value={record.driver_id}>{record.driver} (current)</option>}
-          {drivers.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+          {rankedDrivers.area.length > 0 && <optgroup label={`Covers ${record.area}`}>
+            {rankedDrivers.area.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+          </optgroup>}
+          {rankedDrivers.subregion.length > 0 && <optgroup label={`Covers ${rankedDrivers.subregionName} (subregion)`}>
+            {rankedDrivers.subregion.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+          </optgroup>}
+          {rankedDrivers.other.length > 0 && <optgroup label={coveringCount > 0 ? 'Other drivers' : 'All drivers'}>
+            {rankedDrivers.other.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+          </optgroup>}
         </select>
       </div>
       <div className="space-y-1 text-sm font-semibold"><label htmlFor={`${id}-vehicle`}>Vehicle</label>

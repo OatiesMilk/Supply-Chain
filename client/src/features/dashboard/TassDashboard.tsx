@@ -1,3 +1,4 @@
+import RecordStatus from '@/components/RecordStatus';
 import { manilaToday } from '@/utils/recordLifecycle';
 import {
   RotateCcw,
@@ -25,11 +26,6 @@ function daysSince(dateStr: string): number {
   return Math.floor((Date.now() - then) / (1000 * 60 * 60 * 24));
 }
 
-const STATUS_BADGE: Record<string, string> = {
-  Scheduled: "bg-blue-50 text-blue-700 border-blue-200",
-  Pending: "bg-amber-50 text-amber-700 border-amber-200",
-  "On-Hold": "bg-red-50 text-red-700 border-red-200",
-};
 
 export default function TassDashboard({
   stats,
@@ -242,11 +238,7 @@ export default function TassDashboard({
                         {r.area || "—"}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <span
-                          className={`border text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_BADGE[r.status] ?? "bg-slate-50 text-slate-600 border-slate-200"}`}
-                        >
-                          {r.status}
-                        </span>
+                        <RecordStatus record={r} />
                       </td>
                       <td className="px-4 py-3 text-center text-slate-600 font-semibold whitespace-nowrap">
                         {r.delivery_date || "—"}

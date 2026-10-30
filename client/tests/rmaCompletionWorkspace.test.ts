@@ -8,6 +8,7 @@ import { JSDOM } from 'jsdom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { api } from '../src/api';
 import type { DeliveryRecord, UserRole } from '../src/types';
+import { saveRecordToCache } from '../src/api/queries/operationalSync';
 
 const base = (updates: Partial<DeliveryRecord> = {}) => ({
   id: 'rma-ui', company_id: 'company', company_name: 'RMA customer', category: 'RMA',
@@ -30,7 +31,7 @@ async function fixture() {
     queueMicrotask(() => request.onsuccess?.()); return request;
   } };
   dom.window.HTMLElement.prototype.scrollIntoView = () => {};
-  for (const [name, value] of Object.entries({ window: dom.window, document: dom.window.document, navigator: dom.window.navigator, indexedDB, requestAnimationFrame: (callback: () => void) => { callback(); return 0; }, IDBKeyRange: { only: (value: unknown) => value }, IS_REACT_ACT_ENVIRONMENT: true })) Object.defineProperty(globalThis, name, { value, configurable: true });
+  for (const [name, value] of Object.entries({ window: dom.window, document: dom.window.document, navigator: dom.window.navigator, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement, Node: dom.window.Node, getComputedStyle: dom.window.getComputedStyle.bind(dom.window), indexedDB, requestAnimationFrame: (callback: () => void) => { callback(); return 0; }, IDBKeyRange: { only: (value: unknown) => value }, IS_REACT_ACT_ENVIRONMENT: true })) Object.defineProperty(globalThis, name, { value, configurable: true });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const { createRoot } = await import('react-dom/client');
   const { default: Workspace } = await import('../src/features/deliveries/DeliveryRecordWorkspace');
@@ -57,7 +58,7 @@ async function fixture() {
   const renderElement = async (element: React.ReactNode) => { await act(async () => root.render(React.createElement(QueryClientProvider, { client }, element))); await flush(); };
   return { dom, client, flush, render, renderElement, button, field, input, close: async () => {
     await act(async () => root.unmount()); client.clear(); mock.restoreAll(); dom.window.close();
-    for (const name of ['window', 'document', 'navigator', 'indexedDB', 'IDBKeyRange', 'requestAnimationFrame', 'IS_REACT_ACT_ENVIRONMENT']) { if (original[name]) Object.defineProperty(globalThis, name, original[name]); else Reflect.deleteProperty(globalThis, name); }
+    for (const name of ['window', 'document', 'navigator', 'Element', 'HTMLElement', 'Node', 'getComputedStyle', 'indexedDB', 'IDBKeyRange', 'requestAnimationFrame', 'IS_REACT_ACT_ENVIRONMENT']) { if (original[name]) Object.defineProperty(globalThis, name, original[name]); else Reflect.deleteProperty(globalThis, name); }
   } };
 }
 const none = { assign: false, transport: false, receive: false, complete: false, pod: false };
@@ -82,14 +83,24 @@ test('TASS confirms physical receipt separately before final completion without 
   } finally { await ui.close(); }
 });
 
-test('Logistics has bounded assignment in its read-only workspace and refused saves preserve the edit', async () => {
-  const ui = await fixture(); const record = base({ rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'PENDING' });
+test('Logistics reuses coverage-ranked assignment in its read-only workspace and refused saves preserve the edit', async () => {
+  const ui = await fixture(); const record = base({ area: 'Imus, Cavite', rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'PENDING' });
   mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []); mock.method(api, 'getRmaCapabilities', async () => ({ ...none, assign: true }));
-  mock.method(api, 'getDrivers', async () => [{ id: 'driver-a', name: 'Driver A', type: 'DRIVER', is_active: true }] as any);
+  mock.method(api, 'getDrivers', async () => [
+    { id: 'driver-other', name: 'Other Driver', type: 'DRIVER', is_active: true, coverage_areas: [] },
+    { id: 'driver-subregion', name: 'Subregion Driver', type: 'DRIVER', is_active: true, coverage_areas: ['Cavite'] },
+    { id: 'driver-a', name: 'Driver A', type: 'DRIVER', is_active: true, coverage_areas: ['Imus, Cavite'] },
+    { id: 'driver-inactive', name: 'Inactive Driver', type: 'DRIVER', is_active: false, coverage_areas: ['Imus, Cavite'] },
+    { id: 'assistant-a', name: 'Assistant A', type: 'ASSISTANT', is_active: true, coverage_areas: ['Imus, Cavite'] },
+  ] as any);
   let rejectSave: () => void = () => {}; const assignment = mock.method(api, 'assignRma', async () => new Promise((_done, reject) => { rejectSave = () => reject(new Error('Save refused; retry')); }));
   try {
     await ui.render(record, 'Logistics', true); assert.equal(ui.button('Edit'), undefined);
-    await act(async () => ui.button('Status & Actions')!.click()); await ui.flush(); await ui.input('Driver', 'driver-a'); await ui.input('Remarks', 'Assign today');
+    await act(async () => ui.button('Status & Actions')!.click()); await ui.flush();
+    const driverSelect = ui.field('Driver') as HTMLSelectElement;
+    assert.deepEqual([...driverSelect.querySelectorAll('optgroup')].map(group => group.label), ['Covers Imus, Cavite', 'Covers Cavite (subregion)', 'Other drivers']);
+    assert.deepEqual([...driverSelect.options].map(option => option.value), ['', 'driver-a', 'driver-subregion', 'driver-other']);
+    await ui.input('Driver', 'driver-a'); await ui.input('Remarks', 'Assign today');
     await act(async () => ui.button('Save assignment')!.click()); await ui.flush(); assert.equal(ui.button('Save assignment')!.disabled, true);
     await act(async () => rejectSave()); await ui.flush(); assert.match(ui.dom.window.document.body.textContent!, /Save refused; retry/);
     assert.equal(ui.field('Driver').value, 'driver-a'); assert.equal(ui.field('Remarks').value, 'Assign today');
@@ -100,16 +111,24 @@ test('Logistics has bounded assignment in its read-only workspace and refused sa
 
 test('Driver transport completion requires POD and never calls the final RMA status action', async () => {
   const ui = await fixture(); let record = base({ rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'IN_TRANSIT', driver_id: 'driver-a', driver: 'Driver A' }); let photos: any[] = [];
+  const initialRecord = record;
   mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => photos);
   mock.method(api, 'getRmaCapabilities', async () => ({ ...none, transport: record.rma_transport_status !== 'COMPLETED', pod: true }));
   const final = mock.method(api, 'patchStatus', async () => { throw new Error('Driver cannot finalize RMA'); });
   const transport = mock.method(api, 'progressRmaTransport', async () => record = { ...record, rma_version: 1, rma_transport_status: 'COMPLETED', rma_transport_completed_at: '2026-10-28T02:00:00Z' });
   try {
-    await ui.render(record, 'Driver'); await ui.input('Remarks', 'Transport finished'); assert.equal(ui.button('Complete transport')!.disabled, true);
+    await ui.render(record, 'Driver');
+    await ui.input('Remarks', 'Transport finished'); assert.equal(ui.button('Complete transport')!.disabled, true);
     photos = [{ id: 'photo', original_name: 'pod.png', mime_type: 'image/png', is_photo: true }]; await act(async () => { await ui.client.invalidateQueries({ queryKey: ['pod-attachments', record.id] }); }); await ui.flush();
     assert.equal(ui.button('Complete transport')!.disabled, false); await act(async () => ui.button('Complete transport')!.click()); await ui.flush();
     assert.equal(transport.mock.callCount(), 1); assert.equal(final.mock.callCount(), 0); assert.equal(record.status, 'Scheduled'); assert.equal(record.rma_received_at, undefined);
     assert.match(ui.dom.window.document.body.textContent!, /Transport: Complete/); assert.equal(ui.button('Complete RMA'), undefined);
+    await ui.render(initialRecord, 'Logistics', true);
+    const summary = () => ui.dom.window.document.querySelector('[aria-label="Record summary"]')!.textContent!;
+    assert.match(summary(), /Transport: Complete/);
+    assert.match(summary(), /RMA: Scheduled/);
+    assert.doesNotMatch(summary(), /Transport: In Transit|RMA: Complete/);
+    assert.match(ui.dom.window.document.body.textContent!, /Awaiting physical receipt confirmation by TASS/);
   } finally { await ui.close(); }
 });
 
@@ -167,4 +186,50 @@ test('existing RMA rescheduling can resume Scheduled through a versioned non-fin
     assert.deepEqual(patch.mock.calls[0].arguments, [record.id, 'Scheduled', 'Resume the planned return', { expected_version: 4 }]);
     assert.equal(ui.button('Complete RMA'), undefined);
   } finally { await ui.close(); }
+});
+
+test('record rows update from saved transport and ordinary status changes across operational roles', async () => {
+  const { default: RecordsView } = await import('../src/features/deliveries/DeliveryRecordsView');
+  const cases: Array<{ category: DeliveryRecord['category']; role: UserRole }> = [
+    { category: 'RMA', role: 'Logistics' }, { category: 'RMA', role: 'TASS' },
+    { category: 'Sales Orders', role: 'Sales Coordinator' },
+    { category: 'Deliveries', role: 'Logistics' }, { category: 'Deliveries', role: 'Driver' },
+  ];
+  for (const { category, role } of cases) {
+    const ui = await fixture();
+    let record = base({ category, rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'PENDING' });
+    mock.method(api, 'getPagedRecords', async () => ({ rows: [record], total: 1, page: 1, limit: 25, hasMore: false, nextCursor: null }));
+    mock.method(api, 'getStatusHistoryCounts', async () => ({} as any));
+    try {
+      await ui.renderElement(React.createElement(RecordsView, {
+        category, records: [record], companies: [], currentUserRole: role, currentUserName: role,
+        onCreateRecord: async () => { throw new Error('No record creation expected'); }, onUpdateRecord: async () => {},
+        onVerifyCollection: async () => {}, outputActionConfigs: {} as any, onUpdateOutputActionConfig: () => {},
+        dashboardFilterId: null, clearDashboardFilter: () => {},
+      }));
+      const statusCell = () => {
+        const headers = [...ui.dom.window.document.querySelectorAll('thead th')];
+        const index = headers.findIndex(header => header.textContent === 'Status');
+        return ui.dom.window.document.querySelector('tbody tr')!.children[index];
+      };
+      assert.equal(statusCell().textContent, 'Scheduled');
+      for (const [index, status] of ['In Transit', 'Delivered'].entries()) {
+        record = category === 'RMA'
+          ? { ...record, rma_version: index + 1, rma_transport_status: index === 0 ? 'IN_TRANSIT' : 'COMPLETED' }
+          : { ...record, status: status as DeliveryRecord['status'], modified_at: `2026-10-30T01:00:0${index + 1}Z` };
+        await act(async () => { await saveRecordToCache(ui.client, record); }); await ui.flush();
+        assert.equal(statusCell().textContent, category === 'RMA' && index === 1 ? 'Transport Complete' : status);
+        assert.equal(statusCell().querySelectorAll('span').length, 1);
+      }
+      if (category === 'RMA') {
+        for (const status of ['Received', 'Complete']) {
+          record = { ...record, rma_version: (record.rma_version ?? 0) + 1,
+            rma_received_at: '2026-10-30T02:00:00Z', status: status === 'Complete' ? 'Delivered' : record.status };
+          await act(async () => { await saveRecordToCache(ui.client, record); }); await ui.flush();
+          assert.equal(statusCell().textContent, status);
+          assert.equal(statusCell().querySelectorAll('span').length, 1);
+        }
+      }
+    } finally { await ui.close(); }
+  }
 });

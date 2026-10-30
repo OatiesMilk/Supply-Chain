@@ -1,3 +1,4 @@
+import RecordStatus from '@/components/RecordStatus';
 import { usePermissions } from '@/hooks/usePermissions';
 import RmaWorkflowPanel from '@/features/deliveries/RmaWorkflowPanel';
 import { useState, useCallback } from "react";
@@ -126,20 +127,6 @@ export default function DriverDashboard({
     } as any);
   };
 
-  const statusBadge = (status: DeliveryStatus) => {
-    switch (status) {
-      case "Delivered":
-        return "bg-emerald-100 text-emerald-700 border-emerald-200";
-      case "Pending":
-        return "bg-amber-100 text-amber-700 border-amber-200";
-      case "Rescheduled":
-        return "bg-purple-100 text-purple-700 border-purple-200";
-      case "On-Hold":
-        return "bg-red-100 text-red-700 border-red-200";
-      default:
-        return "bg-blue-100 text-blue-700 border-blue-200";
-    }
-  };
 
   return (
     <div className="min-h-screen bg-[#F0F4F8] flex flex-col">
@@ -257,9 +244,7 @@ export default function DriverDashboard({
                   {futureStarted && (
                     <span className="px-2 py-0.5 rounded-full border border-blue-200 bg-blue-50 text-[9px] font-bold text-blue-700">Started</span>
                   )}
-                  <span className={`px-2 py-0.5 rounded-full border text-[9px] font-bold uppercase tracking-wider ${statusBadge(rec.status)}`}>
-                    {rec.status}
-                  </span>
+                  <RecordStatus record={rec} />
                 </div>
               </div>
 
@@ -460,9 +445,7 @@ export default function DriverDashboard({
                         ? deliveryScheduleState(rec.delivery_date, today).valid ? 'Upcoming · read-only' : 'Delivery Date needed · read-only'
                         : 'Other date · read-only'}
                     </span>
-                    <span className={`text-[9px] font-bold border px-2 py-0.5 rounded-full ${statusBadge(rec.status)}`}>
-                      {rec.status}
-                    </span>
+                    <RecordStatus record={rec} />
                   </div>
                 </div>
               ))}

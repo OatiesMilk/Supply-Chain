@@ -113,6 +113,50 @@ The actor must already exist and be an active Admin. For an empty local demo
 sandbox, existing approved seed commands provision it and initialize role
 policies. Do not run the example against an application's normal database.
 
+### Existing local development database missing the foundation
+
+The RMA workflow now requires the permission foundation even when the rest of
+the application still uses legacy sessions. A database upgraded without the
+foundation can show TASS the RMA create form, then return `403 Module access
+denied` on save. TASS already has RMA creation in the approved baseline; adding
+TASS to route guards or disabling policy checks does not repair missing data.
+
+For an existing **local development** database, use the separate explicit
+provisioning command below. It accepts database names such as `mg_portal`;
+the disposable-only `permissions:backfill` safeguards remain unchanged. Supply
+the reviewed connection yourself: the command does not read `.env` or fall back
+to a default connection. It rejects remote hosts, deployed environment markers,
+production/test mode and connection-target query overrides. The only supported
+query parameter is `schema=public`.
+
+```bash
+cd server
+DATABASE_URL='<reviewed-local-postgresql-connection>' \
+NODE_ENV=development \
+PERMISSION_PROVISION_DATABASE='<exact-database-name>' \
+PERMISSION_PROVISION_ACTOR_ID='<existing-active-admin-id>' \
+npm run permissions:provision-local
+```
+
+Pause legacy permission, role and Driver-link changes during provisioning and
+verification. The command uses the existing audited baseline initialization
+and per-account conversion: it preserves records, legacy rows, explicit
+denials and conversion checkpoints. A rerun leaves unchanged accounts untouched.
+It refuses customized/activated role policies for unconverted accounts, source
+changes after conversion and overrides without a checkpoint; review those
+conditions instead of deleting policies or resetting the database. Conversion
+is resumable per account, so a stopped run may have committed earlier accounts.
+The active Admin is checked by the same transactional provisioning functions.
+
+Verify that every user has a conversion checkpoint, review quarantine and
+refresh the TASS session before retrying. An intentionally incomplete RMA
+request should now reach field validation (`400`) instead of permission denial
+(`403`); a valid RMA should save normally. This command only prepares the
+baseline. Logistics/Driver dispatch activation remains the separate reviewed
+step in [RMA_DISPATCH_IMPLEMENTATION.md](RMA_DISPATCH_IMPLEMENTATION.md), after
+all account conversions finish. It does not authorize provisioning a deployed
+environment or overwriting an existing permission Deny.
+
 ## Validation
 
 ```bash

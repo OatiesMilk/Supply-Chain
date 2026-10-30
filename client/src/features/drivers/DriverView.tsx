@@ -1,3 +1,4 @@
+import RecordStatus from '@/components/RecordStatus';
 import { usePermissions } from '@/hooks/usePermissions';
 import RmaWorkflowPanel from '@/features/deliveries/RmaWorkflowPanel';
 import { useEffect, useRef, useState } from 'react';
@@ -32,15 +33,6 @@ const matches = (record: DeliveryRecord, term: string) =>
   [record.reference, record.company_name, record.area, record.category, record.driver]
     .some(value => value.toLocaleLowerCase().includes(term));
 
-const statusTone: Record<DeliveryStatus, string> = {
-  Draft: 'bg-slate-100 text-slate-700',
-  'In Transit': 'bg-cyan-50 text-cyan-700',
-  Scheduled: 'bg-blue-50 text-blue-700',
-  Pending: 'bg-amber-50 text-amber-800',
-  'On-Hold': 'bg-rose-50 text-rose-700',
-  Rescheduled: 'bg-violet-50 text-violet-700',
-  Delivered: 'bg-emerald-50 text-emerald-700',
-};
 
 export default function DriverView({
   records, onUpdateRecord, outputActionConfigs, onNavigate,
@@ -294,7 +286,7 @@ export default function DriverView({
                         <span className="block text-xs text-slate-500">{record.delivery_date}</span>
                       </span>
                       <span className="flex shrink-0 items-center gap-2">
-                        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusTone[record.status]}`}>{record.status}</span>
+                        <RecordStatus record={record} />
                         <ChevronRight aria-hidden="true" className="h-4 w-4 text-slate-400" />
                       </span>
                     </button>
@@ -312,7 +304,7 @@ export default function DriverView({
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="font-mono text-sm font-semibold text-slate-600">{selectedRecord.reference}</span>
-                          <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusTone[selectedRecord.status]}`}>{selectedRecord.status}</span>
+                          <RecordStatus record={selectedRecord} />
                         </div>
                         <h3 className="break-words text-lg font-bold text-slate-900">{selectedRecord.company_name}</h3>
                         <p className="text-sm text-slate-600">{selectedRecord.category} · {selectedRecord.delivery_date}</p>

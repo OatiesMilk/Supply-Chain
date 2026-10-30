@@ -12,12 +12,15 @@ export const operationalSyncOptions = {
 
 export const recordDetailKey = (id: string) => ['records', 'detail', id] as const;
 
-/** A delayed read or save response may not replace a more recent committed RMA. */
+/** Delayed reads/saves cannot replace a newer committed record. RMA versions
+ * take precedence; other workflows use the server's modification timestamp. */
 export function newerRecord(previous: DeliveryRecord | undefined, incoming: DeliveryRecord): DeliveryRecord {
-  if (!previous || incoming.id !== previous.id || incoming.category !== 'RMA' || previous.category !== 'RMA') return incoming;
-  const previousVersion = previous.rma_version ?? 0;
-  const incomingVersion = incoming.rma_version ?? 0;
-  if (previousVersion !== incomingVersion) return previousVersion > incomingVersion ? previous : incoming;
+  if (!previous || incoming.id !== previous.id) return incoming;
+  if (incoming.category === 'RMA' && previous.category === 'RMA') {
+    const previousVersion = previous.rma_version ?? 0;
+    const incomingVersion = incoming.rma_version ?? 0;
+    if (previousVersion !== incomingVersion) return previousVersion > incomingVersion ? previous : incoming;
+  }
   const previousTime = Date.parse(previous.modified_at);
   const incomingTime = Date.parse(incoming.modified_at);
   return Number.isFinite(previousTime) && Number.isFinite(incomingTime) && previousTime > incomingTime ? previous : replaceEqualDeep(previous, incoming);
