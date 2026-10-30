@@ -18,7 +18,7 @@ router.get('/', requireAuth, requireResource('companies'), async (_req, res) => 
   );
 });
 
-router.post('/', requireAuth, requireResource('companies'), requireRole('SALES_COORDINATOR', 'ADMIN'), async (req, res) => {
+router.post('/', requireAuth, requireResource('companies', 'CREATE'), requireRole('SALES_COORDINATOR', 'ADMIN'), async (req, res) => {
   const { name, sap_number, address, contact_person } = req.body ?? {};
   if (!name) return res.status(400).json({ error: 'name is required' });
 

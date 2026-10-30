@@ -4,7 +4,8 @@ import type { Screen } from './permissions';
 import { hasActionPermission, type EffectivePermissionSnapshot } from './permissionEvaluator';
 import { POLICY_CATEGORIES, type PolicyAction, type PolicyCategory } from './permissionCatalog';
 import { driverDeliveryDateError, isoTimestamp, runState, timeInError, transitionError, type RunRecord, type RunState } from './deliveryLifecycle';
-import { eligibleRmaTransport as isEligibleRmaMovement } from './rmaMovement';
+import { eligibleRmaTransport as isEligibleRmaMovement, rmaTransportContext } from './rmaMovement';
+export { runState as runStateForPermission } from './deliveryLifecycle';
 
 export const CATEGORY_SCREEN: Record<string, Screen> = {
   DELIVERY: 'deliveries', RMA: 'rma', ACCOUNTING_COLLECTION: 'accounting_collection',
@@ -14,6 +15,7 @@ export const CATEGORY_SCREEN: Record<string, Screen> = {
 // Aggregate views need shared records, but an explicit category denial also
 // removes those records from shared lists and direct detail/audit endpoints.
 export function readableCategories(user: AuthUser): string[] {
+  if (user.activeMode === 'V1') return user.snapshot ? readablePolicyCategories(user.snapshot) : [];
   const aggregate: Screen[] = ['main', 'dashboard', 'calendar', 'driver', 'driver_board', 'driver_dashboard', 'statistical_reports'];
   const shared = aggregate.some(s => user.effectiveScreens.includes(s));
   return Object.keys(CATEGORY_SCREEN).filter(category => {
@@ -52,6 +54,8 @@ export function canReadRecord(
   user: AuthUser,
   record: { category?: string | null; driverId?: string | null; draft?: boolean; rmaMovement?: string | null }
 ): boolean {
+  if (user.activeMode === 'V1') return !!user.snapshot && canReadPolicyRecord(user.snapshot,
+    { ...record, category: record.category ?? undefined, status: 'SCHEDULED' }, { rmaTransport: rmaTransportContext({ ...record, category: record.category ?? undefined }) });
   const category = record.category ?? 'ACCOUNTING_COLLECTION';
   if (!readableCategories(user).includes(category)) return false;
   if (user.role === 'DRIVER') {
@@ -64,6 +68,8 @@ export function canReadRecord(
 }
 
 export function canWriteCategory(user: AuthUser, category: string): boolean {
+  if (user.activeMode === 'V1') return !!user.snapshot && !!writePathForCategory(user.snapshot, category)
+    && hasActionPermission(user.snapshot, 'CATEGORY', category, 'WRITE');
   const screen = CATEGORY_SCREEN[category];
   if (!screen || !readableCategories(user).includes(category)) return false;
   if (user.role === 'LOGISTICS' && category === 'RMA') return false;
@@ -77,6 +83,10 @@ export function canWriteCategory(user: AuthUser, category: string): boolean {
 
 /** Creating a record can be narrower than managing an existing operational record. */
 export function canCreateCategory(user: AuthUser, category: string): boolean {
+  if (user.activeMode === 'V1') {
+    const path = user.snapshot && writePathForCategory(user.snapshot, category);
+    return !!user.snapshot && !!path && canCreatePolicyCategory(user.snapshot, category, path);
+  }
   if (!canWriteCategory(user, category)) return false;
   if (category === 'RMA' && user.rmaPermissions !== undefined && (!user.rmaPermissions || !hasActionPermission(user.rmaPermissions, 'CATEGORY', 'RMA', 'CREATE'))) return false;
   // Logistics retains assignment and run management for saved Deliveries but
@@ -176,6 +186,25 @@ export function canCreatePolicyCategory(snapshot: EffectivePermissionSnapshot, c
   return canWritePolicyCategory(snapshot, category, path) && hasActionPermission(snapshot, 'CATEGORY', category, 'CREATE');
 }
 export type PolicyRecordOperation = Exclude<PolicyAction, 'READ' | 'WRITE' | 'CREATE' | 'ADJUST'>;
+
+/** A server-chosen entry path; clients cannot nominate a screen to gain access.
+ * Resource membership alone never supplies Screen Write. */
+export function writePathForCategory(snapshot: EffectivePermissionSnapshot, category: string): Screen | null {
+  const choices = [CATEGORY_SCREEN[category], 'driver_dashboard', 'driver', 'calendar', 'driver_board'] as Screen[];
+  return choices.find(path => path && policyPathAllowed(snapshot, path, true)) ?? null;
+}
+export function canPerformRecordAction(user: AuthUser, record: PolicyRecord & { rmaMovement?: string | null; rmaTransportStatus?: string | null; rmaReceivedAt?: Date | string | null },
+  action: PolicyRecordOperation, targetStatus?: RunState, correction = false): boolean {
+  if (user.activeMode !== 'V1') return true;
+  const snapshot = user.snapshot, path = snapshot && writePathForCategory(snapshot, record.category ?? '');
+  if (!snapshot || !path) return false;
+  const options = { path, targetStatus, rmaTransport: rmaTransportContext(record) };
+  // Correcting existing delivery clocks/recipient requires the same operation
+  // grant, while the route retains the narrower correction role/field rules.
+  if (correction) return canReadPolicyRecord(snapshot, record, options)
+    && canWritePolicyCategory(snapshot, record.category ?? '', path) && hasActionPermission(snapshot, 'CATEGORY', record.category ?? '', action);
+  return canPerformPolicyRecordAction(snapshot, record, action, options);
+}
 
 /** Authorization prerequisite for a specific operation. Callers must still
  * enforce per-field validation, transition inputs, POD evidence and business

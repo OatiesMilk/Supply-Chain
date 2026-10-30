@@ -39,7 +39,7 @@ router.get('/', requireAuth, requireResource('users'), requireRole('ADMIN'), asy
 // Create user — ADMIN only. A DRIVER login is linked to a Driver profile in the
 // same transaction: `driver_profile_id` links an existing unlinked profile,
 // omitting it creates a new profile named after the login.
-router.post('/', requireAuth, requireResource('users'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
+router.post('/', requireAuth, requireResource('users', 'CREATE'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
   const bodyError = accountBodyError(req.body, ['name', 'email', 'password', 'role', 'driver_profile_id', 'microsoft_oid']);
   if (bodyError) return res.status(400).json({ error: bodyError });
   if (req.body.contractVersion === 1) requireV1Mutation();
@@ -114,7 +114,7 @@ router.post('/', requireAuth, requireResource('users'), requireRole('ADMIN'), po
 
 // Link, relink or unlink a DRIVER login's Driver profile — ADMIN only.
 // Body: { driver_profile_id: string | null }.
-router.put('/:id/driver-profile', requireAuth, requireResource('users'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
+router.put('/:id/driver-profile', requireAuth, requireResource('users', 'UPDATE'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
   const bodyError = accountBodyError(req.body, ['driver_profile_id']);
   if (bodyError) return res.status(400).json({ error: bodyError });
   const profileId = req.body?.driver_profile_id;
@@ -135,7 +135,7 @@ router.put('/:id/driver-profile', requireAuth, requireResource('users'), require
 // An Admin explicitly pre-provisions the tenant-scoped Microsoft object ID;
 // never let SSO email claims implicitly take over an existing account.
 // A null OID deliberately unlinks the identity; relinking is audited.
-router.put('/:id/microsoft-identity', requireAuth, requireResource('users'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
+router.put('/:id/microsoft-identity', requireAuth, requireResource('users', 'UPDATE'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
   const bodyError = accountBodyError(req.body, ['microsoft_oid']);
   if (bodyError) return res.status(400).json({ error: bodyError });
   const oid = req.body?.microsoft_oid;
@@ -167,7 +167,7 @@ router.put('/:id/microsoft-identity', requireAuth, requireResource('users'), req
 }));
 
 // Update user details — ADMIN only.
-router.patch('/:id', requireAuth, requireResource('users'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
+router.patch('/:id', requireAuth, requireResource('users', 'UPDATE'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
   const bodyError = accountBodyError(req.body, ['name', 'email', 'role', 'removedOverrideKeys']);
   if (bodyError) return res.status(400).json({ error: bodyError });
   const { id } = req.params;
@@ -219,7 +219,7 @@ router.patch('/:id', requireAuth, requireResource('users'), requireRole('ADMIN')
 }));
 
 // Soft-deactivate a user — ADMIN only. Deactivated users cannot log in.
-router.patch('/:id/deactivate', requireAuth, requireResource('users'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
+router.patch('/:id/deactivate', requireAuth, requireResource('users', 'UPDATE'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
   const bodyError = accountBodyError(req.body ?? {}, []);
   if (bodyError) return res.status(400).json({ error: bodyError });
   const { id } = req.params;
@@ -247,7 +247,7 @@ router.patch('/:id/deactivate', requireAuth, requireResource('users'), requireRo
 }));
 
 // Reactivate a user — ADMIN only.
-router.patch('/:id/activate', requireAuth, requireResource('users'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
+router.patch('/:id/activate', requireAuth, requireResource('users', 'UPDATE'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
   const bodyError = accountBodyError(req.body ?? {}, []);
   if (bodyError) return res.status(400).json({ error: bodyError });
   const { id } = req.params;
@@ -271,7 +271,7 @@ router.patch('/:id/activate', requireAuth, requireResource('users'), requireRole
 // business records (deliveries, audit entries, products, customers, suppliers,
 // comments, or remark logs). If the user has any of these, the admin should
 // deactivate instead to preserve data integrity and audit trails.
-router.delete('/:id', requireAuth, requireResource('users'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
+router.delete('/:id', requireAuth, requireResource('users', 'DELETE'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
   const bodyError = accountBodyError(req.body ?? {}, []);
   if (bodyError) return res.status(400).json({ error: bodyError });
   const { id } = req.params;
@@ -340,7 +340,7 @@ router.get('/:id/permissions', requireAuth, requireResource('users'), requireRol
   res.json(permissionEditor(user));
 }));
 
-router.put('/:id/permissions', requireAuth, requireResource('users'), requireRole('ADMIN'), policyRoute(async (req, res) => {
+router.put('/:id/permissions', requireAuth, requireResource('users', 'UPDATE'), requireRole('ADMIN'), policyRoute(async (req, res) => {
   if (req.body?.contractVersion !== undefined || permissionMode() === 'V1') {
     return res.json(await saveUserPermissions(prisma, req.user!.id, req.params.id, req.body));
   }
@@ -357,7 +357,7 @@ router.put('/:id/permissions', requireAuth, requireResource('users'), requireRol
   }
 }));
 
-router.post('/:id/permissions/reset', requireAuth, requireResource('users'), requireRole('ADMIN'), policyRoute(async (req, res) => {
+router.post('/:id/permissions/reset', requireAuth, requireResource('users', 'UPDATE'), requireRole('ADMIN'), policyRoute(async (req, res) => {
   res.json(await saveUserPermissions(prisma, req.user!.id, req.params.id, req.body, true));
 }));
 

@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import { prisma } from '../db';
-import { requireAuth, requireResource } from '../middleware/auth';
+import { requireAuth, requireResource, requireRole } from '../middleware/auth';
 import { sendEmail } from '../services/mailer';
 
 import { recordScope } from '../services/recordAccess';
 import { notificationVisibility } from '../services/notificationVisibility';
 import type { Notification } from '@prisma/client';
+import { canDispatchRecordMail, mailInputError, recordMailRecipients } from '../services/mailPermissions';
+import { asyncRoute } from '../middleware/asyncRoute';
 
 const router = Router();
 
@@ -38,7 +40,7 @@ router.get('/unread-count', requireAuth, async (req, res) => {
   res.json({ count: result?.count ?? 0 });
 });
 
-router.patch('/read-all', requireAuth, async (req, res) => {
+router.patch('/read-all', requireAuth, requireRole('ADMIN', 'SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'DRIVER'), async (req, res) => {
   await prisma.notification.updateMany({
     where: { userId: req.user!.id, isRead: false },
     data: { isRead: true }
@@ -46,7 +48,7 @@ router.patch('/read-all', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-router.patch('/:id/read', requireAuth, async (req, res) => {
+router.patch('/:id/read', requireAuth, requireRole('ADMIN', 'SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'DRIVER'), async (req, res) => {
   const notif = await prisma.notification.findFirst({
     where: { id: req.params.id, userId: req.user!.id }
   });
@@ -70,39 +72,9 @@ const TRIGGER_SUBJECTS: Record<string, (companyName: string) => string> = {
   'Record Created':       c => `New Record Created — ${c}`,
 };
 
-async function resolveRecipients(recipients: string[], record: any): Promise<{ name: string; email: string }[]> {
-  const resolved: { name: string; email: string }[] = [];
-
-  for (const r of recipients) {
-    if (r === 'AM') {
-      const am = record.accountManager;
-      if (am) {
-        let user = await prisma.user.findFirst({
-          where: { name: { equals: am, mode: 'insensitive' }, isActive: true },
-        });
-        if (!user && am.includes(' ')) {
-          const lastName = am.split(' ').pop();
-          if (lastName) {
-            user = await prisma.user.findFirst({
-              where: { name: { contains: lastName, mode: 'insensitive' }, isActive: true },
-            });
-          }
-        }
-        if (user) resolved.push({ name: user.name, email: user.email });
-      }
-    } else if (r === 'LOGISTICS') {
-      const users = await prisma.user.findMany({ where: { role: 'LOGISTICS', isActive: true } });
-      for (const u of users) resolved.push({ name: u.name, email: u.email });
-    } else if (r === 'TASS') {
-      const users = await prisma.user.findMany({ where: { role: 'TASS', isActive: true } });
-      for (const u of users) resolved.push({ name: u.name, email: u.email });
-    }
-  }
-
-  return resolved;
-}
-
-router.post('/send-email', requireAuth, requireResource('records'), async (req, res) => {
+router.post('/send-email', requireAuth, requireResource('records'), requireRole('ADMIN', 'SALES_COORDINATOR', 'LOGISTICS', 'TASS'), asyncRoute(async (req, res) => {
+  const inputError = mailInputError(req.body);
+  if (inputError) return res.status(400).json({ error: inputError });
   const { recordId, trigger, recipients } = req.body ?? {};
   if (!recordId || !trigger || !Array.isArray(recipients) || recipients.length === 0) {
     return res.status(400).json({ error: 'recordId, trigger, and recipients[] are required' });
@@ -116,6 +88,7 @@ router.post('/send-email', requireAuth, requireResource('records'), async (req, 
   if (!record) {
     return res.status(404).json({ error: 'Record not found' });
   }
+  if (!canDispatchRecordMail(req.user!, record, trigger)) return res.status(403).json({ error: 'Email dispatch is not permitted for this record and operation' });
 
   const companyName = record.company?.name || (record as any).companyName || 'Unknown';
   const subjectFn = TRIGGER_SUBJECTS[trigger] || ((c: string) => `${trigger} — ${c}`);
@@ -129,7 +102,7 @@ router.post('/send-email', requireAuth, requireResource('records'), async (req, 
     `Updated by: ${req.user!.name}`,
   ].join('\n');
 
-  const targets = await resolveRecipients(recipients, record);
+  const targets = await recordMailRecipients(recipients, record);
 
   let sent = 0;
   let failed = 0;
@@ -152,6 +125,6 @@ router.post('/send-email', requireAuth, requireResource('records'), async (req, 
   }
 
   res.json({ ok: true, sent, failed, resolvedCount: targets.length });
-});
+}));
 
 export default router;

@@ -27,7 +27,7 @@ router.get('/', requireAuth, requireResource('suppliers'), async (_req, res) => 
   );
 });
 
-router.post('/', requireAuth, requireResource('suppliers'), requireScreen('suppliers'), requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER'), async (req, res) => {
+router.post('/', requireAuth, requireResource('suppliers', 'CREATE'), requireScreen('suppliers'), requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER'), async (req, res) => {
   const { name, contact_person, email, phone, address, city, category } = req.body ?? {};
   if (!name || !category) return res.status(400).json({ error: 'name and category are required' });
 

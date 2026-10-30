@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { DeliveryRecord, Prisma } from '@prisma/client';
 import { prisma } from '../db';
 import { asyncRoute } from '../middleware/asyncRoute';
-import { requireAuth, requireResource, requireRole, type AuthUser } from '../middleware/auth';
+import { requireAuth, requireResource, requireRole, requireAction, type AuthUser } from '../middleware/auth';
 import { serializeRecord } from '../mappings';
 import { canPerformPolicyRecordAction, canReadRecord, canReadPolicyRecord, recordScope } from '../services/recordAccess';
 import { readRmaPermissions } from '../services/rmaDispatchPermissions';
@@ -103,7 +103,7 @@ router.get('/:id/rma-capabilities', requireAuth, requireResource('records'), act
   res.json(rmaCapabilities(req.user!.rmaPermissions ?? null, row));
 }));
 
-router.patch('/:id/rma-assignment', requireAuth, requireResource('records'), requireRole('LOGISTICS', 'ADMIN'), action(async (req, res) => {
+router.patch('/:id/rma-assignment', requireAuth, requireResource('records'), requireRole('LOGISTICS', 'ADMIN'), requireAction('CATEGORY', 'RMA', 'ASSIGN'), action(async (req, res) => {
   const body = req.body ?? {};
   const remarks = input(body, ['driver_id', 'vehicle', 'driver_assistants', 'expected_version', 'remarks']);
   if (body.driver_id !== null && (typeof body.driver_id !== 'string' || !body.driver_id.trim())) throw new RmaActionError(400, 'Choose a Driver profile ID or null.');
@@ -127,7 +127,7 @@ router.patch('/:id/rma-assignment', requireAuth, requireResource('records'), req
   res.json(serializeRecord(saved, req.user));
 }));
 
-router.patch('/:id/rma-transport', requireAuth, requireResource('records'), requireRole('DRIVER'), action(async (req, res) => {
+router.patch('/:id/rma-transport', requireAuth, requireResource('records'), requireRole('DRIVER'), requireAction('CATEGORY', 'RMA', 'STATUS'), action(async (req, res) => {
   const body = req.body ?? {};
   const remarks = input(body, ['transport_status', 'expected_version', 'remarks']);
   if (!['IN_TRANSIT', 'COMPLETED'].includes(body.transport_status)) throw new RmaActionError(400, 'Choose a valid transport status.');
@@ -151,7 +151,7 @@ router.patch('/:id/rma-transport', requireAuth, requireResource('records'), requ
   res.json(serializeRecord(saved, req.user));
 }));
 
-router.post('/:id/rma-receipt', requireAuth, requireResource('records'), requireRole('TASS'), action(async (req, res) => {
+router.post('/:id/rma-receipt', requireAuth, requireResource('records'), requireRole('TASS'), requireAction('CATEGORY', 'RMA', 'RECEIVE'), action(async (req, res) => {
   const body = req.body ?? {};
   const remarks = input(body, ['recipient', 'expected_version', 'remarks']);
   if (typeof body.recipient !== 'string' || !body.recipient.trim()) throw new RmaActionError(400, 'Recipient is required to confirm physical receipt.');

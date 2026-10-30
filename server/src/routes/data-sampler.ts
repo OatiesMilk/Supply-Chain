@@ -128,7 +128,7 @@ const REF_PREFIX: Record<string, string> = {
   SALES_ORDERS: 'SAP-SO',
 };
 
-router.post('/generate', requireAuth, requireResource('dataSampler'), requireRole('ADMIN'), async (req, res) => {
+router.post('/generate', requireAuth, requireResource('dataSampler', 'WRITE'), requireRole('ADMIN'), async (req, res) => {
   try {
     const { module, count = 1, fields } = req.body ?? {};
 
@@ -302,7 +302,7 @@ export function createDataSamplerResetHandler(operations: DataSamplerResetOperat
   };
 }
 
-router.post('/reset', requireAuth, requireResource('dataSampler'), requireRole('ADMIN'), createDataSamplerResetHandler());
+router.post('/reset', requireAuth, requireResource('dataSampler', 'WRITE'), requireRole('ADMIN'), createDataSamplerResetHandler());
 
 
 export default router;

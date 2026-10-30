@@ -17,7 +17,7 @@ import { discardUpload, podStorage, podUpload } from '../services/podStorage';
 import { DELIVERY_PHOTO_REQUIRED, findVerifiedDeliveryPhoto, hasStoredDeliveryPhoto, inspectUpload, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
 import { ATTACHMENT_QUOTA_EXCEEDED, attachmentQuotaError } from '../services/attachmentRules';
 
-import { canCreateCategory, canWriteCategory, isAssignedDriver, recordScope } from '../services/recordAccess';
+import { canCreateCategory, canWriteCategory, canPerformRecordAction, isAssignedDriver, recordScope } from '../services/recordAccess';
 import { deliveryScheduleState, driverDeliveryDateError, isValidDateOnly, isoTimestamp, manilaToday, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
 import { manilaDateRange } from '../services/dateSemantics';
 import { RMA_CONTACT_FIELDS, normalizeRmaCategory, rmaInputError } from '../services/rmaRules';
@@ -28,16 +28,22 @@ import { canPerformPolicyRecordAction } from '../services/recordAccess';
 import { notifyRmaRecipients } from '../services/rmaNotifications';
 import { RMA_COMPLETION_ROLE_ERROR } from '../services/deliveryLifecycle';
 import { readRmaPermissions } from '../services/rmaDispatchPermissions';
+import { recordOperationError, recordMutationInputError } from '../services/recordOperations';
 
 const router = Router();
 const PRIORITY_LOCKED_ERROR = "Priority can't be changed after a record is Delivered.";
-const recordAccess = (allowDriverRmaPod = false) => asyncRoute(async (req, res, next) => {
+const recordAccess = (allowDriverRmaPod = false) => Object.assign(asyncRoute(async (req, res, next) => {
+  if (req.user!.activeMode === 'V1') {
+    const inputError = recordMutationInputError(req.body ?? {}, String(req.route?.path ?? ''), req.method);
+    if (inputError) return res.status(400).json({ error: inputError });
+  }
   if (req.params.id) {
     const record = await prisma.deliveryRecord.findFirst({
       where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] },
-      select: { category: true },
     });
     if (!record) return res.status(403).json({ error: 'Record access denied' });
+    const operationError = recordOperationError(req.user!, record, req.body ?? {}, String(req.route?.path ?? ''), req.method);
+    if (operationError) return res.status(operationError === 'Category relocation is not supported' ? 400 : 403).json({ error: operationError });
     if (req.method !== 'GET' && req.user!.role === 'LOGISTICS' && record.category === 'RMA') {
       return res.status(403).json({ error: 'Logistics has view-only access to RMA records' });
     }
@@ -49,7 +55,7 @@ const recordAccess = (allowDriverRmaPod = false) => asyncRoute(async (req, res, 
     if (!canCreateCategory(req.user!, category)) return res.status(403).json({ error: category === 'DELIVERY' && req.user!.role === 'LOGISTICS' ? 'Only Sales Coordinator or Admin may create Deliveries.' : 'Module access denied' });
   }
   next();
-});
+}), { recordOperations: true });
 const requireRecordAccess = recordAccess();
 const requireRecordPodAccess = recordAccess(true);
 
@@ -1041,6 +1047,12 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
   const b = req.body ?? {};
   const dbCategory = CATEGORY_TO_DB[b.category] ?? b.category;
   const isDraft = b.is_draft === 'Yes' || b.status === 'Draft';
+  if (req.user!.activeMode === 'V1') {
+    if (!canCreateCategory(req.user!, dbCategory)) return res.status(403).json({ error: 'Record creation denied' });
+    const candidate = { category: dbCategory, draft: isDraft, status: 'SCHEDULED', deliveryDate: b.delivery_date, driverId: null, rmaMovement: b.rma_movement };
+    if (Array.isArray(b.attachments) && b.attachments.length && !canPerformRecordAction(req.user!, candidate, 'POD')) return res.status(403).json({ error: 'Document changes denied' });
+    if (b.vehicle && b.vehicle !== '(None)' && !canPerformRecordAction(req.user!, candidate, 'ASSIGN')) return res.status(403).json({ error: 'Vehicle assignment denied' });
+  }
   const referenceField = dbCategory === 'RMA' ? 'rma_reference' : 'reference';
   const required = isDraft || dbCategory === 'RMA'
     ? ['company_id', 'category']
@@ -1741,7 +1753,9 @@ router.post('/:id/comments', requireAuth, requireResource('records'), requireRec
     await lockPodRecord(tx, record.id);
     const current = await tx.deliveryRecord.findUnique({ where: { id: record.id } });
     const policy = await readRmaPermissions(tx, req.user!.id);
-    if (!current || current.deletedAt || !policy || !canPerformPolicyRecordAction(policy, current, 'COMMENT', { path: 'rma' })) return null;
+    if (!current || current.deletedAt || !policy || !canPerformPolicyRecordAction(policy, current, 'COMMENT', {
+      path: req.user!.role === 'DRIVER' ? 'driver_dashboard' : 'rma', rmaTransport: rmaTransportContext(current),
+    })) return null;
     return tx.comment.create(commentInput);
   }) : await prisma.comment.create(commentInput);
   if (!comment) return res.status(403).json({ error: 'RMA comments are not permitted.' });

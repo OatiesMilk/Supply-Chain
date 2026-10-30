@@ -5,6 +5,7 @@ import { hasActionPermission, type EffectivePermissionSnapshot } from './permiss
 export { transactionCategories } from './recordAccess';
 
 export function canAccessTransactions(user: AuthUser): boolean {
+  if (user.activeMode === 'V1') return !!user.snapshot && canAccessPolicyTransactions(user.snapshot);
   if (!transactionCategories(user.role).length) return false;
   // Driver access is scoped API access for the standalone driver application;
   // it does not grant the Transaction Center screen or any inventory resource.
@@ -13,6 +14,7 @@ export function canAccessTransactions(user: AuthUser): boolean {
 }
 
 export function canAccessInventoryTransactions(user: AuthUser): boolean {
+  if (user.activeMode === 'V1') return !!user.snapshot && canAccessPolicyInventoryTransactions(user.snapshot);
   return ['ADMIN', 'SALES_COORDINATOR', 'LOGISTICS'].includes(user.role)
     && user.resources.includes('skus');
 }
