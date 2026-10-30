@@ -25,7 +25,8 @@
     "drivers:identity-report": "tsx prisma/report-driver-identity.ts",
     "drivers:migrate-coverage": "tsx prisma/migrate-driver-coverage.ts",
     "db:clean": "prisma migrate reset --force",
-    "permissions:backfill": "tsx prisma/backfill-permissions.ts"
+    "permissions:backfill": "tsx prisma/backfill-permissions.ts",
+    "permissions:provision-local": "tsx prisma/provision-local-permissions.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
