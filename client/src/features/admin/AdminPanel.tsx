@@ -499,7 +499,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
       </div>
 
       {/* ── Tab 1: User Management ── */}
-      {tab === 'permissions' && <RolesPermissions users={users} />}
+      {tab === 'permissions' && <RolesPermissions users={users} usersLoading={usersLoading} usersError={usersError} onRetryUsers={loadUsers} />}
       {tab === 'users' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
