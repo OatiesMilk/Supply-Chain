@@ -40,12 +40,12 @@ export function driverCoverageMatch(coverage: readonly string[], recordArea: str
 }
 
 /** Splits Drivers into dropdown groups: exact Area, explicit Subregion, then everyone else. */
-export function rankDriversByCoverage(
-  drivers: readonly string[],
-  coverageOf: (driver: string) => readonly string[] | undefined,
+export function rankDriversByCoverage<T>(
+  drivers: readonly T[],
+  coverageOf: (driver: T) => readonly string[] | undefined,
   recordArea: string,
-): { area: string[]; subregion: string[]; other: string[]; subregionName: string | null } {
-  const groups = { area: [] as string[], subregion: [] as string[], other: [] as string[] };
+): { area: T[]; subregion: T[]; other: T[]; subregionName: string | null } {
+  const groups = { area: [] as T[], subregion: [] as T[], other: [] as T[] };
   for (const driver of drivers) {
     const match = driverCoverageMatch(coverageOf(driver) ?? [], recordArea);
     groups[match ?? 'other'].push(driver);

@@ -12,6 +12,7 @@ import { invalidateOperationalQueries, normalizeApiRecord, saveRecordToCache, us
 import { operationalSyncOptions } from '@/api/queries/operationalSync';
 import { RMA_MOVEMENT_LABELS, RMA_TRANSPORT_LABELS } from '@/utils/rmaTransport';
 import { formatManilaTimestamp } from '@/utils/manilaTimestamp';
+import { rankDriversByCoverage } from '@/utils/driverCoverage';
 
 type Action = 'assign' | 'start' | 'transport-complete' | 'receive' | 'complete' | 'status';
 
@@ -117,6 +118,8 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
   const busy = mutation.isPending;
   const canSave = !!remarks.trim() && !busy && !staleForm && !detail.isError && !capabilities.isError;
   const drivers = (directory.data ?? []).filter(entry => entry.type === 'DRIVER' && entry.is_active);
+  const rankedDrivers = rankDriversByCoverage(drivers, entry => entry.coverage_areas, record.area);
+  const coveringCount = rankedDrivers.area.length + rankedDrivers.subregion.length;
   const assistantOptions = (directory.data ?? []).filter(entry => entry.type === 'ASSISTANT' && entry.is_active);
   const canStart = caps?.transport && record.rma_transport_status === 'PENDING';
   const canFinishTransport = caps?.transport && record.rma_transport_status === 'IN_TRANSIT';
@@ -152,7 +155,15 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
         <select id={`${id}-driver`} value={driverId} className={input} disabled={directory.isPending || directory.isError} onChange={event => { beginEdit(); setDriverId(event.target.value); }}>
           <option value="">Unassigned</option>
           {record.driver_id && !drivers.some(entry => entry.id === record.driver_id) && <option value={record.driver_id}>{record.driver} (current)</option>}
-          {drivers.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+          {rankedDrivers.area.length > 0 && <optgroup label={`Covers ${record.area}`}>
+            {rankedDrivers.area.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+          </optgroup>}
+          {rankedDrivers.subregion.length > 0 && <optgroup label={`Covers ${rankedDrivers.subregionName} (subregion)`}>
+            {rankedDrivers.subregion.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+          </optgroup>}
+          {rankedDrivers.other.length > 0 && <optgroup label={coveringCount > 0 ? 'Other drivers' : 'All drivers'}>
+            {rankedDrivers.other.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+          </optgroup>}
         </select>
       </div>
       <div className="space-y-1 text-sm font-semibold"><label htmlFor={`${id}-vehicle`}>Vehicle</label>

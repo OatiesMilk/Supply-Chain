@@ -1,11 +1,24 @@
 # GH-236: RMA lifecycle
 
-The repository owner approved this policy in the implementation chat on
-2026-10-27. TASS and Admin manage RMA creation, submission, progress and
-completion. Logistics remains read-only; Sales Coordinator and Driver cannot
-access RMA records. Supplier-specific collection features remain in GH-231.
+**Historical implementation record — superseded by the RMA dispatch workflow
+in issue #255.** Use [RMA_DISPATCH_IMPLEMENTATION.md](RMA_DISPATCH_IMPLEMENTATION.md)
+for current role boundaries, actions and permission activation.
 
-## Status transitions
+Currently, TASS creates/submits the RMA and selects its movement method.
+For submitted **Logistics transport** records, Logistics assigns the Driver,
+vehicle and assistants through **Status & Actions**. The assigned Driver starts
+and completes transport with proof. Only TASS confirms physical receipt and
+performs final RMA completion; Admin cannot bypass these two actions. General
+RMA metadata remains read-only for Logistics. Logistics assignment and Driver
+transport require the separate activation documented in the current runbook.
+
+The sections below preserve the original 2026-10-27 implementation and its
+verification results; they do not describe the current dispatch or completion
+requirements. At that time TASS and Admin managed completion, Logistics had
+read-only access, and Driver had no RMA access. Those boundaries and the
+completion timestamp/POD behavior were subsequently revised by #255.
+
+## Historical status transitions
 
 | Current status | Allowed next statuses |
 | --- | --- |
@@ -23,7 +36,7 @@ Scheduled RMA back to In Transit. A rescheduled RMA must return to
 Scheduled or On-Hold before completion; the server supplies the same permitted
 choices displayed by the client.
 
-## Completion
+## Historical completion
 
 The **Complete RMA** action requires nonblank remarks and a recipient/collector
 name. It does not require an internal driver, delivery Time In, scheduled
@@ -39,7 +52,7 @@ existing locked transaction. The completion timestamp uses the existing
 no schema migration is needed. Historical Time In values are not fabricated or
 erased. Existing internal Delivery transitions and proof requirements remain.
 
-## Verification
+## Historical verification
 
 - Server regression coverage: `server/tests/podRequirements.test.ts` exercises
   the approved graph, allowed and rejected role/status requests, missing

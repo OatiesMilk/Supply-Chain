@@ -82,14 +82,24 @@ test('TASS confirms physical receipt separately before final completion without 
   } finally { await ui.close(); }
 });
 
-test('Logistics has bounded assignment in its read-only workspace and refused saves preserve the edit', async () => {
-  const ui = await fixture(); const record = base({ rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'PENDING' });
+test('Logistics reuses coverage-ranked assignment in its read-only workspace and refused saves preserve the edit', async () => {
+  const ui = await fixture(); const record = base({ area: 'Imus, Cavite', rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'PENDING' });
   mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []); mock.method(api, 'getRmaCapabilities', async () => ({ ...none, assign: true }));
-  mock.method(api, 'getDrivers', async () => [{ id: 'driver-a', name: 'Driver A', type: 'DRIVER', is_active: true }] as any);
+  mock.method(api, 'getDrivers', async () => [
+    { id: 'driver-other', name: 'Other Driver', type: 'DRIVER', is_active: true, coverage_areas: [] },
+    { id: 'driver-subregion', name: 'Subregion Driver', type: 'DRIVER', is_active: true, coverage_areas: ['Cavite'] },
+    { id: 'driver-a', name: 'Driver A', type: 'DRIVER', is_active: true, coverage_areas: ['Imus, Cavite'] },
+    { id: 'driver-inactive', name: 'Inactive Driver', type: 'DRIVER', is_active: false, coverage_areas: ['Imus, Cavite'] },
+    { id: 'assistant-a', name: 'Assistant A', type: 'ASSISTANT', is_active: true, coverage_areas: ['Imus, Cavite'] },
+  ] as any);
   let rejectSave: () => void = () => {}; const assignment = mock.method(api, 'assignRma', async () => new Promise((_done, reject) => { rejectSave = () => reject(new Error('Save refused; retry')); }));
   try {
     await ui.render(record, 'Logistics', true); assert.equal(ui.button('Edit'), undefined);
-    await act(async () => ui.button('Status & Actions')!.click()); await ui.flush(); await ui.input('Driver', 'driver-a'); await ui.input('Remarks', 'Assign today');
+    await act(async () => ui.button('Status & Actions')!.click()); await ui.flush();
+    const driverSelect = ui.field('Driver') as HTMLSelectElement;
+    assert.deepEqual([...driverSelect.querySelectorAll('optgroup')].map(group => group.label), ['Covers Imus, Cavite', 'Covers Cavite (subregion)', 'Other drivers']);
+    assert.deepEqual([...driverSelect.options].map(option => option.value), ['', 'driver-a', 'driver-subregion', 'driver-other']);
+    await ui.input('Driver', 'driver-a'); await ui.input('Remarks', 'Assign today');
     await act(async () => ui.button('Save assignment')!.click()); await ui.flush(); assert.equal(ui.button('Save assignment')!.disabled, true);
     await act(async () => rejectSave()); await ui.flush(); assert.match(ui.dom.window.document.body.textContent!, /Save refused; retry/);
     assert.equal(ui.field('Driver').value, 'driver-a'); assert.equal(ui.field('Remarks').value, 'Assign today');

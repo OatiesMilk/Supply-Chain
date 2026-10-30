@@ -83,11 +83,17 @@ activation. The frozen no-expansion backfill is intentionally unchanged and
 must not run after activating/customizing role policies.
 
 RMA access fails closed when the permission foundation is missing/incomplete.
-Prepare the foundation before enabling this application version. The explicit
-feature activation command, run from `server` against the reviewed target, is:
+For an existing local development database, first complete
+[`permissions:provision-local`](PERMISSION_FOUNDATION.md#existing-local-development-database-missing-the-foundation)
+and verify all account conversions. Provisioning the baseline restores TASS
+creation; Logistics assignment and Driver transport require the separate
+activation below. Run it from `server` with the reviewed target supplied
+explicitly in `DATABASE_URL`:
 
 ```bash
-RMA_DISPATCH_ADMIN_ID=<active-admin-user-id> npx tsx prisma/activate-rma-dispatch.ts
+DATABASE_URL='<reviewed-postgresql-connection>' \
+RMA_DISPATCH_ADMIN_ID='<active-admin-user-id>' \
+npm run permissions:activate-rma-dispatch
 ```
 
 This grants only the approved Logistics assignment and Driver RMA transport
@@ -98,6 +104,15 @@ before/after policies and leaves individual overrides untouched. Customized
 policies are reported in `skipped` and produce a nonzero exit: their responsible
 Admin must review/enable the bounded actions explicitly. No customized Deny is
 silently overwritten. Admin/TASS defaults already contain their approved actions.
+
+After activation, refresh the Logistics and Driver sessions. Logistics opens a
+submitted RMA with movement **Logistics transport**, then uses **Status &
+Actions → Save assignment** to assign the Driver, vehicle and assistants. The
+assigned Driver uses **Start transport** and **Complete transport** on or after
+the planned date. TASS separately confirms physical receipt and completes the
+RMA. Drafts, supplier/internal movements and historical records without an
+explicit movement do not become dispatch work merely because permissions were
+activated. TASS must review and classify historical records individually.
 
 For rollback, retain the additive columns and audit evidence. Restore reviewed
 policy defaults through revision-checked administration, and roll back the app
