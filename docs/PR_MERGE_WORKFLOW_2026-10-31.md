@@ -1,6 +1,28 @@
 # Merge workflow — 2026-10-31
 
-These are instructions for later; no PR has been merged by this task.
+## Status after the requested rebase
+
+PRs [#268](https://github.com/OatiesMilk/Supply-Chain/pull/268) and
+[#269](https://github.com/OatiesMilk/Supply-Chain/pull/269) have been merged by their
+maintainers. PR [#270](https://github.com/OatiesMilk/Supply-Chain/pull/270) has now
+been rebased onto `dev` commit `75640f2f008bcfab6d7831a4b7133aa4cc33d601`, dropping
+its old prerequisite commit. Its follow-up changes and the Playwright loading-row
+fix remain intact. The agent did not merge any PR.
+
+The old-parent `--onto` operation below has already been performed. Do not repeat
+it against the rebased branch. For later updates, use a clean checkout, preserve a
+backup, fetch the latest refs and run `git rebase origin/dev`; then inspect the diff,
+retest and push with `--force-with-lease` if history changed.
+
+The remaining merge gate is review and green CI for the current #270 head.
+The AI guidance/report publication in
+[#271](https://github.com/OatiesMilk/Supply-Chain/pull/271) is independent of #270.
+Deploy matching frontend/backend after the implementation is merged and approved
+for deployment, preserving the compatibility and verification notes below.
+
+## Original dependency procedure (historical)
+
+The following records the original merge plan before #268/#269 landed.
 
 | Order | PR / branch | Dependency |
 | --- | --- | --- |
