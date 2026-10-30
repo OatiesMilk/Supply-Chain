@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "test:permissions": "playwright test --config permissions.config.ts",
+    "test:permissions:live": "playwright test --config permissions-live.config.ts",
     "test": "playwright test --config playwright.config.ts",
     "test:sc": "playwright test --config playwright.config.ts --project='Sales Coordinator'",
     "test:logistics": "playwright test --config playwright.config.ts --project='Logistics'",
