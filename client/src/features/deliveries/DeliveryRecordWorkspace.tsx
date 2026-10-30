@@ -2058,6 +2058,10 @@ function RecordWorkspace({
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError]     = useState<string | null>(null);
   const [docSize, setDocSize]       = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [pdfPreviewBlob, setPdfPreviewBlob] = useState<Blob | null>(null);
+  const [pdfFileName, setPdfFileName] = useState('');
+  useEffect(() => () => { if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl); }, [pdfPreviewUrl]);
 
   const handleDownloadPdf = async () => {
     setPdfLoading(true);
@@ -2070,7 +2074,11 @@ function RecordWorkspace({
         api.getRecordAttachments(record.id),
       ]);
       const docData: ManifestDocumentationData = { auditEntries, remarks, comments, attachments };
-      await printSingleManifest(record, companies, docData, docSize);
+      const blob = await printSingleManifest(record, companies, docData, docSize);
+      const url = URL.createObjectURL(blob);
+      setPdfPreviewBlob(blob);
+      setPdfFileName(`manifest-${record.id}-${record.delivery_date}.pdf`);
+      setPdfPreviewUrl(url);
     } catch (err: any) {
       setPdfError(err.message ?? 'Failed to generate PDF. Please try again.');
     } finally {
@@ -2239,6 +2247,20 @@ function RecordWorkspace({
         })}
         renderPanel={renderTabContent}
       />
+      {pdfPreviewUrl && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4" role="dialog" aria-modal="true" aria-label="PDF preview">
+          <div className="flex h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-slate-950 shadow-2xl">
+            <div className="flex items-center justify-between px-4 py-3 text-white">
+              <div className="min-w-0"><p className="truncate text-sm font-semibold">{pdfFileName}</p><p className="text-xs text-slate-400">PDF preview</p></div>
+              <button type="button" onClick={() => setPdfPreviewUrl(null)} className="rounded p-2 hover:bg-white/10" aria-label="Close preview"><XCircle className="h-5 w-5" /></button>
+            </div>
+            <iframe title="Generated delivery PDF preview" src={pdfPreviewUrl} className="min-h-0 flex-1 bg-white" />
+            <div className="flex justify-center p-4">
+              <button type="button" onClick={() => { if (!pdfPreviewBlob) return; const link = document.createElement('a'); link.href = URL.createObjectURL(pdfPreviewBlob); link.download = pdfFileName; link.click(); URL.revokeObjectURL(link.href); }} className="flex items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-100"><Download className="h-4 w-4" />Download PDF</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

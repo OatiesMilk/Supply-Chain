@@ -272,6 +272,23 @@ test('DOCX conversion failure returns a distinct actionable preview error', asyn
   assert.equal(recovered.status, 200, 'conversion failure must release its shared slot');
 });
 
+test('DOCX storage failure returns a safe error and releases its shared slot', async () => {
+  stub(prisma.deliveryRecord, 'findFirst', async () => deliveryRecord as any);
+  stub(prisma.podAttachment, 'findFirst', async () => docxAttachment as any);
+  let shouldFail = true;
+  stub(podStorage as any, 'read', async () => {
+    if (shouldFail) { shouldFail = false; throw new Error('private storage key and document bytes'); }
+    return makeDocxBuffer('storage recovered');
+  });
+
+  const failed = await previewRequest('att-docx');
+  assert.equal(failed.status, 500);
+  assert.match(String(failed.body?.error), /preview could not be generated/i);
+  assert.doesNotMatch(JSON.stringify(failed.body), /private storage key|document bytes/i);
+  const recovered = await previewRequest('att-docx');
+  assert.equal(recovered.status, 200, 'storage failure must release its shared slot');
+});
+
 test('DOCX preview returns a controlled download-friendly error when generated HTML exceeds its budget', async () => {
   stub(prisma.deliveryRecord, 'findFirst', async () => deliveryRecord as any);
   stub(prisma.podAttachment, 'findFirst', async () => docxAttachment as any);
@@ -279,6 +296,26 @@ test('DOCX preview returns a controlled download-friendly error when generated H
   const r = await previewRequest('att-docx');
   assert.equal(r.status, 413);
   assert.match(String(r.body?.error), /too large to preview/i);
+  assert.match(String(r.body?.error), /download the file/i);
+});
+
+test('DOCX preview stops embedding repeated images when cumulative generated image data exceeds its budget', async () => {
+  stub(prisma.deliveryRecord, 'findFirst', async () => deliveryRecord as any);
+  stub(prisma.podAttachment, 'findFirst', async () => docxAttachment as any);
+  stub(podStorage as any, 'read', async () => makeDocxBuffer('repeated image references'));
+  let secondImageSource = 'not-called';
+  stub(mammoth as any, 'convertToHtml', async (_input: unknown, options: any) => {
+    const convertImage = options.convertImage as (image: unknown) => Promise<{ src: string }>;
+    const image = { contentType: 'image/png', readAsBuffer: async () => Buffer.alloc(4 * 1024 * 1024) };
+    const firstImage = await convertImage(image) as any[];
+    secondImageSource = (await convertImage(image) as any[])[0].tag.attributes.src;
+    assert.match(firstImage[0].tag.attributes.src, /^data:image\/png;base64,/);
+    return { value: '<p>small document text</p>', messages: [] };
+  });
+
+  const r = await previewRequest('att-docx');
+  assert.equal(r.status, 413);
+  assert.equal(secondImageSource, '', 'the over-budget image is not expanded to base64 or added to HTML');
   assert.match(String(r.body?.error), /download the file/i);
 });
 

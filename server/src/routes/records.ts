@@ -948,8 +948,23 @@ router.get('/:id/attachments/:attachmentId/preview', requireAuth, requireResourc
       if (archive !== 'valid') throw new Error('Invalid DOCX preview archive');
 
       // The 32 MiB actual expansion cap bounds Mammoth's archive/XML/image
-      // working set; this independent cap limits the sanitized response too.
-      const { value: convertedHtml } = await mammoth.convertToHtml({ buffer: bytes });
+      // working set. Repeated references can inline one image many times, so
+      // cap cumulative generated image data before Mammoth adds it to the HTML.
+      let embeddedImageOutputBytes = 0;
+      let embeddedImageOutputExceeded = false;
+      const { value: convertedHtml } = await mammoth.convertToHtml({ buffer: bytes }, {
+        convertImage: mammoth.images.imgElement(async image => {
+          const imageBytes = await image.readAsBuffer();
+          const base64Length = Math.ceil(imageBytes.length / 3) * 4;
+          if (embeddedImageOutputBytes + base64Length > DOCX_PREVIEW_MAX_OUTPUT_BYTES) {
+            embeddedImageOutputExceeded = true;
+            return { src: '' };
+          }
+          embeddedImageOutputBytes += base64Length;
+          return { src: `data:${image.contentType};base64,${imageBytes.toString('base64')}` };
+        }),
+      });
+      if (embeddedImageOutputExceeded) return { kind: 'oversized' as const };
       if (Buffer.byteLength(convertedHtml, 'utf8') > DOCX_PREVIEW_MAX_OUTPUT_BYTES) return { kind: 'oversized' as const };
       const bodyHtml = sanitizeHtml(convertedHtml, {
         allowedTags: ['p', 'br', 'div', 'span', 'strong', 'em', 'b', 'i', 'u', 's', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'a', 'img'],
