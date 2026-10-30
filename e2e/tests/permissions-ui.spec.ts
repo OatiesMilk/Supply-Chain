@@ -25,19 +25,22 @@ async function mount(page: import('@playwright/test').Page, role = 'SALES_COORDI
   await page.addStyleTag({ content: css });
   await page.addScriptTag({ content: script });
   await page.evaluate(({ role, conflict }) => (window as any).mountPermissions(role, conflict), { role, conflict });
-  await expect(page.getByLabel('Filter permissions')).toBeVisible();
+  await expect(page.getByLabel('Search permission modules')).toBeVisible();
   // Loading a CSS file alone is not evidence it parsed and applied correctly.
-  await expect(page.locator('section [class*="max-h-"]')).toHaveCSS('max-height', '512px');
+  await expect(page.getByRole('region', { name: 'Permission matrix', exact: true })).toHaveCSS('max-height', '544px');
   await expect(page.locator('section [class*="max-h-"]')).toHaveCSS('overflow-y', 'auto');
 }
 
 test('keyboard focus, labelled controls and actual CSS fit the viewport', async ({ page }, testInfo) => {
   await mount(page);
   await page.screenshot({ path: testInfo.outputPath('permission-editor.png') });
-  const filter = page.getByLabel('Filter permissions');
+  const filter = page.getByLabel('Search permission modules');
   await filter.focus(); await expect(filter).toBeFocused();
-  await page.keyboard.type('screen main read');
+  await page.keyboard.type('main');
   const policy = page.getByRole('combobox', { name: 'SCREEN:main:READ', exact: true });
+  await page.keyboard.press('Tab'); await expect(page.getByLabel('Permission scope')).toBeFocused();
+  await page.keyboard.press('Tab'); await expect(page.getByRole('button', { name: 'Clear module filters', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab'); await expect(page.getByRole('region', { name: 'Permission matrix', exact: true })).toBeFocused();
   await page.keyboard.press('Tab'); await expect(policy).toBeFocused();
   await expect(policy).toHaveValue('INHERIT');
   const outline = await policy.evaluate(element => getComputedStyle(element).outlineStyle);
@@ -47,14 +50,16 @@ test('keyboard focus, labelled controls and actual CSS fit the viewport', async 
 
 test('protected Admin controls stay locked and denied Allow options explain restrictions', async ({ page }) => {
   await mount(page, 'ADMIN');
-  await page.getByLabel('Filter permissions').fill('resource users write');
+  await page.getByLabel('Search permission modules').fill('users');
+  await page.getByLabel('Permission scope').selectOption('RESOURCE');
   await expect(page.getByRole('combobox', { name: 'RESOURCE:users:WRITE', exact: true })).toBeDisabled();
-  await expect(page.getByText('Protected Admin management — locked Allow.')).toBeVisible();
+  await expect(page.getByText('Protected Admin', { exact: true }).first()).toBeVisible();
 });
 
 test('409 keeps draft until refreshed review, announces status, and guards unsaved navigation', async ({ page }) => {
   await mount(page, 'SALES_COORDINATOR', true);
-  await page.getByLabel('Filter permissions').fill('screen main read');
+  await page.getByLabel('Search permission modules').fill('main');
+  await page.getByLabel('Permission scope').selectOption('SCREEN');
   const policy = page.getByRole('combobox', { name: 'SCREEN:main:READ', exact: true });
   await policy.selectOption('DENY');
   await page.getByRole('button', { name: 'Save permissions', exact: true }).click();

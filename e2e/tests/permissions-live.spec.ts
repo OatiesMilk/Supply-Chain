@@ -44,10 +44,16 @@ async function permissionsTab(page: Page) {
 async function openUser(page: Page) {
   await permissionsTab(page);
   await page.getByRole('combobox', { name: 'Individual account', exact: true }).selectOption(target);
-  await expect(page.getByLabel('Filter permissions')).toBeVisible();
+  await expect(page.getByLabel('Search permission modules')).toBeVisible();
+  await page.getByRole('button', { name: 'Edit permissions', exact: true }).click();
 }
 async function selectPolicy(page: Page, key: string, effect: string) {
-  await page.getByLabel('Filter permissions').fill(key.replaceAll(':', ' '));
+  await expect(page.getByLabel('Search permission modules')).toBeVisible();
+  const edit = page.getByRole('button', { name: 'Edit permissions', exact: true });
+  if (await edit.isVisible()) await edit.click();
+  const [scope, module] = key.split(':');
+  await page.getByLabel('Search permission modules').fill(module);
+  await page.getByLabel('Permission scope').selectOption(scope);
   await page.getByRole('combobox', { name: key, exact: true }).selectOption(effect);
 }
 async function save(page: Page, expectedStatus = 200) {
@@ -102,7 +108,7 @@ test.describe.serial('GH250 actual application permission workflow', () => {
       await expect(userPage.getByRole('button', { name: 'New Customer', exact: true })).toBeVisible();
       const original = (await user.cookies()).find(cookie => cookie.name === 'mg_session')!.value;
       await permissionsTab(adminPage);
-      await adminPage.getByRole('button', { name: 'logistics', exact: true }).click();
+      await adminPage.getByRole('button', { name: 'Edit Logistics permissions', exact: true }).click();
       for (const key of customerWrites) await selectPolicy(adminPage, key, 'DENY');
       await save(adminPage);
       await refresh(userPage);
@@ -153,18 +159,24 @@ test.describe.serial('GH250 actual application permission workflow', () => {
       await save(a);
       await a.getByRole('button', { name: 'Close editor', exact: true }).click();
       await a.getByRole('combobox', { name: 'Individual account', exact: true }).selectOption('gh250-live-admin2');
-      await a.getByLabel('Filter permissions').fill('resource users write');
+      await a.getByRole('button', { name: 'Edit permissions', exact: true }).click();
+      await a.getByLabel('Search permission modules').fill('users');
+      await a.getByLabel('Permission scope').selectOption('RESOURCE');
       await expect(a.getByRole('combobox', { name: 'RESOURCE:users:WRITE', exact: true })).toBeDisabled();
       await a.getByRole('button', { name: 'Close editor', exact: true }).click();
       await a.getByRole('combobox', { name: 'Individual account', exact: true }).selectOption(target);
+      await a.getByRole('button', { name: 'Edit permissions', exact: true }).click();
       await a.setViewportSize({ width: 390, height: 844 });
-      const filter = a.getByLabel('Filter permissions'); await filter.focus(); await a.keyboard.type('screen main read');
+      const filter = a.getByLabel('Search permission modules'); await filter.focus(); await a.keyboard.type('main');
+      await a.keyboard.press('Tab'); await expect(a.getByLabel('Permission scope')).toBeFocused();
+      await a.keyboard.press('Tab'); await expect(a.getByRole('button', { name: 'Clear module filters', exact: true })).toBeFocused();
+      await a.keyboard.press('Tab'); await expect(a.getByRole('region', { name: 'Permission matrix', exact: true })).toBeFocused();
       await a.keyboard.press('Tab');
       await expect(a.getByRole('combobox', { name: 'SCREEN:main:READ', exact: true })).toBeFocused();
       await selectPolicy(a, 'SCREEN:main:READ', 'INHERIT');
       a.once('dialog', dialog => dialog.dismiss());
       await a.getByRole('button', { name: 'System Audit Log', exact: true }).click();
-      await expect(a.getByLabel('Filter permissions')).toBeVisible();
+      await expect(a.getByLabel('Search permission modules')).toBeVisible();
       expect(await a.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await a.screenshot({ path: testInfo.outputPath('actual-admin-narrow.png') });
       await a.getByRole('button', { name: 'Cancel changes', exact: true }).click();
