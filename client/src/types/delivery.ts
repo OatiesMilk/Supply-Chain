@@ -34,7 +34,7 @@ export interface OutputActionConfig {
   notifyLogistics: boolean;
   notifyTASS: boolean;
   exportPDF: boolean;
-  internalOnly: boolean; // when true, suppresses all of the above
+  internalOnly: boolean; // suppresses these additional outputs; server workflow notifications remain independent
 }
 
 export interface OutputActionLogEntry {

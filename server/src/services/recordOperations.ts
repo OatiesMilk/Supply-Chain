@@ -24,7 +24,9 @@ export function recordOperationError(user: AuthUser, record: RecordContext, body
   const allowed = (action: Parameters<typeof canPerformRecordAction>[2], target?: RunState, correction = false) => canPerformRecordAction(user, record, action, target, correction);
   if (route.includes('/attachments')) return allowed('POD') ? null : 'Attachment changes denied';
   if (route.endsWith('/comments')) return allowed('COMMENT') ? null : 'Record comments denied';
-  if (route.endsWith('/verify-collection')) return allowed('VERIFY_COLLECTION') ? null : 'Collection verification denied';
+  // Authorize the action independently of mutable verification state. The
+  // handler rechecks lifecycle under its lock and returns a conflict on repeats.
+  if (route.endsWith('/verify-collection')) return allowed('VERIFY_COLLECTION', undefined, true) ? null : 'Collection verification denied';
   if (route.endsWith('/time-in')) return allowed('TIME_IN') ? null : 'Time In denied';
   if (route.endsWith('/status')) {
     const target = body.status as RunState;

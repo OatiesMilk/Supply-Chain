@@ -6,7 +6,6 @@ import { prisma } from '../db';
 import { asyncRoute } from '../middleware/asyncRoute';
 import { assignmentError, resolveDriverAssignment, withDriverDirectoryLock, type DriverChange } from '../services/driverDirectory';
 import { requireAuth, requireRole, requireResource } from '../middleware/auth';
-import { writeAuditLog } from '../services/audit';
 import { visibleRecordAuditSnapshots } from '../services/recordAuditVisibility';
 import { notifyAccomplished } from '../services/notify';
 import { notifyRole, notifyUser } from '../services/inAppNotify';
@@ -29,8 +28,11 @@ import { notifyRmaRecipients } from '../services/rmaNotifications';
 import { RMA_COMPLETION_ROLE_ERROR } from '../services/deliveryLifecycle';
 import { readRmaPermissions } from '../services/rmaDispatchPermissions';
 import { recordOperationError, recordMutationInputError } from '../services/recordOperations';
+import { recordSubmissionError } from '../services/recordSubmission';
+import { generateRecordId } from '../services/recordIds';
 
 const router = Router();
+class RecordSubmissionError extends Error {}
 const PRIORITY_LOCKED_ERROR = "Priority can't be changed after a record is Delivered.";
 const recordAccess = (allowDriverRmaPod = false) => Object.assign(asyncRoute(async (req, res, next) => {
   if (req.user!.activeMode === 'V1') {
@@ -69,14 +71,6 @@ const recordInclude = {
   },
   podAttachments: { orderBy: { createdAt: 'desc' as const } }
 };
-
-function randInt(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function generateRecordId(): string {
-  return `REC-${randInt(10000, 49999)}`;
-}
 
 const TASS_CATEGORIES: string[] = ['ACCOUNTING_COLLECTION', 'RMA'];
 const LIST_ID_PATTERN = /^[\w-]{1,64}$/;
@@ -1112,8 +1106,8 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
     return res.status(403).json({ error: 'Sales Coordinator cannot assign drivers — use the Logistics role' });
   }
 
-  if (dbCategory !== 'RMA' && !isDraft && !b[referenceField]?.trim()) return res.status(400).json({ error: 'Reference is required' });
-  if (dbCategory !== 'RMA' && !isDraft && !b.delivery_date) return res.status(400).json({ error: 'Delivery Date is required' });
+  const submissionError = !isDraft && recordSubmissionError({ category: dbCategory, reference: b.reference, deliveryDate: b.delivery_date });
+  if (submissionError) return res.status(400).json({ error: submissionError });
   if (b.delivery_date !== undefined && b.delivery_date !== '' && !isValidDateOnly(b.delivery_date)) return res.status(400).json({ error: 'Delivery Date must be a valid YYYY-MM-DD date.' });
   if (b.priority !== undefined && !['1 - Low', '2 - Moderate', '3 - High'].includes(b.priority)) return res.status(400).json({ error: 'Invalid record priority.' });
   if (b.status && !['Draft', 'Scheduled'].includes(b.status)) return res.status(400).json({ error: 'New records must be Draft or Scheduled.' });
@@ -1123,51 +1117,51 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
   let created: Prisma.DeliveryRecordGetPayload<{ include: typeof recordInclude }>;
   try {
     created = await prisma.$transaction(async tx => {
-      const created = await tx.deliveryRecord.create({
-        data: {
-          id: generateRecordId(),
-          companyId: b.company_id,
-          priority: b.priority ?? '2 - Moderate',
-          reference: dbCategory === 'RMA' ? '' : (b.reference ?? ''),
-          rmaReference: dbCategory === 'RMA' && typeof b.rma_reference === 'string' ? b.rma_reference.trim() || null : null,
-          legacySapReference: null,
-          remarks: b.remarks ?? '',
-          status: 'SCHEDULED',
-          vehicle: b.vehicle ?? '(None)',
-          area: b.area ?? '',
-          driver: '',
-          driverAssistants: '[]',
-          timeIn: null,
-          timeOut: null,
-          receivedBy: null,
-          accountManager: b.account_manager ?? '',
-          deliveryDate: b.delivery_date ?? '',
-          category: dbCategory as any,
-          itemType: b.item_type ?? 'Small Item',
-          draft: isDraft,
-          rmaType: dbCategory === 'RMA' ? normalizeRmaCategory(b.rma_type) : null,
-          rmaMovement: dbCategory === 'RMA' ? b.rma_movement || null : null,
-          rmaTransportStatus: dbCategory === 'RMA' && b.rma_movement === 'LOGISTICS_TRANSPORT' ? 'PENDING' : null,
-          purchaseDate: dbCategory === 'RMA' ? (b.purchase_date || null) : null,
-          customerContactName: dbCategory === 'RMA' && typeof b.customer_contact_name === 'string' ? b.customer_contact_name.trim() || null : null,
-          customerContactEmail: dbCategory === 'RMA' && typeof b.customer_contact_email === 'string' ? b.customer_contact_email.trim() || null : null,
-          customerContactPhone: dbCategory === 'RMA' && typeof b.customer_contact_phone === 'string' ? b.customer_contact_phone.trim() || null : null,
+      const data: Prisma.DeliveryRecordUncheckedCreateInput = {
+        id: generateRecordId(),
+        companyId: b.company_id,
+        priority: b.priority ?? '2 - Moderate',
+        reference: dbCategory === 'RMA' ? '' : (b.reference ?? ''),
+        rmaReference: dbCategory === 'RMA' && typeof b.rma_reference === 'string' ? b.rma_reference.trim() || null : null,
+        legacySapReference: null,
+        remarks: b.remarks ?? '',
+        status: 'SCHEDULED',
+        vehicle: b.vehicle ?? '(None)',
+        area: b.area ?? '',
+        driver: '',
+        driverAssistants: '[]',
+        timeIn: null,
+        timeOut: null,
+        receivedBy: null,
+        accountManager: b.account_manager ?? '',
+        deliveryDate: b.delivery_date ?? '',
+        category: dbCategory as any,
+        itemType: b.item_type ?? 'Small Item',
+        draft: isDraft,
+        rmaType: dbCategory === 'RMA' ? normalizeRmaCategory(b.rma_type) : null,
+        rmaMovement: dbCategory === 'RMA' ? b.rma_movement || null : null,
+        rmaTransportStatus: dbCategory === 'RMA' && b.rma_movement === 'LOGISTICS_TRANSPORT' ? 'PENDING' : null,
+        purchaseDate: dbCategory === 'RMA' ? (b.purchase_date || null) : null,
+        customerContactName: dbCategory === 'RMA' && typeof b.customer_contact_name === 'string' ? b.customer_contact_name.trim() || null : null,
+        customerContactEmail: dbCategory === 'RMA' && typeof b.customer_contact_email === 'string' ? b.customer_contact_email.trim() || null : null,
+        customerContactPhone: dbCategory === 'RMA' && typeof b.customer_contact_phone === 'string' ? b.customer_contact_phone.trim() || null : null,
 
-          itemDescription: b.item_description ?? '',
-          lineItems: Array.isArray(b.line_items) ? {
-            create: b.line_items.map((li: any) => ({
-              sku: li.sku || li.description || '',
-              quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1
-            }))
-          } : undefined,
-          address: b.address ?? '',
-          documentAttachment: Array.isArray(b.attachments) && b.attachments.length > 0 ? b.attachments[0] : null,
-          amount: b.amount != null ? parseFloat(String(b.amount)) : null,
-          createdById: req.user!.id,
-          modifiedById: req.user!.id
-        },
-        include: recordInclude
-      });
+        itemDescription: b.item_description ?? '',
+        lineItems: Array.isArray(b.line_items) ? {
+          create: b.line_items.map((li: any) => ({
+            sku: li.sku || li.description || '',
+            quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1
+          }))
+        } : undefined,
+        address: b.address ?? '',
+        documentAttachment: Array.isArray(b.attachments) && b.attachments.length > 0 ? b.attachments[0] : null,
+        amount: b.amount != null ? parseFloat(String(b.amount)) : null,
+        createdById: req.user!.id,
+        modifiedById: req.user!.id
+      };
+      const submissionError = !data.draft && recordSubmissionError(data);
+      if (submissionError) throw new RecordSubmissionError(submissionError);
+      const created = await tx.deliveryRecord.create({ data, include: recordInclude });
 
       await tx.auditLog.create({ data: {
         recordId: created.id, recordType: 'DeliveryRecord', action: 'CREATE', changedById: req.user!.id,
@@ -1178,6 +1172,7 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
       return created;
     });
   } catch (error) {
+    if (error instanceof RecordSubmissionError) return res.status(400).json({ error: error.message });
     if ((error as { code?: string })?.code === 'P2003') return res.status(400).json({ error: 'Select an existing Company.' });
     throw error;
   }
@@ -1449,8 +1444,12 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
         };
         const rmaError = rmaInputError(rmaSubmission, true);
         if (rmaError) return { error: rmaError, updated: null };
-      } else if (!data.draft && !String(data.reference ?? current.reference).trim()) return { error: 'Reference is required to submit the draft.', updated: null };
+      }
       data.status = 'SCHEDULED';
+    }
+    if (!(data.draft ?? current.draft) && (current.draft || data.reference !== undefined || data.deliveryDate !== undefined)) {
+      const submissionError = recordSubmissionError({ ...current, ...data });
+      if (submissionError) return { error: submissionError, updated: null };
     }
     if (driverChange) {
       const assignment = await resolveDriverAssignment(tx, current, driverChange);
@@ -1618,7 +1617,10 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
       }, true);
       if (rmaError) return { error: rmaError, saved: null, previous: null };
     }
-    if (current.draft && status === 'Scheduled' && current.category !== 'RMA' && !current.reference.trim()) return { error: 'Reference is required to submit the draft.', saved: null, previous: null };
+    if (current.draft && status === 'Scheduled') {
+      const submissionError = recordSubmissionError(current);
+      if (submissionError) return { error: submissionError, saved: null, previous: null };
+    }
     const data: any = { ...(statusChanged ? { status: STATUS_TO_DB[status], draft: status === 'Draft' } : {}), remarks: remarks.trim(), modifiedById: req.user!.id };
     if (hasPriority) data.priority = priority;
     if (current.status === 'ACCOMPLISHED' && received_by !== undefined && !received_by.trim()) return { error: 'Received By is required on completed runs.', saved: null, previous: null };
@@ -1685,55 +1687,42 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
 }));
 
 // Collection verification - TASS only, for ACCOUNTING_COLLECTION records that are ACCOMPLISHED.
-router.patch('/:id/verify-collection', requireAuth, requireResource('records'), requireRecordAccess, requireRole('TASS'), async (req, res) => {
-  const existing = await prisma.deliveryRecord.findFirst({
-    where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] },
-    include: recordInclude
+router.patch('/:id/verify-collection', requireAuth, requireResource('records'), requireRecordAccess, requireRole('TASS'), asyncRoute(async (req, res) => {
+  const result = await prisma.$transaction(async tx => {
+    // Share the lifecycle lock with status changes, and re-read mutable state.
+    await lockPodRecord(tx, req.params.id);
+    const current = await tx.deliveryRecord.findFirst({
+      where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] },
+      include: recordInclude,
+    });
+    if (!current) return { status: 404, error: 'Record not found' };
+    const operationError = recordOperationError(req.user!, current, req.body ?? {}, '/:id/verify-collection', 'PATCH');
+    if (operationError || !canWriteCategory(req.user!, current.category)) return { status: 403, error: operationError || 'Record access denied' };
+    if (current.category !== 'ACCOUNTING_COLLECTION') return { status: 403, error: 'Collection verification only applies to Accounting Collection records' };
+    if (current.draft || current.status !== 'ACCOMPLISHED') return { status: 400, error: 'Collection can only be verified after delivery is marked Accomplished' };
+    if (current.collectionVerified) return { status: 409, error: 'This collection has already been verified' };
+
+    const changed = await tx.deliveryRecord.updateMany({
+      where: { id: current.id, deletedAt: null, category: 'ACCOUNTING_COLLECTION', draft: false, status: 'ACCOMPLISHED', collectionVerified: false, AND: [recordScope(req.user!)] },
+      data: { collectionVerified: true, collectionVerifiedBy: req.user!.name, collectionVerifiedAt: new Date(), modifiedById: req.user!.id },
+    });
+    if (changed.count !== 1) return { status: 409, error: 'The collection changed. Refresh and try again.' };
+    const updated = await tx.deliveryRecord.findUniqueOrThrow({ where: { id: current.id }, include: recordInclude });
+    await tx.auditLog.create({ data: {
+      recordId: updated.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id,
+      previousValue: JSON.stringify(serializeRecord(current)), newValue: JSON.stringify(serializeRecord(updated)),
+    } });
+    // The alert is persisted atomically; a failure rolls back verification too.
+    await tx.notification.create({ data: {
+      userId: current.createdById, title: 'Collection verified',
+      message: `${updated.company.name} · ${updated.reference} collection verified by ${req.user!.name}.`,
+      recordId: updated.id, recordType: 'DeliveryRecord',
+    } });
+    return { status: 200, updated };
   });
-  if (!existing) return res.status(404).json({ error: 'Record not found' });
-
-  if (existing.category !== 'ACCOUNTING_COLLECTION') {
-    return res.status(403).json({ error: 'Collection verification only applies to Accounting Collection records' });
-  }
-
-  if (existing.status !== 'ACCOMPLISHED') {
-    return res.status(400).json({ error: 'Collection can only be verified after delivery is marked Accomplished' });
-  }
-
-  if (existing.collectionVerified) {
-    return res.status(400).json({ error: 'This collection has already been verified' });
-  }
-
-  const updated = await prisma.deliveryRecord.update({
-    where: { id: existing.id },
-    data: {
-      collectionVerified: true,
-      collectionVerifiedBy: req.user!.name,
-      collectionVerifiedAt: new Date(),
-      modifiedById: req.user!.id
-    },
-    include: recordInclude
-  });
-
-  await writeAuditLog({
-    recordId: updated.id,
-    recordType: 'DeliveryRecord',
-    action: 'UPDATE',
-    changedById: req.user!.id,
-    previousValue: serializeRecord(existing),
-    newValue: serializeRecord(updated)
-  });
-
-  await notifyUser(
-    existing.createdById,
-    'Collection verified',
-    `${updated.company.name} · ${updated.reference} collection verified by ${req.user!.name}.`,
-    updated.id,
-    'DeliveryRecord'
-  );
-
-  res.json(serializeRecord(updated, req.user!));
-});
+  if ('error' in result) return res.status(result.status).json({ error: result.error });
+  res.json(serializeRecord(result.updated, req.user!));
+}));
 
 // OQ-03: operational records cannot be deleted by any role.
 router.delete('/:id', requireAuth, requireResource('records'), requireRecordAccess, requireRole('SALES_COORDINATOR'), (_req, res) => {

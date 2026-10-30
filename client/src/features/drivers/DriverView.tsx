@@ -10,6 +10,7 @@ import type { DeliveryRecord, DeliveryStatus, OutputActionConfig, OutputActionTr
 import { api } from '@/api';
 import { DRIVERS, VEHICLES, DRIVER_ASSISTANTS } from '@/data';
 import { getOutputTrigger, runOutputActions } from '@/outputActions';
+import { exportRecordOutputPDF } from '@/utils/recordOutputPdf';
 import { screenKeyForCategory } from '@/routes/screenRouting';
 import AssistantPicker from './AssistantPicker';
 import PodUploader from '@/components/PodUploader';
@@ -166,12 +167,13 @@ export default function DriverView({
       const trigger = getOutputTrigger(selectedRecord.category, status);
       if (trigger) {
         try {
-          await runOutputActions(trigger, outputActionConfigs[trigger], {
+          const output = await runOutputActions(trigger, outputActionConfigs[trigger], {
             amName: selectedRecord.account_manager,
             at: new Date().toISOString(),
-            recordId: selectedRecord.id,
-            api,
+            recordId: selectedRecord.id, category: selectedRecord.category,
+            api, exportPDF: async () => exportRecordOutputPDF(await api.getRecord(selectedRecord.id)),
           });
+          setFeedback({ message: `Status saved. ${output.banners.join(' ')}`, type: output.email.failed || output.pdf === 'failed' ? 'error' : 'success' });
         } catch {
           setFeedback({ message: 'The status was saved, but an output action could not finish. Check notifications before retrying.', type: 'error' });
         }

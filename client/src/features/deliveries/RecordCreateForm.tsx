@@ -6,6 +6,7 @@ import { DeliveryRecord, DeliveryCategory, DeliveryStatus, OutputActionConfig, O
 import { AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, RMA_ITEM_TYPES, ACCOUNT_MANAGERS } from '@/data';
 import { RMA_CATEGORIES, autoFillRmaFields, type RmaCategory } from '@/utils/rma';
 import { runOutputActions } from '@/outputActions';
+import { exportRecordOutputPDF } from '@/utils/recordOutputPdf';
 import { api, ApiCompany } from '@/api';
 import OutputActionsPanel from '@/features/deliveries/OutputActionsPanel';
 import ComboboxField from '@/components/ComboboxField';
@@ -320,21 +321,12 @@ export default function RecordCreateForm({
     }
     setFormErrors({});
 
-    let outputActionLog: any[] = [];
     let bannerLines: string[] = [];
 
     setSaving(true);
     let createdRecord: DeliveryRecord;
     let createdInfo: { id: string; referenceLabel: string; lines: string[]; isDraft: boolean };
     try {
-      if (!isDraft && outputActionConfigs) {
-        const creationOutput = await runOutputActions('Record Created', outputActionConfigs['Record Created'], { amName: form.account_manager });
-        outputActionLog = creationOutput.newEntries;
-        bannerLines = creationOutput.banners.length > 0
-          ? creationOutput.banners
-          : creationOutput.newEntries.map((entry: any) => entry.message);
-      }
-
       createdRecord = await onSubmit({
         ...form,
         reference: form.category === 'RMA' ? '' : form.reference,
@@ -349,8 +341,9 @@ export default function RecordCreateForm({
         item_type: form.item_type as DeliveryRecord['item_type'],
         is_draft: isDraft ? 'Yes' : 'No',
         attachments: [],
-        output_actions_log: outputActionLog,
+        output_actions_log: [],
       });
+      // Retain the saved identity before any optional output can fail.
       createdInfo = {
         id: createdRecord.id,
         referenceLabel: form.reference || form.company_name,
@@ -358,6 +351,21 @@ export default function RecordCreateForm({
         isDraft,
       };
       setCreatedRecordInfo(createdInfo);
+      if (!isDraft && outputActionConfigs) {
+        try {
+          const output = await runOutputActions('Record Created', outputActionConfigs['Record Created'], {
+            amName: createdRecord.account_manager, recordId: createdRecord.id, category: createdRecord.category, api,
+            exportPDF: () => exportRecordOutputPDF(createdRecord),
+          });
+          bannerLines = output.banners;
+          if (output.email.failed || output.pdf === 'failed') notify.error(`Record ${createdRecord.id} is saved. ${output.banners.join(' ')}`);
+        } catch (error) {
+          bannerLines = [`Additional outputs could not finish: ${error instanceof Error ? error.message : 'Please check notification status.'}`];
+          notify.error(`Record ${createdRecord.id} is saved. ${bannerLines[0]}`);
+        }
+        createdInfo = { ...createdInfo, lines: bannerLines };
+        setCreatedRecordInfo(createdInfo);
+      }
 
       const allUploaded = await uploadAttachments(createdRecord.id);
       if (!allUploaded) {

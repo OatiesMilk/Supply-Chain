@@ -2,7 +2,10 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { ReturnToDraftDialog } from '@/features/deliveries/ReturnToDraftDialog';
 import { selectableStatuses, canRecordTimeIn, isDraftRecord, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
 import { completionError } from '@/utils/podRequirement';
-import { usePodAttachments } from '@/api/queries/usePodAttachments';
+import { podAttachmentsKey, usePodAttachments } from '@/api/queries/usePodAttachments';
+import { operationalSyncOptions } from '@/api/queries/operationalSync';
+import { useQuery } from '@tanstack/react-query';
+import { PodAttachmentList } from '@/components/PodAttachmentPreview';
 import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
 import PodUploader from '@/components/PodUploader';
 import CommentComposer from '@/components/CommentComposer';
@@ -149,19 +152,24 @@ function diffAuditEntry(oldVal: unknown, newVal: unknown): AuditDiffRow[] {
   return rows;
 }
 
-function ScaffoldTab({ icon: Icon, label, detail }: { icon: typeof FileText; label: string; detail?: string }) {
+function CollectionEvidence({ recordId }: { recordId: string }) {
+  const canRead = usePermissions().canRecord('Accounting Collection');
+  const attachments = useQuery({
+    ...operationalSyncOptions,
+    queryKey: podAttachmentsKey(recordId),
+    queryFn: () => api.getRecordAttachments(recordId),
+    enabled: !!recordId && canRead,
+  });
+
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
-      <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center">
-        <Icon className="w-8 h-8 text-slate-300" />
-      </div>
-      <div>
-        <h3 className="text-base font-bold text-slate-700">{label}</h3>
-        <p className="text-sm text-slate-400 mt-1 max-w-sm">
-          {detail ?? `This section is under development. ${label} data will appear here once the module is connected.`}
-        </p>
-      </div>
-    </div>
+    <section aria-label="Saved collection evidence" className="space-y-3 rounded-xl border border-slate-200 bg-white p-5">
+      <h3 className="flex items-center gap-2 text-sm font-bold text-slate-800"><Paperclip className="h-4 w-4" aria-hidden="true" /> Saved collection evidence</h3>
+      {!canRead ? <p className="text-xs text-slate-600">Collection evidence is not available for your account.</p>
+        : attachments.isPending ? <p role="status" className="text-xs text-slate-600">Loading saved collection evidence…</p>
+        : attachments.isError ? <p role="alert" className="text-xs text-red-700">Could not load collection evidence. <button type="button" onClick={() => void attachments.refetch()} className="underline">Retry loading evidence</button></p>
+        : attachments.data.length === 0 ? <p className="text-xs text-slate-600">No saved collection evidence is attached to this record.</p>
+        : <PodAttachmentList key={recordId} files={attachments.data} />}
+    </section>
   );
 }
 
@@ -370,7 +378,7 @@ function VerificationTab({
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-500">
         <Lock className="w-8 h-8 text-slate-300" />
-        <p className="text-sm">Verification requires TASS or Admin role.</p>
+        <p className="text-sm">Verification requires TASS collection-verification permission.</p>
       </div>
     );
   }
@@ -378,6 +386,7 @@ function VerificationTab({
   if (record.collection_verified) {
     return (
       <div className="max-w-md mx-auto py-10 space-y-4">
+        <CollectionEvidence recordId={record.id} />
         <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5 space-y-2">
           <p className="text-emerald-700 font-black text-sm flex items-center gap-2">
             <CheckCircle2 className="w-5 h-5" /> Collection Verified
@@ -418,6 +427,7 @@ function VerificationTab({
 
   return (
     <div className="max-w-md mx-auto py-10 space-y-4">
+      <CollectionEvidence recordId={record.id} />
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-3">
         <p className="text-sm font-bold text-slate-800 flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-[#0078C1]" /> Collection Verification
@@ -759,7 +769,7 @@ export default function AccountingCollectionWorkspace({
           />
         );
       case 'documents':
-        return <ScaffoldTab icon={Paperclip} label="Documents & Attachments" />;
+        return <CollectionEvidence recordId={record.id} />;
       default:
         return null;
     }

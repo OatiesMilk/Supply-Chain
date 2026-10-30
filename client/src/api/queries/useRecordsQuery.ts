@@ -26,7 +26,7 @@ export function normalizeApiRecord(r: any): DeliveryRecord {
     ...(r.category === 'RMA' ? { rma_version: r.rma_version ?? 0 } : {}),
     driver_assistants: Array.isArray(r.driver_assistants) ? r.driver_assistants : [],
     output_actions_log: r.output_actions_log ?? [],
-    email_notification_sent: r.status === 'Delivered',
+    email_notification_sent: r.email_notification_sent === true,
   };
 }
 

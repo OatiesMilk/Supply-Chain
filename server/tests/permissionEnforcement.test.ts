@@ -302,3 +302,15 @@ test('ADMIN cannot bypass TASS-only verification and disabled record deletion; m
   assert.equal((await state.request('/api/records')).status, 503);
   assert.deepEqual(state.effects, []);
 });
+
+test('V1 collection verification reports repeats as conflicts while explicit action Deny remains authoritative', async t => {
+  const state = await fixture(t, 'TASS');
+  state.setRecords([savedRecord('collection-one', 'ACCOUNTING_COLLECTION', { status: 'ACCOMPLISHED', collectionVerified: true })]);
+  const duplicate = await state.request('/api/records/collection-one/verify-collection', 'PATCH', {});
+  assert.equal(duplicate.status, 409, await duplicate.text());
+  state.deny('CATEGORY:ACCOUNTING_COLLECTION:VERIFY_COLLECTION');
+  assert.equal((await state.request('/api/records/collection-one/verify-collection', 'PATCH', {})).status, 403);
+  state.setRecords([savedRecord('collection-one', 'ACCOUNTING_COLLECTION', { status: 'ACCOMPLISHED', collectionVerified: false })]);
+  assert.equal((await state.request('/api/records/collection-one/verify-collection', 'PATCH', {})).status, 403);
+  assert.deepEqual(state.effects, [], 'neither duplicate nor denied requests write anything');
+});

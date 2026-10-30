@@ -78,7 +78,7 @@ export function hasValidRunTimeIn(value: unknown): boolean {
 }
 
 export function isDashboardRunActionable(record: DeliveryRecord, today = manilaToday()): boolean {
-  if (record.category !== 'Deliveries') return record.delivery_date === today;
+  if (record.category === 'RMA' || isDraftRecord(record) || record.status === 'Delivered' || !record.driver) return false;
   const schedule = deliveryScheduleState(record.delivery_date, today);
   const started = hasValidRunTimeIn(record.time_in);
   return started || (schedule.valid && !schedule.future);

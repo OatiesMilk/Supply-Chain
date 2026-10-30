@@ -42,10 +42,10 @@ export default function OutputActionsPanel({ trigger, config, onChange }: Output
       id={`output-actions-${trigger.toLowerCase().replace(/\s+/g, '-')}`}
     >
       <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-        <Send className="w-3 h-3" /> Output Actions — When {trigger}
+        <Send className="w-3 h-3" /> Additional Output Actions — When {trigger}
       </p>
       <p className="text-[10.5px] text-slate-500">
-        All roles are notified by default. Tick a role to leave it out.
+        Select additional email recipients and exports. Automatic workflow notifications are handled separately.
       </p>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <fieldset className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -63,7 +63,7 @@ export default function OutputActionsPanel({ trigger, config, onChange }: Output
         </label>
         <label className="flex items-center gap-1 text-[10.5px] font-semibold text-slate-500 cursor-pointer border-l border-slate-300 pl-3">
           <input type="checkbox" checked={config.internalOnly} onChange={toggleInternalOnly} className="accent-slate-500" />
-          Internal Only
+          Skip additional outputs
         </label>
       </div>
     </div>

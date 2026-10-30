@@ -6,6 +6,7 @@ import { canResetLocalDemo } from '../services/localDemoReset';
 import { serializeRecord } from '../mappings';
 import type { Request, Response } from 'express';
 import { RMA_CATEGORIES, RMA_ITEM_TYPES, normalizeRmaCategory, rmaInputError } from '../services/rmaRules';
+import { generateRecordId } from '../services/recordIds';
 
 const router = Router();
 
@@ -191,9 +192,7 @@ router.post('/generate', requireAuth, requireResource('dataSampler', 'WRITE'), r
         ? randInt(500, 15000) * 10
         : null;
 
-      // Generate a human-readable record ID in the same REC-XXXXX format as seed data.
-      // Use the 50000–99999 range to stay clear of seed records (4001–4999).
-      const recordId = `REC-${randInt(50000, 99999)}`;
+      const recordId = generateRecordId();
 
       let formattedAssistants = '[]';
       if (overrides.driver_assistants) {

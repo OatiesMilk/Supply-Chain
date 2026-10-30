@@ -745,7 +745,7 @@ export const api = {
 
   // Email notifications
   sendNotificationEmail: (data: { recordId: string; trigger: string; recipients: string[] }) =>
-    request<{ ok: boolean; sent: number; failed: number }>('/notifications/send-email', {
+    request<{ ok: boolean; sent: number; failed: number; mocked: number; skipped: number }>('/notifications/send-email', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
