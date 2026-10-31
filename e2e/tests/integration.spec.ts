@@ -8,6 +8,7 @@
  * themselves within the test so both sessions can be verified in sequence.
  */
 import { test, expect, chromium, type BrowserContext } from '@playwright/test';
+import { recordRows } from '../support/recordRows';
 
 const BASE_URL = 'http://localhost:3000';
 
@@ -285,7 +286,7 @@ test.describe('X Cross-Role Integration', () => {
     await page.goto(`${BASE_URL}/deliveries`);
     
 
-    const firstRow = page.getByRole('row').nth(1);
+    const firstRow = recordRows(page).first();
     try { await firstRow.waitFor({ state: 'visible', timeout: 5000 }); } catch (e) {}
     if (!(await firstRow.isVisible())) {
       test.skip(true, 'No delivery records exist');
