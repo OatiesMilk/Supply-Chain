@@ -34,23 +34,36 @@ function manilaDateOffset(offset: number) {
 }
 
 async function showAssignedRecord(page: Page, deliveryDate: string) {
+  const record = {
+    id: 'tsk99-date-fixture', category: 'Deliveries', status: 'Scheduled', is_draft: 'No',
+    driver: 'Current Driver', driver_id: 'driver-profile', reference: 'TSK99-DATE',
+    company_name: 'Scheduling Fixture Company', area: 'Makati', item_description: 'Date actionability fixture',
+    delivery_date: deliveryDate, time_in: null, time_out: null,
+    allowed_statuses: ['On-Hold', 'Rescheduled'], driver_assistants: [], attachments: [],
+  };
   await page.route('**/api/records**', async route => {
     const url = new URL(route.request().url());
+    if (url.pathname === '/api/records/driver-overview') {
+      return route.fulfill({ status: 200, json: {
+        drivers: [{ name: record.driver, active: 1, completed: 0 }], unassigned: 0, areas: [record.area],
+        dashboard: { today: deliveryDate === manilaDateOffset(0) ? 1 : 0, remaining: 1, completed: 0, rma_active: 0, rma_completed: 0 },
+      } });
+    }
+    if (url.pathname === '/api/records/tsk99-date-fixture') {
+      return route.fulfill({ status: 200, json: record });
+    }
     if (url.pathname === '/api/records/tsk99-date-fixture/attachments') {
-      return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+      return route.fulfill({ status: 200, json: [] });
     }
     if (url.pathname !== '/api/records') return route.continue();
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([{
-        id: 'tsk99-date-fixture', category: 'Deliveries', status: 'Scheduled', is_draft: 'No',
-        driver: 'Current Driver', driver_id: 'driver-profile', reference: 'TSK99-DATE',
-        company_name: 'Scheduling Fixture Company', area: 'Makati', item_description: 'Date actionability fixture',
-        delivery_date: deliveryDate, time_in: null, time_out: null,
-        allowed_statuses: ['On-Hold', 'Rescheduled'], driver_assistants: [], attachments: [],
-      }]),
-    });
+    expect(url.searchParams.get('paged')).toBe('true');
+    expect(url.searchParams.get('view')).toBe('driver_dashboard');
+    expect(url.searchParams.get('queue')).toBe('active');
+    const pageNumber = Number(url.searchParams.get('page'));
+    const limit = Number(url.searchParams.get('limit'));
+    expect(pageNumber).toBe(1);
+    expect(limit).toBe(25);
+    await route.fulfill({ status: 200, json: { rows: [record], total: 1, page: pageNumber, limit, hasMore: false, nextCursor: null } });
   });
   await page.goto(BASE_URL);
   await page.waitForLoadState('networkidle');
@@ -66,8 +79,12 @@ test.describe('C-1 Driver Dashboard', () => {
     // Driver-specific header text
     await expect(page.getByText(/microgenesis field mobile/i)).toBeVisible();
 
-    // No sidebar navigation
-    await expect(page.getByRole('navigation')).not.toBeVisible();
+    // Field Mobile has its own queue and pagination navigation, without the
+    // desktop application's sidebar.
+    await expect(page.locator('#sidebar-panel')).toHaveCount(0);
+    await expect(page.locator('#sidebar-nav')).toHaveCount(0);
+    await expect(page.getByRole('navigation', { name: 'Run queues' })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Pagination Navigation' })).toBeVisible();
   });
 
   test('C-1.2 Stats strip shows correct counters', async ({ page }) => {
@@ -263,24 +280,18 @@ test.describe('C-3 Accomplished Records View', () => {
   test('C-3.1 Accomplished section visible after delivery', async ({ page }) => {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
-    // If any records are done for today, we see the section divider
-    const accomplishedSection = page.getByText(/accomplished/i).first();
-    // If there are accomplished records, this section appears
-    if (await accomplishedSection.isVisible()) {
-      await expect(accomplishedSection).toBeVisible();
-    } else {
-      test.skip(true, 'No accomplished records today');
-    }
+    await page.getByRole('navigation', { name: 'Run queues' })
+      .getByRole('button', { name: 'Completed today / RMA awaiting receipt' }).click();
+    await expect(page.getByText(/^Accomplished \(\d+\)$/i)).toBeVisible();
   });
 
   test('C-3.2 POD photo opens in a lightbox and Escape closes it', async ({ page }) => {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
 
-    const accomplishedHeading = page.getByText(/^Accomplished \(\d+\)$/i).first();
-    await expect(accomplishedHeading, 'The UAT seed must provide a completed run').toBeVisible();
-    const accomplishedRun = accomplishedHeading.locator('..').locator('..')
-      .getByRole('button').filter({ hasText: 'SAP-UAT-DELIVERED-PRIORITY' });
+    await page.getByRole('navigation', { name: 'Run queues' })
+      .getByRole('button', { name: 'Completed today / RMA awaiting receipt' }).click();
+    const accomplishedRun = page.getByRole('button').filter({ hasText: 'SAP-UAT-DELIVERED-PRIORITY' });
     await expect(accomplishedRun).toBeVisible();
     await accomplishedRun.click();
 

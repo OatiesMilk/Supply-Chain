@@ -12,5 +12,5 @@ export interface UserPermissionEditor extends Omit<RolePermissionEditor, 'revisi
   roleChange?: { fromRole: string; toRole: string; rolePolicyRevision: string; permissions: PolicyRow[]; removedOverrides: PolicyRow[]; validationError: string | null; snapshot: EffectivePermissionSnapshot };
 }
 export type PolicySave = { contractVersion: 1; catalogVersion: 1; expectedVersion: string; permissions: PolicyRow[] };
-export type PolicyAuditState = { role?: string; revision?: string; rolePolicyRevision?: string; authorizationRevision?: string;
+export type PolicyAuditState = { name?: string; email?: string; role?: string; revision?: string; rolePolicyRevision?: string; authorizationRevision?: string;
   isActive?: boolean; driverActive?: boolean | null; microsoftLinked?: boolean; permissions?: PolicyRow[] };

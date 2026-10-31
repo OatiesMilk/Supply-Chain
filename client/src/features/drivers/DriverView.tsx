@@ -18,7 +18,9 @@ import { usePodAttachments } from '@/api/queries/usePodAttachments';
 import { completionError } from '@/utils/podRequirement';
 
 import { canRecordTimeIn, isDraftRecord } from '@/utils/recordLifecycle';
-import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
+import { useRecordTimeInMutation, usePagedRecordsQuery } from '@/api/queries/useRecordsQuery';
+import { useDriverOverviewQuery, useClampRecordPage } from '@/api/queries/useOperationalViews';
+import RecordPageControls from '@/components/RecordPageControls';
 
 interface DriverViewProps {
   records: DeliveryRecord[];
@@ -26,6 +28,10 @@ interface DriverViewProps {
   currentUserName: string;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;
   onNavigate: (screen: string, item_id?: string) => void;
+  serverPaging?: boolean;
+  driverSummary?: Array<{ name: string; active: number; completed: number }>;
+  unassignedCount?: number;
+  onFiltersChange?: (filters: { driver: string; search: string; queue: RunTab }) => void;
 }
 
 type RunTab = 'active' | 'completed';
@@ -35,8 +41,27 @@ const matches = (record: DeliveryRecord, term: string) =>
     .some(value => value.toLocaleLowerCase().includes(term));
 
 
-export default function DriverView({
-  records, onUpdateRecord, outputActionConfigs, onNavigate,
+export default function DriverView(props: DriverViewProps) {
+  return props.serverPaging ? <PagedDriverView {...props} /> : <DriverViewContent {...props} />;
+}
+function PagedDriverView(props: DriverViewProps) {
+  const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState<{ driver: string; search: string; queue: RunTab }>({ driver: '', search: '', queue: 'active' });
+  const overview = useDriverOverviewQuery(filters.search);
+  const query = usePagedRecordsQuery({ view: 'runs', queue: filters.queue, driver_exact: filters.driver || undefined,
+    search: filters.search || undefined, page, limit: 25 }, !!filters.driver);
+  useClampRecordPage(page, query.data?.total, setPage);
+  return <div className="space-y-3">
+    <RecordPageControls page={page} total={query.data?.total ?? 0} onPageChange={setPage} loading={query.isFetching}
+      error={query.error ?? overview.error} retry={() => { void query.refetch(); void overview.refetch(); }} />
+    <DriverViewContent {...props} records={query.data?.rows ?? []} driverSummary={overview.data?.drivers ?? []}
+      unassignedCount={overview.data?.unassigned ?? 0} onFiltersChange={next => {
+        setFilters(previous => { if (JSON.stringify(previous) === JSON.stringify(next)) return previous; setPage(1); return next; });
+      }} />
+  </div>;
+}
+function DriverViewContent({
+  records, onUpdateRecord, outputActionConfigs, onNavigate, driverSummary, unassignedCount, onFiltersChange,
 }: DriverViewProps) {
   const access = usePermissions();
   records = records.filter(record => access.canRecord(record.category) && !isDraftRecord(record) && (record.category !== 'RMA' || record.rma_movement === 'LOGISTICS_TRANSPORT' && record.rma_transport_status !== 'COMPLETED'));
@@ -55,16 +80,12 @@ export default function DriverView({
 
   const activeRecords = records.filter(isActive);
   const unassignedRecords = activeRecords.filter(record => !record.driver);
-  const driverNames = Array.from(new Set([
-    ...DRIVERS,
-    ...records.map(record => record.driver).filter(Boolean),
-  ])).sort((a, b) => {
-    const countA = activeRecords.filter(record => record.driver === a).length;
-    const countB = activeRecords.filter(record => record.driver === b).length;
-    return countB - countA || a.localeCompare(b);
-  });
+  const summaryByName = new Map(driverSummary?.map(row => [row.name, row]));
+  const driverNames = driverSummary ? driverSummary.map(row => row.name) : Array.from(new Set([
+    ...DRIVERS, ...records.map(record => record.driver).filter(Boolean),
+  ])).sort((a, b) => activeRecords.filter(record => record.driver === b).length - activeRecords.filter(record => record.driver === a).length || a.localeCompare(b));
   const term = search.trim().toLocaleLowerCase();
-  const visibleDrivers = driverNames.filter(driver =>
+  const visibleDrivers = driverSummary ? driverNames : driverNames.filter(driver =>
     !term || driver.toLocaleLowerCase().includes(term) || records.some(record => record.driver === driver && matches(record, term))
   );
   const driver = selectedDriver && visibleDrivers.includes(selectedDriver) ? selectedDriver : visibleDrivers[0];
@@ -78,7 +99,8 @@ export default function DriverView({
   const selectedRecord = records.find(record => record.id === selectedRecordId && record.driver === driver) ?? null;
   const { readiness: podReadiness, uploadStaged } = usePodAttachments(selectedRecord?.id ?? '');
   const photoError = selectedRecord ? completionError(selectedRecord, 'Delivered', receiverInputs[selectedRecord.id] ?? selectedRecord.received_by, podReadiness) : null;
-  const activeForDriver = driverRecords.filter(isActive).length;
+  const activeForDriver = summaryByName.get(driver ?? '')?.active ?? driverRecords.filter(isActive).length;
+  useEffect(() => { onFiltersChange?.({ driver: driver ?? '', search: term, queue: tab }); }, [driver, term, tab, onFiltersChange]);
 
   useEffect(() => {
     if (!pendingStatus) lastTrigger.current?.focus();
@@ -105,7 +127,7 @@ export default function DriverView({
     setSaving(true);
     setFeedback(null);
     try {
-      await onUpdateRecord(record.id, updates);
+      await onUpdateRecord(record.id, { ...updates, ...(!updates.status ? { expected_edit_version: record.edit_version } : {}) });
       return true;
     } catch (error) {
       setFeedback({ message: error instanceof Error ? error.message : failureMessage, type: 'error' });
@@ -189,12 +211,12 @@ export default function DriverView({
     <div className="space-y-4" id="driver-view-container">
       <header className="flex flex-wrap items-center justify-end gap-2">
         <p className="text-sm text-slate-600">
-          <strong className="text-slate-900">{activeRecords.length}</strong> active runs
+          <strong className="text-slate-900">{driverSummary ? driverSummary.reduce((total, row) => total + row.active, 0) + (unassignedCount ?? 0) : activeRecords.length}</strong> active runs
           <span aria-hidden="true"> · </span>
           <button type="button" onClick={() => setShowUnassigned(open => !open)}
             aria-expanded={showUnassigned} aria-controls="unassigned-runs"
             className="font-semibold text-amber-800 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">
-            {unassignedRecords.length} need a driver
+            {unassignedCount ?? unassignedRecords.length} need a driver
           </button>
         </p>
       </header>
@@ -202,7 +224,7 @@ export default function DriverView({
       {showUnassigned && (
         <section id="unassigned-runs" aria-label="Unassigned runs" className="rounded-xl border border-amber-200 bg-amber-50 p-4">
           <h2 className="text-sm font-bold text-amber-950">Runs needing a driver</h2>
-          {unassignedRecords.length === 0 ? (
+          {unassignedCount !== undefined ? <p className="text-sm text-slate-600">{unassignedCount} unassigned runs. <button type="button" className="underline" onClick={() => onNavigate('driver_board')}>Open Driver Board</button></p> : unassignedRecords.length === 0 ? (
             <p className="mt-2 text-sm text-slate-600">All active runs have a driver.</p>
           ) : (
             <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -233,7 +255,7 @@ export default function DriverView({
           <h2 className="px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-500">Drivers</h2>
           {visibleDrivers.length === 0 && <p className="px-3 py-4 text-sm text-slate-600">No drivers match.</p>}
           {visibleDrivers.map(name => {
-            const count = activeRecords.filter(record => record.driver === name).length;
+            const count = summaryByName.get(name)?.active ?? activeRecords.filter(record => record.driver === name).length;
             return (
               <button key={name} type="button" onClick={() => chooseDriver(name)} aria-current={driver === name ? 'true' : undefined}
                 className={`flex min-h-12 w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 ${driver === name ? 'bg-blue-50 font-semibold text-blue-900' : 'text-slate-700 hover:bg-slate-50'}`}>
@@ -268,7 +290,7 @@ export default function DriverView({
                   {(['active', 'completed'] as const).map(next => (
                     <button key={next} type="button" role="tab" aria-selected={tab === next} onClick={() => chooseTab(next)}
                       className={`min-h-10 border-b-2 pb-2 text-sm font-semibold capitalize focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 ${tab === next ? 'border-blue-700 text-blue-800' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
-                      {next} <span className="tabular-nums">{driverRecords.filter(record => next === 'active' ? isActive(record) : !isActive(record)).length}</span>
+                      {next} <span className="tabular-nums">{summaryByName.get(driver ?? '')?.[next] ?? driverRecords.filter(record => next === 'active' ? isActive(record) : !isActive(record)).length}</span>
                     </button>
                   ))}
                 </div>

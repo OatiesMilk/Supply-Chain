@@ -2,7 +2,7 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { operationalSyncOptions } from '@/api/queries/operationalSync';
 import RmaWorkflowPanel from './RmaWorkflowPanel';
-import { useRecordDetailQuery } from '@/api/queries/useRecordsQuery';
+import { useRecordDetailQuery, useUpdateRecordMutation } from '@/api/queries/useRecordsQuery';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ArrowLeft, ChevronLeft, ChevronRight,
@@ -151,6 +151,10 @@ function GeneralTab({
   const canManageDraft = !readOnly && access.canRecord(record.category, 'SUBMIT') && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin' || tassRma) && !record.time_in;
   const [lifecycleRemarks, setLifecycleRemarks] = useState('');
   const [editVersion, setEditVersion] = useState(record.rma_version ?? 0);
+  const [metadataEditVersion, setMetadataEditVersion] = useState(record.edit_version);
+  const [saveConflict, setSaveConflict] = useState<string | null>(null);
+  const [latestSaved, setLatestSaved] = useState<DeliveryRecord | null>(null);
+  const [reviewingLatest, setReviewingLatest] = useState(false);
   const [returnToDraftOpen, setReturnToDraftOpen] = useState(false);
   const canEditAreaAddress = !readOnly && access.canRecord(record.category, 'UPDATE') && currentUserRole === 'Logistics' && record.category !== 'RMA';
   const canEditDeliveryDate = !readOnly && access.canRecord(record.category, 'UPDATE') && currentUserRole === 'Logistics' && record.category === 'Deliveries';
@@ -214,10 +218,13 @@ function GeneralTab({
   const set = <K extends keyof EditDraft>(k: K, v: EditDraft[K]) => setDraft(p => ({ ...p, [k]: v }));
 
   const handleStartEdit = () => {
+    setSaveConflict(null);
+    setLatestSaved(null);
     setRemarksError(false);
     setRmaErrors({});
     // A bulk priority change can update this record while the workspace stays open.
     setEditVersion(record.rma_version ?? 0);
+    setMetadataEditVersion(record.edit_version);
     setDraft(d => ({ ...d, priority: record.priority, reference: record.reference, area: record.area, address: record.address ?? '', vehicle: record.vehicle || '(None)', account_manager: record.account_manager, delivery_date: record.delivery_date, item_type: record.item_type, item_description: record.item_description, line_items: record.line_items ?? [], rma_type: record.rma_type ?? '', rma_movement: record.rma_movement ?? '', purchase_date: record.purchase_date ?? '', customer_contact_name: record.customer_contact_name ?? '', customer_contact_email: record.customer_contact_email ?? '', customer_contact_phone: record.customer_contact_phone ?? '' }));
     // Keep the saved note in read mode; every edit starts with a fresh reason.
     setDraft(d => ({ ...d, remarks: '' }));
@@ -260,7 +267,7 @@ function GeneralTab({
     }
     setRemarksError(false);
     setSaving(true);
-    const updates: any = { remarks: draft.remarks, ...(record.category === 'RMA' ? { expected_version: editVersion } : {}) };
+    const updates: any = { remarks: draft.remarks, ...(record.category === 'RMA' ? { expected_version: editVersion } : { expected_edit_version: metadataEditVersion }) };
     if (canEditFull) {
       updates.priority = draft.priority;
       if (record.category === 'RMA') updates.rma_reference = draft.reference.trim() || null;
@@ -300,10 +307,29 @@ function GeneralTab({
       setEditing(false);
       notify.success('Record changes saved');
     } catch (error) {
-      notify.error(error instanceof Error ? error.message : 'Could not save the record. Please try again.');
+      const message = error instanceof Error ? error.message : 'Could not save the record. Please try again.';
+      if ((error as { status?: number }).status === 409 || (error as { status?: number }).status === 428) setSaveConflict(message);
+      notify.error(message);
     } finally {
       setSaving(false);
     }
+  };
+
+  const reviewLatest = async () => {
+    setReviewingLatest(true);
+    try { setLatestSaved(await api.getRecord(record.id)); }
+    catch (error) { notify.error(error instanceof Error ? error.message : 'Could not load the latest record. Your draft is preserved.'); }
+    finally { setReviewingLatest(false); }
+  };
+  const useLatestSaved = () => {
+    if (!latestSaved) return;
+    const latest = latestSaved;
+    setDraft({ priority: latest.priority, reference: latest.reference, area: latest.area, address: latest.address ?? '', vehicle: latest.vehicle || '(None)',
+      account_manager: latest.account_manager, delivery_date: latest.delivery_date, item_type: latest.item_type, is_draft: latest.is_draft,
+      remarks: '', item_description: latest.item_description ?? '', line_items: latest.line_items ?? [], rma_type: latest.rma_type ?? '',
+      rma_movement: latest.rma_movement ?? '', purchase_date: latest.purchase_date ?? '', customer_contact_name: latest.customer_contact_name ?? '',
+      customer_contact_email: latest.customer_contact_email ?? '', customer_contact_phone: latest.customer_contact_phone ?? '' });
+    setMetadataEditVersion(latest.edit_version); setEditVersion(latest.rma_version ?? 0); setSaveConflict(null); setLatestSaved(null);
   };
 
   const handleCancel = () => {
@@ -339,6 +365,16 @@ function GeneralTab({
 
   return (
     <div className="space-y-5">
+      {editing && saveConflict && <section role="alert" className="space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+        <p>{saveConflict} Your draft is still in the editor.</p>
+        <button type="button" disabled={reviewingLatest} onClick={() => void reviewLatest()} className="rounded border border-amber-700 px-3 py-2 font-semibold disabled:opacity-50">{reviewingLatest ? 'Loading latest values…' : 'Review latest saved values'}</button>
+        {latestSaved && <div className="space-y-2">
+          <p className="font-bold">Latest saved values</p>
+          <dl><dt>Reference</dt><dd>{latestSaved.reference}</dd><dt>Address</dt><dd>{latestSaved.address || 'Not set'}</dd><dt>Account Manager</dt><dd>{latestSaved.account_manager}</dd><dt>Delivery Date</dt><dd>{latestSaved.delivery_date}</dd></dl>
+          <p>Replacing your draft loads the latest values and requires you to enter your change again.</p>
+          <button type="button" onClick={useLatestSaved} className="rounded border border-amber-700 px-3 py-2 font-semibold">Replace draft with latest saved values</button>
+        </div>}
+      </section>}
       {/* Status stepper */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Status Progression</p>
@@ -810,6 +846,8 @@ function LinkedCollectionCard({
   const [linkRemarks, setLinkRemarks] = useState('');
   const [linking, setLinking]       = useState(false);
   const [linkError, setLinkError]   = useState<string | null>(null);
+  const [linkEditVersion, setLinkEditVersion] = useState(record.edit_version);
+  useEffect(() => { if (!linkInput && !linkRemarks && !linking) setLinkEditVersion(record.edit_version); }, [record.id, record.edit_version, linkInput, linkRemarks, linking]);
   useWorkspaceDraft('linked-collection', !!(linkInput || linkRemarks), linking);
 
   const handleLink = async (collectionId: string | null) => {
@@ -822,6 +860,7 @@ function LinkedCollectionCard({
     try {
       await onUpdateRecord(record.id, {
         linked_collection_id: collectionId,
+        expected_edit_version: linkEditVersion,
         remarks: linkRemarks.trim() || 'Unlinked collection',
       } as any);
       setLinkInput('');
@@ -1041,6 +1080,7 @@ function ActionsTab({
 
   const { readiness: podReadiness, uploadStaged } = usePodAttachments(record.id);
   const timeInMutation = useRecordTimeInMutation();
+  const dispatchMutation = useUpdateRecordMutation();
 
   const [selectedDriver, setSelectedDriver] = useState(record.driver);
   const [assistants, setAssistants] = useState<string[]>(record.driver_assistants ?? []);
@@ -1069,6 +1109,8 @@ function ActionsTab({
     JSON.stringify(assistants.filter(a => a.trim())) !== JSON.stringify(record.driver_assistants ?? []);
 
   const hasChanges = statusChanged || driverFieldsChanged;
+  const [dispatchEditVersion, setDispatchEditVersion] = useState(record.edit_version);
+  useEffect(() => { if (!hasChanges && !actionRemarks.trim()) setDispatchEditVersion(record.edit_version); }, [record.id, record.edit_version, hasChanges, actionRemarks]);
 
   // Sync state when navigating to a different record
   useEffect(() => {
@@ -1113,6 +1155,7 @@ function ActionsTab({
 
     const now = new Date().toISOString();
     let detailsSaved = false;
+    let nextEditVersion = dispatchEditVersion;
 
     try {
       if (!isRma) await uploadStaged();
@@ -1122,6 +1165,7 @@ function ActionsTab({
       // behind this single button so neither set of changes is silently lost.
       if (driverFieldsChanged || (!statusChanged && actionRemarks.trim())) {
         const fieldUpdates: Partial<DeliveryRecord> = {
+          expected_edit_version: dispatchEditVersion,
           remarks: actionRemarks.trim(),
           modified_by: `${currentUserName} (${currentUserRole})`,
           modified_at: now,
@@ -1138,7 +1182,11 @@ function ActionsTab({
         if (timeIn !== manilaDateTimeInput(record.time_in)) fieldUpdates.time_in = timeIn ? manilaInputToIso(timeIn) : null;
         if (timeOut !== manilaDateTimeInput(record.time_out)) fieldUpdates.time_out = timeOut ? manilaInputToIso(timeOut) : null;
         if ((receivedBy || '') !== (record.received_by ?? '')) fieldUpdates.received_by = receivedBy;
-        await onUpdateRecord(record.id, fieldUpdates);
+        // Keep the exact result of this save as the baseline for a following
+        // reschedule; a fresh read could silently accept another writer's edit.
+        const saved = await dispatchMutation.mutateAsync({ id: record.id, updates: fieldUpdates });
+        nextEditVersion = saved.edit_version;
+        setDispatchEditVersion(saved.edit_version);
         detailsSaved = true;
       }
 
@@ -1149,7 +1197,7 @@ function ActionsTab({
           modified_by: `${currentUserName} (${currentUserRole})`,
           modified_at: now,
           ...(selectedStatus === 'Delivered' ? { received_by: receivedBy.trim() } : {}),
-          ...(needsNewDate ? { delivery_date: newDeliveryDate } : {}),
+          ...(needsNewDate ? { delivery_date: newDeliveryDate, expected_edit_version: nextEditVersion } : {}),
         };
         await onUpdateRecord(record.id, statusUpdates);
       }
@@ -1334,7 +1382,7 @@ function ActionsTab({
                   )}
                   {sameDayHints.length > 0 && (
                     <p className="text-[10px] text-[#0078C1] font-semibold mt-1 flex flex-col">
-                      <span className="mb-0.5 border-b border-blue-100 pb-0.5 inline-block w-max">Also assigned to {recordSubregion ?? record.area} today:</span>
+                      <span className="mb-0.5 border-b border-blue-100 pb-0.5 inline-block w-max">On this page, also assigned to {recordSubregion ?? record.area} today:</span>
                       {sameDayHints.map(([d, count]) => (
                         <span key={d}>
                           • {d} <span className="opacity-75">({count} {count === 1 ? 'run' : 'runs'})</span>

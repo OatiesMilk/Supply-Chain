@@ -6,7 +6,7 @@ import { requireResource, requireAuth, requireRole } from '../middleware/auth';
 import { DriverLinkError, linkDriverLogin, unlinkDriverLogin } from '../services/driverLogin';
 import { permissionEditor, permissionInputError, PermissionSaveError, replacePermissions } from '../services/permissions';
 import { isMicrosoftGuid } from '../services/ssoState';
-import { assertAdminSurvives, administrativeTransaction, getUserPermissionEditor, mutateAdminAccount, permissionMode, PolicyManagementError, requireV1Mutation, saveUserPermissions } from '../services/permissionManagement';
+import { accountMetadataVersion, assertAdminSurvives, administrativeTransaction, getUserPermissionEditor, mutateAdminAccount, permissionMode, PolicyManagementError, requireV1Mutation, saveUserPermissions } from '../services/permissionManagement';
 import { policyRoute } from '../middleware/policyRoute';
 import { planPermissionConversion } from '../services/permissionBackfill';
 
@@ -31,6 +31,7 @@ router.get('/', requireAuth, requireResource('users'), requireRole('ADMIN'), asy
     role: u.role,
     is_active: u.isActive,
     microsoft_linked: !!u.microsoftOid,
+    metadata_version: accountMetadataVersion(u),
     created_at: u.createdAt,
     driver_profile: u.driverProfile,
   })));
@@ -84,7 +85,7 @@ router.post('/', requireAuth, requireResource('users', 'CREATE'), requireRole('A
         await tx.permissionConversion.create({ data: { userId: created.id, catalogVersion: 1, sourceHash: conversion.sourceHash, report: conversion.report } });
       }
       await tx.auditLog.create({ data: { recordId: created.id, recordType: 'UserAuthorization', action: 'CREATE', changedById: actor.id,
-        newValue: JSON.stringify({ role: created.role, isActive: created.isActive, authorizationRevision: String(created.authorizationRevision) }) } });
+        newValue: JSON.stringify({ name: created.name, email: created.email, role: created.role, isActive: created.isActive, authorizationRevision: String(created.authorizationRevision) }) } });
       return { created, profile };
     }, 'CREATE');
     res.status(201).json({
@@ -94,6 +95,7 @@ router.post('/', requireAuth, requireResource('users', 'CREATE'), requireRole('A
       role: created.role,
       is_active: created.isActive,
       microsoft_linked: !!created.microsoftOid,
+      metadata_version: accountMetadataVersion(created),
       created_at: created.createdAt,
       driver_profile: profile ? { id: profile.id, name: profile.name } : null,
     });
@@ -168,7 +170,7 @@ router.put('/:id/microsoft-identity', requireAuth, requireResource('users', 'UPD
 
 // Update user details — ADMIN only.
 router.patch('/:id', requireAuth, requireResource('users', 'UPDATE'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
-  const bodyError = accountBodyError(req.body, ['name', 'email', 'role', 'removedOverrideKeys']);
+  const bodyError = accountBodyError(req.body, ['name', 'email', 'role', 'removedOverrideKeys', 'expectedMetadataVersion']);
   if (bodyError) return res.status(400).json({ error: bodyError });
   const { id } = req.params;
   const { name, email, role } = req.body ?? {};
@@ -202,7 +204,13 @@ router.patch('/:id', requireAuth, requireResource('users', 'UPDATE'), requireRol
       await assertAdminSurvives(tx, actor.id, user, role ?? user.role, user.isActive);
       if (user.role === 'DRIVER' && role && role !== 'DRIVER') await unlinkDriverLogin(tx, id, actor);
       return tx.user.update({ where: { id }, data });
-    }, { role, removedOverrideKeys: req.body.removedOverrideKeys });
+    }, { role, metadata: true, removedOverrideKeys: req.body.removedOverrideKeys, finish: async tx => {
+      // Legacy conversion can advance authorizationRevision after the initial
+      // account update. The response token must describe the final locked state.
+      const final = await tx.user.findUnique({ where: { id } });
+      if (!final) throw new Error('Updated account could not be loaded');
+      return final;
+    } });
   } catch (error) {
     if ((error as { code?: string })?.code === 'P2002') return res.status(409).json({ error: 'An account with this email already exists.' });
     throw error;
@@ -214,6 +222,7 @@ router.patch('/:id', requireAuth, requireResource('users', 'UPDATE'), requireRol
     role: updated.role,
     is_active: updated.isActive,
     microsoft_linked: !!updated.microsoftOid,
+    metadata_version: accountMetadataVersion(updated),
     created_at: updated.createdAt,
   });
 }));
@@ -242,6 +251,7 @@ router.patch('/:id/deactivate', requireAuth, requireResource('users', 'UPDATE'),
     role: updated.role,
     is_active: updated.isActive,
     microsoft_linked: !!updated.microsoftOid,
+    metadata_version: accountMetadataVersion(updated),
     created_at: updated.createdAt,
   });
 }));
@@ -263,6 +273,7 @@ router.patch('/:id/activate', requireAuth, requireResource('users', 'UPDATE'), r
     role: updated.role,
     is_active: updated.isActive,
     microsoft_linked: !!updated.microsoftOid,
+    metadata_version: accountMetadataVersion(updated),
     created_at: updated.createdAt,
   });
 }));

@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from "react";
 import { Layers, Plus } from "lucide-react";
 import { DeliveryRecord, DeliveryCategory, UserRole } from "@/types";
 import { ApiCompany, apiUrl, api } from "@/api";
-import { normalizeApiRecord } from "@/api/queries/useRecordsQuery";
+import { normalizeApiRecord, usePagedRecordsQuery } from "@/api/queries/useRecordsQuery";
 import RecordCreateForm from "@/features/deliveries/RecordCreateForm";
 import AllOpsExportMenu from "@/components/AllOpsExportMenu";
 import { StatusHistoryCounts } from "@/utils/export";
@@ -71,7 +71,6 @@ function fmtCreatedAt(ts: string): string {
 }
 
 export default function MainView({
-  records,
   currentUserRole,
   currentUserName,
   onNavigate,
@@ -114,54 +113,23 @@ export default function MainView({
     [effectiveScreens, currentUserRole, access],
   );
 
-  const sorted = useMemo(
-    () =>
-      [...records].sort(
-        (a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-      ),
-    [records],
-  );
-
-  const filtered = useMemo(() => {
-    switch (activeFilter) {
-      case "all":
-        return sorted;
-      case "draft":
-        return sorted.filter((r) => r.is_draft === "Yes");
-      default:
-        return sorted.filter((r) => r.status === activeFilter);
-    }
-  }, [sorted, activeFilter]);
-
-  const displayRecords = useMemo(() => {
-    let result = filtered;
-    if (dateFrom)
-      result = result.filter(
-        (r) => r.delivery_date && r.delivery_date >= dateFrom,
-      );
-    if (dateTo)
-      result = result.filter(
-        (r) => r.delivery_date && r.delivery_date <= dateTo,
-      );
-    return dateFrom || dateTo ? result : sortRecordsByDate(result, sortMode);
-  }, [filtered, dateFrom, dateTo, sortMode]);
-
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-
-  // Reset page to 1 whenever filters change
+  const query = usePagedRecordsQuery({
+    paged: true, page: currentPage, limit: pageSize,
+    status: activeFilter === 'all' ? undefined : activeFilter === 'draft' ? 'Draft' : activeFilter,
+    dateFrom: dateFrom || undefined, dateTo: dateTo || undefined,
+    dateSort: dateFrom || dateTo ? 'default' : sortMode,
+  });
+  const displayRecords = query.data?.rows ?? [];
+  const paginatedRecords = displayRecords;
+  const totalRecords = query.data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  useEffect(() => { setCurrentPage(1); }, [activeFilter, dateFrom, dateTo, sortMode, pageSize]);
   useEffect(() => {
-    setCurrentPage(1);
-  }, [activeFilter, dateFrom, dateTo, sortMode]);
-
-  const totalPages = Math.max(1, Math.ceil(displayRecords.length / pageSize));
-  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
-
-  const paginatedRecords = useMemo(() => {
-    const startIndex = (safeCurrentPage - 1) * pageSize;
-    return displayRecords.slice(startIndex, startIndex + pageSize);
-  }, [displayRecords, safeCurrentPage, pageSize]);
+    if (query.data && currentPage > totalPages) setCurrentPage(totalPages);
+  }, [query.data, currentPage, totalPages]);
 
   const handleRowClick = (record: DeliveryRecord) => {
     const screen = CATEGORY_TO_SCREEN[record.category];
@@ -176,7 +144,7 @@ export default function MainView({
 
   const fetchExportData = async () => {
     const raw = await api.getAllRecordsForExport({
-      status: activeFilter !== "all" && activeFilter !== "draft" ? activeFilter : undefined,
+      status: activeFilter === "all" ? undefined : activeFilter === "draft" ? "Draft" : activeFilter,
       dateFrom: dateFrom || undefined,
       dateTo: dateTo || undefined,
     });
@@ -298,13 +266,15 @@ export default function MainView({
         <span className="font-bold text-slate-700">
           {displayRecords.length}
         </span>{" "}
-        of <span className="font-bold text-slate-700">{records.length}</span>{" "}
-        records
+        of <span className="font-bold text-slate-700">{totalRecords}</span>{" "}
+        matching records
       </p>
 
       {/* Table */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        {displayRecords.length === 0 ? (
+        {query.isError ? (
+          <div role="alert" className="p-5 text-sm text-red-700">Could not load records. <button type="button" className="underline" onClick={() => void query.refetch()}>Retry loading records</button></div>
+        ) : query.isPending ? <p role="status" className="p-5 text-sm text-slate-600">Loading records…</p> : displayRecords.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <Layers className="w-10 h-10 text-slate-200" />
             <p className="text-sm text-slate-400">
@@ -390,7 +360,7 @@ export default function MainView({
               <Pagination
                 currentPage={safeCurrentPage}
                 totalPages={totalPages}
-                totalItems={displayRecords.length}
+                totalItems={totalRecords}
                 pageSize={pageSize}
                 onPageChange={setCurrentPage}
                 onPageSizeChange={(newSize) => {

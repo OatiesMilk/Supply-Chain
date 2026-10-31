@@ -6,7 +6,7 @@ import { podAttachmentsKey, usePodAttachments } from '@/api/queries/usePodAttach
 import { operationalSyncOptions } from '@/api/queries/operationalSync';
 import { useQuery } from '@tanstack/react-query';
 import { PodAttachmentList } from '@/components/PodAttachmentPreview';
-import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
+import { useRecordTimeInMutation, useUpdateRecordMutation } from '@/api/queries/useRecordsQuery';
 import PodUploader from '@/components/PodUploader';
 import CommentComposer from '@/components/CommentComposer';
 import { CompanyHistoryButton } from '@/components/CompanyHistoryPanel';
@@ -494,9 +494,11 @@ function OverviewTab({
   const [statusError, setStatusError] = useState<string | null>(null);
   const [receivedBy, setReceivedBy] = useState(record.received_by ?? '');
   const [draftReference, setDraftReference] = useState(record.reference);
-  useEffect(() => { setReceivedBy(record.received_by ?? ''); setDraftReference(record.reference); setStatusError(null); }, [record.id]);
+  const [referenceEditVersion, setReferenceEditVersion] = useState(record.edit_version);
+  useEffect(() => { setReceivedBy(record.received_by ?? ''); setDraftReference(record.reference); setReferenceEditVersion(record.edit_version); setStatusError(null); }, [record.id]);
   const { readiness, uploadStaged } = usePodAttachments(record.id);
   const timeInMutation = useRecordTimeInMutation();
+  const referenceMutation = useUpdateRecordMutation();
   const [statusRemarks, setStatusRemarks] = useState('');
   const [remarksError, setRemarksError] = useState(false);
   useWorkspaceDraft(
@@ -542,7 +544,7 @@ function OverviewTab({
               <label className="block text-xs font-bold text-slate-700">Reference (required to submit)</label>
               <input value={draftReference} onChange={e => setDraftReference(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
               <button type="button" disabled={updating || !statusRemarks.trim() || !draftReference.trim() || draftReference === record.reference} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold disabled:opacity-50"
-                onClick={async () => { setUpdating(true); setStatusError(null); try { await onUpdateRecord(record.id, { reference: draftReference.trim(), remarks: statusRemarks.trim() }); setStatusRemarks(''); notify.success('Draft reference saved'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not save the draft.'); } finally { setUpdating(false); } }}>Save Draft Reference</button>
+                onClick={async () => { setUpdating(true); setStatusError(null); try { const saved = await referenceMutation.mutateAsync({ id: record.id, updates: { reference: draftReference.trim(), remarks: statusRemarks.trim(), expected_edit_version: referenceEditVersion } }); setReferenceEditVersion(saved.edit_version); setStatusRemarks(''); notify.success('Draft reference saved'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not save the draft.'); } finally { setUpdating(false); } }}>Save Draft Reference</button>
             </div>}
             {record.status !== 'Delivered' && <>
               <PodUploader recordId={record.id} required disabled={updating} />

@@ -30,6 +30,7 @@ interface DeliveryItem {
   reference?: string;
   area?: string;
   is_draft?: string;
+  edit_version?: string;
 }
 
 interface Props {
@@ -41,6 +42,7 @@ interface Props {
 export default function DispatchBoardSelector({ records, onUpdateRecord, currentUserName }: Props) {
   const [selectedId, setSelectedId] = useState<string>('');
   const [assignDriver, setAssignDriver] = useState('');
+  const [editVersion, setEditVersion] = useState<string>();
   const [assigning, setAssigning] = useState(false);
   const [banner, setBanner] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
@@ -56,6 +58,7 @@ export default function DispatchBoardSelector({ records, onUpdateRecord, current
 
   const handleSelect = (e: React.ChangeEvent<HTMLSelectElement>): void => {
     setSelectedId(e.target.value);
+    setEditVersion(records.find(record => record.id === e.target.value)?.edit_version);
     setAssignDriver('');
     setBanner(null);
   };
@@ -65,7 +68,7 @@ export default function DispatchBoardSelector({ records, onUpdateRecord, current
     setAssigning(true);
     setBanner(null);
     try {
-      await onUpdateRecord(selected.id, { driver: assignDriver, remarks: `Driver assigned: ${assignDriver}` });
+      await onUpdateRecord(selected.id, { driver: assignDriver, remarks: `Driver assigned: ${assignDriver}`, expected_edit_version: editVersion });
       setBanner({ type: 'success', msg: `${assignDriver} assigned to ${selected.record_id ?? selected.id}.` });
       setAssignDriver('');
     } catch {

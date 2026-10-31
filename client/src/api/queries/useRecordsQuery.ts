@@ -40,6 +40,18 @@ export function useRecordsQuery(enabled = true) {
   });
 }
 
+/** Detail links resolve independently of the currently loaded list page. */
+export function useSelectedRecordQuery(id: string | null | undefined, initialRecord?: DeliveryRecord) {
+  return useQuery<DeliveryRecord, Error>({
+    ...operationalSyncOptions,
+    queryKey: recordDetailKey(id ?? ''),
+    queryFn: async () => normalizeApiRecord(await api.getRecord(id!)),
+    initialData: initialRecord?.id === id ? normalizeApiRecord(initialRecord) : undefined,
+    structuralSharing: shareOperationalRecords,
+    enabled: !!id,
+  });
+}
+
 export function useRecordDetailQuery(record: DeliveryRecord, enabled = true) {
   rememberPermissionRecord(record);
   const client = useQueryClient();
@@ -122,12 +134,23 @@ export function useCreateRecordMutation(currentUser: { name: string; role: strin
   });
 }
 
+function displayedRecord(queryClient: ReturnType<typeof useQueryClient>, id: string): DeliveryRecord | undefined {
+  const detail = queryClient.getQueryData<DeliveryRecord>(recordDetailKey(id));
+  if (detail) return detail;
+  for (const [, data] of queryClient.getQueriesData({ queryKey: ['records'] })) {
+    const value = data as any;
+    const rows = Array.isArray(value) ? value : Array.isArray(value?.rows) ? value.rows : [];
+    const match = rows.find((record: DeliveryRecord) => record.id === id);
+    if (match) return match;
+  }
+}
+
 export function createUpdateRecordMutationOptions(queryClient: ReturnType<typeof useQueryClient>) {
   return {
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<DeliveryRecord> }) => {
       if (updates.status) {
         const u = updates as any;
-        const extra: { received_by?: string; priority?: string; delivery_date?: string; expected_version?: number } = {};
+        const extra: { received_by?: string; priority?: string; delivery_date?: string; expected_version?: number; expected_edit_version?: string } = {};
         if (u.expected_version !== undefined) extra.expected_version = u.expected_version;
         if (u.received_by) extra.received_by = u.received_by;
         if (updates.status === 'Rescheduled' && u.delivery_date) extra.delivery_date = u.delivery_date;
@@ -152,6 +175,10 @@ export function createUpdateRecordMutationOptions(queryClient: ReturnType<typeof
           }
         }
         if (updates.priority !== undefined) extra.priority = updates.priority;
+        if (extra.priority !== undefined || extra.delivery_date !== undefined) {
+          const expected = u.expected_edit_version ?? displayedRecord(queryClient, id)?.edit_version;
+          if (expected !== undefined) extra.expected_edit_version = expected;
+        }
         const saved = normalizeApiRecord(await api.patchStatus(
           id,
           updates.status,
@@ -171,6 +198,14 @@ export function createUpdateRecordMutationOptions(queryClient: ReturnType<typeof
           company_name,
           ...rest
         } = updates as any;
+        // Editors send their captured precondition. Immediate single-field
+        // actions may use the record snapshot already displayed in the cache;
+        // never fetch a new token to make a stale draft pass.
+        if (rest.expected_edit_version === undefined) {
+          const snapshot = displayedRecord(queryClient, id);
+          if (snapshot?.edit_version) rest.expected_edit_version = snapshot.edit_version;
+        }
+        delete rest.edit_version;
         const saved = normalizeApiRecord(await api.updateRecord(id, rest));
         if (updates.priority !== undefined && saved.priority !== updates.priority) {
           throw new Error('The server did not save the selected priority. Please try again.');

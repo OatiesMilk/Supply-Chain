@@ -6,6 +6,9 @@ import { DeliveryRecord } from '@/types';
 import { DRIVERS, DRIVER_COVERAGE, driverIdForName } from '@/data';
 import { rankDriversByCoverage } from '@/utils/driverCoverage';
 import { isDraftRecord } from '@/utils/recordLifecycle';
+import { usePagedRecordsQuery } from '@/api/queries/useRecordsQuery';
+import { useDriverOverviewQuery, useClampRecordPage } from '@/api/queries/useOperationalViews';
+import RecordPageControls from '@/components/RecordPageControls';
 
 // Same coverage rules as the Dispatch dropdown: exact Area first, then explicit Subregion.
 function splitDriversByArea(recordArea: string): { matched: string[]; others: string[] } {
@@ -18,6 +21,9 @@ interface Props {
   onNavigate: (screen: string, item_id?: string) => void;
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   currentUserName: string;
+  serverPaging?: boolean;
+  availableAreas?: string[];
+  onAreaChange?: (area: string) => void;
 }
 
 const CATEGORY_SCREEN: Record<string, string> = {
@@ -33,7 +39,7 @@ function initials(name: string) {
   return name.split(/\s+/).map(p => p[0]).join('').slice(0, 2).toUpperCase();
 }
 
-type AssignmentState = { editing: boolean; pending: boolean; error: string; feedback?: { message: string; type: 'success' | 'error' }; };
+type AssignmentState = { editing: boolean; pending: boolean; error: string; editVersion?: string; feedback?: { message: string; type: 'success' | 'error' }; };
 const idleAssignment: AssignmentState = { editing: false, pending: false, error: '' };
 const focusStyle = 'touch-manipulation focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700';
 
@@ -146,7 +152,24 @@ const RecordCard: React.FC<CardProps> = function RecordCard({ record, onNavigate
   );
 }
 
-export default function DriverBoard({ records, onNavigate, onUpdateRecord, currentUserName }: Props) {
+export default function DriverBoard(props: Props) {
+  return props.serverPaging ? <PagedDriverBoard {...props} /> : <DriverBoardContent {...props} />;
+}
+function PagedDriverBoard(props: Props) {
+  const [page, setPage] = useState(1);
+  const [area, setArea] = useState('All');
+  const query = usePagedRecordsQuery({ view: 'dispatch', area: area === 'All' ? undefined : area, page, limit: 25 });
+  const overview = useDriverOverviewQuery();
+  useClampRecordPage(page, query.data?.total, setPage);
+  return <div className="space-y-3">
+    <RecordPageControls page={page} total={query.data?.total ?? 0} onPageChange={setPage}
+      loading={query.isPending} error={query.error} retry={() => void query.refetch()} />
+    <p className="text-xs text-slate-600">Driver groups and counts below describe this page. Use pagination to reach every active record.</p>
+    <DriverBoardContent {...props} records={query.data?.rows ?? []} availableAreas={overview.data?.areas}
+      onAreaChange={value => { setArea(value); setPage(1); }} />
+  </div>;
+}
+function DriverBoardContent({ records, onNavigate, onUpdateRecord, currentUserName, availableAreas, onAreaChange }: Props) {
   const id = useId();
   const access = usePermissions();
   const driverColumnCount = useDriverColumnCount();
@@ -159,7 +182,7 @@ export default function DriverBoard({ records, onNavigate, onUpdateRecord, curre
   const activeRecords = records.filter(r => r.status !== 'Delivered' && !isDraftRecord(r) && (r.category !== 'RMA' || r.rma_movement === 'LOGISTICS_TRANSPORT' && r.rma_transport_status !== 'COMPLETED'));
 
   // Collect distinct areas for filter chips
-  const allAreas = ['All', ...Array.from(new Set(activeRecords.map(r => r.area).filter(Boolean))).sort()];
+  const allAreas = ['All', ...(availableAreas ?? Array.from(new Set(activeRecords.map(r => r.area).filter(Boolean))).sort())];
 
   // Apply area filter
   const filteredRecords = areaFilter === 'All'
@@ -181,16 +204,17 @@ export default function DriverBoard({ records, onNavigate, onUpdateRecord, curre
       onNavigate('rma', recordId);
       return;
     }
-    setAssignments(previous => ({ ...previous, [recordId]: { ...(previous[recordId] ?? idleAssignment), editing, error: '' } }));
+    setAssignments(previous => ({ ...previous, [recordId]: { ...(previous[recordId] ?? idleAssignment), editing, error: '', editVersion: editing ? record.edit_version : undefined } }));
   };
   const handleAssign = async (recordId: string, driver: string) => {
     const record = records.find(record => record.id === recordId);
     if (!record || !access.canRecord(record.category, 'ASSIGN') || assignments[recordId]?.pending) return;
-    setAssignments(previous => ({ ...previous, [recordId]: { editing: true, pending: true, error: '' } }));
+    setAssignments(previous => ({ ...previous, [recordId]: { editing: true, pending: true, error: '', editVersion: previous[recordId]?.editVersion } }));
     try {
       // Save the stable Driver profile id; the server copies the display name.
       const driverId = driver ? driverIdForName(driver) : null;
       await onUpdateRecord(recordId, {
+        expected_edit_version: assignments[recordId]?.editVersion,
         ...(driver && !driverId ? { driver } : { driver_id: driverId }),
         remarks: driver ? `Driver assigned: ${driver}` : 'Driver unassigned',
         modified_by: `${currentUserName} (Logistics)`,
@@ -199,7 +223,7 @@ export default function DriverBoard({ records, onNavigate, onUpdateRecord, curre
       setTimeout(() => setAssignments(prev => ({ ...prev, [recordId]: { ...(prev[recordId] ?? idleAssignment), feedback: undefined } })), 3000);
     } catch (error) {
       const message = error instanceof Error && error.message.trim() ? error.message : 'Could not save the assignment.';
-      setAssignments(previous => ({ ...previous, [recordId]: { editing: true, pending: false, error: `${message} Choose a driver to try again.` } }));
+      setAssignments(previous => ({ ...previous, [recordId]: { editing: true, pending: false, editVersion: assignments[recordId]?.editVersion, error: `${message} Close this editor and review the latest record before retrying.` } }));
     }
   };
 
@@ -287,7 +311,7 @@ export default function DriverBoard({ records, onNavigate, onUpdateRecord, curre
             key={area}
             type="button"
             aria-pressed={areaFilter === area}
-            onClick={() => setAreaFilter(area)}
+            onClick={() => { setAreaFilter(area); onAreaChange?.(area); }}
             className={`min-h-11 max-w-full break-words [overflow-wrap:anywhere] px-3 py-2 rounded-lg text-sm font-semibold border cursor-pointer ${focusStyle} ${
               areaFilter === area
                 ? 'bg-[#1F3864] text-white border-[#1F3864]'

@@ -11,60 +11,42 @@ import {
   Navigation,
 } from "lucide-react";
 import { DeliveryRecord } from "@/types";
-import { ApiDashboardStats } from "@/api";
+import { ApiDashboardStats, ApiDashboardOverview } from "@/api";
 import { screenKeyForCategory } from "@/routes/screenRouting";
 import { DashboardFilterId, filterRecordsForDashboard } from '@/utils/dashboardFilters';
 
 interface Props {
   stats: Extract<ApiDashboardStats, { role: "LOGISTICS" }> | null;
   deliveryRecords: DeliveryRecord[];
+  overview: ApiDashboardOverview;
   onNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
   onRefresh?: () => void;
 }
 
 export default function LogisticsDashboard({
   stats,
+  overview,
   deliveryRecords,
   onNavigate,
   onRefresh,
 }: Props) {
-  const today = manilaToday();
-  const rmaRequests = deliveryRecords.filter(record => record.category === 'RMA' && record.rma_movement === 'LOGISTICS_TRANSPORT' && record.is_draft !== 'Yes' && record.status !== 'Draft' && record.status !== 'Delivered' && record.rma_transport_status !== 'COMPLETED');
-
-  // Derive lists from deliveryRecords (already filtered to Logistics-visible records by API)
-  const unassignedRecords = filterRecordsForDashboard(deliveryRecords, 'log-unassigned', today);
-  const onHoldRecords = filterRecordsForDashboard(deliveryRecords, 'log-on-hold', today);
-  const rescheduledRecords = filterRecordsForDashboard(deliveryRecords, 'log-rescheduled', today);
-  const flagsCount = filterRecordsForDashboard(deliveryRecords, 'log-flags', today).length;
-
-  // Drivers currently out: assigned, today's date, not yet accomplished
-  const driversOutMap: Record<
-    string,
-    { driver: string; records: DeliveryRecord[] }
-  > = {};
-  for (const r of deliveryRecords) {
-    if ((r.category === 'Deliveries' || r.category === 'RMA' && r.rma_movement === 'LOGISTICS_TRANSPORT' && r.rma_transport_status !== 'COMPLETED') && r.is_draft !== 'Yes' && r.status !== 'Draft' && r.driver && r.delivery_date === today && r.status !== "Delivered") {
-      if (!driversOutMap[r.driver])
-        driversOutMap[r.driver] = { driver: r.driver, records: [] };
-      driversOutMap[r.driver].records.push(r);
-    }
-  }
-  const driversOut = Object.values(driversOutMap);
-
-  const assignedToday =
-    stats?.assigned_today ??
-    filterRecordsForDashboard(deliveryRecords, 'log-assigned-today', today).length;
-  const unassignedCount = stats?.unassigned_count ?? unassignedRecords.length;
-  const completedToday = stats?.completed_today ?? filterRecordsForDashboard(deliveryRecords, 'log-completed-today', today).length;
-  const onHoldRescheduled =
-    stats?.on_hold_rescheduled ??
-    filterRecordsForDashboard(deliveryRecords, 'log-on-hold-rescheduled', today).length;
+  const rmaRequests = overview.record_previews.rma_requests;
+  const rmaRequestTotal = overview.counts.rma_requests ?? 0;
+  const flagsCount = overview.counts['log-flags'] ?? 0;
+  const onHoldCount = overview.counts['log-on-hold'] ?? 0;
+  const rescheduledCount = overview.counts['log-rescheduled'] ?? 0;
+  const driversOut = overview.drivers_out;
+  const assignedToday = stats?.assigned_today ?? 0;
+  const unassignedCount = stats?.unassigned_count ?? overview.counts['log-unassigned'] ?? 0;
+  const completedToday = stats?.completed_today ?? 0;
+  const onHoldRescheduled = stats?.on_hold_rescheduled ?? 0;
 
   return (
     <div className="space-y-6" id="logistics-dashboard">
       <section aria-label="RMA transport requests" className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-        <h2 className="font-bold text-slate-900">RMA transport requests <span className="text-slate-500">({rmaRequests.length})</span></h2>
-        {rmaRequests.length === 0 ? <p className="text-sm text-slate-600">No RMA transport requests need dispatch.</p> : <ul className="divide-y divide-slate-100">{rmaRequests.map(record => <li key={record.id}><button type="button" onClick={() => onNavigate("rma", record.id)} className="min-h-11 w-full py-3 text-left text-sm text-blue-800"><span className="font-semibold">{record.rma_reference || record.id}</span> · {record.company_name} · {record.area} · {record.delivery_date} · {record.driver || "Needs driver"}<span className="mt-1 block"><RecordStatus record={record} /></span></button></li>)}</ul>}
+        <h2 className="font-bold text-slate-900">RMA transport requests <span className="text-slate-500">({rmaRequestTotal})</span></h2>
+        {rmaRequestTotal === 0 ? <p className="text-sm text-slate-600">No RMA transport requests need dispatch.</p> : <ul className="divide-y divide-slate-100">{rmaRequests.map(record => <li key={record.id}><button type="button" onClick={() => onNavigate("rma", record.id)} className="min-h-11 w-full py-3 text-left text-sm text-blue-800"><span className="font-semibold">{record.rma_reference || record.id}</span> · {record.company_name} · {record.area} · {record.delivery_date} · {record.driver || "Needs driver"}<span className="mt-1 block"><RecordStatus record={record} /></span></button></li>)}</ul>}
+        {rmaRequestTotal > 0 && <button type="button" onClick={() => onNavigate('rma')} className="text-sm text-blue-800 underline">View all {rmaRequestTotal} RMA transport requests (showing {rmaRequests.length})</button>}
       </section>
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -166,7 +148,7 @@ export default function LogisticsDashboard({
             </h4>
           </div>
           <span className="bg-[#0078C1] text-white text-[10px] font-bold px-2.5 py-1 rounded-full">
-            {driversOut.length} driver{driversOut.length !== 1 ? "s" : ""}{" "}
+            {overview.drivers_out_total} driver{overview.drivers_out_total !== 1 ? "s" : ""}{" "}
             active
           </span>
         </div>
@@ -177,7 +159,7 @@ export default function LogisticsDashboard({
           </p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {driversOut.map(({ driver, records }) => (
+            {driversOut.map(({ driver, records, total }) => (
               <div
                 key={driver}
                 className="bg-white/10 rounded-lg p-3 border border-white/10"
@@ -196,8 +178,8 @@ export default function LogisticsDashboard({
                   </span>
                 </div>
                 <p className="text-white/60 text-[10px] font-bold uppercase tracking-wide mb-1.5">
-                  {records.length} active deliver
-                  {records.length !== 1 ? "ies" : "y"}
+                  {total} active deliver
+                  {total !== 1 ? "ies" : "y"}
                 </p>
                 <div className="space-y-1">
                   {records.slice(0, 3).map((r) => (
@@ -211,9 +193,9 @@ export default function LogisticsDashboard({
                       {r.id} · {r.company_name}
                     </button>
                   ))}
-                  {records.length > 3 && (
+                  {total > records.length && (
                     <p className="text-[10px] text-white/40 font-semibold">
-                      +{records.length - 3} more records
+                      +{total - records.length} more records
                     </p>
                   )}
                 </div>
@@ -223,6 +205,7 @@ export default function LogisticsDashboard({
         )}
       </div>
 
+      {overview.drivers_out_total > driversOut.length && <button type="button" onClick={() => onNavigate('driver_board')} className="text-sm text-blue-800 underline">View all {overview.drivers_out_total} assigned Drivers</button>}
       {/* Needs Attention Panel */}
       <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
@@ -246,7 +229,7 @@ export default function LogisticsDashboard({
               Unassigned Records
             </span>
             <p className="text-2xl font-black text-slate-900">
-              {unassignedRecords.length}
+              {unassignedCount}
             </p>
             <p className="text-[11px] text-slate-400 font-medium flex-1">
               Records with no driver assigned yet.
@@ -266,7 +249,7 @@ export default function LogisticsDashboard({
               On-Hold Items
             </span>
             <p className="text-2xl font-black text-slate-900">
-              {onHoldRecords.length}
+              {onHoldCount}
             </p>
             <p className="text-[11px] text-slate-400 font-medium flex-1">
               Deliveries currently blocked.
@@ -286,7 +269,7 @@ export default function LogisticsDashboard({
               Rescheduled Items
             </span>
             <p className="text-2xl font-black text-slate-900">
-              {rescheduledRecords.length}
+              {rescheduledCount}
             </p>
             <p className="text-[11px] text-slate-400 font-medium flex-1">
               Bumped to a new delivery date.

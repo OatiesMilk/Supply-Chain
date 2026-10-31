@@ -2,14 +2,7 @@ import { X, Clock, UserCheck } from 'lucide-react';
 import { DeliveryRecord } from '@/types';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
 import { PodAttachmentList } from '@/components/PodAttachmentPreview';
-
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString([], {
-    timeZone: 'Asia/Manila',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
+import { formatManilaTime, formatManilaTimestamp } from '@/utils/manilaTimestamp';
 
 export default function DoneRecordModal({
   record,
@@ -19,6 +12,7 @@ export default function DoneRecordModal({
   onClose: () => void;
 }) {
   const { files, readiness } = usePodAttachments(record.id);
+  const completedAt = formatManilaTimestamp(record.time_out);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -47,13 +41,13 @@ export default function DoneRecordModal({
           <div>
             <h3 className="font-bold text-slate-900 mb-1">Status & Timestamps</h3>
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-emerald-900">
-              <p className="font-bold">Accomplished on {new Date(record.delivery_date).toLocaleDateString()}</p>
+              <p className="font-bold">{completedAt === '—' ? 'Completion date unavailable' : `Accomplished on ${completedAt}`}</p>
               <div className="mt-2 flex flex-col gap-1 text-xs">
                 {record.time_in && (
-                  <span className="flex items-center gap-1.5"><Clock className="h-4 w-4" /> Time in: {fmtTime(record.time_in)}</span>
+                  <span className="flex items-center gap-1.5"><Clock className="h-4 w-4" /> Time in: {formatManilaTime(record.time_in)}</span>
                 )}
                 {record.time_out && (
-                  <span className="flex items-center gap-1.5"><Clock className="h-4 w-4" /> Time out: {fmtTime(record.time_out)}</span>
+                  <span className="flex items-center gap-1.5"><Clock className="h-4 w-4" /> Time out: {formatManilaTime(record.time_out)}</span>
                 )}
                 {record.received_by && (
                   <span className="flex items-center gap-1.5"><UserCheck className="h-4 w-4" /> Received by: {record.received_by}</span>

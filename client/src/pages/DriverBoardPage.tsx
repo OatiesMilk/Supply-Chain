@@ -17,6 +17,7 @@ export const DriverBoardPage: React.FC<DriverBoardPageProps> = ({
 }) => {
   return (
     <DriverBoard
+      serverPaging
       records={records}
       onNavigate={onNavigate}
       onUpdateRecord={onUpdateRecord}

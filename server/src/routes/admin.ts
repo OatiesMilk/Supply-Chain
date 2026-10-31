@@ -6,6 +6,7 @@ import { asyncRoute } from '../middleware/asyncRoute';
 import { deploymentStatus } from '../services/deploymentStatus';
 import { getRolePermissionEditor, saveRolePermissions, safePolicyAudit } from '../services/permissionManagement';
 import { policyRoute } from '../middleware/policyRoute';
+import { visibleBusinessAuditSnapshots } from '../services/businessAudit';
 import { visibleAuditEntries, visibleAuditCount } from '../services/auditVisibility';
 
 const router = Router();
@@ -19,7 +20,7 @@ router.put('/roles/:role/permissions', requireAuth, requireResource('admin', 'WR
 }));
 
 // Full audit log with pagination and optional filters — ADMIN only.
-router.get('/audit-log', requireAuth, requireResource('admin'), requireRole('ADMIN'), async (req, res) => {
+router.get('/audit-log', requireAuth, requireResource('admin'), requireRole('ADMIN'), asyncRoute(async (req, res) => {
   const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10));
   const limit = Math.max(1, Math.min(200, parseInt(String(req.query.limit ?? '50'), 10)));
   const skip = (page - 1) * limit;
@@ -64,12 +65,13 @@ router.get('/audit-log', requireAuth, requireResource('admin'), requireRole('ADM
     req.user!.activeMode === 'V1' ? visibleAuditCount(prisma, req.user!, where) : prisma.auditLog.count({ where })
   ]);
 
+  const business = await visibleBusinessAuditSnapshots(entries, req.user!);
   res.json({
     page,
     limit,
     total,
     pages: Math.ceil(total / limit),
-    entries: entries.map(e => ({
+    entries: entries.map((e, index) => ({
       id: e.id,
       record_id: e.recordId,
       record_type: e.recordType,
@@ -77,11 +79,11 @@ router.get('/audit-log', requireAuth, requireResource('admin'), requireRole('ADM
       changed_by: e.changedBy.name,
       changed_by_id: e.changedById,
       timestamp: e.timestamp,
-      previous: safePolicyAudit(e.recordType, e.previousValue),
-      next: safePolicyAudit(e.recordType, e.newValue)
+      previous: safePolicyAudit(e.recordType, e.previousValue) ?? business[index].previous,
+      next: safePolicyAudit(e.recordType, e.newValue) ?? business[index].next
     }))
   });
-});
+}));
 
 // ─── Integration diagnostics — ADMIN only ──────────────────────────────────
 

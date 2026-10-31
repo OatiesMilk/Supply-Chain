@@ -29,6 +29,7 @@ async function withMenus(run: (dom: JSDOM, state: { current: RouteSlipPeriodSele
   URL.revokeObjectURL = () => {};
   dom.window.HTMLAnchorElement.prototype.click = function() { state.filename = this.download; };
   globalThis.fetch = async () => new Response('', { status: 404 });
+  const options = mock.method(api, 'getRecordFilterOptions', async () => ({ accountManagers: ['Casey'], drivers: ['Alex'], areas: ['Makati CBD'] }));
   const pages = mock.method(api, 'getPagedRecords', async (query: RecordListFilters) => {
     state.calls.push({ ...query });
     if (actualView && query.limit !== 100) return { rows: [row('CACHEDONLY', '2026-10-27')], hasMore: false, nextCursor: null, total: 101, page: 1, limit: 25 };
@@ -67,7 +68,7 @@ async function withMenus(run: (dom: JSDOM, state: { current: RouteSlipPeriodSele
     await run(dom, state);
   } finally {
     await act(async () => root.unmount());
-    client.clear(); pages.mock.restore(); globalThis.fetch = oldFetch;
+    client.clear(); pages.mock.restore(); options.mock.restore(); globalThis.fetch = oldFetch;
     URL.createObjectURL = oldCreate; URL.revokeObjectURL = oldRevoke;
     dom.window.close();
     for (const key of Object.keys(globals)) {

@@ -11,6 +11,7 @@ import { useAuthStore } from '@/store/authStore';
 import RolesPermissions, { PolicyEditor } from './PolicyEditor';
 import PolicyAuditDiff from './PolicyAuditDiff';
 import { accountPolicyVersion, roleChangeVersion } from './accountPolicy';
+import BusinessAuditDiff from './BusinessAuditDiff';
 import type { UserPermissionEditor } from '@/types/permissionEditor';
 
 type Tab = 'users' | 'audit' | 'integrations' | 'permissions';
@@ -221,6 +222,8 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
   const [openPermissionsUserId, setOpenPermissionsUserId] = useState<string | null>(null);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: '', email: '', role: '' });
+  const [metadataVersion, setMetadataVersion] = useState('');
+  const [metadataConflict, setMetadataConflict] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
   const [actionPolicy, setActionPolicy] = useState<UserPermissionEditor | null>(null);
   const [roleReview, setRoleReview] = useState<{ userId: string; form: typeof editForm; editor: UserPermissionEditor } | null>(null);
@@ -353,12 +356,15 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
   const startEdit = (u: ApiUserAdmin) => {
     setEditingUserId(u.id);
     setEditForm({ name: u.name, email: u.email, role: u.role });
+    setMetadataVersion(u.metadata_version ?? '');
+    setMetadataConflict(false);
+    setEditNotice(null);
   };
 
   const persistUserEdit = async (userId: string, form: typeof editForm, editor?: UserPermissionEditor) => {
     setEditLoading(true);
     try {
-      const updated = await api.updateUser(userId, { ...form, ...(editor ? roleChangeVersion(editor) : {}) });
+      const updated = await api.updateUser(userId, { ...form, expectedMetadataVersion: metadataVersion, ...(editor ? roleChangeVersion(editor) : {}) });
       // Leaving the DRIVER role unlinks the profile on the server.
       setUsers(prev => prev.map(u => u.id === updated.id
         ? { ...u, ...updated, driver_profile: u.role === 'DRIVER' && updated.role === 'DRIVER' ? u.driver_profile : null }
@@ -367,10 +373,25 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
       setRoleReview(null);
     } catch (err) {
       setEditNotice(err instanceof ApiError ? err.message : 'Failed to update user');
-      if (err instanceof ApiError && err.status === 409) setRoleReview(null);
+      if (err instanceof ApiError && err.status === 409) { setRoleReview(null); setMetadataConflict(true); }
     } finally {
       setEditLoading(false);
     }
+  };
+
+  const loadLatestEditedAccount = async () => {
+    setEditLoading(true);
+    try {
+      const latest = await api.getUsers();
+      const account = latest.find(user => user.id === editingUserId);
+      if (!account?.metadata_version) throw new Error('The latest account could not be loaded. Your draft is retained.');
+      setUsers(latest);
+      setMetadataVersion(account.metadata_version);
+      setMetadataConflict(false);
+      setRoleReview(null);
+      setEditNotice(`Latest saved account: ${account.name} (${account.email}), ${account.role}. Your draft is retained; review it before saving.`);
+    } catch (error) { setEditNotice(error instanceof Error ? error.message : 'Could not load the latest account.'); }
+    finally { setEditLoading(false); }
   };
 
   const handleEditSave = async (userId: string) => {
@@ -688,7 +709,8 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                           <div className="flex items-center justify-center gap-2">
                             {editingUserId === u.id ? (
                               <>
-                                <button onClick={() => handleEditSave(u.id)} disabled={editLoading}
+                                {metadataConflict && <button onClick={() => void loadLatestEditedAccount()} disabled={editLoading} className="text-xs underline">Load latest account</button>}
+                                <button onClick={() => handleEditSave(u.id)} disabled={editLoading || metadataConflict}
                                   className="flex items-center gap-1 text-emerald-600 hover:text-emerald-800 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer">
                                   {editLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Save
                                 </button>
@@ -948,7 +970,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                           </span>
                         </td>
                         <td className="px-4 py-3 font-mono text-[10px] text-slate-700">{e.record_id}</td>
-                        <td className="px-4 py-3 text-slate-600">{e.record_type}<PolicyAuditDiff recordType={e.record_type} previous={e.previous} next={e.next} /></td>
+                        <td className="px-4 py-3 text-slate-600">{e.record_type}<PolicyAuditDiff recordType={e.record_type} previous={e.previous} next={e.next} /><BusinessAuditDiff recordType={e.record_type} previous={e.previous} next={e.next} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -1011,7 +1033,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
       </ActionDialog>
       <ActionDialog
         open={editNotice !== null}
-        title="Could not update user"
+        title="Account update"
         description={editNotice ?? ''}
         onDismiss={() => setEditNotice(null)}
       />

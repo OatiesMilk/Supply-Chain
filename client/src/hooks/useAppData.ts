@@ -2,10 +2,10 @@ import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { setManagedDriverList, subscribeManagedDrivers, getManagedDriverVersion } from '@/data';
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiUser, ApiDriver } from '@/api';
-import { UserRole } from '@/types';
+import { UserRole, type DeliveryRecord } from '@/types';
+const EMPTY_RECORDS: DeliveryRecord[] = [];
 import { CATEGORY_SCREENS } from '@/routes/screenRouting';
 import {
-  useRecordsQuery,
   useRecordActiveCountsQuery,
   useCompaniesQuery,
   useCustomersQuery,
@@ -36,14 +36,8 @@ export function isResourceQueryEnabled(
   if (!currentScreen) return true;
   switch (resource) {
     case 'records':
-      if (CATEGORY_SCREENS[currentScreen] && !p.canCategory(CATEGORY_SCREENS[currentScreen])) return false;
-      if (p.v1 && !user?.snapshot?.readableCategories.length) return false;
-      // Full lists belong on operational screens; global badges use aggregates.
-      return (
-        Boolean(CATEGORY_SCREENS[currentScreen]) ||
-        ['main', 'dashboard', 'calendar', 'driver', 'driver_board', 'suppliers', 'am_directory'].includes(currentScreen) ||
-        (user.role === 'DRIVER' && user.effectiveScreens.includes('driver_dashboard'))
-      );
+      // Operational pages own scoped/paged queries; never poll all history here.
+      return false;
     case 'companies':
       return true;
     case 'customers':
@@ -99,8 +93,7 @@ export function useAppData(
       // Opening global search explicitly requests its data; normal visits do not.
       (searchOpen && permissions.canResource(resource) && searchableResourceAllowed(resource)));
 
-  const recordsQuery = useRecordsQuery(allowed('records'));
-  const { data: deliveryRecords = [] } = recordsQuery;
+  const deliveryRecords = EMPTY_RECORDS;
   const { data: activeRecordCounts = null } = useRecordActiveCountsQuery(routeAllowed && permissions.canResource('records'));
   const companiesQuery = useCompaniesQuery(allowed('companies'));
   const customersQuery = useCustomersQuery(allowed('customers'));
@@ -121,7 +114,7 @@ export function useAppData(
   const dashboardQuery = useDashboardStatsQuery(allowed('dashboard'));
   const { data: dashboardStats = null } = dashboardQuery;
   const resourceQueries: Record<string, PageQueryState> = {
-    records: recordsQuery, companies: companiesQuery, customers: customersQuery,
+    companies: companiesQuery, customers: customersQuery,
     suppliers: suppliersQuery, skus: skusQuery, drivers: driversQuery, dashboard: dashboardQuery,
   };
   const activeQueries = pageResources(currentScreen)

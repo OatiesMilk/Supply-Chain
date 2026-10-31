@@ -26,7 +26,7 @@ export interface RecordActiveCounts {
   procurement_pickup: number;
 }
 
-export type AccountPolicyVersion = { contractVersion?: 1; expectedVersion?: string; removedOverrideKeys?: string[] };
+export type AccountPolicyVersion = { expectedMetadataVersion?: string; contractVersion?: 1; expectedVersion?: string; removedOverrideKeys?: string[] };
 
 export class ApiError extends Error {
   details?: { userIds?: string[] };
@@ -141,6 +141,11 @@ export interface RecordListFilters {
   cursor?: string;
   page?: number;
   paged?: boolean;
+  view?: 'dispatch' | 'runs' | 'driver_dashboard';
+  queue?: 'active' | 'completed';
+  driver_exact?: string;
+  account_manager_exact?: string;
+  supplier_name?: string;
 }
 
 export interface PagedRecordResponse {
@@ -176,6 +181,7 @@ export interface ApiPermissionEditor {
 
 // Extended user record returned by the admin user-management endpoint
 export interface ApiUserAdmin {
+  metadata_version?: string;
   id: string;
   name: string;
   email: string;
@@ -267,6 +273,17 @@ export interface ApiDriver {
   created_at: string;
   modified_by: string;
   modified_at: string;
+}
+
+export interface ApiDashboardOverview {
+  role: string;
+  record_total: number;
+  status_totals: Record<string, number>;
+  counts: Record<string, number>;
+  record_previews: { rma_requests: import('../types').DeliveryRecord[]; rma_attention: import('../types').DeliveryRecord[] };
+  drivers_out: Array<{ driver: string; total: number; records: import('../types').DeliveryRecord[] }>;
+  drivers_out_total: number;
+  unverified_collections_amount: number;
 }
 
 export type ApiDashboardStats =
@@ -373,8 +390,8 @@ export interface ApiReportSummary {
 }
 
 export interface ApiAdminAuditEntry {
-  previous?: PolicyAuditState | null;
-  next?: PolicyAuditState | null;
+  previous?: PolicyAuditState & Record<string, unknown> | null;
+  next?: PolicyAuditState & Record<string, unknown> | null;
   id: string;
   record_id: string;
   record_type: string;
@@ -517,6 +534,10 @@ export const api = {
     return request<any[]>(`/records${query ? `?${query}` : ''}`);
   },
   getRecordActiveCounts: () => request<RecordActiveCounts>('/records/active-counts'),
+  getRecordFilterOptions: (category: string) => request<{ accountManagers: string[]; drivers: string[]; areas: string[] }>(`/records/filter-options?${new URLSearchParams({ category })}`),
+  getDriverOverview: (search = '') => request<{ drivers: Array<{ name: string; active: number; completed: number }>; unassigned: number; areas: string[]; dashboard: { today: number; remaining: number; completed: number; rma_active: number; rma_completed: number } }>(`/records/driver-overview${search ? `?${new URLSearchParams({ search })}` : ''}`),
+  getCalendarCounts: (dateFrom: string, dateTo: string) => request<Array<{ date: string; total: number; statuses: Record<string, number> }>>(`/records/calendar-counts?${new URLSearchParams({ dateFrom, dateTo })}`),
+  getSupplierPickupCounts: (ids: string[]) => request<Array<{ id: string; count: number }>>(`/records/supplier-pickup-counts?${new URLSearchParams({ ids: ids.join(',') })}`),
   getStatusHistoryCounts: (params: URLSearchParams) => request<import('../utils/export').StatusHistoryCounts>(`/records/status-history-counts?${params}`),
   getPagedRecords: (filters: RecordListFilters = {}) => {
     const params = new URLSearchParams();
@@ -551,6 +572,7 @@ export const api = {
     rescheduled: number;
     scheduled: number;
     companies: string[];
+    company_count: number;
   }>>('/records/am-summary'),
   getCalendarSummary: (dateFrom?: string, dateTo?: string) => {
     const params = new URLSearchParams();
@@ -574,7 +596,7 @@ export const api = {
     request<any>(`/records/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   recordTimeIn: (id: string, remarks: string) =>
     request<any>(`/records/${id}/time-in`, { method: 'POST', body: JSON.stringify({ remarks }) }),
-  patchStatus: (id: string, status: string, remarks?: string, extra?: { time_out?: string; received_by?: string; priority?: string; delivery_date?: string; expected_version?: number }) =>
+  patchStatus: (id: string, status: string, remarks?: string, extra?: { time_out?: string; received_by?: string; priority?: string; delivery_date?: string; expected_version?: number; expected_edit_version?: string }) =>
     request<any>(`/records/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, remarks: remarks ?? '', ...extra }) }),
   verifyCollection: (id: string) =>
     request<any>(`/records/${id}/verify-collection`, { method: 'PATCH' }),
@@ -601,6 +623,7 @@ export const api = {
     request<ApiSupplier>('/suppliers', { method: 'POST', body: JSON.stringify(data) }),
 
   getDashboardStats: () => request<ApiDashboardStats>('/dashboard/stats'),
+  getDashboardOverview: () => request<ApiDashboardOverview>('/dashboard/overview'),
 
   // Admin user management
   getUsers: () => request<ApiUserAdmin[]>('/users'),

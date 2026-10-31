@@ -4,6 +4,10 @@ import {
   FileText, Package, Truck, Building2, ClipboardList
 } from 'lucide-react';
 import { Supplier, DeliveryRecord } from '@/types';
+import { usePagedRecordsQuery } from '@/api/queries/useRecordsQuery';
+import { useClampRecordPage } from '@/api/queries/useOperationalViews';
+import RecordPageControls from '@/components/RecordPageControls';
+import { usePermissions } from '@/hooks/usePermissions';
 
 function formatTs(ts: string) {
   return new Date(ts).toLocaleString('en-PH', {
@@ -32,6 +36,7 @@ interface Props {
   supplier: Supplier;
   allSupplierIds: string[];
   deliveryRecords: DeliveryRecord[];
+  pickupCount?: number;
   onBack: () => void;
   onNavigateToSupplier: (id: string) => void;
 }
@@ -39,7 +44,7 @@ interface Props {
 type TabId = 'general' | 'pickups';
 
 export default function SupplierWorkspace({
-  supplier, allSupplierIds, deliveryRecords, onBack, onNavigateToSupplier,
+  supplier, allSupplierIds, deliveryRecords, pickupCount, onBack, onNavigateToSupplier,
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('general');
 
@@ -47,16 +52,15 @@ export default function SupplierWorkspace({
   const prevId = currentIndex > 0 ? allSupplierIds[currentIndex - 1] : null;
   const nextId = currentIndex < allSupplierIds.length - 1 ? allSupplierIds[currentIndex + 1] : null;
 
-  // Procurement pick-ups related to this supplier (by name match in item_description / company_name)
-  const relatedPickups = deliveryRecords.filter(r =>
-    r.category === 'Procurement Pick-up' &&
-    (r.item_description.toLowerCase().includes(supplier.name.toLowerCase()) ||
-     r.company_name.toLowerCase().includes(supplier.name.toLowerCase()))
-  );
+  const [page, setPage] = useState(1);
+  const canReadPickups = usePermissions().canRecord('Procurement Pick-up');
+  const query = usePagedRecordsQuery({ supplier_name: supplier.name, category: 'Procurement Pick-up', page, limit: 25 }, activeTab === 'pickups' && canReadPickups);
+  useClampRecordPage(page, query.data?.total, setPage);
+  const relatedPickups = query.data?.rows ?? [];
 
   const tabs: { id: TabId; label: string; icon: typeof FileText }[] = [
     { id: 'general', label: 'General',         icon: ClipboardList },
-    { id: 'pickups', label: `Procurement Pick-ups (${relatedPickups.length})`, icon: Truck },
+    { id: 'pickups', label: `Procurement Pick-ups (${query.data?.total ?? pickupCount ?? '…'})`, icon: Truck },
   ];
 
   return (
@@ -173,6 +177,8 @@ export default function SupplierWorkspace({
 
           {activeTab === 'pickups' && (
             <div className="space-y-4">
+              <RecordPageControls page={page} total={query.data?.total ?? 0} onPageChange={setPage} loading={query.isPending && canReadPickups} error={query.error} retry={() => void query.refetch()} />
+              {!canReadPickups && <p className="text-sm text-slate-600">Procurement pick-ups are not available for your account.</p>}
               {relatedPickups.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
                   <Package className="w-10 h-10 text-slate-200" />

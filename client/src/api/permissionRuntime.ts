@@ -83,7 +83,7 @@ export function assertPermissionRequest(path: string, options: RequestInit = {})
       else if (operation === 'status') actions.push('STATUS', ...(body.status === 'Delivered' ? ['COMPLETE' as const] : []), ...(body.status === 'Draft' || body.status === 'Scheduled' && drafts.has(recordId) ? ['SUBMIT' as const] : []), ...(body.priority !== undefined || body.delivery_date !== undefined ? ['UPDATE' as const] : []));
       else if (options.method === 'DELETE') actions.push('DELETE');
       else {
-        const keys = Object.keys(body).filter(key => !['remarks', 'expected_version'].includes(key));
+        const keys = Object.keys(body).filter(key => !['remarks', 'expected_version', 'expected_edit_version'].includes(key));
         if (keys.some(key => ['driver', 'driver_id', 'driver_assistants', 'vehicle'].includes(key))) actions.push('ASSIGN');
         if (keys.includes('status')) actions.push('STATUS', ...(body.status === 'Delivered' ? ['COMPLETE' as const] : []), ...(body.status === 'Draft' || body.status === 'Scheduled' && drafts.has(recordId) ? ['SUBMIT' as const] : []));
         if (keys.includes('is_draft')) actions.push('SUBMIT');

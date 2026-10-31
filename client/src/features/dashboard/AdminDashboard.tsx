@@ -17,13 +17,14 @@ import {
   CartesianGrid,
   Tooltip,
 } from "recharts";
-import { ApiDashboardStats } from "@/api";
+import { ApiDashboardStats, ApiDashboardOverview } from "@/api";
 import { DeliveryRecord } from "@/types";
 import { DashboardFilterId, getManilaWeekRange, matchesDashboardFilter } from '@/utils/dashboardFilters';
 
 interface Props {
   stats: Extract<ApiDashboardStats, { role: "ADMIN" }> | null;
   deliveryRecords: DeliveryRecord[];
+  overview: ApiDashboardOverview;
   onNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
   onRefresh?: () => void;
 }
@@ -59,6 +60,7 @@ const ROLE_LABELS: Record<string, string> = {
 
 export default function AdminDashboard({
   stats,
+  overview,
   deliveryRecords,
   onNavigate,
   onRefresh,
@@ -80,9 +82,7 @@ export default function AdminDashboard({
   const unverifiedCollections =
     stats?.unverified_collections ??
     deliveryRecords.filter(r => matchesDashboardFilter(r, 'admin-unverified-collections')).length;
-  const unverifiedCollectionsAmount = deliveryRecords
-    .filter(r => matchesDashboardFilter(r, 'admin-unverified-collections'))
-    .reduce((sum, r) => sum + (r.amount ?? 0), 0);
+  const unverifiedCollectionsAmount = overview.unverified_collections_amount;
   const auditEventsToday = stats?.audit_events_today ?? 0;
 
   const statusChartData = (stats?.records_by_status ?? []).map((s) => ({

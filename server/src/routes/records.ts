@@ -29,11 +29,21 @@ import { RMA_COMPLETION_ROLE_ERROR } from '../services/deliveryLifecycle';
 import { readRmaPermissions } from '../services/rmaDispatchPermissions';
 import { recordOperationError, recordMutationInputError } from '../services/recordOperations';
 import { recordSubmissionError } from '../services/recordSubmission';
+import { recordEditError } from '../services/recordEditVersion';
 import { generateRecordId } from '../services/recordIds';
+import { RECORD_VIEWS, runViewWhere, type RecordView } from '../services/recordViewFilters';
+import { dashboardRecordFilter } from '../services/dashboardFilters';
 
 const router = Router();
 class RecordSubmissionError extends Error {}
 const PRIORITY_LOCKED_ERROR = "Priority can't be changed after a record is Delivered.";
+async function notifyOrdinarySubmission(tx: Prisma.TransactionClient, record: { id: string; category: string; driver: string; company: { name: string }; reference: string; deliveryDate: string }) {
+  const needsDriver = !record.driver?.trim();
+  await notifyRole('LOGISTICS', needsDriver ? `New ${record.category.replace(/_/g, ' ')} record — driver needed` : `${record.category.replace(/_/g, ' ')} record submitted`,
+    `${record.company.name} · ${record.reference || '(no reference)'}${record.deliveryDate ? ` on ${record.deliveryDate}` : ''} ${needsDriver ? 'requires driver assignment.' : 'is ready for Logistics review.'}`,
+    record.id, 'DeliveryRecord', tx);
+}
+
 const recordAccess = (allowDriverRmaPod = false) => Object.assign(asyncRoute(async (req, res, next) => {
   if (req.user!.activeMode === 'V1') {
     const inputError = recordMutationInputError(req.body ?? {}, String(req.route?.path ?? ''), req.method);
@@ -144,52 +154,15 @@ function statusFilterToWhere(status: string): Prisma.DeliveryRecordWhereInput {
 }
 
 function dashboardPresetWhere(filterId: string): Prisma.DeliveryRecordWhereInput | { error: string } {
-  const today = manilaToday();
-  const startOfDay = new Date(`${today}T00:00:00+08:00`);
-  const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
-  switch (filterId) {
-    case 'sc-scheduled-today':
-      return { category: 'DELIVERY', draft: false, status: 'SCHEDULED', deliveryDate: today, timeIn: null };
-    case 'sc-pending-assignment':
-    case 'log-unassigned':
-      return { category: 'DELIVERY', draft: false, driver: '', status: { not: 'ACCOMPLISHED' } };
-    case 'sc-on-hold':
-    case 'log-on-hold':
-      return { category: 'DELIVERY', draft: false, status: 'ON_HOLD' };
-    case 'sc-rescheduled':
-    case 'log-rescheduled':
-      return { category: 'DELIVERY', draft: false, status: 'RESCHEDULED' };
-    case 'sc-completed-today':
-    case 'log-completed-today':
-      return { category: 'DELIVERY', draft: false, status: 'ACCOMPLISHED', timeOut: { gte: startOfDay.toISOString(), lt: endOfDay.toISOString() } };
-    case 'log-assigned-today':
-      return { category: 'DELIVERY', draft: false, NOT: { driver: '' }, deliveryDate: today, status: { not: 'ACCOMPLISHED' } };
-    case 'log-on-hold-rescheduled':
-    case 'sc-attention-on-hold-rescheduled':
-      return { category: 'DELIVERY', draft: false, status: { in: ['ON_HOLD', 'RESCHEDULED'] } };
-    case 'tass-open-rma':
-      return { category: 'RMA', status: { in: ['SCHEDULED', 'PENDING'] } };
-    case 'tass-rma-on-hold':
-      return { category: 'RMA', status: 'ON_HOLD' };
-    case 'tass-pending-pickups':
-      return { category: 'PROCUREMENT_PICKUP', status: { in: ['SCHEDULED', 'PENDING'] } };
-    case 'tass-pending-verification':
-    case 'admin-unverified-collections':
-      return { category: 'ACCOUNTING_COLLECTION', status: 'ACCOMPLISHED', collectionVerified: false };
-    case 'sc-attention-pending-confirmation':
-      return { category: 'DELIVERY', draft: false, status: { in: ['PENDING', 'SCHEDULED'] } };
-    default:
-      return { error: 'dashboard_filter is invalid' };
-  }
+  return dashboardRecordFilter(filterId) ?? { error: 'dashboard_filter is invalid' };
 }
 
-// Optional filters for GET /records. Without any query params the endpoint
-// keeps returning every record the user can read, newest first.
+// Every list response is bounded. Full exports must explicitly traverse the paged contract.
 function parseListQuery(query: express.Request['query']) {
   const {
     company_id, category, limit, cursor, page,
     status, dateFrom, dateTo, search, driver, area, region, subregion, account_manager, priority, dashboard_filter,
-    paged, dateSort
+    paged, dateSort, view, queue, driver_exact, account_manager_exact, supplier_name
   } = query;
   const where: Prisma.DeliveryRecordWhereInput = {};
   const andConditions: Prisma.DeliveryRecordWhereInput[] = [];
@@ -198,6 +171,15 @@ function parseListQuery(query: express.Request['query']) {
   if (dateSort && dateSort !== 'default' && !isPaged) return { error: 'dateSort requires paged=true' };
   if (dateSort && dateSort !== 'default' && cursor !== undefined) return { error: 'dateSort cannot be combined with cursor' };
   let take: number | undefined;
+  if (view !== undefined && (typeof view !== 'string' || !(RECORD_VIEWS as readonly string[]).includes(view))) return { error: 'view is invalid' };
+  if (queue !== undefined && (typeof queue !== 'string' || !['active', 'completed'].includes(queue) || view === undefined)) return { error: 'queue requires a known view and active or completed' };
+  if (view) andConditions.push(runViewWhere(view as RecordView, queue as 'active' | 'completed' | undefined));
+  for (const [key, value] of Object.entries({ driver_exact, account_manager_exact, supplier_name })) {
+    if (value !== undefined && (typeof value !== 'string' || !value.trim() || value.length > 200)) return { error: `${key} is invalid` };
+  }
+  if (driver_exact) andConditions.push({ driver: driver_exact as string });
+  if (account_manager_exact) andConditions.push(account_manager_exact === 'Unknown' ? { OR: [{ accountManager: '' }, { accountManager: 'Unknown' }] } : { accountManager: account_manager_exact as string });
+  if (supplier_name) andConditions.push({ category: 'PROCUREMENT_PICKUP', OR: [{ itemDescription: { contains: supplier_name as string, mode: 'insensitive' } }, { company: { name: { contains: supplier_name as string, mode: 'insensitive' } } }] });
   let pageNum: number | undefined;
 
   if (company_id !== undefined) {
@@ -299,8 +281,8 @@ function parseListQuery(query: express.Request['query']) {
   if (limit !== undefined) {
     take = typeof limit === 'string' && /^\d+$/.test(limit) ? Number(limit) : NaN;
     if (!(take >= 1 && take <= LIST_MAX_LIMIT)) return { error: `limit must be between 1 and ${LIST_MAX_LIMIT}` };
-  } else if (isPaged) {
-    take = 25;
+  } else {
+    take = isPaged ? 25 : LIST_MAX_LIMIT;
   }
   if (page !== undefined) {
     pageNum = typeof page === 'string' && /^\d+$/.test(page) ? Number(page) : NaN;
@@ -308,7 +290,7 @@ function parseListQuery(query: express.Request['query']) {
   }
   if (cursor !== undefined) {
     if (typeof cursor !== 'string' || !CURSOR_PATTERN.test(cursor)) return { error: 'cursor is invalid' };
-    if (!isPaged && take === undefined) return { error: 'cursor requires limit' };
+    if (!isPaged && limit === undefined) return { error: 'cursor requires limit' };
   }
   return {
     where,
@@ -337,7 +319,7 @@ router.get('/', requireAuth, requireResource('records'), requireRecordAccess, as
       where: baseWhere,
       include: recordInclude,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      ...(parsed.take !== undefined ? { take: parsed.take } : {}),
+      take: parsed.take ?? LIST_MAX_LIMIT,
       ...(parsed.cursor ? { cursor: { id: parsed.cursor }, skip: 1 } : {}),
     });
     return res.json(records.map(r => serializeRecord(r, req.user!)));
@@ -496,62 +478,112 @@ router.get('/active-counts', requireAuth, requireResource('records'), requireRec
   res.json(recordActiveCounts(groups));
 }));
 
+// Dropdown metadata covers the full authorized category, independently of the
+// active page or filters, without loading record bodies or line items.
+router.get('/filter-options', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
+  const parsed = parseListQuery({ category: req.query.category });
+  if ('error' in parsed || !parsed.where.category) return res.status(400).json({ error: 'category is invalid' });
+  const where: Prisma.DeliveryRecordWhereInput = { deletedAt: null, category: parsed.where.category, AND: [recordScope(req.user!)] };
+  const [accountManagers, drivers, areas] = await Promise.all([
+    prisma.deliveryRecord.groupBy({ by: ['accountManager'], where }),
+    prisma.deliveryRecord.groupBy({ by: ['driver'], where }),
+    prisma.deliveryRecord.groupBy({ by: ['area'], where }),
+  ]);
+  const options = (values: string[]) => [...new Set(values.filter(value => value.trim()))].sort((a, b) => a.localeCompare(b));
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ accountManagers: options(accountManagers.map(row => row.accountManager)), drivers: options(drivers.map(row => row.driver)), areas: options(areas.map(row => row.area)) });
+}));
+
+// Counts/grouping are computed over the complete authorized scope; queue pages
+// carry at most 100 complete records and never silently replace a full history.
+router.get('/driver-overview', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
+  const scoped = (extra: Prisma.DeliveryRecordWhereInput): Prisma.DeliveryRecordWhereInput => ({ deletedAt: null, AND: [recordScope(req.user!), extra] });
+  const today = manilaToday();
+  const term = req.query.search;
+  if (term !== undefined && (typeof term !== 'string' || term.length > 100)) return res.status(400).json({ error: 'search is invalid' });
+  const runScope = runViewWhere('runs');
+  const searchScope: Prisma.DeliveryRecordWhereInput = term ? { OR: [{ driver: { contains: term as string, mode: 'insensitive' } }, { reference: { contains: term as string, mode: 'insensitive' } }, { company: { name: { contains: term as string, mode: 'insensitive' } } }, { area: { contains: term as string, mode: 'insensitive' } }] } : {};
+  const [groups, areas, todayCount, remaining, completed, rmaActive, rmaCompleted] = await Promise.all([
+    prisma.deliveryRecord.groupBy({ by: ['driver', 'status', 'category', 'rmaTransportStatus'], where: scoped({ AND: [runScope, searchScope] }), _count: { _all: true } }),
+    prisma.deliveryRecord.groupBy({ by: ['area'], where: scoped(runViewWhere('dispatch')), _count: { _all: true } }),
+    prisma.deliveryRecord.count({ where: scoped({ AND: [runViewWhere('driver_dashboard'), { category: { not: 'RMA' }, deliveryDate: today }] }) }),
+    prisma.deliveryRecord.count({ where: scoped({ AND: [runViewWhere('driver_dashboard', 'active'), { category: { not: 'RMA' } }] }) }),
+    prisma.deliveryRecord.count({ where: scoped({ AND: [runViewWhere('driver_dashboard', 'completed'), { category: { not: 'RMA' } }] }) }),
+    prisma.deliveryRecord.count({ where: scoped({ AND: [runViewWhere('driver_dashboard', 'active'), { category: 'RMA' }] }) }),
+    prisma.deliveryRecord.count({ where: scoped({ AND: [runViewWhere('driver_dashboard', 'completed'), { category: 'RMA' }] }) }),
+  ]);
+  const drivers = new Map<string, { name: string; active: number; completed: number }>();
+  let unassigned = 0;
+  for (const group of groups) {
+    const count = group._count._all;
+    const done = group.category === 'RMA' ? group.rmaTransportStatus === 'COMPLETED' : group.status === 'ACCOMPLISHED';
+    if (!group.driver) { if (!done) unassigned += count; continue; }
+    const row = drivers.get(group.driver) ?? { name: group.driver, active: 0, completed: 0 };
+    row[done ? 'completed' : 'active'] += count;
+    drivers.set(group.driver, row);
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ drivers: [...drivers.values()].sort((a, b) => b.active - a.active || a.name.localeCompare(b.name)), unassigned,
+    areas: areas.map(row => row.area).filter(Boolean).sort(),
+    dashboard: { today: todayCount, remaining, completed, rma_active: rmaActive, rma_completed: rmaCompleted } });
+}));
+
+router.get('/supplier-pickup-counts', requireAuth, requireResource('records'), requireResource('suppliers'), requireRecordAccess, asyncRoute(async (req, res) => {
+  const ids = typeof req.query.ids === 'string' ? req.query.ids.split(',') : [];
+  if (!ids.length || ids.length > 100 || ids.some(id => !LIST_ID_PATTERN.test(id)) || new Set(ids).size !== ids.length) return res.status(400).json({ error: 'Use 1 to 100 unique supplier ids' });
+  const suppliers = await prisma.supplier.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+  const result = await Promise.all(suppliers.map(async supplier => ({ id: supplier.id, count: await prisma.deliveryRecord.count({ where: {
+    deletedAt: null, category: 'PROCUREMENT_PICKUP', AND: [recordScope(req.user!)],
+    OR: [{ itemDescription: { contains: supplier.name, mode: 'insensitive' } }, { company: { name: { contains: supplier.name, mode: 'insensitive' } } }],
+  } }) })));
+  res.json(result);
+}));
+
+router.get('/calendar-counts', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
+  const { dateFrom, dateTo } = req.query;
+  if (typeof dateFrom !== 'string' || typeof dateTo !== 'string' || !isValidDateOnly(dateFrom) || !isValidDateOnly(dateTo) || dateFrom > dateTo
+    || (Date.parse(dateTo) - Date.parse(dateFrom)) / 86400000 > 62) return res.status(400).json({ error: 'Use a calendar date range of at most 63 days' });
+  const where: Prisma.DeliveryRecordWhereInput = { deletedAt: null, AND: [recordScope(req.user!)], deliveryDate: { gte: dateFrom, lte: dateTo } };
+  const [groups, started] = await Promise.all([
+    prisma.deliveryRecord.groupBy({ by: ['deliveryDate', 'status', 'draft'], where, _count: { _all: true } }),
+    prisma.deliveryRecord.groupBy({ by: ['deliveryDate'], where: { AND: [where, { category: { not: 'RMA' }, draft: false, status: 'SCHEDULED', timeIn: { not: null } }] }, _count: { _all: true } }),
+  ]);
+  const days = new Map<string, { date: string; total: number; statuses: Record<string, number> }>();
+  for (const group of groups) {
+    const day = days.get(group.deliveryDate) ?? { date: group.deliveryDate, total: 0, statuses: {} };
+    const status = group.draft ? 'Draft' : STATUS_FROM_DB[group.status] ?? group.status;
+    day.total += group._count._all; day.statuses[status] = (day.statuses[status] ?? 0) + group._count._all;
+    days.set(group.deliveryDate, day);
+  }
+  for (const group of started) { const day = days.get(group.deliveryDate); if (day) { day.statuses.Scheduled = Math.max(0, (day.statuses.Scheduled ?? 0) - group._count._all); day.statuses['In Transit'] = (day.statuses['In Transit'] ?? 0) + group._count._all; } }
+  res.json([...days.values()].sort((a, b) => a.date.localeCompare(b.date)));
+}));
+
 // Purpose-built summary for Account Manager Directory. Returns grouped metrics per AM
 // within the caller's recordScope, without transmitting raw line items or full records.
 router.get('/am-summary', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
-  const records = await prisma.deliveryRecord.findMany({
-    where: { deletedAt: null, AND: [recordScope(req.user!)] },
-    select: {
-      id: true,
-      accountManager: true,
-      category: true,
-      status: true,
-      draft: true,
-      timeIn: true,
-      company: { select: { name: true } },
-    },
-  });
-
-  const amMap: Record<string, {
-    name: string;
-    total: number;
-    delivered: number;
-    pending: number;
-    onHold: number;
-    rescheduled: number;
-    scheduled: number;
-    companies: Set<string>;
-  }> = {};
-
-  for (const r of records) {
-    const am = r.accountManager || 'Unknown';
-    if (!amMap[am]) {
-      amMap[am] = {
-        name: am, total: 0, delivered: 0, pending: 0, onHold: 0,
-        rescheduled: 0, scheduled: 0, companies: new Set<string>()
-      };
-    }
-    const s = amMap[am];
-    s.total++;
-    if (r.company?.name) s.companies.add(r.company.name);
-    const st = runState(r);
-    if (st === 'Delivered') s.delivered++;
-    else if (st === 'Pending') s.pending++;
-    else if (st === 'On-Hold') s.onHold++;
-    else if (st === 'Rescheduled') s.rescheduled++;
-    else if (st === 'Scheduled' || st === 'Draft') s.scheduled++;
+  const where: Prisma.DeliveryRecordWhereInput = { deletedAt: null, AND: [recordScope(req.user!)] };
+  const [groups, companies, scheduled] = await Promise.all([
+    prisma.deliveryRecord.groupBy({ by: ['accountManager', 'status', 'draft'], where, _count: { _all: true } }),
+    prisma.deliveryRecord.groupBy({ by: ['accountManager', 'companyId'], where, _count: { _all: true } }),
+    prisma.deliveryRecord.groupBy({ by: ['accountManager'], where: { AND: [where, { OR: [{ draft: true }, statusFilterToWhere('Scheduled')] }] }, _count: { _all: true } }),
+  ]);
+  const amMap = new Map<string, { name: string; total: number; delivered: number; pending: number; onHold: number; rescheduled: number; scheduled: number; companies: string[]; company_count: number }>();
+  for (const row of groups) {
+    const name = row.accountManager || 'Unknown';
+    const am = amMap.get(name) ?? { name, total: 0, delivered: 0, pending: 0, onHold: 0, rescheduled: 0, scheduled: 0, companies: [], company_count: 0 };
+    const count = row._count._all;
+    const status = row.draft ? 'Draft' : STATUS_FROM_DB[row.status] ?? row.status;
+    am.total += count;
+    if (status === 'Delivered') am.delivered += count;
+    else if (status === 'Pending') am.pending += count;
+    else if (status === 'On-Hold') am.onHold += count;
+    else if (status === 'Rescheduled') am.rescheduled += count;
+    amMap.set(name, am);
   }
-
-  const result = Object.values(amMap).map(am => ({
-    name: am.name,
-    total: am.total,
-    delivered: am.delivered,
-    pending: am.pending,
-    onHold: am.onHold,
-    rescheduled: am.rescheduled,
-    scheduled: am.scheduled,
-    companies: Array.from(am.companies).sort(),
-  }));
+  for (const row of companies) { const am = amMap.get(row.accountManager || 'Unknown'); if (am) am.company_count++; }
+  for (const row of scheduled) { const am = amMap.get(row.accountManager || 'Unknown'); if (am) am.scheduled += row._count._all; }
+  const result = [...amMap.values()];
 
   res.json(result);
 }));
@@ -1168,6 +1200,7 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
         newValue: JSON.stringify(serializeRecord(created)),
       } });
       if (typeof b.remarks === 'string' && b.remarks.trim()) await tx.remarkLog.create({ data: { recordId: created.id, body: b.remarks.trim(), context: 'CREATION', authorId: req.user!.id } });
+      if (dbCategory !== 'RMA' && !created.draft) await notifyOrdinarySubmission(tx, created);
       if (dbCategory === 'RMA' && needsLogisticsHandoff(created)) await notifyRmaRecipients(tx, created, ['LOGISTICS'], 'New RMA request — driver needed', `${created.rmaReference || created.id} · ${created.company.name}${created.deliveryDate ? ` on ${created.deliveryDate}` : ''} · ${created.address || created.area}`);
       return created;
     });
@@ -1177,13 +1210,7 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
     throw error;
   }
 
-  if (!isDraft && dbCategory !== 'RMA') await notifyRole(
-    'LOGISTICS',
-    `New ${dbCategory.replace(/_/g, ' ')} record — driver needed`,
-    `${created.company.name} · ${(dbCategory === 'RMA' ? created.rmaReference : created.reference) || '(no reference)'}${created.deliveryDate ? ` on ${created.deliveryDate}` : ''} requires driver assignment.`,
-    created.id,
-    'DeliveryRecord'
-  );
+
 
   res.status(201).json(serializeRecord(created, req.user!));
 }));
@@ -1400,9 +1427,14 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
   if (data.companyId !== undefined && (typeof data.companyId !== 'string' || !data.companyId.trim())) return res.status(400).json({ error: 'Select an existing Company.' });
   const result = await withDriverDirectoryLock(prisma, async tx => {
     await lockPodRecord(tx, existing.id);
-    const current = await tx.deliveryRecord.findUnique({ where: { id: existing.id } });
+    const current = await tx.deliveryRecord.findUnique({ where: { id: existing.id }, include: { lineItems: true } });
     if (!current || current.deletedAt) return { error: 'Record not found', updated: null };
     if (!canWriteCategory(req.user!, current.category) || (req.user!.role === 'DRIVER' && !isAssignedDriver(req.user!, current))) return { error: 'Record access denied', updated: null };
+    if (current.category !== 'RMA') {
+      const salesMetadata = ['company_id', 'reference', 'area', 'address', 'account_manager', 'delivery_date', 'item_type', 'date_time', 'item_description', 'line_items', 'attachments', 'amount'];
+      if (req.user!.role === 'SALES_COORDINATOR' && !current.draft && runState(current) !== 'Scheduled'
+        && salesMetadata.some(field => field in b)) return { error: 'Sales metadata is locked after dispatch. Ask Logistics or Admin to correct the record.', updated: null, writeStatus: 403 };
+    }
     if (current.category === 'RMA') {
       const policy = await rmaActionPolicy(tx, req.user!, current);
       const operation = data.draft === true && !current.draft ? 'STATUS' : data.draft === false && current.draft ? 'SUBMIT' : 'UPDATE';
@@ -1471,6 +1503,10 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (data.companyId !== undefined && data.companyId !== current.companyId && !await tx.company.findUnique({ where: { id: data.companyId }, select: { id: true } })) {
       return { error: 'Select an existing Company.', updated: null };
     }
+    if (current.category !== 'RMA') {
+      const conflict = recordEditError(current, b.expected_edit_version);
+      if (conflict) return { error: conflict.error, updated: null, writeStatus: conflict.status };
+    }
     const updated = await tx.deliveryRecord.update({ where: { id: existing.id }, data, include: recordInclude });
     await tx.auditLog.create({ data: {
       recordId: updated.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id,
@@ -1480,18 +1516,20 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (typeof b.remarks === 'string' && b.remarks.trim()) await tx.remarkLog.create({ data: {
       recordId: updated.id, body: b.remarks.trim(), context: hasTimestamp ? 'TIMESTAMP_CORRECTION' : 'GENERAL_EDIT', authorId: req.user!.id,
     } });
+    if (current.draft && !updated.draft && current.category !== 'RMA') await notifyOrdinarySubmission(tx, updated);
     if (current.category === 'RMA' && needsLogisticsHandoff(updated) && (current.draft || !isLogisticsRma(current))) {
       await notifyRmaRecipients(tx, updated, ['LOGISTICS'], 'RMA request — driver needed', `${updated.rmaReference || updated.id} · ${updated.company.name} on ${updated.deliveryDate} · ${updated.address || updated.area}`);
     }
-    return { error: null, updated };
+    return { error: null, updated, previousDraft: current.draft };
   }).catch(error => {
     if (error instanceof RmaActionError) return { error: error.message, updated: null, rmaStatus: error.status };
     // The Company can disappear between the lookup and the write; the transaction has rolled back.
     if ((error as { code?: string })?.code === 'P2003' && data.companyId !== undefined) return { error: 'Select an existing Company.', updated: null };
     throw error;
   });
-  if (result.error) return res.status('rmaStatus' in result ? Number(result.rmaStatus) : result.error === 'Record not found' ? 404 : result.error === 'Record access denied' || result.error.startsWith('Only Sales Coordinator') ? 403 : 400).json({ error: result.error });
+  if (result.error) return res.status('writeStatus' in result ? Number(result.writeStatus) : 'rmaStatus' in result ? Number(result.rmaStatus) : result.error === 'Record not found' ? 404 : result.error === 'Record access denied' || result.error.startsWith('Only Sales Coordinator') ? 403 : 400).json({ error: result.error });
   const updated = result.updated!;
+
 
   // Notify the record creator (Sales Coordinator) when Logistics assigns a driver
   if (
@@ -1650,6 +1688,10 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     }
     if (statusChanged && status === 'Rescheduled' && current.category !== 'RMA') { data.timeIn = null; data.timeOut = null; data.receivedBy = null; }
     if (requiresNewDate) data.deliveryDate = newDeliveryDate;
+    if (current.category !== 'RMA' && (hasPriority || hasNewDeliveryDate)) {
+      const conflict = recordEditError(current, req.body.expected_edit_version);
+      if (conflict) return { error: conflict.error, saved: null, previous: null, writeStatus: conflict.status };
+    }
     if (current.category === 'RMA') data.rmaVersion = { increment: 1 };
     const saved = await tx.deliveryRecord.update({ where: { id: current.id }, data, include: recordInclude });
     await tx.auditLog.create({ data: {
@@ -1657,6 +1699,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
       previousValue: JSON.stringify(serializeRecord(current)), newValue: JSON.stringify(serializeRecord(saved)),
     } });
     await tx.remarkLog.create({ data: { recordId: saved.id, body: remarks.trim(), context: 'STATUS_CHANGE', authorId: req.user!.id } });
+    if (current.draft && !saved.draft && current.category !== 'RMA') await notifyOrdinarySubmission(tx, saved);
     if (current.category === 'RMA' && current.draft && needsLogisticsHandoff(saved)) await notifyRmaRecipients(tx, saved, ['LOGISTICS'], 'RMA request — driver needed', `${saved.rmaReference || saved.id} · ${saved.company.name} on ${saved.deliveryDate} · ${saved.address || saved.area}`);
     if (current.category === 'RMA' && status === 'Delivered') await notifyRmaRecipients(tx, saved, ['TASS', 'LOGISTICS'], 'RMA completed', `${saved.rmaReference || saved.id} · ${saved.company.name} · Final completion recorded by TASS.`, req.user!.id);
     return { error: null, saved, previous: current };
@@ -1664,17 +1707,8 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     if (error instanceof RmaActionError) return { error: error.message, saved: null, previous: null, rmaStatus: error.status };
     throw error;
   });
-  if (result.error) return res.status('rmaStatus' in result ? Number(result.rmaStatus) : result.error === RMA_COMPLETION_ROLE_ERROR || result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' || result.error.startsWith('Only Sales Coordinator') ? 403 : 400).json({ error: result.error });
+  if (result.error) return res.status('writeStatus' in result ? Number(result.writeStatus) : 'rmaStatus' in result ? Number(result.rmaStatus) : result.error === RMA_COMPLETION_ROLE_ERROR || result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' || result.error.startsWith('Only Sales Coordinator') ? 403 : 400).json({ error: result.error });
   const updated = result.saved!;
-  if (result.previous!.draft && !updated.draft && updated.category === 'DELIVERY' && !String(updated.driver ?? '').trim()) {
-    await notifyRole(
-      'LOGISTICS',
-      'New DELIVERY record — driver needed',
-      `${updated.company.name} · ${updated.reference || '(no reference)'}${updated.deliveryDate ? ` on ${updated.deliveryDate}` : ''} requires driver assignment.`,
-      updated.id,
-      'DeliveryRecord'
-    );
-  }
   if (status === 'Delivered' && updated.category !== 'RMA' && result.previous!.status !== 'ACCOMPLISHED') {
     await notifyAccomplished({
       id: updated.id, companyName: updated.company.name, deliveryDate: updated.deliveryDate,

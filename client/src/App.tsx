@@ -242,6 +242,7 @@ function AuthenticatedApp() {
       >
         <PageDataContext.Provider value={{ loading: dataLoading, error: dataError, onRetry: retryPageData }}>
           <DriverDashboard
+            serverPaging
             records={deliveryRecords}
             currentUserName={currentUser.name}
             onUpdateRecord={handleUpdateRecord}

@@ -6,6 +6,7 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../src/db';
 import authRoutes from '../src/routes/auth';
 import recordsRoutes from '../src/routes/records';
+import { recordEditVersion } from '../src/services/recordEditVersion';
 
 afterEach(() => mock.restoreAll());
 
@@ -81,7 +82,7 @@ const draftRecord = (id: string, category: string, reference: string) => ({
   updatedAt: new Date('2026-10-08T00:00:00.000Z'),
 });
 
-test('submitting an unassigned Delivery Draft notifies Logistics once and keeps other categories unchanged', async () => {
+test('submitting an unassigned Delivery Draft notifies Logistics once for each ordinary category', async () => {
   const { url, close } = await setupApp();
   const original = {
     userFindUnique: prisma.user.findUnique,
@@ -97,6 +98,8 @@ test('submitting an unassigned Delivery Draft notifies Logistics once and keeps 
   const logisticsUser = { id: 'logistics-120' };
   const notifications = mock.fn(async () => ({ count: 1 }));
   const tx = {
+    user: { findMany: async (query: any) => prisma.user.findMany(query) },
+    notification: { createMany: async (query: any) => prisma.notification.createMany(query) },
     $queryRaw: mock.fn(async () => []),
     deliveryRecord: {
       findUnique: mock.fn(async ({ where }: any) => records.get(where.id) ?? null),
@@ -149,7 +152,7 @@ test('submitting an unassigned Delivery Draft notifies Logistics once and keeps 
 
     const salesOrderResponse = await submit('REC-TSK120-SALES-ORDER');
     assert.equal(salesOrderResponse.status, 200);
-    assert.equal(notifications.mock.callCount(), 1, 'Non-Delivery Draft submission does not gain a driver-needed notice.');
+    assert.equal(notifications.mock.callCount(), 2, 'Sales Order submission emits the same Logistics handoff event.');
   } finally {
     prisma.user.findUnique = original.userFindUnique;
     prisma.user.findMany = original.userFindMany;
@@ -309,7 +312,7 @@ test('Logistics assignment persists and notifies the creator while SC dispatch e
     const assignment = await fetch(`${url}/records/${scheduled.id}`, {
       method: 'PUT',
       headers: logisticsHeaders,
-      body: JSON.stringify({ driver: driver.name, remarks: 'Assigning the submitted Delivery to Leo Driver.' }),
+      body: JSON.stringify({ expected_edit_version: recordEditVersion(records.get(scheduled.id)!), driver: driver.name, remarks: 'Assigning the submitted Delivery to Leo Driver.' }),
     });
     assert.equal(assignment.status, 200);
     const assigned = await assignment.json() as any;
@@ -334,7 +337,7 @@ test('Logistics assignment persists and notifies the creator while SC dispatch e
     const salesAssignmentAttempt = await fetch(`${url}/records/${scheduled.id}`, {
       method: 'PUT',
       headers: salesHeaders,
-      body: JSON.stringify({ driver: 'Another Driver', remarks: 'Sales Coordinator assignment denial check.' }),
+      body: JSON.stringify({ expected_edit_version: recordEditVersion(records.get(scheduled.id)!), driver: 'Another Driver', remarks: 'Sales Coordinator assignment denial check.' }),
     });
     assert.equal(salesAssignmentAttempt.status, 200);
     const afterSalesAttempt = await salesAssignmentAttempt.json() as any;
@@ -423,7 +426,7 @@ test('Logistics cannot assign a Draft and Driver B cannot read or mutate Driver 
     const assignDraft = await fetch(`${url}/records/REC-TSK120-DRAFT-ASSIGN`, {
       method: 'PUT',
       headers: logisticsHeaders,
-      body: JSON.stringify({ driver: driverA.name, remarks: 'Drafts must be submitted before assignment.' }),
+      body: JSON.stringify({ expected_edit_version: recordEditVersion(records.get('REC-TSK120-DRAFT-ASSIGN')!), driver: driverA.name, remarks: 'Drafts must be submitted before assignment.' }),
     });
     assert.equal(assignDraft.status, 400);
     assert.match((await assignDraft.json() as any).error, /New assignments to drafts are not allowed/);

@@ -16,6 +16,7 @@ import crypto from 'node:crypto';
 import { hasStoredDeliveryPhoto, isPodPhoto, isVerifiedPodPhoto } from '../src/services/podPhotos';
 import { allowedStatuses, deliveryScheduleState, driverDeliveryDateError, isoTimestamp, manilaToday, timeInError, transitionError } from '../src/services/deliveryLifecycle';
 import { recordScope } from '../src/services/recordAccess';
+import { recordEditVersion } from '../src/services/recordEditVersion';
 import { RMA_CATEGORIES } from '../src/services/rmaRules';
 
 const photo = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWMwTpsJAAICATMDms/iAAAAAElFTkSuQmCC', 'base64');
@@ -77,12 +78,14 @@ afterEach(() => {
 
 // Exercise the actual middleware/handlers in memory: no listener, live DB or email.
 let fixtureVersion = () => 0;
+let fixtureRecord = () => record();
 async function request(method: string, path: string, options: { role?: string; authenticated?: boolean; body?: unknown; file?: unknown; attachmentId?: string; multipart?: Buffer; contentType?: string; router?: any; streamResponse?: boolean } = {}) {
   const actor = rmaTestAccount(user(options.role));
   stub(prisma.user, 'findUnique', async () => actor as any);
   const route = (options.router ?? records).stack.find((layer: any) => layer.route?.path === path && layer.route.methods[method]).route;
   const req: any = Object.assign(options.multipart ? new PassThrough() : {}, { method: method.toUpperCase(), headers: {}, cookies: { mg_session: signToken({ id: actor.id, name: actor.name, email: actor.email, role: actor.role } as any) },
     params: path === '/' ? {} : { id: 'delivery-1', attachmentId: options.attachmentId ?? 'photo-1' }, body: options.body && typeof options.body === 'object' ? { expected_version: fixtureVersion(), ...options.body } : options.body ?? {}, file: options.file });
+  if ((method === 'put' && path === '/:id' || method === 'patch' && path === '/:id/status' && (req.body.priority !== undefined || req.body.delivery_date !== undefined)) && fixtureRecord().category !== 'RMA') req.body = { expected_edit_version: recordEditVersion(fixtureRecord()), ...req.body };
   if (options.multipart) req.headers = { 'content-type': options.contentType, 'content-length': String(options.multipart.length) };
   if (options.authenticated === false) req.cookies = {};
   return new Promise<{ status: number; body: any }>((resolve, reject) => {
@@ -117,6 +120,7 @@ function database(row = record(), files: any[] = []) {
   failClosed();
   let saved = row;
   fixtureVersion = () => saved.rmaVersion ?? 0;
+  fixtureRecord = () => saved;
   const events: string[] = [];
   const audit: any[] = []; const remarks: any[] = [];
   const outOfScope = (scope: any) => !matchesRecordWhere(saved, scope);

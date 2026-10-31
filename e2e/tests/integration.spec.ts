@@ -8,6 +8,7 @@
  * themselves within the test so both sessions can be verified in sequence.
  */
 import { test, expect, chromium, type BrowserContext } from '@playwright/test';
+import { recordRows } from '../support/recordRows';
 
 const BASE_URL = 'http://localhost:3000';
 
@@ -17,7 +18,7 @@ const CREDS = {
   driver:    { email: 'driver@microgenesis.com',    password: 'password123' },
 };
 
-type ApiRecord = { id: string; reference: string; category: string; status: string; is_draft: string; driver: string; delivery_date: string; time_in?: string | null };
+type ApiRecord = { id: string; edit_version: string; reference: string; category: string; status: string; is_draft: string; driver: string; delivery_date: string; time_in?: string | null };
 
 async function getRecords(context: BrowserContext): Promise<ApiRecord[]> {
   const response = await context.request.get(`${BASE_URL}/api/records`);
@@ -127,7 +128,7 @@ test.describe('X Cross-Role Integration', () => {
       console.log('TSK-120: Testing assignment denial');
       const salesAssignmentAttempt = await salesCtx.request.put(`${BASE_URL}/api/records/${recordId}`, {
         headers: await csrfHeaders(salesCtx),
-        data: { driver: 'John Doe', remarks: 'Sales Coordinator assignment denial check.' },
+        data: { driver: 'John Doe', remarks: 'Sales Coordinator assignment denial check.', expected_edit_version: created!.edit_version },
       });
       expect(salesAssignmentAttempt.ok()).toBeTruthy();
       expect((await salesAssignmentAttempt.json() as ApiRecord).driver).toBe('');
@@ -147,7 +148,7 @@ test.describe('X Cross-Role Integration', () => {
 
       const draftAssignmentAttempt = await logisticsCtx.request.put(`${BASE_URL}/api/records/${recordId}`, {
         headers: await csrfHeaders(logisticsCtx),
-        data: { driver: 'John Doe', remarks: 'Draft assignment denial check.' },
+        data: { driver: 'John Doe', remarks: 'Draft assignment denial check.', expected_edit_version: (await getRecords(logisticsCtx)).find(record => record.id === recordId)!.edit_version },
       });
       expect(draftAssignmentAttempt.status()).toBe(400);
       
@@ -285,7 +286,7 @@ test.describe('X Cross-Role Integration', () => {
     await page.goto(`${BASE_URL}/deliveries`);
     
 
-    const firstRow = page.getByRole('row').nth(1);
+    const firstRow = recordRows(page).first();
     try { await firstRow.waitFor({ state: 'visible', timeout: 5000 }); } catch (e) {}
     if (!(await firstRow.isVisible())) {
       test.skip(true, 'No delivery records exist');
