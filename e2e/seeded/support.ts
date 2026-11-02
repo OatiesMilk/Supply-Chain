@@ -1,5 +1,5 @@
 import { test as base, expect, type APIResponse, type Page } from '@playwright/test';
-import { LEGACY_POLICY_DEFAULT_SCREENS, type PolicyRole } from '../../server/src/services/permissionCatalog';
+import { LEGACY_POLICY_DEFAULT_SCREENS, POLICY_SCREENS, type PolicyRole } from '../../server/src/services/permissionCatalog';
 import { apiUrl } from './targets';
 export { apiUrl } from './targets';
 
@@ -16,7 +16,7 @@ export const accounts = [
 export type SeedAccount = typeof accounts[number];
 export const accountFor = (role: PolicyRole) => accounts.find(account => account.role === role)!;
 
-export type SeedSession = { id: string; name: string; role: PolicyRole; effectiveScreens: string[]; activeMode?: 'LEGACY' | 'V1'; driverProfileId?: string | null };
+export type SeedSession = { id: string; name: string; email: string; role: PolicyRole; effectiveScreens: string[]; activeMode?: 'LEGACY' | 'V1'; driverProfileId?: string | null };
 export type SeedRecord = { id: string; category: string; is_draft: string; driver_id?: string | null; reference?: string; rma_reference?: string | null };
 
 export const test = base.extend<{ readOnlyGuard: void }>({
@@ -49,9 +49,22 @@ export async function login(page: Page, role: PolicyRole): Promise<SeedSession> 
   await expectOk(response, `Seeded ${role} login; check fixture preparation`);
   const session = await response.json() as SeedSession;
   expect(session.role).toBe(role);
-  expect(session.name).toBe(account.name);
-  // Both active modes are supported, using unchanged canonical role fixtures.
-  expect([...session.effectiveScreens].sort(), `Unexpected customized ${role} fixture permissions`).toEqual([...LEGACY_POLICY_DEFAULT_SCREENS[role]].sort());
+  expect(session.email).toBe(account.email);
+  expect(session.id).toBeTruthy();
+  const fixtures = process.env.SEEDED_E2E_FIXTURES ?? 'canonical';
+  expect(['canonical', 'current']).toContain(fixtures);
+  if (fixtures === 'canonical') {
+    expect(session.name).toBe(account.name);
+    expect([...session.effectiveScreens].sort(), `Unexpected customized ${role} fixture permissions`).toEqual([...LEGACY_POLICY_DEFAULT_SCREENS[role]].sort());
+  } else {
+    expect(session.name.trim()).not.toBe('');
+    expect(session.effectiveScreens.length).toBeGreaterThan(0);
+    expect(new Set(session.effectiveScreens).size).toBe(session.effectiveScreens.length);
+    for (const screen of session.effectiveScreens) expect(POLICY_SCREENS).toContain(screen);
+    const me = await page.request.get(apiUrl('/auth/me'));
+    await expectOk(me, 'Current account session');
+    expect(await me.json()).toMatchObject({ id: session.id, role, email: account.email, effectiveScreens: session.effectiveScreens });
+  }
   return session;
 }
 
@@ -88,7 +101,13 @@ const roots: Record<string, string> = {
 export async function openScreen(page: Page, screen: string, role: PolicyRole) {
   await page.goto(`/${screen}`);
   await expect(page).toHaveURL(new RegExp(`/${screen}(?:[?]|$)`));
-  if (screen === 'driver_dashboard') await expect(page.getByRole('heading', { name: accountFor(role).name, exact: true })).toBeVisible();
+  if (screen === 'driver_dashboard') {
+    const me = await page.request.get(apiUrl('/auth/me'));
+    await expectOk(me, 'Driver session');
+    const session = await me.json() as SeedSession;
+    expect(session.role).toBe(role);
+    await expect(page.getByRole('heading', { name: session.name, exact: true })).toBeVisible();
+  }
   else {
     const main = page.locator('#main-routed-view');
     await expect(main).toBeVisible();

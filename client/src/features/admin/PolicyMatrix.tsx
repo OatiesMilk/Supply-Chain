@@ -12,7 +12,7 @@ export default function PolicyMatrix({ catalog, groups, values, roleDefaults, sa
   const actions = [...new Set(catalog.map(entry => entry.action))];
   const defaults = Object.fromEntries(roleDefaults.map(row => [row.permissionKey, row.effect]));
   if (!groups.length) return <div role="status" className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center text-sm text-slate-600">No modules match these filters. Clear the search or choose another scope.</div>;
-  return <div role="region" aria-label="Permission matrix" tabIndex={0} className="max-h-[34rem] overflow-auto rounded-xl border border-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">
+  return <div role="region" aria-label="Permission matrix" tabIndex={0} className="relative max-h-[34rem] overflow-auto rounded-xl border border-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">
     <table className="w-full border-separate border-spacing-0 text-left text-sm">
       <caption className="sr-only">Server-defined module permissions. Each column is a catalog action. A dash means that action is not defined for the module.</caption>
       <thead><tr>

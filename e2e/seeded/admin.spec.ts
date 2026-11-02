@@ -4,17 +4,20 @@ test('Admin account buttons open and cancel their workflows without submitting c
   await login(page, 'ADMIN');
   await openScreen(page, 'admin', 'ADMIN');
   const accounts = page.getByRole('region', { name: 'User accounts', exact: true });
-  const sales = accounts.getByRole('row').filter({ hasText: accountFor('SALES_COORDINATOR').email });
+  const sales = accounts.getByRole('row').filter({ has: page.getByRole('cell', { name: accountFor('SALES_COORDINATOR').email, exact: true }) });
+  const salesName = (await sales.getByRole('cell').first().innerText()).trim();
+  const salesRowIndex = await sales.evaluate(row => (row as HTMLTableRowElement).sectionRowIndex);
+  const editedRow = accounts.locator('tbody tr').nth(salesRowIndex);
   await expect(sales).toBeVisible();
   await sales.getByRole('button', { name: 'Edit', exact: true }).click();
-  await expect(sales.locator('input')).toHaveCount(2);
-  await sales.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(editedRow.locator('input')).toHaveCount(2);
+  await editedRow.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(sales.locator('input')).toHaveCount(0);
 
   const permissions = page.waitForResponse(response => /\/api\/users\/[^/]+\/permissions$/.test(new URL(response.url()).pathname));
   await sales.getByRole('button', { name: 'Access', exact: true }).click();
   expect((await permissions).status()).toBe(200);
-  const access = page.getByRole('region', { name: `Access for ${accountFor('SALES_COORDINATOR').name}`, exact: true });
+  const access = page.getByRole('region', { name: `Access for ${salesName}`, exact: true });
   await expect(access).toBeVisible();
   await expect(access.getByText(/Loading permissions|Loading policy/)).toHaveCount(0);
   await expect(access.locator('select, input, button').first()).toBeVisible();

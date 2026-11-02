@@ -684,7 +684,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
             </div>
           ) : (
             <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-              <div className="max-w-full overflow-x-auto" role="region" aria-label="User accounts" tabIndex={0}>
+              <div className="relative max-w-full overflow-x-auto" role="region" aria-label="User accounts" tabIndex={0}>
               <table className="w-full min-w-[56rem] text-xs text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-widest">

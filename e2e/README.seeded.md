@@ -34,7 +34,13 @@ database that backend uses. Verify the backend's database target before running.
 
 The suite uses the seed fixture passwords, not environment secrets. It verifies
 the expected names, roles and default screen grants at login. Customized accounts
-or policies fail fixture validation. Both LEGACY and initialized/converted V1
+or policies fail fixture validation by default. For the existing local accounts,
+set `SEEDED_E2E_FIXTURES=current`: role and email remain fixed, session identity
+is checked against `/auth/me`, and every currently granted catalog screen is
+exercised. Names and screen grants may differ from the canonical seed. This mode
+does not change accounts or permissions and does not establish canonical role
+defaults. Denied Admin reads, Driver ownership and business-write guards remain
+asserted in both modes. Both LEGACY and initialized/converted V1
 sessions are supported. V1 activation is an operator prerequisite, never done by
 the test runner. Sessions remain in memory: no storage-state files, login traces
 or videos are written. Failure screenshots go under `e2e/test-results/seeded`.

@@ -7,7 +7,8 @@ test('TASS dashboard hands off to RMA and collection verification lists without 
   await expect(page).toHaveURL(/\/rma(?:\?|$)/);
   await expect(page.locator('#records-view-rma')).toBeVisible();
   await openScreen(page, 'accounting_collection', 'TASS');
-  await expect(page.getByRole('button', { name: /Create|New/i }).first()).toBeVisible();
+  await expect(page.locator('#accounting-collection-view').getByRole('table')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'New Record', exact: true })).toHaveCount(0);
   for (const record of await records(page)) expect(['RMA', 'Accounting Collection']).toContain(record.category);
 });
 

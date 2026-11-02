@@ -42,7 +42,11 @@ test('Admin logout followed by Driver and TASS email login isolates account data
   await openScreen(page, 'admin', 'ADMIN');
   await logout(page, 'ADMIN');
   await uiLogin(page, 'DRIVER');
-  await expect(page.getByRole('heading', { name: accountFor('DRIVER').name, exact: true })).toBeVisible();
+  const driverSessionResponse = await page.request.get(apiUrl('/auth/me'));
+  expect(driverSessionResponse.status()).toBe(200);
+  const driverSession = await driverSessionResponse.json();
+  expect(driverSession).toMatchObject({ role: 'DRIVER', email: accountFor('DRIVER').email });
+  await expect(page.getByRole('heading', { name: driverSession.name, exact: true })).toBeVisible();
   await expect(page.locator('#admin-panel')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Create User', exact: true })).toHaveCount(0);
   await logout(page, 'DRIVER');
