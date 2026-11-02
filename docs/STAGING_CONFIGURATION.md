@@ -98,6 +98,29 @@ or deployment. The commented `STAGING_SEED_*` settings in the API template are
 used only by the [guarded staging seed commands](./staging-seed.md); supply them
 only for that separate reviewed operation.
 
+## Attachment deletion cleanup
+
+Apply the additive `20261103010000_pod_storage_deletion_outbox` migration before
+starting the updated backend. It creates `PodStorageDeletion`; it does not modify
+existing business rows or stored files. Use the normal reviewed migration-deploy
+workflow against the intended database; do not reset or seed it for this change.
+
+Attachment removal commits its metadata deletion, audit entry and cleanup job in
+one database transaction. Only after commit may the file be removed. The API's
+existing `204` response means the attachment is removed from the record; storage
+cleanup may still be pending after an outage. Startup and a one-minute background
+check retry committed jobs in batches of at most 25. Storage calls have a 15-second
+timeout for Supabase deletion. Missing files are safe to retry; a database failure
+while acknowledging cleanup leaves the job available for another attempt.
+
+Jobs are bound to a hash of their storage provider and target directory or
+Supabase URL/bucket. When changing those settings, drain the old target's jobs
+first. Jobs from a different target are retained, never sent to the new target.
+Inspect `PodStorageDeletion` counts, `attempts`, `nextAttemptAt` and `lastError`
+when investigating `[POD cleanup]` warnings. Provider errors are recorded without
+credentials or raw upstream error content. No client-facing cleanup queue API or
+additional account authority is introduced.
+
 ## Collection billing notifications
 
 Set `BILLING_NOTIFICATION_USER_EMAIL` in the API environment to the exact email

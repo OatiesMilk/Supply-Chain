@@ -307,6 +307,20 @@ model PodAttachment {
   @@index([recordId, createdAt(sort: Desc)])
 }
 
+// Durable outbox: committed attachment removals are retried independently of storage.
+model PodStorageDeletion {
+  id               String   @id @default(cuid())
+  storageKey       String
+  storageNamespace String
+  attempts         Int      @default(0)
+  nextAttemptAt    DateTime @default(now())
+  lastError        String?
+  createdAt        DateTime @default(now())
+
+  @@unique([storageNamespace, storageKey])
+  @@index([storageNamespace, nextAttemptAt])
+}
+
 model AuditLog {
   id            String   @id @default(cuid())
   recordId      String // ID of the affected entity (DeliveryRecord, Product, etc.)

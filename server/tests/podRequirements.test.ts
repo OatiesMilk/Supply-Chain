@@ -6,6 +6,8 @@ import records from '../src/routes/records';
 import sampler from '../src/routes/data-sampler';
 import { signToken } from '../src/middleware/auth';
 import { podStorage } from '../src/services/podStorage';
+import { podStorageNamespace } from '../src/services/podStorage';
+import { cleanPodStorageDeletions } from '../src/services/podDeletionCleanup';
 import sharp from 'sharp';
 import { PassThrough } from 'node:stream';
 import { docx, oleFile, pdf, zipOf, xlsx } from './attachmentFixtures';
@@ -52,7 +54,7 @@ const shiftDate = (date: string, days: number) => {
 };
 
 function failClosed() {
-  for (const model of [prisma.user, prisma.company, prisma.deliveryRecord, prisma.podAttachment, prisma.auditLog, prisma.remarkLog, prisma.comment, prisma.notification, prisma.notificationLog, prisma.driver]) {
+  for (const model of [prisma.user, prisma.company, prisma.deliveryRecord, prisma.podAttachment, prisma.podStorageDeletion, prisma.auditLog, prisma.remarkLog, prisma.comment, prisma.notification, prisma.notificationLog, prisma.driver]) {
     for (const method of ['findFirst', 'findUnique', 'findUniqueOrThrow', 'findMany', 'create', 'createMany', 'upsert', 'update', 'updateMany', 'delete', 'deleteMany', 'count']) {
       stub(model, method, async () => { throw new Error('Unstubbed database operation: ' + method); });
     }
@@ -122,6 +124,7 @@ function database(row = record(), files: any[] = []) {
   fixtureVersion = () => saved.rmaVersion ?? 0;
   fixtureRecord = () => saved;
   const events: string[] = [];
+  const cleanupJobs: any[] = [];
   const audit: any[] = []; const remarks: any[] = [];
   const outOfScope = (scope: any) => !matchesRecordWhere(saved, scope);
   stub(prisma.deliveryRecord, 'findFirst', async ({ where }: any) => outOfScope(where.AND?.[0]) ? null : saved as any);
@@ -157,6 +160,9 @@ function database(row = record(), files: any[] = []) {
       findFirst: async () => files[0] ?? null,
       delete: async () => { events.push('delete'); return files.shift(); },
     },
+    podStorageDeletion: {
+      create: async ({ data }: any) => { const job = { id: 'cleanup-1', ...data }; cleanupJobs.push(job); return job; },
+    },
     driver: {
       findUnique: async ({ where }: any) => ({ id: where.id, name: 'New Driver', type: 'DRIVER', isActive: true }),
       findFirst: async ({ where }: any) => ({ id: 'profile-new-driver', name: where.name.equals, type: 'DRIVER', isActive: true }),
@@ -167,11 +173,23 @@ function database(row = record(), files: any[] = []) {
   };
   stub(prisma.podAttachment, 'findMany', async ({ where }: any) => { events.push('photos'); return files.filter(file => file.id !== where.id?.not); });
   stub(prisma, '$transaction', async (fn: any) => fn(tx));
+  stub(prisma.podStorageDeletion, 'findMany', async ({ where }: any) => cleanupJobs.filter(job =>
+    job.storageNamespace === where.storageNamespace && (!where.id || job.id === where.id)));
+  stub(prisma.podStorageDeletion, 'deleteMany', async ({ where }: any) => {
+    const index = cleanupJobs.findIndex(job => job.id === where.id);
+    if (index >= 0) cleanupJobs.splice(index, 1);
+    return { count: index >= 0 ? 1 : 0 };
+  });
+  stub(prisma.podStorageDeletion, 'updateMany', async ({ where, data }: any) => {
+    const job = cleanupJobs.find(job => job.id === where.id);
+    if (job) Object.assign(job, data);
+    return { count: job ? 1 : 0 };
+  });
   stub(prisma.notificationLog, 'create', async () => { events.push('notification'); return {} as any; });
   stub(prisma.notification, 'createMany', async () => { events.push('notification'); return { count: 0 }; });
   stub(prisma.user, 'findMany', async () => []);
   stub(podStorage, 'read', async () => photo);
-  return { events, audit, remarks, tx, saved: () => saved };
+  return { events, audit, remarks, tx, cleanupJobs, saved: () => saved };
 }
 
 test('image proof checks bytes, rejecting renamed, empty, mismatched and truncated files', () => {
@@ -1230,6 +1248,51 @@ test('attachment removal does not require a reason and always writes an audit en
   assert.deepEqual(JSON.parse(state.audit[0].previousValue), { attachment: 'photo.png', attachment_id: 'photo-1' });
   assert.deepEqual(JSON.parse(state.audit[0].newValue), { attachment_removed: 'photo-1' });
   assert.equal(state.remarks.length, 0);
+  assert.equal(state.cleanupJobs.length, 0);
+});
+
+test('attachment storage is untouched on enqueue, metadata, audit, remark or commit failure', async () => {
+  for (const failure of ['enqueue', 'metadata', 'audit', 'remark', 'commit']) {
+    resetFixtures();
+    const state = database(record(), [attachment()]);
+    const remove = stub(podStorage, 'remove', async () => {});
+    const fail = async () => { throw new Error(`${failure} failed`); };
+    if (failure === 'enqueue') state.tx.podStorageDeletion.create = fail;
+    if (failure === 'metadata') state.tx.podAttachment.delete = fail;
+    if (failure === 'audit') state.tx.auditLog.create = fail;
+    if (failure === 'remark') state.tx.remarkLog.create = fail;
+    if (failure === 'commit') stub(prisma, '$transaction', async (fn: any) => { await fn(state.tx); throw new Error('commit failed'); });
+    await assert.rejects(request('delete', '/:id/attachments/:attachmentId', { role: 'ADMIN', body: { remarks: 'Remove extra file' } }), new RegExp(`${failure} failed`));
+    assert.equal(remove.mock.callCount(), 0, failure);
+  }
+});
+
+test('storage removal starts only after the metadata transaction has committed', async () => {
+  const state = database(record(), [attachment()]);
+  let committed = false;
+  stub(prisma, '$transaction', async (fn: any) => { const result = await fn(state.tx); committed = true; return result; });
+  stub(podStorage, 'remove', async () => {
+    assert.equal(committed, true);
+    assert.equal(state.audit.length, 1);
+    assert.ok(state.events.includes('delete'));
+  });
+  assert.equal((await request('delete', '/:id/attachments/:attachmentId', { role: 'ADMIN' })).status, 204);
+});
+
+test('a storage outage keeps a durable cleanup job and a later drain recovers it', async () => {
+  const state = database(record(), [attachment()]);
+  stub(podStorage, 'remove', async () => { throw new Error('Provider unavailable'); });
+  assert.equal((await request('delete', '/:id/attachments/:attachmentId', { role: 'ADMIN' })).status, 204);
+  assert.equal(state.cleanupJobs.length, 1);
+  assert.equal(state.cleanupJobs[0].storageKey, 'photo.png');
+  assert.equal(state.cleanupJobs[0].storageNamespace, podStorageNamespace);
+  assert.ok(state.cleanupJobs[0].nextAttemptAt > new Date());
+  assert.equal(state.audit.length, 1);
+  const retry = stub(podStorage, 'remove', async () => {});
+  state.cleanupJobs[0].nextAttemptAt = new Date(0);
+  await cleanPodStorageDeletions();
+  assert.equal(retry.mock.callCount(), 1);
+  assert.equal(state.cleanupJobs.length, 0);
 });
 
 test('locked status, edit and upload checks reject a record newly returned to Draft or a newly denied category', async () => {

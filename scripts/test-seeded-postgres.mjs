@@ -82,6 +82,8 @@ try {
     LOCAL_DESTRUCTIVE_SEED: 'true', LOCAL_SEED_DATABASE: 'supply_chain_seed_test' }, serverDir);
   await run(process.execPath, ['--import', 'tsx', '--test', 'tests/seededDatabase.postgres.test.ts'],
     { ...seeded, SEED_TEST_DATABASE_URL: seeded.DATABASE_URL }, serverDir);
+  await run(process.execPath, ['--import', 'tsx', '--test', 'tests/podDeletion.postgres.test.ts'],
+    { ...seeded, SEED_TEST_DATABASE_URL: seeded.DATABASE_URL }, serverDir);
 
   // Separate databases prevent role-policy fixtures from affecting seeded users
   // or each other. These tests exercise actual PostgreSQL constraints and races.
