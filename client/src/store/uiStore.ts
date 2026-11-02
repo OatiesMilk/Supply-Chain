@@ -10,7 +10,6 @@ export interface UIState {
   navigationNonce: number;
   isSidebarOpen: boolean;
   isSidebarCollapsed: boolean;
-  zoomFactor: number;
   searchOpen: boolean;
   accessRequestOpen: boolean;
   accessRequestScreen: string;
@@ -25,7 +24,6 @@ export interface UIActions {
   setIsSidebarOpen: (open: boolean) => void;
   setIsSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebarCollapsed: () => void;
-  setZoomFactor: (zoom: number | ((prev: number) => number)) => void;
   setSearchOpen: (open: boolean) => void;
   openAccessRequest: (screen?: string) => void;
   closeAccessRequest: () => void;
@@ -39,7 +37,7 @@ export interface UIActions {
 
 export type UIStore = UIState & UIActions;
 
-type PersistedUIState = Pick<UIState, 'isSidebarCollapsed' | 'zoomFactor' | 'outputActionConfigs'>;
+type PersistedUIState = Pick<UIState, 'isSidebarCollapsed' | 'outputActionConfigs'>;
 
 export const useUIStore = create<UIStore>()(
   persist(
@@ -48,7 +46,6 @@ export const useUIStore = create<UIStore>()(
       navigationNonce: 0,
       isSidebarOpen: false,
       isSidebarCollapsed: false,
-      zoomFactor: 100,
       searchOpen: false,
       accessRequestOpen: false,
       accessRequestScreen: '',
@@ -65,11 +62,6 @@ export const useUIStore = create<UIStore>()(
 
       toggleSidebarCollapsed: () =>
         set(state => ({ isSidebarCollapsed: !state.isSidebarCollapsed })),
-
-      setZoomFactor: (zoom: number | ((prev: number) => number)) =>
-        set(state => ({
-          zoomFactor: typeof zoom === 'function' ? zoom(state.zoomFactor) : zoom,
-        })),
 
       setSearchOpen: (open: boolean) => set({ searchOpen: open }),
 
@@ -133,7 +125,6 @@ export const useUIStore = create<UIStore>()(
       version: 1,
       partialize: (state): PersistedUIState => ({
         isSidebarCollapsed: state.isSidebarCollapsed,
-        zoomFactor: state.zoomFactor,
         outputActionConfigs: state.outputActionConfigs,
       }),
       // v1: "Record Created" became opt-out (notify every role by default), so

@@ -16,8 +16,9 @@ resources.
 The root `.env` configures local Docker PostgreSQL. The API uses plain dotenv,
 which loads `.env` from its working directory (normally `server/`); it does not
 automatically select `.env.staging`. Hosted API settings belong in the backend
-service environment. `APP_ENV=staging` is used by the guarded staging seed CLI;
-it does not control the frontend build or hide login content.
+service environment. `APP_ENV=staging` is used by the guarded staging seed CLI
+and disables the Data Sampler API; it does not control the frontend build or
+hide login content.
 
 Vite loads its files from `client/`, not the repository root or `server/`.
 Every `VITE_*` value is public browser configuration. Keep `DATABASE_URL`,
@@ -47,6 +48,19 @@ Normal Microsoft/email sign-in remains available. This flag hides demo UI; it
 does not deactivate existing demo users or change authentication permissions.
 
 ## API settings
+
+Data Sampler is development-only. Staging and production frontend builds omit
+its page bundle, sidebar entry, search result and Generate Sample controls.
+Direct navigation cannot mount the page. Only the Vite development server in
+`development` mode includes these tools; there is no deployed enable flag.
+
+All `/api/data-sampler/*` endpoints return `404` before authentication or database
+access when `NODE_ENV` or `APP_ENV` identifies staging/production (or another
+unsupported environment), or a supported hosting-provider marker is present.
+Local development and test runtimes retain the existing Admin/permission checks;
+reset additionally requires the existing verified disposable-database guard.
+Existing records and permission catalog entries are preserved. The separate,
+explicitly authorized staging seed CLI remains available under its own guards.
 
 Set `NODE_ENV=production` for hosted staging, a distinct random `JWT_SECRET`,
 the reviewed staging `DATABASE_URL`, and the staging frontend HTTPS origin in

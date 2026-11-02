@@ -7,8 +7,13 @@ import { serializeRecord } from '../mappings';
 import type { Request, Response } from 'express';
 import { RMA_CATEGORIES, RMA_ITEM_TYPES, normalizeRmaCategory, rmaInputError } from '../services/rmaRules';
 import { generateRecordId } from '../services/recordIds';
+import { dataSamplerEnabled } from '../services/dataSamplerEnvironment';
 
 const router = Router();
+router.use((_req, res, next) => {
+  if (!dataSamplerEnabled()) return res.status(404).json({ error: 'Not found' });
+  next();
+});
 
 const MODULES = [
   { key: 'deliveries',            dbCategory: 'DELIVERY',              label: 'Deliveries' },

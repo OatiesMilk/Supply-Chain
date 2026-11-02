@@ -33,6 +33,7 @@ import { submissionErrors } from '@/utils/recordLifecycle';
 import { RMA_CATEGORIES, type RmaCategory } from '@/utils/rma';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
 import DocumentSizeSelect from '@/components/DocumentSizeSelect';
+import { ActionDialog } from '@/components/ActionDialog';
 import { CompanyHistoryButton } from '@/components/CompanyHistoryPanel';
 import { useUIStore } from '@/store/uiStore';
 import WorkspaceTabs from './WorkspaceTabs';
@@ -2108,6 +2109,7 @@ function RecordWorkspace({
   }, [navigationNonce, currentScreen, selectedRecordId, moduleScreen, requestLeave, onBack]);
 
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
   const [pdfError, setPdfError]     = useState<string | null>(null);
   const [docSize, setDocSize]       = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
@@ -2116,6 +2118,7 @@ function RecordWorkspace({
   useEffect(() => () => { if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl); }, [pdfPreviewUrl]);
 
   const handleDownloadPdf = async () => {
+    if (pdfLoading) return;
     setPdfLoading(true);
     setPdfError(null);
     try {
@@ -2131,6 +2134,7 @@ function RecordWorkspace({
       setPdfPreviewBlob(blob);
       setPdfFileName(`manifest-${record.id}-${record.delivery_date}.pdf`);
       setPdfPreviewUrl(url);
+      setPdfDialogOpen(false);
     } catch (err: any) {
       setPdfError(err.message ?? 'Failed to generate PDF. Please try again.');
     } finally {
@@ -2240,11 +2244,12 @@ function RecordWorkspace({
           </button>
          </div>
           {(['Sales Coordinator', 'Logistics', 'TASS', 'Admin'] as UserRole[]).includes(currentUserRole) && (
-            <div className="relative flex flex-wrap min-w-0 items-center gap-2">
-              <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={pdfLoading} inline />
+            <div>
               <button
-                onClick={handleDownloadPdf}
+                type="button"
+                onClick={() => { setPdfError(null); setPdfDialogOpen(true); }}
                 disabled={pdfLoading}
+                aria-haspopup="dialog"
                 className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors font-semibold text-slate-600 disabled:opacity-60"
                 title="Download delivery manifest with documentation trail (PDF)"
               >
@@ -2253,16 +2258,18 @@ function RecordWorkspace({
                   : <Download className="w-3.5 h-3.5" />}
                 {pdfLoading ? 'Generating…' : 'Download PDF'}
               </button>
-              {pdfError && (
-                <div className="absolute right-0 top-full mt-1 z-50 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-[11px] text-red-700 font-semibold shadow-md whitespace-nowrap max-w-xs">
-                  <AlertTriangle className="w-3 h-3 inline mr-1" />
-                  {pdfError}
-                  <button
-                    onClick={() => setPdfError(null)}
-                    className="ml-2 text-red-400 hover:text-red-600 font-bold cursor-pointer"
-                  >✕</button>
-                </div>
-              )}
+              <ActionDialog
+                open={pdfDialogOpen}
+                title="Download PDF"
+                description="Choose a paper size for this record's manifest and documentation trail."
+                confirmLabel="Confirm & Download"
+                pending={pdfLoading}
+                error={pdfError}
+                onConfirm={handleDownloadPdf}
+                onDismiss={() => { setPdfDialogOpen(false); setPdfError(null); }}
+              >
+                <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={pdfLoading} />
+              </ActionDialog>
             </div>
           )}
         </div>

@@ -8,15 +8,7 @@ import {
   CheckCircle,
   RotateCw,
 } from "lucide-react";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
+import DashboardStatusChart from './DashboardStatusChart';
 import { ApiDashboardStats, ApiDashboardOverview } from "@/api";
 import { DeliveryRecord } from "@/types";
 import { DashboardFilterId, getManilaWeekRange, matchesDashboardFilter } from '@/utils/dashboardFilters';
@@ -28,22 +20,6 @@ interface Props {
   onNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
   onRefresh?: () => void;
 }
-
-const STATUS_LABELS: Record<string, string> = {
-  SCHEDULED: "Scheduled",
-  ACCOMPLISHED: "Delivered",
-  ON_HOLD: "On-Hold",
-  RESCHEDULED: "Rescheduled",
-  PENDING: "Pending",
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  SCHEDULED: "#0078C1",
-  ACCOMPLISHED: "#059669",
-  PENDING: "#d97706",
-  ON_HOLD: "#dc2626",
-  RESCHEDULED: "#9333ea",
-};
 
 const ACTION_BADGE: Record<string, string> = {
   CREATE: "bg-green-100 text-green-700",
@@ -85,11 +61,7 @@ export default function AdminDashboard({
   const unverifiedCollectionsAmount = overview.unverified_collections_amount;
   const auditEventsToday = stats?.audit_events_today ?? 0;
 
-  const statusChartData = (stats?.records_by_status ?? []).map((s) => ({
-    name: STATUS_LABELS[s.status] ?? s.status,
-    count: s.count,
-    fill: STATUS_COLORS[s.status] ?? "#94A3B8",
-  }));
+  const statusChartData = stats?.records_by_status ?? [];
 
   const recentAudit = stats?.recent_audit ?? [];
 
@@ -219,47 +191,7 @@ export default function AdminDashboard({
             </div>
           ) : (
             <div className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={statusChartData}
-                  layout="vertical"
-                  margin={{ top: 4, right: 15, left: 5, bottom: 4 }}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    horizontal={false}
-                    stroke="#F1F5F9"
-                  />
-                  <XAxis
-                    type="number"
-                    stroke="#94A3B8"
-                    fontSize={11}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    dataKey="name"
-                    type="category"
-                    stroke="#94A3B8"
-                    fontSize={10}
-                    tickLine={false}
-                    width={80}
-                  />
-                  <Tooltip
-                    formatter={(value: any) => [`${value} records`, "Total"]}
-                    contentStyle={{
-                      backgroundColor: "#fff",
-                      border: "1px solid #E2E8F0",
-                      borderRadius: "8px",
-                    }}
-                  />
-                  <Bar
-                    dataKey="count"
-                    radius={[0, 4, 4, 0]}
-                    barSize={18}
-                    fill="#0078C1"
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+              <DashboardStatusChart data={statusChartData} />
             </div>
           )}
         </div>

@@ -17,6 +17,7 @@ import {
 } from '@/api';
 import { CATEGORY_SCREENS } from './screenRouting';
 import { DashboardFilterId } from '@/utils/dashboardFilters';
+import { DATA_SAMPLER_ENABLED } from '@/utils/developmentTools';
 
 const DashboardPage = lazyPage(() => import('@/pages/DashboardPage'));
 const DeliveriesPage = lazyPage(() => import('@/pages/DeliveriesPage'));
@@ -28,7 +29,7 @@ const DriversPage = lazyPage(() => import('@/pages/DriversPage'), { gateData: fa
 const CalendarPage = lazyPage(() => import('@/pages/CalendarPage'));
 const TransactionCenterPage = lazyPage(() => import('@/pages/TransactionCenterPage'));
 const AdminPage = lazyPage(() => import('@/pages/AdminPage'));
-const DataSamplerPage = lazyPage(() => import('@/pages/DataSamplerPage'));
+const DataSamplerPage = DATA_SAMPLER_ENABLED ? lazyPage(() => import('@/pages/DataSamplerPage')) : null;
 const StatisticalReportsPage = lazyPage(() => import('@/pages/StatisticalReportsPage'));
 const AccountManagerDirectoryPage = lazyPage(() => import('@/pages/AccountManagerDirectoryPage'));
 const MainView = lazyPage(() => import('@/pages/MainView'));
@@ -99,7 +100,7 @@ export const AppRouter: React.FC<AppRouterProps> = ({
   refreshData,
 }) => {
   // Check access before mounting a page or running its protected data requests.
-  if (!canAccess(currentScreen)) {
+  if ((currentScreen === 'data_sampler' && !DATA_SAMPLER_ENABLED) || !canAccess(currentScreen)) {
     return <div role="status" className="text-center py-12 text-slate-500">This page is not available for your account.</div>;
   }
 
@@ -241,6 +242,7 @@ export const AppRouter: React.FC<AppRouterProps> = ({
       );
 
     case 'data_sampler':
+      if (!DataSamplerPage) return null;
       return (
         <DataSamplerPage
           companies={companies}

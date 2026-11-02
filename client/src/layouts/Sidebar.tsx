@@ -25,6 +25,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { UserRole } from '@/types';
 import { driverLandingScreen, isDriverScreen } from '@/routes/screenRouting';
+import { DATA_SAMPLER_ENABLED } from '@/utils/developmentTools';
 
 export interface SidebarProps {
   currentScreen: string;
@@ -64,8 +65,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isSidebarOpen,
   setIsSidebarOpen,
   canAccess,
-  currentUserRole,
-  currentUser,
   deliveriesActiveCount,
   rmaActiveCount,
   salesOrdersActiveCount,
@@ -356,7 +355,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {renderNavItem('am_directory', 'AM Directory', BookOpen)}
             {renderNavItem('transactions', 'Transaction Center', ArrowLeftRight)}
             {renderNavItem('inventory', 'SKU Master', Boxes)}
-            {renderNavItem('data_sampler', 'Data Sampler', Database, undefined, true)}
+            {DATA_SAMPLER_ENABLED && renderNavItem('data_sampler', 'Data Sampler', Database, undefined, true)}
           </div>
         </nav>
 
@@ -375,28 +374,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {isSidebarCollapsed ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
         </button>
 
-        <div className="p-3 border-t border-white/10 bg-black/10">
-          <div className="bg-white/5 rounded-lg p-2">
-            <div
-              className={'flex items-center rounded-md' + (isCollapsed ? ' lg:justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white' : ' space-x-3')}
-              role="img"
-              tabIndex={isCollapsed ? 0 : undefined}
-              aria-label={currentUser.name + ' (' + currentUserRole + ')'}
-              aria-describedby={isCollapsed ? tooltipId : undefined}
-              data-sidebar-tooltip={currentUser.name + ' · ' + currentUserRole}
-            >
-              <div className="w-8 h-8 rounded bg-[#0078C1] flex items-center justify-center font-bold text-white text-xs shrink-0">
-                {currentUser.initials}
-              </div>
-              {!isCollapsed && (
-                <div className="overflow-hidden">
-                  <p className="text-xs text-white truncate font-medium">{currentUser.name}</p>
-                  <p className="text-[9.5px] text-white/50 truncate font-semibold uppercase tracking-wider">{currentUserRole}</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
       </aside>
 
       {isCollapsed && typeof document !== 'undefined' && createPortal(

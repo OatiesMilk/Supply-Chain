@@ -68,7 +68,10 @@ export async function uiLogin(page: Page, role: PolicyRole) {
 
 export async function logout(page: Page, role: PolicyRole) {
   if (role === 'DRIVER') await page.getByRole('button', { name: 'Log Out', exact: true }).click();
-  else await page.locator('#logout-button').click();
+  else {
+    await page.getByRole('button', { name: 'Account menu', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Log out', exact: true }).click();
+  }
   await expect(page.locator('#app-root')).toHaveCount(0);
   const me = await page.request.get(apiUrl('/auth/me'));
   expect(me.status(), 'Logout clears the authenticated cookie').toBe(401);

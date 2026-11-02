@@ -160,8 +160,6 @@ function AuthenticatedApp() {
   const setIsSidebarOpen = useUIStore(s => s.setIsSidebarOpen);
   const isSidebarCollapsed = useUIStore(s => s.isSidebarCollapsed);
   const setIsSidebarCollapsed = useUIStore(s => s.setIsSidebarCollapsed);
-  const zoomFactor = useUIStore(s => s.zoomFactor);
-  const setZoomFactor = useUIStore(s => s.setZoomFactor);
   const setSearchOpen = useUIStore(s => s.setSearchOpen);
   const accessRequestOpen = useUIStore(s => s.accessRequestOpen);
   const accessRequestScreen = useUIStore(s => s.accessRequestScreen);
@@ -191,13 +189,6 @@ function AuthenticatedApp() {
     window.addEventListener('popstate', syncRoute);
     return () => window.removeEventListener('popstate', syncRoute);
   }, [handleNavigate, effectiveScreens]);
-
-  useEffect(() => {
-    document.documentElement.style.fontSize = `${zoomFactor}%`;
-    return () => {
-      document.documentElement.style.fontSize = '';
-    };
-  }, [zoomFactor]);
 
   // Global Ctrl+K / Cmd+K search modal shortcut
   useEffect(() => {
@@ -291,8 +282,6 @@ function AuthenticatedApp() {
       navbarProps={{
         currentScreen,
         setIsSidebarOpen,
-        zoomFactor,
-        setZoomFactor,
         currentUser,
         currentUserRole,
         setSearchOpen,
