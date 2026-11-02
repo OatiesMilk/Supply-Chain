@@ -63,6 +63,7 @@ requests occur in its dependent specs. These suites remain separate deliberately
 | Admin diagnostics | Audit filter request and integration diagnostics succeed; Admin policy preview opens with protected controls disabled. No email is sent. |
 | Admin pagination | Seed count matches visible rows; page size changes work. With more than ten pre-existing fixture users, page 2/back is exercised; the five-account seed checks the disabled Next boundary. |
 | Admin geometry | At 1280px and 390px, opening Access and repeatedly scrolling does not grow the document or content height; right-hand table controls remain reachable. |
+| Report filters | Driver and Area dropdowns load scoped record values, send selected values to the report API, and reset with Clear. |
 | TASS handoffs | Dashboard opens RMA list; collection view loads; record reads remain RMA/collection scoped. |
 | TASS detail review | Available seeded RMA/collection tabs open without completing, receiving, verifying or editing records. Missing category fixtures produce explicit skips. |
 
