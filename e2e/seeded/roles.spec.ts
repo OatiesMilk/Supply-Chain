@@ -1,3 +1,5 @@
+import { CATEGORY_SCREENS } from '../../client/src/routes/screenRouting';
+import { permissionCategory } from '../../client/src/utils/permissions';
 import { accounts, accountFor, apiUrl, expect, login, logout, openScreen, records, test, uiLogin } from './support';
 
 for (const account of accounts) {
@@ -6,7 +8,22 @@ for (const account of accounts) {
     page.on('pageerror', error => runtimeErrors.push(error.name));
     const session = await login(page, account.role);
     for (const screen of session.effectiveScreens) {
-      await test.step(screen, () => openScreen(page, screen, account.role));
+      const category = CATEGORY_SCREENS[screen];
+      if (session.activeMode === 'V1' && category && !session.snapshot!.readableCategories.includes(permissionCategory(category)!)) {
+        await test.step(`${screen}: category denial overrides screen grant`, async () => {
+          await page.goto(`/${screen}`);
+          await expect(page).not.toHaveURL(new RegExp(`/${screen}(?:[?]|$)`));
+          await expect(page.getByText('Could not load records.', { exact: true })).toHaveCount(0);
+        });
+      } else {
+        await test.step(screen, async () => {
+          await openScreen(page, screen, account.role);
+          if (category && screen !== 'accounting_collection') {
+            await expect(page.locator('[data-testid="pagination-records-info"]')).toBeVisible();
+            await expect(page.getByText('Could not load records.', { exact: true })).toHaveCount(0);
+          }
+        });
+      }
     }
     expect(runtimeErrors, 'Granted screens must not throw browser runtime errors').toEqual([]);
   });

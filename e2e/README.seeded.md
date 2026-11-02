@@ -37,7 +37,9 @@ the expected names, roles and default screen grants at login. Customized account
 or policies fail fixture validation by default. For the existing local accounts,
 set `SEEDED_E2E_FIXTURES=current`: role and email remain fixed, session identity
 is checked against `/auth/me`, and every currently granted catalog screen is
-exercised. Names and screen grants may differ from the canonical seed. This mode
+exercised. Record-category screens additionally require category Read: tests
+verify redirection when a screen grant lacks that prerequisite, and wait for
+loaded record pagination on authorized list screens. Names and screen grants may differ from the canonical seed. This mode
 does not change accounts or permissions and does not establish canonical role
 defaults. Denied Admin reads, Driver ownership and business-write guards remain
 asserted in both modes. Both LEGACY and initialized/converted V1

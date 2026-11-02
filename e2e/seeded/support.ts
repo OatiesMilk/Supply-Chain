@@ -16,7 +16,7 @@ export const accounts = [
 export type SeedAccount = typeof accounts[number];
 export const accountFor = (role: PolicyRole) => accounts.find(account => account.role === role)!;
 
-export type SeedSession = { id: string; name: string; email: string; role: PolicyRole; effectiveScreens: string[]; activeMode?: 'LEGACY' | 'V1'; driverProfileId?: string | null };
+export type SeedSession = { id: string; name: string; email: string; role: PolicyRole; effectiveScreens: string[]; activeMode?: 'LEGACY' | 'V1'; driverProfileId?: string | null; snapshot?: { readableCategories: string[] } };
 export type SeedRecord = { id: string; category: string; is_draft: string; driver_id?: string | null; reference?: string; rma_reference?: string | null };
 
 export const test = base.extend<{ readOnlyGuard: void }>({
