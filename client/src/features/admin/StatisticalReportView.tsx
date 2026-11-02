@@ -1,3 +1,5 @@
+import { useQuery } from '@tanstack/react-query';
+import { usePermissions } from '@/hooks/usePermissions';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { BarChart2, Loader2, AlertTriangle, RefreshCw, FileDown, FileSpreadsheet, FileText, ChevronDown } from 'lucide-react';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
@@ -204,6 +206,19 @@ export default function StatisticalReportView({ currentUserName = '', currentUse
   const [status,    setStatus]    = useState('');
   const [driver,    setDriver]    = useState('');
   const [area,      setArea]      = useState('');
+  const access = usePermissions();
+  const reportCategories = CATEGORIES.filter(value => access.canCategory(value));
+  const filterOptions = useQuery({
+    queryKey: ['reports', 'filter-options', reportCategories],
+    enabled: access.canAccess('statistical_reports') && reportCategories.length > 0,
+    queryFn: async () => {
+      const options = await Promise.all(reportCategories.map(value => api.getRecordFilterOptions(value)));
+      const unique = (values: string[]) => [...new Set(values.filter(value => value.trim()))].sort((a, b) => a.localeCompare(b));
+      return { drivers: unique(options.flatMap(value => value.drivers)), areas: unique(options.flatMap(value => value.areas)) };
+    },
+    staleTime: 30_000,
+  });
+
 
   const [data,    setData]    = useState<ApiReportSummary | null>(null);
   const [loading, setLoading] = useState(false);
@@ -277,14 +292,22 @@ export default function StatisticalReportView({ currentUserName = '', currentUse
             </select>
           </div>
           <div>
-            <label className={labelCls}>Driver</label>
-            <input type="text" value={driver} onChange={e => setDriver(e.target.value)} placeholder="Any driver" className={inputCls} />
+            <label htmlFor="report-driver" className={labelCls}>Driver</label>
+            <select id="report-driver" value={driver} onChange={e => setDriver(e.target.value)} disabled={filterOptions.isLoading || filterOptions.isError} className={inputCls}>
+              <option value="">All drivers</option>
+              {filterOptions.data?.drivers.map(value => <option key={value} value={value}>{value}</option>)}
+            </select>
           </div>
           <div>
-            <label className={labelCls}>Area</label>
-            <input type="text" value={area} onChange={e => setArea(e.target.value)} placeholder="Any area" className={inputCls} />
+            <label htmlFor="report-area" className={labelCls}>Area</label>
+            <select id="report-area" value={area} onChange={e => setArea(e.target.value)} disabled={filterOptions.isLoading || filterOptions.isError} className={inputCls}>
+              <option value="">All areas</option>
+              {filterOptions.data?.areas.map(value => <option key={value} value={value}>{value}</option>)}
+            </select>
           </div>
         </div>
+        {filterOptions.isLoading && <p role="status" className="mt-2 text-xs text-slate-500">Loading Driver and Area options…</p>}
+        {filterOptions.isError && <p role="alert" className="mt-2 text-xs text-red-600">Could not load Driver and Area options. <button type="button" className="underline" onClick={() => void filterOptions.refetch()}>Retry options</button></p>}
         <div className="flex items-center gap-2 mt-4">
           <button
             onClick={handleFetch}

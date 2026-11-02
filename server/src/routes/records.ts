@@ -12,7 +12,8 @@ import { notifyRole, notifyUser } from '../services/inAppNotify';
 import { CATEGORY_TO_DB, STATUS_TO_DB, STATUS_FROM_DB, serializeRecord } from '../mappings';
 import { recordActiveCounts } from '../services/activeRecordCounts';
 import { pipeline } from 'node:stream/promises';
-import { discardUpload, PodStorageFileTooLargeError, podStorage, podUpload, withFileInMemory } from '../services/podStorage';
+import { discardUpload, PodStorageFileTooLargeError, podStorage, podStorageNamespace, podUpload, withFileInMemory } from '../services/podStorage';
+import { cleanPodStorageDeletions } from '../services/podDeletionCleanup';
 import { DELIVERY_PHOTO_REQUIRED, findVerifiedDeliveryPhoto, hasStoredDeliveryPhoto, inspectUpload, isStoredPodPhoto, lockPodRecord } from '../services/podPhotos';
 import { ATTACHMENT_QUOTA_EXCEEDED, attachmentQuotaError, DOCX_PREVIEW_MAX_OUTPUT_BYTES, inspectDocxPreviewArchive } from '../services/attachmentRules';
 
@@ -1066,17 +1067,21 @@ router.delete('/:id/attachments/:attachmentId', requireAuth, requireResource('re
         await isStoredPodPhoto(attachment) && !await hasStoredDeliveryPhoto(tx, record.id, attachment.id)) {
       return { status: 409, error: 'Keep at least one delivery photo on an accomplished delivery. Upload a replacement before removing this photo.' };
     }
-    try {
-      await podStorage.remove(attachment.storageKey);
-    } catch {
-      return { status: 500, error: 'Attachment could not be removed from storage. The database record was preserved for retry.' };
-    }
+    const deletion = await tx.podStorageDeletion.create({ data: {
+      storageKey: attachment.storageKey, storageNamespace: podStorageNamespace,
+    } });
     await tx.podAttachment.delete({ where: { id: attachment.id } });
     await tx.auditLog.create({ data: { recordId: req.params.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id, previousValue: JSON.stringify({ attachment: attachment.originalName, attachment_id: attachment.id }), newValue: JSON.stringify({ attachment_removed: attachment.id }) } });
     if (remarks) await tx.remarkLog.create({ data: { recordId: req.params.id, body: `Removed attachment ${attachment.originalName}: ${remarks}`, context: 'GENERAL_EDIT', authorId: req.user!.id } });
-    return null;
+    return { deletionId: deletion.id };
   }, { timeout: 30_000, maxWait: 10_000 });
-  if (result) return res.status(result.status).json({ error: result.error });
+  if (result.status !== undefined) return res.status(result.status).json({ error: result.error });
+  // A failure/ambiguous commit never reaches this point and cannot delete bytes.
+  // Once committed, logical removal is complete; storage outages leave a durable
+  // job for startup/periodic recovery rather than a phantom attachment or 500.
+  await cleanPodStorageDeletions(result.deletionId).catch(() => {
+    console.error('[POD cleanup] Committed attachment cleanup remains queued');
+  });
   res.status(204).send();
 }));
 

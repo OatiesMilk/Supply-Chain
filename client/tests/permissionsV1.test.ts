@@ -217,3 +217,23 @@ test('the navigation hook uses only server-computed screens', () => {
   function Probe() { return React.createElement('span', null, String(usePermissions(user).canAccess('deliveries'))); }
   assert.equal(renderToString(React.createElement(Probe)), '<span>false</span>');
 });
+
+
+test('a category screen grant cannot expose a list whose category Read is denied', () => {
+  for (const [role, denies, allows] of [
+    ['TASS', [], ['SCREEN:procurement_pickup:READ']],
+    ['SALES_COORDINATOR', ['CATEGORY:PROCUREMENT_PICKUP:READ'], []],
+  ] as Array<[PolicyRole, string[], string[]]>) {
+    const user = account(role, denies, allows);
+    assert.equal(user.effectiveScreens.includes('procurement_pickup'), true);
+    const access = permissionsFor(user);
+    assert.equal(access.canAccess('procurement_pickup'), false);
+    assert.equal(access.effectiveScreens.has('procurement_pickup'), false);
+    const html = renderToString(React.createElement(AppRouter, {
+      currentScreen: 'procurement_pickup', canAccess: access.canAccess,
+    } as AppRouterProps));
+    assert.match(html, /not available/);
+  }
+  assert.equal(permissionsFor(account('ADMIN')).canAccess('procurement_pickup'), true);
+  assert.equal(permissionsFor(account('SALES_COORDINATOR')).canAccess('procurement_pickup'), true);
+});

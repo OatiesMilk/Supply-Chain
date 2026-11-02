@@ -39,6 +39,7 @@ import { dateRangeState } from '@/utils/dateRange';
 import DateRangePicker from '@/components/DateRangePicker';
 import { DashboardFilterId, matchesDashboardFilter } from '@/utils/dashboardFilters';
 import DashboardFilterChip from '@/components/DashboardFilterChip';
+import { DATA_SAMPLER_ENABLED } from '@/utils/developmentTools';
 
 interface DeliveryRecordsViewProps {
   category: DeliveryCategory;
@@ -141,6 +142,7 @@ export default function DeliveryRecordsView({
   };
 
   const handleGenerateSample = async () => {
+    if (!DATA_SAMPLER_ENABLED) return;
     const module = CATEGORY_MODULE[category];
     if (!module) return;
     setSamplerGenerating(true);
@@ -743,7 +745,7 @@ export default function DeliveryRecordsView({
             />
           )}
           {/* Generate Sample — Admin only */}
-          {currentUserRole === 'Admin' && access.canResource('dataSampler', 'WRITE') && (
+          {DATA_SAMPLER_ENABLED && currentUserRole === 'Admin' && access.canResource('dataSampler', 'WRITE') && (
             <div className="relative">
               <button
                 onClick={() => { setShowSampler(p => !p); setSamplerResult(null); }}

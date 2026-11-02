@@ -14,15 +14,7 @@ import {
   RefreshCw,
   RotateCw,
 } from "lucide-react";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
+import DashboardStatusChart from './DashboardStatusChart';
 import {
   Product,
   InventoryItem,
@@ -125,27 +117,23 @@ export default function DashboardView({
     filterRecordsForDashboard(deliveryRecords, 'sc-completed-today', today).length;
 
   const statusChartData: {
-    name: DeliveryStatus;
+    status: DeliveryStatus;
     count: number;
-    fill: string;
   }[] = [
     {
-      name: "Scheduled",
+      status: "Scheduled",
       count: overview.status_totals.Scheduled ?? 0,
-      fill: "#0078C1",
     },
     {
-      name: "Pending",
+      status: "Pending",
       count: overview.status_totals.Pending ?? 0,
-      fill: "#d97706",
     },
-    { name: "In Transit", count: overview.status_totals["In Transit"] ?? 0, fill: "#0891b2" },
-    { name: "On-Hold", count: overview.status_totals["On-Hold"] ?? 0, fill: "#dc2626" },
-    { name: "Rescheduled", count: overview.status_totals.Rescheduled ?? 0, fill: "#9333ea" },
+    { status: "In Transit", count: overview.status_totals["In Transit"] ?? 0 },
+    { status: "On-Hold", count: overview.status_totals["On-Hold"] ?? 0 },
+    { status: "Rescheduled", count: overview.status_totals.Rescheduled ?? 0 },
     {
-      name: "Delivered",
+      status: "Delivered",
       count: overview.status_totals.Delivered ?? 0,
-      fill: "#059669",
     },
   ];
 
@@ -288,42 +276,7 @@ export default function DashboardView({
             Status breakdown across all your delivery records
           </p>
           <div className="h-64" id="status-chart-wrapper">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={statusChartData}
-                layout="vertical"
-                margin={{ top: 5, right: 15, left: 5, bottom: 5 }}
-              >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  horizontal={false}
-                  stroke="#F1F5F9"
-                />
-                <XAxis
-                  type="number"
-                  stroke="#94A3B8"
-                  fontSize={11}
-                  tickLine={false}
-                />
-                <YAxis
-                  dataKey="name"
-                  type="category"
-                  stroke="#94A3B8"
-                  fontSize={10}
-                  tickLine={false}
-                  width={80}
-                />
-                <Tooltip
-                  formatter={(value: any) => [`${value} records`, "Total"]}
-                  contentStyle={{
-                    backgroundColor: "#fff",
-                    border: "1px solid #E2E8F0",
-                    borderRadius: "8px",
-                  }}
-                />
-                <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={20} />
-              </BarChart>
-            </ResponsiveContainer>
+            <DashboardStatusChart data={statusChartData} />
           </div>
         </div>
 

@@ -33,6 +33,7 @@ import driversRoutes from './routes/drivers';
 import { uploadErrorHandler } from './middleware/uploadErrors';
 import { applySecurity } from './middleware/security';
 import { removeStaleUploads } from './services/podStorage';
+import { startPodDeletionCleanup } from './services/podDeletionCleanup';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -139,6 +140,7 @@ app.listen(PORT, () => {
   saveDailyStatusSnapshot(); // seed today's snapshot immediately on boot
   // SEC-07: clear quarantined uploads abandoned by a previous crash or restart.
   removeStaleUploads().catch(err => console.error('[POD] Stale upload cleanup failed', err));
+  startPodDeletionCleanup();
 
   // Self-ping to prevent Render free tier from sleeping
   const externalUrl = process.env.RENDER_EXTERNAL_URL;

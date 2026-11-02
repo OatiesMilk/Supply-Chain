@@ -161,6 +161,7 @@ function supabaseStorage(): PodStorage {
     async remove(storageKey) {
       const response = await fetch(`${endpoint}`, {
         method: 'DELETE',
+        signal: AbortSignal.timeout(15_000),
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify([storageKey])
       });
@@ -188,6 +189,19 @@ if (process.env.NODE_ENV === 'production' && !process.env.POD_STORAGE_PROVIDER?.
 export const podStorage: PodStorage = podStorageProvider() === 'supabase'
   ? supabaseStorage()
   : localPodStorage;
+
+// Bind queued cleanup to the actual storage target. Changing bucket or directory
+// must never cause an old job to remove a same-named object in the new target.
+export function storageNamespace(env: NodeJS.ProcessEnv = process.env): string {
+  const provider = podStorageProvider(env);
+  let target = path.resolve(env.POD_UPLOAD_DIR || path.join(process.cwd(), 'uploads', 'pod'));
+  if (provider === 'supabase') {
+    const { url, bucket } = supabaseConfig(env);
+    target = `${url}/${bucket}`;
+  }
+  return crypto.createHash('sha256').update(JSON.stringify([provider, target])).digest('hex');
+}
+export const podStorageNamespace = storageNamespace();
 
 export type PodStorageStatus =
   | { provider: 'local'; directory: string; exists: boolean; writable: boolean }

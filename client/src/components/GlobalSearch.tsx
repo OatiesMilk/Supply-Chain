@@ -3,6 +3,7 @@ import { Search, X, Truck, Package, ArrowRight, Loader2, Users, UserRound, Layou
 import { DeliveryRecord } from '../types';
 import { ApiCustomer, ApiDriver, ApiSku, ApiSupplier, api } from '../api';
 import { normalizeApiRecord } from '../api/queries/useRecordsQuery';
+import { DATA_SAMPLER_ENABLED } from '../utils/developmentTools';
 
 interface Props {
   isOpen: boolean;
@@ -33,7 +34,7 @@ export function matchesGlobalQuery(query: string, ...values: Array<string | null
 
 export function findGlobalSearchScreens(query: string, accessibleScreens: ReadonlySet<string>) {
   return Object.entries(GLOBAL_SEARCH_SCREEN_LABELS)
-    .filter(([screen, label]) => accessibleScreens.has(screen) && matchesGlobalQuery(query, label))
+    .filter(([screen, label]) => (screen !== 'data_sampler' || DATA_SAMPLER_ENABLED) && accessibleScreens.has(screen) && matchesGlobalQuery(query, label))
     .map(([screen, label]) => ({ screen, label }));
 }
 

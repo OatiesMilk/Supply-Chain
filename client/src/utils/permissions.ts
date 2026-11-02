@@ -1,3 +1,4 @@
+import { CATEGORY_SCREENS } from '../routes/screenRouting';
 import { CATEGORY_ACTIONS, PERMISSION_CATEGORIES, PERMISSION_SCREENS, RESOURCE_ACTIONS, type PermissionAction, type PermissionCategory, type PermissionScope, type PermissionSession } from '../types/permissions';
 
 const object = (value: unknown): value is Record<string, any> => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -72,7 +73,8 @@ export function permissionsFor(user: PermissionSession | null | undefined) {
     const caps = user.snapshot!.capabilities[groups[scope]]?.[module];
     return !!caps && caps.read === true && (action === 'READ' || caps.write === true) && caps.actions[action] === true;
   };
-  const canAccess = (screen: string) => can('SCREEN', screen);
+  const canAccess = (screen: string) => can('SCREEN', screen)
+    && (!v1 || !CATEGORY_SCREENS[screen] || canCategory(CATEGORY_SCREENS[screen]));
   const canResource = (resource: string, action: PermissionAction = 'READ') => can('RESOURCE', resource, action);
   const canCategory = (category: string, action: PermissionAction = 'READ') => {
     const module = permissionCategory(category);

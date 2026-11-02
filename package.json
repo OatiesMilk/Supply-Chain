@@ -8,6 +8,7 @@
   "scripts": {
     "test:client": "npm run test --workspace=client",
     "test:server": "npm run test --workspace=mg-portal-server",
+    "test:seeded-db": "node scripts/test-seeded-postgres.mjs",
     "dev": "concurrently -n \"CLIENT,SERVER\" -c \"cyan,magenta\" \"npm run dev --workspace=client\" \"npm run dev --workspace=server\"",
     "build": "npm run build --workspace=client",
     "start": "npm start --workspace=server",

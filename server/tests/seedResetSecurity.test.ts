@@ -130,7 +130,8 @@ test('local-demo reset endpoints reject anonymous, wrong-role, and hosted Admin 
         for (const path of ['/api/dev/reset-seed', '/api/data-sampler/reset']) {
           for (const body of path.endsWith('/reset') ? [{ mode: 'full' }, { mode: 'seed' }] : [{}]) {
             const response = await fetch(url + path, { method: 'POST', headers, body: JSON.stringify(body) });
-            assert.equal(response.status, !actor ? 401 : 403);
+            const samplerUnavailable = path.startsWith('/api/data-sampler/') && mode !== 'development';
+            assert.equal(response.status, samplerUnavailable ? 404 : !actor ? 401 : 403);
           }
         }
       }

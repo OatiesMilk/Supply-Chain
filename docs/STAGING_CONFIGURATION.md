@@ -16,8 +16,9 @@ resources.
 The root `.env` configures local Docker PostgreSQL. The API uses plain dotenv,
 which loads `.env` from its working directory (normally `server/`); it does not
 automatically select `.env.staging`. Hosted API settings belong in the backend
-service environment. `APP_ENV=staging` is used by the guarded staging seed CLI;
-it does not control the frontend build or hide login content.
+service environment. `APP_ENV=staging` is used by the guarded staging seed CLI
+and disables the Data Sampler API; it does not control the frontend build or
+hide login content.
 
 Vite loads its files from `client/`, not the repository root or `server/`.
 Every `VITE_*` value is public browser configuration. Keep `DATABASE_URL`,
@@ -47,6 +48,19 @@ Normal Microsoft/email sign-in remains available. This flag hides demo UI; it
 does not deactivate existing demo users or change authentication permissions.
 
 ## API settings
+
+Data Sampler is development-only. Staging and production frontend builds omit
+its page bundle, sidebar entry, search result and Generate Sample controls.
+Direct navigation cannot mount the page. Only the Vite development server in
+`development` mode includes these tools; there is no deployed enable flag.
+
+All `/api/data-sampler/*` endpoints return `404` before authentication or database
+access when `NODE_ENV` or `APP_ENV` identifies staging/production (or another
+unsupported environment), or a supported hosting-provider marker is present.
+Local development and test runtimes retain the existing Admin/permission checks;
+reset additionally requires the existing verified disposable-database guard.
+Existing records and permission catalog entries are preserved. The separate,
+explicitly authorized staging seed CLI remains available under its own guards.
 
 Set `NODE_ENV=production` for hosted staging, a distinct random `JWT_SECRET`,
 the reviewed staging `DATABASE_URL`, and the staging frontend HTTPS origin in
@@ -83,6 +97,29 @@ Staging data preparation is optional and never runs automatically during startup
 or deployment. The commented `STAGING_SEED_*` settings in the API template are
 used only by the [guarded staging seed commands](./staging-seed.md); supply them
 only for that separate reviewed operation.
+
+## Attachment deletion cleanup
+
+Apply the additive `20261103010000_pod_storage_deletion_outbox` migration before
+starting the updated backend. It creates `PodStorageDeletion`; it does not modify
+existing business rows or stored files. Use the normal reviewed migration-deploy
+workflow against the intended database; do not reset or seed it for this change.
+
+Attachment removal commits its metadata deletion, audit entry and cleanup job in
+one database transaction. Only after commit may the file be removed. The API's
+existing `204` response means the attachment is removed from the record; storage
+cleanup may still be pending after an outage. Startup and a one-minute background
+check retry committed jobs in batches of at most 25. Storage calls have a 15-second
+timeout for Supabase deletion. Missing files are safe to retry; a database failure
+while acknowledging cleanup leaves the job available for another attempt.
+
+Jobs are bound to a hash of their storage provider and target directory or
+Supabase URL/bucket. When changing those settings, drain the old target's jobs
+first. Jobs from a different target are retained, never sent to the new target.
+Inspect `PodStorageDeletion` counts, `attempts`, `nextAttemptAt` and `lastError`
+when investigating `[POD cleanup]` warnings. Provider errors are recorded without
+credentials or raw upstream error content. No client-facing cleanup queue API or
+additional account authority is introduced.
 
 ## Collection billing notifications
 

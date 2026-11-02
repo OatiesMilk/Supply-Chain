@@ -97,12 +97,15 @@ test('SKU form preserves fields on conflict and can retry successfully', async (
 test('report failure ends loading and displays error with retry available', async () => {
   await withDom(async (dom, root) => {
     mock.method(api, 'getReportSummary', async () => { throw new Error('Report unavailable'); });
-    await act(async () => root.render(React.createElement(StatisticalReportView)));
+    const reportClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    mock.method(api, 'getRecordFilterOptions', async () => ({ drivers: [], areas: [], accountManagers: [] }));
+    await act(async () => root.render(React.createElement(QueryClientProvider, { client: reportClient }, React.createElement(StatisticalReportView))));
     const button = [...dom.window.document.querySelectorAll('button')].find(item => item.textContent?.includes('Generate Report'))!;
     await act(async () => button.click());
     assert.match(dom.window.document.body.textContent!, /Report unavailable/);
     assert.equal(button.disabled, false);
     assert.match(button.textContent!, /Generate Report/);
+    reportClient.clear();
   });
 });
 

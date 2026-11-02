@@ -11,6 +11,9 @@
     "test:driver": "playwright test --config playwright.config.ts --project='Driver'",
     "test:integration": "playwright test --config playwright.config.ts --project='Cross Role Integration'",
     "test:headed": "playwright test --config playwright.config.ts --headed",
+    "test:seeded": "playwright test --config seeded.config.ts",
+    "test:seeded:list": "playwright test --config seeded.config.ts --list",
+    "typecheck:seeded": "tsc --project tsconfig.seeded.json",
     "report": "playwright show-report playwright-report"
   },
   "devDependencies": {

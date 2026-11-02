@@ -9,6 +9,7 @@ import { isMicrosoftGuid } from '../services/ssoState';
 import { accountMetadataVersion, assertAdminSurvives, administrativeTransaction, getUserPermissionEditor, mutateAdminAccount, permissionMode, PolicyManagementError, requireV1Mutation, saveUserPermissions } from '../services/permissionManagement';
 import { policyRoute } from '../middleware/policyRoute';
 import { planPermissionConversion } from '../services/permissionBackfill';
+import { asyncRoute } from '../middleware/asyncRoute';
 
 const router = Router();
 
@@ -22,7 +23,7 @@ function accountBodyError(value: unknown, fields: readonly string[]): string | n
 }
 
 // User management — ADMIN only.
-router.get('/', requireAuth, requireResource('users'), requireRole('ADMIN'), async (_req: Request, res: Response) => {
+router.get('/', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (_req: Request, res: Response) => {
   const users = await prisma.user.findMany({ orderBy: { name: 'asc' }, include: { driverProfile: { select: { id: true, name: true } } } });
   res.json(users.map(u => ({
     id: u.id,
@@ -35,7 +36,7 @@ router.get('/', requireAuth, requireResource('users'), requireRole('ADMIN'), asy
     created_at: u.createdAt,
     driver_profile: u.driverProfile,
   })));
-});
+}));
 
 // Create user — ADMIN only. A DRIVER login is linked to a Driver profile in the
 // same transaction: `driver_profile_id` links an existing unlinked profile,
