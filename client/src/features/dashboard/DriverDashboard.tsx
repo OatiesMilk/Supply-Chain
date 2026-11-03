@@ -55,6 +55,17 @@ function fmtTime(iso: string) {
   });
 }
 
+function isManilaDate(iso: string | null | undefined, targetDate: string): boolean {
+  if (!iso) return false;
+  const timestamp = new Date(iso);
+  if (Number.isNaN(timestamp.getTime())) return false;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(timestamp);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value ?? '';
+  return `${part('year')}-${part('month')}-${part('day')}` === targetDate;
+}
+
 export default function DriverDashboard(props: DriverDashboardProps) {
   return props.serverPaging ? <PagedDriverDashboard {...props} /> : <DriverDashboardContent {...props} />;
 }
@@ -94,8 +105,15 @@ function DriverDashboardContent({
   const timeInMutation = useRecordTimeInMutation();
   const queryClient = useQueryClient();
   records = records.filter(record => access.canRecord(record.category) && !isDraftRecord(record));
-  const rmaRecords = records.filter(record => record.category === 'RMA' && record.rma_movement === 'LOGISTICS_TRANSPORT');
-  records = records.filter(record => record.category !== 'RMA');
+  const allRmaTransportRecords = records.filter(record => record.category === 'RMA' && record.rma_movement === 'LOGISTICS_TRANSPORT');
+  const completedRmaIds = new Set(allRmaTransportRecords
+    .filter(record => record.rma_transport_status === 'COMPLETED'
+      ? record.status !== 'Delivered' || isManilaDate(record.rma_transport_completed_at ?? record.rma_completed_at, today)
+      : record.status === 'Delivered' && isManilaDate(record.rma_completed_at, today))
+    .map(record => record.id));
+  const activeRmaRecords = allRmaTransportRecords.filter(record => record.status !== 'Delivered' && record.rma_transport_status !== 'COMPLETED');
+  records = records.filter(record => record.category !== 'RMA' || completedRmaIds.has(record.id));
+  const accessibleRecords = [...records, ...activeRmaRecords];
   const todayLabel = new Date().toLocaleDateString("en-PH", {
     timeZone: "Asia/Manila",
     weekday: "long",
@@ -127,14 +145,17 @@ function DriverDashboardContent({
 
   // The server returns the linked Driver's assigned non-draft records. Every
   // non-RMA category keeps overdue and started runs active across Manila midnight.
-  const todayRecs = records.filter((r) => r.delivery_date === today);
+  const todayRecs = accessibleRecords.filter((r) => r.delivery_date === today);
   const actionableRecs = records.filter(record => isDashboardRunActionable(record, today));
   const activeRecs = actionableRecs.filter((r) => r.status !== "Delivered");
-  const doneRecs = records.filter((r) => r.status === "Delivered" &&
-    (dashboardCounts ? true : r.category === 'Deliveries'
+  const activeWorkRecords = [...activeRecs, ...activeRmaRecords]
+    .sort((a, b) => a.delivery_date.localeCompare(b.delivery_date));
+  const accomplishedRecords = records.filter(r => r.category === 'RMA'
+    ? completedRmaIds.has(r.id)
+    : r.status === 'Delivered' && (dashboardCounts ? true : r.category === 'Deliveries'
       ? r.delivery_date === today || !!r.completed_late || (deliveryScheduleState(r.delivery_date, today).future && hasValidRunTimeIn(r.time_in))
       : r.delivery_date === today));
-  const runsInScope = activeRecs.length + doneRecs.length;
+  const recordsInScope = activeWorkRecords.length + accomplishedRecords.length;
 
   const handleTimeIn = (rec: DeliveryRecord) => {
     if (!access.canRecord(rec.category, 'TIME_IN')) return;
@@ -189,12 +210,12 @@ function DriverDashboardContent({
             },
             {
               label: "Accomplished",
-              value: dashboardCounts?.completed ?? doneRecs.length,
+              value: dashboardCounts ? dashboardCounts.completed + dashboardCounts.rma_completed : accomplishedRecords.length,
               color: "text-emerald-700",
             },
             {
               label: "Remaining",
-              value: dashboardCounts?.remaining ?? activeRecs.length,
+              value: dashboardCounts ? dashboardCounts.remaining + dashboardCounts.rma_active : activeWorkRecords.length,
               color: "text-amber-700",
             },
           ].map((s) => (
@@ -220,14 +241,6 @@ function DriverDashboardContent({
         </div>
       )}
 
-      {rmaRecords.length > 0 && <section aria-label="RMA tasks" className="mb-5 space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <div>
-          <h2 className="text-base font-semibold text-slate-900">RMA transport tasks</h2>
-          <p className="mt-1 text-sm text-slate-600">{dashboardCounts?.rma_active ?? rmaRecords.filter(record => record.rma_transport_status !== 'COMPLETED').length} active · {dashboardCounts?.rma_completed ?? rmaRecords.filter(record => record.rma_transport_status === 'COMPLETED').length} awaiting receipt</p>
-        </div>
-        {rmaRecords.map(record => <div key={record.id} className="space-y-2"><h3 className="font-bold text-slate-900">{record.rma_reference || record.reference || record.id} · {record.company_name}</h3><RmaWorkflowPanel record={record} currentUserRole="Driver" /></div>)}
-      </section>}
-
       {/* Body */}
       <div className="space-y-4">
         {dataLoading && (
@@ -236,7 +249,7 @@ function DriverDashboardContent({
           </div>
         )}
 
-        {!dataLoading && runsInScope === 0 && rmaRecords.length === 0 && (
+        {!dataLoading && recordsInScope === 0 && (
           <div className="text-center py-16 text-slate-400">
             <CheckCircle className="w-10 h-10 mx-auto mb-3 text-emerald-400" />
             <p className="font-bold text-slate-600">
@@ -248,154 +261,122 @@ function DriverDashboardContent({
           </div>
         )}
 
-        {/* Active records */}
-        <section aria-label="Active runs" className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        {activeRecs.map((rec) => {
-          const daysLate = dashboardRunDaysLate(rec, today);
-          const futureStarted = rec.category === 'Deliveries' && deliveryScheduleState(rec.delivery_date, today).future && hasValidRunTimeIn(rec.time_in);
-          return (
-            <article
-              aria-label={`Run ${rec.reference}`}
-              key={rec.id}
-              className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
-            >
-              {/* Card header */}
-              <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3 sm:items-center">
-                <div className="min-w-0">
-                  <p className="break-all font-mono text-[11px] text-slate-500">
-                    {rec.reference}
-                  </p>
-                  <p className="mt-0.5 break-words text-sm font-semibold leading-snug text-slate-900">
-                    {rec.company_name}
-                  </p>
-                </div>
-                <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-                  {daysLate > 0 && rec.category === 'Deliveries' && (
-                    <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700">
-                      Overdue · {daysLate} day{daysLate === 1 ? '' : 's'} late
+        {activeWorkRecords.length > 0 && <section aria-label="Active work" className="space-y-3">
+          <h2 className="text-sm font-semibold text-slate-700">Active work ({activeWorkRecords.length})</h2>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {activeWorkRecords.map(rec => {
+              const isRma = rec.category === 'RMA';
+              const categoryLabel = isRma ? 'RMA transport' : rec.category === 'Deliveries' ? 'Delivery' : rec.category;
+              const recordLabel = isRma ? rec.rma_reference || rec.reference || rec.id : rec.reference || rec.id;
+              const daysLate = dashboardRunDaysLate(rec, today);
+              const futureStarted = !isRma && deliveryScheduleState(rec.delivery_date, today).future && hasValidRunTimeIn(rec.time_in);
+              return <article
+                aria-label={`Active ${categoryLabel.toLowerCase()} ${recordLabel}`}
+                key={rec.id}
+                className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3 sm:items-center">
+                  <div className="min-w-0">
+                    <p className="break-all font-mono text-[11px] text-slate-500">{recordLabel}</p>
+                    <p className="mt-0.5 break-words text-sm font-semibold leading-snug text-slate-900">{rec.company_name}</p>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                    <span className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${isRma ? 'border-violet-200 bg-violet-50 text-violet-700' : 'border-blue-200 bg-blue-50 text-blue-700'}`}>
+                      {categoryLabel}
                     </span>
-                  )}
-                  {futureStarted && (
-                    <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700">Started</span>
-                  )}
-                  <RecordStatus record={rec} />
-                </div>
-              </div>
-
-              <div className="px-4 py-3 space-y-3">
-                <div className="flex min-w-0 flex-wrap items-start gap-x-4 gap-y-2 text-sm text-slate-600">
-                  <p className="flex min-w-0 items-center gap-1.5 break-words">
-                    <MapPin className="w-3.5 h-3.5 text-red-400 shrink-0" />
-                    {rec.area}
-                  </p>
-                  {rec.item_description && (
-                    <p className="flex min-w-0 items-center gap-1.5 break-words">
-                      <Package className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      {rec.item_description.slice(0, 40)}
-                      {rec.item_description.length > 40 ? "…" : ""}
-                    </p>
-                  )}
+                    {daysLate > 0 && !isRma && <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700">Overdue · {daysLate} day{daysLate === 1 ? '' : 's'} late</span>}
+                    {futureStarted && <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700">Started</span>}
+                    <RecordStatus record={rec} compact={isRma} />
+                  </div>
                 </div>
 
-                {/* ePOD flow */}
-                <div className="space-y-2.5 border-t border-slate-100 pt-3">
-                  {/* Step 1: Time In */}
-                  {!rec.time_in ? (
-                    <button
-                      onClick={() => handleTimeIn(rec)}
-                      disabled={saving || !access.canRecord(rec.category, 'TIME_IN') || !canRecordTimeIn(rec)}
-                      className="min-h-11 w-full rounded-lg bg-[#0078C1] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1F3864] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] disabled:cursor-not-allowed disabled:opacity-50 flex items-center justify-center gap-2"
-                    >
-                      <Clock className="w-4 h-4" /> Record Time In
-                    </button>
-                  ) : (
-                    <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-xs text-blue-700 font-bold">
-                      <Clock className="w-4 h-4 text-blue-500 shrink-0" />
-                      Time In recorded: {fmtTime(rec.time_in)}
+                <div className="space-y-3 px-4 py-3">
+                  <div className="flex min-w-0 flex-wrap items-start gap-x-4 gap-y-2 text-sm text-slate-600">
+                    <p className="flex min-w-0 items-center gap-1.5 break-words"><MapPin aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-red-400" />{rec.area || 'Area not set'}</p>
+                    <p className="flex items-center gap-1.5 text-xs text-slate-500"><Clock aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />Due {rec.delivery_date || 'date not set'}</p>
+                    {rec.item_description && <p className="flex min-w-0 items-center gap-1.5 break-words"><Package aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-slate-400" />{rec.item_description.slice(0, 40)}{rec.item_description.length > 40 ? '…' : ''}</p>}
+                  </div>
+
+                  {isRma ? <RmaWorkflowPanel record={rec} currentUserRole="Driver" embedded /> : (
+                    <div className="space-y-2.5 border-t border-slate-100 pt-3">
+                      {!rec.time_in ? (
+                        <button
+                          onClick={() => handleTimeIn(rec)}
+                          disabled={saving || !access.canRecord(rec.category, 'TIME_IN') || !canRecordTimeIn(rec)}
+                          className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#0078C1] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1F3864] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Clock aria-hidden="true" className="h-4 w-4" /> Start transport
+                        </button>
+                      ) : <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700">
+                        <Clock aria-hidden="true" className="h-4 w-4 shrink-0 text-blue-500" />Transport started: {fmtTime(rec.time_in)}
+                      </div>}
+
+                      <PodUploader recordId={rec.id} required disabled={saving} onReadinessChange={onPodReadinessChange} />
+
+                      <div className="space-y-1">
+                        <label className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                          <UserCheck aria-hidden="true" className="h-3.5 w-3.5" />Received By *
+                        </label>
+                        <input
+                          type="text"
+                          value={receivedByInputs[rec.id] ?? rec.received_by ?? ''}
+                          onChange={event => setReceivedByInputs(previous => ({ ...previous, [rec.id]: event.target.value }))}
+                          placeholder="Name of person who received the item…"
+                          className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#0078C1] focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30"
+                        />
+                      </div>
+
+                      {completionError(rec, 'Delivered', receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id]) && <p className="text-xs text-slate-600">{completionError(rec, 'Delivered', receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}</p>}
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          onClick={() => { setPendingAction({ rec, status: 'Delivered' }); setRemarksInput(''); setSaveFeedback(null); }}
+                          disabled={saving || !access.canRecord(rec.category, 'COMPLETE') || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes('Delivered') || !!completionError(rec, 'Delivered', receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}
+                          className="flex min-h-11 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg bg-emerald-700 px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        ><CheckCircle aria-hidden="true" className="h-4 w-4" />Accomplish</button>
+                        <button
+                          onClick={() => { setPendingAction({ rec, status: 'Pending' }); setRemarksInput(''); setSaveFeedback(null); }}
+                          disabled={saving || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes('Pending')}
+                          className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg bg-amber-600 px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        ><Navigation aria-hidden="true" className="h-4 w-4" />Pending</button>
+                        <button
+                          onClick={() => { setPendingAction({ rec, status: 'Rescheduled' }); setRemarksInput(''); setSaveFeedback(null); }}
+                          disabled={saving || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes('Rescheduled')}
+                          className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg bg-[#1F3864] px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-[#0078C1] disabled:cursor-not-allowed disabled:opacity-50"
+                        ><RefreshCw aria-hidden="true" className="h-4 w-4" />Reschedule</button>
+                      </div>
                     </div>
                   )}
-
-                  {/* Step 2: Proof of Delivery */}
-                  <PodUploader recordId={rec.id} required disabled={saving} onReadinessChange={onPodReadinessChange} />
-
-                  {/* Receiver name is required for completion. */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide flex items-center gap-1">
-                      <UserCheck className="w-3.5 h-3.5" /> Received By *
-                    </label>
-                    <input
-                      type="text"
-                      value={receivedByInputs[rec.id] ?? rec.received_by ?? ""}
-                      onChange={(e) =>
-                        setReceivedByInputs((prev) => ({
-                          ...prev,
-                          [rec.id]: e.target.value,
-                        }))
-                      }
-                      placeholder="Name of person who received the item…"
-                      className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#0078C1] focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30"
-                    />
-                  </div>
-
-                  {completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id]) && <p className="text-xs text-slate-600">{completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}</p>}
-                  {/* Step 3: Status buttons */}
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      onClick={() => {
-                        setPendingAction({ rec, status: "Delivered" });
-                        setRemarksInput("");
-                        setSaveFeedback(null);
-                      }}
-                      disabled={saving || !access.canRecord(rec.category, 'COMPLETE') || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes("Delivered") || !!completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}
-                      className="min-h-11 rounded-lg bg-emerald-700 px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50 flex flex-col items-center justify-center gap-1 cursor-pointer"
-                    >
-                      <CheckCircle className="w-4 h-4" /> Accomplish
-                    </button>
-                    <button
-                      onClick={() => {
-                        setPendingAction({ rec, status: "Pending" });
-                        setRemarksInput("");
-                        setSaveFeedback(null);
-                      }}
-                      disabled={saving || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes("Pending")}
-                      className="min-h-11 rounded-lg bg-amber-600 px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50 flex flex-col items-center justify-center gap-1"
-                    >
-                      <Navigation className="w-4 h-4" /> Pending
-                    </button>
-                    <button
-                      onClick={() => {
-                        setPendingAction({ rec, status: "Rescheduled" });
-                        setRemarksInput("");
-                        setSaveFeedback(null);
-                      }}
-                      disabled={saving || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes("Rescheduled")}
-                      className="min-h-11 rounded-lg bg-[#1F3864] px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-[#0078C1] disabled:cursor-not-allowed disabled:opacity-50 flex flex-col items-center justify-center gap-1"
-                    >
-                      <RefreshCw className="w-4 h-4" /> Reschedule
-                    </button>
-                  </div>
                 </div>
-              </div>
-            </article>
-          );
-        })}
-        </section>
+              </article>;
+            })}
+          </div>
+        </section>}
 
         {/* Completed records */}
-        {doneRecs.length > 0 && (
-          <section aria-label="Accomplished runs" className="space-y-3">
-            <h2 className="text-sm font-semibold text-slate-700">Accomplished ({doneRecs.length})</h2>
-            {doneRecs.map((rec) => (
-              <button
+        {accomplishedRecords.length > 0 && (
+          <section aria-label="Accomplished records" className="space-y-3">
+            <h2 className="text-sm font-semibold text-slate-700">Accomplished ({accomplishedRecords.length})</h2>
+            {accomplishedRecords.map(rec => {
+              const isRma = rec.category === 'RMA';
+              const categoryLabel = isRma ? 'RMA transport' : rec.category === 'Deliveries' ? 'Delivery' : rec.category;
+              const recordLabel = isRma ? rec.rma_reference || rec.reference || rec.id : rec.reference || rec.id;
+              const startedAt = isRma ? rec.rma_transport_started_at : rec.time_in;
+              const finishedAt = isRma ? rec.rma_transport_completed_at ?? rec.rma_completed_at : rec.time_out;
+              const waitingTass = isRma && rec.status !== 'Delivered';
+              const completionBadge = waitingTass
+                ? rec.rma_received_at ? 'Awaiting TASS completion' : 'Awaiting TASS receipt'
+                : isRma ? 'RMA complete' : 'Done';
+              return <button
                 type="button"
                 key={rec.id}
                 onClick={() => setSelectedDoneRecord(rec)}
                 className="flex w-full items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] cursor-pointer"
               >
                 <div className="min-w-0">
-                  <p className="font-mono text-[11px] text-slate-500">
-                    {rec.reference}
-                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-mono text-[11px] text-slate-500">{recordLabel}</p>
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${isRma ? 'border-violet-200 bg-violet-50 text-violet-700' : 'border-blue-200 bg-blue-50 text-blue-700'}`}>{categoryLabel}</span>
+                  </div>
                   <p className="break-words text-sm font-semibold text-slate-900">
                     {rec.company_name}
                   </p>
@@ -408,44 +389,42 @@ function DriverDashboardContent({
                     <MapPin className="w-3 h-3 text-red-400 shrink-0" />
                     {rec.area}
                   </p>
-                  {(rec.time_in || rec.time_out) && (
+                  {(startedAt || finishedAt) && (
                     <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs font-medium text-slate-600">
-                      {rec.time_in && (
+                      {startedAt && (
                         <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-blue-400" /> In:{" "}
-                          {fmtTime(rec.time_in)}
+                          <Clock aria-hidden="true" className="h-3 w-3 text-blue-400" />Started: {fmtTime(startedAt)}
                         </span>
                       )}
-                      {rec.time_out && (
+                      {finishedAt && (
                         <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-emerald-400" /> Out:{" "}
-                          {fmtTime(rec.time_out)}
+                          <Clock aria-hidden="true" className="h-3 w-3 text-emerald-400" />{isRma && rec.rma_transport_completed_at ? 'Transport complete:' : isRma ? 'RMA complete:' : 'Completed:'} {fmtTime(finishedAt)}
                         </span>
                       )}
                     </div>
                   )}
-                  {rec.received_by && (
+                  {(rec.received_by || rec.rma_recipient) && (
                     <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-emerald-700">
-                      <UserCheck className="w-3 h-3" /> {rec.received_by}
+                      <UserCheck aria-hidden="true" className="h-3 w-3" /> {isRma ? rec.rma_recipient : rec.received_by}
                     </p>
                   )}
                 </div>
                 <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">
-                  Done
+                  {completionBadge}
                 </span>
-              </button>
-            ))}
+              </button>;
+            })}
           </section>
         )}
 
         {/* Upcoming and other-date records stay visible without execution controls. */}
         {records.filter(
-          (r) => !isDashboardRunActionable(r, today) && r.status !== "Delivered",
+          (r) => r.category !== 'RMA' && !isDashboardRunActionable(r, today) && r.status !== "Delivered",
         ).length > 0 && (
           <section aria-label="Upcoming and other-date runs" className="space-y-3">
             <h2 className="text-sm font-semibold text-slate-700">Upcoming / Other Dates</h2>
             {records
-              .filter((r) => !isDashboardRunActionable(r, today) && r.status !== "Delivered")
+              .filter((r) => r.category !== 'RMA' && !isDashboardRunActionable(r, today) && r.status !== "Delivered")
               .map((rec) => (
                 <div
                   key={rec.id}
@@ -560,7 +539,7 @@ function DriverDashboardContent({
                     }
                     setPendingAction(null);
                     setRemarksInput("");
-                    notify.success('Status updated successfully');
+                    notify.success(pendingAction.status === 'In Transit' ? 'Transport started successfully' : 'Status updated successfully');
                   } catch (error) {
                     const message = error instanceof Error ? error.message : 'Could not update the delivery. Please try again.';
                     setSaveFeedback({ message, type: 'error' });
