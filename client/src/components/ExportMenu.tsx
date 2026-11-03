@@ -79,7 +79,7 @@ export default function ExportMenu({
   const [docSize, setDocSize] = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<{
-    format: 'pdf' | 'docx';
+    format: Format;
     variant: Variant;
     rows: Record<string, string | number | null | undefined>[];
     columns: ExportColumn[];
@@ -122,44 +122,40 @@ export default function ExportMenu({
         if (fetched.routeSlipProps) exportRouteSlip = fetched.routeSlipProps;
       }
 
-      // Generate once, preview those exact bytes, and download the same Blob
-      // only after the user confirms in the preview dialog.
-      if (fmt === 'pdf' || fmt === 'docx') {
-        const summaryTitle = pdfTitle.replace(/ records?$/i, '') + ' — Comprehensive Report';
-        const title = exportRouteSlip ? 'Courier/Daily Route Slip Report' : exportSummary && fmt === 'pdf' ? summaryTitle : pdfTitle;
-        const previewColumns = fmt === 'pdf' ? pdfColumns ?? columns : columns;
-        const fileBlob = exportRouteSlip
-          ? await downloadRouteSlipForPeriod(fmt, { ...exportRouteSlip, filename, documentSize: docSize, variant }, true) as Blob
-          : exportSummary
-            ? fmt === 'pdf'
-              ? await downloadAllOpsPDF(exportRows, previewColumns, filename, meta, exportSummary, summaryTitle, hist, docSize, true) as Blob
-              : await downloadDocx(exportRows, previewColumns, pdfTitle, filename, meta, exportSummary, summaryTitle, hist, docSize, true) as Blob
-            : fmt === 'pdf'
-              ? await downloadPDF(exportRows, previewColumns, pdfTitle, filename, meta, !pdfPortrait, hist, docSize, true) as Blob
-              : await downloadDocx(exportRows, previewColumns, pdfTitle, filename, meta, undefined, undefined, hist, docSize, true) as Blob;
-        const dateStamp = new Date().toISOString().split('T')[0];
-        const routeSlipSingleDriver = exportRouteSlip && routeSlipDriverNames(filterRouteSlipRecords(exportRouteSlip.records, {
-          dateFrom: exportRouteSlip.dateFrom,
-          dateTo: exportRouteSlip.dateTo,
-        })).length === 1;
-        const routeSlipSuffix = routeSlipSingleDriver ? '-route-slip' : '-route-slip-all-drivers';
-        const fileName = exportRouteSlip
-          ? `${filename}${routeSlipSuffix}-${dateStamp}.${fmt === 'pdf' ? 'pdf' : 'docx'}`
-          : fmt === 'pdf' ? `${filename}-${dateStamp}.pdf` : `${filename}.docx`;
-        setPreview({ format: fmt, variant, rows: exportRows, columns: previewColumns, title, fileBlob, fileName, statusHistoryCounts: hist, summary: exportSummary });
-        return;
-      }
-
+      const summaryTitle = pdfTitle.replace(/ records?$/i, '') + ' — Comprehensive Report';
+      const title = exportRouteSlip ? 'Courier/Daily Route Slip Report' : exportSummary && fmt === 'pdf' ? summaryTitle : pdfTitle;
+      const previewColumns = fmt === 'pdf' ? pdfColumns ?? columns : columns;
+      let fileBlob: Blob;
       if (exportRouteSlip && fmt !== 'csv') {
-        await downloadRouteSlipForPeriod(fmt, { ...exportRouteSlip, filename, documentSize: docSize, variant });
-      } else if (exportSummary) {
-        const summaryTitle = pdfTitle.replace(/ records?$/i, '') + ' — Comprehensive Report';
-        if (fmt === 'csv')   downloadAllOpsCSV(exportRows, columns, filename, meta, exportSummary, summaryTitle, hist);
-        if (fmt === 'excel') await downloadAllOpsExcel(exportRows, columns, filename, meta, exportSummary, summaryTitle, hist, docSize);
+        fileBlob = await downloadRouteSlipForPeriod(fmt, { ...exportRouteSlip, filename, documentSize: docSize, variant }, true) as Blob;
+      } else if (fmt === 'csv') {
+        fileBlob = exportSummary
+          ? downloadAllOpsCSV(exportRows, columns, filename, meta, exportSummary, summaryTitle, hist, true) as Blob
+          : downloadCSV(exportRows, columns, filename, meta, hist, true) as Blob;
+      } else if (fmt === 'excel') {
+        fileBlob = exportSummary
+          ? await downloadAllOpsExcel(exportRows, columns, filename, meta, exportSummary, summaryTitle, hist, docSize, true) as Blob
+          : await downloadExcel(exportRows, columns, sheetName, filename, meta, hist, docSize, true) as Blob;
+      } else if (fmt === 'pdf') {
+        fileBlob = exportSummary
+          ? await downloadAllOpsPDF(exportRows, previewColumns, filename, meta, exportSummary, summaryTitle, hist, docSize, true) as Blob
+          : await downloadPDF(exportRows, previewColumns, pdfTitle, filename, meta, !pdfPortrait, hist, docSize, true) as Blob;
       } else {
-        if (fmt === 'csv')   downloadCSV(exportRows, columns, filename, meta, hist);
-        if (fmt === 'excel') await downloadExcel(exportRows, columns, sheetName, filename, meta, hist, docSize);
+        fileBlob = exportSummary
+          ? await downloadDocx(exportRows, columns, pdfTitle, filename, meta, exportSummary, summaryTitle, hist, docSize, true) as Blob
+          : await downloadDocx(exportRows, columns, pdfTitle, filename, meta, undefined, undefined, hist, docSize, true) as Blob;
       }
+      const dateStamp = new Date().toISOString().split('T')[0];
+      const routeSlipSingleDriver = exportRouteSlip && routeSlipDriverNames(filterRouteSlipRecords(exportRouteSlip.records, {
+        dateFrom: exportRouteSlip.dateFrom,
+        dateTo: exportRouteSlip.dateTo,
+      })).length === 1;
+      const routeSlipSuffix = routeSlipSingleDriver ? '-route-slip' : '-route-slip-all-drivers';
+      const extension = fmt === 'excel' ? 'xlsx' : fmt;
+      const fileName = exportRouteSlip
+        ? `${filename}${routeSlipSuffix}-${dateStamp}.${extension}`
+        : `${filename}-${dateStamp}.${extension}`;
+      setPreview({ format: fmt, variant, rows: exportRows, columns: previewColumns, title, fileBlob, fileName, statusHistoryCounts: hist, summary: exportSummary });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Export failed. Please try again.');
     } finally {
@@ -272,6 +268,7 @@ export default function ExportMenu({
         documentSize={docSize}
         statusHistoryCounts={preview.statusHistoryCounts}
         summary={preview.summary}
+        excelBlob={preview.format === 'excel' ? preview.fileBlob : undefined}
         fileBlob={preview.fileBlob}
         onClose={closePreview}
         onDownload={downloadPreview}
