@@ -1,13 +1,17 @@
 import { replaceEqualDeep, type QueryClient } from '@tanstack/react-query';
 import type { DeliveryRecord } from '@/types';
 
-/** Poll only mounted operational views. Hidden tabs refresh immediately on return. */
+export const OPERATIONAL_POLL_INTERVAL_MS = 30_000;
+// A zero stale time keeps permission-scoped/detail initialData revalidated on mount.
+export const OPERATIONAL_STALE_TIME_MS = 0;
+
+/** Keep active operational views fresh without flooding the API; stale data refreshes on focus/reconnect. */
 export const operationalSyncOptions = {
-  staleTime: 0,
-  refetchInterval: 2_000,
+  staleTime: OPERATIONAL_STALE_TIME_MS,
+  refetchInterval: OPERATIONAL_POLL_INTERVAL_MS,
   refetchIntervalInBackground: false,
-  refetchOnWindowFocus: 'always' as const,
-  refetchOnReconnect: 'always' as const,
+  refetchOnWindowFocus: true,
+  refetchOnReconnect: true,
 };
 
 export const recordDetailKey = (id: string) => ['records', 'detail', id] as const;

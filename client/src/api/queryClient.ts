@@ -7,7 +7,8 @@ export const createQueryClient = () => new QueryClient({
       staleTime: 1000 * 30, // 30 seconds fresh cache
       refetchInterval: 1000 * 60, // Background polling every 60s
       refetchOnWindowFocus: true, // Refresh data when switching back to tab
-      retry: (failures, error) => !(error instanceof ApiError && [401, 403].includes(error.status)) && failures < 1,
+      // Retrying client errors immediately can amplify bad requests and rate limits.
+      retry: (failures, error) => !(error instanceof ApiError && error.status >= 400 && error.status < 500) && failures < 1,
     },
     mutations: {
       retry: 0,
