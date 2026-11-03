@@ -41,7 +41,7 @@ function installTassV1(deny: string[] = []) {
   });
 }
 
-async function fixture() {
+async function fixture(currentRecord: DeliveryRecord = record) {
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost' });
   const original = Object.getOwnPropertyDescriptors(globalThis);
   const indexedDB = { open: () => {
@@ -62,7 +62,7 @@ async function fixture() {
   const flush = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); }); };
   const button = (name: string) => [...dom.window.document.querySelectorAll('button')].find(el => el.textContent?.trim() === name)!;
   await act(async () => { root.render(React.createElement(QueryClientProvider, { client }, React.createElement(Workspace, {
-    record, allRecordIds: [record.id], currentUserRole: 'TASS', currentUserName: 'TASS', onBack: () => {},
+    record: currentRecord, allRecordIds: [currentRecord.id], currentUserRole: 'TASS', currentUserName: 'TASS', onBack: () => {},
     onVerifyCollection: verify, onNavigateToRecord: () => {}, onUpdateRecord: async () => {},
   }))); });
   await flush();
@@ -130,4 +130,28 @@ test('V1 collection evidence reads remain independent of verification permission
     assert.match(ui.dom.window.document.body.textContent!, /Collection evidence is not available for your account/);
     assert.equal(ui.verify.mock.callCount(), 0);
   } finally { await ui.close(); }
+});
+
+test('overview distinguishes unverified collected records from verified collections', async () => {
+  mock.method(api, 'getRecordAttachments', async () => [attachment('receipt.pdf')]);
+  const unverifiedUi = await fixture();
+  try {
+    assert.match(unverifiedUi.dom.window.document.body.textContent!, /Collection confirmed\. Verification is now available\./);
+  } finally {
+    await unverifiedUi.close();
+  }
+
+  const verifiedUi = await fixture({
+    ...record,
+    collection_verified: true,
+    collection_verified_by: 'Ana Cruz',
+    collection_verified_at: '2026-11-03T04:55:00Z',
+  });
+  try {
+    assert.match(verifiedUi.dom.window.document.body.textContent!, /Collection Status: Collected · Collection Verified/);
+    assert.match(verifiedUi.dom.window.document.body.textContent!, /Collection verified by Ana Cruz at /);
+    assert.doesNotMatch(verifiedUi.dom.window.document.body.textContent!, /Verification is now available\./);
+  } finally {
+    await verifiedUi.close();
+  }
 });

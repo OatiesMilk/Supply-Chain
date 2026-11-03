@@ -66,7 +66,7 @@ const buildEmptyForm = (): RecordFormState => ({
   reference: '',
   remarks: '',
   status: 'Scheduled',
-  area: 'Carmona',
+  area: AREAS[0] ?? 'Makati CBD',
   account_manager: '',
   delivery_date: manilaToday(),
   item_type: 'Small Item',
@@ -313,9 +313,6 @@ export default function AccountingCollectionView({
         is_draft: isDraft ? 'Yes' : 'No',
         attachments: [],
         output_actions_log: [],
-        collection_verified: false,
-        collection_verified_by: null,
-        collection_verified_at: null,
         amount: parseFloat(form.amount.replace(/,/g, '')) || null,
       });
       setCreatedRecordInfo({
