@@ -10,7 +10,6 @@ import {
   Navigation,
   Clock,
   UserCheck,
-  LogOut,
   X,
   Loader2
 } from "lucide-react";
@@ -26,10 +25,14 @@ import DoneRecordModal from "./DoneRecordModal";
 import { uploadStagedFiles } from '@/api/queries/usePodAttachments';
 import { useQueryClient } from '@tanstack/react-query';
 import { notify } from '@/utils/notify';
+import AccountMenu from '@/layouts/AccountMenu';
 
 interface DriverDashboardProps {
   records: DeliveryRecord[];
   currentUserName: string;
+  currentUserEmail: string;
+  canManageAdmin: boolean;
+  onNavigate: (screen: string) => void;
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   onLogout: () => void;
   dataLoading: boolean;
@@ -76,6 +79,9 @@ function PagedDriverDashboard(props: DriverDashboardProps) {
 function DriverDashboardContent({
   records,
   currentUserName,
+  currentUserEmail,
+  canManageAdmin,
+  onNavigate,
   onUpdateRecord,
   onLogout,
   dataLoading, dashboardCounts,
@@ -168,12 +174,8 @@ function DriverDashboardContent({
             </h1>
             <p className="text-[11px] text-blue-200 mt-0.5">{todayLabel}</p>
           </div>
-          <button
-            onClick={onLogout}
-            className="flex items-center gap-1.5 text-[10px] font-bold text-white/70 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg transition-colors cursor-pointer"
-          >
-            <LogOut className="w-3.5 h-3.5" /> Log Out
-          </button>
+          <AccountMenu name={currentUserName} email={currentUserEmail} role="Driver"
+            canManageAdmin={canManageAdmin} onNavigate={onNavigate} onLogout={onLogout} />
         </div>
 
         {/* Stats strip */}

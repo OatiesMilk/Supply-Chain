@@ -118,7 +118,8 @@ test.describe('C-1 Driver Dashboard', () => {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
 
-    await page.getByRole('button', { name: /log out|logout/i }).click();
+    await page.getByRole('button', { name: /account menu/i }).click();
+    await page.getByRole('menuitem', { name: /log out/i }).click();
     await page.waitForLoadState('networkidle');
 
     // Should be back on the login page
