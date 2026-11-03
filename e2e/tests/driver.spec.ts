@@ -19,7 +19,7 @@ const BASE_URL = 'http://localhost:3000';
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function getFirstActiveCard(page: Page) {
-  // Driver cards are divs with a Record Time In button
+  // Driver run cards expose the Time In action with a stable accessible name.
   return page.getByRole('button', { name: /record time in/i }).first();
 }
 

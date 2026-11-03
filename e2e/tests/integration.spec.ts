@@ -247,12 +247,12 @@ test.describe('X Cross-Role Integration', () => {
       await login(driverPage, CREDS.driver.email, CREDS.driver.password);
       const referenceLabel = driverPage.getByText(reference, { exact: true });
       await expect(referenceLabel).toBeVisible();
-      const driverCard = driverPage.getByRole('article', { name: `Run ${reference}` });
+      const driverCard = driverPage.getByRole('article', { name: `Active delivery ${reference}` });
       await expect(driverCard).toHaveCount(1);
-      await driverCard.getByRole('button', { name: 'Record Time In', exact: true }).click();
+      await driverCard.getByRole('button', { name: /record time in/i }).click();
       await driverPage.locator('#driver-action-remarks').fill('UAT integration test - starting assigned Delivery');
       await driverPage.getByRole('button', { name: 'Confirm', exact: true }).click();
-      await expect(driverCard.getByText(/Time In recorded:/)).toBeVisible();
+      await expect(driverCard.getByText(/Transport started:/i)).toBeVisible();
       const started = await driverCtx.request.get(BASE_URL + '/api/records/' + recordId);
       expect(started.ok()).toBeTruthy();
       const savedTimeIn = (await started.json()).time_in;
