@@ -6,12 +6,26 @@ export function WorkflowSection({
   description,
   children,
   className = '',
+  variant = 'card',
 }: {
   title: string;
   description?: ReactNode;
   children: ReactNode;
   className?: string;
+  variant?: 'card' | 'flat';
 }) {
+  if (variant === 'flat') {
+    return (
+      <section className={`space-y-4 border-t border-slate-200 pt-5 ${className}`}>
+        <header>
+          <h3 className="text-sm font-bold text-[#1F3864]">{title}</h3>
+          {description && <div className="mt-1 text-xs leading-5 text-slate-500">{description}</div>}
+        </header>
+        <div className="space-y-4">{children}</div>
+      </section>
+    );
+  }
+
   return (
     <section className={`overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ${className}`}>
       <header className="border-b border-slate-100 px-4 py-3.5 sm:px-5">

@@ -84,7 +84,7 @@ function PagedDriverDashboard(props: DriverDashboardProps) {
       </button>)}
     </nav>
     <RecordPageControls page={page} total={query.data?.total ?? 0} onPageChange={setPage} loading={query.isPending}
-      error={query.error ?? overview.error} retry={() => { void query.refetch(); void overview.refetch(); }} />
+      error={query.error} retry={() => { void query.refetch(); void overview.refetch(); }} />
   </section>;
 
   return <DriverDashboardContent {...props} records={query.data?.rows ?? []} dashboardCounts={overview.data?.dashboard}
