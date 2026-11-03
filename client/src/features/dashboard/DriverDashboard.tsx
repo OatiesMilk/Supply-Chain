@@ -302,6 +302,7 @@ function DriverDashboardContent({
                       {!rec.time_in ? (
                         <button
                           onClick={() => handleTimeIn(rec)}
+                          aria-label="Record Time In — Start transport"
                           disabled={saving || !access.canRecord(rec.category, 'TIME_IN') || !canRecordTimeIn(rec)}
                           className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#0078C1] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1F3864] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] disabled:cursor-not-allowed disabled:opacity-50"
                         >
