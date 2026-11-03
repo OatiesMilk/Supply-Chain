@@ -1,7 +1,7 @@
 import RecordStatus from '@/components/RecordStatus';
 import { usePermissions } from '@/hooks/usePermissions';
 import RmaWorkflowPanel from '@/features/deliveries/RmaWorkflowPanel';
-import { useState, useCallback } from "react";
+import { useState, useCallback, type ReactNode } from "react";
 import {
   CheckCircle,
   MapPin,
@@ -37,6 +37,7 @@ interface DriverDashboardProps {
   onLogout: () => void;
   dataLoading: boolean;
   serverPaging?: boolean;
+  queueControls?: ReactNode;
   dashboardCounts?: { today: number; remaining: number; completed: number; rma_active: number; rma_completed: number };
 }
 
@@ -63,18 +64,20 @@ function PagedDriverDashboard(props: DriverDashboardProps) {
   const query = usePagedRecordsQuery({ view: 'driver_dashboard', queue, page, limit: 25 });
   const overview = useDriverOverviewQuery();
   useClampRecordPage(page, query.data?.total, setPage);
-  return <div>
-    <nav aria-label="Run queues" className="flex gap-2 bg-slate-100 p-3">
+  const queueControls = <section aria-label="Run queues" className="mb-5 space-y-3">
+    <nav className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-sm sm:grid-cols-2" aria-label="Run queues">
       {(['active', 'completed'] as const).map(value => <button key={value} type="button" aria-pressed={queue === value}
-        onClick={() => { setQueue(value); setPage(1); }} className="min-h-11 rounded border bg-white px-4 font-semibold">
+        onClick={() => { setQueue(value); setPage(1); }}
+        className={`min-h-11 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] ${queue === value ? 'bg-[#1F3864] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
         {value === 'active' ? 'Active work' : 'Completed today / RMA awaiting receipt'}
       </button>)}
     </nav>
-    <RecordPageControls page={page} total={query.data?.total ?? 0} onPageChange={setPage} loading={query.isFetching}
+    <RecordPageControls page={page} total={query.data?.total ?? 0} onPageChange={setPage} loading={query.isPending}
       error={query.error ?? overview.error} retry={() => { void query.refetch(); void overview.refetch(); }} />
-    <DriverDashboardContent {...props} records={query.data?.rows ?? []} dashboardCounts={overview.data?.dashboard}
-      dataLoading={query.isPending} />
-  </div>;
+  </section>;
+
+  return <DriverDashboardContent {...props} records={query.data?.rows ?? []} dashboardCounts={overview.data?.dashboard}
+    dataLoading={query.isPending} queueControls={queueControls} />;
 }
 function DriverDashboardContent({
   records,
@@ -84,7 +87,7 @@ function DriverDashboardContent({
   onNavigate,
   onUpdateRecord,
   onLogout,
-  dataLoading, dashboardCounts,
+  dataLoading, dashboardCounts, queueControls,
 }: DriverDashboardProps) {
   const access = usePermissions();
   const today = manilaToday();
@@ -161,73 +164,74 @@ function DriverDashboardContent({
 
 
   return (
-    <div className="min-h-screen bg-[#F0F4F8] flex flex-col">
-      {/* Header */}
-      <div className="bg-[#1F3864] text-white px-4 pt-10 pb-5 shadow-lg">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <p className="text-[10px] font-bold tracking-widest uppercase text-blue-200">
-              Microgenesis Field Mobile
-            </p>
-            <h1 className="text-lg font-black leading-tight">
-              {currentUserName}
-            </h1>
-            <p className="text-[11px] text-blue-200 mt-0.5">{todayLabel}</p>
+    <div className="min-h-screen bg-[#F8F9FB] font-sans text-slate-800">
+      <header className="h-16 border-b border-slate-200 bg-white">
+        <div className="mx-auto flex h-full max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+          <div className="min-w-0">
+            <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500">Microgenesis Field Mobile</p>
+            <h1 className="truncate text-sm font-semibold text-slate-900 sm:text-base">Driver dashboard</h1>
           </div>
-          <AccountMenu name={currentUserName} email={currentUserEmail} role="Driver"
-            canManageAdmin={canManageAdmin} onNavigate={onNavigate} onLogout={onLogout} />
+          <div className="flex shrink-0 items-center gap-3">
+            <p className="hidden text-sm text-slate-600 sm:block">{currentUserName} · {todayLabel}</p>
+            <AccountMenu name={currentUserName} email={currentUserEmail} role="Driver"
+              canManageAdmin={canManageAdmin} onNavigate={onNavigate} onLogout={onLogout} />
+          </div>
         </div>
+      </header>
 
-        {/* Stats strip */}
-        <div className="grid grid-cols-3 gap-3 mt-3">
+      <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+        <section aria-label="Driver summary" className="mb-5 grid grid-cols-3 gap-2 sm:gap-3">
           {[
             {
               label: "Today's Runs",
               value: dashboardCounts?.today ?? todayRecs.length,
-              color: "text-white",
+              color: "text-[#1F3864]",
             },
             {
               label: "Accomplished",
               value: dashboardCounts?.completed ?? doneRecs.length,
-              color: "text-emerald-300",
+              color: "text-emerald-700",
             },
             {
               label: "Remaining",
               value: dashboardCounts?.remaining ?? activeRecs.length,
-              color: "text-amber-300",
+              color: "text-amber-700",
             },
           ].map((s) => (
             <div
               key={s.label}
-              className="bg-white/10 rounded-xl px-3 py-2.5 text-center"
+              className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-3 text-center shadow-sm sm:px-4"
             >
-              <p className={`text-xl font-black ${s.color}`}>{s.value}</p>
-              <p className="text-[9px] text-blue-200 font-bold uppercase tracking-wider mt-0.5">
+              <p className={`text-xl font-bold sm:text-2xl ${s.color}`}>{s.value}</p>
+              <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 sm:text-xs">
                 {s.label}
               </p>
             </div>
           ))}
-        </div>
-      </div>
+        </section>
+
+        {queueControls}
 
       {saveFeedback && !pendingAction && (
-        <div className="px-4 py-3 pb-0">
-          <div role="alert" className={`rounded-xl border p-3 text-xs font-semibold shadow-sm ${saveFeedback.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : saveFeedback.type === 'info' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
+        <div className="mb-4">
+          <div role="alert" className={`rounded-xl border p-3 text-sm font-semibold shadow-sm ${saveFeedback.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : saveFeedback.type === 'info' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
             {saveFeedback.message}
           </div>
         </div>
       )}
 
-      {rmaRecords.length > 0 && <section aria-label="RMA tasks" className="space-y-4 px-4 pt-5 max-w-lg mx-auto w-full">
-        <h2 className="font-bold text-slate-900">RMA transport tasks</h2>
-        <p className="text-sm text-slate-600">{dashboardCounts?.rma_active ?? rmaRecords.filter(record => record.rma_transport_status !== 'COMPLETED').length} active · {dashboardCounts?.rma_completed ?? rmaRecords.filter(record => record.rma_transport_status === 'COMPLETED').length} awaiting receipt</p>
+      {rmaRecords.length > 0 && <section aria-label="RMA tasks" className="mb-5 space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div>
+          <h2 className="text-base font-semibold text-slate-900">RMA transport tasks</h2>
+          <p className="mt-1 text-sm text-slate-600">{dashboardCounts?.rma_active ?? rmaRecords.filter(record => record.rma_transport_status !== 'COMPLETED').length} active · {dashboardCounts?.rma_completed ?? rmaRecords.filter(record => record.rma_transport_status === 'COMPLETED').length} awaiting receipt</p>
+        </div>
         {rmaRecords.map(record => <div key={record.id} className="space-y-2"><h3 className="font-bold text-slate-900">{record.rma_reference || record.reference || record.id} · {record.company_name}</h3><RmaWorkflowPanel record={record} currentUserRole="Driver" /></div>)}
       </section>}
 
       {/* Body */}
-      <div className="flex-1 px-4 py-5 space-y-4 max-w-lg mx-auto w-full">
+      <div className="space-y-4">
         {dataLoading && (
-          <div className="flex items-center justify-center gap-2 py-6 text-slate-400 text-xs">
+          <div role="status" className="flex min-h-20 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-6 text-sm text-slate-600 shadow-sm">
             <Loader2 className="w-4 h-4 animate-spin" /> Loading runs…
           </div>
         )}
@@ -245,45 +249,46 @@ function DriverDashboardContent({
         )}
 
         {/* Active records */}
+        <section aria-label="Active runs" className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         {activeRecs.map((rec) => {
           const daysLate = dashboardRunDaysLate(rec, today);
           const futureStarted = rec.category === 'Deliveries' && deliveryScheduleState(rec.delivery_date, today).future && hasValidRunTimeIn(rec.time_in);
           return (
             <div
               key={rec.id}
-              className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden"
+              className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
             >
               {/* Card header */}
-              <div className="bg-slate-50 border-b border-slate-100 px-4 py-3 flex items-center justify-between">
-                <div>
-                  <p className="font-mono text-[10px] text-slate-400">
+              <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3 sm:items-center">
+                <div className="min-w-0">
+                  <p className="break-all font-mono text-[11px] text-slate-500">
                     {rec.reference}
                   </p>
-                  <p className="font-black text-sm text-slate-900 leading-tight">
+                  <p className="mt-0.5 break-words text-sm font-semibold leading-snug text-slate-900">
                     {rec.company_name}
                   </p>
                 </div>
-                <div className="flex items-center gap-1.5">
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                   {daysLate > 0 && rec.category === 'Deliveries' && (
-                    <span className="px-2 py-0.5 rounded-full border border-rose-200 bg-rose-50 text-[9px] font-bold text-rose-700">
+                    <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700">
                       Overdue · {daysLate} day{daysLate === 1 ? '' : 's'} late
                     </span>
                   )}
                   {futureStarted && (
-                    <span className="px-2 py-0.5 rounded-full border border-blue-200 bg-blue-50 text-[9px] font-bold text-blue-700">Started</span>
+                    <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700">Started</span>
                   )}
                   <RecordStatus record={rec} />
                 </div>
               </div>
 
               <div className="px-4 py-3 space-y-3">
-                <div className="flex items-start gap-4 text-xs text-slate-500">
-                  <p className="flex items-center gap-1.5">
+                <div className="flex min-w-0 flex-wrap items-start gap-x-4 gap-y-2 text-sm text-slate-600">
+                  <p className="flex min-w-0 items-center gap-1.5 break-words">
                     <MapPin className="w-3.5 h-3.5 text-red-400 shrink-0" />
                     {rec.area}
                   </p>
                   {rec.item_description && (
-                    <p className="flex items-center gap-1.5">
+                    <p className="flex min-w-0 items-center gap-1.5 break-words">
                       <Package className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                       {rec.item_description.slice(0, 40)}
                       {rec.item_description.length > 40 ? "…" : ""}
@@ -298,7 +303,7 @@ function DriverDashboardContent({
                     <button
                       onClick={() => handleTimeIn(rec)}
                       disabled={saving || !access.canRecord(rec.category, 'TIME_IN') || !canRecordTimeIn(rec)}
-                      className="w-full py-2.5 rounded-xl font-bold text-xs tracking-wide uppercase bg-blue-600 hover:bg-blue-700 text-white transition-all flex items-center justify-center gap-2"
+                      className="min-h-11 w-full rounded-lg bg-[#0078C1] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1F3864] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] disabled:cursor-not-allowed disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                       <Clock className="w-4 h-4" /> Record Time In
                     </button>
@@ -314,7 +319,7 @@ function DriverDashboardContent({
 
                   {/* Receiver name is required for completion. */}
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                    <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide flex items-center gap-1">
                       <UserCheck className="w-3.5 h-3.5" /> Received By *
                     </label>
                     <input
@@ -327,7 +332,7 @@ function DriverDashboardContent({
                         }))
                       }
                       placeholder="Name of person who received the item…"
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                      className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#0078C1] focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30"
                     />
                   </div>
 
@@ -341,7 +346,7 @@ function DriverDashboardContent({
                         setSaveFeedback(null);
                       }}
                       disabled={saving || !access.canRecord(rec.category, 'COMPLETE') || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes("Delivered") || !!completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}
-                      className="disabled:opacity-40 disabled:cursor-not-allowed py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-emerald-600 hover:bg-emerald-700 text-white transition-all flex flex-col items-center gap-1 cursor-pointer"
+                      className="min-h-11 rounded-lg bg-emerald-700 px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50 flex flex-col items-center justify-center gap-1 cursor-pointer"
                     >
                       <CheckCircle className="w-4 h-4" /> Accomplish
                     </button>
@@ -352,7 +357,7 @@ function DriverDashboardContent({
                         setSaveFeedback(null);
                       }}
                       disabled={saving || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes("Pending")}
-                      className="disabled:opacity-40 py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-amber-500 hover:bg-amber-600 text-white transition-all flex flex-col items-center gap-1"
+                      className="min-h-11 rounded-lg bg-amber-600 px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50 flex flex-col items-center justify-center gap-1"
                     >
                       <Navigation className="w-4 h-4" /> Pending
                     </button>
@@ -363,7 +368,7 @@ function DriverDashboardContent({
                         setSaveFeedback(null);
                       }}
                       disabled={saving || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes("Rescheduled")}
-                      className="disabled:opacity-40 py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-purple-500 hover:bg-purple-600 text-white transition-all flex flex-col items-center gap-1"
+                      className="min-h-11 rounded-lg bg-[#1F3864] px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-[#0078C1] disabled:cursor-not-allowed disabled:opacity-50 flex flex-col items-center justify-center gap-1"
                     >
                       <RefreshCw className="w-4 h-4" /> Reschedule
                     </button>
@@ -373,42 +378,37 @@ function DriverDashboardContent({
             </div>
           );
         })}
+        </section>
 
         {/* Completed records */}
         {doneRecs.length > 0 && (
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-px bg-slate-200" />
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                Accomplished ({doneRecs.length})
-              </p>
-              <div className="flex-1 h-px bg-slate-200" />
-            </div>
+          <section aria-label="Accomplished runs" className="space-y-3">
+            <h2 className="text-sm font-semibold text-slate-700">Accomplished ({doneRecs.length})</h2>
             {doneRecs.map((rec) => (
               <button
                 type="button"
                 key={rec.id}
                 onClick={() => setSelectedDoneRecord(rec)}
-                className="w-full text-left bg-white rounded-2xl border border-emerald-200 px-4 py-3 flex items-start justify-between gap-3 hover:bg-emerald-50 transition-colors cursor-pointer"
+                className="flex w-full items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] cursor-pointer"
               >
                 <div className="min-w-0">
-                  <p className="font-mono text-[10px] text-slate-400">
+                  <p className="font-mono text-[11px] text-slate-500">
                     {rec.reference}
                   </p>
-                  <p className="font-bold text-sm text-slate-800 truncate">
+                  <p className="break-words text-sm font-semibold text-slate-900">
                     {rec.company_name}
                   </p>
                   {rec.completed_late && (
-                    <p className="text-[10px] font-bold text-rose-700 mt-0.5">
+                    <p className="mt-1 text-xs font-semibold text-rose-700">
                       Completed {rec.days_late ?? 0} day{rec.days_late === 1 ? '' : 's'} late
                     </p>
                   )}
-                  <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+                  <p className="mt-1 flex items-center gap-1 text-xs text-slate-600">
                     <MapPin className="w-3 h-3 text-red-400 shrink-0" />
                     {rec.area}
                   </p>
                   {(rec.time_in || rec.time_out) && (
-                    <div className="flex items-center gap-3 mt-1.5 text-[10px] text-slate-500 font-bold">
+                    <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs font-medium text-slate-600">
                       {rec.time_in && (
                         <span className="flex items-center gap-1">
                           <Clock className="w-3 h-3 text-blue-400" /> In:{" "}
@@ -424,51 +424,45 @@ function DriverDashboardContent({
                     </div>
                   )}
                   {rec.received_by && (
-                    <p className="text-[10px] text-emerald-600 font-bold mt-0.5 flex items-center gap-1">
+                    <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-emerald-700">
                       <UserCheck className="w-3 h-3" /> {rec.received_by}
                     </p>
                   )}
                 </div>
-                <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full shrink-0">
+                <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">
                   Done
                 </span>
               </button>
             ))}
-          </div>
+          </section>
         )}
 
         {/* Upcoming and other-date records stay visible without execution controls. */}
         {records.filter(
           (r) => !isDashboardRunActionable(r, today) && r.status !== "Delivered",
         ).length > 0 && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-px bg-slate-200" />
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                Upcoming / Other Dates
-              </p>
-              <div className="flex-1 h-px bg-slate-200" />
-            </div>
+          <section aria-label="Upcoming and other-date runs" className="space-y-3">
+            <h2 className="text-sm font-semibold text-slate-700">Upcoming / Other Dates</h2>
             {records
               .filter((r) => !isDashboardRunActionable(r, today) && r.status !== "Delivered")
               .map((rec) => (
                 <div
                   key={rec.id}
-                  className="bg-white/70 rounded-xl border border-slate-200 px-4 py-2.5 flex items-center justify-between"
+                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm"
                 >
                   <div>
-                    <p className="font-mono text-[10px] text-slate-400">
+                    <p className="font-mono text-[11px] text-slate-500">
                       {rec.reference} · {rec.delivery_date}
                     </p>
-                    <p className="text-xs font-bold text-slate-700">
+                    <p className="text-sm font-semibold text-slate-900">
                       {rec.company_name}
                     </p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">
+                    <p className="mt-1 text-xs text-slate-600">
                       {rec.area}{rec.item_description ? ` · ${rec.item_description}` : ''}
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
-                    <span className="text-[9px] font-bold border border-slate-200 bg-slate-50 px-2 py-0.5 rounded-full text-slate-600">
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600">
                       {rec.category === 'Deliveries'
                         ? deliveryScheduleState(rec.delivery_date, today).valid ? 'Upcoming · read-only' : 'Delivery Date needed · read-only'
                         : 'Other date · read-only'}
@@ -477,7 +471,7 @@ function DriverDashboardContent({
                   </div>
                 </div>
               ))}
-          </div>
+          </section>
         )}
       </div>
 
@@ -589,6 +583,7 @@ function DriverDashboardContent({
           onClose={() => setSelectedDoneRecord(null)}
         />
       )}
+      </main>
     </div>
   );
 }

@@ -38,10 +38,10 @@ export function shareOperationalRecords(previous: unknown, incoming: unknown): u
     return incoming.map(record => recordLike(record) ? newerRecord(oldById.get(record.id), record) : record);
   }
   if (incoming && typeof incoming === 'object' && Array.isArray((incoming as { rows?: unknown }).rows)) {
-    return {
+    return replaceEqualDeep(previous, {
       ...incoming,
       rows: shareOperationalRecords((previous as { rows?: unknown } | undefined)?.rows, (incoming as { rows: unknown }).rows),
-    };
+    });
   }
   return incoming;
 }
