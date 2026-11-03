@@ -951,8 +951,9 @@ async function exportPDF(
   stats: Map<string, DriverStats>,
   month: string, year: number,
   byName: string, byRole: string,
-  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
-): Promise<void> {
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE,
+  returnBlob = false,
+): Promise<void | Blob> {
   const { jsPDF } = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
 
@@ -1282,6 +1283,7 @@ async function exportPDF(
     didDrawPage: pageCallback,
   });
 
+  if (returnBlob) return doc.output('blob');
   doc.save(`Microgenesis_Driver_Report_${month}_${year}.pdf`);
 }
 
@@ -1293,8 +1295,9 @@ async function exportDOCX(
   stats: Map<string, DriverStats>,
   month: string, year: number,
   byName: string, byRole: string,
-  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
-): Promise<void> {
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE,
+  returnBlob = false,
+): Promise<void | Blob> {
   const assigned = deliveries.filter(r => r.driver?.trim());
   const pctStr = (n: number, total: number) => total > 0 ? `${((n / total) * 100).toFixed(2)}%` : '0.00%';
   const {
@@ -1547,6 +1550,7 @@ async function exportDOCX(
   });
 
   const blob = await Packer.toBlob(doc);
+  if (returnBlob) return blob;
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
@@ -1645,9 +1649,12 @@ function exportCSV(
   stats: Map<string, DriverStats>,
   month: string, year: number,
   byName: string, byRole: string,
-): void {
+  returnBlob = false,
+): void | Blob {
   const csv = buildDriverReportCSV(deliveries, drivers, stats, month, year, byName, byRole);
-  const url = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' }));
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+  if (returnBlob) return blob;
+  const url = URL.createObjectURL(blob);
   const a   = document.createElement('a');
   a.href     = url;
   a.download = `Microgenesis_Driver_Report_${month}_${year}.csv`;
@@ -1665,8 +1672,9 @@ export async function downloadDriverReport(
   generatedByName: string,
   generatedByRole: string,
   auditSets?: Map<string, Set<string>>,
-  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
-): Promise<void> {
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE,
+  returnBlob = false,
+): Promise<void | Blob> {
   const mo = monthName(month);
 
   const deliveries = records.filter(r => {
@@ -1680,18 +1688,15 @@ export async function downloadDriverReport(
   const stats    = buildDriverStats(drivers, assigned, auditSets);
 
   if (format === 'csv') {
-    exportCSV(deliveries, drivers, stats, mo, year, generatedByName, generatedByRole);
-    return;
+    return exportCSV(deliveries, drivers, stats, mo, year, generatedByName, generatedByRole, returnBlob);
   }
 
   if (format === 'pdf') {
-    await exportPDF(deliveries, drivers, stats, mo, year, generatedByName, generatedByRole, documentSize);
-    return;
+    return exportPDF(deliveries, drivers, stats, mo, year, generatedByName, generatedByRole, documentSize, returnBlob);
   }
 
   if (format === 'docx') {
-    await exportDOCX(deliveries, drivers, stats, mo, year, generatedByName, generatedByRole, documentSize);
-    return;
+    return exportDOCX(deliveries, drivers, stats, mo, year, generatedByName, generatedByRole, documentSize, returnBlob);
   }
 
   // Excel
@@ -1705,6 +1710,7 @@ export async function downloadDriverReport(
 
   const buf  = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  if (returnBlob) return blob;
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;

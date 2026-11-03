@@ -121,7 +121,7 @@ const TRAIL_FOOTNOTE = '* Status Trail counts reflect all statuses each record h
 
 export async function downloadRouteSlipExcel({
   records, driverName, date, dateFrom, dateTo, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
-}: RouteSlipParams): Promise<void> {
+}: RouteSlipParams, returnBlob = false): Promise<void | Blob> {
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Route Slip', {
@@ -418,6 +418,7 @@ export async function downloadRouteSlipExcel({
   const blob   = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
+  if (returnBlob) return blob;
   const url = URL.createObjectURL(blob);
   const a   = document.createElement('a');
   a.href     = url;
@@ -736,7 +737,7 @@ function groupByDriver(records: DeliveryRecord[]): [string, DeliveryRecord[]][] 
 
 export async function downloadAllDriversRouteSlipExcel({
   records, date, dateFrom, dateTo, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
-}: AllDriversRouteSlipParams): Promise<void> {
+}: AllDriversRouteSlipParams, returnBlob = false): Promise<void | Blob> {
   const ExcelJS = (await import('exceljs')).default;
   const wb      = new ExcelJS.Workbook();
   const logo    = await loadLogoBase64();
@@ -954,6 +955,7 @@ export async function downloadAllDriversRouteSlipExcel({
 
   const buffer = await wb.xlsx.writeBuffer();
   const blob   = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  if (returnBlob) return blob;
   const url    = URL.createObjectURL(blob);
   const a      = document.createElement('a');
   a.href     = url;
@@ -1528,11 +1530,11 @@ export async function downloadRouteSlipForPeriod(
   const shared = { ...params, ...period, records, auditSets };
   if (drivers.length === 1) {
     const single = { ...shared, records: records.filter(record => record.driver?.trim() === drivers[0]), driverName: drivers[0] };
-    if (format === 'excel') await downloadRouteSlipExcel(single);
+    if (format === 'excel') return await downloadRouteSlipExcel(single, returnBlob);
     if (format === 'pdf') return await downloadRouteSlipPDF(single, returnBlob);
     if (format === 'docx') return await downloadRouteSlipDocx(single, returnBlob);
   } else {
-    if (format === 'excel') await downloadAllDriversRouteSlipExcel(shared);
+    if (format === 'excel') return await downloadAllDriversRouteSlipExcel(shared, returnBlob);
     if (format === 'pdf') return await downloadAllDriversRouteSlipPDF(shared, returnBlob);
     if (format === 'docx') return await downloadAllDriversRouteSlipDocx(shared, returnBlob);
   }

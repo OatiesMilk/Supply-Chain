@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Route, ChevronDown, Loader2, FileText, Clock, History } from 'lucide-react';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '../utils/documentSize';
 import DocumentSizeSelect from './DocumentSizeSelect';
@@ -6,6 +6,9 @@ import RouteSlipPeriodFields, { type RouteSlipPeriodFieldsProps } from './RouteS
 import { DeliveryRecord } from '../types';
 import { downloadRouteSlipForPeriod, type RouteSlipFormat } from '../utils/routeSlip';
 import { routeSlipPeriod, routeSlipSelectionError } from '../utils/routeSlipPeriod';
+import ExportPreviewDialog from './ExportPreviewDialog';
+import { downloadBlob } from '../utils/downloadBlob';
+import type { ExportColumn, ExportMeta } from '../utils/export';
 
 interface Props extends RouteSlipPeriodFieldsProps {
   driverFilter: string;
@@ -22,6 +25,14 @@ export default function RouteSlipMenu({ driverFilter, selection, onChange, prepa
   const [loading, setLoading] = useState<LoadingKey | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [docSize, setDocSize] = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
+  const [preview, setPreview] = useState<{
+    format: RouteSlipFormat;
+    variant: Variant;
+    records: DeliveryRecord[];
+    blob: Blob;
+    fileName: string;
+    meta: ExportMeta;
+  } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const periodError = routeSlipSelectionError(selection);
@@ -50,15 +61,51 @@ export default function RouteSlipMenu({ driverFilter, selection, onChange, prepa
     close();
     try {
       const records = await fetchRecords();
-      await downloadRouteSlipForPeriod(format, {
-        records, ...routeSlipPeriod(selection), preparedBy, filename, variant, documentSize: docSize,
-      });
+      const period = routeSlipPeriod(selection);
+      const blob = await downloadRouteSlipForPeriod(format, {
+        records, ...period, preparedBy, filename, variant, documentSize: docSize,
+      }, true) as Blob;
+      const dateStamp = new Date().toISOString().split('T')[0];
+      const assigned = records.filter(record => record.driver?.trim());
+      const drivers = new Set(assigned.map(record => record.driver!.trim()));
+      const suffix = drivers.size === 1 ? 'route-slip' : 'route-slip-all-drivers';
+      const extension = format === 'excel' ? 'xlsx' : format;
+      const title = 'Courier/Daily Route Slip Report';
+      const meta: ExportMeta = {
+        reportName: title,
+        dateRange: period.dateTo ? `${period.dateFrom} to ${period.dateTo}` : period.dateFrom,
+        dateBasis: 'Delivery Date',
+        generatedByName: preparedBy,
+        generatedByRole: 'Logistics',
+      };
+      setPreview({ format, variant, records, blob, fileName: `${filename}-${suffix}-${dateStamp}.${extension}`, meta });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Route slip export failed. Please try again.');
     } finally {
       setLoading(null);
     }
   };
+
+  const closePreview = useCallback(() => setPreview(null), []);
+  const downloadPreview = useCallback(async () => {
+    if (preview) downloadBlob(preview.blob, preview.fileName);
+  }, [preview]);
+  const previewColumns: ExportColumn[] = [
+    { header: 'Record ID', key: 'id' },
+    { header: 'Company', key: 'company' },
+    { header: 'Area', key: 'area' },
+    { header: 'Delivery Date', key: 'delivery_date' },
+    { header: 'Driver', key: 'driver' },
+    { header: 'Status', key: 'status' },
+  ];
+  const previewRows = preview?.records.map(record => ({
+    id: record.id,
+    company: record.company_name,
+    area: record.area ?? '',
+    delivery_date: record.delivery_date ?? '',
+    driver: record.driver ?? '',
+    status: record.status,
+  })) ?? [];
 
   return (
     <div className="relative" ref={ref} onKeyDown={event => {
@@ -91,6 +138,19 @@ export default function RouteSlipMenu({ driverFilter, selection, onChange, prepa
         </p>
       </div>}
       {error && <p role="alert" className="absolute right-0 top-full mt-1 z-30 bg-red-50 border border-red-200 rounded-lg p-3 w-80 max-w-[calc(100vw-2rem)] text-xs text-red-700">{error}</p>}
+      {preview && <ExportPreviewDialog
+        format={preview.format}
+        variant={preview.variant}
+        rows={previewRows}
+        columns={previewColumns}
+        meta={preview.meta}
+        title="Courier/Daily Route Slip Report"
+        documentSize={docSize}
+        fileBlob={preview.blob}
+        excelBlob={preview.format === 'excel' ? preview.blob : undefined}
+        onClose={closePreview}
+        onDownload={downloadPreview}
+      />}
     </div>
   );
 }

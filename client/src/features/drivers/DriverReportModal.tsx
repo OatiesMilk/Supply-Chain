@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { X, FileBarChart2, Loader2, Clock, History } from 'lucide-react';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
 import DocumentSizeSelect from '@/components/DocumentSizeSelect';
@@ -6,6 +6,9 @@ import { DeliveryRecord } from '@/types';
 import { downloadDriverReport } from '@/utils/exportDriverReport';
 import { api } from '@/api';
 import { normalizeApiRecord, usePagedRecordsQuery } from '@/api/queries/useRecordsQuery';
+import ExportPreviewDialog from '@/components/ExportPreviewDialog';
+import { downloadBlob } from '@/utils/downloadBlob';
+import type { ExportColumn, ExportMeta } from '@/utils/export';
 
 interface Props {
   records: DeliveryRecord[];
@@ -43,6 +46,13 @@ export default function DriverReportModal({ records, serverPaging = false, onClo
   const [statusMode, setStatusMode] = useState<'current' | 'trail'>('current');
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState<string | null>(null);
+  const [previewArtifact, setPreviewArtifact] = useState<{
+    format: 'excel' | 'pdf' | 'docx' | 'csv';
+    records: DeliveryRecord[];
+    blob: Blob;
+    fileName: string;
+    meta: ExportMeta;
+  } | null>(null);
 
   const filteredRecords = useMemo(() => records.filter(r => {
     if (!r.delivery_date) return false;
@@ -81,14 +91,51 @@ export default function DriverReportModal({ records, serverPaging = false, onClo
           }));
         }
       }
-      await downloadDriverReport(reportRecords, month, year, format, generatedByName, generatedByRole, auditSets, docSize);
-      onClose();
+      const blob = await downloadDriverReport(reportRecords, month, year, format, generatedByName, generatedByRole, auditSets, docSize, true) as Blob;
+      const monthName = MONTHS[month - 1];
+      const extension = format === 'excel' ? 'xlsx' : format;
+      const meta: ExportMeta = {
+        reportName: 'Monthly Driver Report',
+        dateRange: `${monthName} ${year}`,
+        dateBasis: 'Delivery Date',
+        generatedByName,
+        generatedByRole,
+      };
+      setPreviewArtifact({
+        format,
+        records: reportRecords,
+        blob,
+        fileName: `Microgenesis_Driver_Report_${monthName}_${year}.${extension}`,
+        meta,
+      });
     } catch (e: any) {
       setError(e?.message ?? 'Export failed. Please try again.');
     } finally {
       setLoading(false);
     }
+
   }
+
+  const closePreview = useCallback(() => setPreviewArtifact(null), []);
+  const downloadPreview = useCallback(async () => {
+    if (previewArtifact) downloadBlob(previewArtifact.blob, previewArtifact.fileName);
+  }, [previewArtifact]);
+  const previewColumns: ExportColumn[] = [
+    { header: 'Record ID', key: 'id' },
+    { header: 'Company', key: 'company_name' },
+    { header: 'Delivery Date', key: 'delivery_date' },
+    { header: 'Driver', key: 'driver' },
+    { header: 'Status', key: 'status' },
+    { header: 'Area', key: 'area' },
+  ];
+  const previewRows = previewArtifact?.records.map(record => ({
+    id: record.id,
+    company_name: record.company_name,
+    delivery_date: record.delivery_date,
+    driver: record.driver,
+    status: record.status,
+    area: record.area,
+  })) ?? [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
@@ -236,6 +283,19 @@ export default function DriverReportModal({ records, serverPaging = false, onClo
         </div>
 
       </div>
+      {previewArtifact && <ExportPreviewDialog
+        format={previewArtifact.format}
+        variant={statusMode}
+        rows={previewRows}
+        columns={previewColumns}
+        meta={previewArtifact.meta}
+        title="Monthly Driver Report"
+        documentSize={docSize}
+        fileBlob={previewArtifact.blob}
+        excelBlob={previewArtifact.format === 'excel' ? previewArtifact.blob : undefined}
+        onClose={closePreview}
+        onDownload={downloadPreview}
+      />}
     </div>
   );
 }
