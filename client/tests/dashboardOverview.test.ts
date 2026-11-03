@@ -20,7 +20,8 @@ const text = (node: React.ReactElement) => renderToStaticMarkup(node).replace(/<
 
 test('Logistics shows complete totals and view-all paths alongside bounded previews', () => {
   const html = text(React.createElement(LogisticsDashboard, { stats: null, overview, deliveryRecords: [], onNavigate() {} }));
-  assert.match(html, /6001.*RMA transport requests.*showing 1/);
+  assert.match(html, /RMA transport requests.*6001 requests/);
+  assert.match(html, /Showing 1 of 6001 requests/);
   assert.match(html, /6001 drivers/); assert.match(html, /7001 active deliveries/);
   assert.match(html, /View all 6001 assigned Drivers/);
   assert.doesNotMatch(html, /No RMA transport requests|No drivers currently assigned/);

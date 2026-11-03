@@ -117,6 +117,23 @@ test('transport access requires assigned linked Driver, eligible movement, Read/
   }
 });
 
+test('RMA POD capability is withheld until the assigned transport is in transit', async () => {
+  const state = fixture({ rmaTransportStatus: 'PENDING' });
+  const pending = await state.request('DRIVER', 'get', '/:id/rma-capabilities');
+  assert.equal(pending.status, 200);
+  assert.equal(pending.body.transport, true);
+  assert.equal(pending.body.pod, false);
+
+  const started = await state.request('DRIVER', 'patch', '/:id/rma-transport', {
+    transport_status: 'IN_TRANSIT', expected_version: 0, remarks: 'Start transport',
+  });
+  assert.equal(started.status, 200);
+  const inTransit = await state.request('DRIVER', 'get', '/:id/rma-capabilities');
+  assert.equal(inTransit.status, 200);
+  assert.equal(inTransit.body.transport, true);
+  assert.equal(inTransit.body.pod, true);
+});
+
 test('reassignment immediately transfers Driver read/transport authority and keeps audit attribution', async () => {
   const state = fixture();
   assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-assignment', { driver_id: 'driver-two', expected_version: 0, remarks: 'Cover another route' })).status, 200);

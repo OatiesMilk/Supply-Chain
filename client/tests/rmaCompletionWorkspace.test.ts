@@ -119,7 +119,7 @@ test('Driver transport completion requires POD and never calls the final RMA sta
   const ui = await fixture(); let record = base({ rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'IN_TRANSIT', driver_id: 'driver-a', driver: 'Driver A' }); let photos: any[] = [];
   const initialRecord = record;
   mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => photos);
-  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, transport: record.rma_transport_status !== 'COMPLETED', pod: true }));
+  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, transport: record.rma_transport_status !== 'COMPLETED', pod: record.rma_transport_status === 'IN_TRANSIT' }));
   const final = mock.method(api, 'patchStatus', async () => { throw new Error('Driver cannot finalize RMA'); });
   const transport = mock.method(api, 'progressRmaTransport', async () => record = { ...record, rma_version: 1, rma_transport_status: 'COMPLETED', rma_transport_completed_at: '2026-10-28T02:00:00Z' });
   try {
@@ -135,6 +135,43 @@ test('Driver transport completion requires POD and never calls the final RMA sta
     assert.match(summary(), /RMA: Scheduled/);
     assert.doesNotMatch(summary(), /Transport: In Transit|RMA: Complete/);
     assert.match(ui.dom.window.document.body.textContent!, /Awaiting physical receipt confirmation by TASS/);
+  } finally { await ui.close(); }
+});
+
+test('a TASS-finalized RMA is read-only and displays its completed state to its Driver', async () => {
+  const ui = await fixture();
+  const record = base({ status: 'Delivered', rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'COMPLETED',
+    rma_received_at: '2026-11-03T04:50:00.000Z', rma_recipient: 'Warehouse', rma_completed_at: '2026-11-03T04:51:00.000Z',
+    driver_id: 'driver-a', driver: 'Driver A' });
+  mock.method(api, 'getRecord', async () => record);
+  mock.method(api, 'getRecordAttachments', async () => []);
+  mock.method(api, 'getRmaCapabilities', async () => none);
+  try {
+    await ui.render(record, 'Driver');
+    assert.match(ui.dom.window.document.body.textContent!, /RMA: Complete/);
+    assert.match(ui.dom.window.document.body.textContent!, /RMA completed/);
+    assert.equal(ui.button('Complete transport'), undefined);
+    assert.doesNotMatch(ui.dom.window.document.body.textContent!, /No workflow action is available/);
+  } finally { await ui.close(); }
+});
+
+test('RMA POD stays hidden until transport starts, even if capabilities are stale', async () => {
+  const ui = await fixture(); let record = base({ rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'PENDING', driver_id: 'driver-a', driver: 'Driver A' });
+  mock.method(api, 'getRecord', async () => record);
+  mock.method(api, 'getRecordAttachments', async () => []);
+  // The panel must still honor the record lifecycle if an earlier capability
+  // response says POD is allowed while this record is pending.
+  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, transport: true, pod: true }));
+  const start = mock.method(api, 'progressRmaTransport', async () => record = { ...record, rma_version: 1, rma_transport_status: 'IN_TRANSIT' });
+  try {
+    await ui.render(record, 'Driver');
+    assert.equal(ui.button('Start transport')?.disabled, true);
+    assert.equal(ui.button('Select Photo / Document'), undefined);
+
+    await ui.input('Remarks', 'Starting the return transport');
+    await act(async () => ui.button('Start transport')!.click()); await ui.flush();
+    assert.equal(start.mock.callCount(), 1);
+    assert.ok(ui.button('Select Photo / Document'));
   } finally { await ui.close(); }
 });
 

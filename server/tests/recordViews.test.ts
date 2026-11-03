@@ -6,6 +6,8 @@ import { prisma } from '../src/db';
 import { signToken } from '../src/middleware/auth';
 import records from '../src/routes/records';
 import { runViewWhere } from '../src/services/recordViewFilters';
+import { manilaDateRange } from '../src/services/dateSemantics';
+import { manilaToday } from '../src/services/deliveryLifecycle';
 import { rmaTestAccount, rmaTestPolicy } from './rmaTestPolicy';
 function matches(row: any, where: any): boolean {
   return Object.entries(where ?? {}).every(([key, value]: [string, any]) => {
@@ -125,6 +127,36 @@ test('Driver overview totals cover all records and late pages remain reachable',
 test('operational scopes retain overdue/started work and distinguish completed today', () => {
   const active = runViewWhere('driver_dashboard', 'active', '2026-10-30'); assert.equal(matches(row(1), active), true); assert.equal(matches(row(1, { deliveryDate: '2026-11-01' }), active), false); assert.equal(matches(row(1, { deliveryDate: '2026-11-01', timeIn: '2026-10-30T01:00:00Z' }), active), true);
   const done = runViewWhere('driver_dashboard', 'completed', '2026-10-30'); assert.equal(matches(row(1, { status: 'ACCOMPLISHED', timeOut: '2026-10-30T01:00:00Z' }), done), true); assert.equal(matches(row(1, { status: 'ACCOMPLISHED', timeOut: '2026-10-28T01:00:00Z' }), done), false);
+});
+test('Driver completed queue includes logistics RMAs finalized today and keeps receipt follow-up separate', async t => {
+  const today = manilaToday();
+  const { gte: start, lt: end } = manilaDateRange(today, today);
+  assert.ok(start && end);
+  const rma = (index: number, status: string, transportStatus: string, completedAt: Date | null = null) => row(index, {
+    category: 'RMA', status, rmaMovement: 'LOGISTICS_TRANSPORT', rmaTransportStatus: transportStatus, rmaCompletedAt: completedAt,
+  });
+  const state = await fixture(t, [
+    rma(10, 'ACCOMPLISHED', 'COMPLETED', start),
+    rma(11, 'ACCOMPLISHED', 'COMPLETED', new Date(start.getTime() - 1)),
+    rma(12, 'SCHEDULED', 'COMPLETED'),
+    rma(13, 'SCHEDULED', 'PENDING'),
+    row(14, { status: 'ACCOMPLISHED', timeOut: start.toISOString(), deliveryDate: today }),
+  ], 'DRIVER', [], true);
+
+  const response = await state.get('?paged=true&view=driver_dashboard&queue=completed&limit=25');
+  assert.equal(response.status, 200);
+  const page: any = await response.json();
+  const ids = page.rows.map((record: any) => record.id);
+  assert.ok(ids.includes('REC-10'), 'a final RMA completed today is visible');
+  assert.ok(ids.includes('REC-12'), 'transport-complete RMA awaiting receipt remains visible');
+  assert.ok(ids.includes('REC-14'), 'completed Delivery remains visible');
+  assert.ok(!ids.includes('REC-11'), 'a final RMA completed before today is excluded');
+  assert.ok(!ids.includes('REC-13'), 'pending transport is excluded from the completed queue');
+
+  const overview: any = await (await state.get('/driver-overview')).json();
+  assert.equal(overview.dashboard.rma_active, 1);
+  assert.equal(overview.dashboard.rma_completed, 1, 'transport-complete RMAs still awaiting TASS receipt');
+  assert.equal(overview.dashboard.completed, 2, 'Accomplished counts the completed Delivery and TASS-finalized RMA, but not receipt follow-up');
 });
 test('unknown views and oversized calendar requests reject before queries', async t => {
   const state = await fixture(t, []); for (const path of ['?view=everything', '?queue=active', '/calendar-counts?dateFrom=2026-01-01&dateTo=2026-12-31']) assert.equal((await state.get(path)).status, 400); assert.equal(state.calls.length, 0);

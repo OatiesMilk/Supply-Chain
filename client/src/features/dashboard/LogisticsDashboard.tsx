@@ -43,10 +43,82 @@ export default function LogisticsDashboard({
 
   return (
     <div className="space-y-6" id="logistics-dashboard">
-      <section aria-label="RMA transport requests" className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-        <h2 className="font-bold text-slate-900">RMA transport requests <span className="text-slate-500">({rmaRequestTotal})</span></h2>
-        {rmaRequestTotal === 0 ? <p className="text-sm text-slate-600">No RMA transport requests need dispatch.</p> : <ul className="divide-y divide-slate-100">{rmaRequests.map(record => <li key={record.id}><button type="button" onClick={() => onNavigate("rma", record.id)} className="min-h-11 w-full py-3 text-left text-sm text-blue-800"><span className="font-semibold">{record.rma_reference || record.id}</span> · {record.company_name} · {record.area} · {record.delivery_date} · {record.driver || "Needs driver"}<span className="mt-1 block"><RecordStatus record={record} /></span></button></li>)}</ul>}
-        {rmaRequestTotal > 0 && <button type="button" onClick={() => onNavigate('rma')} className="text-sm text-blue-800 underline">View all {rmaRequestTotal} RMA transport requests (showing {rmaRequests.length})</button>}
+      <section aria-label="RMA transport requests" className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <header className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-[#1F3864]">
+              <RefreshCw aria-hidden="true" className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-base font-bold text-[#1F3864]">RMA transport requests</h2>
+              <p className="mt-0.5 text-xs leading-5 text-slate-500">Returns waiting for Logistics dispatch.</p>
+            </div>
+          </div>
+          <span className="inline-flex min-h-8 items-center self-start rounded-full border border-blue-200 bg-blue-50 px-3 text-xs font-semibold text-[#1F3864] sm:self-auto">
+            {rmaRequestTotal} {rmaRequestTotal === 1 ? 'request' : 'requests'}
+          </span>
+        </header>
+
+        {rmaRequestTotal === 0 ? (
+          <div className="p-4 sm:p-5">
+            <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-center text-sm text-slate-600">
+              No RMA transport requests need dispatch.
+            </p>
+          </div>
+        ) : (
+          <>
+            <ul className="grid gap-3 p-4 sm:p-5">
+              {rmaRequests.map(record => (
+                <li key={record.id}>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('rma', record.id)}
+                    aria-label={`Open RMA ${record.rma_reference || record.id} for ${record.company_name}`}
+                    className="group w-full rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition-colors hover:border-[#0078C1]/50 hover:bg-blue-50/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] motion-reduce:transition-none"
+                  >
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="font-bold text-[#1F3864]">{record.rma_reference || record.id}</span>
+                      <RecordStatus record={record} />
+                    </span>
+                    <span className="mt-3 grid gap-x-4 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <span className="min-w-0">
+                        <span className="block text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Company</span>
+                        <span className="mt-1 block truncate text-sm font-semibold text-slate-800">{record.company_name}</span>
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Area</span>
+                        <span className="mt-1 block truncate text-sm font-medium text-slate-700">{record.area}</span>
+                      </span>
+                      <span>
+                        <span className="block text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Transport date</span>
+                        <span className="mt-1 block text-sm font-medium text-slate-700">{record.delivery_date}</span>
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Driver</span>
+                        <span className={`mt-1 block truncate text-sm font-semibold ${record.driver ? 'text-slate-800' : 'text-amber-700'}`}>
+                          {record.driver || 'Needs driver'}
+                        </span>
+                      </span>
+                    </span>
+                    <span className="mt-3 flex items-center justify-end gap-1 text-xs font-semibold text-[#0078C1] group-hover:text-[#1F3864]">
+                      Open RMA <ArrowRight aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {rmaRequestTotal > 0 && <footer className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+              <p className="text-xs text-slate-500">Showing {rmaRequests.length} of {rmaRequestTotal} requests</p>
+              <button
+                type="button"
+                onClick={() => onNavigate('rma')}
+                className="inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-[#1F3864] transition-colors hover:border-[#0078C1]/50 hover:bg-blue-50/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] sm:self-auto motion-reduce:transition-none"
+              >
+                View all requests <ArrowRight aria-hidden="true" className="h-4 w-4" />
+              </button>
+            </footer>}
+          </>
+        )}
       </section>
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

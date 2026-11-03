@@ -31,6 +31,7 @@ export function rmaCapabilities(policy: EffectivePermissionSnapshot | null, row:
   const options = { path: pathFor(policy.role ?? ''), rmaTransport: rmaTransportContext(row) };
   if (!canReadPolicyRecord(policy, row, options)) return denied;
   const active = !row.draft && row.status !== 'ACCOMPLISHED';
+  const transportInProgress = row.rmaMovement === 'LOGISTICS_TRANSPORT' && row.rmaTransportStatus === 'IN_TRANSIT';
   const transportDone = row.rmaMovement !== 'LOGISTICS_TRANSPORT' || row.rmaTransportStatus === 'COMPLETED';
   return {
     assign: active && eligibleRmaTransport(row) && !row.rmaReceivedAt && row.rmaTransportStatus !== 'COMPLETED'
@@ -42,7 +43,7 @@ export function rmaCapabilities(policy: EffectivePermissionSnapshot | null, row:
     complete: active && transportDone && !!row.rmaReceivedAt && policy.role === 'TASS'
       && canPerformPolicyRecordAction(policy, row, 'COMPLETE', { ...options, targetStatus: 'Delivered' })
       && !transitionError(row, 'Delivered', 'TASS'),
-    pod: active && policy.role === 'DRIVER' && !!row.driverId && !row.rmaReceivedAt
+    pod: active && transportInProgress && policy.role === 'DRIVER' && !!row.driverId && !row.rmaReceivedAt
       && canPerformPolicyRecordAction(policy, row, 'POD', options),
     status: active && ['TASS', 'ADMIN'].includes(policy.role ?? '')
       && ['Pending', 'On-Hold', 'Rescheduled'].some(targetStatus => canPerformPolicyRecordAction(policy, row, 'STATUS', { ...options, targetStatus: targetStatus as 'Pending' | 'On-Hold' | 'Rescheduled' })),

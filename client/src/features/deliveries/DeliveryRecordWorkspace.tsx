@@ -64,6 +64,16 @@ const CATEGORY_ICON: Record<DeliveryCategory, typeof Truck> = {
   'Accounting Collection': ListChecks,
 };
 
+function getStartTimeDisplay(
+  record: DeliveryRecord,
+  formatTimestamp: (value: string | null | undefined) => string = formatTs,
+) {
+  if (record.category !== 'RMA') return { label: 'Time In', value: formatTimestamp(record.time_in) };
+  if (!record.rma_movement) return { label: 'Transport started', value: 'Not selected' };
+  if (record.rma_movement !== 'LOGISTICS_TRANSPORT') return { label: 'Transport started', value: 'Not applicable' };
+  return { label: 'Transport started', value: formatTimestamp(record.rma_transport_started_at) };
+}
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface DeliveryRecordWorkspaceProps {
@@ -161,6 +171,7 @@ function GeneralTab({
   const canEditAreaAddress = !readOnly && access.canRecord(record.category, 'UPDATE') && currentUserRole === 'Logistics' && record.category !== 'RMA';
   const canEditDeliveryDate = !readOnly && access.canRecord(record.category, 'UPDATE') && currentUserRole === 'Logistics' && record.category === 'Deliveries';
   const priorityLocked = isPriorityLocked(record);
+  const startTimeDisplay = getStartTimeDisplay(record);
   const canEditPriority = !readOnly && access.canRecord(record.category, 'UPDATE') && !priorityLocked && ((currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') || (currentUserRole === 'Logistics' && record.category !== 'RMA') || tassRma);
   const canEdit = canEditFull || canEditAreaAddress || canEditDeliveryDate || canEditPriority;
 
@@ -440,7 +451,7 @@ function GeneralTab({
                 { label: 'Vehicle',         value: record.vehicle || '—' },
                 { label: 'Driver',            value: record.driver || 'Unassigned' },
                 { label: 'Driver Assistants', value: (record.driver_assistants ?? []).join(', ') || '—' },
-                { label: 'Time In',           value: formatTs(record.time_in) },
+                startTimeDisplay,
                 { label: record.category === 'RMA' ? 'Completed at' : 'Time Out', value: formatTs(record.category === 'RMA' ? record.rma_completed_at ?? record.time_out : record.time_out) },
                 { label: record.category === 'RMA' ? 'Recipient / Collector' : 'Received By', value: record.received_by || '—' },
                 { label: 'Account Manager',   value: record.account_manager },
@@ -749,7 +760,7 @@ function GeneralTab({
               {[
                 { label: 'Driver',            value: record.driver || 'Unassigned' },
                 { label: 'Driver Assistants', value: (record.driver_assistants ?? []).join(', ') || '—' },
-                { label: 'Time In',           value: formatTs(record.time_in) },
+                startTimeDisplay,
                 { label: record.category === 'RMA' ? 'Completed at' : 'Time Out', value: formatTs(record.category === 'RMA' ? record.rma_completed_at ?? record.time_out : record.time_out) },
                 { label: record.category === 'RMA' ? 'Recipient / Collector' : 'Received By', value: record.received_by || '—' },
               ].map(row => (
@@ -2180,6 +2191,9 @@ function RecordWorkspace({
   const nextId = currentIndex < allRecordIds.length - 1 ? allRecordIds[currentIndex + 1] : null;
 
   const moduleName = record.category;
+  const startTimeSummary = getStartTimeDisplay(record, value =>
+    record.category === 'RMA' ? formatTs(value) : formatManilaTime(value),
+  );
 
   const renderTabContent = (tabId: string) => {
     switch (tabId) {
@@ -2321,7 +2335,7 @@ function RecordWorkspace({
           {[
             ['Driver', record.driver || 'Unassigned'],
             ['Delivery date', record.delivery_date],
-            ['Time in', formatManilaTime(record.time_in)],
+            [record.category === 'RMA' ? startTimeSummary.label : 'Time in', startTimeSummary.value],
             [record.category === 'RMA' ? 'Completed at' : 'Time out', formatManilaTime(record.category === 'RMA' ? record.rma_completed_at ?? record.time_out : record.time_out)],
           ].map(([label, value]) => <div key={label} className="flex gap-1"><dt className="text-slate-500">{label}:</dt><dd className="font-semibold">{value}</dd></div>)}
         </dl>
