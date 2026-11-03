@@ -656,12 +656,14 @@ function OverviewTab({
           <p className={`text-xs font-black uppercase tracking-wider mb-0.5 ${
             record.status === 'Delivered' ? 'text-emerald-700' : 'text-amber-700'
           }`}>
-            Collection Status: {acStatusLabel(record.status)}
+            Collection Status: {acStatusLabel(record.status)}{record.collection_verified ? ' · Collection Verified' : ''}
           </p>
           <p className={`text-[11px] ${record.status === 'Delivered' ? 'text-emerald-600' : 'text-amber-600'}`}>
-            {record.status === 'Delivered'
-              ? 'Collection confirmed. Verification is now available.'
-              : 'Collection has not been marked Collected yet. Verification cannot proceed until the collection is confirmed.'}
+            {record.collection_verified
+              ? `Collection verified${record.collection_verified_by ? ` by ${record.collection_verified_by}` : ''}${record.collection_verified_at ? ` at ${formatTs(record.collection_verified_at)}` : ''}.`
+              : record.status === 'Delivered'
+                ? 'Collection confirmed. Verification is now available.'
+                : 'Collection has not been marked Collected yet. Verification cannot proceed until the collection is confirmed.'}
           </p>
           {record.driver && (
             <p className="text-[10px] text-slate-500 mt-1 font-semibold">

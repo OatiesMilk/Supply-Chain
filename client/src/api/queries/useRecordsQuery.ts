@@ -128,7 +128,13 @@ export function useCreateRecordMutation(currentUser: { name: string; role: strin
         'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'
       >
     ) => {
-      return normalizeApiRecord(await api.createRecord(data as unknown as Record<string, unknown>));
+      const {
+        collection_verified,
+        collection_verified_by,
+        collection_verified_at,
+        ...payload
+      } = data as unknown as Record<string, unknown>;
+      return normalizeApiRecord(await api.createRecord(payload));
     },
     onSuccess: () => invalidateOperationalQueries(queryClient),
   });
@@ -242,8 +248,12 @@ export function useVerifyCollectionMutation(currentUser: { name: string }) {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      await api.verifyCollection(id);
+      const saved = await api.verifyCollection(id);
+      return saved ? normalizeApiRecord(saved) : undefined;
     },
-    onSuccess: () => invalidateOperationalQueries(queryClient),
+    onSuccess: async (saved: DeliveryRecord | undefined) => {
+      if (saved) await saveRecordToCache(queryClient, saved);
+      await invalidateOperationalQueries(queryClient);
+    },
   });
 }

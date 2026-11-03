@@ -313,9 +313,6 @@ export default function AccountingCollectionView({
         is_draft: isDraft ? 'Yes' : 'No',
         attachments: [],
         output_actions_log: [],
-        collection_verified: false,
-        collection_verified_by: null,
-        collection_verified_at: null,
         amount: parseFloat(form.amount.replace(/,/g, '')) || null,
       });
       setCreatedRecordInfo({
