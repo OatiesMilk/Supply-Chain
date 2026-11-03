@@ -47,6 +47,10 @@ async function fixture() {
     await act(async () => { root.render(React.createElement(QueryClientProvider, { client }, element)); }); await flush();
   };
   const button = (label: string) => [...dom.window.document.querySelectorAll('button')].find(el => el.textContent?.trim() === label) as HTMLButtonElement | undefined;
+  const summaryValue = (label: string, scope: ParentNode = dom.window.document) => {
+    const term = [...scope.querySelectorAll('dt')].find(el => el.textContent?.trim() === label);
+    return term?.nextElementSibling?.textContent?.trim();
+  };
   const field = (label: string) => {
     const el = [...dom.window.document.querySelectorAll('label')].find(el => el.childNodes[0]?.textContent?.trim() === label)!;
     return dom.window.document.getElementById(el.htmlFor) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
@@ -56,7 +60,7 @@ async function fixture() {
     await act(async () => { Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, value); el.dispatchEvent(new dom.window.Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); });
   };
   const renderElement = async (element: React.ReactNode) => { await act(async () => root.render(React.createElement(QueryClientProvider, { client }, element))); await flush(); };
-  return { dom, client, flush, render, renderElement, button, field, input, close: async () => {
+  return { dom, client, flush, render, renderElement, button, field, input, summaryValue, close: async () => {
     await act(async () => root.unmount()); client.clear(); mock.restoreAll(); dom.window.close();
     for (const name of ['window', 'document', 'navigator', 'Element', 'HTMLElement', 'Node', 'getComputedStyle', 'indexedDB', 'IDBKeyRange', 'requestAnimationFrame', 'IS_REACT_ACT_ENVIRONMENT']) { if (original[name]) Object.defineProperty(globalThis, name, original[name]); else Reflect.deleteProperty(globalThis, name); }
   } };
@@ -76,7 +80,7 @@ test('TASS confirms physical receipt separately before final completion without 
     await ui.input('Recipient', 'Collector'); await ui.input('Remarks', 'Units physically received');
     await act(async () => ui.button('Confirm physical receipt')!.click()); await ui.flush();
     assert.deepEqual(receive.mock.calls[0].arguments, [record.id, { expected_version: 0, remarks: 'Units physically received', recipient: 'Collector' }]);
-    assert.ok(ui.button('Complete RMA')); assert.match(ui.dom.window.document.body.textContent!, /Physical receipt: Collector/);
+    assert.ok(ui.button('Complete RMA')); assert.match(ui.summaryValue('Physical receipt') ?? '', /^Collector\b/);
     await ui.input('Remarks', 'RMA reviewed and completed'); await act(async () => ui.button('Complete RMA')!.click()); await ui.flush();
     assert.deepEqual(complete.mock.calls[0].arguments, [record.id, 'Delivered', 'RMA reviewed and completed', { expected_version: 1, received_by: 'Collector' }]);
     assert.equal(record.time_in, null); assert.equal(record.time_out, null); assert.equal(put.mock.callCount(), 0);
@@ -101,7 +105,9 @@ test('Logistics reuses coverage-ranked assignment in its read-only workspace and
     assert.deepEqual([...driverSelect.querySelectorAll('optgroup')].map(group => group.label), ['Covers Imus, Cavite', 'Covers Cavite (subregion)', 'Other drivers']);
     assert.deepEqual([...driverSelect.options].map(option => option.value), ['', 'driver-a', 'driver-subregion', 'driver-other']);
     await ui.input('Driver', 'driver-a'); await ui.input('Remarks', 'Assign today');
-    await act(async () => ui.button('Save assignment')!.click()); await ui.flush(); assert.equal(ui.button('Save assignment')!.disabled, true);
+    await act(async () => ui.button('Save assignment')!.click()); await ui.flush();
+    const savingAssignment = [...ui.dom.window.document.querySelectorAll('button')].find(el => el.textContent?.trim().startsWith('Saving assignment')) as HTMLButtonElement | undefined;
+    assert.ok(savingAssignment); assert.equal(savingAssignment.disabled, true);
     await act(async () => rejectSave()); await ui.flush(); assert.match(ui.dom.window.document.body.textContent!, /Save refused; retry/);
     assert.equal(ui.field('Driver').value, 'driver-a'); assert.equal(ui.field('Remarks').value, 'Assign today');
     assert.deepEqual(assignment.mock.calls[0].arguments[1], { expected_version: 0, remarks: 'Assign today', driver_id: 'driver-a', vehicle: '(None)', driver_assistants: [] });
@@ -140,7 +146,9 @@ test('a newer assignment preserves dirty fields and requires review before savin
     await ui.render(record, 'Logistics'); await ui.input('Remarks', 'My draft note'); record = { ...record, rma_version: 1, driver_id: 'driver-b', driver: 'Driver B' };
     await act(async () => { await ui.client.invalidateQueries({ queryKey: ['records', 'detail', record.id] }); }); await ui.flush();
     assert.equal(ui.field('Remarks').value, 'My draft note'); assert.equal(ui.button('Save assignment')!.disabled, true); assert.match(ui.dom.window.document.body.textContent!, /changed while you were editing/); assert.equal(save.mock.callCount(), 0);
-    await act(async () => ui.button('Use latest saved values')!.click()); await ui.flush(); assert.equal(ui.field('Remarks').value, ''); assert.match(ui.dom.window.document.body.textContent!, /Driver: Driver B/);
+    await act(async () => ui.button('Use latest saved values')!.click()); await ui.flush(); assert.equal(ui.field('Remarks').value, '');
+    const rmaSummary = ui.dom.window.document.querySelector('[aria-label="RMA transport"] dl');
+    assert.equal(ui.summaryValue('Driver', rmaSummary ?? ui.dom.window.document), 'Driver B');
   } finally { await ui.close(); }
 });
 

@@ -2,10 +2,11 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { operationalSyncOptions } from '@/api/queries/operationalSync';
 import RmaWorkflowPanel from './RmaWorkflowPanel';
+import { WorkflowSection, workflowFieldHintClass, workflowFieldLabelClass, workflowInputClass, workflowPrimaryButtonClass, workflowSecondaryButtonClass, workflowSelectClass } from './WorkflowSection';
 import { useRecordDetailQuery, useUpdateRecordMutation } from '@/api/queries/useRecordsQuery';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  ArrowLeft, ChevronLeft, ChevronRight,
+  ArrowLeft, ChevronLeft, ChevronRight, ChevronDown,
   ClipboardList, History, UserPlus, MessagesSquare, FolderOpen,
   FileText, Shield, Settings, MessageSquare, Paperclip,
   Loader2, AlertTriangle, Check, Truck,
@@ -1229,7 +1230,9 @@ function ActionsTab({
     }
   };
 
-  const inputCls = 'w-full px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]';
+  const inputCls = workflowInputClass;
+  const selectedAssistantNames = [...new Set(assistants.filter(name => name.trim()))];
+  const availableAssistantNames = [...new Set([...selectedAssistantNames, ...DRIVER_ASSISTANTS])];
 
   return (
     <div className="space-y-6">
@@ -1242,8 +1245,10 @@ function ActionsTab({
         </button>
       </div>}
       {/* Status update */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status Update</h4>
+      <WorkflowSection
+        title={isRma ? 'RMA status' : 'Delivery status'}
+        description={isRma ? 'Choose the status for this return and review the completion requirements.' : 'Choose the status for this delivery. Changes apply when saved.'}
+      >
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {statusOptions.map(s => (
             <button
@@ -1253,7 +1258,7 @@ function ActionsTab({
               disabled={saving}
               aria-pressed={s === 'Draft' ? undefined : selectedStatus === s}
               aria-haspopup={s === 'Draft' ? 'dialog' : undefined}
-              className={`min-h-10 rounded-lg border px-3 py-2.5 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] disabled:opacity-50 ${
+              className={`min-h-11 rounded-lg border px-3 py-2.5 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none ${
                 selectedStatus === s
                   ? 'border-[#1F3864] bg-[#1F3864] text-white'
                   : 'border-slate-200 bg-white text-slate-700 hover:border-[#0078C1] hover:text-[#0078C1]'
@@ -1271,7 +1276,7 @@ function ActionsTab({
         />
         {needsNewDate && (
           <div className="space-y-1.5">
-            <label htmlFor="reschedule-new-date" className="text-xs font-bold text-slate-700">New delivery date <span className="text-red-600">*</span></label>
+            <label htmlFor="reschedule-new-date" className={workflowFieldLabelClass}>New delivery date <span className="text-red-600">*</span></label>
             <input
               id="reschedule-new-date"
               type="date"
@@ -1282,9 +1287,9 @@ function ActionsTab({
               aria-invalid={!!newDateError}
               aria-describedby="reschedule-new-date-help"
               onChange={e => { setNewDeliveryDate(e.target.value); setSaveFeedback(null); }}
-              className={`w-full sm:max-w-xs px-3 py-2 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${newDateError ? 'border-red-400' : 'border-slate-300'}`}
+              className={`${workflowInputClass} sm:max-w-xs ${newDateError ? 'border-red-400 bg-red-50' : ''}`}
             />
-            <p id="reschedule-new-date-help" className={`text-[11px] ${newDateError ? 'font-semibold text-red-600' : 'text-slate-500'}`}>
+            <p id="reschedule-new-date-help" className={`${workflowFieldHintClass} ${newDateError ? 'font-semibold text-red-600' : ''}`}>
               {newDateError ?? 'The driver sees this run again on the new date.'}
             </p>
           </div>
@@ -1296,7 +1301,7 @@ function ActionsTab({
           </p>
         </div>
         {photoError && <p role="alert" className="text-xs font-semibold text-red-700">{photoError}</p>}
-      </div>
+      </WorkflowSection>
 
       {isRma && <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
         {statusChanged && selectedStatus === 'Delivered' ? <>
@@ -1314,11 +1319,10 @@ function ActionsTab({
       {draftRecord && !isRma && <p className="text-xs text-slate-600">Submit this draft before changing its assignment. Existing assignments are retained.</p>}
       {!isRma && <>
       {/* Driver assignment + completion fields */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Driver &amp; Delivery Details</h4>
+      <WorkflowSection title="Driver & delivery details" description="Assign the delivery crew and record receipt and run times.">
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700">Driver</label>
+            <label className={workflowFieldLabelClass}>Driver</label>
             {(() => {
               const recordSubregion = getSubregion(record.area);
               const nearbyAreas = getNearbyAreas(record.area);
@@ -1341,48 +1345,49 @@ function ActionsTab({
 
               return (
                 <>
-                  <select
-                    value={selectedDriver}
-                    disabled={draftRecord || saving || !canAssign}
-                    onChange={e => setSelectedDriver(e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${
-                      !selectedDriver ? 'border-amber-400 bg-amber-50' : 'border-slate-300'
-                    }`}
-                  >
-                    <option value="">-- Unassigned --</option>
-                    {ranked.area.length > 0 && (
-                      <optgroup label={`Covers ${record.area}`}>
-                        {ranked.area.map(d => <option key={d} value={d}>{d}</option>)}
-                      </optgroup>
-                    )}
-                    {ranked.subregion.length > 0 && (
-                      <optgroup label={`Covers ${ranked.subregionName} (subregion)`}>
-                        {ranked.subregion.map(d => <option key={d} value={d}>{d}</option>)}
-                      </optgroup>
-                    )}
-                    {ranked.other.length > 0 && (
-                      <optgroup label={coveringCount > 0 ? 'Other drivers' : 'All drivers'}>
-                        {ranked.other.map(d => <option key={d} value={d}>{d}</option>)}
-                      </optgroup>
-                    )}
-                  </select>
+                  <span className="relative block">
+                    <select
+                      value={selectedDriver}
+                      disabled={draftRecord || saving || !canAssign}
+                      onChange={e => setSelectedDriver(e.target.value)}
+                      className={`${workflowSelectClass} ${!selectedDriver ? 'border-amber-400 bg-amber-50' : ''}`}
+                    >
+                      <option value="">-- Unassigned --</option>
+                      {ranked.area.length > 0 && (
+                        <optgroup label={`Covers ${record.area}`}>
+                          {ranked.area.map(d => <option key={d} value={d}>{d}</option>)}
+                        </optgroup>
+                      )}
+                      {ranked.subregion.length > 0 && (
+                        <optgroup label={`Covers ${ranked.subregionName} (subregion)`}>
+                          {ranked.subregion.map(d => <option key={d} value={d}>{d}</option>)}
+                        </optgroup>
+                      )}
+                      {ranked.other.length > 0 && (
+                        <optgroup label={coveringCount > 0 ? 'Other drivers' : 'All drivers'}>
+                          {ranked.other.map(d => <option key={d} value={d}>{d}</option>)}
+                        </optgroup>
+                      )}
+                    </select>
+                    <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                  </span>
                   {coveringCount > 0 && (
-                    <p className="text-[10px] text-emerald-600 font-semibold">
+                    <p className="text-xs leading-5 text-emerald-600 font-semibold">
                       {coveringCount} driver{coveringCount !== 1 ? 's' : ''} cover{coveringCount === 1 ? 's' : ''} {record.area} — shown first.
                     </p>
                   )}
                   {coveringCount === 0 && (
-                    <p className="text-[10px] text-slate-400">
+                    <p className={workflowFieldHintClass}>
                       No driver covers {record.area || 'this area'} yet — showing all drivers.
                     </p>
                   )}
                   {recordSubregion && nearbyAreas.length > 0 && (
-                    <p className="text-[10px] text-slate-400 italic">
+                    <p className={`${workflowFieldHintClass} italic`}>
                       Part of <span className="font-semibold not-italic text-slate-500">{recordSubregion}</span> — nearby: {nearbyAreas.join(', ')}
                     </p>
                   )}
                   {sameDayHints.length > 0 && (
-                    <p className="text-[10px] text-[#0078C1] font-semibold mt-1 flex flex-col">
+                    <p className="text-xs leading-5 text-[#0078C1] font-semibold mt-1 flex flex-col">
                       <span className="mb-0.5 border-b border-blue-100 pb-0.5 inline-block w-max">On this page, also assigned to {recordSubregion ?? record.area} today:</span>
                       {sameDayHints.map(([d, count]) => (
                         <span key={d}>
@@ -1395,52 +1400,39 @@ function ActionsTab({
               );
             })()}
           </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700">Driver Assistants</label>
-            <div className="space-y-2">
-              {assistants.map((assistant, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <select
-                    value={assistant}
-                    disabled={draftRecord || saving || !canAssign}
-                    onChange={e => {
-                      const newAssistants = [...assistants];
-                      newAssistants[index] = e.target.value;
-                      setAssistants(newAssistants);
-                    }}
-                    className={inputCls}
-                  >
-                    <option value="">-- Unassigned --</option>
-                    {DRIVER_ASSISTANTS.map(d => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const newAssistants = assistants.filter((_, i) => i !== index);
-                      setAssistants(newAssistants);
-                    }}
-                    disabled={draftRecord || saving || !canAssign}
-                    className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
-                  >
-                    <XIcon className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                disabled={draftRecord || saving || !canAssign}
-                onClick={() => setAssistants([...assistants, ''])}
-                className="flex items-center gap-1 text-[11px] font-semibold text-[#0078C1] hover:text-[#1F3864] disabled:opacity-50"
-              >
-                <Plus className="w-3 h-3" /> Add Assistant
-              </button>
+          <fieldset className="mt-4 space-y-2" aria-describedby="delivery-assistants-help">
+            <legend className="text-sm font-semibold text-slate-700">Driver assistants</legend>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p id="delivery-assistants-help" className={workflowFieldHintClass}>Choose anyone joining the driver for this delivery.</p>
+              <span className="text-xs font-medium text-slate-500">{selectedAssistantNames.length} selected</span>
             </div>
-          </div>
+            {availableAssistantNames.length > 0 ? <ul className="grid max-h-48 gap-2 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-2 sm:grid-cols-2">
+              {availableAssistantNames.map(name => {
+                const selected = assistants.includes(name);
+                return <li key={name}>
+                  <label className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-sm transition-[border-color,background-color,box-shadow] duration-150 focus-within:ring-2 focus-within:ring-[#0078C1]/25 motion-reduce:transition-none ${selected ? 'border-[#0078C1]/40 bg-blue-50/70 font-semibold text-[#1F3864]' : 'border-slate-200 bg-white text-slate-700'} ${draftRecord || saving || !canAssign ? 'cursor-not-allowed opacity-60' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      disabled={draftRecord || saving || !canAssign}
+                      className="h-4 w-4 shrink-0 accent-[#0078C1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] disabled:cursor-not-allowed"
+                      onChange={event => setAssistants(current => {
+                        const currentNames = current.filter(value => value.trim());
+                        return event.target.checked
+                          ? currentNames.includes(name) ? currentNames : [...currentNames, name]
+                          : currentNames.filter(value => value !== name);
+                      })}
+                    />
+                    <span className="min-w-0 flex-1 truncate">{name}</span>
+                    {selected && <Check aria-hidden="true" className="h-4 w-4 shrink-0 text-[#0078C1]" />}
+                  </label>
+                </li>;
+              })}
+            </ul> : <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-sm text-slate-500">No driver assistants are available.</p>}
+          </fieldset>
 
           <div className="space-y-1.5 border-t border-slate-100 pt-3">
-            <label className="text-xs font-bold text-slate-700">Received By *</label>
+            <label className={workflowFieldLabelClass}>Received By <span className="text-red-600">*</span></label>
             <input
               type="text"
               value={receivedBy}
@@ -1452,7 +1444,7 @@ function ActionsTab({
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Time In (Manila)</label>
+              <label className={workflowFieldLabelClass}>Time In (Manila)</label>
               <input
                 type="datetime-local"
                 value={timeIn}
@@ -1462,7 +1454,7 @@ function ActionsTab({
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Time Out (Manila)</label>
+              <label className={workflowFieldLabelClass}>Time Out (Manila)</label>
               <input
                 type="datetime-local"
                 value={timeOut}
@@ -1474,14 +1466,14 @@ function ActionsTab({
           </div>
           <p className="text-xs text-slate-500">Time In starts the run; Time Out is saved automatically on completion. Existing timestamps can be corrected above with remarks, using Manila time.</p>
         </div>
-      </div>
+      </WorkflowSection>
 
       </>}
 
       {/* Unified Save Model */}
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+      <WorkflowSection title={isRma ? 'Save RMA update' : 'Save delivery changes'} description="Add a reason when changing dispatch or status details.">
         <div className="space-y-1.5">
-          <label className="text-xs font-bold text-slate-700">
+          <label className={workflowFieldLabelClass}>
             Change Reason / Remarks
             {hasChanges
               ? <span className="text-red-500 ml-1">*</span>
@@ -1494,7 +1486,7 @@ function ActionsTab({
             onChange={e => { setActionRemarks(e.target.value); if (actionRemarksError && e.target.value.trim()) setActionRemarksError(false); }}
             rows={3}
             placeholder={hasChanges ? 'Reason for the changes above (required)…' : 'Optional note…'}
-            className={`w-full px-3 py-2 border rounded-lg text-xs resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${actionRemarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
+            className={`${workflowInputClass} resize-y ${actionRemarksError ? 'border-red-400 bg-red-50' : ''}`}
           />
           {actionRemarksError && <p className="text-[11px] text-red-600 font-semibold">A reason is required when making changes to dispatch or status fields.</p>}
         </div>
@@ -1516,20 +1508,20 @@ function ActionsTab({
               setSaveFeedback(null);
             }}
             disabled={saving || !hasChanges}
-            className="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg transition-colors text-[11px] uppercase cursor-pointer disabled:opacity-50"
+            className={workflowSecondaryButtonClass}
           >
             Revert
           </button>
           <button
             onClick={handleSave}
             disabled={saving || !access.canRecord(record.category, 'WRITE') || !!photoError || !!newDateError}
-            className="px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+            className={workflowPrimaryButtonClass}
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             {saving ? 'Saving…' : isRma && statusChanged && selectedStatus === 'Delivered' ? 'Complete RMA' : 'Save Changes'}
           </button>
         </div>
-      </div>
+      </WorkflowSection>
     </div>
   );
 }
