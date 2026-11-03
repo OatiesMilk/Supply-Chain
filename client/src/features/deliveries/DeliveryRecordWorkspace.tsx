@@ -2335,7 +2335,7 @@ function RecordWorkspace({
           {[
             ['Driver', record.driver || 'Unassigned'],
             ['Delivery date', record.delivery_date],
-            [startTimeSummary.label, startTimeSummary.value],
+            [record.category === 'RMA' ? startTimeSummary.label : 'Time in', startTimeSummary.value],
             [record.category === 'RMA' ? 'Completed at' : 'Time out', formatManilaTime(record.category === 'RMA' ? record.rma_completed_at ?? record.time_out : record.time_out)],
           ].map(([label, value]) => <div key={label} className="flex gap-1"><dt className="text-slate-500">{label}:</dt><dd className="font-semibold">{value}</dd></div>)}
         </dl>
