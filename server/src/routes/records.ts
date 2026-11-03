@@ -507,11 +507,11 @@ router.get('/driver-overview', requireAuth, requireResource('records'), requireR
   const [groups, areas, todayCount, remaining, completed, rmaActive, rmaCompleted] = await Promise.all([
     prisma.deliveryRecord.groupBy({ by: ['driver', 'status', 'category', 'rmaTransportStatus'], where: scoped({ AND: [runScope, searchScope] }), _count: { _all: true } }),
     prisma.deliveryRecord.groupBy({ by: ['area'], where: scoped(runViewWhere('dispatch')), _count: { _all: true } }),
-    prisma.deliveryRecord.count({ where: scoped({ AND: [runViewWhere('driver_dashboard'), { category: { not: 'RMA' }, deliveryDate: today }] }) }),
+    prisma.deliveryRecord.count({ where: scoped({ AND: [runViewWhere('driver_dashboard'), { deliveryDate: today }] }) }),
     prisma.deliveryRecord.count({ where: scoped({ AND: [runViewWhere('driver_dashboard', 'active'), { category: { not: 'RMA' } }] }) }),
-    prisma.deliveryRecord.count({ where: scoped({ AND: [runViewWhere('driver_dashboard', 'completed'), { category: { not: 'RMA' } }] }) }),
+    prisma.deliveryRecord.count({ where: scoped({ AND: [runViewWhere('driver_dashboard', 'completed'), { OR: [{ category: { not: 'RMA' } }, { category: 'RMA', status: 'ACCOMPLISHED' }] }] }) }),
     prisma.deliveryRecord.count({ where: scoped({ AND: [runViewWhere('driver_dashboard', 'active'), { category: 'RMA' }] }) }),
-    prisma.deliveryRecord.count({ where: scoped({ AND: [runViewWhere('driver_dashboard', 'completed'), { category: 'RMA' }] }) }),
+    prisma.deliveryRecord.count({ where: scoped({ AND: [runViewWhere('driver_dashboard', 'completed'), { category: 'RMA', status: { not: 'ACCOMPLISHED' }, rmaTransportStatus: 'COMPLETED' }] }) }),
   ]);
   const drivers = new Map<string, { name: string; active: number; completed: number }>();
   let unassigned = 0;

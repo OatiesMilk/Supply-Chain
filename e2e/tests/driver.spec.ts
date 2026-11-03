@@ -19,7 +19,7 @@ const BASE_URL = 'http://localhost:3000';
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function getFirstActiveCard(page: Page) {
-  // Driver cards are divs with a Record Time In button
+  // Driver run cards expose the Time In action with a stable accessible name.
   return page.getByRole('button', { name: /record time in/i }).first();
 }
 
@@ -148,8 +148,8 @@ test.describe('C-2 ePOD Flow', () => {
     await page.getByPlaceholder(/remarks/i).fill('Started run via mobile app');
     await page.getByRole('button', { name: /^confirm$/i }).click();
 
-    // Time In button should be gone, replaced by a confirmation banner
-    await expect(page.getByText(/time in recorded/i)).toBeVisible({ timeout: 8_000 });
+    // Starting transport should persist and show its timestamp in the active-run card.
+    await expect(page.getByText(/transport started:/i)).toBeVisible({ timeout: 8_000 });
   });
 
   test('C-2.2 POD upload section is visible on an active delivery', async ({ page }) => {
