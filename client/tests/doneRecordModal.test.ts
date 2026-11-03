@@ -39,3 +39,15 @@ test('missing or invalid completion timestamps never substitute the scheduled da
     assert.doesNotMatch(html, /Accomplished on|Invalid Date/);
   }
 });
+
+test('completed RMA details use the final RMA timestamp and show transport receipt events', () => {
+  const html = completedLabel({ category: 'RMA', rma_completed_at: '2026-10-14T18:30:00.000Z',
+    rma_transport_started_at: '2026-10-14T17:30:00.000Z', rma_transport_completed_at: '2026-10-14T18:00:00.000Z',
+    rma_received_at: '2026-10-14T18:15:00.000Z', rma_recipient: 'Warehouse' });
+  assert.match(html, /Accomplished RMA Details/);
+  assert.match(html, /RMA completed on Oct 15, 2026, 02:30 AM/);
+  assert.match(html, /Transport started: 01:30 AM/);
+  assert.match(html, /Transport completed: 02:00 AM/);
+  assert.match(html, /Physical receipt: 02:15 AM · Warehouse/);
+  assert.match(html, /Return transport proof \(POD\)/);
+});
