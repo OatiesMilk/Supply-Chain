@@ -254,7 +254,8 @@ function DriverDashboardContent({
           const daysLate = dashboardRunDaysLate(rec, today);
           const futureStarted = rec.category === 'Deliveries' && deliveryScheduleState(rec.delivery_date, today).future && hasValidRunTimeIn(rec.time_in);
           return (
-            <div
+            <article
+              aria-label={`Run ${rec.reference}`}
               key={rec.id}
               className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
             >
@@ -375,7 +376,7 @@ function DriverDashboardContent({
                   </div>
                 </div>
               </div>
-            </div>
+            </article>
           );
         })}
         </section>

@@ -247,7 +247,7 @@ test.describe('X Cross-Role Integration', () => {
       await login(driverPage, CREDS.driver.email, CREDS.driver.password);
       const referenceLabel = driverPage.getByText(reference, { exact: true });
       await expect(referenceLabel).toBeVisible();
-      const driverCard = driverPage.locator('div.bg-white.rounded-2xl').filter({ has: referenceLabel });
+      const driverCard = driverPage.getByRole('article', { name: `Run ${reference}` });
       await expect(driverCard).toHaveCount(1);
       await driverCard.getByRole('button', { name: 'Record Time In', exact: true }).click();
       await driverPage.locator('#driver-action-remarks').fill('UAT integration test - starting assigned Delivery');
