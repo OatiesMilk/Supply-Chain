@@ -117,7 +117,10 @@ export default function ExportPreviewDialog({
   }, [fileBlob, format]);
 
   useEffect(() => {
-    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const activeElement = document.activeElement;
+    returnFocusRef.current = activeElement && typeof (activeElement as { focus?: unknown }).focus === 'function'
+      ? (activeElement as HTMLElement)
+      : null;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     closeRef.current?.focus();

@@ -94,6 +94,12 @@ export default function DriverReportModal({ records, serverPaging = false, onClo
       const blob = await downloadDriverReport(reportRecords, month, year, format, generatedByName, generatedByRole, auditSets, docSize, true) as Blob;
       const monthName = MONTHS[month - 1];
       const extension = format === 'excel' ? 'xlsx' : format;
+      const fileName = `Microgenesis_Driver_Report_${monthName}_${year}.${extension}`;
+      if (format === 'csv') {
+        downloadBlob(blob, fileName);
+        onClose();
+        return;
+      }
       const meta: ExportMeta = {
         reportName: 'Monthly Driver Report',
         dateRange: `${monthName} ${year}`,
@@ -105,7 +111,7 @@ export default function DriverReportModal({ records, serverPaging = false, onClo
         format,
         records: reportRecords,
         blob,
-        fileName: `Microgenesis_Driver_Report_${monthName}_${year}.${extension}`,
+        fileName,
         meta,
       });
     } catch (e: any) {
