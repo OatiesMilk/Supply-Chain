@@ -14,6 +14,7 @@ import { useServerAvailability } from '@/hooks/useServerAvailability';
 import { permissionSessionKey } from '@/utils/permissions';
 import { DashboardFilterId } from '@/utils/dashboardFilters';
 import ServerUnavailableView from '@/features/auth/ServerUnavailableView';
+import { canManageAdminSettings } from '@/layouts/accountSettingsAccess';
 
 const LoginView = lazyPage(() => import('@/features/auth/LoginView'));
 const DriverDashboard = lazyPage(() => import('@/features/dashboard/DriverDashboard'));
@@ -110,6 +111,7 @@ function AuthenticatedApp() {
 
   const currentUser = {
     name: currentUserName,
+    email: authUser.email,
     initials: currentUserInitials,
   };
 
@@ -236,6 +238,9 @@ function AuthenticatedApp() {
             serverPaging
             records={deliveryRecords}
             currentUserName={currentUser.name}
+            currentUserEmail={currentUser.email}
+            canManageAdmin={false}
+            onNavigate={handleNavigate}
             onUpdateRecord={handleUpdateRecord}
             onLogout={logout}
             dataLoading={dataLoading}
@@ -284,6 +289,7 @@ function AuthenticatedApp() {
         setIsSidebarOpen,
         currentUser,
         currentUserRole,
+        canManageAdmin: canManageAdminSettings(authUser.role, canAccess),
         setSearchOpen,
         deliveryRecords,
         handleNavigate,

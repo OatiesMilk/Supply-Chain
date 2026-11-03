@@ -14,8 +14,9 @@ import AccountMenu from './AccountMenu';
 export interface NavbarProps {
   currentScreen: string;
   setIsSidebarOpen: (open: boolean) => void;
-  currentUser: { name: string; initials: string };
+  currentUser: { name: string; email: string; initials: string };
   currentUserRole: string;
+  canManageAdmin: boolean;
   setSearchOpen: (open: boolean) => void;
   deliveryRecords: DeliveryRecord[];
   handleNavigate: (screen: any) => void;
@@ -29,6 +30,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   setIsSidebarOpen,
   currentUser,
   currentUserRole,
+  canManageAdmin,
   setSearchOpen,
   deliveryRecords,
   handleNavigate,
@@ -130,7 +132,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           )}
 
-          <AccountMenu name={currentUser.name} role={currentUserRole} onLogout={handleLogout} />
+          <AccountMenu name={currentUser.name} email={currentUser.email} role={currentUserRole}
+            canManageAdmin={canManageAdmin} onNavigate={handleNavigate} onLogout={handleLogout} />
         </div>
       </header>
       <ActionDialog
