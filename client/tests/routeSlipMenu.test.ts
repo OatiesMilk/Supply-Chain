@@ -88,7 +88,16 @@ async function inputDate(dom: JSDOM, index: number, value: string) {
   const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!;
   await act(async () => { setter.call(node, value); node.dispatchEvent(new dom.window.Event('input', { bubbles: true })); node.dispatchEvent(new dom.window.Event('change', { bubbles: true })); });
 }
-async function waitDownload(state: { blob?: Blob; filename?: string }) {
+async function waitDownload(dom: JSDOM, state: { blob?: Blob; filename?: string }) {
+  let downloadButton: HTMLButtonElement | undefined;
+  for (let tries = 0; tries < 100; tries++) {
+    downloadButton = [...dom.window.document.querySelectorAll<HTMLButtonElement>('button')]
+      .find(node => /^Download /i.test(node.textContent?.trim() ?? ''));
+    if (downloadButton && !downloadButton.disabled) break;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  assert.ok(downloadButton, 'renders a download button in preview');
+  await click(downloadButton);
   await act(async () => {
     for (let tries = 0; !state.blob && tries < 100; tries++) await new Promise(resolve => setTimeout(resolve, 20));
   });
@@ -136,7 +145,7 @@ test('dedicated and general export paths include later pages and retain every ac
       state.blob = undefined; state.calls = [];
       await click(button(dom, entry === 'dedicated' ? 'Route Slip' : 'Export'));
       await click(button(dom, entry === 'dedicated' ? 'Excel (Current)' : 'Route Slip — Excel'));
-      const text = await waitDownload(state);
+      const text = await waitDownload(dom, state);
       assert.match(text, /MATCH0/);
       assert.match(text, /LATEPAGE/);
       assert.match(text, /Period: 27 Oct 2026 – 29 Oct 2026/);
@@ -182,7 +191,7 @@ test('the actual DeliveryRecordsView fetches every page with its selected filter
     await inputDate(dom, 1, '2026-10-29');
     state.calls = [];
     await click(button(dom, 'Excel (Current)'));
-    const text = await waitDownload(state);
+    const text = await waitDownload(dom, state);
     assert.match(text, /LATEPAGE/);
     assert.match(text, /MATCH0/);
     assert.equal(text.includes('CACHEDONLY'), false);
