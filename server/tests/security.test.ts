@@ -58,12 +58,14 @@ function session(id = 'user-1') {
   return { cookie: `mg_session=${jwt}`, token: csrfToken(claims) };
 }
 
-const call = (target: string, method: string, headers: Record<string, string> = {}, body?: unknown) =>
-  fetch(`${url}${target}`, {
+const callAt = (base: string, target: string, method: string, headers: Record<string, string> = {}, body?: unknown) =>
+  fetch(`${base}${target}`, {
     method,
     headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers },
     body: body ? JSON.stringify(body) : undefined,
   });
+const call = (target: string, method: string, headers: Record<string, string> = {}, body?: unknown) =>
+  callAt(url, target, method, headers, body);
 
 before(async () => {
   process.env.CLIENT_ORIGIN = TRUSTED;
@@ -181,13 +183,28 @@ test('mail and upload routes are throttled per signed-in user', async () => {
   assert.equal((await call('/api/admin/test-email', 'POST', headers(first))).status, 429);
 });
 
-test('the general API limit returns 429 but never throttles the health check', async () => {
-  const user = session('busy-user');
+test('the general API limit does not block health checks or login with dedicated limits', async () => {
+  // Isolate counters from the failed-login test's intentionally exhausted IP budget.
+  const base = await start();
   const statuses: number[] = [];
-  for (let i = 0; i < LIMITS.api.limit + 1; i++) statuses.push((await call('/api/records', 'GET', { Cookie: user.cookie })).status);
+  for (let i = 0; i < LIMITS.api.limit + 1; i++) statuses.push((await callAt(base, '/api/records', 'GET')).status);
   assert.equal(statuses.filter(status => status === 200).length, LIMITS.api.limit);
   assert.equal(statuses.at(-1), 429);
-  for (let i = 0; i < LIMITS.api.limit + 5; i++) assert.equal((await call('/api/health', 'GET')).status, 200);
+
+  const origin = { Origin: TRUSTED, 'Sec-Fetch-Site': 'same-origin' };
+  const guestLogin = await callAt(base, '/api/auth/login', 'POST', origin, { email: 'guest@example.com', password: 'correct' });
+  assert.equal(guestLogin.status, 200, 'the IP login limiter remains available after anonymous API reads exhaust their quota');
+
+  const user = session('busy-user');
+  const authenticatedStatuses: number[] = [];
+  for (let i = 0; i < LIMITS.api.limit + 1; i++) {
+    authenticatedStatuses.push((await callAt(base, '/api/records', 'GET', { Cookie: user.cookie })).status);
+  }
+  assert.equal(authenticatedStatuses.at(-1), 429);
+  const userLogin = await callAt(base, '/api/auth/login', 'POST', { ...origin, Cookie: user.cookie }, { email: 'user@example.com', password: 'correct' });
+  assert.equal(userLogin.status, 200, 'the general user quota cannot prevent sign-in; dedicated login limits still apply');
+
+  for (let i = 0; i < LIMITS.api.limit + 5; i++) assert.equal((await callAt(base, '/api/health', 'GET')).status, 200);
 });
 
 test('a forwarded client address is believed only with the proxy secret', async () => {

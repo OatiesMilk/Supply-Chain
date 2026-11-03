@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { QueryClient, QueryObserver, focusManager, onlineManager } from '@tanstack/react-query';
+import { ApiError } from '../src/api';
+import { createQueryClient } from '../src/api/queryClient';
 import type { DeliveryRecord } from '../src/types';
-import { invalidateOperationalQueries, newerRecord, operationalSyncOptions, recordDetailKey, saveRecordToCache, shareOperationalRecords } from '../src/api/queries/operationalSync';
+import { invalidateOperationalQueries, newerRecord, operationalSyncOptions, OPERATIONAL_POLL_INTERVAL_MS, OPERATIONAL_STALE_TIME_MS, recordDetailKey, saveRecordToCache, shareOperationalRecords } from '../src/api/queries/operationalSync';
 
 const record = (version: number, fields: Partial<DeliveryRecord> = {}): DeliveryRecord => ({
   id: 'rma', category: 'RMA', rma_version: version, modified_at: `2026-10-28T01:00:0${version}.000Z`,
@@ -86,16 +88,18 @@ test('operational invalidation includes counts, capabilities, history, POD and n
   client.clear();
 });
 
-test('operational views poll within the agreed budget and recover immediately on focus and reconnect', async () => {
-  assert.equal(operationalSyncOptions.refetchInterval, 2_000);
+test('operational views poll within the API budget and refresh on focus/reconnect', async () => {
+  assert.equal(OPERATIONAL_POLL_INTERVAL_MS, 30_000);
+  assert.equal(OPERATIONAL_STALE_TIME_MS, 0);
+  assert.equal(operationalSyncOptions.refetchInterval, 30_000);
   assert.equal(operationalSyncOptions.refetchIntervalInBackground, false);
   assert.equal(operationalSyncOptions.staleTime, 0);
-  assert.equal(operationalSyncOptions.refetchOnWindowFocus, 'always');
-  assert.equal(operationalSyncOptions.refetchOnReconnect, 'always');
+  assert.equal(operationalSyncOptions.refetchOnWindowFocus, true);
+  assert.equal(operationalSyncOptions.refetchOnReconnect, true);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.mount();
   let reads = 0;
-  const observer = new QueryObserver(client, { ...operationalSyncOptions, queryKey: ['records', 'recovery'], queryFn: async () => ++reads });
+  const observer = new QueryObserver(client, { ...operationalSyncOptions, staleTime: 0, queryKey: ['records', 'recovery'], queryFn: async () => ++reads });
   const unsubscribe = observer.subscribe(() => {});
   await observer.refetch();
   const initial = reads;
@@ -109,4 +113,29 @@ test('operational views poll within the agreed budget and recover immediately on
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.ok(reads > afterFocus, 'reconnect refreshes immediately');
   unsubscribe(); client.unmount(); client.clear(); focusManager.setFocused(undefined);
+});
+
+test('query client does not retry 4xx rate limits but still retries a transient server error once', async () => {
+  const client = createQueryClient();
+  let limitedAttempts = 0;
+  try {
+    await assert.rejects(client.fetchQuery({
+      queryKey: ['rate-limited'],
+      queryFn: async () => { limitedAttempts++; throw new ApiError('Too many requests', 429); },
+    }), /Too many requests/);
+    assert.equal(limitedAttempts, 1);
+
+    let serverAttempts = 0;
+    const recovered = await client.fetchQuery({
+      queryKey: ['transient-server-error'],
+      queryFn: async () => {
+        if (++serverAttempts === 1) throw new ApiError('Temporary failure', 503);
+        return 'recovered';
+      },
+    });
+    assert.equal(recovered, 'recovered');
+    assert.equal(serverAttempts, 2);
+  } finally {
+    client.clear();
+  }
 });

@@ -38,6 +38,9 @@ export function usePodAttachments(recordId: string) {
   
   const query = useQuery({
     ...operationalSyncOptions,
+    // Upload mutations invalidate this query. Repeated polling here multiplies
+    // requests by every visible POD uploader on the current page.
+    refetchInterval: false,
     queryKey,
     queryFn: () => api.getRecordAttachments(recordId),
     enabled: Boolean(recordId),
