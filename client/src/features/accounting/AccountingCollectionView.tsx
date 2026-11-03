@@ -66,7 +66,7 @@ const buildEmptyForm = (): RecordFormState => ({
   reference: '',
   remarks: '',
   status: 'Scheduled',
-  area: 'Carmona',
+  area: AREAS[0] ?? 'Makati CBD',
   account_manager: '',
   delivery_date: manilaToday(),
   item_type: 'Small Item',

@@ -161,3 +161,19 @@ test('final RMA completion is selectable only by TASS while Admin Delivery compl
   for (const role of ['Admin', 'Logistics', 'Driver', 'Sales Coordinator'] as const) assert.equal(selectableStatuses(rma, role).includes('Delivered'), false);
   assert.deepEqual(selectableStatuses(record({ category: 'Deliveries', allowed_statuses: ['Delivered'] }), 'Admin'), ['Delivered']);
 });
+
+test('Return to Draft is omitted from selectableStatuses for RMAs with started transport or confirmed receipt', () => {
+  const unstartedRma = record({ category: 'RMA', status: 'Scheduled', allowed_statuses: ['Pending', 'On-Hold', 'Rescheduled', 'Delivered', 'Draft'] });
+  assert.equal(selectableStatuses(unstartedRma, 'Admin').includes('Draft'), true);
+  assert.equal(selectableStatuses(unstartedRma, 'TASS').includes('Draft'), true);
+
+  for (const startedRma of [
+    record({ ...unstartedRma, rma_transport_started_at: '2026-11-03T04:00:00Z' }),
+    record({ ...unstartedRma, rma_transport_status: 'IN_TRANSIT' }),
+    record({ ...unstartedRma, rma_transport_status: 'COMPLETED' }),
+    record({ ...unstartedRma, rma_received_at: '2026-11-03T05:00:00Z' }),
+  ]) {
+    assert.equal(selectableStatuses(startedRma, 'Admin').includes('Draft'), false);
+    assert.equal(selectableStatuses(startedRma, 'TASS').includes('Draft'), false);
+  }
+});

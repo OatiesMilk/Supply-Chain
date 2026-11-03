@@ -100,6 +100,7 @@ const AUDIT_SKIP_FIELDS = new Set([
   'id', 'company_id', 'customer_id', 'created_by_id',
   'created_at', 'updated_at', 'created_by', 'modified_by', 'modified_at',
   'document_attachment', 'attachments', 'output_actions_log', 'email_notification_sent',
+  'linked_collection', 'linked_collection_id',
 ]);
 
 function shouldSkipAuditField(key: string): boolean {
@@ -112,11 +113,46 @@ function auditFieldLabel(key: string): string {
 }
 
 function isEmptyAuditValue(v: unknown): boolean {
-  return v === null || v === undefined || v === '' || v === false;
+  return v === null || v === undefined || v === '' || v === false || (Array.isArray(v) && v.length === 0);
 }
 
 function formatAuditValue(v: unknown): string {
-  return isEmptyAuditValue(v) ? '—' : String(v);
+  if (isEmptyAuditValue(v)) return '—';
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v) && Number.isFinite(Date.parse(v))) return formatTs(v);
+  if (Array.isArray(v)) {
+    if (v.every(item => typeof item === 'string' || typeof item === 'number')) return v.join(', ');
+    const formatted = v.map(item => {
+      if (item && typeof item === 'object') {
+        const sku = (item as any).sku || (item as any).description;
+        const qty = (item as any).quantity;
+        if (sku !== undefined && qty !== undefined) return `${sku} × ${qty}`;
+        if (sku !== undefined) return String(sku);
+        if ('name' in (item as any) && typeof (item as any).name === 'string') return (item as any).name;
+      }
+      return typeof item === 'object' ? JSON.stringify(item) : String(item);
+    }).filter(Boolean);
+    return formatted.length > 0 ? formatted.join(', ') : '—';
+  }
+  if (typeof v === 'object' && v !== null) {
+    if ('name' in (v as any) && typeof (v as any).name === 'string') return (v as any).name;
+    if ('reference' in (v as any) && typeof (v as any).reference === 'string') return (v as any).reference;
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return '—';
+    }
+  }
+  return String(v);
+}
+
+function normalizeAuditForDiff(key: string, v: unknown): unknown {
+  if (key === 'line_items' && Array.isArray(v)) {
+    return v.map((item: any) => ({
+      sku: typeof item?.sku === 'string' ? item.sku : typeof item?.description === 'string' ? item.description : '',
+      quantity: typeof item?.quantity === 'number' ? item.quantity : parseInt(item?.quantity, 10) || 1,
+    }));
+  }
+  return v;
 }
 
 interface AuditDiffRow {
@@ -138,7 +174,7 @@ function diffAuditEntry(oldVal: unknown, newVal: unknown): AuditDiffRow[] {
       if (shouldSkipAuditField(key)) continue;
       const ov = oldObj[key];
       const nv = newObj[key];
-      if (JSON.stringify(ov) === JSON.stringify(nv)) continue;
+      if (JSON.stringify(normalizeAuditForDiff(key, ov)) === JSON.stringify(normalizeAuditForDiff(key, nv))) continue;
       rows.push({ label: auditFieldLabel(key), oldVal: ov, newVal: nv, hasOld: true });
     }
   } else {

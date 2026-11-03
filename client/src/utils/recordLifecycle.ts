@@ -30,10 +30,16 @@ export function isDraftRecord(record: Pick<DeliveryRecord, 'status' | 'is_draft'
 }
 
 export function selectableStatuses(record: DeliveryRecord, role: UserRole): DeliveryStatus[] {
+  const isStartedRma = record.category === 'RMA' && Boolean(
+    record.rma_transport_started_at ||
+    record.rma_received_at ||
+    record.rma_transport_status === 'IN_TRANSIT' ||
+    record.rma_transport_status === 'COMPLETED'
+  );
   return (record.allowed_statuses ?? []).filter(status => status !== 'In Transit' &&
     (record.category !== 'RMA' || status !== 'Delivered' || role === 'TASS') &&
     (role !== 'Sales Coordinator' || status === 'Draft' || (isDraftRecord(record) && status === 'Scheduled')) &&
-    (status !== 'Draft' || ((role === 'Sales Coordinator' || role === 'Admin' || (role === 'TASS' && record.category === 'RMA')) && !record.time_in)));
+    (status !== 'Draft' || ((role === 'Sales Coordinator' || role === 'Admin' || (role === 'TASS' && record.category === 'RMA')) && !record.time_in && !isStartedRma)));
 }
 
 /** Plain-language effects shown before a submitted record is returned to Draft. */

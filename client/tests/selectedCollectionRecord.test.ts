@@ -8,6 +8,7 @@ import AccountingCollectionView from '../src/features/accounting/AccountingColle
 import { recordDetailKey } from '../src/api/queries/operationalSync';
 import { installLegacySession } from './helpers/permissionSession';
 import { recordMutationInputError } from '../../server/src/services/recordOperations';
+import { diffAuditEntry, formatAuditValue } from '../src/features/deliveries/DeliveryRecordWorkspace';
 import type { DeliveryRecord } from '../src/types';
 
 const collection = (id: string, overrides: Partial<DeliveryRecord> = {}) => ({
@@ -130,6 +131,8 @@ test('AccountingCollectionView submits a creation payload accepted by V1 server 
     await flush();
     const newRecordBtn = [...dom.window.document.querySelectorAll('button')].find(b => b.textContent?.includes('New Record'))!;
     await act(async () => newRecordBtn.click()); await flush();
+    const areaSelect = [...dom.window.document.querySelectorAll('select')].find(s => [...s.options].some(o => o.value === 'Makati CBD'))!;
+    assert.equal(areaSelect.value, 'Makati CBD', 'default form area matches the first displayed AREA option instead of stale Carmona');
     const autoFillBtn = [...dom.window.document.querySelectorAll('button')].find(b => b.textContent?.includes('Auto Fill'))!;
     await act(async () => autoFillBtn.click()); await flush();
     const form = dom.window.document.querySelector('form')!;
@@ -146,4 +149,23 @@ test('AccountingCollectionView submits a creation payload accepted by V1 server 
     await act(async () => root.unmount()); client.clear(); mock.restoreAll(); dom.window.close();
     for (const key of Object.keys(values)) { if (saved[key]) Object.defineProperty(globalThis, key, saved[key]); else Reflect.deleteProperty(globalThis, key); }
   }
+});
+
+test('RMA audit diff suppresses unchanged recreated line items and formats changed line items without [object Object]', () => {
+  const unchangedDiff = diffAuditEntry(
+    { delivery_date: '2026-11-04', line_items: [{ id: 'old-row-id', sku: 'RMA-SKU-1', quantity: 2 }] },
+    { delivery_date: '2026-11-03', line_items: [{ id: 'new-row-id', sku: 'RMA-SKU-1', quantity: 2 }] },
+  );
+  assert.deepEqual(unchangedDiff.map(r => r.label), ['Delivery Date']);
+
+  const changedDiff = diffAuditEntry(
+    { line_items: [{ id: 'old-row-id', sku: 'RMA-SKU-1', quantity: 2 }] },
+    { line_items: [{ id: 'new-row-id', sku: 'RMA-SKU-1', quantity: 3 }, { id: 'new-row-2', sku: 'RMA-SKU-2', quantity: 1 }] },
+  );
+  assert.equal(changedDiff.length, 1);
+  assert.equal(changedDiff[0].label, 'Line Items');
+  assert.equal(formatAuditValue(changedDiff[0].oldVal), 'RMA-SKU-1 × 2');
+  assert.equal(formatAuditValue(changedDiff[0].newVal), 'RMA-SKU-1 × 3, RMA-SKU-2 × 1');
+  assert.doesNotMatch(formatAuditValue(changedDiff[0].oldVal), /\[object Object\]/);
+  assert.doesNotMatch(formatAuditValue(changedDiff[0].newVal), /\[object Object\]/);
 });
