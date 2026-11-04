@@ -174,8 +174,9 @@ test.describe.serial('GH250 actual application permission workflow', () => {
       await a.keyboard.press('Tab');
       await expect(a.getByRole('combobox', { name: 'SCREEN:main:READ', exact: true })).toBeFocused();
       await selectPolicy(a, 'SCREEN:main:READ', 'INHERIT');
-      a.once('dialog', dialog => dialog.dismiss());
       await a.getByRole('button', { name: 'System Audit Log', exact: true }).click();
+      await expect(a.getByRole('dialog', { name: 'Discard unsaved permission changes?' })).toBeVisible();
+      await a.getByRole('button', { name: 'Stay', exact: true }).click();
       await expect(a.getByLabel('Search permission modules')).toBeVisible();
       const widths = await a.evaluate(() => ({
         viewport: window.innerWidth,

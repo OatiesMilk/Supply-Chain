@@ -66,8 +66,9 @@ test('409 keeps draft until refreshed review, announces status, and guards unsav
   await expect(page.getByRole('alert').filter({ hasText: 'Your draft is preserved' })).toBeVisible();
   await expect(policy).toHaveValue('DENY');
   await expect(page.getByRole('button', { name: 'Save permissions', exact: true })).toBeDisabled();
-  page.once('dialog', dialog => dialog.dismiss());
   await page.getByRole('button', { name: 'Other page', exact: true }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('button', { name: 'Stay', exact: true }).click();
   await expect(policy).toHaveValue('DENY');
   await page.getByRole('button', { name: 'Refresh for conflict review' }).click();
   await page.getByLabel('I reviewed the refreshed policy and my preserved draft.').check();
@@ -75,4 +76,31 @@ test('409 keeps draft until refreshed review, announces status, and guards unsav
   await expect(page.getByRole('status').filter({ hasText: 'Permissions saved' })).toBeVisible();
   expect(await page.evaluate(() => (window as any).permissionFixtureWrites())).toBe(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test('dirty Close returns promptly and Stay/Escape/Discard never save the draft', async ({ page }) => {
+  await mount(page);
+  let nativeDialogs = 0;
+  page.on('dialog', async dialog => { nativeDialogs++; await dialog.dismiss(); });
+  await page.getByLabel('Search permission modules').fill('main');
+  await page.getByLabel('Permission scope').selectOption('SCREEN');
+  const policy = page.getByRole('combobox', { name: 'SCREEN:main:READ', exact: true });
+  await policy.selectOption('DENY');
+  await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  const warning = page.getByRole('dialog', { name: 'Discard unsaved permission changes?' });
+  await expect(warning).toBeVisible();
+  await expect(warning.getByRole('button', { name: 'Stay', exact: true })).toBeFocused();
+  await warning.getByRole('button', { name: 'Stay', exact: true }).click();
+  await expect(warning).toBeHidden();
+  await expect(policy).toHaveValue('DENY');
+  await expect(page.getByRole('button', { name: 'Close editor', exact: true })).toBeFocused();
+  await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(warning).toBeHidden();
+  await expect(policy).toHaveValue('DENY');
+  await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  await warning.getByRole('button', { name: 'Discard changes', exact: true }).click();
+  await expect(page.getByLabel('Search permission modules')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).permissionFixtureWrites())).toBe(0);
+  expect(nativeDialogs).toBe(0);
 });

@@ -24,11 +24,14 @@ function userEditor(): UserPermissionEditor {
     snapshot: evaluatePermissions({ userId: user.id, role: user.role, isActive: true, authorizationRevision: '1', rolePolicy: { role: user.role, revision: '1', catalogVersion: 1, permissions: policy.permissions }, overrides }) };
 }
 afterEach(() => { mock.restoreAll(); useAuthStore.getState().setAuthUser(null); });
-async function mounted(run: (doc: Document, select: (key: string, value: string) => Promise<void>, click: (text: string) => Promise<void>) => Promise<void>, role = user.role, individual = true) {
+async function mounted(run: (doc: Document, select: (key: string, value: string) => Promise<void>, click: (text: string) => Promise<void>) => Promise<void>, role = user.role, individual = true, onClose = () => {}) {
   const saved = Object.getOwnPropertyDescriptors(globalThis);
   const dom = new JSDOM('<div id="root"></div><button id="leave">Other tab</button>', { url: 'http://localhost' });
   for (const [key, value] of Object.entries({ window: dom.window, document: dom.window.document, navigator: dom.window.navigator, Element: dom.window.Element, IS_REACT_ACT_ENVIRONMENT: true })) Object.defineProperty(globalThis, key, { value, configurable: true });
   dom.window.confirm = () => true;
+  // JSDOM checks state and callbacks; browser tests cover native modal behavior.
+  dom.window.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+  dom.window.HTMLDialogElement.prototype.close = function () { this.open = false; };
   const { createRoot } = await import('react-dom/client');
   const root = createRoot(dom.window.document.getElementById('root')!);
   const doc = dom.window.document;
@@ -41,7 +44,7 @@ async function mounted(run: (doc: Document, select: (key: string, value: string)
     assert.ok(input); await act(async () => { input.value = value; input.dispatchEvent(new dom.window.Event('change', { bubbles: true })); });
   };
   try {
-    await act(async () => root.render(React.createElement(PolicyEditor, { role, user: individual ? user : undefined, onClose() {} })));
+    await act(async () => root.render(React.createElement(PolicyEditor, { role, user: individual ? user : undefined, onClose })));
     await run(doc, select, click);
   } finally {
     await act(async () => root.unmount()); dom.window.close();
@@ -108,18 +111,71 @@ test('server ceilings forbid Allow but permit harmless Deny, protected Admin con
   mock.method(api, 'getUserPermissionEditor', async () => ({ ...userEditor(), activeMode: 'LEGACY' }));
   await mounted(async doc => { assert.match(doc.body.textContent!, /Candidate V1 policy only/); assert.equal(doc.querySelector<HTMLSelectElement>('select[aria-label="SCREEN:main:READ"]')!.disabled, true); });
 });
-test('unsaved changes guard navigation; dependency validation does not silently grant Read', async () => {
+test('unsaved navigation offers Stay and Discard and replays only the confirmed action', async () => {
   setup();
-  await mounted(async (doc, select) => {
-    await select('SCREEN:dashboard:READ', 'DENY');
-    let prompts = 0; window.confirm = () => { prompts++; return false; };
-    let left = false; doc.getElementById('leave')!.addEventListener('click', () => { left = true; });
+  const saves = mock.method(api, 'saveUserPermissionEditor', async () => userEditor());
+  const resets = mock.method(api, 'resetUserPermissionEditor', async () => userEditor());
+  await mounted(async (doc, select, click) => {
+    window.confirm = () => assert.fail('Leaving must not use a blocking browser confirmation');
+    await select('SCREEN:main:READ', 'DENY');
+    let navigations = 0; doc.getElementById('leave')!.addEventListener('click', () => { navigations++; });
     await act(async () => doc.getElementById('leave')!.click());
-    assert.equal(prompts, 1); assert.equal(left, false);
+    assert.equal(navigations, 0);
+    assert.match(doc.querySelector('dialog[open]')!.textContent!, /Discard unsaved permission changes/);
+    await click('Stay');
+    assert.equal(doc.querySelector('dialog[open]'), null);
+    assert.equal(doc.querySelector<HTMLSelectElement>('select[aria-label="SCREEN:main:READ"]')!.value, 'DENY');
     const event = new window.Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); assert.equal(event.defaultPrevented, true);
+    await act(async () => doc.getElementById('leave')!.click());
+    await act(async () => doc.querySelector('dialog[open]')!.dispatchEvent(new window.Event('cancel', { cancelable: true })));
+    assert.equal(doc.querySelector('dialog[open]'), null);
+    assert.equal(navigations, 0);
+    await act(async () => doc.getElementById('leave')!.click());
+    await click('Discard changes');
+    assert.equal(navigations, 1);
+    assert.equal(doc.querySelector('dialog[open]'), null);
+    const afterDiscard = new window.Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(afterDiscard); assert.equal(afterDiscard.defaultPrevented, false);
+    assert.equal(saves.mock.callCount(), 0);
+    assert.equal(resets.mock.callCount(), 0);
   });
   const rows = [{ permissionKey: 'SCREEN:customers:WRITE', effect: 'ALLOW' as const }];
   assert.equal(dependencyIssues(roleEditor().catalog, rows).length, 1); assert.equal(rows.length, 1);
+});
+test('dirty account Close keeps the draft on Stay and discards without saving; reopening uses saved exceptions', async () => {
+  setup();
+  mock.method(api, 'getUserPermissionEditor', async () => ({ ...userEditor(), permissions: [] }));
+  const saves = mock.method(api, 'saveUserPermissionEditor', async () => userEditor());
+  const resets = mock.method(api, 'resetUserPermissionEditor', async () => userEditor());
+  let closes = 0;
+  await mounted(async (doc, select, click) => {
+    window.confirm = () => assert.fail('Close must not use a blocking browser confirmation');
+    await select('SCREEN:main:READ', 'DENY');
+    await click('Close editor'); assert.equal(closes, 0);
+    await click('Stay'); assert.equal(closes, 0);
+    assert.equal(doc.activeElement?.textContent, 'Close editor');
+    assert.equal(doc.querySelector<HTMLSelectElement>('select[aria-label="SCREEN:main:READ"]')!.value, 'DENY');
+    await click('Close editor'); await click('Discard changes'); assert.equal(closes, 1);
+  }, user.role, true, () => { closes++; });
+  await mounted(async (doc, _select, click) => {
+    assert.equal(doc.querySelector<HTMLSelectElement>('select[aria-label="SCREEN:main:READ"]')!.value, 'INHERIT');
+    assert.match(doc.body.textContent!, /0 individual exceptions/);
+    await click('Close editor'); assert.equal(closes, 2);
+    assert.equal(doc.querySelector('dialog[open]'), null);
+  }, user.role, true, () => { closes++; });
+  assert.equal(saves.mock.callCount(), 0);
+  assert.equal(resets.mock.callCount(), 0);
+});
+test('role policy Close uses the same Stay/Discard guard without saving', async () => {
+  setup();
+  const saves = mock.method(api, 'saveRolePermissionEditor', async () => roleEditor());
+  let closes = 0;
+  await mounted(async (_doc, select, click) => {
+    await select('SCREEN:main:READ', 'DENY');
+    await click('Close editor'); await click('Stay'); assert.equal(closes, 0);
+    await click('Close editor'); await click('Discard changes'); assert.equal(closes, 1);
+    assert.equal(saves.mock.callCount(), 0);
+  }, user.role, false, () => { closes++; });
 });
 test('safe audit diff ignores arbitrary and unknown stored fields while showing intent changes', () => {
   const before = { permissions: [{ permissionKey: 'SCREEN:main:READ', effect: 'ALLOW' as const }], role: 'TASS' };
