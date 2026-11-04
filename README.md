@@ -23,7 +23,7 @@ The portal provides role-based tracking from record creation through dispatch, f
 - **Authentication:** JWT in an `httpOnly` cookie, plus optional Microsoft Entra ID (Azure AD) SSO
 - **Storage:** Local disk (development) or Supabase Storage (staging/production) for proof-of-delivery files
 - **Testing:** Node's built-in test runner (`node:test` via `tsx`) and a Playwright E2E suite
-- **Hosting:** Render (API), Cloudflare Workers (frontend), Docker Compose (local PostgreSQL)
+- **Hosting:** Render (API), Cloudflare Pages/Worker (frontend), Docker Compose (local PostgreSQL)
 - **Monorepo:** npm workspaces (`client/` and `server/`)
 
 ## Quick Start
@@ -39,6 +39,8 @@ npm run dev
 Frontend: <http://localhost:3000> · API: <http://localhost:4000>. Demo seeding is intentionally omitted from this short sequence because it requires explicit disposable-local-database safeguards. Follow the [Getting Started guide](./docs/GETTING_STARTED.md) for guarded seed setup, Windows PowerShell, accounts, tests and troubleshooting.
 
 ## Documentation
+
+- [Unified Deployment Runbook](./docs/DEPLOYMENT.md): Cloudflare Pages, Render API, database/storage, SSO, API v1 cutover, verification and rollback.
 - [Getting Started](./docs/GETTING_STARTED.md): local setup, database, seeds, tests.
 - [System Architecture](./docs/SYSTEM_ARCHITECTURE.md): stack, components, auth, data model, deployment.
 - [Business Requirements](./docs/BUSINESS_REQUIREMENTS.md): what the system does, by module and role, with status.

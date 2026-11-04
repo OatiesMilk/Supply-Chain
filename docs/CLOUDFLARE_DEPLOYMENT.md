@@ -1,5 +1,7 @@
 # Cloudflare Deployment
 
+Start with the [unified deployment runbook](DEPLOYMENT.md). This page provides Cloudflare-specific detail; API URLs were reviewed against `1f46bfb` on 2026-11-04.
+
 > This guide documents the repository configuration and safe checks. The Cloudflare, Render, and Supabase dashboards have not been inspected, so it does not confirm any live project, branch, environment variable, or deployment setting.
 
 ## Deployment models and repository files
@@ -25,7 +27,8 @@ Cloudflare Pages Advanced Mode uses its output-directory **_worker.js** as the r
 
 The Worker routes requests as follows:
 
-- Requests under **/api/** are forwarded to **API_BASE_URL**. There is no built-in fallback host; if **API_BASE_URL** is unset, the Worker returns HTTP 503.
+- Requests under **/api/v1/** are forwarded to **API_BASE_URL**. There is no built-in fallback host; if **API_BASE_URL** is unset, the Worker returns HTTP 503.
+- Retired `/api` endpoints and unsupported API versions return JSON 404 without reaching the backend or assets.
 - Other requests go to **ASSETS**. A missing extensionless **GET** route falls back to **index.html** for React client-side routes.
 - Responses for frontend assets receive security headers. The Content-Security-Policy in **worker.js** must match the API policy in **server/src/middleware/security.ts**; server tests check that repository-level parity.
 
@@ -33,7 +36,7 @@ Configure **API_BASE_URL** explicitly in every Cloudflare environment. Preview e
 
 For proxy client-address handling, configure the same **PROXY_SHARED_SECRET** in the Worker and API environment. The Worker removes browser-supplied proxy headers before adding its secret and the Cloudflare visitor address. The API trusts the forwarded address only when the secret is valid. Set **CLIENT_ORIGIN** to the exact deployed frontend origin and configure **APP_URL** as needed for Microsoft SSO. Do not paste secret values into issue comments or deployment evidence.
 
-The deployed frontend uses relative **/api/** URLs through the same-origin Worker proxy. Do not set **VITE_API_BASE_URL** for this deployment model. Pages supplies **ASSETS** to its Functions runtime; the separate Wrangler deployment declares the binding in its config.
+The deployed frontend uses relative **/api/v1/** URLs through the same-origin Worker proxy. Do not set **VITE_API_BASE_URL** for this deployment model. Pages supplies **ASSETS** to its Functions runtime; the separate Wrangler deployment declares the binding in its config.
 
 ## Blocking direct API access
 
@@ -41,7 +44,7 @@ The API host has its own public address, so a caller can skip the Worker. Settin
 
 The setting is off unless set. The API refuses to start when it is **true** while **PROXY_SHARED_SECRET** is empty, or when it holds any value other than **true** or **false**. The Worker sends the secret on every proxied request once it is configured.
 
-Enable it in this order. Each live step is a separately approved change:
+Enable it in this order. For a first-time configuration, follow this sequence within the authorized release. Preserve enforcement during routine redeploys of an already-protected environment:
 
 1. Deploy the code with the setting off.
 2. Configure the same **PROXY_SHARED_SECRET** in every Cloudflare environment that proxies to this API and in the API environment.
@@ -49,7 +52,7 @@ Enable it in this order. Each live step is a separately approved change:
 4. Set **REQUIRE_PROXY_SECRET=true** in the API environment.
 5. Confirm that the frontend works, a request sent straight to the API host returns 403, the host's health check stays healthy, and the deployment check reports the secret as required.
 
-To roll back, unset **REQUIRE_PROXY_SECRET** in the API environment; no code change is needed. Enabling it before step 3 passes blocks the frontend's own API traffic.
+For a failed first-time enforcement setup, an authorized operator can revert **REQUIRE_PROXY_SECRET** while correcting the proxy configuration; this removes direct-access protection. Enabling it before step 3 passes blocks the frontend's own API traffic. For routine releases, preserve enforcement and restore matching Worker/API configuration. Follow the [unified rollback procedure](DEPLOYMENT.md#11-rollback) for an application release rollback.
 
 ## Read-only deployment identity check
 
@@ -81,7 +84,7 @@ This endpoint does not prove database backup and restoration, migration rehearsa
 
 From **client/**, **npm run cf:preview** uses the pinned Wrangler command and repository-root config. It previews the standalone Worker against **client/dist**. A successful preview does not verify a Pages project, a Pages Git integration, live environment variables, or deployed storage.
 
-For Pages, verify the build log and deployed behavior separately. Confirm that the output contains **_worker.js**, that **/api/** reaches the intended API, and that a direct refresh of **/dashboard** or another React route returns the application. A successful build or health check alone is not deployment evidence.
+For Pages, verify the build log and deployed behavior separately. Confirm that the output contains **_worker.js**, that **/api/v1/** reaches the intended API, and that a direct refresh of **/dashboard** or another React route returns the application. A successful build or health check alone is not deployment evidence.
 
 When using the separate Workers static-assets model, Cloudflare treats a Pages **_worker.js** copied into the assets directory as a public asset unless it is excluded or moved outside that directory. Follow [Cloudflare Pages-to-Workers migration guidance](https://developers.cloudflare.com/workers/static-assets/migration-guides/migrate-from-pages/) for that model. Keep the tracked **client/public/_worker.js** mirror for Pages Advanced Mode.
 
