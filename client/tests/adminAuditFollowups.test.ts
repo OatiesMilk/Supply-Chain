@@ -47,6 +47,7 @@ test('account editor keeps its original baseline and draft across conflict and e
   };
   try {
     await act(async () => root.render(React.createElement(AdminPanel, { dashboardFilterId: null, clearDashboardFilter() {} })));
+    await act(async () => dom.window.document.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
     await click('Edit');
     const email = dom.window.document.querySelectorAll<HTMLInputElement>('tbody input')[1];
     await act(async () => {
