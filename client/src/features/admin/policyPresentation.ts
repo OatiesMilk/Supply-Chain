@@ -24,6 +24,20 @@ export function actionLabel(action: string) {
   return ({ READ: 'Read', WRITE: 'Write', TIME_IN: 'Time In', POD: 'POD', VERIFY_COLLECTION: 'Verify collection' } as Record<string, string>)[action]
     ?? action.toLowerCase().replaceAll('_', ' ').replace(/^\w/, character => character.toUpperCase());
 }
+const PERMISSION_SCOPE_LABELS: Record<string, string> = {
+  SCREEN: 'Screen access', RESOURCE: 'Shared resource', CATEGORY: 'Record category',
+};
+export function permissionLabel(key: string) {
+  const [scope, module, action] = key.split(':');
+  return module && action ? `${policyLabel(module)} → ${PERMISSION_SCOPE_LABELS[scope] ?? policyLabel(scope)} → ${actionLabel(action)}` : 'Unknown permission';
+}
+export function permissionEffectLabel(effect: string) {
+  return ({ ALLOW: 'Allow', DENY: 'Deny', INHERIT: 'Inherit' } as Record<string, string>)[effect] ?? effect;
+}
+export function permissionMessage(message: string, catalog: PolicyCatalogEntry[]) {
+  const keys = new Set(catalog.map(entry => entry.key));
+  return message.replace(/\b(?:SCREEN|RESOURCE|CATEGORY):[A-Za-z0-9_]+:[A-Z_]+\b/g, key => keys.has(key) ? permissionLabel(key) : key);
+}
 export type ScopeFilter = 'ALL' | PermissionScope;
 export type AssignmentFilter = 'ALL' | 'ASSIGNED' | 'UNASSIGNED';
 export const DRIVER_SCREEN_MODULES = new Set(['driver', 'driver_manager', 'driver_board', 'driver_dashboard']);
