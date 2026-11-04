@@ -1,5 +1,5 @@
 import React from 'react';
-import { LockKeyhole } from 'lucide-react';
+import { ChevronDown, LockKeyhole } from 'lucide-react';
 import type { PolicyCatalogEntry, PolicyRow, UserPermissionEditor } from '@/types/permissionEditor';
 import type { PolicyModuleGroup } from './policyPresentation';
 import { actionLabel, DRIVER_SCREEN_MODULES, policyLabel, SCOPE_LABELS } from './policyPresentation';
@@ -40,11 +40,14 @@ export default function PolicyMatrix({ catalog, groups, values, roleDefaults, sa
             const helperId = `policy-help-${entry.key}`;
             return <td key={action} className="border-b border-slate-100 bg-white px-3 py-3 align-top">
               <label htmlFor={`policy-${entry.key}`} className="sr-only">{group.scope.toLowerCase()} / {policyLabel(group.module)} / {actionLabel(action)}</label>
-              <select id={`policy-${entry.key}`} aria-label={entry.key} aria-describedby={helperId}
-                className="min-h-11 w-full min-w-24 rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs font-semibold text-slate-800 disabled:bg-slate-50 disabled:text-slate-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
-                value={values[entry.key] ?? (individual ? 'INHERIT' : 'DENY')} disabled={disabled || locked} onChange={event => onChange(entry.key, event.target.value)}>
-                {individual && <option value="INHERIT">Inherit</option>}<option value="ALLOW" disabled={restricted}>Allow</option><option value="DENY">Deny</option>
-              </select>
+              <div className="relative">
+                <select id={`policy-${entry.key}`} aria-label={entry.key} aria-describedby={helperId}
+                  className="min-h-11 w-full min-w-24 appearance-none rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-9 text-xs font-semibold text-slate-800 disabled:bg-slate-50 disabled:text-slate-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+                  value={values[entry.key] ?? (individual ? 'INHERIT' : 'DENY')} disabled={disabled || locked} onChange={event => onChange(entry.key, event.target.value)}>
+                  {individual && <option value="INHERIT">Inherit</option>}<option value="ALLOW" disabled={restricted}>Allow</option><option value="DENY">Deny</option>
+                </select>
+                <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+              </div>
               <div id={helperId} className="mt-2 space-y-1 text-[10px] leading-relaxed text-slate-500">
                 {locked ? <span className="flex items-center gap-1"><LockKeyhole aria-hidden="true" className="h-3 w-3 shrink-0" />Protected Admin</span> : restricted ? <span>Allow restricted by role</span> : null}
                 {individual && <span className="block">Role: {defaults[entry.key] === 'ALLOW' ? 'Allow' : 'Deny'}</span>}
