@@ -19,9 +19,12 @@ function policy(role: typeof BUILTIN_ROLES[number]): RolePermissionEditor {
     catalog: PERMISSION_CATALOG.map(entry => ({ ...entry, canAllow: roleActionCeiling(role, entry) })) };
 }
 afterEach(() => mock.restoreAll());
-async function mount(element: React.ReactElement, run: (doc: Document, click: (name: string) => Promise<void>, text: (selector: string, value: string) => Promise<void>, select: (selector: string, value: string) => Promise<void>) => Promise<void>) {
+async function mount(element: React.ReactElement, run: (doc: Document, click: (name: string) => Promise<void>, text: (selector: string, value: string) => Promise<void>, select: (selector: string, value: string) => Promise<void>, resize: (compact: boolean) => Promise<void>) => Promise<void>, compact = false) {
   const descriptors = Object.getOwnPropertyDescriptors(globalThis);
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost' });
+  const layoutListeners = new Set<() => void>();
+  const media = { get matches() { return compact; }, addEventListener: (_event: string, listener: () => void) => layoutListeners.add(listener), removeEventListener: (_event: string, listener: () => void) => layoutListeners.delete(listener) };
+  Object.defineProperty(dom.window, 'matchMedia', { value: () => media, configurable: true });
   for (const [key, value] of Object.entries({ window: dom.window, document: dom.window.document, navigator: dom.window.navigator, Element: dom.window.Element, IS_REACT_ACT_ENVIRONMENT: true })) Object.defineProperty(globalThis, key, { value, configurable: true });
   dom.window.confirm = () => true;
   const { createRoot } = await import('react-dom/client');
@@ -43,7 +46,8 @@ async function mount(element: React.ReactElement, run: (doc: Document, click: (n
     const input = doc.querySelector<HTMLSelectElement>(selector)!; assert.ok(input, selector);
     await act(async () => { input.value = value; input.dispatchEvent(new dom.window.Event('change', { bubbles: true })); });
   };
-  try { await act(async () => root.render(element)); await run(doc, click, text, select); }
+  const resize = async (next: boolean) => { await act(async () => { compact = next; layoutListeners.forEach(listener => listener()); }); };
+  try { await act(async () => root.render(element)); await run(doc, click, text, select, resize); }
   finally {
     await act(async () => root.unmount()); dom.window.close();
     for (const key of ['window', 'document', 'navigator', 'Element', 'IS_REACT_ACT_ENVIRONMENT']) {
@@ -90,7 +94,8 @@ test('view entry is read-only until explicit edit and never saves on entry', asy
   const save = mock.method(api, 'saveRolePermissionEditor', async () => policy('LOGISTICS'));
   await mount(React.createElement(RolesPermissions, { users }), async (doc, click) => {
     await click('View Logistics permissions');
-    assert.equal(doc.querySelector<HTMLSelectElement>('select[aria-label="SCREEN:deliveries:READ"]')!.disabled, true);
+    assert.equal(doc.activeElement?.textContent, 'Logistics', 'opening an editor focuses its heading');
+    assert.equal(doc.querySelector<HTMLSelectElement>('select[id="policy-SCREEN:deliveries:READ"]')!.disabled, true);
     assert.ok(![...doc.querySelectorAll('button')].some(button => button.textContent === 'Save permissions'));
     assert.equal(doc.querySelector('[aria-label="Permission matrix"]')?.getAttribute('tabindex'), '0');
     assert.ok(doc.querySelector('th[scope="row"]'));
@@ -99,9 +104,56 @@ test('view entry is read-only until explicit edit and never saves on entry', asy
     const driverIndex = modules.indexOf('Driver View');
     assert.deepEqual(modules.slice(driverIndex, driverIndex + 4), ['Driver View', 'Driver Manager', 'Driver Board', 'Driver Dashboard']);
     await click('Edit permissions');
-    assert.equal(doc.querySelector<HTMLSelectElement>('select[aria-label="SCREEN:deliveries:READ"]')!.disabled, false);
+    assert.equal(doc.activeElement?.textContent, 'Logistics', 'switching View to Edit keeps a meaningful focus target');
+    assert.equal(doc.querySelector<HTMLSelectElement>('select[id="policy-SCREEN:deliveries:READ"]')!.disabled, false);
+    assert.equal(save.mock.callCount(), 0);
+    await click('Close editor');
+    assert.equal(doc.activeElement?.getAttribute('aria-label'), 'View Logistics permissions', 'focus returns to the newly mounted originating button');
+  });
+});
+
+test('filtered desktop columns and mobile modules preserve the same draft and role restrictions', async () => {
+  mock.method(api, 'getRolePermissionEditor', async () => policy('LOGISTICS'));
+  const save = mock.method(api, 'saveRolePermissionEditor', async () => policy('LOGISTICS'));
+  await mount(React.createElement(PolicyEditor, { role: 'LOGISTICS', users, onClose() {} }), async (doc, click, text, select, resize) => {
+    await select('#policy-scope-filter', 'SCREEN');
+    assert.deepEqual([...doc.querySelectorAll('thead th')].map(cell => cell.textContent), ['Module', 'Read', 'Write']);
+    await select('select[id="policy-SCREEN:main:READ"]', 'DENY');
+    assert.match(doc.body.textContent!, /All Operations → Screen access → Read: Allow → Deny/);
+    await resize(true);
+    assert.equal(doc.querySelector('table'), null, 'compact layout must not retain the wide table');
+    const modules = doc.querySelector('[aria-label="Permission modules"]')!;
+    assert.ok(modules.querySelector(':scope > details > summary'));
+    const input = doc.getElementById('policy-SCREEN:main:READ') as HTMLSelectElement;
+    assert.equal(input.value, 'DENY');
+    assert.equal(input.getAttribute('aria-label'), 'All Operations → Screen access → Read');
+    assert.equal(doc.querySelectorAll('[id="policy-SCREEN:main:READ"]').length, 1, 'one control per permission at each breakpoint');
+    const restricted = doc.getElementById('policy-SCREEN:main:WRITE') as HTMLSelectElement;
+    assert.equal(restricted.querySelector<HTMLOptionElement>('option[value="ALLOW"]')!.disabled, true);
+    await text('#policy-module-search', 'driver');
+    await click('Clear module filters');
+    assert.equal((doc.getElementById('policy-SCREEN:main:READ') as HTMLSelectElement).value, 'DENY');
+    await resize(false);
+    assert.ok(doc.querySelector('table'));
+    assert.equal((doc.getElementById('policy-SCREEN:main:READ') as HTMLSelectElement).value, 'DENY');
+    await click('Cancel changes');
+    assert.equal((doc.getElementById('policy-SCREEN:main:READ') as HTMLSelectElement).value, 'ALLOW');
     assert.equal(save.mock.callCount(), 0);
   });
+});
+
+test('compact View remains read-only and Edit entry restores focus on close', async () => {
+  mock.method(api, 'getRolePermissionEditor', async role => policy(role as typeof BUILTIN_ROLES[number]));
+  await mount(React.createElement(RolesPermissions, { users }), async (doc, click) => {
+    await click('View Admin permissions');
+    assert.equal((doc.getElementById('policy-RESOURCE:users:WRITE') as HTMLSelectElement).disabled, true);
+    await click('Close editor');
+    await click('Edit Admin permissions');
+    assert.equal(doc.activeElement?.textContent, 'Admin');
+    assert.equal((doc.getElementById('policy-RESOURCE:users:WRITE') as HTMLSelectElement).disabled, true, 'protected Admin access stays locked in mobile editing');
+    await click('Close editor');
+    assert.equal(doc.activeElement?.getAttribute('aria-label'), 'Edit Admin permissions');
+  }, true);
 });
 
 test('matrix module and scope filters preserve hidden draft changes and the full role save payload', async () => {
@@ -109,15 +161,15 @@ test('matrix module and scope filters preserve hidden draft changes and the full
   mock.method(useAuthStore.getState(), 'refreshPermissions', async () => {});
   const save = mock.method(api, 'saveRolePermissionEditor', async (_role, body) => ({ ...policy('LOGISTICS'), permissions: body.permissions }));
   await mount(React.createElement(PolicyEditor, { role: 'LOGISTICS', users, onClose() {} }), async (doc, click, text, select) => {
-    await select('select[aria-label="SCREEN:main:READ"]', 'DENY');
+    await select('select[id="policy-SCREEN:main:READ"]', 'DENY');
     await text('#policy-module-search', 'SKU');
-    assert.equal(doc.querySelector('select[aria-label="SCREEN:main:READ"]'), null);
-    assert.ok(doc.querySelector('select[aria-label="SCREEN:inventory:READ"]'));
+    assert.equal(doc.querySelector('select[id="policy-SCREEN:main:READ"]'), null);
+    assert.ok(doc.querySelector('select[id="policy-SCREEN:inventory:READ"]'));
     await select('#policy-scope-filter', 'RESOURCE');
-    assert.equal(doc.querySelector('select[aria-label="SCREEN:inventory:READ"]'), null);
-    assert.ok(doc.querySelector('select[aria-label="RESOURCE:skus:READ"]'));
+    assert.equal(doc.querySelector('select[id="policy-SCREEN:inventory:READ"]'), null);
+    assert.ok(doc.querySelector('select[id="policy-RESOURCE:skus:READ"]'));
     await click('Clear module filters');
-    assert.equal(doc.querySelector<HTMLSelectElement>('select[aria-label="SCREEN:main:READ"]')!.value, 'DENY');
+    assert.equal(doc.querySelector<HTMLSelectElement>('select[id="policy-SCREEN:main:READ"]')!.value, 'DENY');
     await click('Save permissions');
     const sent = save.mock.calls[0].arguments[1];
     assert.equal(sent.permissions.length, PERMISSION_CATALOG.length);

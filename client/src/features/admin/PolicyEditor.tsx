@@ -7,7 +7,7 @@ import { ActionDialog } from '@/components/ActionDialog';
 import PermissionsPanel from './PermissionsPanel';
 import PolicyMatrix from './PolicyMatrix';
 import PolicyLoadFailure from './PolicyLoadFailure';
-import { assignedAccountCount, filterRoles, groupPolicyCatalog, policyLabel, selectedPermissionCount, SCOPE_LABELS, type AssignmentFilter, type ScopeFilter } from './policyPresentation';
+import { assignedAccountCount, filterRoles, groupPolicyCatalog, permissionEffectLabel, permissionLabel, permissionMessage, policyLabel, selectedPermissionCount, SCOPE_LABELS, type AssignmentFilter, type ScopeFilter } from './policyPresentation';
 
 export const BUILTIN_ROLES = ['SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'ADMIN', 'DRIVER'] as const;
 type Editor = RolePermissionEditor | UserPermissionEditor;
@@ -27,7 +27,14 @@ export function dependencyIssues(catalog: PolicyCatalogEntry[], draft: PolicyRow
   const requested = { ...policyMap(defaults), ...policyMap(draft) };
   return catalog.filter(p => requested[p.key] === 'ALLOW' && p.action !== 'READ' && (
     requested[`${p.scope}:${p.module}:READ`] !== 'ALLOW' || p.action !== 'WRITE' && requested[`${p.scope}:${p.module}:WRITE`] !== 'ALLOW'
-  )).map(p => `${p.key} requires ${p.action === 'WRITE' ? 'Read' : 'Read and Write'} in this policy.`);
+  )).map(p => `${permissionLabel(p.key)} requires ${p.action === 'WRITE' ? 'Read' : 'Read and Write'} in this policy.`);
+}
+
+function PolicyChanges({ changes }: { changes: ReturnType<typeof policyChanges> }) {
+  return <ul className="space-y-3">{changes.map(change => <li key={change.key} className="break-words">
+    <p>{permissionLabel(change.key)}: {permissionEffectLabel(change.before)} → {permissionEffectLabel(change.after)}</p>
+    <details className="mt-1 text-xs text-slate-500"><summary className={`cursor-pointer rounded ${focus}`}>Technical details</summary><code className="block break-all">{change.key}</code></details>
+  </li>)}</ul>;
 }
 
 export function PolicyEditor({ role, user, users = [], usersAvailable = true, viewOnly = false, onClose }: { role: string; user?: ApiUserAdmin; users?: ApiUserAdmin[]; usersAvailable?: boolean; viewOnly?: boolean; onClose: () => void }) {
@@ -35,6 +42,7 @@ export function PolicyEditor({ role, user, users = [], usersAvailable = true, vi
   const allowNavigation = useRef(false);
   const leaveTrigger = useRef<HTMLElement | null>(null);
   const [leaveIntent, setLeaveIntent] = useState<{ action: () => void } | null>(null);
+  const editorHeading = useRef<HTMLHeadingElement>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [ceiling, setCeiling] = useState<RolePermissionEditor | null>(null);
   const [draft, setDraft] = useState<PolicyRow[]>([]);
@@ -57,6 +65,7 @@ export function PolicyEditor({ role, user, users = [], usersAvailable = true, vi
       leaveTrigger.current = null;
     }
   }, [leaveIntent]);
+  useEffect(() => { editorHeading.current?.focus(); }, [role, user?.id]);
   const read = async () => {
     const policy = await api.getRolePermissionEditor(role);
     const next = user ? await api.getUserPermissionEditor(user.id) : policy;
@@ -146,13 +155,13 @@ export function PolicyEditor({ role, user, users = [], usersAvailable = true, vi
       }} />}
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0"><p className="mb-2 text-xs font-medium text-slate-500">Roles &amp; Permissions <span aria-hidden="true">/</span> {user ? 'Individual account' : 'Role policy'}</p>
-        <h3 className="text-xl font-bold text-slate-900">{user ? user.name : policyLabel(role)}</h3>
+        <h3 ref={editorHeading} tabIndex={-1} className={`text-xl font-bold text-slate-900 ${focus}`}>{user ? user.name : policyLabel(role)}</h3>
         <p className="mt-1 text-sm text-slate-500">{user ? `${user.email} · ${policyLabel(role)} · Individual exceptions` : `Role defaults · ${assigned === null ? 'Account count unavailable' : `${assigned} assigned account${assigned === 1 ? '' : 's'}`}`}</p>
       </div>
-      <div className="flex gap-2">{!editing && canEdit && <button type="button" className={`${button} flex min-h-11 items-center gap-2 bg-blue-700 font-semibold text-white`} disabled={busy} onClick={() => setEditing(true)}><Pencil aria-hidden="true" className="h-4 w-4" />Edit permissions</button>}<button type="button" className={`${button} min-h-11`} onClick={close} disabled={busy}>Close editor</button></div>
+      <div className="flex gap-2">{!editing && canEdit && <button type="button" className={`${button} flex min-h-11 items-center gap-2 bg-blue-700 font-semibold text-white`} disabled={busy} onClick={() => { setEditing(true); editorHeading.current?.focus(); }}><Pencil aria-hidden="true" className="h-4 w-4" />Edit permissions</button>}<button type="button" className={`${button} min-h-11`} onClick={close} disabled={busy}>Close editor</button></div>
     </div>
     {busy && <p role="status">Loading policy…</p>}
-    {error && (loadFailure && !editor ? <PolicyLoadFailure error={loadFailure} busy={busy} onRetry={retryRead} /> : <p role="alert" className="text-red-700">{error}</p>)}
+    {error && (loadFailure && !editor ? <PolicyLoadFailure error={loadFailure} busy={busy} onRetry={retryRead} /> : <p role="alert" className="text-red-700">{permissionMessage(error, editor?.catalog ?? [])}</p>)}
     {notice && <p role="status">{notice}</p>}
     {editor && <>
       <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600"><p><span className={`mr-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${editor.activeMode === 'V1' ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>{editor.activeMode === 'V1' ? 'Active policy' : 'Read-only candidate'}</span>{editor.activeMode === 'LEGACY' ? 'Candidate V1 policy only. Current legacy permissions remain active; editing is unavailable until coordinated activation and migration review.' : !editing ? 'Viewing the saved server policy. Select Edit permissions to make changes.' : 'Changes take effect after saving.'}</p></div>
@@ -166,18 +175,18 @@ export function PolicyEditor({ role, user, users = [], usersAvailable = true, vi
             <label className="text-xs font-semibold text-slate-600" htmlFor="policy-scope-filter">Permission scope<select id="policy-scope-filter" className={`mt-1 block min-h-11 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal ${focus}`} value={scope} onChange={event => setScope(event.target.value as ScopeFilter)}><option value="ALL">All modules</option>{Object.entries(SCOPE_LABELS).map(([value, title]) => <option key={value} value={value}>{title}</option>)}</select></label>
             {(filter || scope !== 'ALL') && <button type="button" className={`${button} min-h-11`} onClick={() => { setFilter(''); setScope('ALL'); }}>Clear module filters</button>}
           </div>
-          <p role="status" className="text-xs text-slate-500">{groups.length} modules shown · Scroll horizontally to see every catalog action. A dash means the action is not defined.</p>
+          <p role="status" className="text-xs text-slate-500">{groups.length} {groups.length === 1 ? 'module' : 'modules'} shown<span className="sm:hidden"> · Expand a module to review its actions.</span><span className="hidden sm:inline"> · Only applicable action columns are shown. Scroll horizontally if needed. A dash means the action is not defined.</span></p>
           <PolicyMatrix catalog={editor.catalog} groups={groups} values={values} roleDefaults={savedUser?.roleDefaults ?? []} savedUser={savedUser} ceilings={new Map(ceiling?.catalog.map(entry => [entry.key, entry.canAllow === true]))} disabled={disabled} individual={!!user} protectedKey={entry => protectedPolicyKey(role, entry)} onChange={change} />
         </div>
       </div>
-      {editing && <div aria-live="polite" className="rounded-xl border border-slate-200 bg-white p-4 text-sm"><strong>Draft change preview ({changes.length})</strong><p className="mt-1 text-slate-500">This lists requested policy changes, not effective access. The server computes effective access after saving.</p>{changes.map(c => <p key={c.key} className="break-words">{c.key}: {c.before} → {c.after}</p>)}{reset && <p>Reset all individual exceptions to Inherit.</p>}</div>}
+      {editing && <div aria-live="polite" className="rounded-xl border border-slate-200 bg-white p-4 text-sm"><strong>Draft change preview ({changes.length})</strong><p className="mt-1 text-slate-500">This lists requested policy changes, not effective access. The server computes effective access after saving.</p><PolicyChanges changes={changes} />{reset && <p>Reset all individual exceptions to Inherit.</p>}</div>}
       {dirty && dependencyErrors.length > 0 && <div role="alert" className="text-sm text-red-700"><p>Resolve these Read/Write dependencies before saving. Additional server restrictions may apply.</p>{dependencyErrors.map(message => <p key={message}>{message}</p>)}</div>}
       {conflict && <div role="alert" className="border border-amber-500 rounded p-3 space-y-2"><p>The policy or account changed. Your draft is preserved. Refresh and review the latest server policy before saving again.</p><button className={button} disabled={busy} onClick={refresh}>Refresh for conflict review</button>{latest && <>
-        <p>Changes on server since this editor opened:</p>{policyChanges(editor.permissions, latest.permissions).map(c => <p key={c.key}>{c.key}: {c.before} → {c.after}</p>)}
+        <p>Changes on server since this editor opened:</p><PolicyChanges changes={policyChanges(editor.permissions, latest.permissions)} />
         {'snapshot' in latest && <>
           <p>Latest account revision: {latest.authorizationRevision}; latest role policy revision: {latest.rolePolicyRevision}. Saved role: {latest.role}; conversion: {latest.conversionStatus}.</p>
-          <p>Role defaults changed:</p>{policyChanges(savedUser?.roleDefaults ?? [], latest.roleDefaults).map(c => <p key={c.key}>{c.key}: {c.before} → {c.after}</p>)}
-          <details><summary className={focus}>Review latest server effective decisions</summary>{Object.values(latest.snapshot.decisions).map(d => <p className="break-words" key={d.key}>{d.key}: {d.allowed ? 'Allowed' : 'Denied'} · {label(d.source)} · {d.reasons.map(label).join(', ')}</p>)}</details>
+          <p>Role defaults changed:</p><PolicyChanges changes={policyChanges(savedUser?.roleDefaults ?? [], latest.roleDefaults)} />
+          <details><summary className={focus}>Review latest server effective decisions</summary>{Object.values(latest.snapshot.decisions).map(d => <p className="break-words" key={d.key}>{permissionLabel(d.key)}: {d.allowed ? 'Allowed' : 'Denied'} · {label(d.source)} · {d.reasons.map(label).join(', ')}</p>)}</details>
         </>}
         {'revision' in latest && <p>Latest role policy revision: {latest.revision}</p>}
         <label className="block"><input className={focus} type="checkbox" checked={reviewed} onChange={e => { setReviewed(e.target.checked); if (e.target.checked) setEditor(latest); }} /> I reviewed the refreshed policy and my preserved draft.</label></>}</div>}
@@ -201,7 +210,13 @@ export default function RolesPermissions({ users, usersLoading = false, usersErr
   const [failure, setFailure] = useState<unknown>(null);
   const [reload, setReload] = useState(0);
   const heading = useRef<HTMLHeadingElement>(null);
-  const returnFocus = useRef<HTMLButtonElement | null>(null);
+  const returnFocus = useRef<string | null>(null);
+  useEffect(() => {
+    if (target || !returnFocus.current) return;
+    const trigger = document.getElementById(returnFocus.current);
+    if (trigger) trigger.focus(); else heading.current?.focus();
+    returnFocus.current = null;
+  }, [target]);
   const usersAvailable = !usersLoading && !usersError;
   const count = (role: string) => assignedAccountCount(users, role, usersAvailable);
   const shown = filterRoles(BUILTIN_ROLES, search, assignment, count);
@@ -221,15 +236,15 @@ export default function RolesPermissions({ users, usersLoading = false, usersErr
     return () => { live = false; };
   }, [reload]);
   const open = (role: string, viewOnly: boolean, trigger: HTMLButtonElement) => {
-    returnFocus.current = trigger; setTarget({ role, viewOnly });
+    returnFocus.current = trigger.id; setTarget({ role, viewOnly });
   };
   const close = () => {
     setTarget(null); setReload(value => value + 1);
-    window.setTimeout(() => { if (returnFocus.current?.isConnected) returnFocus.current.focus(); else heading.current?.focus(); }, 0);
+    if (!returnFocus.current) returnFocus.current = 'roles-permissions-heading';
   };
   return <div className="min-w-0 space-y-5">
     {target?.user && activeMode !== 'V1' ? <PermissionsPanel key={target.user.id} user={target.user} onClose={close} /> : target ? <PolicyEditor key={target.user?.id ?? target.role} {...target} users={users} usersAvailable={usersAvailable} onClose={close} /> : <>
-      <header><p className="mb-2 text-xs font-medium text-slate-500">Admin Panel <span aria-hidden="true">/</span> Access management</p><h2 ref={heading} tabIndex={-1} className="text-2xl font-bold text-slate-900 focus:outline-none">Roles &amp; Permissions</h2><p className="mt-2 text-sm text-slate-500">Review the five built-in roles, their module permissions and individual account exceptions.</p></header>
+      <header><p className="mb-2 text-xs font-medium text-slate-500">Admin Panel <span aria-hidden="true">/</span> Access management</p><h2 id="roles-permissions-heading" ref={heading} tabIndex={-1} className="text-2xl font-bold text-slate-900 focus:outline-none">Roles &amp; Permissions</h2><p className="mt-2 text-sm text-slate-500">Review the five built-in roles, their module permissions and individual account exceptions.</p></header>
       <div className="rounded-xl border border-slate-200 bg-white p-4">
         <div className="flex flex-wrap items-end gap-3">
           <label htmlFor="role-search" className="min-w-44 flex-1 text-xs font-semibold text-slate-600">Search roles<div className="relative mt-1"><Search aria-hidden="true" className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" /><input id="role-search" placeholder="Search by role name" className={`min-h-11 w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm font-normal ${focus}`} value={search} onChange={event => setSearch(event.target.value)} /></div></label>
@@ -248,12 +263,12 @@ export default function RolesPermissions({ users, usersLoading = false, usersErr
             <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 id={`role-${role}`} className="font-bold text-slate-900">{policyLabel(role)}</h3><span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-500">Built-in role</span></div>
               <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500"><span>{policy ? `${selectedPermissionCount(policy.permissions, policy.catalog)} permissions selected` : loading ? 'Loading permissions…' : 'Permission count unavailable'}</span><span className="inline-flex items-center gap-1"><Users aria-hidden="true" className="h-3.5 w-3.5" />{assigned === null ? 'Account count unavailable' : `${assigned} assigned account${assigned === 1 ? '' : 's'}`}</span></p>
             </div>
-            <div className="flex gap-2"><button type="button" aria-label={`View ${policyLabel(role)} permissions`} className={`${button} flex min-h-11 items-center gap-2 bg-white`} onClick={event => open(role, true, event.currentTarget)}><Eye aria-hidden="true" className="h-4 w-4" /><span>View</span></button><button type="button" aria-label={`Edit ${policyLabel(role)} permissions`} disabled={!policy || policy.activeMode !== 'V1'} title={policy?.activeMode === 'LEGACY' ? 'This environment is in read-only candidate mode' : !policy ? 'Load the role policy before editing' : undefined} className={`${button} flex min-h-11 items-center gap-2 bg-blue-700 font-semibold text-white`} onClick={event => open(role, false, event.currentTarget)}><Pencil aria-hidden="true" className="h-4 w-4" /><span>Edit</span></button></div>
+            <div className="flex gap-2"><button type="button" id={`view-role-${role}`} aria-label={`View ${policyLabel(role)} permissions`} className={`${button} flex min-h-11 items-center gap-2 bg-white`} onClick={event => open(role, true, event.currentTarget)}><Eye aria-hidden="true" className="h-4 w-4" /><span>View</span></button><button type="button" id={`edit-role-${role}`} aria-label={`Edit ${policyLabel(role)} permissions`} disabled={!policy || policy.activeMode !== 'V1'} title={policy?.activeMode === 'LEGACY' ? 'This environment is in read-only candidate mode' : !policy ? 'Load the role policy before editing' : undefined} className={`${button} flex min-h-11 items-center gap-2 bg-blue-700 font-semibold text-white`} onClick={event => open(role, false, event.currentTarget)}><Pencil aria-hidden="true" className="h-4 w-4" /><span>Edit</span></button></div>
           </article>;
         })}
         {!shown.length && <div role="status" className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">No roles match these filters. Clear the search or account assignment filter.</div>}
       </div>
-      <div className="rounded-xl border border-slate-200 bg-white p-4"><div className="mb-3 flex items-center gap-2"><SlidersHorizontal aria-hidden="true" className="h-4 w-4 text-blue-700" /><h3 className="font-semibold text-slate-900">Individual account exceptions</h3></div><p className="mb-3 text-sm text-slate-500">View an account’s inherited defaults and explicit Allow or Deny exceptions.</p><label htmlFor="policy-individual-account" className="text-xs font-semibold text-slate-600">Account<select id="policy-individual-account" aria-label="Individual account" disabled={!usersAvailable} className={`mt-1 block min-h-11 w-full max-w-xl rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal ${focus}`} value="" onChange={event => { const user = users.find(candidate => candidate.id === event.target.value); if (user) setTarget({ role: user.role, user, viewOnly: true }); }}><option value="">Choose an account to view permissions</option>{users.map(user => <option key={user.id} value={user.id}>{user.name} ({policyLabel(user.role)})</option>)}</select></label></div>
+      <div className="rounded-xl border border-slate-200 bg-white p-4"><div className="mb-3 flex items-center gap-2"><SlidersHorizontal aria-hidden="true" className="h-4 w-4 text-blue-700" /><h3 className="font-semibold text-slate-900">Individual account exceptions</h3></div><p className="mb-3 text-sm text-slate-500">View an account’s inherited defaults and explicit Allow or Deny exceptions.</p><label htmlFor="policy-individual-account" className="text-xs font-semibold text-slate-600">Account<select id="policy-individual-account" aria-label="Individual account" disabled={!usersAvailable} className={`mt-1 block min-h-11 w-full max-w-xl rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal ${focus}`} value="" onChange={event => { const user = users.find(candidate => candidate.id === event.target.value); if (user) { returnFocus.current = event.currentTarget.id; setTarget({ role: user.role, user, viewOnly: true }); } }}><option value="">Choose an account to view permissions</option>{users.map(user => <option key={user.id} value={user.id}>{user.name} ({policyLabel(user.role)})</option>)}</select></label></div>
     </>}
   </div>;
 }

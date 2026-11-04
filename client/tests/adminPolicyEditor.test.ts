@@ -40,7 +40,7 @@ async function mounted(run: (doc: Document, select: (key: string, value: string)
     assert.ok(button, text); await act(async () => button.click());
   };
   const select = async (key: string, value: string) => {
-    const input = doc.querySelector<HTMLSelectElement>(`select[aria-label="${key}"]`)!;
+    const input = doc.querySelector<HTMLSelectElement>(`select[id="policy-${key}"]`)!;
     assert.ok(input); await act(async () => { input.value = value; input.dispatchEvent(new dom.window.Event('change', { bubbles: true })); });
   };
   try {
@@ -77,12 +77,12 @@ test('409 retains draft and blocks resubmission until refreshed policy is explic
   const saves = mock.method(api, 'saveUserPermissionEditor', async (_id, body) => { if (body.expectedVersion === 'old-version') throw new ApiError('Changed', 409); return { ...userEditor(), permissions: body.permissions }; });
   await mounted(async (doc, select, click) => {
     await select('SCREEN:main:READ', 'DENY'); await click('Save permissions');
-    assert.equal(doc.querySelector<HTMLSelectElement>('select[aria-label="SCREEN:main:READ"]')!.value, 'DENY');
+    assert.equal(doc.querySelector<HTMLSelectElement>('select[id="policy-SCREEN:main:READ"]')!.value, 'DENY');
     const saveButton = () => [...doc.querySelectorAll('button')].find(b => b.textContent === 'Save permissions')!;
     assert.equal(saveButton().disabled, true);
     await click('Refresh for conflict review'); assert.equal(saveButton().disabled, true);
     assert.match(doc.body.textContent!, /latest role policy revision: 9/);
-    assert.match(doc.body.textContent!, /SCREEN:main:READ: ALLOW → DENY/);
+    assert.match(doc.body.textContent!, /All Operations → Screen access → Read: Allow → Deny/);
     assert.match(doc.body.textContent!, /Review latest server effective decisions/);
     await act(async () => doc.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
     assert.equal(saveButton().disabled, false); await click('Save permissions');
@@ -101,15 +101,15 @@ test('reset requires confirmation then a versioned save; cancel never writes', a
 test('server ceilings forbid Allow but permit harmless Deny, protected Admin controls are locked, LEGACY is read-only', async () => {
   setup();
   await mounted(async doc => {
-    const restricted = doc.querySelector<HTMLSelectElement>('select[aria-label="SCREEN:admin:READ"]')!;
+    const restricted = doc.querySelector<HTMLSelectElement>('select[id="policy-SCREEN:admin:READ"]')!;
     assert.equal(restricted.disabled, false); assert.equal(restricted.querySelector<HTMLOptionElement>('option[value="ALLOW"]')!.disabled, true);
     assert.equal(restricted.querySelector<HTMLOptionElement>('option[value="DENY"]')!.disabled, false);
   });
   mock.method(api, 'getRolePermissionEditor', async () => roleEditor('ADMIN'));
-  await mounted(async doc => assert.equal(doc.querySelector<HTMLSelectElement>('select[aria-label="RESOURCE:users:WRITE"]')!.disabled, true), 'ADMIN', false);
+  await mounted(async doc => assert.equal(doc.querySelector<HTMLSelectElement>('select[id="policy-RESOURCE:users:WRITE"]')!.disabled, true), 'ADMIN', false);
   mock.method(api, 'getRolePermissionEditor', async () => ({ ...roleEditor(), activeMode: 'LEGACY' }));
   mock.method(api, 'getUserPermissionEditor', async () => ({ ...userEditor(), activeMode: 'LEGACY' }));
-  await mounted(async doc => { assert.match(doc.body.textContent!, /Candidate V1 policy only/); assert.equal(doc.querySelector<HTMLSelectElement>('select[aria-label="SCREEN:main:READ"]')!.disabled, true); });
+  await mounted(async doc => { assert.match(doc.body.textContent!, /Candidate V1 policy only/); assert.equal(doc.querySelector<HTMLSelectElement>('select[id="policy-SCREEN:main:READ"]')!.disabled, true); });
 });
 test('unsaved navigation offers Stay and Discard and replays only the confirmed action', async () => {
   setup();
@@ -124,7 +124,7 @@ test('unsaved navigation offers Stay and Discard and replays only the confirmed 
     assert.match(doc.querySelector('dialog[open]')!.textContent!, /Discard unsaved permission changes/);
     await click('Stay');
     assert.equal(doc.querySelector('dialog[open]'), null);
-    assert.equal(doc.querySelector<HTMLSelectElement>('select[aria-label="SCREEN:main:READ"]')!.value, 'DENY');
+    assert.equal(doc.querySelector<HTMLSelectElement>('select[id="policy-SCREEN:main:READ"]')!.value, 'DENY');
     const event = new window.Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); assert.equal(event.defaultPrevented, true);
     await act(async () => doc.getElementById('leave')!.click());
     await act(async () => doc.querySelector('dialog[open]')!.dispatchEvent(new window.Event('cancel', { cancelable: true })));
@@ -140,7 +140,7 @@ test('unsaved navigation offers Stay and Discard and replays only the confirmed 
     assert.equal(resets.mock.callCount(), 0);
   });
   const rows = [{ permissionKey: 'SCREEN:customers:WRITE', effect: 'ALLOW' as const }];
-  assert.equal(dependencyIssues(roleEditor().catalog, rows).length, 1); assert.equal(rows.length, 1);
+  assert.deepEqual(dependencyIssues(roleEditor().catalog, rows), ['Customers → Screen access → Write requires Read in this policy.']); assert.equal(rows.length, 1);
 });
 test('dirty account Close keeps the draft on Stay and discards without saving; reopening uses saved exceptions', async () => {
   setup();
@@ -154,11 +154,11 @@ test('dirty account Close keeps the draft on Stay and discards without saving; r
     await click('Close editor'); assert.equal(closes, 0);
     await click('Stay'); assert.equal(closes, 0);
     assert.equal(doc.activeElement?.textContent, 'Close editor');
-    assert.equal(doc.querySelector<HTMLSelectElement>('select[aria-label="SCREEN:main:READ"]')!.value, 'DENY');
+    assert.equal(doc.querySelector<HTMLSelectElement>('select[id="policy-SCREEN:main:READ"]')!.value, 'DENY');
     await click('Close editor'); await click('Discard changes'); assert.equal(closes, 1);
   }, user.role, true, () => { closes++; });
   await mounted(async (doc, _select, click) => {
-    assert.equal(doc.querySelector<HTMLSelectElement>('select[aria-label="SCREEN:main:READ"]')!.value, 'INHERIT');
+    assert.equal(doc.querySelector<HTMLSelectElement>('select[id="policy-SCREEN:main:READ"]')!.value, 'INHERIT');
     assert.match(doc.body.textContent!, /0 individual exceptions/);
     await click('Close editor'); assert.equal(closes, 2);
     assert.equal(doc.querySelector('dialog[open]'), null);
