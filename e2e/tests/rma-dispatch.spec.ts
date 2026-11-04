@@ -18,7 +18,7 @@ const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXM
 
 async function session(browser: Browser, user: number): Promise<Session> {
   const context = await browser.newContext({ baseURL: 'http://localhost:3000' });
-  const response = await context.request.post('/api/auth/login', {
+  const response = await context.request.post('/api/v1/auth/login', {
     data: { email: `sc255-${user}@example.test`, password: 'sc255-test-password' },
   });
   expect(response.status(), 'local fixture login').toBe(200);
@@ -33,11 +33,11 @@ async function saved(response: APIResponse | Response, expected = 200): Promise<
 }
 
 async function read(s: Session, id: string): Promise<Rma> {
-  return saved(await s.context.request.get(`/api/records/${id}`));
+  return saved(await s.context.request.get(`/api/v1/records/${id}`));
 }
 
 async function create(s: Session, movement: string, draft = false): Promise<Rma> {
-  return saved(await s.context.request.post('/api/records', {
+  return saved(await s.context.request.post('/api/v1/records', {
     headers: s.headers,
     data: {
       company_id: 'sc255-company', category: 'RMA', priority: '2 - Moderate',
@@ -51,7 +51,7 @@ async function create(s: Session, movement: string, draft = false): Promise<Rma>
 }
 
 async function action(s: Session, id: string, path: string, data: Record<string, unknown>, method = 'PATCH') {
-  return s.context.request.fetch(`/api/records/${id}/${path}`, { method, headers: s.headers, data });
+  return s.context.request.fetch(`/api/v1/records/${id}/${path}`, { method, headers: s.headers, data });
 }
 
 const transport = (page: Page) => page.getByRole('region', { name: 'RMA transport', exact: true });
@@ -81,7 +81,7 @@ test('three online sessions synchronize submission, reassignment, transport/POD 
       driver.page.goto('/driver_dashboard'),
     ]);
     await expect(logistics.page.getByRole('article').filter({ hasText: draft.rma_reference })).toHaveCount(0);
-    expect([403, 404]).toContain((await driver.context.request.get(`/api/records/${draft.id}`)).status());
+    expect([403, 404]).toContain((await driver.context.request.get(`/api/v1/records/${draft.id}`)).status());
     const draftAssignment = await action(logistics, draft.id, 'rma-assignment', {
       driver_id: 'sc255-driver-3', expected_version: draft.rma_version, remarks: 'Reject draft dispatch',
     });
@@ -118,8 +118,8 @@ test('three online sessions synchronize submission, reassignment, transport/POD 
     }));
     since = Date.now();
     await propagated('reassignment removes old Driver task', since, () => expect(driver.page.getByRole('heading', { name: `${draft.rma_reference} · RMA Dispatch Test Company`, exact: true })).toHaveCount(0), observations);
-    expect([403, 404]).toContain((await driver.context.request.get(`/api/records/${draft.id}`)).status());
-    expect((await otherDriver.context.request.get(`/api/records/${draft.id}`)).status()).toBe(200);
+    expect([403, 404]).toContain((await driver.context.request.get(`/api/v1/records/${draft.id}`)).status());
+    expect((await otherDriver.context.request.get(`/api/v1/records/${draft.id}`)).status()).toBe(200);
     current = await saved(await action(logistics, draft.id, 'rma-assignment', {
       driver_id: 'sc255-driver-3', expected_version: current.rma_version, remarks: 'Return assignment for transport verification',
     }));
@@ -196,15 +196,15 @@ test('supplier/internal no-driver movements retain view access without dispatch,
       const record = await create(tass, method);
       expect(record.driver_id).toBeNull();
       expect(record.rma_transport_status).toBeNull();
-      expect((await logistics.context.request.get(`/api/records/${record.id}`)).status()).toBe(200);
-      expect([403, 404]).toContain((await driver.context.request.get(`/api/records/${record.id}`)).status());
-      const capabilityResponse = await logistics.context.request.get(`/api/records/${record.id}/rma-capabilities`);
+      expect((await logistics.context.request.get(`/api/v1/records/${record.id}`)).status()).toBe(200);
+      expect([403, 404]).toContain((await driver.context.request.get(`/api/v1/records/${record.id}`)).status());
+      const capabilityResponse = await logistics.context.request.get(`/api/v1/records/${record.id}/rma-capabilities`);
       expect(capabilityResponse.ok()).toBeTruthy();
       expect((await capabilityResponse.json()).assign).toBe(false);
       expect((await action(logistics, record.id, 'rma-assignment', {
         driver_id: 'sc255-driver-3', expected_version: record.rma_version, remarks: 'Non-transport assignment denied',
       })).status()).toBeGreaterThanOrEqual(400);
-      const notices = await (await logistics.context.request.get('/api/notifications')).json();
+      const notices = await (await logistics.context.request.get('/api/v1/notifications')).json();
       expect(notices.some((n: { record_id: string }) => n.record_id === record.id)).toBe(false);
       await expect(logistics.page.getByRole('article').filter({ hasText: record.rma_reference })).toHaveCount(0);
       const receipt = await saved(await action(tass, record.id, 'rma-receipt', {
@@ -238,7 +238,7 @@ test('concurrent assignments commit once and retain one attributed audit change'
     expect(committed.rma_version).toBe(record.rma_version + 1);
     const winner = await attempts.find(response => response.status() === 200)!.json() as Rma;
     expect(committed.driver_id).toBe(winner.driver_id);
-    const audit = await logistics.context.request.get(`/api/records/${record.id}/audit`);
+    const audit = await logistics.context.request.get(`/api/v1/records/${record.id}/audit`);
     expect(audit.ok()).toBeTruthy();
     const entries = await audit.json() as { action: string; changed_by: string; new_value: Record<string, unknown> | string }[];
     const assignments = entries.filter(entry => entry.new_value &&

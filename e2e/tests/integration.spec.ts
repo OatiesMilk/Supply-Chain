@@ -21,20 +21,20 @@ const CREDS = {
 type ApiRecord = { id: string; edit_version: string; reference: string; category: string; status: string; is_draft: string; driver: string; delivery_date: string; time_in?: string | null };
 
 async function getRecords(context: BrowserContext): Promise<ApiRecord[]> {
-  const response = await context.request.get(`${BASE_URL}/api/records`);
+  const response = await context.request.get(`${BASE_URL}/api/v1/records`);
   expect(response.ok(), 'records API should be available to the logged-in role').toBeTruthy();
   return await response.json() as ApiRecord[];
 }
 
 async function getNotifications(context: BrowserContext) {
-  const response = await context.request.get(`${BASE_URL}/api/notifications`);
+  const response = await context.request.get(`${BASE_URL}/api/v1/notifications`);
   expect(response.ok(), 'notifications API should be available to the logged-in role').toBeTruthy();
   return await response.json() as { record_id: string | null; title: string; message: string }[];
 }
 
 // AUD-003: direct API writes must echo the signed-in session's CSRF token.
 async function csrfHeaders(context: BrowserContext) {
-  const session = await context.request.get(`${BASE_URL}/api/auth/me`);
+  const session = await context.request.get(`${BASE_URL}/api/v1/auth/me`);
   expect(session.ok(), 'the session should be available to read its CSRF token').toBeTruthy();
   return { 'X-CSRF-Token': session.headers()['x-csrf-token'] };
 }
@@ -99,7 +99,7 @@ test.describe('X Cross-Role Integration', () => {
       // The list's date filters are hidden while the create form is open.
       await expect(salesPage.getByRole('button', { name: /^Delivery dates / })).toBeHidden();
       const createResponsePromise = salesPage.waitForResponse(response =>
-        new URL(response.url()).pathname === '/api/records' && response.request().method() === 'POST');
+        new URL(response.url()).pathname === '/api/v1/records' && response.request().method() === 'POST');
       await createForm.getByRole('button', { name: 'Save as Draft', exact: true }).click();
       const createResponse = await createResponsePromise;
       expect(createResponse.status(), 'saving the Draft must finish successfully').toBe(201);
@@ -126,7 +126,7 @@ test.describe('X Cross-Role Integration', () => {
       console.log('TSK-120: Asserting no dispatch tab');
       await expect(salesPage.getByRole('tab', { name: 'Status & Actions', exact: true })).not.toBeVisible();
       console.log('TSK-120: Testing assignment denial');
-      const salesAssignmentAttempt = await salesCtx.request.put(`${BASE_URL}/api/records/${recordId}`, {
+      const salesAssignmentAttempt = await salesCtx.request.put(`${BASE_URL}/api/v1/records/${recordId}`, {
         headers: await csrfHeaders(salesCtx),
         data: { driver: 'John Doe', remarks: 'Sales Coordinator assignment denial check.', expected_edit_version: created!.edit_version },
       });
@@ -146,7 +146,7 @@ test.describe('X Cross-Role Integration', () => {
       const draftDriverSelect = dispatchPanel.locator('select').filter({ has: logisticsPage.locator('option', { hasText: '-- Unassigned --' }) });
       await expect(draftDriverSelect).toBeDisabled();
 
-      const draftAssignmentAttempt = await logisticsCtx.request.put(`${BASE_URL}/api/records/${recordId}`, {
+      const draftAssignmentAttempt = await logisticsCtx.request.put(`${BASE_URL}/api/v1/records/${recordId}`, {
         headers: await csrfHeaders(logisticsCtx),
         data: { driver: 'John Doe', remarks: 'Draft assignment denial check.', expected_edit_version: (await getRecords(logisticsCtx)).find(record => record.id === recordId)!.edit_version },
       });
@@ -157,14 +157,14 @@ test.describe('X Cross-Role Integration', () => {
       const driverPage = await driverCtx.newPage();
       await login(driverPage, CREDS.driver.email, CREDS.driver.password);
       expect((await getRecords(driverCtx)).some(record => record.id === recordId)).toBe(false);
-      const hiddenDraft = await driverCtx.request.get(`${BASE_URL}/api/records/${recordId}`);
+      const hiddenDraft = await driverCtx.request.get(`${BASE_URL}/api/v1/records/${recordId}`);
       expect(hiddenDraft.status()).toBe(403);
 
       console.log('TSK-120: Sales submitting order');
       await salesPage.locator('#submission-change-remarks').fill('Submitting the order for Logistics dispatch.');
       await salesPage.getByRole('button', { name: 'Submit', exact: true }).click();
       console.log('TSK-120: Waiting for Scheduled status via API');
-      await expect.poll(async () => (await (await salesCtx!.request.get(`${BASE_URL}/api/records/${recordId}`)).json()).status, { timeout: 10_000 }).toBe('Scheduled');
+      await expect.poll(async () => (await (await salesCtx!.request.get(`${BASE_URL}/api/v1/records/${recordId}`)).json()).status, { timeout: 10_000 }).toBe('Scheduled');
       const submitted = (await getRecords(salesCtx)).find(record => record.id === recordId);
       expect(submitted?.is_draft).toBe('No');
       expect(submitted?.driver).toBe('');
@@ -198,7 +198,7 @@ test.describe('X Cross-Role Integration', () => {
     } finally {
       if (recordId && salesCtx) {
         try {
-          const cleanup = await salesCtx.request.delete(`${BASE_URL}/api/records/${recordId}`, { headers: await csrfHeaders(salesCtx) });
+          const cleanup = await salesCtx.request.delete(`${BASE_URL}/api/v1/records/${recordId}`, { headers: await csrfHeaders(salesCtx) });
           if (!cleanup.ok() && cleanup.status() !== 404) console.warn(`TSK-120 cleanup returned ${cleanup.status()} for ${recordId}`);
         } catch (error) {
           console.warn(`TSK-120 cleanup failed for ${recordId}:`, error);
@@ -253,7 +253,7 @@ test.describe('X Cross-Role Integration', () => {
       await driverPage.locator('#driver-action-remarks').fill('UAT integration test - starting assigned Delivery');
       await driverPage.getByRole('button', { name: 'Confirm', exact: true }).click();
       await expect(driverCard.getByText(/Transport started:/i)).toBeVisible();
-      const started = await driverCtx.request.get(BASE_URL + '/api/records/' + recordId);
+      const started = await driverCtx.request.get(BASE_URL + '/api/v1/records/' + recordId);
       expect(started.ok()).toBeTruthy();
       const savedTimeIn = (await started.json()).time_in;
       expect(savedTimeIn).toBeTruthy();
@@ -262,7 +262,7 @@ test.describe('X Cross-Role Integration', () => {
       const verifyCtx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
       const verifyPage = await verifyCtx.newPage();
       await login(verifyPage, CREDS.logistics.email, CREDS.logistics.password);
-      const visible = await verifyCtx.request.get(BASE_URL + '/api/records/' + recordId);
+      const visible = await verifyCtx.request.get(BASE_URL + '/api/v1/records/' + recordId);
       expect(visible.ok()).toBeTruthy();
       expect((await visible.json()).time_in).toBe(savedTimeIn);
       await verifyPage.goto(BASE_URL + '/deliveries');

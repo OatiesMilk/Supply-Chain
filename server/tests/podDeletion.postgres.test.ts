@@ -35,12 +35,12 @@ test('PostgreSQL attachment deletion preserves files on rollback and recovers co
   const app = express();
   app.use(express.json(), cookieParser());
   applySecurity(app);
-  app.use('/api/auth', auth);
-  app.use('/api/records', records);
+  app.use('/api/v1/auth', auth);
+  app.use('/api/v1/records', records);
   app.use((_error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => res.status(500).json({ error: 'Injected database failure' }));
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
-  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}/api`;
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}/api/v1`;
   try {
     const login = await fetch(`${base}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: actor.email, password: 'admin123' }) });
     assert.equal(login.status, 200);

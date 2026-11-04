@@ -36,9 +36,9 @@ test('integrated V1 policy saves, client refresh and same-cookie enforcement on 
   const cookies = Object.fromEntries(ids.map(id => [id, `mg_session=${signToken({ id, name: id, email: `${id}@example.test`, role: id === logistics ? 'LOGISTICS' : 'ADMIN' })}`]));
   const app = express();
   app.use(express.json(), cookieParser());
-  app.use('/api', verifyRequestOrigin(), verifyCsrfToken);
-  app.use('/api/auth', authRoutes); app.use('/api/admin', adminRoutes);
-  app.use('/api/users', usersRoutes); app.use('/api/customers', customersRoutes);
+  app.use('/api/v1', verifyRequestOrigin(), verifyCsrfToken);
+  app.use('/api/v1/auth', authRoutes); app.use('/api/v1/admin', adminRoutes);
+  app.use('/api/v1/users', usersRoutes); app.use('/api/v1/customers', customersRoutes);
   app.use((error: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => res.status(error.status ?? 500).json({ error: error.message }));
   const server = app.listen(0, '127.0.0.1');
   await new Promise<void>(resolve => server.once('listening', resolve));
@@ -48,7 +48,7 @@ test('integrated V1 policy saves, client refresh and same-cookie enforcement on 
   let actor = admin;
   let networkCount = 0;
   const send = async (id: string, path: string, method = 'GET', body?: unknown) => {
-    const response = await nativeFetch(`${origin}/api${path}`, { method, headers: {
+    const response = await nativeFetch(`${origin}/api/v1${path}`, { method, headers: {
       Cookie: cookies[id], 'Content-Type': 'application/json', ...(csrf.get(id) ? { 'X-CSRF-Token': csrf.get(id)! } : {}),
     }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     const token = response.headers.get('X-CSRF-Token'); if (token) csrf.set(id, token);

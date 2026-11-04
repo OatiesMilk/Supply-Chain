@@ -145,7 +145,7 @@ test('only an Admin can read the deployment check', async () => {
   app.use(express.json());
   app.use(cookieParser());
   applySecurity(app);
-  app.use('/api/admin', adminRoutes);
+  app.use('/api/v1/admin', adminRoutes);
   const base = await new Promise<string>(resolve => {
     const server = app.listen(0, () => resolve(`http://127.0.0.1:${(server.address() as any).port}`));
     servers.push(server);
@@ -158,11 +158,11 @@ test('only an Admin can read the deployment check', async () => {
   };
 
   try {
-    assert.equal((await fetch(`${base}/api/admin/deployment-status`)).status, 401);
+    assert.equal((await fetch(`${base}/api/v1/admin/deployment-status`)).status, 401);
     for (const role of ['SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'DRIVER']) {
-      assert.equal((await fetch(`${base}/api/admin/deployment-status`, { headers: as(role) })).status, 403, role);
+      assert.equal((await fetch(`${base}/api/v1/admin/deployment-status`, { headers: as(role) })).status, 403, role);
     }
-    const res = await fetch(`${base}/api/admin/deployment-status`, { headers: as('ADMIN') });
+    const res = await fetch(`${base}/api/v1/admin/deployment-status`, { headers: as('ADMIN') });
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.deepEqual(Object.keys(body).sort(), ['database', 'node_env', 'origins', 'proxy', 'session_cookie', 'settings_present', 'storage', 'warnings']);
@@ -177,7 +177,7 @@ test('the Worker refuses to proxy without a configured API target and never forw
     const worker = (await import(pathToFileURL(path.join(__dirname, '..', '..', file)).href)).default;
     const forwarded: Request[] = [];
     globalThis.fetch = (async (input: any) => { forwarded.push(input as Request); return new Response('{}'); }) as typeof fetch;
-    const browserRequest = () => new Request('https://portal.example.com/api/records?page=2', {
+    const browserRequest = () => new Request('https://portal.example.com/api/v1/records?page=2', {
       headers: { 'cf-connecting-ip': '203.0.113.9', 'x-mg-proxy-secret': 'forged', 'x-mg-client-ip': '198.51.100.1' },
     });
 
@@ -191,7 +191,7 @@ test('the Worker refuses to proxy without a configured API target and never forw
     assert.equal(forwarded.length, 0);
 
     await worker.fetch(browserRequest(), { API_BASE_URL: 'https://api.example.com' });
-    assert.equal(forwarded[0].url, 'https://api.example.com/api/records?page=2');
+    assert.equal(forwarded[0].url, 'https://api.example.com/api/v1/records?page=2');
     assert.equal(forwarded[0].headers.get('x-mg-proxy-secret'), null, 'no secret configured: forged headers are dropped');
     assert.equal(forwarded[0].headers.get('x-mg-client-ip'), null);
 
@@ -200,8 +200,23 @@ test('the Worker refuses to proxy without a configured API target and never forw
     assert.equal(forwarded[1].headers.get('x-mg-client-ip'), '203.0.113.9');
 
     // The secret is sent even when Cloudflare supplied no visitor address.
-    await worker.fetch(new Request('https://portal.example.com/api/records', { headers: { 'x-mg-client-ip': '198.51.100.1' } }), { API_BASE_URL: 'https://api.example.com', PROXY_SHARED_SECRET: 'real' });
+    await worker.fetch(new Request('https://portal.example.com/api/v1/records', { headers: { 'x-mg-client-ip': '198.51.100.1' } }), { API_BASE_URL: 'https://api.example.com', PROXY_SHARED_SECRET: 'real' });
     assert.equal(forwarded[2].headers.get('x-mg-proxy-secret'), 'real');
     assert.equal(forwarded[2].headers.get('x-mg-client-ip'), null);
+  }
+});
+
+test('the Worker rejects retired API prefixes without forwarding or serving SPA assets', async () => {
+  for (const file of ['worker.js', 'client/public/_worker.js']) {
+    const worker = (await import(pathToFileURL(path.join(__dirname, '..', '..', file)).href)).default;
+    globalThis.fetch = (async () => { assert.fail('Retired routes must not reach the API'); }) as typeof fetch;
+    for (const prefix of ['/api', '/api/v2', '/api/v10', '/API']) {
+      const response = await worker.fetch(new Request(`https://portal.example.com${prefix}/records`), {
+        API_BASE_URL: 'https://api.example.com',
+        ASSETS: { fetch() { assert.fail('API misses must not serve frontend assets'); } },
+      });
+      assert.equal(response.status, 404, `${file}: ${prefix}`);
+      assert.match(response.headers.get('content-type') ?? '', /application\/json/);
+    }
   }
 });

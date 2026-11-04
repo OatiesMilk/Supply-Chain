@@ -10,7 +10,7 @@ export function requestServerCheck() {
 }
 
 export async function checkServerHealth(signal: AbortSignal): Promise<boolean> {
-  const response = await fetch(`${API_BASE}/api/health`, {
+  const response = await fetch(`${API_BASE}/api/v1/health`, {
     credentials: 'include',
     cache: 'no-store',
     signal,

@@ -21,7 +21,7 @@ test('TS-001: create, assign, Time In, upload and complete through UI; inspect r
     await form.getByRole('option', { name: company.name, exact: true }).click();
     await form.getByPlaceholder('e.g., SAP-88231').fill(reference);
     await form.locator('input[type="date"]').fill(manilaToday());
-    const createdPromise = sales.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/records');
+    const createdPromise = sales.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v1/records');
     await form.getByRole('button', { name: 'Submit', exact: true }).click();
     const created = await createdPromise;
     assert.equal(created.status(), 201);

@@ -65,7 +65,7 @@ export function verifyRequestOrigin(origins: Set<string> = trustedOrigins()) {
 // required. The origin check above still applies to them.
 const TOKEN_EXEMPT_PATHS = new Set(['/auth/login', '/auth/logout', '/auth/microsoft']);
 
-// Mount under /api: paths are compared relative to that prefix.
+// Mount under /api/v1: paths are compared relative to that prefix.
 export function verifyCsrfToken(req: Request, res: Response, next: NextFunction) {
   if (!UNSAFE_METHODS.has(req.method) || TOKEN_EXEMPT_PATHS.has(req.path)) return next();
   const session = readSession(req);

@@ -58,7 +58,7 @@ test('permission management routes enforce cookies, ADMIN, version negotiation a
   const originalTransaction = prisma.$transaction;
   const app = express();
   app.use(express.json(), cookieParser());
-  app.use('/api/admin', adminRoutes); app.use('/api/users', usersRoutes);
+  app.use('/api/v1/admin', adminRoutes); app.use('/api/v1/users', usersRoutes);
   app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => { res.status(500).json({ error: error.message }); });
   const server = app.listen(0, '127.0.0.1');
   await new Promise<void>(resolve => server.on('listening', resolve));
@@ -84,7 +84,7 @@ test('permission management routes enforce cookies, ADMIN, version negotiation a
   try {
     delete process.env.PERMISSION_MODE;
     assert.equal(permissionMode(), 'LEGACY');
-    for (const path of ['/api/admin/roles/LOGISTICS/permissions', '/api/users/target/permissions?contractVersion=1']) {
+    for (const path of ['/api/v1/admin/roles/LOGISTICS/permissions', '/api/v1/users/target/permissions?contractVersion=1']) {
       assert.equal((await send(path, 'GET', undefined, null)).status, 401);
       assert.equal((await send(path, 'GET', undefined, 'sales')).status, 403);
       const result = await send(path);
@@ -94,19 +94,19 @@ test('permission management routes enforce cookies, ADMIN, version negotiation a
       assert.match(payload.expectedVersion, /^v1:/);
       assert.doesNotMatch(JSON.stringify(payload), /never serialize/);
     }
-    assert.equal((await send('/api/admin/roles/unknown/permissions')).status, 400);
-    assert.equal((await send('/api/users/target/permissions?contractVersion=2')).status, 400);
-    assert.equal((await send('/api/admin/roles/LOGISTICS/permissions', 'PUT', body([]))).status, 503);
-    assert.equal((await send('/api/users/target/permissions', 'PUT', body([]))).status, 503);
-    assert.equal((await send('/api/users/target/permissions/reset', 'POST', { contractVersion: 1, catalogVersion: 1, expectedVersion: version })).status, 503);
-    assert.equal((await send('/api/users/target', 'PATCH', { name: 'Changed', contractVersion: 1, expectedVersion: version })).status, 503);
+    assert.equal((await send('/api/v1/admin/roles/unknown/permissions')).status, 400);
+    assert.equal((await send('/api/v1/users/target/permissions?contractVersion=2')).status, 400);
+    assert.equal((await send('/api/v1/admin/roles/LOGISTICS/permissions', 'PUT', body([]))).status, 503);
+    assert.equal((await send('/api/v1/users/target/permissions', 'PUT', body([]))).status, 503);
+    assert.equal((await send('/api/v1/users/target/permissions/reset', 'POST', { contractVersion: 1, catalogVersion: 1, expectedVersion: version })).status, 503);
+    assert.equal((await send('/api/v1/users/target', 'PATCH', { name: 'Changed', contractVersion: 1, expectedVersion: version })).status, 503);
     const beforeInvalid = transactions;
-    assert.equal((await send('/api/users', 'POST', { name: {}, email: 'bad', password: 42, role: 'DRIVER' })).status, 400);
+    assert.equal((await send('/api/v1/users', 'POST', { name: {}, email: 'bad', password: 42, role: 'DRIVER' })).status, 400);
     assert.equal(transactions, beforeInvalid, 'malformed create never enters a transaction');
     process.env.PERMISSION_MODE = 'V1';
-    assert.equal((await send('/api/users/target/permissions', 'PUT', { permissions: [], expectedVersion: 'legacy' })).status, 400);
+    assert.equal((await send('/api/v1/users/target/permissions', 'PUT', { permissions: [], expectedVersion: 'legacy' })).status, 400);
     currentRole = 'LOGISTICS';
-    assert.equal((await send('/api/admin/roles/LOGISTICS/permissions')).status, 403);
+    assert.equal((await send('/api/v1/admin/roles/LOGISTICS/permissions')).status, 403);
     process.env.PERMISSION_MODE = 'typo';
     assert.throws(() => permissionMode(), status(503));
   } finally {

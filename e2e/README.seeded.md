@@ -19,12 +19,12 @@ Run from the repository root:
 ```bash
 npm run test:seeded:list --prefix e2e
 npm run typecheck:seeded --prefix e2e
-SEEDED_E2E_TARGET=local BASE_URL=http://localhost:3000 API_BASE_URL=http://localhost:3000/api npm run test:seeded --prefix e2e
+SEEDED_E2E_TARGET=local BASE_URL=http://localhost:3000 API_BASE_URL=http://localhost:3000/api/v1 npm run test:seeded --prefix e2e
 ```
 
 `BASE_URL` defaults to `http://localhost:3000` and must be an origin without a
-path. `API_BASE_URL` defaults to that origin plus `/api`; the Vite proxy supplies
-the backend. A direct backend such as `http://localhost:4000/api` is supported.
+path. `API_BASE_URL` defaults to that origin plus `/api/v1`; the Vite proxy supplies
+the backend. A direct backend such as `http://localhost:4000/api/v1` is supported.
 Both URLs must be loopback HTTP(S), have the same hostname for cookie sharing,
 and contain no credentials, query or fragment. Do not mix `localhost` and
 `127.0.0.1`. `SEEDED_E2E_TARGET=local` confirms that you prepared the intended
@@ -67,7 +67,7 @@ requests occur in its dependent specs. These suites remain separate deliberately
 | TASS handoffs | Dashboard opens RMA list; collection view loads; record reads remain RMA/collection scoped. |
 | TASS detail review | Available seeded RMA/collection tabs open without completing, receiving, verifying or editing records. Missing category fixtures produce explicit skips. |
 
-The browser request guard aborts unexpected non-read `/api` calls except
+The browser request guard aborts unexpected non-read `/api/v1` calls except
 `/auth/login` and `/auth/logout`. Playwright `page.request` calls bypass browser
 routing; the suite's direct API calls are GET plus the explicit authentication
 POST. Do not add business mutation API helpers to this suite. Authentication may

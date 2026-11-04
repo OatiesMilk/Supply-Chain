@@ -180,7 +180,7 @@ test('a stale CSRF retry cannot send a write after permissions change', async ()
   let calls = 0;
   mock.method(globalThis, 'fetch', async (url: string) => {
     calls++;
-    if (url === '/api/auth/me') {
+    if (url === '/api/v1/auth/me') {
       useAuthStore.getState().setAuthUser(null);
       return Response.json(user);
     }

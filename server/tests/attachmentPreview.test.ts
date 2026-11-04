@@ -154,6 +154,10 @@ test('preview_url is set for PDF, DOCX, XLSX and verified image types, but not l
   });
 
   assert.equal(result.status, 200);
+  for (const attachment of result.body) {
+    assert.ok(attachment.download_url.startsWith('/api/v1/records/'));
+    if (attachment.preview_url) assert.ok(attachment.preview_url.startsWith('/api/v1/records/'));
+  }
   const byId = Object.fromEntries((result.body as any[]).map(a => [a.id, a]));
   assert.match(byId['att-pdf'].preview_url, /\/preview$/);
   assert.match(byId['att-docx'].preview_url, /\/preview$/);

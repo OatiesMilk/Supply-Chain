@@ -181,12 +181,12 @@ test('denied Driver lookup retains the authorized User Management list', async (
   const calls: string[] = [];
   mock.method(globalThis, 'fetch', async url => {
     calls.push(String(url));
-    assert.equal(String(url), '/api/users');
+    assert.equal(String(url), '/api/v1/users');
     return Response.json([target]);
   });
   await mounted(async ({ doc }) => {
     assert.match(doc.body.textContent!, /Target User/);
-    assert.deepEqual(calls, ['/api/users']);
+    assert.deepEqual(calls, ['/api/v1/users']);
     assert.doesNotMatch(doc.body.textContent!, /Failed to load users/);
   });
 });

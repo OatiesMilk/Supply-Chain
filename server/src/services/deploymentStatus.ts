@@ -5,7 +5,7 @@ import { clientAddress, proxySecretRequired, trustedProxyHops } from '../middlew
 import { podStorageStatus, type PodStorageStatus } from './podStorage';
 
 // What the running process is actually connected to, for the Admin deployment
-// check. A healthy /api/health proves the service works, not that it points at
+// check. A healthy /api/v1/health proves the service works, not that it points at
 // the intended database, file store or frontend. Everything returned here is an
 // identity (host, name, origin) or a yes/no flag: no credential, connection
 // string, user name or secret value ever leaves this module.

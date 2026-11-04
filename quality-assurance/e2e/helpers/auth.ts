@@ -38,8 +38,8 @@ export async function apiRequest(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DEL
   }
   const base = apiBase();
   const url = new URL(base + endpoint);
-  if (url.origin !== new URL(base).origin || !url.pathname.startsWith('/api/')) throw new Error('API path escaped QA target');
-  if (method !== 'GET' && url.pathname !== '/api/auth/login') assertWriteTarget();
+  if (url.origin !== new URL(base).origin || !url.pathname.startsWith('/api/v1/')) throw new Error('API path escaped QA target');
+  if (method !== 'GET' && url.pathname !== '/api/v1/auth/login') assertWriteTarget();
   const headers: Record<string, string> = {};
   if (body !== undefined && !(body instanceof FormData)) headers['Content-Type'] = 'application/json';
   if (session?.cookie) headers.Cookie = session.cookie;
@@ -52,7 +52,7 @@ export async function apiRequest(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DEL
     const text = await res.text();
     const data = res.headers.get('content-type')?.includes('application/json') ? JSON.parse(text) : text;
     // Login responses may contain session metadata. Never retain authentication responses.
-    if (!url.pathname.startsWith('/api/auth/')) evidence(name, { test: testName, method, endpoint, status: res.status, body: data });
+    if (!url.pathname.startsWith('/api/v1/auth/')) evidence(name, { test: testName, method, endpoint, status: res.status, body: data });
     return { status: res.status, headers: res.headers, data };
   } catch (error) {
     evidence(name, { test: testName, method, endpoint, error: error instanceof Error ? error.name : 'RequestError' });

@@ -73,7 +73,7 @@ router.post('/microsoft', asyncRoute(async (_req: Request, res: Response) => {
     },
   });
 
-  const redirectUri = `${cfg.appUrl}/api/auth/microsoft/callback`;
+  const redirectUri = `${cfg.appUrl}/api/v1/auth/microsoft/callback`;
 
   try {
     const state = createSsoState();
@@ -90,7 +90,7 @@ router.post('/microsoft', asyncRoute(async (_req: Request, res: Response) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      path: '/api/auth/microsoft/callback',
+      path: '/api/v1/auth/microsoft/callback',
       maxAge: SSO_STATE_MAX_AGE_MS,
     });
     res.setHeader('Cache-Control', 'no-store');
@@ -115,7 +115,7 @@ router.get('/microsoft/callback', asyncRoute(async (req: Request, res: Response)
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    path: '/api/auth/microsoft/callback',
+    path: '/api/v1/auth/microsoft/callback',
   });
   res.setHeader('Cache-Control', 'no-store');
   if (!validateSsoState(req.query.state, expectedState)) {
@@ -144,7 +144,7 @@ router.get('/microsoft/callback', asyncRoute(async (req: Request, res: Response)
     },
   });
 
-  const redirectUri = `${cfg.appUrl}/api/auth/microsoft/callback`;
+  const redirectUri = `${cfg.appUrl}/api/v1/auth/microsoft/callback`;
 
   let stage: SsoStage = 'token_exchange';
   try {

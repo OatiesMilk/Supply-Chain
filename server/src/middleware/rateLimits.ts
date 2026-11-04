@@ -22,7 +22,7 @@ export const RATE_LIMITS = {
 };
 export type RateLimitSettings = typeof RATE_LIMITS;
 
-// Headers the Cloudflare Worker sets when it proxies /api (see worker.js).
+// Headers the Cloudflare Worker sets when it proxies /api/v1 (see worker.js).
 export const PROXY_SECRET_HEADER = 'x-mg-proxy-secret';
 export const PROXY_CLIENT_IP_HEADER = 'x-mg-client-ip';
 

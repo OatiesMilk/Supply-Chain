@@ -1,3 +1,5 @@
+> API URL migration: all current endpoints use `/api/v1`; `/api` has no compatibility alias. See the [cutover requirements](API_V1_MIGRATION.md), including the Microsoft redirect URI update.
+
 # Getting Started
 
 > Last verified: 2026-10-09 against commit `ccbf192` (`dev`).
@@ -117,7 +119,7 @@ database rather than accepting an automatic reset.
 
 ### Secure local seed and reset policy (TSK-122)
 
-Anonymous `POST /api/dev/public-seed` and `POST /api/dev/public-seed-uat`
+Anonymous `POST /api/v1/dev/public-seed` and `POST /api/v1/dev/public-seed-uat`
 endpoints do not exist. Destructive seed/reset operations are always denied in
 staging, production, CI and recognized cloud deployments.
 
@@ -178,9 +180,9 @@ npm run dev
 
 This starts both workspaces:
 
-- Frontend: <http://localhost:3000> (Vite proxies `/api/*` to port 4000)
+- Frontend: <http://localhost:3000> (Vite proxies `/api/v1/*` to port 4000)
 - Backend API: <http://localhost:4000>
-- Health check: <http://localhost:4000/api/health>
+- Health check: <http://localhost:4000/api/v1/health>
 
 To run them separately, use `npm run dev --workspace=server` and
 `npm run dev --workspace=client` in two terminals.
@@ -275,7 +277,7 @@ See the [Cloudflare deployment guide](./CLOUDFLARE_DEPLOYMENT.md).
 ### Frontend cannot reach the backend
 
 Make sure the backend is running on port `4000` and open
-<http://localhost:4000/api/health>. Check the backend terminal for errors.
+<http://localhost:4000/api/v1/health>. Check the backend terminal for errors.
 
 ### Port already in use
 

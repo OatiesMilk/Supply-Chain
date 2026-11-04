@@ -32,7 +32,7 @@ test('every Data Sampler endpoint is 404 in staging/production before auth or da
   prisma.$transaction = transaction as any;
   const app = express();
   app.use(express.json(), cookieParser());
-  app.use('/api/data-sampler', dataSampler);
+  app.use('/api/v1/data-sampler', dataSampler);
   const server = app.listen(0, '127.0.0.1');
   await new Promise<void>(resolve => server.once('listening', resolve));
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
@@ -50,7 +50,7 @@ test('every Data Sampler endpoint is 404 in staging/production before auth or da
           ['/counts', 'GET', undefined], ['/generate', 'POST', { module: 'deliveries', count: 1 }],
           ['/reset', 'POST', { mode: 'seed' }], ['/reset', 'POST', { mode: 'full' }],
         ] as const) {
-          const response = await fetch(base + '/api/data-sampler' + path, {
+          const response = await fetch(base + '/api/v1/data-sampler' + path, {
             method, headers: { 'Content-Type': 'application/json', ...(authenticated ? { Cookie: cookie } : {}) },
             body: body && JSON.stringify(body),
           });

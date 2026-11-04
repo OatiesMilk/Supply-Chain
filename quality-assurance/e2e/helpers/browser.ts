@@ -21,7 +21,7 @@ export async function browserLogin(page: Page, role: RoleKey | 'microsoft') {
     await page.getByRole('button', { name: /sign in with microsoft/i }).click();
     // The user completes Microsoft password, consent and MFA in the headed browser.
     console.log('Complete Microsoft sign-in in the QA browser window.');
-    await page.waitForURL(url => url.origin === WEB_BASE && !url.pathname.startsWith('/api/') && (url.pathname !== '/login' || !!ssoError), { timeout: 600000 }).catch(() => {
+    await page.waitForURL(url => url.origin === WEB_BASE && !url.pathname.startsWith('/api/v1/') && (url.pathname !== '/login' || !!ssoError), { timeout: 600000 }).catch(() => {
       throw new Error('Microsoft sign-in did not return to the local portal within ten minutes. Complete password and MFA in the QA browser.');
     });
     if (ssoError) {
@@ -31,7 +31,7 @@ export async function browserLogin(page: Page, role: RoleKey | 'microsoft') {
     let identity: { email?: string; role?: string; status: number } = { status: 0 };
     await expect.poll(async () => {
       identity = await page.evaluate(async () => {
-        const response = await fetch('/api/auth/me');
+        const response = await fetch('/api/v1/auth/me');
         if (!response.ok) return { status: response.status };
         const user = await response.json();
         return { status: response.status, email: user.email, role: user.role };

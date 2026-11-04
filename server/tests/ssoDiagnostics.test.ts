@@ -39,16 +39,16 @@ test('AADSTS extraction deduplicates and bounds the number of codes', () => {
 });
 
 test('access logger strips every callback query parameter including case and trailing slash variants', () => {
-  for (const path of ['/api/auth/microsoft/callback', '/API/AUTH/MICROSOFT/CALLBACK', '/api/auth/microsoft/callback/']) {
+  for (const path of ['/api/v1/auth/microsoft/callback', '/API/AUTH/MICROSOFT/CALLBACK', '/api/v1/auth/microsoft/callback/']) {
     assert.equal(safeAccessLogUrl(path + '?code=PRIVATE_CODE&state=PRIVATE_STATE&client_info=PRIVATE_ACCOUNT&error_description=PRIVATE', false), path);
     assert.equal(safeAccessLogUrl(path, false), path);
   }
-  assert.equal(safeAccessLogUrl('/api/records?page=2', false), '/api/records?page=2');
-  assert.equal(safeAccessLogUrl('/api/auth/microsoft/status', false), '/api/auth/microsoft/status');
+  assert.equal(safeAccessLogUrl('/api/v1/records?page=2', false), '/api/v1/records?page=2');
+  assert.equal(safeAccessLogUrl('/api/v1/auth/microsoft/status', false), '/api/v1/auth/microsoft/status');
 });
 
 test('production access logging removes queries from all endpoints', () => {
-  for (const path of ['/api/records', '/api/auth/microsoft/callback', '/api/customers']) {
+  for (const path of ['/api/v1/records', '/api/v1/auth/microsoft/callback', '/api/v1/customers']) {
     assert.equal(safeAccessLogUrl(path + '?search=PRIVATE&code=PRIVATE_CODE&state=PRIVATE_STATE', true), path);
     assert.equal(safeAccessLogUrl(path, true), path);
   }

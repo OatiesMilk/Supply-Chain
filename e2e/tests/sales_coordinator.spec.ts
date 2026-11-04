@@ -174,7 +174,7 @@ test.describe('A-2 Create a Delivery Record', () => {
     await dateInput.fill(today);
 
     const createdResponsePromise = page.waitForResponse(response =>
-      new URL(response.url()).pathname === '/api/records' && response.request().method() === 'POST');
+      new URL(response.url()).pathname === '/api/v1/records' && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Submit', exact: true }).click();
     const createdResponse = await createdResponsePromise;
     expect(createdResponse.status(), 'creating the Delivery must succeed').toBe(201);
