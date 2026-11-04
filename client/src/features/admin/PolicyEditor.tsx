@@ -3,6 +3,7 @@ import { api, ApiError, type ApiUserAdmin } from '@/api';
 import { useAuthStore } from '@/store/authStore';
 import type { PolicyRow, RolePermissionEditor, UserPermissionEditor, PolicyCatalogEntry } from '@/types/permissionEditor';
 import { Eye, Pencil, Search, ShieldCheck, Users, SlidersHorizontal } from 'lucide-react';
+import { ActionDialog } from '@/components/ActionDialog';
 import PermissionsPanel from './PermissionsPanel';
 import PolicyMatrix from './PolicyMatrix';
 import PolicyLoadFailure from './PolicyLoadFailure';
@@ -31,6 +32,9 @@ export function dependencyIssues(catalog: PolicyCatalogEntry[], draft: PolicyRow
 
 export function PolicyEditor({ role, user, users = [], usersAvailable = true, viewOnly = false, onClose }: { role: string; user?: ApiUserAdmin; users?: ApiUserAdmin[]; usersAvailable?: boolean; viewOnly?: boolean; onClose: () => void }) {
   const root = useRef<HTMLElement>(null);
+  const allowNavigation = useRef(false);
+  const leaveTrigger = useRef<HTMLElement | null>(null);
+  const [leaveIntent, setLeaveIntent] = useState<{ action: () => void } | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [ceiling, setCeiling] = useState<RolePermissionEditor | null>(null);
   const [draft, setDraft] = useState<PolicyRow[]>([]);
@@ -47,6 +51,12 @@ export function PolicyEditor({ role, user, users = [], usersAvailable = true, vi
   const [loadFailure, setLoadFailure] = useState<unknown>(null);
   const changes = editor ? policyChanges(editor.permissions, draft) : [];
   const dirty = changes.length > 0 || reset;
+  useEffect(() => {
+    if (!leaveIntent) {
+      leaveTrigger.current?.focus();
+      leaveTrigger.current = null;
+    }
+  }, [leaveIntent]);
   const read = async () => {
     const policy = await api.getRolePermissionEditor(role);
     const next = user ? await api.getUserPermissionEditor(user.id) : policy;
@@ -61,18 +71,31 @@ export function PolicyEditor({ role, user, users = [], usersAvailable = true, vi
   }, [role, user?.id]);
   useEffect(() => {
     if (!dirty) return;
-    const prevent = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    const prevent = (event: BeforeUnloadEvent) => { if (!allowNavigation.current) { event.preventDefault(); event.returnValue = ''; } };
     const leave = (event: MouseEvent) => {
       const target = event.target;
-      if (target instanceof Element && !root.current?.contains(target) && target.closest('button,a,[role="button"]') && !window.confirm('Leave this editor and discard unsaved permission changes?')) {
-        event.preventDefault(); event.stopPropagation();
-      }
+      if (allowNavigation.current || !(target instanceof Element) || root.current?.contains(target)) return;
+      const trigger = target.closest<HTMLElement>('button,a,[role="button"]');
+      if (!trigger) return;
+      event.preventDefault(); event.stopPropagation();
+      leaveTrigger.current = trigger;
+      setLeaveIntent({ action: () => {
+        if (!trigger.isConnected) return;
+        // Replay only the chosen navigation after explicit confirmation.
+        allowNavigation.current = true;
+        try { trigger.click(); } finally { allowNavigation.current = false; }
+      } });
     };
     window.addEventListener('beforeunload', prevent);
     document.addEventListener('click', leave, true);
     return () => { window.removeEventListener('beforeunload', prevent); document.removeEventListener('click', leave, true); };
   }, [dirty]);
-  const close = () => { if (!dirty || window.confirm('Discard unsaved permission changes?')) onClose(); };
+  const close = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (dirty) {
+      leaveTrigger.current = event.currentTarget;
+      setLeaveIntent({ action: onClose });
+    } else onClose();
+  };
   const change = (key: string, effect: string) => {
     setDraft(rows => [...rows.filter(p => p.permissionKey !== key), ...(effect === 'INHERIT' ? [] : [{ permissionKey: key, effect: effect as PolicyRow['effect'] }])]);
     setReset(false); setReviewed(false); setNotice('');
@@ -111,6 +134,16 @@ export function PolicyEditor({ role, user, users = [], usersAvailable = true, vi
   const canEdit = editor?.activeMode === 'V1' && savedUser?.conversionStatus !== 'REQUIRED';
   const assigned = assignedAccountCount(users, role, usersAvailable);
   return <section ref={root} aria-label={`${user ? user.name : label(role)} permission editor`} className="min-w-0 space-y-5">
+    {leaveIntent && <ActionDialog open title="Discard unsaved permission changes?"
+      description="Your permission changes have not been saved. Stay to keep editing, or discard your draft and leave."
+      cancelLabel="Stay" confirmLabel="Discard changes" destructive
+      onDismiss={() => setLeaveIntent(null)}
+      onConfirm={() => {
+        const { action } = leaveIntent;
+        leaveTrigger.current = null;
+        setLeaveIntent(null); setDraft(editor?.permissions ?? []); setReset(false);
+        action();
+      }} />}
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0"><p className="mb-2 text-xs font-medium text-slate-500">Roles &amp; Permissions <span aria-hidden="true">/</span> {user ? 'Individual account' : 'Role policy'}</p>
         <h3 className="text-xl font-bold text-slate-900">{user ? user.name : policyLabel(role)}</h3>
