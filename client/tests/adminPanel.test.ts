@@ -58,7 +58,13 @@ async function mounted(run: (controls: Controls) => Promise<void>) {
   const root = createRoot(dom.window.document.getElementById('root')!);
   const doc = dom.window.document;
   const click: Controls['click'] = async (text, within = doc) => {
-    const button = [...within.querySelectorAll<HTMLButtonElement>('button')].find(row => row.textContent?.trim() === text);
+    let button = [...within.querySelectorAll<HTMLButtonElement>('button')].find(row => row.textContent?.trim() === text || row.getAttribute('aria-label') === text);
+    if (!button && ['Edit', 'Access', 'Delete', 'Activate', 'Deactivate'].includes(text)) {
+      const trigger = within.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+      assert.ok(trigger);
+      await act(async () => trigger.click());
+      button = [...doc.querySelectorAll<HTMLButtonElement>('button')].find(row => row.textContent?.trim() === text);
+    }
     assert.ok(button, `Button ${text} exists`);
     await act(async () => button.click());
   };
@@ -235,20 +241,64 @@ test('User Management pages eleven accounts and deletion on the last page return
   });
 });
 
-test('Access opens an independent editor outside the accounts table and can be closed from its row', async () => {
+test('Access opens the account in Roles & Permissions without a second editor in User Management', async () => {
   setup();
+  mock.method(api, 'getRolePermissionEditor', async () => { throw new ApiError('Candidate unavailable', 503); });
   const permissions = mock.method(api, 'getUserPermissions', async userId => ({ userId, permissions: [], effectiveScreens: ['main'], resources: ['records'],
     permissionVersion: 'legacy-review', roleDefaults: ['main'], catalog: [{ screen: 'main', label: 'Main' }], editableScreens: ['main'] }));
   await mounted(async ({ doc, click }) => {
+    assert.equal(doc.querySelector('[role="menu"]'), null);
+    assert.equal(doc.querySelectorAll('tbody button').length, 1);
     await click('Access');
     assert.equal(permissions.mock.callCount(), 1);
-    const editor = doc.querySelector('[role="region"][aria-label="Access for Target User"]');
-    assert.ok(editor);
-    assert.equal(editor.closest('table'), null);
-    assert.equal(doc.querySelector('[aria-label="User accounts"]')!.contains(editor), false);
-    assert.match(editor.textContent!, /Module Access/);
-    assert.equal(doc.querySelectorAll('table tbody tr').length, 1);
+    assert.match(doc.body.textContent!, /Module Access — Target User/);
+    assert.equal(doc.querySelector('[aria-label="User accounts"]'), null);
+    await click('Cancel');
+    assert.ok(doc.querySelector('#policy-individual-account'));
+    await click('User Management');
+    assert.doesNotMatch(doc.body.textContent!, /Module Access/);
+    assert.equal(doc.querySelectorAll('tbody button').length, 1);
+  });
+});
+
+test('account menu exposes four actions, supports keyboard navigation and dismisses without writes', async () => {
+  setup();
+  const updates = mock.method(api, 'updateUser', async () => target);
+  const deletes = mock.method(api, 'deleteUser', async () => ({ ok: true, deleted_id: target.id }));
+  await mounted(async ({ doc, click }) => {
+    await click('Actions for Target User');
+    const menu = doc.querySelector('[role="menu"]')!;
+    assert.ok(menu);
+    const items = [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+    assert.deepEqual(items.map(item => item.textContent?.trim()), ['Edit', 'Access', 'Deactivate', 'Delete']);
+    assert.equal(doc.activeElement, items[0]);
+    await act(async () => items[0].dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
+    assert.equal(doc.activeElement, items[1]);
+    await act(async () => items[1].dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    assert.equal(doc.querySelector('[role="menu"]'), null);
+    assert.equal(doc.activeElement?.getAttribute('aria-label'), 'Actions for Target User');
+    await click('Actions for Target User');
+    await act(async () => doc.body.dispatchEvent(new window.Event('pointerdown', { bubbles: true })));
+    assert.equal(doc.querySelector('[role="menu"]'), null);
+    assert.equal(updates.mock.callCount(), 0);
+    assert.equal(deletes.mock.callCount(), 0);
+  });
+});
+
+test('V1 Access shortcut uses the same individual editor as Roles & Permissions', async () => {
+  setup(); installV1Session();
+  mock.method(api, 'getRolePermissionEditor', async role => ({ activeMode: 'V1' as const, role, contractVersion: 1 as const, catalogVersion: 1 as const,
+    revision: '1', expectedVersion: version, permissions: [], catalog: [] }));
+  const read = mock.method(api, 'getUserPermissionEditor', async () => ({ ...reviewedEditor(), role: target.role, contractVersion: 1, catalogVersion: 1,
+    permissions: [], catalog: [] } as unknown as UserPermissionEditor));
+  const legacy = mock.method(api, 'getUserPermissions', async () => { throw new Error('Legacy editor must not load'); });
+  await mounted(async ({ doc, click }) => {
     await click('Access');
-    assert.equal(doc.querySelector('[aria-label="Access for Target User"]'), null);
+    assert.deepEqual(read.mock.calls[0].arguments, [target.id]);
+    assert.ok(doc.querySelector('[aria-label="Target User permission editor"]'));
+    assert.equal(doc.querySelector('[aria-label="User accounts"]'), null);
+    assert.equal(legacy.mock.callCount(), 0);
+    await click('Close editor');
+    assert.ok(doc.querySelector('#policy-individual-account'));
   });
 });

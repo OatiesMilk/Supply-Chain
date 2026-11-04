@@ -3,6 +3,7 @@ import { api, ApiError, type ApiUserAdmin } from '@/api';
 import { useAuthStore } from '@/store/authStore';
 import type { PolicyRow, RolePermissionEditor, UserPermissionEditor, PolicyCatalogEntry } from '@/types/permissionEditor';
 import { Eye, Pencil, Search, ShieldCheck, Users, SlidersHorizontal } from 'lucide-react';
+import PermissionsPanel from './PermissionsPanel';
 import PolicyMatrix from './PolicyMatrix';
 import PolicyLoadFailure from './PolicyLoadFailure';
 import { assignedAccountCount, filterRoles, groupPolicyCatalog, policyLabel, selectedPermissionCount, SCOPE_LABELS, type AssignmentFilter, type ScopeFilter } from './policyPresentation';
@@ -152,10 +153,14 @@ export function PolicyEditor({ role, user, users = [], usersAvailable = true, vi
   </section>;
 }
 
-export default function RolesPermissions({ users, usersLoading = false, usersError = null, onRetryUsers }: {
-  users: ApiUserAdmin[]; usersLoading?: boolean; usersError?: string | null; onRetryUsers?: () => void;
+export default function RolesPermissions({ users, usersLoading = false, usersError = null, onRetryUsers, initialUserId }: {
+  initialUserId?: string | null; users: ApiUserAdmin[]; usersLoading?: boolean; usersError?: string | null; onRetryUsers?: () => void;
 }) {
-  const [target, setTarget] = useState<{ role: string; user?: ApiUserAdmin; viewOnly: boolean } | null>(null);
+  const [target, setTarget] = useState<{ role: string; user?: ApiUserAdmin; viewOnly: boolean } | null>(() => {
+    const user = users.find(account => account.id === initialUserId);
+    return user ? { role: user.role, user, viewOnly: true } : null;
+  });
+  const activeMode = useAuthStore(state => state.authUser?.activeMode);
   const [search, setSearch] = useState('');
   const [assignment, setAssignment] = useState<AssignmentFilter>('ALL');
   const [policies, setPolicies] = useState<Partial<Record<string, RolePermissionEditor>>>({});
@@ -190,7 +195,7 @@ export default function RolesPermissions({ users, usersLoading = false, usersErr
     window.setTimeout(() => { if (returnFocus.current?.isConnected) returnFocus.current.focus(); else heading.current?.focus(); }, 0);
   };
   return <div className="min-w-0 space-y-5">
-    {target ? <PolicyEditor key={target.user?.id ?? target.role} {...target} users={users} usersAvailable={usersAvailable} onClose={close} /> : <>
+    {target?.user && activeMode !== 'V1' ? <PermissionsPanel key={target.user.id} user={target.user} onClose={close} /> : target ? <PolicyEditor key={target.user?.id ?? target.role} {...target} users={users} usersAvailable={usersAvailable} onClose={close} /> : <>
       <header><p className="mb-2 text-xs font-medium text-slate-500">Admin Panel <span aria-hidden="true">/</span> Access management</p><h2 ref={heading} tabIndex={-1} className="text-2xl font-bold text-slate-900 focus:outline-none">Roles &amp; Permissions</h2><p className="mt-2 text-sm text-slate-500">Review the five built-in roles, their module permissions and individual account exceptions.</p></header>
       <div className="rounded-xl border border-slate-200 bg-white p-4">
         <div className="flex flex-wrap items-end gap-3">
