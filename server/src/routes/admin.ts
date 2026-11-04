@@ -113,7 +113,7 @@ router.get('/integration-status', requireAuth, requireResource('admin'), require
     azure_sso: {
       configured: azureConfigured,
       tenant: azureConfigured ? azureTenant : null,
-      redirect_uri: azureConfigured ? `${appUrl}/api/auth/microsoft/callback` : null,
+      redirect_uri: azureConfigured ? `${appUrl}/api/v1/auth/microsoft/callback` : null,
     },
     email: {
       method: emailMethod,

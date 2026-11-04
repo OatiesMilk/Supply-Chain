@@ -31,21 +31,21 @@ function start(): Promise<string> {
   app.use(cookieParser());
   applySecurity(app, LIMITS);
   const effect = (_req: express.Request, res: express.Response) => { sideEffects++; res.json({ ok: true }); };
-  app.post('/api/auth/login', (req, res) => {
+  app.post('/api/v1/auth/login', (req, res) => {
     if (req.body?.password !== 'correct') return res.status(401).json({ error: 'Invalid email or password' });
     setSessionCookie(res, signToken({ id: 'user-1', name: 'Test User', email: req.body.email, role: 'LOGISTICS' }));
     res.json({ ok: true });
   });
-  app.post('/api/auth/logout', effect);
-  app.get('/api/health', (_req, res) => res.json({ ok: true }));
-  app.get('/api/records', effect);
-  app.post('/api/records', effect);
-  app.put('/api/records/:id', effect);
-  app.delete('/api/records/:id', effect);
-  app.post('/api/records/:id/attachments', effect);
-  app.post('/api/notifications/send-email', effect);
-  app.post('/api/admin/test-email', effect);
-  app.get('/api/whoami', (req, res) => res.json({ ip: clientIp(req) }));
+  app.post('/api/v1/auth/logout', effect);
+  app.get('/api/v1/health', (_req, res) => res.json({ ok: true }));
+  app.get('/api/v1/records', effect);
+  app.post('/api/v1/records', effect);
+  app.put('/api/v1/records/:id', effect);
+  app.delete('/api/v1/records/:id', effect);
+  app.post('/api/v1/records/:id/attachments', effect);
+  app.post('/api/v1/notifications/send-email', effect);
+  app.post('/api/v1/admin/test-email', effect);
+  app.get('/api/v1/whoami', (req, res) => res.json({ ip: clientIp(req) }));
   return new Promise(resolve => {
     const server = app.listen(0, () => resolve(`http://127.0.0.1:${(server.address() as any).port}`));
     servers.push(server);
@@ -85,16 +85,16 @@ after(async () => {
 test('forged cross-site writes are refused before any handler runs', async () => {
   const { cookie, token } = session();
   const forged: Array<[string, string, Record<string, string>]> = [
-    ['POST', '/api/records', { Origin: FORGED, 'Sec-Fetch-Site': 'cross-site' }],
-    ['PUT', '/api/records/1', { Origin: FORGED }],
-    ['DELETE', '/api/records/1', { Origin: 'null', 'Sec-Fetch-Site': 'cross-site' }],
-    ['POST', '/api/records/1/attachments', { 'Sec-Fetch-Site': 'cross-site' }],
-    ['POST', '/api/notifications/send-email', { Origin: 'https://sub.localhost:3000', 'Sec-Fetch-Site': 'same-site' }],
+    ['POST', '/api/v1/records', { Origin: FORGED, 'Sec-Fetch-Site': 'cross-site' }],
+    ['PUT', '/api/v1/records/1', { Origin: FORGED }],
+    ['DELETE', '/api/v1/records/1', { Origin: 'null', 'Sec-Fetch-Site': 'cross-site' }],
+    ['POST', '/api/v1/records/1/attachments', { 'Sec-Fetch-Site': 'cross-site' }],
+    ['POST', '/api/v1/notifications/send-email', { Origin: 'https://sub.localhost:3000', 'Sec-Fetch-Site': 'same-site' }],
     // A cross-site page cannot read the token, but the origin check must hold even if it leaks.
-    ['POST', '/api/records', { Origin: FORGED, [CSRF_HEADER]: token }],
+    ['POST', '/api/v1/records', { Origin: FORGED, [CSRF_HEADER]: token }],
     // Login and logout CSRF: no session token exists yet, so the origin decides.
-    ['POST', '/api/auth/login', { Origin: FORGED, 'Sec-Fetch-Site': 'cross-site' }],
-    ['POST', '/api/auth/logout', { Origin: FORGED, 'Sec-Fetch-Site': 'cross-site' }],
+    ['POST', '/api/v1/auth/login', { Origin: FORGED, 'Sec-Fetch-Site': 'cross-site' }],
+    ['POST', '/api/v1/auth/logout', { Origin: FORGED, 'Sec-Fetch-Site': 'cross-site' }],
   ];
   for (const [method, target, headers] of forged) {
     const res = await call(target, method, { Cookie: cookie, ...headers }, { email: 'a@example.com', password: 'correct' });
@@ -112,33 +112,33 @@ test('cookie-authenticated writes need the token of that exact session', async (
   const stale = csrfToken({ id: 'user-1', iat: 1 });
 
   for (const sent of [undefined, '', 'guess', other, stale]) {
-    const res = await call('/api/records', 'POST', sent === undefined ? sameOrigin : { ...sameOrigin, [CSRF_HEADER]: sent });
+    const res = await call('/api/v1/records', 'POST', sent === undefined ? sameOrigin : { ...sameOrigin, [CSRF_HEADER]: sent });
     assert.equal(res.status, 403, `token ${sent}`);
     assert.equal(res.headers.get('x-csrf-error'), 'token');
   }
   // A non-browser client holding the cookie gets no pass for omitting browser headers.
-  assert.equal((await call('/api/records/1', 'DELETE', { Cookie: cookie })).status, 403);
+  assert.equal((await call('/api/v1/records/1', 'DELETE', { Cookie: cookie })).status, 403);
   assert.equal(sideEffects, 0);
 
   for (const method of ['POST', 'PUT', 'DELETE']) {
-    const target = method === 'POST' ? '/api/records' : '/api/records/1';
+    const target = method === 'POST' ? '/api/v1/records' : '/api/v1/records/1';
     assert.equal((await call(target, method, { ...sameOrigin, [CSRF_HEADER]: token })).status, 200, method);
   }
   // Older browsers send Origin without Fetch Metadata.
-  assert.equal((await call('/api/records', 'POST', { Cookie: cookie, Origin: TRUSTED, [CSRF_HEADER]: token })).status, 200);
+  assert.equal((await call('/api/v1/records', 'POST', { Cookie: cookie, Origin: TRUSTED, [CSRF_HEADER]: token })).status, 200);
   assert.equal(sideEffects, 4);
 });
 
 test('reads, sign-in and requests without a session are not blocked by the token check', async () => {
   const { cookie } = session();
-  assert.equal((await call('/api/records', 'GET', { Cookie: cookie, Origin: FORGED, 'Sec-Fetch-Site': 'cross-site' })).status, 200);
+  assert.equal((await call('/api/v1/records', 'GET', { Cookie: cookie, Origin: FORGED, 'Sec-Fetch-Site': 'cross-site' })).status, 200);
   // No session cookie: nothing to forge. The real routes answer 401 from requireAuth.
-  assert.equal((await call('/api/records', 'POST', { Origin: TRUSTED, 'Sec-Fetch-Site': 'same-origin' })).status, 200);
+  assert.equal((await call('/api/v1/records', 'POST', { Origin: TRUSTED, 'Sec-Fetch-Site': 'same-origin' })).status, 200);
   // An expired or tampered cookie must not lock the user out of signing in again.
-  const login = await call('/api/auth/login', 'POST', { Cookie: 'mg_session=tampered', Origin: TRUSTED, 'Sec-Fetch-Site': 'same-origin' }, { email: 'a@example.com', password: 'correct' });
+  const login = await call('/api/v1/auth/login', 'POST', { Cookie: 'mg_session=tampered', Origin: TRUSTED, 'Sec-Fetch-Site': 'same-origin' }, { email: 'a@example.com', password: 'correct' });
   assert.equal(login.status, 200);
   assert.ok(login.headers.get(CSRF_HEADER), 'sign-in issues the token for the new session');
-  assert.equal((await call('/api/auth/logout', 'POST', { Cookie: cookie, Origin: TRUSTED })).status, 200);
+  assert.equal((await call('/api/v1/auth/logout', 'POST', { Cookie: cookie, Origin: TRUSTED })).status, 200);
 });
 
 test('trusted origins come from configuration and ignore malformed entries', () => {
@@ -149,7 +149,7 @@ test('trusted origins come from configuration and ignore malformed entries', () 
 
 test('repeated failed sign-ins return 429 per account and address; successes are not counted', async () => {
   const origin = { Origin: TRUSTED, 'Sec-Fetch-Site': 'same-origin' };
-  const attempt = (email: string, password: string) => call('/api/auth/login', 'POST', origin, { email, password });
+  const attempt = (email: string, password: string) => call('/api/v1/auth/login', 'POST', origin, { email, password });
 
   for (let i = 0; i < 10; i++) assert.equal((await attempt('ok@example.com', 'correct')).status, 200);
 
@@ -172,7 +172,7 @@ test('mail and upload routes are throttled per signed-in user', async () => {
   const second = session('mail-user-2');
   const headers = (user: { cookie: string; token: string }) => ({ Cookie: user.cookie, Origin: TRUSTED, 'Sec-Fetch-Site': 'same-origin', [CSRF_HEADER]: user.token });
 
-  for (const target of ['/api/notifications/send-email', '/api/records/7/attachments']) {
+  for (const target of ['/api/v1/notifications/send-email', '/api/v1/records/7/attachments']) {
     sideEffects = 0;
     for (let i = 0; i < LIMITS.mail.limit; i++) assert.equal((await call(target, 'POST', headers(first))).status, 200);
     assert.equal((await call(target, 'POST', headers(first))).status, 429, target);
@@ -180,35 +180,35 @@ test('mail and upload routes are throttled per signed-in user', async () => {
     assert.equal((await call(target, 'POST', headers(second))).status, 200, 'another user has a separate budget');
   }
   // Both mail routes draw on the same per-user budget.
-  assert.equal((await call('/api/admin/test-email', 'POST', headers(first))).status, 429);
+  assert.equal((await call('/api/v1/admin/test-email', 'POST', headers(first))).status, 429);
 });
 
 test('the general API limit does not block health checks or login with dedicated limits', async () => {
   // Isolate counters from the failed-login test's intentionally exhausted IP budget.
   const base = await start();
   const statuses: number[] = [];
-  for (let i = 0; i < LIMITS.api.limit + 1; i++) statuses.push((await callAt(base, '/api/records', 'GET')).status);
+  for (let i = 0; i < LIMITS.api.limit + 1; i++) statuses.push((await callAt(base, '/api/v1/records', 'GET')).status);
   assert.equal(statuses.filter(status => status === 200).length, LIMITS.api.limit);
   assert.equal(statuses.at(-1), 429);
 
   const origin = { Origin: TRUSTED, 'Sec-Fetch-Site': 'same-origin' };
-  const guestLogin = await callAt(base, '/api/auth/login', 'POST', origin, { email: 'guest@example.com', password: 'correct' });
+  const guestLogin = await callAt(base, '/api/v1/auth/login', 'POST', origin, { email: 'guest@example.com', password: 'correct' });
   assert.equal(guestLogin.status, 200, 'the IP login limiter remains available after anonymous API reads exhaust their quota');
 
   const user = session('busy-user');
   const authenticatedStatuses: number[] = [];
   for (let i = 0; i < LIMITS.api.limit + 1; i++) {
-    authenticatedStatuses.push((await callAt(base, '/api/records', 'GET', { Cookie: user.cookie })).status);
+    authenticatedStatuses.push((await callAt(base, '/api/v1/records', 'GET', { Cookie: user.cookie })).status);
   }
   assert.equal(authenticatedStatuses.at(-1), 429);
-  const userLogin = await callAt(base, '/api/auth/login', 'POST', { ...origin, Cookie: user.cookie }, { email: 'user@example.com', password: 'correct' });
+  const userLogin = await callAt(base, '/api/v1/auth/login', 'POST', { ...origin, Cookie: user.cookie }, { email: 'user@example.com', password: 'correct' });
   assert.equal(userLogin.status, 200, 'the general user quota cannot prevent sign-in; dedicated login limits still apply');
 
-  for (let i = 0; i < LIMITS.api.limit + 5; i++) assert.equal((await callAt(base, '/api/health', 'GET')).status, 200);
+  for (let i = 0; i < LIMITS.api.limit + 5; i++) assert.equal((await callAt(base, '/api/v1/health', 'GET')).status, 200);
 });
 
 test('a forwarded client address is believed only with the proxy secret', async () => {
-  const whoami = async (base: string, headers: Record<string, string>) => (await (await fetch(`${base}/api/whoami`, { headers })).json()).ip;
+  const whoami = async (base: string, headers: Record<string, string>) => (await (await fetch(`${base}/api/v1/whoami`, { headers })).json()).ip;
   const spoof = { 'X-Forwarded-For': '203.0.113.9', 'X-MG-Client-IP': '203.0.113.9' };
 
   // No secret configured: forwarded headers are ignored entirely.
@@ -248,12 +248,12 @@ test('requests that bypass the Worker are refused when the proxy secret is requi
     applySecurity(app, LIMITS);
     let reached = 0;
     const effect = (_req: express.Request, res: express.Response) => { reached++; res.json({ ok: true }); };
-    app.get('/api/health', effect);
-    app.post('/api/health', effect);
-    app.get('/api/health/details', effect);
-    app.get('/api/records', effect);
-    app.post('/api/records', effect);
-    app.use('/api/auth', authRoutes);
+    app.get('/api/v1/health', effect);
+    app.post('/api/v1/health', effect);
+    app.get('/api/v1/health/details', effect);
+    app.get('/api/v1/records', effect);
+    app.post('/api/v1/records', effect);
+    app.use('/api/v1/auth', authRoutes);
     const base = await new Promise<string>(resolve => {
       const server = app.listen(0, () => resolve(`http://127.0.0.1:${(server.address() as any).port}`));
       servers.push(server);
@@ -263,34 +263,34 @@ test('requests that bypass the Worker are refused when the proxy secret is requi
     for (const [label, headers] of Object.entries({
       missing: {}, empty: { 'X-MG-Proxy-Secret': '' }, wrong: { 'X-MG-Proxy-Secret': 'guess' }, prefix: { 'X-MG-Proxy-Secret': SECRET.slice(0, -1) },
     })) {
-      await refused(await send('/api/records', 'GET', headers), `GET ${label}`);
-      await refused(await send('/api/records', 'POST', headers), `POST ${label}`);
+      await refused(await send('/api/v1/records', 'GET', headers), `GET ${label}`);
+      await refused(await send('/api/v1/records', 'POST', headers), `POST ${label}`);
     }
     // A signed-in direct caller is refused too, and gets no hint about CSRF.
     const { cookie, token } = session();
-    await refused(await send('/api/records', 'POST', { Cookie: cookie, Origin: TRUSTED, [CSRF_HEADER]: token }), 'signed-in direct write');
+    await refused(await send('/api/v1/records', 'POST', { Cookie: cookie, Origin: TRUSTED, [CSRF_HEADER]: token }), 'signed-in direct write');
     assert.equal(reached, 0, 'a refused request causes no side effect');
 
-    // Only GET /api/health is open to the host's health check and the self-ping.
-    assert.equal((await send('/api/health')).status, 200);
-    await refused(await send('/api/health', 'POST'), 'POST /api/health');
-    await refused(await send('/api/health/details'), 'a path under /api/health');
-    await refused(await send('/api/health/'), 'trailing slash');
+    // Only GET /api/v1/health is open to the host's health check and the self-ping.
+    assert.equal((await send('/api/v1/health')).status, 200);
+    await refused(await send('/api/v1/health', 'POST'), 'POST /api/v1/health');
+    await refused(await send('/api/v1/health/details'), 'a path under /api/v1/health');
+    await refused(await send('/api/v1/health/'), 'trailing slash');
     assert.equal(reached, 1);
 
     // Through the Worker everything behaves as before, including the CSRF checks.
-    assert.equal((await send('/api/records', 'GET', viaWorker)).status, 200);
-    assert.equal((await send('/api/records', 'POST', { ...viaWorker, Cookie: cookie, Origin: TRUSTED, [CSRF_HEADER]: token })).status, 200);
-    const forged = await send('/api/records', 'POST', { ...viaWorker, Cookie: cookie, Origin: FORGED, 'Sec-Fetch-Site': 'cross-site' });
+    assert.equal((await send('/api/v1/records', 'GET', viaWorker)).status, 200);
+    assert.equal((await send('/api/v1/records', 'POST', { ...viaWorker, Cookie: cookie, Origin: TRUSTED, [CSRF_HEADER]: token })).status, 200);
+    const forged = await send('/api/v1/records', 'POST', { ...viaWorker, Cookie: cookie, Origin: FORGED, 'Sec-Fetch-Site': 'cross-site' });
     assert.equal(forged.status, 403);
     assert.equal(forged.headers.get('x-csrf-error'), 'origin');
 
     // The Microsoft sign-in callback reaches its route through the Worker only.
-    assert.equal((await send('/api/auth/microsoft/callback?code=code', 'GET', { ...viaWorker, 'Sec-Fetch-Site': 'cross-site' })).status, 302);
-    await refused(await send('/api/auth/microsoft/callback?code=code', 'GET', { 'Sec-Fetch-Site': 'cross-site' }), 'direct SSO callback');
+    assert.equal((await send('/api/v1/auth/microsoft/callback?code=code', 'GET', { ...viaWorker, 'Sec-Fetch-Site': 'cross-site' })).status, 302);
+    await refused(await send('/api/v1/auth/microsoft/callback?code=code', 'GET', { 'Sec-Fetch-Site': 'cross-site' }), 'direct SSO callback');
 
     // Off by default: the app started before the setting was turned on is unaffected.
-    assert.equal((await call('/api/records', 'GET')).status, 200);
+    assert.equal((await call('/api/v1/records', 'GET')).status, 200);
   } finally {
     delete process.env.PROXY_SHARED_SECRET;
     delete process.env.REQUIRE_PROXY_SECRET;
@@ -316,7 +316,7 @@ test('requiring the proxy secret without one, or with an unrecognised value, sto
 });
 
 test('responses carry the security headers and a Teams-compatible framing policy', async () => {
-  const res = await call('/api/health', 'GET');
+  const res = await call('/api/v1/health', 'GET');
   const csp = res.headers.get('content-security-policy') ?? '';
   assert.equal(csp, CONTENT_SECURITY_POLICY);
   assert.match(csp, /script-src 'self';/);
@@ -347,8 +347,8 @@ test('the Microsoft-identity write and SSO routes are covered without blocking t
   app.use(express.json());
   app.use(cookieParser());
   applySecurity(app, LIMITS);
-  app.use('/api/auth', authRoutes);
-  app.use('/api/users', usersRoutes);
+  app.use('/api/v1/auth', authRoutes);
+  app.use('/api/v1/users', usersRoutes);
   const base = await new Promise<string>(resolve => {
     const server = app.listen(0, () => resolve(`http://127.0.0.1:${(server.address() as any).port}`));
     servers.push(server);
@@ -364,7 +364,7 @@ test('the Microsoft-identity write and SSO routes are covered without blocking t
 
   try {
     const { cookie, token } = session('sales-1');
-    const link = (headers: Record<string, string>) => fetch(`${base}/api/users/target-1/microsoft-identity`, {
+    const link = (headers: Record<string, string>) => fetch(`${base}/api/v1/users/target-1/microsoft-identity`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Cookie: cookie, ...headers },
       body: JSON.stringify({ microsoft_oid: 'ce7af71e-cdd0-4be6-93a9-ec280e1c10df' }),
@@ -385,16 +385,29 @@ test('the Microsoft-identity write and SSO routes are covered without blocking t
     assert.equal(dbHits, 1);
 
     // Starting a Microsoft sign-in from another site is login CSRF.
-    const start = await fetch(`${base}/api/auth/microsoft`, { method: 'POST', headers: { Origin: FORGED, 'Sec-Fetch-Site': 'cross-site' } });
+    const start = await fetch(`${base}/api/v1/auth/microsoft`, { method: 'POST', headers: { Origin: FORGED, 'Sec-Fetch-Site': 'cross-site' } });
     assert.equal(start.status, 403);
     assert.equal(start.headers.get('x-csrf-error'), 'origin');
 
     // Microsoft returns the browser with a cross-site top-level GET; it must
     // reach the route, which then applies its own state validation.
-    const callback = await fetch(`${base}/api/auth/microsoft/callback?code=code`, { redirect: 'manual', headers: { 'Sec-Fetch-Site': 'cross-site' } });
+    const callback = await fetch(`${base}/api/v1/auth/microsoft/callback?code=code`, { redirect: 'manual', headers: { 'Sec-Fetch-Site': 'cross-site' } });
     assert.equal(callback.status, 302);
     assert.equal(callback.headers.get('x-csrf-error'), null);
   } finally {
     prisma.user.findUnique = lookup;
   }
+});
+
+test('retired and unsupported API prefixes reject reads and writes before handlers', async () => {
+  for (const prefix of ['/api', '/api/v2', '/api/v10']) {
+    for (const method of ['GET', 'POST']) {
+      const response = await call(`${prefix}/records`, method);
+      assert.equal(response.status, 404, `${method} ${prefix}`);
+      assert.match(response.headers.get('content-type') ?? '', /application\/json/);
+      assert.match((await response.json()).error, /\/api\/v1/);
+    }
+  }
+  assert.equal(sideEffects, 0);
+  assert.equal((await call('/api/v1/health', 'GET')).status, 200);
 });

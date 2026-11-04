@@ -14,7 +14,7 @@ test('Admin account buttons open and cancel their workflows without submitting c
   await editedRow.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(sales.locator('input')).toHaveCount(0);
 
-  const permissions = page.waitForResponse(response => /\/api\/users\/[^/]+\/permissions$/.test(new URL(response.url()).pathname));
+  const permissions = page.waitForResponse(response => /\/api\/v1\/users\/[^/]+\/permissions$/.test(new URL(response.url()).pathname));
   await sales.getByRole('button', { name: 'Access', exact: true }).click();
   expect((await permissions).status()).toBe(200);
   const access = page.getByRole('region', { name: `Access for ${salesName}`, exact: true });
@@ -44,11 +44,11 @@ test('Admin tabs read audit, integrations and policy previews without mail or po
   await openScreen(page, 'admin', 'ADMIN');
   await page.getByRole('button', { name: 'System Audit Log', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Apply Filters', exact: true })).toBeVisible();
-  const auditResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/admin/audit-log');
+  const auditResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/admin/audit-log');
   await page.getByRole('button', { name: 'Apply Filters', exact: true }).click();
   expect((await auditResponse).status()).toBe(200);
 
-  const diagnostics = page.waitForResponse(response => new URL(response.url()).pathname === '/api/admin/integration-status');
+  const diagnostics = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/admin/integration-status');
   await page.getByRole('button', { name: 'Integrations', exact: true }).click();
   expect((await diagnostics).status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'Email Delivery', exact: true })).toBeVisible();
@@ -91,7 +91,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 
     const table = page.getByRole('region', { name: 'User accounts', exact: true });
     const firstRow = table.locator('tbody tr').first();
     await expect(firstRow.getByRole('button', { name: 'Access', exact: true })).toBeVisible();
-    const permissions = page.waitForResponse(response => /\/api\/users\/[^/]+\/permissions$/.test(new URL(response.url()).pathname));
+    const permissions = page.waitForResponse(response => /\/api\/v1\/users\/[^/]+\/permissions$/.test(new URL(response.url()).pathname));
     await firstRow.getByRole('button', { name: 'Access', exact: true }).click();
     expect((await permissions).status()).toBe(200);
     const editor = page.getByRole('region', { name: /^Access for / });

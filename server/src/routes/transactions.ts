@@ -22,7 +22,7 @@ const requireTransactionAccess = asyncRoute(async (req, res, next) => {
   next();
 });
 
-// ─── GET /api/transactions ────────────────────────────────────────────────────
+// ─── GET /api/v1/transactions ────────────────────────────────────────────────────
 
 router.get('/', requireAuth, requireTransactionAccess, asyncRoute(async (req, res) => {
   const user = req.user!;
@@ -144,7 +144,7 @@ router.get('/', requireAuth, requireTransactionAccess, asyncRoute(async (req, re
   res.json({ page, limit, total, pages, transactions });
 }));
 
-// ─── GET /api/transactions/:source/:id ───────────────────────────────────────
+// ─── GET /api/v1/transactions/:source/:id ───────────────────────────────────────
 
 router.get('/:source/:id', requireAuth, requireTransactionAccess, asyncRoute(async (req, res) => {
   const user   = req.user!;

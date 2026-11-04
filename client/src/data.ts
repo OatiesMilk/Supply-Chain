@@ -105,7 +105,7 @@ export const CATEGORIES = ['Sales Orders', 'Deliveries', 'RMA', 'Accounting Coll
 export const ACCOUNT_MANAGERS = ['P. Soriano', 'D. Macaraeg', 'F. Valenzuela', 'R. Pagkalinawan', 'M. Reyes', 'A. Santos', 'C. Lim'];
 
 // ── Managed driver store ─────────────────────────────────────────────────────
-// These mutable arrays are populated from the /api/drivers endpoint at startup
+// These mutable arrays are populated from the /api/v1/drivers endpoint at startup
 // (see App.tsx → setManagedDriverList). Components that import DRIVERS,
 // DRIVER_ASSISTANTS, and DRIVER_COVERAGE get the live managed list.
 // Assignment options remain empty until the API provides the roster.

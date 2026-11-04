@@ -2,7 +2,7 @@ export interface RmaCapabilities { assign: boolean; transport: boolean; receive:
 
 /**
  * Thin fetch wrapper for the real Express + Prisma backend (server/). All
- * requests go through the Vite dev proxy at /api/* (see vite.config.ts), so
+ * requests go through the Vite dev proxy at /api/v1/* (see vite.config.ts), so
  * they're same-origin and the httpOnly session cookie set by the backend is
  * sent automatically via `credentials: 'include'`.
  */
@@ -15,7 +15,7 @@ import { requestServerCheck } from './availability';
 export const API_BASE = '';
 
 export function apiUrl(path: string): string {
-  return `${API_BASE}/api${path}`;
+  return `${API_BASE}/api/v1${path}`;
 }
 
 export interface RecordActiveCounts {
@@ -112,8 +112,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 /** All attachment previews use the same authorization guard as JSON requests. */
 export async function fetchProtectedAttachment(url: string, signal?: AbortSignal): Promise<Response> {
   const target = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'https://permission.local');
-  if (!target.pathname.startsWith('/api/records/')) throw new ApiError('Attachment is not available.', 403);
-  const path = target.pathname.slice(4) + target.search;
+  if (!target.pathname.startsWith('/api/v1/records/')) throw new ApiError('Attachment is not available.', 403);
+  const path = target.pathname.slice('/api/v1'.length) + target.search;
   assertPermissionRequest(path);
   const version = permissionRequestVersion();
   const response = await send(path, { signal });

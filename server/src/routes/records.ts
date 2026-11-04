@@ -808,9 +808,9 @@ router.get('/:id/attachments', requireAuth, requireResource('records'), requireR
     is_photo: await isStoredPodPhoto(attachment),
     size: attachment.size,
     uploaded_at: attachment.createdAt,
-    download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`,
+    download_url: `/api/v1/records/${req.params.id}/attachments/${attachment.id}/download`,
     preview_url: PREVIEWABLE_MIME_TYPES.has(attachment.mimeType)
-      ? `/api/records/${req.params.id}/attachments/${attachment.id}/preview`
+      ? `/api/v1/records/${req.params.id}/attachments/${attachment.id}/preview`
       : null
   }))));
 }));
@@ -904,9 +904,9 @@ router.post(
       is_photo: isPhoto,
       size: attachment.size,
       uploaded_at: attachment.createdAt,
-      download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`,
+      download_url: `/api/v1/records/${req.params.id}/attachments/${attachment.id}/download`,
       preview_url: PREVIEWABLE_MIME_TYPES.has(attachment.mimeType)
-        ? `/api/records/${req.params.id}/attachments/${attachment.id}/preview`
+        ? `/api/v1/records/${req.params.id}/attachments/${attachment.id}/preview`
         : null
     });
   })

@@ -171,7 +171,7 @@ jobs:
           trap cleanup EXIT
 
           for attempt in $(seq 1 60); do
-            if curl --fail --silent http://localhost:3000/api/health >/dev/null; then
+            if curl --fail --silent http://localhost:3000/api/v1/health >/dev/null; then
               break
             fi
             if ! kill -0 "$SERVER_PID" 2>/dev/null; then

@@ -33,7 +33,11 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    if (url.pathname.startsWith('/api/')) {
+    const apiPath = url.pathname.toLowerCase();
+    if (apiPath === '/api' || apiPath.startsWith('/api/')) {
+      if (apiPath !== '/api/v1' && !apiPath.startsWith('/api/v1/')) {
+        return Response.json({ error: 'API endpoint not found. Use /api/v1.' }, { status: 404 });
+      }
       // No built-in fallback host: an unset target must fail visibly instead
       // of quietly sending this deployment's traffic to whichever API was
       // once written here.

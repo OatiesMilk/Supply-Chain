@@ -34,18 +34,18 @@ async function openNewScheduledRecord(page: Page, browser: Browser) {
   const sales = await browser.newContext({ storageState: './helpers/auth-sc.json' });
   let recordId: string;
   try {
-    const session = await sales.request.get(`${BASE_URL}/api/auth/me`);
+    const session = await sales.request.get(`${BASE_URL}/api/v1/auth/me`);
     expect(session.ok()).toBeTruthy();
     const csrf = session.headers()['x-csrf-token'];
     expect(csrf).toBeTruthy();
-    const companiesResponse = await sales.request.get(`${BASE_URL}/api/companies`);
+    const companiesResponse = await sales.request.get(`${BASE_URL}/api/v1/companies`);
     expect(companiesResponse.ok()).toBeTruthy();
     const companies = await companiesResponse.json();
     expect(companies.length).toBeGreaterThan(0);
     const today = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
     }).format(new Date());
-    const response = await sales.request.post(`${BASE_URL}/api/records`, {
+    const response = await sales.request.post(`${BASE_URL}/api/v1/records`, {
       headers: { 'X-CSRF-Token': csrf },
       data: {
         company_id: companies[0].id, category: 'Deliveries',
@@ -283,7 +283,7 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     await page.getByRole('button', { name: 'On-Hold', exact: true }).click();
     await page.getByPlaceholder(/Reason for the changes|Optional note/i).fill('UAT automated status change');
     const updatedResponse = page.waitForResponse(response =>
-      /\/api\/records\/[^/]+\/status$/.test(new URL(response.url()).pathname) && response.request().method() === 'PATCH');
+      /\/api\/v1\/records\/[^/]+\/status$/.test(new URL(response.url()).pathname) && response.request().method() === 'PATCH');
     await page.getByRole('button', { name: 'Save Changes', exact: true }).click();
     const response = await updatedResponse;
     expect(response.ok()).toBeTruthy();

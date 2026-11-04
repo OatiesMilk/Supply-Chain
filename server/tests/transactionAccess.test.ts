@@ -80,8 +80,8 @@ test('HTTP transaction reads enforce driver ownership, category, inventory denia
 
   const app = express();
   app.use(cookieParser());
-  app.use('/api/transactions', transactionsRoutes);
-  app.use('/api/skus', skusRoutes);
+  app.use('/api/v1/transactions', transactionsRoutes);
+  app.use('/api/v1/skus', skusRoutes);
   app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => res.status(500).json({ error: error.message }));
   const server = app.listen(0, '127.0.0.1');
   await new Promise<void>(resolve => server.on('listening', resolve));
@@ -89,42 +89,42 @@ test('HTTP transaction reads enforce driver ownership, category, inventory denia
   const headers = { Cookie: `mg_session=${signToken(user as AuthUser)}` };
   const get = (path: string) => fetch(url + path, { headers });
   try {
-    assert.equal((await fetch(`${url}/api/transactions`)).status, 401);
+    assert.equal((await fetch(`${url}/api/v1/transactions`)).status, 401);
     for (const query of ['', '?source=delivery', '?driver=Driver%20Two&userId=other-account']) {
-      const response = await get('/api/transactions' + query);
+      const response = await get('/api/v1/transactions' + query);
       assert.equal(response.status, 200);
       const body = await response.json() as any;
       assert.equal(body.total, 2);
       assert.deepEqual(body.transactions.map((txn: any) => txn.id), ['own', 'collection']);
     }
-    const filtered = await get('/api/transactions?source=all&category=RMA');
+    const filtered = await get('/api/v1/transactions?source=all&category=RMA');
     assert.equal(filtered.status, 200);
     assert.deepEqual((await filtered.json() as any).transactions.map((txn: any) => txn.id), []);
-    const forged = await get('/api/transactions?category=FORGED_CATEGORY');
+    const forged = await get('/api/v1/transactions?category=FORGED_CATEGORY');
     assert.equal((await forged.json() as any).total, 0);
-    const paged = await get('/api/transactions?source=all&limit=1');
+    const paged = await get('/api/v1/transactions?source=all&limit=1');
     const pagedBody = await paged.json() as any;
     assert.equal(pagedBody.total, 2);
     assert.equal(pagedBody.transactions.length, 1);
-    assert.equal((await get('/api/transactions/delivery/own')).status, 200);
-    assert.equal((await get('/api/transactions/delivery/own-rma')).status, 404);
+    assert.equal((await get('/api/v1/transactions/delivery/own')).status, 200);
+    assert.equal((await get('/api/v1/transactions/delivery/own-rma')).status, 404);
     assert.equal(auditRead.mock.callCount(), 1);
     for (const id of ['own-draft', 'other', 'unassigned', 'unknown-category', 'deleted', 'missing']) {
-      const response = await get(`/api/transactions/delivery/${id}`);
+      const response = await get(`/api/v1/transactions/delivery/${id}`);
       assert.equal(response.status, 404, id);
       assert.deepEqual(await response.json(), { error: 'Delivery record not found' });
     }
     assert.equal(auditRead.mock.callCount(), 1, 'Denied records must not query audit history');
-    for (const path of ['/api/transactions?source=inventory', '/api/transactions/inventory/known', '/api/transactions/inventory/missing', '/api/skus', '/api/skus/known']) {
+    for (const path of ['/api/v1/transactions?source=inventory', '/api/v1/transactions/inventory/known', '/api/v1/transactions/inventory/missing', '/api/v1/skus', '/api/v1/skus/known']) {
       assert.equal((await get(path)).status, 403, path);
     }
     assert.equal(inventoryRead.mock.callCount(), 0);
     assert.equal(inventoryDetail.mock.callCount(), 0);
     assert.equal(skuList.mock.callCount(), 0);
     assert.equal(skuDetail.mock.callCount(), 0);
-    assert.equal((await get('/api/transactions?source=invalid')).status, 400);
+    assert.equal((await get('/api/v1/transactions?source=invalid')).status, 400);
     readFailure = true;
-    assert.equal((await get('/api/transactions')).status, 500, 'Rejected queries must reach the Express error handler');
+    assert.equal((await get('/api/v1/transactions')).status, 500, 'Rejected queries must reach the Express error handler');
     readFailure = false;
 
     // An unlinked login (e.g. an ambiguous legacy name left for Admin review)
@@ -132,47 +132,47 @@ test('HTTP transaction reads enforce driver ownership, category, inventory denia
     for (const profile of [null, { id: 'profile-one', type: 'ASSISTANT' }]) {
       user = account('DRIVER', [], profile);
       const beforeUnlinkedReads = reads.mock.callCount();
-      assert.equal((await get('/api/transactions')).status, 403);
-      assert.equal((await get('/api/transactions/delivery/own')).status, 403);
+      assert.equal((await get('/api/v1/transactions')).status, 403);
+      assert.equal((await get('/api/v1/transactions/delivery/own')).status, 403);
       assert.equal(reads.mock.callCount(), beforeUnlinkedReads);
     }
 
     // Renaming the login changes presentation only; ownership stays on the profile id.
     user = { ...account(), name: 'Driver Two' };
-    assert.deepEqual((await (await get('/api/transactions')).json() as any).transactions.map((txn: any) => txn.id), ['own', 'collection']);
+    assert.deepEqual((await (await get('/api/v1/transactions')).json() as any).transactions.map((txn: any) => txn.id), ['own', 'collection']);
     // Relinking the login to another profile moves ownership immediately.
     user = account('DRIVER', [], { id: 'profile-two', type: 'DRIVER' });
-    assert.deepEqual((await (await get('/api/transactions')).json() as any).transactions.map((txn: any) => txn.id), ['other']);
-    assert.equal((await get('/api/transactions/delivery/own')).status, 404);
+    assert.deepEqual((await (await get('/api/v1/transactions')).json() as any).transactions.map((txn: any) => txn.id), ['other']);
+    assert.equal((await get('/api/v1/transactions/delivery/own')).status, 404);
     user = account('DRIVER', [{ screen: 'driver_dashboard', granted: false }]);
     const readCount = reads.mock.callCount();
-    assert.equal((await get('/api/transactions')).status, 403);
-    assert.equal((await get('/api/transactions/delivery/own')).status, 403);
+    assert.equal((await get('/api/v1/transactions')).status, 403);
+    assert.equal((await get('/api/v1/transactions/delivery/own')).status, 403);
     assert.equal(reads.mock.callCount(), readCount);
 
     // The same signed cookie uses the role and module permissions reloaded from
     // the database, not stale token claims or client supplied identities.
     for (const role of ['ADMIN', 'SALES_COORDINATOR', 'LOGISTICS', 'TASS']) {
       user = account(role);
-      const response = await get('/api/transactions');
+      const response = await get('/api/v1/transactions');
       assert.equal(response.status, 200, role);
       const ids = (await response.json() as any).transactions.map((txn: any) => txn.id);
       assert.ok(ids.includes(role === 'TASS' ? 'collection' : 'other'), role);
-      assert.equal((await get('/api/transactions?source=inventory')).status, role === 'TASS' ? 403 : 200);
+      assert.equal((await get('/api/v1/transactions?source=inventory')).status, role === 'TASS' ? 403 : 200);
     }
     user = account('LOGISTICS', [{ screen: 'deliveries', granted: false }]);
-    assert.equal((await get('/api/transactions/delivery/own')).status, 404);
-    assert.ok(!(await (await get('/api/transactions')).json() as any).transactions.some((txn: any) => txn.id === 'own'));
+    assert.equal((await get('/api/v1/transactions/delivery/own')).status, 404);
+    assert.ok(!(await (await get('/api/v1/transactions')).json() as any).transactions.some((txn: any) => txn.id === 'own'));
     // TSK-118: without SKU Master, Logistics keeps read-only inventory transactions through
     // Transaction Center; denying Transaction Center (below) removes them.
     user = account('LOGISTICS', [{ screen: 'inventory', granted: false }]);
-    assert.equal((await get('/api/transactions?source=inventory')).status, 200);
+    assert.equal((await get('/api/v1/transactions?source=inventory')).status, 200);
     user = account('LOGISTICS', [{ screen: 'transactions', granted: false }]);
-    assert.equal((await get('/api/transactions')).status, 403);
-    assert.equal((await get('/api/transactions/delivery/own')).status, 403);
+    assert.equal((await get('/api/v1/transactions')).status, 403);
+    assert.equal((await get('/api/v1/transactions/delivery/own')).status, 403);
     user = account('UNKNOWN');
-    assert.equal((await get('/api/transactions')).status, 403);
-    assert.equal((await get('/api/transactions/inventory/known')).status, 403);
+    assert.equal((await get('/api/v1/transactions')).status, 403);
+    assert.equal((await get('/api/v1/transactions/inventory/known')).status, 403);
   } finally {
     restores.forEach(restore => restore());
     server.closeAllConnections();

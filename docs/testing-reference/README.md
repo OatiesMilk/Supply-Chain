@@ -1,3 +1,5 @@
+> URL version note (2026-11-04): this reference retains its pinned source baseline. The [full API v1 migration](../API_V1_MIGRATION.md) defines the current URL prefix; historical `/api` entries do not establish compatibility aliases.
+
 # System capabilities, payloads and automation reference
 
 This reference describes the Microgenesis Supply Chain Portal for developers designing unit, component, API integration, database integration and browser E2E tests. It was prepared on **2026-10-27** from source, not from assumptions about ticket titles or old QA reports.

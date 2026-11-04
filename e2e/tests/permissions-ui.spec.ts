@@ -27,8 +27,13 @@ async function mount(page: import('@playwright/test').Page, role = 'SALES_COORDI
   await page.evaluate(({ role, conflict }) => (window as any).mountPermissions(role, conflict), { role, conflict });
   await expect(page.getByLabel('Search permission modules')).toBeVisible();
   // Loading a CSS file alone is not evidence it parsed and applied correctly.
-  await expect(page.getByRole('region', { name: 'Permission matrix', exact: true })).toHaveCSS('max-height', '544px');
-  await expect(page.locator('section [class*="max-h-"]')).toHaveCSS('overflow-y', 'auto');
+  if (page.viewportSize()!.width < 640) {
+    await expect(page.getByRole('region', { name: 'Permission modules', exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Permission matrix', exact: true })).toHaveCount(0);
+  } else {
+    await expect(page.getByRole('region', { name: 'Permission matrix', exact: true })).toHaveCSS('max-height', '544px');
+    await expect(page.locator('section [class*="max-h-"]')).toHaveCSS('overflow-y', 'auto');
+  }
 }
 
 test('keyboard focus, labelled controls and actual CSS fit the viewport', async ({ page }, testInfo) => {
@@ -37,10 +42,15 @@ test('keyboard focus, labelled controls and actual CSS fit the viewport', async 
   const filter = page.getByLabel('Search permission modules');
   await filter.focus(); await expect(filter).toBeFocused();
   await page.keyboard.type('main');
-  const policy = page.getByRole('combobox', { name: 'SCREEN:main:READ', exact: true });
+  const policy = page.getByRole('combobox', { name: 'All Operations → Screen access → Read', exact: true });
   await page.keyboard.press('Tab'); await expect(page.getByLabel('Permission scope')).toBeFocused();
   await page.keyboard.press('Tab'); await expect(page.getByRole('button', { name: 'Clear module filters', exact: true })).toBeFocused();
-  await page.keyboard.press('Tab'); await expect(page.getByRole('region', { name: 'Permission matrix', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  if (page.viewportSize()!.width < 640) {
+    await expect(page.getByRole('region', { name: 'Permission modules', exact: true }).locator('summary').first()).toBeFocused();
+  } else {
+    await expect(page.getByRole('region', { name: 'Permission matrix', exact: true })).toBeFocused();
+  }
   await page.keyboard.press('Tab'); await expect(policy).toBeFocused();
   await expect(policy).toHaveValue('INHERIT');
   const outline = await policy.evaluate(element => getComputedStyle(element).outlineStyle);
@@ -52,7 +62,7 @@ test('protected Admin controls stay locked and denied Allow options explain rest
   await mount(page, 'ADMIN');
   await page.getByLabel('Search permission modules').fill('users');
   await page.getByLabel('Permission scope').selectOption('RESOURCE');
-  await expect(page.getByRole('combobox', { name: 'RESOURCE:users:WRITE', exact: true })).toBeDisabled();
+  await expect(page.getByRole('combobox', { name: 'User Management → Shared resource → Write', exact: true })).toBeDisabled();
   await expect(page.getByText('Protected Admin', { exact: true }).first()).toBeVisible();
 });
 
@@ -60,7 +70,7 @@ test('409 keeps draft until refreshed review, announces status, and guards unsav
   await mount(page, 'SALES_COORDINATOR', true);
   await page.getByLabel('Search permission modules').fill('main');
   await page.getByLabel('Permission scope').selectOption('SCREEN');
-  const policy = page.getByRole('combobox', { name: 'SCREEN:main:READ', exact: true });
+  const policy = page.getByRole('combobox', { name: 'All Operations → Screen access → Read', exact: true });
   await policy.selectOption('DENY');
   await page.getByRole('button', { name: 'Save permissions', exact: true }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'Your draft is preserved' })).toBeVisible();
@@ -84,7 +94,7 @@ test('dirty Close returns promptly and Stay/Escape/Discard never save the draft'
   page.on('dialog', async dialog => { nativeDialogs++; await dialog.dismiss(); });
   await page.getByLabel('Search permission modules').fill('main');
   await page.getByLabel('Permission scope').selectOption('SCREEN');
-  const policy = page.getByRole('combobox', { name: 'SCREEN:main:READ', exact: true });
+  const policy = page.getByRole('combobox', { name: 'All Operations → Screen access → Read', exact: true });
   await policy.selectOption('DENY');
   await page.getByRole('button', { name: 'Close editor', exact: true }).click();
   const warning = page.getByRole('dialog', { name: 'Discard unsaved permission changes?' });

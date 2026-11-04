@@ -25,10 +25,10 @@ export const test = base.extend<{ readOnlyGuard: void }>({
     const blocked: string[] = [];
     // Browser requests only: Playwright APIRequestContext bypasses routing.
     // API helpers below use GET except the explicit /auth/login POST.
-    await context.route('**/api/**', async route => {
+    await context.route('**/api/v1/**', async route => {
       const request = route.request();
       const path = new URL(request.url()).pathname;
-      if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method()) && !['/api/auth/login', '/api/auth/logout'].includes(path)) {
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method()) && !['/api/v1/auth/login', '/api/v1/auth/logout'].includes(path)) {
         blocked.push(`${request.method()} ${path}`);
         await route.abort('blockedbyclient');
       } else await route.continue();

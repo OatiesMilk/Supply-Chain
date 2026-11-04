@@ -47,7 +47,7 @@ test('UAT seed accounts exercise real PostgreSQL API reads and session boundarie
   app.use(express.json(), cookieParser());
   applySecurity(app);
   for (const [prefix, router] of Object.entries({ auth, records, users, companies, customers, suppliers, drivers, skus, dashboard, transactions, reports, notifications, admin, 'data-sampler': sampler })) {
-    app.use(`/api/${prefix}`, router);
+    app.use(`/api/v1/${prefix}`, router);
   }
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     res.status(500).json({ error: 'Unexpected seeded API failure' });
@@ -56,7 +56,7 @@ test('UAT seed accounts exercise real PostgreSQL API reads and session boundarie
   await once(listener, 'listening');
   const address = listener.address();
   assert.ok(address && typeof address !== 'string');
-  const base = `http://127.0.0.1:${address.port}/api`;
+  const base = `http://127.0.0.1:${address.port}/api/v1`;
   const request = (route: string, cookie?: string, init: RequestInit = {}) => fetch(`${base}${route}`, {
     ...init, signal: AbortSignal.timeout(10_000), headers: { ...(cookie ? { Cookie: cookie } : {}), ...init.headers },
   });

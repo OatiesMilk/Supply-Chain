@@ -23,8 +23,8 @@ const record = {
 } as DeliveryRecord;
 const attachment = (name: string): ApiPodAttachment => ({
   id: name, name, mime_type: 'application/pdf', size: 100, uploaded_at: '2026-10-30T01:00:00Z',
-  download_url: `/api/records/${record.id}/attachments/${name}/download`,
-  preview_url: `/api/records/${record.id}/attachments/${name}/preview`,
+  download_url: `/api/v1/records/${record.id}/attachments/${name}/download`,
+  preview_url: `/api/v1/records/${record.id}/attachments/${name}/preview`,
 } as ApiPodAttachment);
 
 function installTassV1(deny: string[] = []) {

@@ -11,7 +11,7 @@ import { getSession, apiRequest } from '../helpers/auth';
  */
 
 describe('Layer 2 (API): Server-Side RBAC & Resource Scoping', () => {
-  describe('User Administration API Protection (/api/users)', () => {
+  describe('User Administration API Protection (/api/v1/users)', () => {
     test('test_admin_accesses_user_directory', async () => {
       const admin = await getSession('admin@microgenesis.com');
       const res = await apiRequest('GET', '/users', admin);
@@ -22,7 +22,7 @@ describe('Layer 2 (API): Server-Side RBAC & Resource Scoping', () => {
     test('test_sales_coordinator_is_forbidden_from_user_directory', async () => {
       const sales = await getSession('sales@microgenesis.com');
       const res = await apiRequest('GET', '/users', sales);
-      assert.equal(res.status, 403, 'Non-admin must receive 403 Forbidden on /api/users');
+      assert.equal(res.status, 403, 'Non-admin must receive 403 Forbidden on /api/v1/users');
     });
 
     test('test_logistics_is_forbidden_from_user_directory', async () => {

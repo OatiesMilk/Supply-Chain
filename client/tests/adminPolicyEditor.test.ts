@@ -187,7 +187,7 @@ test('dedicated reset endpoint sends only version contract fields and no permiss
   installLegacySession();
   const requests = mock.method(globalThis, 'fetch', async () => Response.json(userEditor()));
   await api.resetUserPermissionEditor('target/slash', 'version-token');
-  assert.equal(requests.mock.calls[0].arguments[0], '/api/users/target%2Fslash/permissions/reset');
+  assert.equal(requests.mock.calls[0].arguments[0], '/api/v1/users/target%2Fslash/permissions/reset');
   const options = requests.mock.calls[0].arguments[1]!;
   assert.equal(options.method, 'POST');
   assert.deepEqual(JSON.parse(String(options.body)), { contractVersion: 1, catalogVersion: 1, expectedVersion: 'version-token' });

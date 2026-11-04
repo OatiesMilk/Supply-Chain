@@ -104,11 +104,11 @@ async function fixture(t: TestContext, role: PolicyRole = 'LOGISTICS') {
   for (const method of ['save', 'read', 'open', 'remove']) stub(podStorage, method, async () => { effects.push(`storage.${method}`); throw new Error('Unexpected file access'); });
   const app = express();
   app.use(express.json(), cookieParser());
-  app.use('/api/auth', authRoutes); app.use('/api/records', recordsRoutes);
-  app.use('/api/skus', skusRoutes); app.use('/api/customers', customersRoutes);
-  app.use('/api/suppliers', suppliersRoutes); app.use('/api/drivers', driversRoutes);
-  app.use('/api/companies', companiesRoutes); app.use('/api/notifications', notificationsRoutes);
-  app.use('/api/admin', adminRoutes); app.use('/api/transactions', transactionsRoutes);
+  app.use('/api/v1/auth', authRoutes); app.use('/api/v1/records', recordsRoutes);
+  app.use('/api/v1/skus', skusRoutes); app.use('/api/v1/customers', customersRoutes);
+  app.use('/api/v1/suppliers', suppliersRoutes); app.use('/api/v1/drivers', driversRoutes);
+  app.use('/api/v1/companies', companiesRoutes); app.use('/api/v1/notifications', notificationsRoutes);
+  app.use('/api/v1/admin', adminRoutes); app.use('/api/v1/transactions', transactionsRoutes);
   app.use((error: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => res.status(error.status ?? 500).json({ error: error.message }));
   const server = app.listen(0, '127.0.0.1');
   await new Promise<void>(resolve => server.once('listening', resolve));
@@ -136,7 +136,7 @@ async function fixture(t: TestContext, role: PolicyRole = 'LOGISTICS') {
 test('V1 restored sessions satisfy the frontend contract and never trust the JWT role or leak credentials', async t => {
   const state = await fixture(t);
   state.actor().password = 'must-not-serialize'; state.actor().microsoftOid = 'must-not-serialize';
-  const response = await state.request('/api/auth/me');
+  const response = await state.request('/api/v1/auth/me');
   assert.equal(response.status, 200);
   const session: any = await response.json();
   assert.equal(session.role, 'LOGISTICS');
@@ -144,24 +144,24 @@ test('V1 restored sessions satisfy the frontend contract and never trust the JWT
   assert.equal(session.contractVersion, 1); assert.equal(session.activeMode, 'V1');
   assert.doesNotMatch(JSON.stringify(session), /must-not-serialize/);
   assert.match(response.headers.get('cache-control') ?? '', /no-store/);
-  assert.equal((await state.request('/api/admin/audit-log')).status, 403, 'a stale ADMIN claim cannot grant administrative access');
-  assert.equal((await state.request('/api/records/record-one', 'GET', undefined, false)).status, 401);
+  assert.equal((await state.request('/api/v1/admin/audit-log')).status, 403, 'a stale ADMIN claim cannot grant administrative access');
+  assert.equal((await state.request('/api/v1/records/record-one', 'GET', undefined, false)).status, 401);
 });
 
 test('read-only users can read records but every record write rejects before database or upload effects', async t => {
   const state = await fixture(t, 'ADMIN');
   state.deny('CATEGORY:DELIVERY:WRITE');
-  assert.equal((await state.request('/api/records/record-one')).status, 200);
+  assert.equal((await state.request('/api/v1/records/record-one')).status, 200);
   const mutations: Array<[string, string, unknown]> = [
-    ['/api/records', 'POST', { category: 'Deliveries', company_id: 'company-one' }],
-    ['/api/records/record-one', 'PUT', { priority: '3 - High', remarks: 'Edit' }],
-    ['/api/records/record-one/status', 'PATCH', { status: 'On-Hold', remarks: 'Hold' }],
-    ['/api/records/record-one/time-in', 'POST', { remarks: 'Start' }],
-    ['/api/records/record-one/comments', 'POST', { body: 'Comment' }],
-    ['/api/records/record-one/attachments/attachment-one', 'DELETE', { remarks: 'Delete' }],
+    ['/api/v1/records', 'POST', { category: 'Deliveries', company_id: 'company-one' }],
+    ['/api/v1/records/record-one', 'PUT', { priority: '3 - High', remarks: 'Edit' }],
+    ['/api/v1/records/record-one/status', 'PATCH', { status: 'On-Hold', remarks: 'Hold' }],
+    ['/api/v1/records/record-one/time-in', 'POST', { remarks: 'Start' }],
+    ['/api/v1/records/record-one/comments', 'POST', { body: 'Comment' }],
+    ['/api/v1/records/record-one/attachments/attachment-one', 'DELETE', { remarks: 'Delete' }],
   ];
   for (const [path, method, payload] of mutations) assert.equal((await state.request(path, method, payload)).status, 403, `${method} ${path}`);
-  const upload = await state.request('/api/records/record-one/attachments', 'POST', 'invalid multipart', true, { 'Content-Type': 'multipart/form-data; boundary=not-a-real-upload' });
+  const upload = await state.request('/api/v1/records/record-one/attachments', 'POST', 'invalid multipart', true, { 'Content-Type': 'multipart/form-data; boundary=not-a-real-upload' });
   assert.equal(upload.status, 403, 'authorization must reject before the multipart parser runs');
   assert.deepEqual(state.effects, []);
 });
@@ -169,24 +169,24 @@ test('read-only users can read records but every record write rejects before dat
 test('lookup Read and directory visibility never authorize direct SKU or directory writes', async t => {
   const state = await fixture(t, 'ADMIN');
   state.deny(...['skus', 'customers', 'suppliers', 'drivers', 'companies'].map(name => `RESOURCE:${name}:WRITE`));
-  assert.equal((await state.request('/api/skus')).status, 200);
-  assert.equal((await state.request('/api/customers')).status, 200);
+  assert.equal((await state.request('/api/v1/skus')).status, 200);
+  assert.equal((await state.request('/api/v1/customers')).status, 200);
   for (const [path, method] of [
-    ['/api/skus', 'POST'], ['/api/skus/product-one', 'PUT'], ['/api/skus/product-one/adjust', 'POST'],
-    ['/api/customers', 'POST'], ['/api/customers/customer-one', 'PUT'], ['/api/suppliers', 'POST'],
-    ['/api/drivers', 'POST'], ['/api/drivers/driver-one', 'PUT'], ['/api/drivers/driver-one', 'DELETE'], ['/api/companies', 'POST'],
+    ['/api/v1/skus', 'POST'], ['/api/v1/skus/product-one', 'PUT'], ['/api/v1/skus/product-one/adjust', 'POST'],
+    ['/api/v1/customers', 'POST'], ['/api/v1/customers/customer-one', 'PUT'], ['/api/v1/suppliers', 'POST'],
+    ['/api/v1/drivers', 'POST'], ['/api/v1/drivers/driver-one', 'PUT'], ['/api/v1/drivers/driver-one', 'DELETE'], ['/api/v1/companies', 'POST'],
   ]) assert.equal((await state.request(path, method, {})).status, 403, `${method} ${path}`);
   assert.deepEqual(state.effects, []);
 });
 
 test('the same cookie observes role defaults, individual Deny/reset, role changes and deactivation', async t => {
   const state = await fixture(t);
-  const postComment = () => state.request('/api/records/record-one/comments', 'POST', { body: 'Operational note' });
+  const postComment = () => state.request('/api/v1/records/record-one/comments', 'POST', { body: 'Operational note' });
   assert.equal((await postComment()).status, 201);
-  const before: any = await (await state.request('/api/auth/me')).json();
+  const before: any = await (await state.request('/api/v1/auth/me')).json();
   state.deny('CATEGORY:DELIVERY:COMMENT');
   assert.equal((await postComment()).status, 403);
-  const denied: any = await (await state.request('/api/auth/me')).json();
+  const denied: any = await (await state.request('/api/v1/auth/me')).json();
   assert.notEqual(denied.permissionVersion, before.permissionVersion);
   state.actor().permissionOverrides = []; state.actor().authorizationRevision++;
   assert.equal((await postComment()).status, 201, 'reset must inherit current defaults without logging in again');
@@ -198,9 +198,9 @@ test('the same cookie observes role defaults, individual Deny/reset, role change
   state.actor().permissionOverrides = []; state.actor().authorizationRevision++;
   assert.equal((await postComment()).status, 403, 'reset now inherits the changed role default');
   state.actor().role = 'TASS'; state.actor().authorizationRevision++;
-  assert.equal((await state.request('/api/records/record-one')).status, 403, 'role changes must revoke old category access');
+  assert.equal((await state.request('/api/v1/records/record-one')).status, 403, 'role changes must revoke old category access');
   state.actor().isActive = false; state.actor().authorizationRevision++;
-  const inactive = await state.request('/api/auth/me');
+  const inactive = await state.request('/api/v1/auth/me');
   assert.equal(inactive.status, 401); assert.match(inactive.headers.get('set-cookie') ?? '', /mg_session=;/);
   assert.equal(state.effects.filter(value => value === 'comment.create').length, 3);
 });
@@ -208,9 +208,9 @@ test('the same cookie observes role defaults, individual Deny/reset, role change
 test('category Write and resource membership cannot bypass denial on every editing screen', async t => {
   const state = await fixture(t, 'ADMIN');
   state.deny(...['deliveries', 'driver', 'calendar', 'driver_board'].map(screen => `SCREEN:${screen}:WRITE`));
-  assert.equal((await state.request('/api/records/record-one')).status, 200);
-  assert.equal((await state.request('/api/records/record-one?screen=driver_dashboard', 'PUT', { priority: '3 - High', remarks: 'Forged entry path' })).status, 403);
-  assert.equal((await state.request('/api/records/record-one/comments', 'POST', { body: 'Forged action' })).status, 403);
+  assert.equal((await state.request('/api/v1/records/record-one')).status, 200);
+  assert.equal((await state.request('/api/v1/records/record-one?screen=driver_dashboard', 'PUT', { priority: '3 - High', remarks: 'Forged entry path' })).status, 403);
+  assert.equal((await state.request('/api/v1/records/record-one/comments', 'POST', { body: 'Forged action' })).status, 403);
   assert.deepEqual(state.effects, []);
 });
 
@@ -221,13 +221,13 @@ test('existing Logistics creation stays distinct from submission of an existing 
     state.effects.push('deliveryRecord.create'); return savedRecord(data.id, data.category, data);
   });
   state.stub(prisma.auditLog, 'create', async ({ data }: any) => { state.effects.push('auditLog.create'); return data; });
-  const created = await state.request('/api/records', 'POST', { company_id: 'company-one', category: 'Procurement Pick-up', reference: 'PICKUP-247', delivery_date: '2026-10-29' });
+  const created = await state.request('/api/v1/records', 'POST', { company_id: 'company-one', category: 'Procurement Pick-up', reference: 'PICKUP-247', delivery_date: '2026-10-29' });
   assert.equal(created.status, 201, 'the frozen Logistics baseline permits new non-Delivery creation without draft SUBMIT');
   assert.deepEqual(state.effects, ['deliveryRecord.create', 'auditLog.create']);
   state.actor().role = 'SALES_COORDINATOR'; state.actor().authorizationRevision++;
   state.setRecords([savedRecord('record-one', 'DELIVERY', { draft: true, driverId: null })]);
   state.deny('CATEGORY:DELIVERY:SUBMIT');
-  assert.equal((await state.request('/api/records/record-one/status', 'PATCH', { status: 'Scheduled', remarks: 'Submit existing draft' })).status, 403);
+  assert.equal((await state.request('/api/v1/records/record-one/status', 'PATCH', { status: 'Scheduled', remarks: 'Submit existing draft' })).status, 403);
   assert.deepEqual(state.effects, ['deliveryRecord.create', 'auditLog.create']);
 });
 
@@ -242,11 +242,11 @@ test('mixed metadata/assignment and completion-correction fields cannot bypass i
   ];
   for (const entry of cases) {
     state.deny(`CATEGORY:DELIVERY:${entry.deny}`);
-    const response = await state.request('/api/records/record-one', 'PUT', { ...entry.body, remarks: 'Mixed edit' });
+    const response = await state.request('/api/v1/records/record-one', 'PUT', { ...entry.body, remarks: 'Mixed edit' });
     assert.equal(response.status, 403, entry.deny);
   }
   state.deny('CATEGORY:DELIVERY:COMPLETE');
-  const response = await state.request('/api/records/record-one/status', 'PATCH', { status: 'Scheduled', priority: '3 - High', received_by: 'Changed Recipient', remarks: 'Keep status' });
+  const response = await state.request('/api/v1/records/record-one/status', 'PATCH', { status: 'Scheduled', priority: '3 - High', received_by: 'Changed Recipient', remarks: 'Keep status' });
   assert.equal(response.status, 403, 'a same-status priority edit must not smuggle a recipient change');
   assert.deepEqual(state.effects, []);
 });
@@ -255,15 +255,15 @@ test('explicit category denial dominates direct reads, aggregate lists, transact
   const state = await fixture(t, 'ADMIN');
   state.setRecords([savedRecord(), savedRecord('collection-one', 'ACCOUNTING_COLLECTION')]);
   state.deny('CATEGORY:ACCOUNTING_COLLECTION:READ');
-  const listed: any[] = await (await state.request('/api/records')).json();
+  const listed: any[] = await (await state.request('/api/v1/records')).json();
   assert.deepEqual(listed.map(row => row.id), ['record-one']);
-  assert.equal((await state.request('/api/records/collection-one')).status, 403);
-  const transactions: any = await (await state.request('/api/transactions?source=delivery')).json();
+  assert.equal((await state.request('/api/v1/records/collection-one')).status, 403);
+  const transactions: any = await (await state.request('/api/v1/transactions?source=delivery')).json();
   assert.deepEqual(transactions.transactions.map((row: any) => row.id), ['record-one']);
-  assert.equal((await state.request('/api/transactions/delivery/collection-one')).status, 404);
-  assert.equal((await state.request('/api/records/record-one', 'PUT', { category: 'Accounting Collection', remarks: 'Move into denied category' })).status, 403);
+  assert.equal((await state.request('/api/v1/transactions/delivery/collection-one')).status, 404);
+  assert.equal((await state.request('/api/v1/records/record-one', 'PUT', { category: 'Accounting Collection', remarks: 'Move into denied category' })).status, 403);
   state.deny('CATEGORY:DELIVERY:UPDATE');
-  assert.equal((await state.request('/api/records/record-one', 'PUT', { category: 'Accounting Collection', remarks: 'Move from denied source' })).status, 403);
+  assert.equal((await state.request('/api/v1/records/record-one', 'PUT', { category: 'Accounting Collection', remarks: 'Move from denied source' })).status, 403);
   assert.deepEqual(state.effects, []);
 });
 
@@ -272,24 +272,24 @@ test('Driver lists and direct reads use linked profile, non-draft and explicit R
   state.setRecords([savedRecord(), savedRecord('other-driver', 'DELIVERY', { driverId: 'driver-two' }),
     savedRecord('draft', 'DELIVERY', { draft: true }), savedRecord('rma-eligible', 'RMA'),
     savedRecord('rma-supplier', 'RMA', { rmaMovement: 'SUPPLIER_COLLECTION' })]);
-  const listed: any[] = await (await state.request('/api/records')).json();
+  const listed: any[] = await (await state.request('/api/v1/records')).json();
   assert.deepEqual(listed.map(row => row.id).sort(), ['record-one', 'rma-eligible']);
-  for (const id of ['other-driver', 'draft', 'rma-supplier']) assert.equal((await state.request(`/api/records/${id}`)).status, 403, id);
+  for (const id of ['other-driver', 'draft', 'rma-supplier']) assert.equal((await state.request(`/api/v1/records/${id}`)).status, 403, id);
   state.actor().driverProfile.isActive = false; state.actor().authorizationRevision++;
-  assert.equal((await state.request('/api/records')).status, 403);
-  assert.equal((await state.request('/api/records/record-one')).status, 403);
+  assert.equal((await state.request('/api/v1/records')).status, 403);
+  assert.equal((await state.request('/api/v1/records/record-one')).status, 403);
 });
 
 test('read-only email dispatch and forged trigger/recipient payloads reject before resolving recipients or sending mail', async t => {
   const state = await fixture(t, 'ADMIN');
   state.deny('CATEGORY:DELIVERY:WRITE');
   const body = { recordId: 'record-one', trigger: 'Record Created', recipients: ['LOGISTICS'] };
-  assert.equal((await state.request('/api/notifications/send-email', 'POST', body)).status, 403);
+  assert.equal((await state.request('/api/v1/notifications/send-email', 'POST', body)).status, 403);
   state.deny();
   for (const malformed of [
     { ...body, trigger: 'arbitrary subject' }, { ...body, recipients: ['outside@example.test'] },
     { ...body, recipients: ['AM', 'AM'] }, { ...body, to: 'outside@example.test' },
-  ]) assert.equal((await state.request('/api/notifications/send-email', 'POST', malformed)).status, 400);
+  ]) assert.equal((await state.request('/api/v1/notifications/send-email', 'POST', malformed)).status, 400);
   assert.equal(state.reads.includes('mail-recipients'), false);
   assert.deepEqual(state.effects, []);
 });
@@ -297,22 +297,22 @@ test('read-only email dispatch and forged trigger/recipient payloads reject befo
 test('ADMIN cannot bypass TASS-only verification and disabled record deletion; missing conversion fails closed', async t => {
   const state = await fixture(t, 'ADMIN');
   state.setRecords([savedRecord('collection-one', 'ACCOUNTING_COLLECTION', { status: 'ACCOMPLISHED', collectionVerified: false })]);
-  assert.equal((await state.request('/api/records/collection-one/verify-collection', 'PATCH', {})).status, 403);
-  assert.equal((await state.request('/api/records/collection-one', 'DELETE', {})).status, 403);
+  assert.equal((await state.request('/api/v1/records/collection-one/verify-collection', 'PATCH', {})).status, 403);
+  assert.equal((await state.request('/api/v1/records/collection-one', 'DELETE', {})).status, 403);
   state.actor().permissionConversion = null;
-  assert.equal((await state.request('/api/records')).status, 503);
+  assert.equal((await state.request('/api/v1/records')).status, 503);
   assert.deepEqual(state.effects, []);
 });
 
 test('V1 collection verification reports repeats as conflicts while explicit action Deny remains authoritative', async t => {
   const state = await fixture(t, 'TASS');
   state.setRecords([savedRecord('collection-one', 'ACCOUNTING_COLLECTION', { status: 'ACCOMPLISHED', collectionVerified: true })]);
-  const duplicate = await state.request('/api/records/collection-one/verify-collection', 'PATCH', {});
+  const duplicate = await state.request('/api/v1/records/collection-one/verify-collection', 'PATCH', {});
   assert.equal(duplicate.status, 409, await duplicate.text());
   state.deny('CATEGORY:ACCOUNTING_COLLECTION:VERIFY_COLLECTION');
-  assert.equal((await state.request('/api/records/collection-one/verify-collection', 'PATCH', {})).status, 403);
+  assert.equal((await state.request('/api/v1/records/collection-one/verify-collection', 'PATCH', {})).status, 403);
   state.setRecords([savedRecord('collection-one', 'ACCOUNTING_COLLECTION', { status: 'ACCOMPLISHED', collectionVerified: false })]);
-  assert.equal((await state.request('/api/records/collection-one/verify-collection', 'PATCH', {})).status, 403);
+  assert.equal((await state.request('/api/v1/records/collection-one/verify-collection', 'PATCH', {})).status, 403);
   assert.deepEqual(state.effects, [], 'neither duplicate nor denied requests write anything');
 });
 
@@ -321,14 +321,14 @@ test('V1 metadata writes reject stale editors and enforce the Sales post-dispatc
  const state=await fixture(t,'SALES_COORDINATOR');
  const old=savedRecord('record-one','DELIVERY',{reference:'REF-original'});
  state.setRecords([{...old,reference:'REF-new'}]);
- const stale=await state.request('/api/records/record-one','PUT',{expected_edit_version:recordEditVersion(old),address:'New address',remarks:'Stale edit'});
+ const stale=await state.request('/api/v1/records/record-one','PUT',{expected_edit_version:recordEditVersion(old),address:'New address',remarks:'Stale edit'});
  assert.equal(stale.status,409);assert.deepEqual(state.effects,[]);
- const missing=await state.request('/api/records/record-one','PUT',{address:'New address',remarks:'Missing version'});
+ const missing=await state.request('/api/v1/records/record-one','PUT',{address:'New address',remarks:'Missing version'});
  assert.equal(missing.status,428);assert.deepEqual(state.effects,[]);
  state.setRecords([{...old,status:'ACCOMPLISHED'}]);
- const locked=await state.request('/api/records/record-one','PUT',{expected_edit_version:recordEditVersion(state.records()[0]),reference:'After completion',remarks:'Disallowed edit'});
+ const locked=await state.request('/api/v1/records/record-one','PUT',{expected_edit_version:recordEditVersion(state.records()[0]),reference:'After completion',remarks:'Disallowed edit'});
  assert.equal(locked.status,403);assert.deepEqual(state.effects,[]);
  state.deny('CATEGORY:DELIVERY:UPDATE');
- assert.equal((await state.request('/api/records/record-one','PUT',{expected_edit_version:recordEditVersion(state.records()[0]),address:'Denied',remarks:'Denied edit'})).status,403);
+ assert.equal((await state.request('/api/v1/records/record-one','PUT',{expected_edit_version:recordEditVersion(state.records()[0]),address:'Denied',remarks:'Denied edit'})).status,403);
  assert.deepEqual(state.effects,[]);
 });

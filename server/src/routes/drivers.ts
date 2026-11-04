@@ -34,7 +34,7 @@ function serialize(d: any, isAdmin = false) {
   };
 }
 
-// Login identities are linked only by Admin through /api/users, never through
+// Login identities are linked only by Admin through /api/v1/users, never through
 // the roster, so Logistics cannot create or move a Driver login link.
 function linkingFieldError(req: Request, res: Response) {
   if (!req.body || !['user_id', 'userId', 'linked_user_id'].some(key => key in req.body)) return false;

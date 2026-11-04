@@ -41,21 +41,21 @@ async function showAssignedRecord(page: Page, deliveryDate: string) {
     delivery_date: deliveryDate, time_in: null, time_out: null,
     allowed_statuses: ['On-Hold', 'Rescheduled'], driver_assistants: [], attachments: [],
   };
-  await page.route('**/api/records**', async route => {
+  await page.route('**/api/v1/records**', async route => {
     const url = new URL(route.request().url());
-    if (url.pathname === '/api/records/driver-overview') {
+    if (url.pathname === '/api/v1/records/driver-overview') {
       return route.fulfill({ status: 200, json: {
         drivers: [{ name: record.driver, active: 1, completed: 0 }], unassigned: 0, areas: [record.area],
         dashboard: { today: deliveryDate === manilaDateOffset(0) ? 1 : 0, remaining: 1, completed: 0, rma_active: 0, rma_completed: 0 },
       } });
     }
-    if (url.pathname === '/api/records/tsk99-date-fixture') {
+    if (url.pathname === '/api/v1/records/tsk99-date-fixture') {
       return route.fulfill({ status: 200, json: record });
     }
-    if (url.pathname === '/api/records/tsk99-date-fixture/attachments') {
+    if (url.pathname === '/api/v1/records/tsk99-date-fixture/attachments') {
       return route.fulfill({ status: 200, json: [] });
     }
-    if (url.pathname !== '/api/records') return route.continue();
+    if (url.pathname !== '/api/v1/records') return route.continue();
     expect(url.searchParams.get('paged')).toBe('true');
     expect(url.searchParams.get('view')).toBe('driver_dashboard');
     expect(url.searchParams.get('queue')).toBe('active');

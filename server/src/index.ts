@@ -51,7 +51,7 @@ process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err);
 });
 
-// In dev, the Vite dev server (port 3000) proxies /api to here, so we need
+// In dev, the Vite dev server (port 3000) proxies /api/v1 to here, so we need
 // CORS to allow that cross-origin cookie. In production, Express serves the
 // built frontend directly — same origin, so CORS is not needed.
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:3000';
@@ -68,8 +68,8 @@ applySecurity(app);
 // Suitable as the host's health-check path (render.yaml does not set one yet):
 // it verifies the service can do its job, not just that the process is alive.
 // It does not prove which database or file store is connected; an Admin reads
-// that from GET /api/admin/deployment-status.
-app.get('/api/health', async (_req, res) => {
+// that from GET /api/v1/admin/deployment-status.
+app.get('/api/v1/health', async (_req, res) => {
   const checks: Record<string, string> = {};
   let healthy = true;
 
@@ -96,23 +96,26 @@ app.get('/api/health', async (_req, res) => {
   res.status(healthy ? 200 : 503).json({ ok: healthy, checks });
 });
 
-app.use('/api/auth', authRoutes);
-app.use('/api/records', rmaDispatchRoutes);
-app.use('/api/records', recordsRoutes);
-app.use('/api/companies', companiesRoutes);
-app.use('/api/customers', customersRoutes);
-app.use('/api/suppliers', suppliersRoutes);
-app.use('/api/users', usersRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/skus', skusRoutes);
-app.use('/api/transactions', transactionsRoutes);
-app.use('/api/notifications', notificationsRoutes);
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/records', rmaDispatchRoutes);
+app.use('/api/v1/records', recordsRoutes);
+app.use('/api/v1/companies', companiesRoutes);
+app.use('/api/v1/customers', customersRoutes);
+app.use('/api/v1/suppliers', suppliersRoutes);
+app.use('/api/v1/users', usersRoutes);
+app.use('/api/v1/dashboard', dashboardRoutes);
+app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1/skus', skusRoutes);
+app.use('/api/v1/transactions', transactionsRoutes);
+app.use('/api/v1/notifications', notificationsRoutes);
 // TSK-122: deprecated dev router is empty. HTTP resets have been removed.
-app.use('/api/dev', devRoutes);
-app.use('/api/data-sampler', dataSamplerRoutes);
-app.use('/api/reports', reportsRoutes);
-app.use('/api/drivers', driversRoutes);
+app.use('/api/v1/dev', devRoutes);
+app.use('/api/v1/data-sampler', dataSamplerRoutes);
+app.use('/api/v1/reports', reportsRoutes);
+app.use('/api/v1/drivers', driversRoutes);
+
+// API misses are JSON 404s, including in production when the SPA is served.
+app.use('/api', (_req, res) => { res.status(404).json({ error: 'API endpoint not found. Use /api/v1.' }); });
 
 // In production, serve the built Vite frontend and handle client-side routing
 // by falling back to index.html for any non-API route.
@@ -146,7 +149,7 @@ app.listen(PORT, () => {
   const externalUrl = process.env.RENDER_EXTERNAL_URL;
   if (externalUrl) {
     setInterval(() => {
-      fetch(`${externalUrl}/api/health`)
+      fetch(`${externalUrl}/api/v1/health`)
         .then(res => res.json())
         .then(data => console.log('[Self-Ping]', data))
         .catch(err => console.error('[Self-Ping Error]', err.message));

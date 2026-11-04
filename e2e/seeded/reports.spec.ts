@@ -13,7 +13,7 @@ test('report Driver and Area dropdowns send selected options and Clear restores 
   expect(areaValue).toBeTruthy();
   await driver.selectOption(driverValue!);
   await area.selectOption(areaValue!);
-  const reportResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/reports/summary');
+  const reportResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/reports/summary');
   await page.getByRole('button', { name: 'Generate Report', exact: true }).click();
   const response = await reportResponse;
   expect(response.status()).toBe(200);

@@ -1151,7 +1151,7 @@ test('Logistics can read an RMA record and preview its saved PDF but cannot edit
   assert.equal(details.body.category, 'RMA');
   const listed = await request('get', '/:id/attachments', { role: 'LOGISTICS' });
   assert.equal(listed.status, 200);
-  assert.equal(listed.body[0].preview_url, '/api/records/delivery-1/attachments/rma-pdf/preview');
+  assert.equal(listed.body[0].preview_url, '/api/v1/records/delivery-1/attachments/rma-pdf/preview');
 
   stub(prisma.podAttachment, 'findFirst', async () => attachment({ id: 'rma-pdf', originalName: 'rma.pdf', mimeType: 'application/pdf' }) as any);
   const pdf = Buffer.from('%PDF-1.7 test document');
