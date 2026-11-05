@@ -4,6 +4,7 @@ import type { AuthUser } from '../src/middleware/auth';
 import { defaultRolePermissions, type PolicyRole } from '../src/services/permissionCatalog';
 import { evaluatePermissions } from '../src/services/permissionEvaluator';
 import { permissionSession } from '../src/services/sessionPermissions';
+import { sessionUser } from '../src/services/permissions';
 import { auditVisibilitySql, visibleAuditCount, visibleAuditEntries } from '../src/services/auditVisibility';
 import { notificationVisibility } from '../src/services/notificationVisibility';
 import { mailInputError, recordMailRecipients } from '../src/services/mailPermissions';
@@ -54,6 +55,31 @@ test('notification SQL covers every category, Driver assignment, deletion and ve
   assert.match(driver.sql, /r\."driverId" = \?/);
   assert.ok(driver.values.includes('profile-1'));
   assert.match(driver.sql, /r\."draft" = false/);
+});
+
+test('LEGACY notifications respect category denials even for users with aggregate screens', () => {
+  const actor = {
+    ...sessionUser({ ...account('SALES_COORDINATOR'), permissions: [{ screen: 'sales_orders', granted: false }] }),
+    role: 'SALES_COORDINATOR',
+  } as const;
+  assert.ok(actor.effectiveScreens.includes('main'));
+  const scope = notificationVisibility(actor);
+  assert.ok(scope.values.includes('DELIVERY'), 'an allowed category still has visible alerts');
+  assert.ok(!scope.values.includes('SALES_ORDERS'), 'a category denial overrides aggregate access');
+  assert.match(scope.sql, /r\."id" IS NOT NULL AND r\."deletedAt" IS NULL/);
+  assert.match(scope.sql, /n\."recordType" IS DISTINCT FROM 'DeliveryRecord'/);
+});
+
+test('LEGACY Driver notifications are limited to the current linked profile and non-draft runs', () => {
+  const actor = { ...sessionUser(account('DRIVER')), role: 'DRIVER' } as const;
+  const linked = notificationVisibility({ ...actor, driverProfileId: 'profile-1' });
+  assert.ok(linked.values.includes('DELIVERY'));
+  assert.ok(linked.values.includes('profile-1'));
+  assert.match(linked.sql, /r\."driverId" = \? AND r\."draft" = false/);
+
+  const unlinked = notificationVisibility({ ...actor, driverProfileId: null });
+  assert.match(unlinked.sql, /AND FALSE/);
+  assert.ok(!unlinked.values.includes(''), 'an unlinked login never matches a stored driver ID');
 });
 
 test('historical summaries never become newly visible after policy changes or Driver reassignment', async () => {
