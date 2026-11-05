@@ -14,6 +14,27 @@ shared database or activate permission policies.
 
 ## Current backlog reconciliation (2026-11-05)
 
+### User decisions after PR #297
+
+Recorded on 2026-11-05 against local dev at `15a7cd1`:
+
+- Local-account password-policy work is deferred while development continues,
+  at the user's request for easier development logins. This is deferred scope,
+  not a completed security repair.
+- Supplier categories will use an Admin-managed catalog, and each supplier may
+  have multiple categories. This approved future requirement supersedes the
+  proposed fixed-five-category validation repair; it is not implemented yet.
+- Data Sampler is temporary development tooling and is excluded from the final
+  product. The user requested no further fixes for it and its removal when
+  development is complete. The previous category-permission decision is no
+  longer an active fix request. Keep existing safeguards until the planned
+  removal; this documentation update does not remove the module or its data.
+
+See the [decision and retirement record](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md#user-decisions-after-pr-297)
+and [administration requirement](BUSINESS_REQUIREMENTS.md#39-administration-and-access).
+
+### Reconciliation evidence
+
 Start with the [current reconciliation](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md#current-reconciliation)
 and [AUD ticket mapping](AUDIT_DEVELOPMENT_BACKLOG.md#ticket-mapping-and-recommended-order).
 They were source-checked against clean local dev at `6aad0f7` before the
