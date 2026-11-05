@@ -1,5 +1,127 @@
 # Supply Chain implementation status
 
+## Current reconciliation
+
+**Reconciled:** 2026-11-05
+
+**Source baseline:** clean local `dev` at `6aad0f7`, before this documentation edit
+
+**Evidence:** source and existing test/report inspection; no new application, browser, PostgreSQL or provider test run
+
+Use this section and the [original AUD ticket mapping](AUDIT_DEVELOPMENT_BACKLOG.md#ticket-mapping-and-recommended-order) when selecting work. The original review at `e56a8da` is preserved below as history. An old Open label or unchecked acceptance box is not sufficient evidence that code is missing.
+
+| Classification | Meaning |
+| --- | --- |
+| Source-confirmed open | The current source trace still matches the documented gap. Runtime/deployment impact is qualified separately. |
+| Implemented; verification pending | The repair exists in source; the specified acceptance evidence is still needed. |
+| Partially implemented | Existing behavior is identified alongside the remaining scope. |
+| Decision needed | Product or operating behavior must be agreed before that change. |
+| Verification pending | A historical observation or integration concern needs a current reproduction; no current defect is asserted. |
+| Closed by requirement / Done — merged | An existing product decision or recorded implementation/acceptance resolves that scope. |
+
+### Recent fixes already implemented
+
+| Finding | Current disposition and evidence | Remaining boundary |
+| --- | --- | --- |
+| LEGACY record-notification visibility | PR #293 is in this baseline. [notificationVisibility](../server/src/services/notificationVisibility.ts) applies category, deletion and linked Driver scope; [permissionVisibility tests](../server/tests/permissionVisibility.test.ts) inspect those predicates. | SQL predicate tests are not live PostgreSQL notification UAT. |
+| Data Sampler submission validation | PR #294 is in this baseline. [Server generation](../server/src/routes/data-sampler.ts) reuses final submission validation; [manual UI](../client/src/features/admin/DataSamplerView.tsx) validates required fields. Existing [server](../server/tests/podRequirements.test.ts) and [client](../client/tests/rmaAutofill.test.ts) regressions cover the repair. | Category-specific creation authority is a separate decision below. |
+| Supplier creation and central audit | PR #295 is in this baseline. [suppliers route](../server/src/routes/suppliers.ts) creates the supplier and its audit entry in one transaction; [supplier route tests](../server/tests/suppliers.test.ts) cover success and audit failure with doubles. | Recorded browser happy-path evidence is below; real PostgreSQL rollback on audit failure remains pending. Supplier category validation is separate. |
+| Role findings F1–F8 and WF-01–WF-07 | Implementation reports describe [F1–F8](ROLE_AUDIT_FIXES_2026-10-30.md) and [WF-01–WF-07](ROLE_WORKFLOW_FIXES_2026-10-31.md), with current source/test entry points. | Their recorded skips and browser/database/provider limits remain; they are not new execution results. |
+
+### Source-confirmed gaps and next scope
+
+These are candidates for approved fixes, not authorization to implement all rows. Preserve current middleware, role ceilings and audit rules when changing them.
+
+| Reference | Current evidence | Expected outcome / next scope |
+| --- | --- | --- |
+| DEF-001 / SEC-09 — password management | [User creation](../server/src/routes/users.ts) now validates email, but passwords need only be non-empty. The [auth API](../server/src/routes/auth.ts) has no password change/reset workflow. | Agree on the local-account password policy. Scope creation validation separately from change/reset and session invalidation. Do not carry forward the old malformed-email claim as still unfixed. |
+| DEF-009 / AUD-010 — Transaction Center semantics | [Transactions](../server/src/routes/transactions.ts) filter stored status directly, unlike the shared effective Draft/In Transit state. Inventory date filtering uses the server-local end-of-day setter. | Align delivery filters/display with canonical lifecycle state and define Manila inventory timestamp boundaries while preserving supported caller contracts. |
+| DEF-012 — audit action filter | [Admin audit](../server/src/routes/admin.ts) accepts only CREATE, UPDATE and DELETE and silently ignores other action values. | Support actual emitted login-link actions and define validation of unknown filters; UI/API must agree. |
+| DEF-016 — temporary access request | [AccessRequestModal](../client/src/components/AccessRequestModal.tsx) sets local sent state and claims Admin notification without an API call or saved request. | Choose a real request/notification workflow or honest contact-admin instructions; confirm only an actual outcome. |
+| DEF-018 — business references in record links | [Calendar](../client/src/features/deliveries/DeliveryCalendar.tsx) and [AM Directory](../client/src/features/admin/AccountManagerDirectory.tsx) still display record ID as their record label. | Show the appropriate business reference with an ID fallback, preserving stable IDs for navigation and reference-less records. |
+| DEF-022 — supplier category validation | [Supplier creation](../server/src/routes/suppliers.ts) requires a category but does not validate the five values documented in the [schema](../server/prisma/schema.prisma). | Confirm fixed versus custom categories; enforce the agreed contract on new writes and keep legacy rows readable. |
+| DEF-028 — View Full Log destination | [AdminDashboard](../client/src/features/dashboard/AdminDashboard.tsx) navigates to Admin without an audit target; [AdminPanel](../client/src/features/admin/AdminPanel.tsx) starts on Users. The separate audit-today card already has a filter target. | Add/use an explicit all-audit destination; retain the audit-today preset's separate meaning. |
+| DEF-030 — Global Search Enter | [GlobalSearch](../client/src/components/GlobalSearch.tsx) starts the cursor at -1 and opens on Enter only with a selected index. | Agree that direct Enter opens the first available result, while an explicit keyboard selection wins. Test empty, changing and denied results. |
+| SEC-10 — public readiness details | [Health](../server/src/index.ts) returns mailer mode and environment diagnostic names publicly; authenticated Admin deployment diagnostics already exist. | Minimize public readiness output, retain meaningful 200/503 health behavior and keep detailed diagnostics authenticated. |
+| AUD-008 — residual full-set transaction reads | [Transaction Center](../server/src/routes/transactions.ts) loads matching delivery/inventory sets before merging, sorting and slicing. Bounded record endpoints and ordinary views already exist. | Review bounded cross-source querying and complete counts/exports; validate representative-volume behavior. Do not rebuild ordinary record pagination. |
+| AUD-011 — jobs and deployment health | [API jobs](../server/src/index.ts) use process timers; [render.yaml](../render.yaml) omits healthCheckPath despite an existing /api/v1/health route. | Configure the existing readiness path as a focused change. Agree scheduler, schedule-window identity, retries and missed-run behavior before replacing timers. |
+
+### Decisions required for capability work
+
+| Reference / capability | Existing behavior | Decision and approved scope needed |
+| --- | --- | --- |
+| AUD-004 — Company management | SC/Admin [create API](../server/src/routes/companies.ts) exists; no Company creation/edit client workflow was found. Customer is a separate entity. | Company/SAP duplicate rules, edit authority and the portal workflow. |
+| AUD-005 — Account Manager identity | [Choices](../client/src/data.ts) and record names remain strings. [Mail lookup](../server/src/services/mailPermissions.ts) now requires an exact unique active authorized account. | User relation, separate master entity or both; rename/inactive/backfill rules. |
+| AUD-006 — fleet and conflicts | Vehicles are static [choices](../client/src/data.ts), not a managed Vehicle relation. Driver profile ownership checks already exist. | Scheduling windows, warn/block, overrides, assistants and capacity. |
+| AUD-007 — supplier/product traceability | [Schema](../server/prisma/schema.prisma) has no DeliveryRecord Supplier foreign key or LineItem Product relation. Operational stock is manual. | Stable links/backfill and any explicitly accepted stock lifecycle rules; automatic financial/stock posting is not implicit scope. |
+| Data Sampler category permissions | Admin plus Data Sampler authority is enforced; final field validation is implemented. The [Admin audit](ROLE_ADMIN_AUDIT_2026-11-02.md) also questioned category Create denials. | Decide whether normal category Create authority additionally applies. This unresolved policy is not a confirmed authorization defect. |
+| SKU secondary tabs / Warehouse | Eight [SKU tabs](../client/src/features/inventory/SkuWorkspace.tsx) are scaffolds; Warehouse components exist but [routing](../client/src/routes/AppRouter.tsx) does not expose a separate Warehouse screen. | Accept, defer or remove unavailable UI; agree data/workflow requirements before implementation. |
+| Existing-account Microsoft identity UI | The [identity API](../server/src/routes/users.ts) exists; the [Admin UI](../client/src/features/admin/AdminPanel.tsx) exposes provisioning during creation only. | Decide whether existing-account linking/unlinking belongs in the Admin UI, with the existing reviewed authority/audit contract. |
+
+### Verification queue
+
+| Check | Existing evidence | Acceptance still needed |
+| --- | --- | --- |
+| Supplier audit failure | Transactional route and route doubles; earlier browser success recorded below. | Fixture-specific audit-write failure on designated disposable PostgreSQL; assert neither supplier nor audit row survives. |
+| Assignment/completion failure recovery | [Record routes](../server/src/routes/records.ts) perform assignment alerts and completion notification work after the business transaction. [Completion mail](../server/src/services/notify.ts) distinguishes outcomes; provider errors alone are not proof every later database/log failure is handled. | Inject relevant failures; inspect committed state, HTTP result and retries. Agree in-app transaction boundaries and external-email retry/duplicate semantics before adding an outbox. |
+| V1 dashboard authority | [Six accepted cases](../quality-assurance/06-reports/2026-11-04-v1-dashboard-access-acceptance.md) remain Not Run. | Execute screen/resource/category denials and session-refresh restoration on controlled accounts, restoring exact overrides afterward. |
+| Attachment deletion cleanup | [Outbox](../server/src/services/podDeletionCleanup.ts), [migration](../server/prisma/migrations/20261103010000_pod_storage_deletion_outbox/migration.sql), route doubles and an [opt-in PostgreSQL test](../server/tests/podDeletion.postgres.test.ts) already exist. | Read migration status on the intended target; verify database rollback and real storage retry. Code presence does not prove active migration/provider behavior. |
+| Remaining role journeys and concurrency | [November 4 QA](../quality-assurance/06-reports/UAT-summary-RUN-20261104-REMAIN.md) and role-fix reports have scoped evidence. | Logistics RMA transport, supplier-collection movement, Procurement completion, stale/concurrent saves and duplicate collection API verification on a disposable target. |
+| Deployment, provider, device and scale | Diagnostics, supporting APIs and tests exist. | Actual SSO/email/private-storage outcomes, exports/downloads, large-list Admin scrolling, mobile layout and agreed representative-volume latency/memory. No current dependency advisory count was obtained. |
+| Older qualifications | The [workflow audit](ROLE_WORKFLOW_IMPLEMENTATION_AUDIT_2026-10-30.md) reported inactive-roster LEGACY/V1 differences and SSO diagnostics readiness inconsistency. | Reproduce on current source/configuration before changing behavior; clarify roster inactivity separately from account deactivation. |
+
+### Disposition of the 32 historical QA defect records
+
+The [original DEF files](../quality-assurance/05-defects/) and execution results are historical evidence. This table is a source reconciliation, not a fresh UAT run or owner sign-off. Their original Open labels are preserved; use the classification here to select a current fix or retest.
+
+| ID | Current classification | Evidence / next check |
+| --- | --- | --- |
+| DEF-001 | Partially implemented; decision needed | Email validation exists; password policy remains open as above. |
+| DEF-002 | Implemented; verification pending | [AdminPanel](../client/src/features/admin/AdminPanel.tsx) now has the expected required-field text; verify actual form behavior and role-validation response. |
+| DEF-003 | Closed by requirement | The [defect's acceptance note](../quality-assurance/05-defects/DEF-003-sales-coordinator-is-denied-approved-calendar-and-reports-access.md) accepts per-account Calendar/Reports grants rather than mandatory role defaults. |
+| DEF-004 | Verification pending | Historical RMA denial-text discrepancy; compare with current dedicated RMA contracts and role denials, not the older blanket workflow. |
+| DEF-005 | Implemented; verification pending | [Create form](../client/src/features/deliveries/RecordCreateForm.tsx) marks date required for submitted non-RMA/transport cases and optional for permitted drafts/movements. |
+| DEF-006 | Implemented; verification pending | Current record date validation; [majorDefects](../server/tests/majorDefects.test.ts) includes malformed/impossible dates. |
+| DEF-007 | Implemented; verification pending | Current priority validation and [majorDefects](../server/tests/majorDefects.test.ts) cases. |
+| DEF-008 | Implemented; verification pending | Current Company lookup/P2003 mapping; [majorDefects](../server/tests/majorDefects.test.ts) covers missing/disappearing Company. |
+| DEF-009 | Source-confirmed open | Raw transaction status filtering; see current scope above. |
+| DEF-010 | Implemented; verification pending | Shared [lifecycle](../server/src/services/deliveryLifecycle.ts) reserves ordinary draft submission; existing [majorDefects](../server/tests/majorDefects.test.ts) coverage. |
+| DEF-011 | Implemented; verification pending | Record DELETE refuses every role; [majorDefects](../server/tests/majorDefects.test.ts) asserts no writes. |
+| DEF-012 | Source-confirmed open | Audit action allowlist; see above. |
+| DEF-013 | Implemented; verification pending | Safe account metadata audit in [permissionManagement](../server/src/services/permissionManagement.ts); [WF-02 remediation](ROLE_WORKFLOW_FIXES_2026-10-31.md). Verify visible historical changes on controlled accounts. |
+| DEF-014 | Verification pending | Admin refreshes its local profile list after creation; Driver Manager uses a separate [query](../client/src/api/queries/useDriversQuery.ts). Retest cross-screen cache/count behavior before asserting closure. |
+| DEF-015 | Implemented; verification pending | [Shared chart](../client/src/features/dashboard/DashboardStatusChart.tsx) maps ACCOMPLISHED to Delivered and renders count labels; verify real-browser geometry/counts. |
+| DEF-016 | Source-confirmed open | Local-only access request confirmation; see above. |
+| DEF-017 | Implemented for confirmed paths; verification pending | [majorDefects](../server/tests/majorDefects.test.ts), SKU conflict handling and current customer/user handlers cover the reported paths. This does not clear every async route in the repository. |
+| DEF-018 | Source-confirmed open | Calendar/AM Directory record labels; see above. |
+| DEF-019 | Closed by requirement | The [recorded product decision](../quality-assurance/05-defects/DEF-019-monthly-driver-report-export-omits-per-delivery-rows.md) accepts aggregate-only Monthly Driver CSV; do not add per-delivery rows to satisfy the old expectation. |
+| DEF-020 | Implemented; verification pending | Customer POST uses [parseCustomerCreate](../server/src/services/customerValidation.ts) for email/phone/type checks. |
+| DEF-021 | Implemented; owner acceptance pending | [Live follow-up](../quality-assurance/06-reports/2026-10-16-def021-customer-conflict.md) distinguishes the non-reproduced stale overwrite from repaired failed-reload draft loss; [client regression](../client/tests/customerEditConflict.test.ts) exists. |
+| DEF-022 | Source-confirmed open; decision needed | Supplier category contract; see above. |
+| DEF-023 | Implemented; scoped browser evidence | [Inventory clear](../client/src/features/inventory/InventoryView.tsx) resets both search states and filters; [November 4 QA](../quality-assurance/06-reports/UAT-summary-RUN-20261104-REMAIN.md) observed recovery. |
+| DEF-024 | Implemented; scoped browser evidence | Admin SKU form and [creation tests](../client/tests/skuCreation.test.ts); November 4 QA created a SKU. |
+| DEF-025 | Implemented; verification pending | Shared [SKU validation](../server/src/services/skuValidation.ts), [creation](../server/tests/skuCreation.test.ts) and [major-defect regressions](../server/tests/majorDefects.test.ts); creation and edit acceptance remain distinct. |
+| DEF-026 | Implemented; verification pending | Stock type/quantity validation and transactional stock/ledger/audit; [majorDefects](../server/tests/majorDefects.test.ts) covers refusals. Verify multi-process PostgreSQL behavior separately. |
+| DEF-027 | Implemented; verification pending | [Dashboard API](../server/src/routes/dashboard.ts) counts active users; [AdminDashboard](../client/src/features/dashboard/AdminDashboard.tsx) reads the matching total_active_users field. Reconcile actual browser count with controlled accounts. |
+| DEF-028 | Source-confirmed open | View Full Log target; see above. |
+| DEF-029 | Implemented; recorded follow-up | The [defect follow-up](../quality-assurance/05-defects/DEF-029-logistics-statistical-reports-stays-loading-with-request-errors.md) records PR #184 and passing scoped checks; [reportsLifecycle](../server/tests/reportsLifecycle.test.ts) covers bounds and forwarded failures. |
+| DEF-030 | Source-confirmed open | Enter selection behavior; see above. |
+| DEF-031 | Expectation clarification needed | [NotificationBell](../client/src/components/NotificationBell.tsx) intentionally caps badges at 9+. The recorded 13-to-12 unread change remains 9+ under that contract; it does not prove a failed decrement. Agree exact-count versus capped display before requesting a fix. |
+| DEF-032 | Verification pending | [Workspace](../client/src/features/deliveries/DeliveryRecordWorkspace.tsx) now offers a separate Documents Save Files action. Retest the reported Dispatch form sequence and the standalone upload; supporting PDFs still do not satisfy completion-photo requirements. |
+
+### Reconciliation limits and maintenance
+
+- This refresh covers the original AUD-001–AUD-011 mapping, the DEF-001–DEF-032 records, recent role audits, and the three merged fixes. It does not clear every untraced recommendation in older archived reports.
+- Existing test assertions and prior reports were inspected; no tests were executed in this documentation change. No browser sessions, business records, permissions, migrations, deployments, tickets or provider sends were changed.
+- Each future fix should update this register and its affected ticket/contract docs in the same PR, with exact source revision, checks and remaining limits. Keep original execution counts and audit observations intact; add dated follow-up evidence.
+- Work stages are sequencing guidance. Use one PR per independently reviewable change; a large stage may require several PRs.
+
+---
+
+## Historical browser/source review and merge evidence
+
+The remainder preserves the earlier review and post-merge record. Its phrases about current source/browser observations refer to the revisions named there; use the reconciliation above for present work selection.
+
 **Reviewed:** 2026-11-05  
 **Source revision:** `e56a8da` on `dev`  
 **Review type:** Read-only browser cross-check and current-source trace; not release sign-off

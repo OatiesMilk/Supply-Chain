@@ -1,5 +1,27 @@
 # Security Audit Report — Microgenesis Supply Chain Portal
 
+> **Historical assessment — source reconciliation added 2026-11-05.** The
+> October 9 findings, CVSS estimates and vulnerability counts below are retained
+> as evidence of that baseline. Several safeguards now exist. Use the table
+> below and the [current implementation register](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md#current-reconciliation)
+> before requesting a repair. This documentation check did not run npm audit,
+> penetration tests, provider calls or deployed-configuration verification.
+
+| Original finding | Disposition in source baseline 6aad0f7 | Remaining evidence / scope |
+| --- | --- | --- |
+| SEC-01 — anonymous seed/wipe | Removed/guarded implementation exists in [dev routes](../server/src/routes/dev.ts) and [seed-reset tests](../server/tests/seedResetSecurity.test.ts). | Verify deployed revision/configuration; never reinstate the anonymous route from the historical example. |
+| SEC-02 — SSO state/auto-provisioning | [State storage](../server/src/services/ssoState.ts), [approved OID lookup](../server/src/services/ssoIdentity.ts) and [auth flow](../server/src/routes/auth.ts) implement browser-bound single-use state, explicit tenant and preapproved active accounts. | Live tenant/provisioning and sign-in acceptance; historical auto-create/email-link claims are superseded in source. |
+| SEC-03 / SEC-04 / SEC-05 — CSRF, throttling, headers | [Security middleware](../server/src/middleware/security.ts), [CSRF](../server/src/middleware/csrf.ts), [rate limits](../server/src/middleware/rateLimits.ts) and [Worker headers](../worker.js) exist; [security assertions](../server/tests/security.test.ts) cover those boundaries. | Verify actual origins, trusted proxy routing, Teams framing and production responses. |
+| SEC-06 — dependency advisories | Verification pending. The October count and package claims are historical, not a current advisory result. | Obtain a fresh dependency/advisory assessment for the intended lockfile and distinguish production from development exposure. |
+| SEC-07 — upload buffering/quotas | [Private disk quarantine](../server/src/services/podStorage.ts) replaces upload memory buffering; [attachment rules](../server/src/services/attachmentRules.ts) limit each record to 10 files / 50 MiB, each upload to 10 MiB. | Provider/resource-load and deployment verification; existing quota/cleanup tests do not establish production capacity. |
+| SEC-08 — document validation | [Attachment rules](../server/src/services/attachmentRules.ts) and [routes](../server/src/routes/records.ts) verify supported document content; [tests](../server/tests/attachmentRules.test.ts) exist. | Real browser/private-provider acceptance; do not regress to extension/MIME-only trust. |
+| SEC-09 — credentials/revocation | Partially addressed: email is validated and [authentication](../server/src/middleware/auth.ts) reloads current account authority. [User creation](../server/src/routes/users.ts) still only requires a non-empty password; password change/reset is absent from the auth API. | Agree local-account password policy and separate change/reset/session-invalidating behavior. Current authority reload is not a full JWT revocation assessment. |
+| SEC-10 — public diagnostics/fallback URL | Partially addressed: [Worker](../worker.js) fails with 503 when API_BASE_URL is absent rather than choosing a fallback host. [Public readiness](../server/src/index.ts) still includes mailer/environment diagnostics. | Minimize public details while retaining 200/503 readiness and authenticated Admin diagnostics; verify deployed routing/configuration. |
+
+---
+
+## Original assessment (2026-10-09)
+
 **Date:** October 9, 2026  
 **Auditor:** Application Security Team / Antigravity Security Audit  
 **Target Repository:** `Microgenesis Supply Chain Management System`  
