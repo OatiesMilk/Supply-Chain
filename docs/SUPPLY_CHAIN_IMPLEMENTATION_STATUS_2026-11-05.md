@@ -10,12 +10,34 @@
 
 Use this section and the [original AUD ticket mapping](AUDIT_DEVELOPMENT_BACKLOG.md#ticket-mapping-and-recommended-order) when selecting work. The original review at `e56a8da` is preserved below as history. An old Open label or unchecked acceptance box is not sufficient evidence that code is missing.
 
+### User decisions after PR #297
+
+**Recorded:** 2026-11-05, with local dev at `15a7cd1`. These are scope decisions, not new application changes or test results.
+
+| Item | User decision | Current disposition |
+| --- | --- | --- |
+| Password policy | Defer changes during development to keep development logins easier. | Deferred during development; the remaining password-management gaps are not marked fixed. Revisit when development ends. |
+| Supplier categories | Admin manages the category catalog; suppliers can have multiple categories. | Approved requirement, implementation pending. Supersedes the earlier proposed fixed list of five values. Category administration is Admin-owned; supplier selection continues to use the applicable supplier authority. |
+| Data Sampler | No further fixes; remove the module when development is complete because it is not needed in the final product. | Temporary development capability; removal planned. The category-permission question is superseded for current work selection. Existing merged fixes and safeguards remain until removal. |
+
+### Data Sampler retirement task
+
+**Trigger:** the user declares development complete. **Status:** planned; the module has not been removed.
+
+- Retire the sampler UI/navigation, API client methods, server endpoints/registration and its permission-catalog integration together. Review persisted role/account permissions so removal does not invalidate normal sessions or policies.
+- Retire sampler-only tests/docs and preserve shared validation/helpers and coverage used by normal operational workflows.
+- Module retirement does not authorize deleting generated records, audit history, attachments or resetting any database. Data cleanup requires its own explicit scope.
+
+### Classification definitions
+
 | Classification | Meaning |
 | --- | --- |
 | Source-confirmed open | The current source trace still matches the documented gap. Runtime/deployment impact is qualified separately. |
 | Implemented; verification pending | The repair exists in source; the specified acceptance evidence is still needed. |
 | Partially implemented | Existing behavior is identified alongside the remaining scope. |
 | Decision needed | Product or operating behavior must be agreed before that change. |
+| Deferred during development | The user has postponed the work; the underlying gap is not marked resolved. |
+| Removal planned | A temporary capability will be retired at the agreed development-completion point; removal has not occurred. |
 | Verification pending | A historical observation or integration concern needs a current reproduction; no current defect is asserted. |
 | Closed by requirement / Done — merged | An existing product decision or recorded implementation/acceptance resolves that scope. |
 
@@ -24,7 +46,7 @@ Use this section and the [original AUD ticket mapping](AUDIT_DEVELOPMENT_BACKLOG
 | Finding | Current disposition and evidence | Remaining boundary |
 | --- | --- | --- |
 | LEGACY record-notification visibility | PR #293 is in this baseline. [notificationVisibility](../server/src/services/notificationVisibility.ts) applies category, deletion and linked Driver scope; [permissionVisibility tests](../server/tests/permissionVisibility.test.ts) inspect those predicates. | SQL predicate tests are not live PostgreSQL notification UAT. |
-| Data Sampler submission validation | PR #294 is in this baseline. [Server generation](../server/src/routes/data-sampler.ts) reuses final submission validation; [manual UI](../client/src/features/admin/DataSamplerView.tsx) validates required fields. Existing [server](../server/tests/podRequirements.test.ts) and [client](../client/tests/rmaAutofill.test.ts) regressions cover the repair. | Category-specific creation authority is a separate decision below. |
+| Data Sampler submission validation | PR #294 is in this baseline. [Server generation](../server/src/routes/data-sampler.ts) reuses final submission validation; [manual UI](../client/src/features/admin/DataSamplerView.tsx) validates required fields. Existing [server](../server/tests/podRequirements.test.ts) and [client](../client/tests/rmaAutofill.test.ts) regressions cover the repair. | Subsequent user decision: no additional sampler fixes; module retirement is planned after development. |
 | Supplier creation and central audit | PR #295 is in this baseline. [suppliers route](../server/src/routes/suppliers.ts) creates the supplier and its audit entry in one transaction; [supplier route tests](../server/tests/suppliers.test.ts) cover success and audit failure with doubles. | Recorded browser happy-path evidence is below; real PostgreSQL rollback on audit failure remains pending. Supplier category validation is separate. |
 | Role findings F1–F8 and WF-01–WF-07 | Implementation reports describe [F1–F8](ROLE_AUDIT_FIXES_2026-10-30.md) and [WF-01–WF-07](ROLE_WORKFLOW_FIXES_2026-10-31.md), with current source/test entry points. | Their recorded skips and browser/database/provider limits remain; they are not new execution results. |
 
@@ -34,19 +56,19 @@ These are candidates for approved fixes, not authorization to implement all rows
 
 | Reference | Current evidence | Expected outcome / next scope |
 | --- | --- | --- |
-| DEF-001 / SEC-09 — password management | [User creation](../server/src/routes/users.ts) now validates email, but passwords need only be non-empty. The [auth API](../server/src/routes/auth.ts) has no password change/reset workflow. | Agree on the local-account password policy. Scope creation validation separately from change/reset and session invalidation. Do not carry forward the old malformed-email claim as still unfixed. |
+| DEF-001 / SEC-09 — password management | [User creation](../server/src/routes/users.ts) now validates email, but passwords need only be non-empty. The [auth API](../server/src/routes/auth.ts) has no password change/reset workflow. | Deferred during development by the user; revisit at development completion. Email validation is implemented, while password-policy/change/reset work remains unresolved. |
 | DEF-009 / AUD-010 — Transaction Center semantics | [Transactions](../server/src/routes/transactions.ts) filter stored status directly, unlike the shared effective Draft/In Transit state. Inventory date filtering uses the server-local end-of-day setter. | Align delivery filters/display with canonical lifecycle state and define Manila inventory timestamp boundaries while preserving supported caller contracts. |
 | DEF-012 — audit action filter | [Admin audit](../server/src/routes/admin.ts) accepts only CREATE, UPDATE and DELETE and silently ignores other action values. | Support actual emitted login-link actions and define validation of unknown filters; UI/API must agree. |
 | DEF-016 — temporary access request | [AccessRequestModal](../client/src/components/AccessRequestModal.tsx) sets local sent state and claims Admin notification without an API call or saved request. | Choose a real request/notification workflow or honest contact-admin instructions; confirm only an actual outcome. |
 | DEF-018 — business references in record links | [Calendar](../client/src/features/deliveries/DeliveryCalendar.tsx) and [AM Directory](../client/src/features/admin/AccountManagerDirectory.tsx) still display record ID as their record label. | Show the appropriate business reference with an ID fallback, preserving stable IDs for navigation and reference-less records. |
-| DEF-022 — supplier category validation | [Supplier creation](../server/src/routes/suppliers.ts) requires a category but does not validate the five values documented in the [schema](../server/prisma/schema.prisma). | Confirm fixed versus custom categories; enforce the agreed contract on new writes and keep legacy rows readable. |
+| DEF-022 — supplier category contract | [Supplier creation](../server/src/routes/suppliers.ts) and [schema](../server/prisma/schema.prisma) still use a single category string. | User-approved replacement: Admin-managed categories with multiple categories per supplier. Implement catalog/relations, selection, validation, filters and audit consistently, with a reviewed legacy-data mapping. The old fixed-five-only rejection expectation is superseded. |
 | DEF-028 — View Full Log destination | [AdminDashboard](../client/src/features/dashboard/AdminDashboard.tsx) navigates to Admin without an audit target; [AdminPanel](../client/src/features/admin/AdminPanel.tsx) starts on Users. The separate audit-today card already has a filter target. | Add/use an explicit all-audit destination; retain the audit-today preset's separate meaning. |
 | DEF-030 — Global Search Enter | [GlobalSearch](../client/src/components/GlobalSearch.tsx) starts the cursor at -1 and opens on Enter only with a selected index. | Agree that direct Enter opens the first available result, while an explicit keyboard selection wins. Test empty, changing and denied results. |
 | SEC-10 — public readiness details | [Health](../server/src/index.ts) returns mailer mode and environment diagnostic names publicly; authenticated Admin deployment diagnostics already exist. | Minimize public readiness output, retain meaningful 200/503 health behavior and keep detailed diagnostics authenticated. |
 | AUD-008 — residual full-set transaction reads | [Transaction Center](../server/src/routes/transactions.ts) loads matching delivery/inventory sets before merging, sorting and slicing. Bounded record endpoints and ordinary views already exist. | Review bounded cross-source querying and complete counts/exports; validate representative-volume behavior. Do not rebuild ordinary record pagination. |
 | AUD-011 — jobs and deployment health | [API jobs](../server/src/index.ts) use process timers; [render.yaml](../render.yaml) omits healthCheckPath despite an existing /api/v1/health route. | Configure the existing readiness path as a focused change. Agree scheduler, schedule-window identity, retries and missed-run behavior before replacing timers. |
 
-### Decisions required for capability work
+### Decisions and approved capability scope
 
 | Reference / capability | Existing behavior | Decision and approved scope needed |
 | --- | --- | --- |
@@ -54,7 +76,7 @@ These are candidates for approved fixes, not authorization to implement all rows
 | AUD-005 — Account Manager identity | [Choices](../client/src/data.ts) and record names remain strings. [Mail lookup](../server/src/services/mailPermissions.ts) now requires an exact unique active authorized account. | User relation, separate master entity or both; rename/inactive/backfill rules. |
 | AUD-006 — fleet and conflicts | Vehicles are static [choices](../client/src/data.ts), not a managed Vehicle relation. Driver profile ownership checks already exist. | Scheduling windows, warn/block, overrides, assistants and capacity. |
 | AUD-007 — supplier/product traceability | [Schema](../server/prisma/schema.prisma) has no DeliveryRecord Supplier foreign key or LineItem Product relation. Operational stock is manual. | Stable links/backfill and any explicitly accepted stock lifecycle rules; automatic financial/stock posting is not implicit scope. |
-| Data Sampler category permissions | Admin plus Data Sampler authority is enforced; final field validation is implemented. The [Admin audit](ROLE_ADMIN_AUDIT_2026-11-02.md) also questioned category Create denials. | Decide whether normal category Create authority additionally applies. This unresolved policy is not a confirmed authorization defect. |
+| Data Sampler retirement | Admin plus Data Sampler authority and final field validation exist. The historical [Admin audit](ROLE_ADMIN_AUDIT_2026-11-02.md) questioned category Create denials. | User excluded further sampler fixes and chose removal after development. Keep this out of active implementation; follow the retirement task above when development is declared complete. |
 | SKU secondary tabs / Warehouse | Eight [SKU tabs](../client/src/features/inventory/SkuWorkspace.tsx) are scaffolds; Warehouse components exist but [routing](../client/src/routes/AppRouter.tsx) does not expose a separate Warehouse screen. | Accept, defer or remove unavailable UI; agree data/workflow requirements before implementation. |
 | Existing-account Microsoft identity UI | The [identity API](../server/src/routes/users.ts) exists; the [Admin UI](../client/src/features/admin/AdminPanel.tsx) exposes provisioning during creation only. | Decide whether existing-account linking/unlinking belongs in the Admin UI, with the existing reviewed authority/audit contract. |
 
@@ -76,7 +98,7 @@ The [original DEF files](../quality-assurance/05-defects/) and execution results
 
 | ID | Current classification | Evidence / next check |
 | --- | --- | --- |
-| DEF-001 | Partially implemented; decision needed | Email validation exists; password policy remains open as above. |
+| DEF-001 | Partially implemented; deferred during development | Email validation exists; the user deferred password-policy work as recorded above. |
 | DEF-002 | Implemented; verification pending | [AdminPanel](../client/src/features/admin/AdminPanel.tsx) now has the expected required-field text; verify actual form behavior and role-validation response. |
 | DEF-003 | Closed by requirement | The [defect's acceptance note](../quality-assurance/05-defects/DEF-003-sales-coordinator-is-denied-approved-calendar-and-reports-access.md) accepts per-account Calendar/Reports grants rather than mandatory role defaults. |
 | DEF-004 | Verification pending | Historical RMA denial-text discrepancy; compare with current dedicated RMA contracts and role denials, not the older blanket workflow. |
@@ -97,7 +119,7 @@ The [original DEF files](../quality-assurance/05-defects/) and execution results
 | DEF-019 | Closed by requirement | The [recorded product decision](../quality-assurance/05-defects/DEF-019-monthly-driver-report-export-omits-per-delivery-rows.md) accepts aggregate-only Monthly Driver CSV; do not add per-delivery rows to satisfy the old expectation. |
 | DEF-020 | Implemented; verification pending | Customer POST uses [parseCustomerCreate](../server/src/services/customerValidation.ts) for email/phone/type checks. |
 | DEF-021 | Implemented; owner acceptance pending | [Live follow-up](../quality-assurance/06-reports/2026-10-16-def021-customer-conflict.md) distinguishes the non-reproduced stale overwrite from repaired failed-reload draft loss; [client regression](../client/tests/customerEditConflict.test.ts) exists. |
-| DEF-022 | Source-confirmed open; decision needed | Supplier category contract; see above. |
+| DEF-022 | Superseded expectation; approved implementation pending | Replace the fixed-five-only expectation with the user's Admin-managed, multiple-category requirement; see above. |
 | DEF-023 | Implemented; scoped browser evidence | [Inventory clear](../client/src/features/inventory/InventoryView.tsx) resets both search states and filters; [November 4 QA](../quality-assurance/06-reports/UAT-summary-RUN-20261104-REMAIN.md) observed recovery. |
 | DEF-024 | Implemented; scoped browser evidence | Admin SKU form and [creation tests](../client/tests/skuCreation.test.ts); November 4 QA created a SKU. |
 | DEF-025 | Implemented; verification pending | Shared [SKU validation](../server/src/services/skuValidation.ts), [creation](../server/tests/skuCreation.test.ts) and [major-defect regressions](../server/tests/majorDefects.test.ts); creation and edit acceptance remain distinct. |
