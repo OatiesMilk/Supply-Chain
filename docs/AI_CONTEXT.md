@@ -12,8 +12,27 @@ Historical reports explain previous decisions and findings; they do not grant
 permission to change application data, send notifications, publish, migrate a
 shared database or activate permission policies.
 
+## Current implementation status (2026-11-05)
+
+Read the [implementation status snapshot](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md)
+before relying on older audits for what is currently implemented. It records a
+read-only browser cross-check of the five application roles, the source revision
+reviewed (`e56a8da`), confirmed open fixes, capability decisions, and checks that
+still need a disposable target. The November 4 UAT report was based on
+`9a6fe2a`; its observations and synthetic data remain historical evidence.
+
+The source reviewed at `e56a8da` still has three confirmed open fixes: LEGACY
+notification record visibility, Data Sampler submission validation, and atomic
+supplier creation/audit. Logistics assignment notifications and completion
+email handling also happen after their record transaction; failure behavior
+remains unverified. The status snapshot records these findings and the proposed
+fix order. This documentation update did not change application code or tests.
+SKU workspace tabs and a separate Warehouse screen are capability/scope
+decisions, not assumed accepted features.
+
 | Document | Source and purpose |
 | --- | --- |
+| [Current implementation status](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md) | Read-only browser cross-check and source review at `e56a8da`; lists open fixes, capability choices, and verification gaps. |
 | [Role functionality audit](ROLE_FUNCTIONALITY_AUDIT_2026-10-30.md) | Audit of `0e33fa7`; original findings F1–F8 and role/integration boundaries. Application-source links are pinned to that revision. |
 | [Development skill review](SUPPLY_CHAIN_DEV_SKILL_REVIEW_2026-10-30.md) | Historical rationale for the maintained guidance and bounded evaluation evidence. Installed-copy and temporary-path details describe the original session. |
 | [Role workflow audit](ROLE_WORKFLOW_IMPLEMENTATION_AUDIT_2026-10-30.md) | Audit of `82974de`; findings WF-01–WF-07 after the earlier remediation. |
@@ -32,6 +51,7 @@ deployed behavior, and retain explicit skips and unverified boundaries. Referenc
 credentials by variable name only; never copy environment values, tokens, cookies,
 connection strings or business records into reports.
 
-This documentation publication contains guidance and reports only. Its checks and
-limits are recorded in the accompanying PR; application CI and deployment evidence
-remain with the implementation PRs.
+Earlier documentation-only publications contain guidance and historical reports;
+their checks and limits remain with their original PRs. This current status
+snapshot records the documentation-only review; application tests, CI, and
+deployment evidence remain separate.
