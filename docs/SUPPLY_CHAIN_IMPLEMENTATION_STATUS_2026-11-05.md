@@ -10,7 +10,26 @@ The browser observations apply to the app reached at `http://localhost:3000`.
 The live data did not match the November 4 QA fixtures, so historical findings
 remain evidence rather than fresh reproductions.
 
-## Open implementation findings, in priority order
+## Follow-up implementation status (2026-11-05)
+
+The review below is a historical snapshot of source revision `e56a8da` and its
+browser observations. The refreshed `dev` branch is now at `269a30e`: PR #293
+merged the LEGACY notification visibility fix, and PR #294 merged Data Sampler
+reference/date validation. Those two findings are resolved in current `dev`.
+
+Supplier creation and its central audit entry are implemented atomically on
+`fix/api-supplier-create-audit`. That branch is not merged yet; do not treat it
+as current `dev` or deployed behavior. Three supplier route tests pass. The
+server suite passes 467 tests with 5 optional PostgreSQL tests skipped, and the
+strict server TypeScript check passes. These route tests use database doubles;
+PostgreSQL rollback behavior has not been verified. An in-app browser check
+against the configured `mg_portal_sandbox` successfully created a temporary
+supplier; the System Audit Log showed its `Supplier CREATE` event, actor, and
+seven initial values. The temporary supplier and matching audit event were
+removed afterward, and the UI counts returned to 5 suppliers and 54 audit
+entries. No operational/shared database was used.
+
+## Open implementation findings in reviewed source revision `e56a8da`
 
 | Priority | Status in reviewed source | Evidence | Proposed next action |
 | --- | --- | --- | --- |
@@ -70,7 +89,7 @@ skipped, failed, or sent email as equivalent outcomes.
 - Operational stock movement remains manual. Do not add automatic stock
   posting, reservations, or financial reconciliation without an agreed rule.
 
-## Recommended work sequence
+## Work sequence recommended by the original review
 
 1. Fix and regression-test LEGACY notification category, deletion, and Driver
    ownership filtering.
@@ -97,6 +116,9 @@ skipped, failed, or sent email as equivalent outcomes.
   outcomes still need controlled verification. Current data lacked an
   in-transit Logistics RMA. These checks may create records, audit events, or
   provider calls and belong on a designated disposable target.
+- Supplier creation plus audit failure is covered with route test doubles;
+  verify PostgreSQL rollback on a designated disposable `_sandbox` or `_test`
+  database before claiming live-database transaction behavior.
 - The latest automated run report found here,
   [`RUN-20261020-05`](../quality-assurance/06-reports/automated-RUN-20261020-05.md),
   passed 48 unit checks; API and browser suites were blocked by the local

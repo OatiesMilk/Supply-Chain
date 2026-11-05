@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db';
 import { requireScreen, requireResource, requireAuth, requireRole } from '../middleware/auth';
+import { asyncRoute } from '../middleware/asyncRoute';
 
 const router = Router();
 
@@ -27,24 +28,47 @@ router.get('/', requireAuth, requireResource('suppliers'), async (_req, res) => 
   );
 });
 
-router.post('/', requireAuth, requireResource('suppliers', 'CREATE'), requireScreen('suppliers'), requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER'), async (req, res) => {
+router.post('/', requireAuth, requireResource('suppliers', 'CREATE'), requireScreen('suppliers'), requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER'), asyncRoute(async (req, res) => {
   const { name, contact_person, email, phone, address, city, category } = req.body ?? {};
   if (!name || !category) return res.status(400).json({ error: 'name and category are required' });
 
-  const created = await prisma.supplier.create({
-    data: {
-      name,
-      contactPerson: contact_person ?? '',
-      email: email ?? '',
-      phone: phone ?? '',
-      address: address ?? '',
-      city: city ?? '',
-      category,
-      createdById: req.user!.id,
-      modifiedById: req.user!.id,
-      modifiedAt: new Date()
-    },
-    include: { createdBy: true, modifiedBy: true }
+  const created = await prisma.$transaction(async tx => {
+    const supplier = await tx.supplier.create({
+      data: {
+        name,
+        contactPerson: contact_person ?? '',
+        email: email ?? '',
+        phone: phone ?? '',
+        address: address ?? '',
+        city: city ?? '',
+        category,
+        createdById: req.user!.id,
+        modifiedById: req.user!.id,
+        modifiedAt: new Date()
+      },
+      include: { createdBy: true, modifiedBy: true }
+    });
+
+    await tx.auditLog.create({
+      data: {
+        recordId: supplier.id,
+        recordType: 'Supplier',
+        action: 'CREATE',
+        changedById: req.user!.id,
+        previousValue: null,
+        newValue: JSON.stringify({
+          name: supplier.name,
+          contact_person: supplier.contactPerson,
+          email: supplier.email,
+          phone: supplier.phone,
+          address: supplier.address,
+          city: supplier.city,
+          category: supplier.category,
+        }),
+      },
+    });
+
+    return supplier;
   });
   res.status(201).json({
     id: created.id,
@@ -60,6 +84,6 @@ router.post('/', requireAuth, requireResource('suppliers', 'CREATE'), requireScr
     modified_by: created.modifiedBy.name,
     modified_at: created.modifiedAt
   });
-});
+}));
 
 export default router;
