@@ -2,6 +2,10 @@
 
 > Source-reviewed: 2026-10-13 against commit `e90986a` (`dev`). This is a snapshot, **not an immutable specification or a staging/production configuration audit**. Recheck current code, tests, approved requirements and deployment settings before applying any guidance below.
 
+> Targeted health update, 2026-11-05: public readiness now returns only availability.
+> Use authenticated Admin diagnostics for mailer/configuration details; see the
+> [current implementation record](docs/SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md#healthreadiness-follow-up).
+
 A short list of things in this codebase that look editable — and are, technically — but will quietly break something important if you change them without knowing why they're built this way. If you're using AI tools to make changes ("vibe coding"), it's worth pasting this whole file into your prompt as context before asking for a change in one of these areas.
 
 If you're not sure whether something you want to change is on this list, ask before you change it, or grep the README for it first.
@@ -44,7 +48,7 @@ Other portions remain simulated or incomplete: the **Export to PDF** toggle repo
 
 ## 4. Emails are only delivered when a mail provider is configured
 
-With no `AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/`AZURE_TENANT_ID` (Microsoft Graph) and no `SMTP_HOST` in `server/.env`, every "email" the app sends is only logged to the backend terminal (the `mock` mailer). `GET /api/health` reports which mode is active (`graph`, `smtp` or `mock`).
+With no `AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/`AZURE_TENANT_ID` (Microsoft Graph) and no `SMTP_HOST` in `server/.env`, every "email" the app sends is only logged to the backend terminal (the `mock` mailer). Authenticated Admin `GET /api/v1/admin/integration-status` reports the configured mode (`graph`, `smtp` or `mock`); public `GET /api/v1/health` returns only readiness. Configured mode does not establish provider delivery.
 
 **Don't:** be surprised when a "notification email" never arrives in an inbox — check the backend terminal output instead.
 **Do:** if real email delivery is needed, configure Graph or fill in `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`SMTP_FROM` in `server/.env` — the code already supports it, nothing to build.

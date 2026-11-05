@@ -28,7 +28,7 @@ Generated from the 2026-10-09 completeness audit, with emphasis on the Sales Coo
 | AUD-008 | Pending | P2 High | Partially implemented | Server-side record pagination and filters | Transaction Center full-set reads and representative-volume acceptance |
 | AUD-009 | Pending | P2 High | Done — merged | Make tests authoritative CI gates | PRs [#140](https://github.com/MarcZxc1/Supply-Chain/pull/140) and [#142](https://github.com/MarcZxc1/Supply-Chain/pull/142); CI passed |
 | AUD-010 | Pending | P3 Medium | Partially implemented | Align report date semantics | Confirm cross-view semantics; Transaction Center inventory boundaries remain |
-| AUD-011 | Pending | P2 High | Partially implemented; decision needed | Durable scheduled jobs and deployment health checks | Approve scheduler/catch-up/retry; configure existing readiness route |
+| AUD-011 | Pending | P2 High | Partially implemented; decision needed | Durable scheduled jobs and deployment health checks | Verify deployed readiness configuration; approve scheduler/catch-up/retry |
 
 **Recommended next sequence:** use the current register to confirm each approved issue before editing. Complete deployment/acceptance verification for existing AUD-001–AUD-003 safeguards rather than rebuilding them. Address confirmed security/validation gaps, data-integrity checks and notification reliability before smaller functional repairs and the approved scheduler work. Schedule AUD-004–AUD-007 after their business decisions. Retain AUD-008/AUD-010 residual checks and AUD-009's recorded completion. The seven work stages are planning stages, not seven individual defects or a fixed number of PRs.
 
@@ -420,7 +420,7 @@ Approve a matrix: scheduled operations use `deliveryDate`; completion reports us
 
 ### Current reconciliation — 2026-11-05
 
-**Partially implemented; decision needed.** [The API](../server/src/index.ts) has one readiness route at /api/v1/health with database checks and 200/503 responses. [render.yaml](../render.yaml) still has no healthCheckPath, and reminders still use in-process timers. Public readiness still includes mailer/environment diagnostics (SEC-10). Scheduler, catch-up, retry and duplicate-prevention choices remain open; adding a health-check path alone does not make jobs durable.
+**Partially implemented; decision needed.** Health follow-up implemented locally on dev baseline `419b8bf` (2026-11-05), awaiting PR/merge/deployment: [readiness](../server/src/routes/health.ts) retains database and production-setting checks with minimal no-store 200/503 responses, and [render.yaml](../render.yaml) now sets healthCheckPath to /api/v1/health. Authenticated Admin diagnostics retain details. See the [validation record](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md#healthreadiness-follow-up). Effective Render configuration still needs deployment verification. Reminders still use in-process timers; scheduler, catch-up, retry and duplicate-prevention choices remain open.
 
 **Type:** Development
 **Modules:** Administration, Reports

@@ -4,11 +4,13 @@
 
 > Last verified: 2026-10-09 against commit `ccbf192` (`dev`). Derived from `server/src/routes/*.ts` and `server/src/index.ts`.
 
-This document describes the REST API of the Microgenesis Supply Chain Portal. All endpoints are prefixed with `/api`. Unless marked **Public**, an endpoint requires a valid session cookie (`mg_session`), and the account and its permissions are reloaded on every request.
+> Targeted health update (2026-11-05): public readiness returns only an availability boolean with no-store caching. The runtime prefix is `/api/v1`; see [API URL migration](API_V1_MIGRATION.md). Other older contracts retain the verification limits above.
+
+This document describes the REST API of the Microgenesis Supply Chain Portal. Paths below are relative to `/api/v1`. Unless marked **Public**, an endpoint requires a valid session cookie (`mg_session`), and the account and its permissions are reloaded on every request.
 
 **Guard legend.** `Auth` = `requireAuth`. `Res:x` = `requireResource('x')` (the account's effective screens must grant the shared resource, see [Module access](./MODULE_ACCESS.md)). `Screen:x` = `requireScreen('x')`. `Rec` = `requireRecordAccess` (record category/ownership scope). Roles: SC = SALES_COORDINATOR, LOG = LOGISTICS, ADM = ADMIN, DRV = DRIVER, TASS.
 
-**Common errors.** `400` validation, `401` no/invalid session or deactivated account, `403` role/screen/ownership denied, `404` not found or outside the caller's scope, `409` conflict (duplicate email, stale permission version), `501` Microsoft SSO not configured, `503` unhealthy (`/api/health`).
+**Common errors.** `400` validation, `401` no/invalid session or deactivated account, `403` role/screen/ownership denied, `404` not found or outside the caller's scope, `409` conflict (duplicate email, stale permission version), `501` Microsoft SSO not configured, `503` unhealthy (`/api/v1/health`).
 
 ---
 
@@ -16,13 +18,18 @@ This document describes the REST API of the Microgenesis Supply Chain Portal. Al
 
 | Method | Path | Guards / roles | Purpose |
 | :--- | :--- | :--- | :--- |
-| GET | `/health` | Public | Database ping, mailer mode (`graph`/`smtp`/`mock`), required env check. `200` or `503` |
+| GET | `/health` | Public | Uncached readiness: database ping and required production configuration. `200 { "ok": true }` or `503 { "ok": false }`, with `Cache-Control: no-store`. No infrastructure, mailer, environment or error details |
 | POST | `/auth/login` | Public | Email/password login; sets `mg_session`; returns the session user |
 | POST | `/auth/logout` | Public | Clears the cookie |
 | GET | `/auth/me` | Auth | Current session user (same shape as login), `Cache-Control: no-store` |
 | POST | `/auth/microsoft` | Public | Starts Microsoft SSO (501 if not configured) |
 | GET | `/auth/microsoft/callback` | Public | SSO callback: browser-bound state consumed atomically (5-min expiry), tenant verified; only Admin-prelinked active `microsoftOid` accounts may sign in; unknown identities denied |
 | GET | `/auth/microsoft/status` | Public | `{ configured: boolean }` |
+
+Readiness verifies database connectivity on every request and, in production,
+requires DATABASE_URL and JWT_SECRET. It does not test email delivery or storage.
+Detailed checks remain behind Admin authentication/resource authority at
+`/admin/deployment-status` and `/admin/integration-status`.
 
 `POST /auth/login` request: `{ "email": "...", "password": "..." }`.
 Login and `/auth/me` response (session DTO):

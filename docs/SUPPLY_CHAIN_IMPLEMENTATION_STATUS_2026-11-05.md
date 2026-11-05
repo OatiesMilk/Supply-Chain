@@ -6,7 +6,7 @@
 
 **Source baseline:** clean local `dev` at `6aad0f7`, before this documentation edit
 
-**Evidence:** source and existing test/report inspection; no new application, browser, PostgreSQL or provider test run
+**Initial reconciliation evidence:** source and existing test/report inspection at 6aad0f7; subsequent implementation/test evidence is recorded in dated follow-ups below
 
 Use this section and the [original AUD ticket mapping](AUDIT_DEVELOPMENT_BACKLOG.md#ticket-mapping-and-recommended-order) when selecting work. The original review at `e56a8da` is preserved below as history. An old Open label or unchecked acceptance box is not sufficient evidence that code is missing.
 
@@ -41,6 +41,35 @@ Use this section and the [original AUD ticket mapping](AUDIT_DEVELOPMENT_BACKLOG
 | Verification pending | A historical observation or integration concern needs a current reproduction; no current defect is asserted. |
 | Closed by requirement / Done — merged | An existing product decision or recorded implementation/acceptance resolves that scope. |
 
+### Health/readiness follow-up
+
+**Implemented locally:** 2026-11-05 on dev baseline `419b8bf`; awaiting PR, merge and deployment.
+
+- [Public readiness](../server/src/routes/health.ts) retains the database ping
+  and required production configuration checks. It returns only
+  `{"ok":true}` (200) or `{"ok":false}` (503), with no-store caching.
+  Database errors are logged with a fixed message rather than raw driver details.
+- [API registration/self-ping](../server/src/index.ts) share the canonical health
+  path; [render.yaml](../render.yaml) now sets healthCheckPath to /api/v1/health.
+  Detailed deployment and integration checks remain behind the existing Admin
+  authentication/resource/role guards.
+- Validation: server suite **476 passed, 0 failed, 5 optional PostgreSQL checks
+  skipped** (481 total); the nine new health cases are included. Client
+  availability/recovery checks **4 passed**. Both workspace TypeScript checks
+  passed. The first sandboxed server run hit loopback EACCES restrictions; the
+  unrestricted rerun above supplied the usable result.
+- In-app browser: the local public endpoint displayed only `{"ok":true}`;
+  the signed-in Admin Integrations panel still loaded its diagnostic sections.
+  Anonymous HTTP probes on ports 4000 and 3000 both returned that exact body,
+  status 200 and no-store; both Admin diagnostic endpoints returned 401 without
+  a session.
+  No provider send, business-data write or real database outage was performed.
+  Failure/configuration/recovery regressions use injected database doubles.
+- Repository configuration is not deployed configuration. Confirm the effective
+  Render HTTP health path after the approved deployment/Blueprint sync. Durable
+  scheduling remains separate AUD-011 work; password and sampler decisions remain
+  as recorded above.
+
 ### Recent fixes already implemented
 
 | Finding | Current disposition and evidence | Remaining boundary |
@@ -50,9 +79,9 @@ Use this section and the [original AUD ticket mapping](AUDIT_DEVELOPMENT_BACKLOG
 | Supplier creation and central audit | PR #295 is in this baseline. [suppliers route](../server/src/routes/suppliers.ts) creates the supplier and its audit entry in one transaction; [supplier route tests](../server/tests/suppliers.test.ts) cover success and audit failure with doubles. | Recorded browser happy-path evidence is below; real PostgreSQL rollback on audit failure remains pending. Supplier category validation is separate. |
 | Role findings F1–F8 and WF-01–WF-07 | Implementation reports describe [F1–F8](ROLE_AUDIT_FIXES_2026-10-30.md) and [WF-01–WF-07](ROLE_WORKFLOW_FIXES_2026-10-31.md), with current source/test entry points. | Their recorded skips and browser/database/provider limits remain; they are not new execution results. |
 
-### Source-confirmed gaps and next scope
+### Findings and next scope
 
-These are candidates for approved fixes, not authorization to implement all rows. Preserve current middleware, role ceilings and audit rules when changing them.
+These are current scope dispositions, including dated local implementations and deferred work. Preserve current middleware, role ceilings and audit rules when changing them.
 
 | Reference | Current evidence | Expected outcome / next scope |
 | --- | --- | --- |
@@ -64,9 +93,9 @@ These are candidates for approved fixes, not authorization to implement all rows
 | DEF-022 — supplier category contract | [Supplier creation](../server/src/routes/suppliers.ts) and [schema](../server/prisma/schema.prisma) still use a single category string. | User-approved replacement: Admin-managed categories with multiple categories per supplier. Implement catalog/relations, selection, validation, filters and audit consistently, with a reviewed legacy-data mapping. The old fixed-five-only rejection expectation is superseded. |
 | DEF-028 — View Full Log destination | [AdminDashboard](../client/src/features/dashboard/AdminDashboard.tsx) navigates to Admin without an audit target; [AdminPanel](../client/src/features/admin/AdminPanel.tsx) starts on Users. The separate audit-today card already has a filter target. | Add/use an explicit all-audit destination; retain the audit-today preset's separate meaning. |
 | DEF-030 — Global Search Enter | [GlobalSearch](../client/src/components/GlobalSearch.tsx) starts the cursor at -1 and opens on Enter only with a selected index. | Agree that direct Enter opens the first available result, while an explicit keyboard selection wins. Test empty, changing and denied results. |
-| SEC-10 — public readiness details | [Health](../server/src/index.ts) returns mailer mode and environment diagnostic names publicly; authenticated Admin deployment diagnostics already exist. | Minimize public readiness output, retain meaningful 200/503 health behavior and keep detailed diagnostics authenticated. |
+| SEC-10 — public readiness details | Implemented locally: [health](../server/src/routes/health.ts) returns only availability, with no-store caching; authenticated Admin diagnostics retain details. | Awaiting PR/merge/deployment; verify effective hosted response. See the health/readiness follow-up above. |
 | AUD-008 — residual full-set transaction reads | [Transaction Center](../server/src/routes/transactions.ts) loads matching delivery/inventory sets before merging, sorting and slicing. Bounded record endpoints and ordinary views already exist. | Review bounded cross-source querying and complete counts/exports; validate representative-volume behavior. Do not rebuild ordinary record pagination. |
-| AUD-011 — jobs and deployment health | [API jobs](../server/src/index.ts) use process timers; [render.yaml](../render.yaml) omits healthCheckPath despite an existing /api/v1/health route. | Configure the existing readiness path as a focused change. Agree scheduler, schedule-window identity, retries and missed-run behavior before replacing timers. |
+| AUD-011 — jobs and deployment health | Health configuration is implemented locally in [render.yaml](../render.yaml); [API jobs](../server/src/index.ts) still use process timers. | Verify effective hosted health settings after deployment. Scheduler, schedule-window identity, retries and missed-run behavior still need agreement. |
 
 ### Decisions and approved capability scope
 
@@ -134,7 +163,7 @@ The [original DEF files](../quality-assurance/05-defects/) and execution results
 ### Reconciliation limits and maintenance
 
 - This refresh covers the original AUD-001–AUD-011 mapping, the DEF-001–DEF-032 records, recent role audits, and the three merged fixes. It does not clear every untraced recommendation in older archived reports.
-- Existing test assertions and prior reports were inspected; no tests were executed in this documentation change. No browser sessions, business records, permissions, migrations, deployments, tickets or provider sends were changed.
+- The initial reconciliation at 6aad0f7 inspected source and existing evidence without executing tests. The dated health/readiness follow-up above records subsequent application tests and read-only browser checks. Neither step changed business records, permissions, migrations, deployments, tickets or sent provider messages.
 - Each future fix should update this register and its affected ticket/contract docs in the same PR, with exact source revision, checks and remaining limits. Keep original execution counts and audit observations intact; add dated follow-up evidence.
 - Work stages are sequencing guidance. Use one PR per independently reviewable change; a large stage may require several PRs.
 

@@ -12,6 +12,7 @@ import { notifyRole, notifyUser } from './services/inAppNotify';
 import { sendMailReal, sendEmail } from './services/mailer';
 import { manilaToday } from './services/deliveryLifecycle';
 import { saveDailyStatusSnapshot as writeDailyStatusSnapshot } from './services/dailyStatusSnapshot';
+import healthRoutes, { HEALTH_PATH } from './routes/health';
 
 import authRoutes from './routes/auth';
 import recordsRoutes from './routes/records';
@@ -65,36 +66,9 @@ app.use(cookieParser());
 // AUD-003: must stay ahead of every route below.
 applySecurity(app);
 
-// Suitable as the host's health-check path (render.yaml does not set one yet):
-// it verifies the service can do its job, not just that the process is alive.
-// It does not prove which database or file store is connected; an Admin reads
-// that from GET /api/v1/admin/deployment-status.
-app.get('/api/v1/health', async (_req, res) => {
-  const checks: Record<string, string> = {};
-  let healthy = true;
-
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    checks.database = 'ok';
-  } catch (err) {
-    console.error('[health] database check failed', err);
-    checks.database = 'unreachable';
-    healthy = false;
-  }
-
-  checks.mailer =
-    process.env.AZURE_CLIENT_ID && process.env.AZURE_CLIENT_SECRET && process.env.AZURE_TENANT_ID
-      ? 'graph'
-      : process.env.SMTP_HOST
-        ? 'smtp'
-        : 'mock';
-
-  const missingEnv = ['DATABASE_URL', 'JWT_SECRET'].filter((key) => !process.env[key]);
-  checks.environment = missingEnv.length === 0 ? 'ok' : `missing: ${missingEnv.join(', ')}`;
-  if (IS_PROD && missingEnv.length > 0) healthy = false;
-
-  res.status(healthy ? 200 : 503).json({ ok: healthy, checks });
-});
+// Render and the client probe public readiness; detailed identities/configuration
+// remain behind /api/v1/admin/deployment-status and /integration-status.
+app.use(HEALTH_PATH, healthRoutes);
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/records', rmaDispatchRoutes);
@@ -149,7 +123,7 @@ app.listen(PORT, () => {
   const externalUrl = process.env.RENDER_EXTERNAL_URL;
   if (externalUrl) {
     setInterval(() => {
-      fetch(`${externalUrl}/api/v1/health`)
+      fetch(`${externalUrl}${HEALTH_PATH}`)
         .then(res => res.json())
         .then(data => console.log('[Self-Ping]', data))
         .catch(err => console.error('[Self-Ping Error]', err.message));

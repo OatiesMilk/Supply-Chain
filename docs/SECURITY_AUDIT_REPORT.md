@@ -7,7 +7,7 @@
 > before requesting a repair. This documentation check did not run npm audit,
 > penetration tests, provider calls or deployed-configuration verification.
 
-| Original finding | Disposition in source baseline 6aad0f7 | Remaining evidence / scope |
+| Original finding | Source disposition / dated follow-up | Remaining evidence / scope |
 | --- | --- | --- |
 | SEC-01 — anonymous seed/wipe | Removed/guarded implementation exists in [dev routes](../server/src/routes/dev.ts) and [seed-reset tests](../server/tests/seedResetSecurity.test.ts). | Verify deployed revision/configuration; never reinstate the anonymous route from the historical example. |
 | SEC-02 — SSO state/auto-provisioning | [State storage](../server/src/services/ssoState.ts), [approved OID lookup](../server/src/services/ssoIdentity.ts) and [auth flow](../server/src/routes/auth.ts) implement browser-bound single-use state, explicit tenant and preapproved active accounts. | Live tenant/provisioning and sign-in acceptance; historical auto-create/email-link claims are superseded in source. |
@@ -16,7 +16,7 @@
 | SEC-07 — upload buffering/quotas | [Private disk quarantine](../server/src/services/podStorage.ts) replaces upload memory buffering; [attachment rules](../server/src/services/attachmentRules.ts) limit each record to 10 files / 50 MiB, each upload to 10 MiB. | Provider/resource-load and deployment verification; existing quota/cleanup tests do not establish production capacity. |
 | SEC-08 — document validation | [Attachment rules](../server/src/services/attachmentRules.ts) and [routes](../server/src/routes/records.ts) verify supported document content; [tests](../server/tests/attachmentRules.test.ts) exist. | Real browser/private-provider acceptance; do not regress to extension/MIME-only trust. |
 | SEC-09 — credentials/revocation | Partially addressed: email is validated and [authentication](../server/src/middleware/auth.ts) reloads current account authority. [User creation](../server/src/routes/users.ts) still only requires a non-empty password; password change/reset is absent from the auth API. | User decision 2026-11-05: defer password-policy work during development for easier development logins; revisit at development completion. The remaining gap is not marked fixed. Current authority reload is not a full JWT revocation assessment. |
-| SEC-10 — public diagnostics/fallback URL | Partially addressed: [Worker](../worker.js) fails with 503 when API_BASE_URL is absent rather than choosing a fallback host. [Public readiness](../server/src/index.ts) still includes mailer/environment diagnostics. | Minimize public details while retaining 200/503 readiness and authenticated Admin diagnostics; verify deployed routing/configuration. |
+| SEC-10 — public diagnostics/fallback URL | Health follow-up implemented locally on dev baseline 419b8bf, 2026-11-05: [public readiness](../server/src/routes/health.ts) now exposes only availability with no-store 200/503 responses. Detailed Admin diagnostics remain protected. The [Worker](../worker.js) already fails with 503 when API_BASE_URL is absent. | Awaiting PR/merge/deployment and verification of the hosted health path/response. See [validation and limits](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md#healthreadiness-follow-up); no production outage or provider send was exercised. |
 
 ---
 

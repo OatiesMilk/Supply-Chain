@@ -37,7 +37,7 @@ The deployed frontend uses relative **/api/** URLs through the same-origin Worke
 
 ## Blocking direct API access
 
-The API host has its own public address, so a caller can skip the Worker. Setting **REQUIRE_PROXY_SECRET=true** in the API environment makes the API answer HTTP 403 (**Direct API access is not allowed**) to every **/api/** request that does not carry the Worker's **PROXY_SHARED_SECRET**. **GET /api/health** is the only exception, because the host's health check and the self-ping call it directly.
+The API host has its own public address, so a caller can skip the Worker. Setting **REQUIRE_PROXY_SECRET=true** in the API environment makes the API answer HTTP 403 (**Direct API access is not allowed**) to every supported **/api/v1/** request that does not carry the Worker's **PROXY_SHARED_SECRET**. **GET /api/v1/health** is the only exception, because the host's health check and the self-ping call it directly.
 
 The setting is off unless set. The API refuses to start when it is **true** while **PROXY_SHARED_SECRET** is empty, or when it holds any value other than **true** or **false**. The Worker sends the secret on every proxied request once it is configured.
 
@@ -45,7 +45,7 @@ Enable it in this order. Each live step is a separately approved change:
 
 1. Deploy the code with the setting off.
 2. Configure the same **PROXY_SHARED_SECRET** in every Cloudflare environment that proxies to this API and in the API environment.
-3. As an Admin, open **GET /api/admin/deployment-status** through the deployed frontend and confirm that the current request carried a valid proxy secret.
+3. As an Admin, open **GET /api/v1/admin/deployment-status** through the deployed frontend and confirm that the current request carried a valid proxy secret.
 4. Set **REQUIRE_PROXY_SECRET=true** in the API environment.
 5. Confirm that the frontend works, a request sent straight to the API host returns 403, the host's health check stays healthy, and the deployment check reports the secret as required.
 
@@ -53,14 +53,27 @@ To roll back, unset **REQUIRE_PROXY_SECRET** in the API environment; no code cha
 
 ## Read-only deployment identity check
 
-The Admin-only **GET /api/admin/deployment-status** endpoint reports which services the running API is configured to use. Open it in the deployed app after signing in as an Admin. It is read-only and does not reveal credentials. It reports:
+The Admin-only **GET /api/v1/admin/deployment-status** endpoint reports which services the running API is configured to use. Open it in the deployed app after signing in as an Admin. It is read-only and does not reveal credentials. It reports:
 
 - Database host, port, database name, and whether the host is loopback.
 - Upload provider and identity. For Supabase storage it reads bucket reachability, privacy, size limit, and allowed MIME types; it does not read or upload files.
 - Configured origins, session-cookie flags, proxy-secret validity for the current request, whether the proxy secret is required, and yes/no presence for reviewed settings.
 - Warnings about settings that appear unsafe.
 
-The response includes infrastructure identifiers and the client address used for rate limiting. Redact those details appropriately before sharing evidence. **GET /api/health** only shows that the service is healthy; it does not identify the database or upload store.
+The response includes infrastructure identifiers and the client address used for rate limiting. Redact those details appropriately before sharing evidence. **GET /api/v1/health** returns only `{"ok":true}` (200) or `{"ok":false}` (503), with `Cache-Control: no-store`; it does not return those identities or mailer/environment diagnostics.
+
+## HTTP readiness on Render
+
+The web-service definition in [render.yaml](../render.yaml) specifies
+`healthCheckPath: /api/v1/health`, using the existing public database readiness
+check. Render supports the
+[healthCheckPath field for HTTP health checks](https://render.com/docs/health-checks).
+After the approved deployment/Blueprint sync, confirm the effective service
+setting and probe the versioned path. A manually configured service also needs
+its effective setting checked; editing this file alone does not apply cloud
+configuration. Unhealthy status/recovery is covered locally with database
+doubles; no hosted database outage or Render deployment was performed for this
+change.
 
 This endpoint does not prove database backup and restoration, migration rehearsal, attachment persistence, or isolated staging data. Complete those checks separately with an authorized release owner before staging writes or UAT.
 
