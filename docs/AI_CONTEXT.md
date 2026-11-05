@@ -12,7 +12,7 @@ Historical reports explain previous decisions and findings; they do not grant
 permission to change application data, send notifications, publish, migrate a
 shared database or activate permission policies.
 
-## Current implementation status (2026-11-05)
+## Initial implementation status snapshot (2026-11-05)
 
 Read the [implementation status snapshot](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md)
 before relying on older audits for what is currently implemented. It records a
@@ -30,9 +30,23 @@ fix order. This documentation update did not change application code or tests.
 SKU workspace tabs and a separate Warehouse screen are capability/scope
 decisions, not assumed accepted features.
 
+## Follow-up implementation status (2026-11-05)
+
+The refreshed `dev` branch at `269a30e` includes PR #293 (LEGACY notification
+visibility) and PR #294 (Data Sampler validation), resolving the first two
+findings from the initial snapshot. Supplier creation/audit is implemented on
+`fix/api-supplier-create-audit`; that branch remains unmerged until its PR is
+reviewed and merged. Its three route tests pass, the server suite passes
+467 tests with 5 optional PostgreSQL tests skipped, and the strict server
+TypeScript check passes. An in-app check against `mg_portal_sandbox` showed the
+Supplier CREATE event and its seven initial values in the System Audit Log; the
+temporary supplier and audit row were removed, restoring the prior counts.
+PostgreSQL rollback behavior remains unverified. The status snapshot distinguishes
+this follow-up from the historical browser/source review at `e56a8da`.
+
 | Document | Source and purpose |
 | --- | --- |
-| [Current implementation status](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md) | Read-only browser cross-check and source review at `e56a8da`; lists open fixes, capability choices, and verification gaps. |
+| [Implementation status](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md) | Historical read-only review at `e56a8da` plus dated follow-up status for merged PRs and the supplier audit branch. |
 | [Role functionality audit](ROLE_FUNCTIONALITY_AUDIT_2026-10-30.md) | Audit of `0e33fa7`; original findings F1–F8 and role/integration boundaries. Application-source links are pinned to that revision. |
 | [Development skill review](SUPPLY_CHAIN_DEV_SKILL_REVIEW_2026-10-30.md) | Historical rationale for the maintained guidance and bounded evaluation evidence. Installed-copy and temporary-path details describe the original session. |
 | [Role workflow audit](ROLE_WORKFLOW_IMPLEMENTATION_AUDIT_2026-10-30.md) | Audit of `82974de`; findings WF-01–WF-07 after the earlier remediation. |
