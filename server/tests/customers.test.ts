@@ -95,6 +95,26 @@ test('Sales Coordinator saves a customer edit with a trimmed value, actor and re
   });
 });
 
+test('Editing only the contact person updates the Prisma column and audit trail', async () => {
+  await withApp('SALES_COORDINATOR', async (url, headers, calls) => {
+    const res = await put(url, headers, {
+      contact_person: 'Albert Wesker',
+      remarks: 'Updated contact person',
+      expected_modified_at: MODIFIED_AT.toISOString(),
+    });
+    assert.equal(res.status, 200);
+
+    assert.deepEqual(calls.updateMany[0].data, {
+      contactPerson: 'Albert Wesker',
+      modifiedById: 'test-user',
+    });
+    const audit = calls.audit[0].data;
+    assert.equal(JSON.parse(audit.previousValue).contact_person, 'Ana');
+    assert.equal(JSON.parse(audit.newValue).contact_person, 'Albert Wesker');
+    assert.equal(JSON.parse(audit.newValue).remarks, 'Updated contact person');
+  });
+});
+
 test('TASS and Driver cannot edit customers through the API', async () => {
   for (const role of ['TASS', 'DRIVER']) {
     await withApp(role, async (url, headers, calls) => {

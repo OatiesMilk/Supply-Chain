@@ -104,7 +104,8 @@ router.put('/:id', requireAuth, requireResource('customers', 'UPDATE'), requireR
     if (current.modifiedAt.getTime() !== new Date(expectedModifiedAt).getTime()) return { status: 409 as const };
 
     const before = customerSnapshot(current);
-    if (!customerChanges(before, { ...before, ...data }).length) return { status: 422 as const };
+    const after = customerSnapshot({ ...current, ...data });
+    if (!customerChanges(before, after).length) return { status: 422 as const };
 
     const { count } = await tx.customer.updateMany({
       where: { id: current.id, modifiedAt: current.modifiedAt },
