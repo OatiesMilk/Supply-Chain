@@ -1,6 +1,6 @@
 import React from 'react';
 import SuppliersView from '@/features/suppliers/SuppliersView';
-import { Supplier, DeliveryRecord, UserRole } from '@/types';
+import { DeliveryRecord, UserRole, CreateSupplierInput } from '@/types';
 import { ApiSupplier } from '@/api';
 
 export interface SuppliersPageProps {
@@ -8,15 +8,7 @@ export interface SuppliersPageProps {
   deliveryRecords: DeliveryRecord[];
   currentUserRole: UserRole;
   currentUserName: string;
-  onCreateSupplier: (data: {
-    name: string;
-    contact_person?: string;
-    email?: string;
-    phone?: string;
-    address?: string;
-    city?: string;
-    category?: string;
-  }) => Promise<void>;
+  onCreateSupplier: (data: CreateSupplierInput) => Promise<void>;
 }
 
 export const SuppliersPage: React.FC<SuppliersPageProps> = ({
@@ -28,7 +20,7 @@ export const SuppliersPage: React.FC<SuppliersPageProps> = ({
 }) => {
   return (
     <SuppliersView
-      suppliers={suppliers as unknown as Supplier[]}
+      suppliers={suppliers}
       deliveryRecords={deliveryRecords}
       currentUserRole={currentUserRole}
       currentUserName={currentUserName}

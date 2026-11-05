@@ -152,7 +152,7 @@ export function useAppData(
     phone?: string;
     address?: string;
     city?: string;
-    category?: string;
+    category_ids: string[];
   }) => {
     await createSupplierMutation.mutateAsync(data);
   };

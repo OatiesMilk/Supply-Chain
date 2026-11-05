@@ -8,6 +8,7 @@ import { usePagedRecordsQuery } from '@/api/queries/useRecordsQuery';
 import { useClampRecordPage } from '@/api/queries/useOperationalViews';
 import RecordPageControls from '@/components/RecordPageControls';
 import { usePermissions } from '@/hooks/usePermissions';
+import { SupplierCategoryTags, SupplierCategoryEditor, useCanManageSupplierCategories } from './SupplierCategories';
 
 function formatTs(ts: string) {
   return new Date(ts).toLocaleString('en-PH', {
@@ -15,14 +16,6 @@ function formatTs(ts: string) {
     hour: '2-digit', minute: '2-digit'
   });
 }
-
-const CATEGORY_COLOR: Record<string, string> = {
-  'Electronics':  'bg-blue-50 text-blue-700 border-blue-200',
-  'Hardware':     'bg-slate-100 text-slate-700 border-slate-200',
-  'Consumables':  'bg-amber-50 text-amber-700 border-amber-200',
-  'Packaging':    'bg-purple-50 text-purple-700 border-purple-200',
-  'Services':     'bg-emerald-50 text-emerald-700 border-emerald-200',
-};
 
 const STATUS_DOT: Record<string, string> = {
   Delivered:   'bg-emerald-500',
@@ -47,6 +40,8 @@ export default function SupplierWorkspace({
   supplier, allSupplierIds, deliveryRecords, pickupCount, onBack, onNavigateToSupplier,
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('general');
+  const [editingCategories, setEditingCategories] = useState(false);
+  const canManage = useCanManageSupplierCategories();
 
   const currentIndex = allSupplierIds.indexOf(supplier.id);
   const prevId = currentIndex > 0 ? allSupplierIds[currentIndex - 1] : null;
@@ -132,11 +127,11 @@ export default function SupplierWorkspace({
               <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
                 <div className="flex flex-wrap items-center gap-2 mb-2">
                   <span className="font-mono font-black text-lg text-slate-900">{supplier.id}</span>
-                  <span className={`px-2.5 py-1 rounded-full border text-[10px] font-semibold ${CATEGORY_COLOR[supplier.category] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}>
-                    {supplier.category}
-                  </span>
+                  <SupplierCategoryTags supplier={supplier} />
                 </div>
                 <p className="text-base font-extrabold text-slate-800">{supplier.name}</p>
+                {canManage && !editingCategories && <button type="button" className="text-xs text-[#0078C1] font-semibold mt-3" onClick={() => setEditingCategories(true)}>Edit Categories</button>}
+                {canManage && editingCategories && <SupplierCategoryEditor supplier={supplier} onClose={() => setEditingCategories(false)} />}
               </div>
 
               {/* Contact details */}

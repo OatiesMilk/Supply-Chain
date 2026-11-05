@@ -8,7 +8,8 @@ const fields: Record<string, readonly string[]> = {
     'collection_verified', 'collection_verified_by', 'collection_verified_at', 'rma_type', 'rma_movement', 'rma_transport_status',
     'rma_received_at', 'rma_recipient', 'rma_completed_at', 'attachment', 'attachment_id', 'attachment_removed', 'line_items'],
   Customer: ['name', 'contactPerson', 'contact_person', 'email', 'phone', 'address', 'city', 'remarks'],
-  Supplier: ['name', 'contactPerson', 'contact_person', 'email', 'phone', 'address', 'city', 'category'],
+  Supplier: ['name', 'contactPerson', 'contact_person', 'email', 'phone', 'address', 'city', 'category', 'categories'],
+  SupplierCategory: ['name', 'is_active', 'version'],
   Driver: ['name', 'type', 'coverageAreas', 'isActive'],
   SKU: ['skuCode', 'name', 'category', 'unitCost', 'unitPrice', 'reorderPoint', 'description', 'warehouseLocation', 'onHandQty', 'allocatedQty', 'sku_code', 'unit_cost', 'unit_price', 'reorder_point', 'on_hand_qty', 'adjustment_type', 'qty_change', 'reference', 'inventory_warehouse_location', 'inventory_on_hand_qty', 'inventory_allocated_qty'],
   Product: ['skuCode', 'name', 'category', 'unitCost', 'unitPrice', 'reorderPoint', 'description'],
@@ -17,6 +18,8 @@ const fields: Record<string, readonly string[]> = {
 };
 function display(value: unknown, key: string): string {
   if (value == null) return 'none';
+  if (key === 'categories' && Array.isArray(value)) return value.map(item => item && typeof item === 'object'
+    && typeof item.name === 'string' ? `${item.name} (${typeof item.id === 'string' ? item.id : ''})` : '').join('; ') || 'none';
   if (typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number') return String(value);
   if (key === 'line_items' && Array.isArray(value)) return value.map(item => item && typeof item === 'object'
     ? `${typeof item.sku === 'string' ? item.sku : ''} × ${typeof item.quantity === 'number' ? item.quantity : ''}` : '').join('; ');

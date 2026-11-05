@@ -774,7 +774,7 @@ export const SUPPLIER_COLUMNS: ExportColumn[] = [
   { header: 'Phone',          key: 'phone',          width: 18 },
   { header: 'City',           key: 'city',           width: 18 },
   { header: 'Address',        key: 'address',        width: 36 },
-  { header: 'Category',       key: 'category',       width: 18 },
+  { header: 'Categories',     key: 'categories',     width: 36 },
   { header: 'Pick-ups',       key: 'pickup_count',   width: 14 },
 ];
 

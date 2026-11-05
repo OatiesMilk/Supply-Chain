@@ -277,7 +277,7 @@ Define date-only versus time-window scheduling, warn versus block behavior, over
 
 ### Current reconciliation — 2026-11-05
 
-**Decision needed.** The [schema](../server/prisma/schema.prisma) still has no Supplier foreign key on DeliveryRecord or Product relation on LineItem. Supplier pickup context uses name matching in [records routes](../server/src/routes/records.ts). Supplier creation/audit is already transactional after PR #295; that separate repair is complete in source. Agree on stable links and any inventory effects before implementation. Operational stock movement remains manual.
+**Decision needed.** The [schema](../server/prisma/schema.prisma) still has no Supplier foreign key on DeliveryRecord or Product relation on LineItem. Supplier pickup context uses name matching in [records routes](../server/src/routes/records.ts). Supplier creation/audit is already transactional after PR #295. The separate [Admin catalog/multiple-category feature](SUPPLIER_CATEGORIES.md) is implemented locally, including Admin-only assignment edits and real PostgreSQL audit rollback verification; it does not resolve this operational traceability ticket. Agree on stable links and any inventory effects before implementation. Operational stock movement remains manual.
 
 **Type:** Feature
 **Modules:** Suppliers, Procurement Pick-up, SKU Master, Inventory, Deliveries, RMA, Sales Orders
@@ -420,7 +420,7 @@ Approve a matrix: scheduled operations use `deliveryDate`; completion reports us
 
 ### Current reconciliation — 2026-11-05
 
-**Partially implemented; decision needed.** Health follow-up implemented locally on dev baseline `419b8bf` (2026-11-05), awaiting PR/merge/deployment: [readiness](../server/src/routes/health.ts) retains database and production-setting checks with minimal no-store 200/503 responses, and [render.yaml](../render.yaml) now sets healthCheckPath to /api/v1/health. Authenticated Admin diagnostics retain details. See the [validation record](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md#healthreadiness-follow-up). Effective Render configuration still needs deployment verification. Reminders still use in-process timers; scheduler, catch-up, retry and duplicate-prevention choices remain open.
+**Partially implemented; decision needed.** Health follow-up merged via PR #299 (present in local dev `8adf405`): [readiness](../server/src/routes/health.ts) retains database and production-setting checks with minimal no-store 200/503 responses, and [render.yaml](../render.yaml) now sets healthCheckPath to /api/v1/health. Authenticated Admin diagnostics retain details. See the [validation record](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md#healthreadiness-follow-up). Effective Render configuration still needs deployment verification. Reminders still use in-process timers; scheduler, catch-up, retry and duplicate-prevention choices remain open.
 
 **Type:** Development
 **Modules:** Administration, Reports

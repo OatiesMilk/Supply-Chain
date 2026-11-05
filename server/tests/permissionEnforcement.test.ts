@@ -133,6 +133,24 @@ async function fixture(t: TestContext, role: PolicyRole = 'LOGISTICS') {
   };
 }
 
+test('V1 supplier category writes honor Admin ceilings and screen/resource Write denials', async t => {
+  const state = await fixture(t, 'ADMIN');
+  const paths = [
+    ['/api/v1/suppliers/categories', 'POST', { name: 'Category' }],
+    ['/api/v1/suppliers/categories/category-one', 'PATCH', { name: 'Rename', expected_version: 1 }],
+    ['/api/v1/suppliers/supplier-one/categories', 'PUT', { category_ids: ['category-one'], expected_version: 1 }],
+  ] as const;
+  for (const denied of ['SCREEN:suppliers:WRITE', 'RESOURCE:suppliers:WRITE', 'RESOURCE:suppliers:READ']) {
+    state.deny(denied);
+    for (const [path, method, body] of paths) assert.equal((await state.request(path, method, body)).status, 403, denied);
+  }
+  state.deny();
+  const actor = state.actor();
+  state.setActor({ ...actor, role: 'LOGISTICS' });
+  for (const [path, method, body] of paths) assert.equal((await state.request(path, method, body)).status, 403, 'role ceiling');
+  assert.deepEqual(state.effects, []);
+});
+
 test('V1 restored sessions satisfy the frontend contract and never trust the JWT role or leak credentials', async t => {
   const state = await fixture(t);
   state.actor().password = 'must-not-serialize'; state.actor().microsoftOid = 'must-not-serialize';

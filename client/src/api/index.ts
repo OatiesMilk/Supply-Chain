@@ -9,6 +9,7 @@ export interface RmaCapabilities { assign: boolean; transport: boolean; receive:
 
 import { assertPermissionRequest, checkPermissionResponse, permissionRequestVersion, assertPermissionRequestVersion, ClientPermissionError } from './permissionRuntime';
 import type { PermissionSession } from '../types/permissions';
+import type { SupplierCategory, CreateSupplierInput } from '../types/supplier';
 import type { RolePermissionEditor, UserPermissionEditor, PolicySave, PolicyAuditState } from '../types/permissionEditor';
 import { requestServerCheck } from './availability';
 
@@ -255,6 +256,8 @@ export interface ApiSupplier {
   address: string;
   city: string;
   category: string;
+  categories: SupplierCategory[];
+  version: number;
   created_by: string;
   created_at: string;
   modified_by: string;
@@ -619,8 +622,14 @@ export const api = {
   getCustomerAudit: (id: string) => request<ApiCustomerAuditEntry[]>(`/customers/${id}/audit`),
 
   getSuppliers: () => request<ApiSupplier[]>('/suppliers'),
-  createSupplier: (data: { name: string; contact_person?: string; email?: string; phone?: string; address?: string; city?: string; category?: string }) =>
+  createSupplier: (data: CreateSupplierInput) =>
     request<ApiSupplier>('/suppliers', { method: 'POST', body: JSON.stringify(data) }),
+  getSupplierCategories: () => request<SupplierCategory[]>('/suppliers/categories'),
+  createSupplierCategory: (name: string) => request<SupplierCategory>('/suppliers/categories', { method: 'POST', body: JSON.stringify({ name }) }),
+  updateSupplierCategory: (id: string, data: { name?: string; is_active?: boolean; expected_version: number }) =>
+    request<SupplierCategory>(`/suppliers/categories/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  updateSupplierCategories: (id: string, data: { category_ids: string[]; expected_version: number }) =>
+    request<ApiSupplier>(`/suppliers/${id}/categories`, { method: 'PUT', body: JSON.stringify(data) }),
 
   getDashboardStats: () => request<ApiDashboardStats>('/dashboard/stats'),
   getDashboardOverview: () => request<ApiDashboardOverview>('/dashboard/overview'),

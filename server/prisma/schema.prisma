@@ -207,13 +207,37 @@ model Supplier {
   phone         String
   address       String
   city          String
-  category      String // Hardware | Consumables | Electronics | Packaging | Services
+  category      String // Deprecated compatibility snapshot; categories is authoritative.
+  version       Int @default(1)
+  categories    SupplierCategoryAssignment[]
   createdById   String
   createdBy     User     @relation("SupplierCreatedBy", fields: [createdById], references: [id])
   createdAt     DateTime @default(now())
   modifiedById  String
   modifiedBy    User     @relation("SupplierModifiedBy", fields: [modifiedById], references: [id])
   modifiedAt    DateTime @updatedAt
+}
+
+// Deactivate catalog entries instead of deleting them; actor history is in AuditLog.
+model SupplierCategory {
+  id             String @id @default(cuid())
+  name           String
+  normalizedName String @unique
+  isActive       Boolean @default(true)
+  version        Int @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  suppliers      SupplierCategoryAssignment[]
+}
+
+model SupplierCategoryAssignment {
+  supplierId String
+  categoryId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  category   SupplierCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@id([supplierId, categoryId])
+  @@index([categoryId])
 }
 
 model DeliveryRecord {

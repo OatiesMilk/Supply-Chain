@@ -12,10 +12,26 @@ Historical reports explain previous decisions and findings; they do not grant
 permission to change application data, send notifications, publish, migrate a
 shared database or activate permission policies.
 
+## Supplier categories follow-up (2026-11-05)
+
+Implemented locally from clean dev `8adf405`, awaiting PR/merge/deployment:
+Admin-managed category catalog, multiple supplier assignments, Admin-only edits
+to existing assignments, category filters/exports, atomic audits and stale-edit
+protection. The additive migration preserves old category text/history and maps
+nonblank custom labels; blank values require review. See the
+[supplier category contract, migration and verification record](SUPPLIER_CATEGORIES.md).
+The local migration and real PostgreSQL rollback/concurrency checks passed on
+`mg_portal_sandbox`. In-app Admin/Sales workflows and a downloaded filtered CSV
+were verified; browser permission was then declined before the final audit-screen
+check. A user-authorized retry was blocked by the saved localhost permission;
+the audit-screen and subsequent open-draft deactivation browser checks remain
+pending. The latter has a passing mounted-client regression. Do not reimplement
+this from the old fixed-five-only validation finding.
+
 ## Health/readiness follow-up (2026-11-05)
 
-The focused health repair is implemented locally on dev baseline `419b8bf`,
-awaiting PR/merge/deployment. [Health routes](../server/src/routes/health.ts)
+The focused health repair was merged through PR #299 and is present in local
+dev at `8adf405`; hosted deployment remains unverified. [Health routes](../server/src/routes/health.ts)
 retain database/required-production-setting readiness while exposing only
 an uncached boolean and 200/503 status. [render.yaml](../render.yaml) now selects
 /api/v1/health. Authenticated Admin diagnostics still provide detailed checks.
@@ -40,7 +56,9 @@ Recorded on 2026-11-05 against local dev at `15a7cd1`:
   not a completed security repair.
 - Supplier categories will use an Admin-managed catalog, and each supplier may
   have multiple categories. This approved future requirement supersedes the
-  proposed fixed-five-category validation repair; it is not implemented yet.
+  proposed fixed-five-category validation repair. Its local implementation is
+  recorded in the supplier follow-up above; existing-assignment editing is
+  Admin-only per the subsequent user approval.
 - Data Sampler is temporary development tooling and is excluded from the final
   product. The user requested no further fixes for it and its removal when
   development is complete. The previous category-permission decision is no
@@ -69,7 +87,8 @@ Password/supplier validation, audit action filtering, access-request confirmatio
 and Global Search selection retain the qualified scope in the register.
 
 The three repairs in PRs #293–#295 are implemented; real PostgreSQL supplier
-rollback and the other named acceptance checks remain separate tasks. Larger
+rollback is now verified in the supplier-category follow-up. Other named
+acceptance checks remain separate tasks. Larger
 master-data, inventory, Warehouse and scheduler changes need the stated business
 or operating decisions. Several historical QA Open labels and the October
 security/issues-report counts predate later fixes. Preserve those observations

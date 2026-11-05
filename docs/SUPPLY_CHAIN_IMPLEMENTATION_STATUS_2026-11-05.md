@@ -17,7 +17,7 @@ Use this section and the [original AUD ticket mapping](AUDIT_DEVELOPMENT_BACKLOG
 | Item | User decision | Current disposition |
 | --- | --- | --- |
 | Password policy | Defer changes during development to keep development logins easier. | Deferred during development; the remaining password-management gaps are not marked fixed. Revisit when development ends. |
-| Supplier categories | Admin manages the category catalog; suppliers can have multiple categories. | Approved requirement, implementation pending. Supersedes the earlier proposed fixed list of five values. Category administration is Admin-owned; supplier selection continues to use the applicable supplier authority. |
+| Supplier categories | Admin manages the category catalog; suppliers can have multiple categories. | Implemented locally in the supplier categories follow-up below, awaiting PR/deployment. Existing-assignment edits are Admin-only per subsequent approval. Supersedes the earlier proposed fixed list of five values. |
 | Data Sampler | No further fixes; remove the module when development is complete because it is not needed in the final product. | Temporary development capability; removal planned. The category-permission question is superseded for current work selection. Existing merged fixes and safeguards remain until removal. |
 
 ### Data Sampler retirement task
@@ -43,7 +43,7 @@ Use this section and the [original AUD ticket mapping](AUDIT_DEVELOPMENT_BACKLOG
 
 ### Health/readiness follow-up
 
-**Implemented locally:** 2026-11-05 on dev baseline `419b8bf`; awaiting PR, merge and deployment.
+**Merged:** PR #299, present in local dev at `8adf405`. Original local validation was on baseline `419b8bf`; hosted deployment remains unverified.
 
 - [Public readiness](../server/src/routes/health.ts) retains the database ping
   and required production configuration checks. It returns only
@@ -70,13 +70,57 @@ Use this section and the [original AUD ticket mapping](AUDIT_DEVELOPMENT_BACKLOG
   scheduling remains separate AUD-011 work; password and sampler decisions remain
   as recorded above.
 
+### Supplier categories follow-up
+
+**Implemented locally:** 2026-11-05 from clean dev at `8adf405`; awaiting PR/merge/deployment.
+
+Admin-managed catalog and many-to-many supplier categories are implemented,
+including Admin-only existing-assignment edits, creation with active choices,
+ID-based filters, all-label exports, atomic audits and version conflicts.
+The additive migration preserves legacy text/audits and custom labels; blank
+values remain unassigned for review. Current names reflect catalog renames while
+audit snapshots preserve the original ID/name pairs. See the
+[contract, migration runbook and detailed validation](SUPPLIER_CATEGORIES.md).
+
+Migration deploy passed on the verified local loopback `mg_portal_sandbox`.
+Its six pre-existing suppliers all received assignments without changing their
+legacy category strings; the initial report found no blanks or case variants.
+Temporary-schema fixtures additionally verified blank/case/custom/comma labels.
+Real PostgreSQL tests passed for audit rollback across supplier/catalog creation,
+catalog rename and assignment replacement, competing editor versions, and
+active-state revalidation after waiting on the catalog lock.
+
+In-app Admin/Sales creation, multi-category tags/filter, rename/deactivate/
+reactivate, existing inactive retention, Admin editing and a downloaded filtered
+CSV passed in LEGACY mode. V1 denials were tested with the real evaluator and
+router/client doubles. Browser access was declined on the attempted return to
+Admin, and a user-authorized retry was blocked by a saved localhost browser
+permission. The final audit-screen verification and the later open-draft
+deactivation browser case remain unverified. Real audit
+persistence/rollback and safe diff projections are covered by PostgreSQL/router/
+client checks. Render deployment was not performed. Only unique test fixtures
+are removed after these checks; existing business rows/history are preserved.
+
+Final checks: server **483 passed, 0 failed, 7 optional PostgreSQL checks skipped**
+(490 total); client **320 passed, 0 failed, 1 optional PostgreSQL integration
+check skipped** (321 total). Both TypeScript checks and Prisma schema validation
+passed. The two supplier opt-in PostgreSQL cases were run separately with their
+three rollback/race subtests: **5 passed, none skipped**. Browser cleanup removed
+exactly two test suppliers, one test category and seven test audit entries,
+leaving the six pre-existing suppliers and all six migrated assignments intact.
+The later mounted-client regression also verifies that deactivating a selected
+category mid-draft leaves it visible for removal and preserves the other inputs.
+Client/server production builds also passed; the client build emits a large-chunk
+advisory for export bundles. New relative documentation links and diff whitespace
+checks passed; generated build output remains ignored.
+
 ### Recent fixes already implemented
 
 | Finding | Current disposition and evidence | Remaining boundary |
 | --- | --- | --- |
 | LEGACY record-notification visibility | PR #293 is in this baseline. [notificationVisibility](../server/src/services/notificationVisibility.ts) applies category, deletion and linked Driver scope; [permissionVisibility tests](../server/tests/permissionVisibility.test.ts) inspect those predicates. | SQL predicate tests are not live PostgreSQL notification UAT. |
 | Data Sampler submission validation | PR #294 is in this baseline. [Server generation](../server/src/routes/data-sampler.ts) reuses final submission validation; [manual UI](../client/src/features/admin/DataSamplerView.tsx) validates required fields. Existing [server](../server/tests/podRequirements.test.ts) and [client](../client/tests/rmaAutofill.test.ts) regressions cover the repair. | Subsequent user decision: no additional sampler fixes; module retirement is planned after development. |
-| Supplier creation and central audit | PR #295 is in this baseline. [suppliers route](../server/src/routes/suppliers.ts) creates the supplier and its audit entry in one transaction; [supplier route tests](../server/tests/suppliers.test.ts) cover success and audit failure with doubles. | Recorded browser happy-path evidence is below; real PostgreSQL rollback on audit failure remains pending. Supplier category validation is separate. |
+| Supplier creation and central audit | PR #295 is in this baseline. [suppliers route](../server/src/routes/suppliers.ts) creates the supplier and audit atomically. New [PostgreSQL checks](../server/tests/supplierCategories.postgres.test.ts) verify real audit-failure rollback on the designated sandbox. | The supplier category follow-up extends this behavior; hosted deployment remains unverified. Earlier double-only evidence below is historical. |
 | Role findings F1–F8 and WF-01–WF-07 | Implementation reports describe [F1–F8](ROLE_AUDIT_FIXES_2026-10-30.md) and [WF-01–WF-07](ROLE_WORKFLOW_FIXES_2026-10-31.md), with current source/test entry points. | Their recorded skips and browser/database/provider limits remain; they are not new execution results. |
 
 ### Findings and next scope
@@ -90,12 +134,12 @@ These are current scope dispositions, including dated local implementations and 
 | DEF-012 — audit action filter | [Admin audit](../server/src/routes/admin.ts) accepts only CREATE, UPDATE and DELETE and silently ignores other action values. | Support actual emitted login-link actions and define validation of unknown filters; UI/API must agree. |
 | DEF-016 — temporary access request | [AccessRequestModal](../client/src/components/AccessRequestModal.tsx) sets local sent state and claims Admin notification without an API call or saved request. | Choose a real request/notification workflow or honest contact-admin instructions; confirm only an actual outcome. |
 | DEF-018 — business references in record links | [Calendar](../client/src/features/deliveries/DeliveryCalendar.tsx) and [AM Directory](../client/src/features/admin/AccountManagerDirectory.tsx) still display record ID as their record label. | Show the appropriate business reference with an ID fallback, preserving stable IDs for navigation and reference-less records. |
-| DEF-022 — supplier category contract | [Supplier creation](../server/src/routes/suppliers.ts) and [schema](../server/prisma/schema.prisma) still use a single category string. | User-approved replacement: Admin-managed categories with multiple categories per supplier. Implement catalog/relations, selection, validation, filters and audit consistently, with a reviewed legacy-data mapping. The old fixed-five-only rejection expectation is superseded. |
+| DEF-022 — supplier category contract | Implemented locally: catalog/relations, Admin management and assignment edits, multi-select creation, validation/filter/export/audit and additive legacy mapping. See the supplier follow-up above. | Awaiting PR/merge/deployment. Old fixed-five-only expectations are superseded by the approved catalog requirement. Final audit-screen check was blocked by browser permission; PostgreSQL audit behavior passed. |
 | DEF-028 — View Full Log destination | [AdminDashboard](../client/src/features/dashboard/AdminDashboard.tsx) navigates to Admin without an audit target; [AdminPanel](../client/src/features/admin/AdminPanel.tsx) starts on Users. The separate audit-today card already has a filter target. | Add/use an explicit all-audit destination; retain the audit-today preset's separate meaning. |
 | DEF-030 — Global Search Enter | [GlobalSearch](../client/src/components/GlobalSearch.tsx) starts the cursor at -1 and opens on Enter only with a selected index. | Agree that direct Enter opens the first available result, while an explicit keyboard selection wins. Test empty, changing and denied results. |
-| SEC-10 — public readiness details | Implemented locally: [health](../server/src/routes/health.ts) returns only availability, with no-store caching; authenticated Admin diagnostics retain details. | Awaiting PR/merge/deployment; verify effective hosted response. See the health/readiness follow-up above. |
+| SEC-10 — public readiness details | Merged via PR #299: [health](../server/src/routes/health.ts) returns only availability, with no-store caching; authenticated Admin diagnostics retain details. | Verify effective hosted response after deployment. See the health/readiness follow-up above. |
 | AUD-008 — residual full-set transaction reads | [Transaction Center](../server/src/routes/transactions.ts) loads matching delivery/inventory sets before merging, sorting and slicing. Bounded record endpoints and ordinary views already exist. | Review bounded cross-source querying and complete counts/exports; validate representative-volume behavior. Do not rebuild ordinary record pagination. |
-| AUD-011 — jobs and deployment health | Health configuration is implemented locally in [render.yaml](../render.yaml); [API jobs](../server/src/index.ts) still use process timers. | Verify effective hosted health settings after deployment. Scheduler, schedule-window identity, retries and missed-run behavior still need agreement. |
+| AUD-011 — jobs and deployment health | Health configuration in [render.yaml](../render.yaml) merged via PR #299; [API jobs](../server/src/index.ts) still use process timers. | Verify effective hosted health settings after deployment. Scheduler, schedule-window identity, retries and missed-run behavior still need agreement. |
 
 ### Decisions and approved capability scope
 
@@ -113,7 +157,7 @@ These are current scope dispositions, including dated local implementations and 
 
 | Check | Existing evidence | Acceptance still needed |
 | --- | --- | --- |
-| Supplier audit failure | Transactional route and route doubles; earlier browser success recorded below. | Fixture-specific audit-write failure on designated disposable PostgreSQL; assert neither supplier nor audit row survives. |
+| Supplier audit failure | Passed on designated local PostgreSQL in the supplier-category follow-up: injected audit failure leaves neither supplier nor its audit row; catalog/assignment rollback also verified. | Local acceptance complete; preserve the regression in CI/explicit disposable runs. Hosted deployment remains separate. |
 | Assignment/completion failure recovery | [Record routes](../server/src/routes/records.ts) perform assignment alerts and completion notification work after the business transaction. [Completion mail](../server/src/services/notify.ts) distinguishes outcomes; provider errors alone are not proof every later database/log failure is handled. | Inject relevant failures; inspect committed state, HTTP result and retries. Agree in-app transaction boundaries and external-email retry/duplicate semantics before adding an outbox. |
 | V1 dashboard authority | [Six accepted cases](../quality-assurance/06-reports/2026-11-04-v1-dashboard-access-acceptance.md) remain Not Run. | Execute screen/resource/category denials and session-refresh restoration on controlled accounts, restoring exact overrides afterward. |
 | Attachment deletion cleanup | [Outbox](../server/src/services/podDeletionCleanup.ts), [migration](../server/prisma/migrations/20261103010000_pod_storage_deletion_outbox/migration.sql), route doubles and an [opt-in PostgreSQL test](../server/tests/podDeletion.postgres.test.ts) already exist. | Read migration status on the intended target; verify database rollback and real storage retry. Code presence does not prove active migration/provider behavior. |
@@ -148,7 +192,7 @@ The [original DEF files](../quality-assurance/05-defects/) and execution results
 | DEF-019 | Closed by requirement | The [recorded product decision](../quality-assurance/05-defects/DEF-019-monthly-driver-report-export-omits-per-delivery-rows.md) accepts aggregate-only Monthly Driver CSV; do not add per-delivery rows to satisfy the old expectation. |
 | DEF-020 | Implemented; verification pending | Customer POST uses [parseCustomerCreate](../server/src/services/customerValidation.ts) for email/phone/type checks. |
 | DEF-021 | Implemented; owner acceptance pending | [Live follow-up](../quality-assurance/06-reports/2026-10-16-def021-customer-conflict.md) distinguishes the non-reproduced stale overwrite from repaired failed-reload draft loss; [client regression](../client/tests/customerEditConflict.test.ts) exists. |
-| DEF-022 | Superseded expectation; approved implementation pending | Replace the fixed-five-only expectation with the user's Admin-managed, multiple-category requirement; see above. |
+| DEF-022 | Superseded expectation; replacement implemented locally | Admin-managed multiple categories implemented and locally verified; awaiting PR/deployment. See the supplier follow-up and its audit-screen verification limit. |
 | DEF-023 | Implemented; scoped browser evidence | [Inventory clear](../client/src/features/inventory/InventoryView.tsx) resets both search states and filters; [November 4 QA](../quality-assurance/06-reports/UAT-summary-RUN-20261104-REMAIN.md) observed recovery. |
 | DEF-024 | Implemented; scoped browser evidence | Admin SKU form and [creation tests](../client/tests/skuCreation.test.ts); November 4 QA created a SKU. |
 | DEF-025 | Implemented; verification pending | Shared [SKU validation](../server/src/services/skuValidation.ts), [creation](../server/tests/skuCreation.test.ts) and [major-defect regressions](../server/tests/majorDefects.test.ts); creation and edit acceptance remain distinct. |
