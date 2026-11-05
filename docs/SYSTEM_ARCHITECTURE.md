@@ -65,8 +65,13 @@ live setup serves the frontend from Cloudflare. See
 Deployment flow: pushes to GitHub trigger Render (`buildCommand`: install,
 `prisma generate`, `npm run build`; `startCommand`: `npx prisma migrate deploy && npm run start`).
 The seed is **not** run on deploy. Cloudflare Workers Builds track the `staging` branch.
-`/api/health` checks the database, mailer mode and required env vars (503 when unhealthy in production);
-`RENDER_EXTERNAL_URL` enables a 10-minute self-ping.
+`render.yaml` configures `healthCheckPath: /api/v1/health`. The public
+[readiness route](../server/src/routes/health.ts) checks database connectivity
+and required production configuration, returning only `{ ok: true }` (200) or
+`{ ok: false }` (503), with `Cache-Control: no-store`. Detailed deployment
+and integration diagnostics require Admin access. `RENDER_EXTERNAL_URL` enables
+a 10-minute self-ping. Repository configuration does not establish that a hosted
+service has applied the setting; verify the effective deployed health path.
 
 ## 4. Frontend (`client/src`)
 
@@ -92,7 +97,7 @@ client/src
 
 ```text
 server/src
-├── index.ts           Express app, route mounting, /api/health, background jobs
+├── index.ts           Express app, route mounting, /api/v1/health, background jobs
 ├── db.ts              Prisma client singleton
 ├── mappings.ts        UI ↔ DB category/status mappings, record serializer
 ├── areaHierarchy.ts   Area hierarchy used for driver coverage matching

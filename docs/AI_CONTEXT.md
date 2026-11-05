@@ -12,6 +12,23 @@ Historical reports explain previous decisions and findings; they do not grant
 permission to change application data, send notifications, publish, migrate a
 shared database or activate permission policies.
 
+## Health/readiness follow-up (2026-11-05)
+
+The focused health repair is implemented locally on dev baseline `419b8bf`,
+awaiting PR/merge/deployment. [Health routes](../server/src/routes/health.ts)
+retain database/required-production-setting readiness while exposing only
+an uncached boolean and 200/503 status. [render.yaml](../render.yaml) now selects
+/api/v1/health. Authenticated Admin diagnostics still provide detailed checks.
+
+Validation: 476 server tests passed with 5 optional PostgreSQL checks skipped;
+4 client availability/recovery tests and both TypeScript checks passed.
+The local in-app browser showed the minimal response and a working signed-in
+Admin Integrations panel. Failure tests use doubles; Render application of the
+setting and a real database outage were not exercised. See the
+[implementation record](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md#healthreadiness-follow-up).
+Do not reimplement this repair from the older open SEC-10/AUD-011 descriptions.
+Durable scheduled jobs remain open, independently of this health configuration.
+
 ## Current backlog reconciliation (2026-11-05)
 
 ### User decisions after PR #297

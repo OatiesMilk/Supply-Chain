@@ -184,6 +184,11 @@ This starts both workspaces:
 - Backend API: <http://localhost:4000>
 - Health check: <http://localhost:4000/api/v1/health>
 
+Readiness returns HTTP 200 with `{"ok":true}`, or HTTP 503 with
+`{"ok":false}`, and disables response caching. For mailer/configuration
+diagnostics, sign in as Admin and open Integrations or the protected deployment
+check; the public response contains no diagnostic details.
+
 To run them separately, use `npm run dev --workspace=server` and
 `npm run dev --workspace=client` in two terminals.
 
