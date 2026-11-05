@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { RMA_CATEGORIES, autoFillRmaFields } from '../src/utils/rma';
-import { buildManualDefaults } from '../src/features/admin/DataSamplerView';
+import { buildManualDefaults, dataSamplerSubmissionError } from '../src/features/admin/DataSamplerView';
 
 test('RMA Auto Fill preserves blank and manually entered references for every category', () => {
   const expected = ['Sales Orders', 'Return to Customer', 'Return to Supplier', 'Pull-Out Slip', 'Advance Replacement Demo', 'Pick-Up', 'Others'];
@@ -23,4 +23,11 @@ test('Admin RMA sample defaults leave Reference empty and use the current catego
     assert.equal(defaults.company_id, 'company-1');
   }
   assert.match(buildManualDefaults('deliveries', []).reference, /^SAP-/);
+});
+
+test('manual Data Sampler requires a reference and date for non-RMA records while keeping RMA fields optional', () => {
+  assert.match(dataSamplerSubmissionError('sales_orders', { reference: '   ', delivery_date: '2026-10-07' }) ?? '', /Reference is required/);
+  assert.match(dataSamplerSubmissionError('sales_orders', { reference: 'SO-123', delivery_date: '' }) ?? '', /Delivery Date is required/);
+  assert.equal(dataSamplerSubmissionError('sales_orders', { reference: 'SO-123', delivery_date: '2026-10-07' }), null);
+  assert.equal(dataSamplerSubmissionError('rma', { reference: '', delivery_date: '' }), null);
 });

@@ -99,6 +99,13 @@ export function buildManualDefaults(module: string, companies: ApiCompany[]) {
   };
 }
 
+export function dataSamplerSubmissionError(module: string, fields: Record<string, string>): string | null {
+  if (module === 'rma') return null;
+  if (!fields.reference?.trim()) return 'Reference is required to submit the record.';
+  if (!fields.delivery_date) return 'Delivery Date is required';
+  return null;
+}
+
 export default function DataSamplerView({ companies, currentUserName, onRefresh }: Props) {
   const [mode, setMode] = useState<'random' | 'manual'>('random');
   const [modules, setModules] = useState<ModuleCount[]>([]);
@@ -159,6 +166,13 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
     clearMessages();
 
     const isManual = mode === 'manual';
+    if (isManual) {
+      const validationError = dataSamplerSubmissionError(selectedModule, manualFields);
+      if (validationError) {
+        setErrorMsg(validationError);
+        return;
+      }
+    }
     setGenerating(true);
     setSavingManual(isManual);
 
@@ -391,9 +405,10 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
 
                 {/* Reference */}
                 <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Reference{isRma ? ' (optional)' : ''}</label>
+                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Reference{isRma ? ' (optional)' : ' *'}</label>
                   <input
                     type="text"
+                    required={!isRma}
                     value={manualFields.reference ?? ''}
                     onChange={e => patch('reference', e.target.value)}
                     placeholder={isRma ? 'Enter document reference (optional)' : undefined}
@@ -436,9 +451,10 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
 
                 {/* Delivery Date */}
                 <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Delivery Date</label>
+                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Delivery Date{isRma ? ' (optional)' : ' *'}</label>
                   <input
                     type="date"
+                    required={!isRma}
                     value={manualFields.delivery_date ?? ''}
                     onChange={e => patch('delivery_date', e.target.value)}
                     className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"

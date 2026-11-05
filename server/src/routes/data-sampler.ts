@@ -8,6 +8,7 @@ import type { Request, Response } from 'express';
 import { RMA_CATEGORIES, RMA_ITEM_TYPES, normalizeRmaCategory, rmaInputError } from '../services/rmaRules';
 import { generateRecordId } from '../services/recordIds';
 import { dataSamplerEnabled } from '../services/dataSamplerEnvironment';
+import { recordSubmissionError } from '../services/recordSubmission';
 
 const router = Router();
 router.use((_req, res, next) => {
@@ -155,6 +156,14 @@ router.post('/generate', requireAuth, requireResource('dataSampler', 'WRITE'), r
       }
     }
     const n = Math.min(Math.max(1, Number(count) || 1), 50);
+    const sampleSubmissions = Array.from({ length: n }, () => ({
+      reference: isRma ? '' : overrides.reference ?? generateRef(REF_PREFIX[mod.dbCategory] ?? 'SAP'),
+      deliveryDate: overrides.delivery_date ?? generateDate(30, 14),
+    }));
+    for (const submission of sampleSubmissions) {
+      const error = recordSubmissionError({ category: mod.dbCategory, ...submission });
+      if (error) return res.status(400).json({ error });
+    }
 
     const companies = await prisma.company.findMany({ select: { id: true, name: true } });
     if (companies.length === 0) {
@@ -177,7 +186,6 @@ router.post('/generate', requireAuth, requireResource('dataSampler', 'WRITE'), r
       const company = companies[Math.floor(Math.random() * companies.length)];
       const status = 'SCHEDULED';
       const priority = weightedPick(PRIORITY_WEIGHTS);
-      const deliveryDate = generateDate(30, 14);
       const area = AREAS[Math.floor(Math.random() * AREAS.length)];
       const vehicle = VEHICLES[Math.floor(Math.random() * VEHICLES.length)];
       const assignDriver = sampleDrivers.length > 0 && Math.random() > 0.4;
@@ -191,7 +199,7 @@ router.post('/generate', requireAuth, requireResource('dataSampler', 'WRITE'), r
       const itemType = itemTypes[Math.floor(Math.random() * itemTypes.length)];
       const descs = ITEM_DESC_BY_CAT[mod.dbCategory] ?? ['Sample item'];
       const itemDescription = descs[Math.floor(Math.random() * descs.length)];
-      const reference = isRma ? '' : generateRef(REF_PREFIX[mod.dbCategory] ?? 'SAP');
+      const { reference, deliveryDate } = sampleSubmissions[i];
       // AC amounts: ₱5,000–₱150,000 in round-number increments
       const amount = mod.dbCategory === 'ACCOUNTING_COLLECTION'
         ? randInt(500, 15000) * 10

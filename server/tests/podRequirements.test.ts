@@ -794,13 +794,29 @@ test('data sampler rejects manually requested In Transit or Delivered before dat
   assert.equal(companyRead.mock.callCount(), 0);
 });
 
+test('data sampler rejects non-RMA reference and date overrides before database work', async () => {
+  const companyRead = stub(prisma.company, 'findMany', async () => { throw new Error('Unexpected database read'); });
+  const cases = [
+    { fields: { reference: '' }, message: /Reference is required/ },
+    { fields: { reference: '   ' }, message: /Reference is required/ },
+    { fields: { reference: 'SO-123', delivery_date: '' }, message: /Delivery Date is required/ },
+    { fields: { reference: 'SO-123', delivery_date: '2026-02-30' }, message: /valid YYYY-MM-DD/ },
+  ];
+  for (const { fields, message } of cases) {
+    const response = await request('post', '/generate', { role: 'ADMIN', router: sampler, body: { module: 'sales_orders', fields } });
+    assert.equal(response.status, 400);
+    assert.match(response.body.error, message);
+  }
+  assert.equal(companyRead.mock.callCount(), 0);
+});
+
 test('RMA samples never generate document references and preserve manually supplied values in the serialized field', async () => {
   const cases = [
     { module: 'rma', fields: undefined, expected: null },
     { module: 'rma', fields: { reference: '00042 / manual-Ref', rma_type: 'Return to Customer', item_type: 'Unit', status: 'Scheduled' }, expected: '00042 / manual-Ref' },
     { module: 'rma', fields: { rma_reference: '00000-A', rma_type: 'Others' }, expected: '00000-A' },
     { module: 'rma', fields: { rma_reference: '', rma_type: '' }, expected: null },
-    { module: 'deliveries', fields: { reference: '00077', status: 'Scheduled' }, expected: '00077' },
+    { module: 'deliveries', fields: { reference: '00077', delivery_date: '2026-10-07', status: 'Scheduled' }, expected: '00077' },
   ];
   for (const entry of cases) {
     resetFixtures();
@@ -814,6 +830,7 @@ test('RMA samples never generate document references and preserve manually suppl
     assert.equal(saved.reference, entry.expected ?? '');
     assert.equal(state.saved().status, 'SCHEDULED');
     assert.equal(state.audit[0].changedById, 'test-user');
+    if (entry.module === 'deliveries') assert.equal(state.saved().deliveryDate, '2026-10-07');
     if (entry.module === 'rma') {
       assert.equal(state.saved().reference, '');
       assert.equal(state.saved().rmaReference, entry.expected);
