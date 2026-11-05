@@ -32,21 +32,20 @@ decisions, not assumed accepted features.
 
 ## Follow-up implementation status (2026-11-05)
 
-The refreshed `dev` branch at `269a30e` includes PR #293 (LEGACY notification
-visibility) and PR #294 (Data Sampler validation), resolving the first two
-findings from the initial snapshot. Supplier creation/audit is implemented on
-`fix/api-supplier-create-audit`; that branch remains unmerged until its PR is
-reviewed and merged. Its three route tests pass, the server suite passes
-467 tests with 5 optional PostgreSQL tests skipped, and the strict server
-TypeScript check passes. An in-app check against `mg_portal_sandbox` showed the
-Supplier CREATE event and its seven initial values in the System Audit Log; the
-temporary supplier and audit row were removed, restoring the prior counts.
-PostgreSQL rollback behavior remains unverified. The status snapshot distinguishes
-this follow-up from the historical browser/source review at `e56a8da`.
+The refreshed `dev` branch at `2c4211d` includes PR #293 (LEGACY notification
+visibility), PR #294 (Data Sampler validation), and PR #295 (atomic Supplier
+creation/audit), resolving the three findings from the initial snapshot. The
+Supplier fix passed three route tests; the server suite passed 467 tests with
+5 optional PostgreSQL tests skipped, and the strict server TypeScript check
+passed. An in-app check against `mg_portal_sandbox` showed the Supplier CREATE
+event and its seven initial values in the System Audit Log; the temporary
+supplier and audit row were removed, restoring the prior counts. PostgreSQL
+rollback behavior remains unverified. The status snapshot distinguishes this
+follow-up from the historical browser/source review at `e56a8da`.
 
 | Document | Source and purpose |
 | --- | --- |
-| [Implementation status](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md) | Historical read-only review at `e56a8da` plus dated follow-up status for merged PRs and the supplier audit branch. |
+| [Implementation status](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md) | Historical read-only review at `e56a8da` plus post-merge status for PRs #293–#295 and remaining verification gaps. |
 | [Role functionality audit](ROLE_FUNCTIONALITY_AUDIT_2026-10-30.md) | Audit of `0e33fa7`; original findings F1–F8 and role/integration boundaries. Application-source links are pinned to that revision. |
 | [Development skill review](SUPPLY_CHAIN_DEV_SKILL_REVIEW_2026-10-30.md) | Historical rationale for the maintained guidance and bounded evaluation evidence. Installed-copy and temporary-path details describe the original session. |
 | [Role workflow audit](ROLE_WORKFLOW_IMPLEMENTATION_AUDIT_2026-10-30.md) | Audit of `82974de`; findings WF-01–WF-07 after the earlier remediation. |
