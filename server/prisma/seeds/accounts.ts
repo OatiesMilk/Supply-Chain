@@ -1,5 +1,6 @@
 
 import { prisma } from '../../src/db';
+import { normalizedCategoryName } from '../../src/services/supplierCategories';
 
 const COMPANIES = [
   { key: 'jollibee',     name: 'Jollibee Foods Corp. - Quezon City Cluster',          sapNumber: 'SAP-CO-0001', address: '12 E. Rodriguez Jr. Ave, Quezon City',              contactPerson: 'Theresa Alajar' },
@@ -90,8 +91,13 @@ export async function seedAccounts(adminUserId: string) {
     });
   }
   for (const s of SUPPLIERS) {
+    const normalizedName = await normalizedCategoryName(prisma, s.category);
+    const category = await prisma.supplierCategory.upsert({
+      where: { normalizedName }, update: {},
+      create: { name: s.category, normalizedName },
+    });
     await prisma.supplier.create({
-      data: { ...s, createdById: adminUserId, modifiedById: adminUserId, modifiedAt: new Date() }
+      data: { ...s, categories: { create: { categoryId: category.id } }, createdById: adminUserId, modifiedById: adminUserId, modifiedAt: new Date() }
     });
   }
 

@@ -64,6 +64,23 @@ test('missing, inconsistent, unknown and unsupported active contracts fail close
   assert.equal(permissionsFor(good).can('SCREEN', 'unknown'), false);
 });
 
+test('supplier catalog and assignment requests use Admin supplier Write and reject explicit denials before fetch', async () => {
+  const network = mock.method(globalThis, 'fetch', async () => Response.json({}));
+  const actions = [() => api.createSupplierCategory('Category'),
+    () => api.updateSupplierCategory('category', { name: 'Rename', expected_version: 1 }),
+    () => api.updateSupplierCategories('supplier', { category_ids: ['category'], expected_version: 1 })];
+  install(account('ADMIN'), 'suppliers');
+  for (const action of actions) await action();
+  assert.equal(network.mock.callCount(), 3, 'supplier UPDATE is not required because catalog uses the existing WRITE action');
+  for (const denied of ['SCREEN:suppliers:WRITE', 'RESOURCE:suppliers:WRITE', 'RESOURCE:suppliers:READ']) {
+    install(account('ADMIN', [denied]), 'suppliers');
+    for (const action of actions) await assert.rejects(action(), ClientPermissionError);
+  }
+  install(account('LOGISTICS'), 'suppliers');
+  for (const action of actions) await assert.rejects(action(), ClientPermissionError);
+  assert.equal(network.mock.callCount(), 3);
+});
+
 test('read-only categories retain reads while every record mutation rejects before fetch', async () => {
   install(account('TASS', ['CATEGORY:RMA:WRITE']), 'rma');
   const network = mock.method(globalThis, 'fetch', async () => Response.json([]));

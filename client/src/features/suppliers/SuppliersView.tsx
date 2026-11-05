@@ -1,274 +1,98 @@
 import { usePermissions } from '@/hooks/usePermissions';
-import { useState, FormEvent } from 'react';
-import { Plus, X } from 'lucide-react';
-import { Supplier, DeliveryRecord } from '@/types';
-import SupplierWorkspace from '@/features/suppliers/SupplierWorkspace';
+import { useState } from 'react';
+import { Plus } from 'lucide-react';
+import type { Supplier, DeliveryRecord, CreateSupplierInput } from '@/types';
+import SupplierWorkspace from './SupplierWorkspace';
+import CreateSupplierForm from './CreateSupplierForm';
+import { SupplierCategoryTags, SupplierCategoryManager, useCanManageSupplierCategories } from './SupplierCategories';
+import { useSupplierCategoriesQuery } from '@/api/queries/useSuppliersQuery';
 import ExportMenu from '@/components/ExportMenu';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { SUPPLIER_COLUMNS } from '@/utils/export';
 import { api } from '@/api';
 import { useSupplierPickupCountsQuery } from '@/api/queries/useOperationalViews';
 
-const CATEGORY_COLOR: Record<string, string> = {
-  'Electronics':  'bg-blue-50 text-blue-700 border-blue-200',
-  'Hardware':     'bg-slate-100 text-slate-700 border-slate-200',
-  'Consumables':  'bg-amber-50 text-amber-700 border-amber-200',
-  'Packaging':    'bg-purple-50 text-purple-700 border-purple-200',
-  'Services':     'bg-emerald-50 text-emerald-700 border-emerald-200',
-};
-
-const SUPPLIER_CATEGORIES = ['Hardware', 'Consumables', 'Electronics', 'Packaging', 'Services'];
-
 interface Props {
   suppliers: Supplier[];
   deliveryRecords: DeliveryRecord[];
   currentUserRole?: string;
   currentUserName?: string;
-  onCreateSupplier: (data: { name: string; contact_person?: string; email?: string; phone?: string; address?: string; city?: string; category?: string }) => void;
+  onCreateSupplier: (data: CreateSupplierInput) => Promise<void>;
 }
-
-const EMPTY_FORM = { name: '', contact_person: '', email: '', phone: '', address: '', city: '', category: 'Hardware' };
-
-export default function SuppliersView({ suppliers, deliveryRecords, currentUserRole = '', currentUserName = '', onCreateSupplier }: Props) {
+export function filterSuppliers(suppliers: Supplier[], categoryId: string) {
+  return categoryId ? suppliers.filter(supplier => categoryId === '__uncategorized'
+    ? !supplier.categories.length : supplier.categories.some(category => category.id === categoryId)) : suppliers;
+}
+export function supplierExportRows(suppliers: Supplier[], counts: Map<string, number>) {
+  return suppliers.map(supplier => ({ id: supplier.id, name: supplier.name, contact_person: supplier.contact_person,
+    email: supplier.email, phone: supplier.phone, city: supplier.city, address: supplier.address,
+    categories: supplier.categories.map(category => category.name).join('; ') || supplier.category,
+    pickup_count: counts.get(supplier.id) ?? null }));
+}
+export default function SuppliersView({ suppliers, currentUserRole = '', currentUserName = '', onCreateSupplier }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [showCategories, setShowCategories] = useState(false);
+  const [categoryId, setCategoryId] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [formError, setFormError] = useState('');
-
-  const totalPages = Math.max(1, Math.ceil(suppliers.length / pageSize));
-  const safeCurrentPage = Math.min(Math.max(1, page), totalPages);
-
   const access = usePermissions();
-  const pageSuppliers = suppliers.slice((safeCurrentPage - 1) * pageSize, safeCurrentPage * pageSize);
-  const counts = useSupplierPickupCountsQuery(access.canResource('records') ? pageSuppliers.map(s => s.id) : []);
+  const canManage = useCanManageSupplierCategories();
+  const categories = useSupplierCategoriesQuery(access.canResource('suppliers'));
+  const filtered = filterSuppliers(suppliers, categoryId);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const pageSuppliers = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const counts = useSupplierPickupCountsQuery(access.canResource('records') ? pageSuppliers.map(supplier => supplier.id) : []);
   const pickupCounts = new Map(counts.data?.map(row => [row.id, row.count]));
-  const canCreate = currentUserRole !== 'TASS' && access.canResource('suppliers', 'CREATE');
-
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!form.name.trim()) {
-      setFormError('Supplier Name is required');
-      return;
-    }
-    setFormError('');
-    onCreateSupplier(form);
-    setForm(EMPTY_FORM);
-    setShowCreateForm(false);
-  };
-
-  const activeSupplier = suppliers.find(s => s.id === selectedId);
-
-  if (selectedId && activeSupplier) {
-    return (
-      <SupplierWorkspace
-        supplier={activeSupplier}
-        allSupplierIds={suppliers.map(s => s.id)}
-        deliveryRecords={[]}
-        pickupCount={pickupCounts.get(activeSupplier.id)}
-        onBack={() => setSelectedId(null)}
-        onNavigateToSupplier={setSelectedId}
-      />
-    );
-  }
-
-  const exportRows = suppliers.map(s => ({
-    id: s.id,
-    name: s.name,
-    contact_person: s.contact_person,
-    email: s.email,
-    phone: s.phone,
-    city: s.city,
-    address: s.address,
-    category: s.category,
-    pickup_count: pickupCounts.get(s.id) ?? null,
-  }));
-
-  return (
-    <div className="space-y-4">
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-        <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Supplier Registry</h4>
-            <p className="text-xs text-slate-500 font-medium mt-0.5">
-              {suppliers.length} registered supplier{suppliers.length !== 1 ? 's' : ''}
-            </p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {canCreate && (
-              <button
-                onClick={() => { setForm(EMPTY_FORM); setFormError(''); setShowCreateForm(true); }}
-                className="flex items-center gap-1.5 bg-[#1F3864] hover:bg-blue-900 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition-all shadow-xs cursor-pointer"
-              >
-                <Plus className="w-4 h-4" /> New Supplier
-              </button>
-            )}
-            <ExportMenu
-              rows={exportRows}
-              totalCount={suppliers.length}
-              fetchExportData={async () => {
-                const all = new Map<string, number>();
-                if (access.canResource('records')) {
-                  for (let offset = 0; offset < suppliers.length; offset += 100) {
-                    for (const row of await api.getSupplierPickupCounts(suppliers.slice(offset, offset + 100).map(s => s.id))) all.set(row.id, row.count);
-                  }
-                }
-                return { rows: exportRows.map(row => ({ ...row, pickup_count: all.get(row.id) ?? null })) };
-              }}
-              columns={SUPPLIER_COLUMNS}
-              sheetName="Suppliers"
-              filename="suppliers"
-              pdfTitle="Supplier Directory"
-              showPdf={true}
-              pdfPortrait={false}
-              meta={{
-                reportName: 'Supplier Directory Export',
-                generatedByName: currentUserName,
-                generatedByRole: currentUserRole,
-              }}
-            />
-          </div>
-        </div>
-
-        {counts.error && <p role="alert" className="px-4 py-2 text-sm text-red-700">Pick-up counts unavailable. <button type="button" className="underline" onClick={() => void counts.refetch()}>Retry</button></p>}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-sm">
-            <thead>
-              <tr className="bg-slate-100 border-b border-slate-200 text-xs font-black text-slate-500 uppercase tracking-wider">
-                <th className="px-4 py-3">Supplier ID</th>
-                <th className="px-4 py-3">Supplier Name</th>
-                <th className="px-4 py-3">Contact Person</th>
-                <th className="px-4 py-3">City</th>
-                <th className="px-4 py-3">Category</th>
-                <th className="px-4 py-3 text-center">Pick-ups</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {suppliers.slice((safeCurrentPage - 1) * pageSize, safeCurrentPage * pageSize).map(s => {
-                const pickupCount = pickupCounts.get(s.id);
-
-                return (
-                  <tr
-                    key={s.id}
-                    onClick={() => setSelectedId(s.id)}
-                    className="hover:bg-blue-50/40 cursor-pointer transition-all"
-                  >
-                    <td className="px-4 py-3 font-mono font-black text-slate-700 tracking-tight text-xs">{s.id}</td>
-                    <td className="px-4 py-3.5">
-                      <div className="font-semibold text-slate-900 text-sm">{s.name}</div>
-                      <div className="text-xs text-slate-500 mt-0.5">{s.email}</div>
-                    </td>
-                    <td className="px-4 py-3.5 text-slate-700 font-semibold">{s.contact_person}</td>
-                    <td className="px-4 py-3.5 text-slate-500 font-semibold">{s.city}</td>
-                    <td className="px-4 py-3.5">
-                      <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold ${CATEGORY_COLOR[s.category] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}>
-                        {s.category}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 text-center font-bold text-slate-800">{pickupCount ?? '—'}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="border-t border-slate-200">
-          <Pagination
-            currentPage={safeCurrentPage}
-            totalPages={totalPages}
-            totalItems={suppliers.length}
-            pageSize={pageSize}
-            onPageChange={setPage}
-            onPageSizeChange={(newSize) => {
-              setPageSize(newSize);
-              setPage(1);
-            }}
-            pageSizeOptions={[10, 25, 50, 100]}
-          />
+  const canCreate = currentUserRole !== 'TASS' && access.canWrite('suppliers') && access.canResource('suppliers', 'CREATE');
+  const activeSupplier = suppliers.find(supplier => supplier.id === selectedId);
+  if (selectedId && activeSupplier) return <SupplierWorkspace key={selectedId} supplier={activeSupplier}
+    allSupplierIds={filtered.map(supplier => supplier.id)} deliveryRecords={[]} pickupCount={pickupCounts.get(activeSupplier.id)}
+    onBack={() => setSelectedId(null)} onNavigateToSupplier={setSelectedId} />;
+  return <div className="space-y-4">
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+      <div className="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+        <div><h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Supplier Registry</h4>
+          <p className="text-xs text-slate-500 mt-1">{filtered.length} of {suppliers.length} suppliers</p></div>
+        <div className="flex flex-wrap items-center gap-2">
+          {canManage && <button type="button" onClick={() => setShowCategories(true)} className="border border-slate-300 text-xs font-bold px-3 py-2 rounded-lg">Manage Categories</button>}
+          {canCreate && <button type="button" onClick={() => setShowCreate(true)} className="flex items-center gap-1 bg-[#1F3864] text-white text-xs font-bold px-3 py-2 rounded-lg"><Plus className="w-4 h-4" />New Supplier</button>}
+          <ExportMenu rows={supplierExportRows(filtered, pickupCounts)} totalCount={filtered.length}
+            fetchExportData={async () => {
+              const all = new Map<string, number>();
+              if (access.canResource('records')) for (let offset = 0; offset < filtered.length; offset += 100) {
+                for (const row of await api.getSupplierPickupCounts(filtered.slice(offset, offset + 100).map(supplier => supplier.id))) all.set(row.id, row.count);
+              }
+              return { rows: supplierExportRows(filtered, all) };
+            }} columns={SUPPLIER_COLUMNS} sheetName="Suppliers" filename="suppliers" pdfTitle="Supplier Directory" showPdf pdfPortrait={false}
+            meta={{ reportName: `Supplier Directory Export — ${categories.data?.find(category => category.id === categoryId)?.name ?? (categoryId ? 'Uncategorized' : 'All categories')}`,
+              generatedByName: currentUserName, generatedByRole: currentUserRole }} />
         </div>
       </div>
-
-      {showCreateForm && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowCreateForm(false); }}
-        >
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg m-4">
-            <div className="px-6 pt-5 pb-4 flex items-center justify-between border-b border-slate-100">
-              <h2 className="text-sm font-black text-slate-900">New Supplier</h2>
-              <button
-                onClick={() => setShowCreateForm(false)}
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
-              <div className="space-y-1.5">
-                <label className="font-bold text-slate-700 block">Supplier Name <span className="text-red-500">*</span></label>
-                <input
-                  type="text"
-                  value={form.name}
-                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                  className={`w-full px-3 py-2 border rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${formError ? 'border-red-500' : 'border-slate-300'}`}
-                />
-                {formError && <p className="text-red-500 text-[10px] font-semibold">{formError}</p>}
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="font-bold text-slate-700 block">Contact Person</label>
-                  <input type="text" value={form.contact_person} onChange={e => setForm(f => ({ ...f, contact_person: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="font-bold text-slate-700 block">Email</label>
-                  <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="font-bold text-slate-700 block">Phone</label>
-                  <input type="text" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="font-bold text-slate-700 block">City</label>
-                  <input type="text" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]" />
-                </div>
-                <div className="col-span-2 space-y-1.5">
-                  <label className="font-bold text-slate-700 block">Address</label>
-                  <input type="text" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]" />
-                </div>
-                <div className="col-span-2 space-y-1.5">
-                  <label className="font-bold text-slate-700 block">Category</label>
-                  <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]">
-                    {SUPPLIER_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateForm(false)}
-                  className="px-4 py-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-xs font-bold rounded-lg transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-[#1F3864] hover:bg-[#0078C1] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
-                >
-                  Create Supplier
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <div className="p-4"><label className="text-xs font-semibold">Filter by category
+        <select className="ml-2 border border-slate-300 rounded-lg p-2" value={categoryId} onChange={event => { setCategoryId(event.target.value); setPage(1); }}>
+          <option value="">All categories</option><option value="__uncategorized">Uncategorized</option>
+          {categories.data?.map(category => <option key={category.id} value={category.id}>{category.name}{category.is_active ? '' : ' (inactive)'}</option>)}
+        </select></label>
+        {categories.error && <p role="alert" className="text-sm text-red-700">Category catalog unavailable. <button type="button" onClick={() => void categories.refetch()}>Retry</button></p>}
+      </div>
+      {counts.error && <p role="alert" className="px-4 py-2 text-sm text-red-700">Pick-up counts unavailable. <button type="button" className="underline" onClick={() => void counts.refetch()}>Retry</button></p>}
+      <div className="overflow-x-auto"><table className="w-full text-left text-sm">
+        <thead><tr className="bg-slate-100 border-b border-slate-200 text-xs text-slate-500 uppercase">
+          {['Supplier ID', 'Supplier Name', 'Contact Person', 'City', 'Categories', 'Pick-ups'].map(label => <th key={label} className="px-4 py-3">{label}</th>)}
+        </tr></thead>
+        <tbody className="divide-y divide-slate-100">{pageSuppliers.map(supplier => <tr key={supplier.id} className="hover:bg-blue-50/40">
+          <td className="px-4 py-3 font-mono text-xs">{supplier.id}</td>
+          <td className="px-4 py-3"><button type="button" onClick={() => setSelectedId(supplier.id)} className="font-semibold text-[#0078C1] text-left hover:underline">{supplier.name}</button><div className="text-xs text-slate-500">{supplier.email}</div></td>
+          <td className="px-4 py-3">{supplier.contact_person}</td><td className="px-4 py-3">{supplier.city}</td>
+          <td className="px-4 py-3"><SupplierCategoryTags supplier={supplier} /></td><td className="px-4 py-3">{pickupCounts.get(supplier.id) ?? '—'}</td>
+        </tr>)}{!pageSuppliers.length && <tr><td colSpan={6} className="p-8 text-center text-slate-500">No suppliers match this category.</td></tr>}</tbody>
+      </table></div>
+      <Pagination currentPage={safePage} totalPages={totalPages} totalItems={filtered.length} pageSize={pageSize} onPageChange={setPage}
+        onPageSizeChange={size => { setPageSize(size); setPage(1); }} pageSizeOptions={[10, 25, 50, 100]} />
     </div>
-  );
+    {showCreate && <CreateSupplierForm onSave={onCreateSupplier} onClose={() => setShowCreate(false)} />}
+    {showCategories && canManage && <SupplierCategoryManager onClose={() => setShowCategories(false)} />}
+  </div>;
 }

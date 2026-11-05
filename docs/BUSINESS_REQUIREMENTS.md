@@ -79,11 +79,11 @@ Out of scope today: automatic stock movement from deliveries, customer signature
 | :--- | :--- | :--- | :--- |
 | BR-DIR-01 | Companies (SAP number, address, contact) used on records | Implemented | Read: any permitted record screen. Create: Sales Coordinator, Admin |
 | BR-DIR-02 | Customers directory with edit, validation, reason-for-change and audit trail | Implemented | Edit: Sales Coordinator, Logistics, Admin. Create also open to Driver |
-| BR-DIR-03 | Suppliers directory | Implemented | Create: SC, Logistics, Admin, Driver. Creation records a central `Supplier` CREATE audit event atomically; no edit/delete route. Category storage is currently a single string; see the approved future requirement BR-DIR-07 |
+| BR-DIR-03 | Suppliers directory | Implemented | Create: SC, Logistics, Admin, Driver under applicable supplier permissions. Creation records a central `Supplier` CREATE audit event atomically. Existing category assignments may be edited by Admin only; general contact editing/deletion remains unavailable. See BR-DIR-07 |
 | BR-DIR-04 | Driver and assistant directory with coverage areas, active flag and Admin-linked login | Implemented | Admin adds Drivers; Logistics adds Assistants and edits coverage/status; type changes and Driver renames are Admin only (TSK-119) |
 | BR-DIR-05 | Account Manager directory | Implemented | Sales Coordinator, Admin (screen) |
 | BR-DIR-06 | Single unified Company/Customer directory | Planned | Two directories remain |
-| BR-DIR-07 | Admin-managed supplier category catalog with multiple categories per supplier | Planned — user-approved 2026-11-05 | Admin manages category choices; suppliers support multiple selections under their applicable supplier permissions. Requires catalog/relationship, API/UI/filter/audit and legacy-data mapping work. Supersedes the proposed fixed-five-category validation repair; not implemented |
+| BR-DIR-07 | Admin-managed supplier category catalog with multiple categories per supplier | Implemented locally — awaiting PR/deployment | Admin creates/renames/deactivates/reactivates categories and edits existing assignments; supplier creators select active categories under their existing authority. Relations, API/UI/filter/export/audit, conflict handling and additive legacy mapping are implemented. See [contract and verification](SUPPLIER_CATEGORIES.md). Supersedes the fixed-five-only proposal |
 
 ### 3.6 SKU Master and stock
 

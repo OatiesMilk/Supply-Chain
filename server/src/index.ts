@@ -75,7 +75,7 @@ app.use('/api/v1/records', rmaDispatchRoutes);
 app.use('/api/v1/records', recordsRoutes);
 app.use('/api/v1/companies', companiesRoutes);
 app.use('/api/v1/customers', customersRoutes);
-app.use('/api/v1/suppliers', suppliersRoutes);
+app.use('/api/v1/suppliers', suppliersRoutes); // Includes supplier category catalog/assignment endpoints.
 app.use('/api/v1/users', usersRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
 app.use('/api/v1/admin', adminRoutes);

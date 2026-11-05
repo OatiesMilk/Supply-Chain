@@ -111,6 +111,10 @@ export function assertPermissionRequest(path: string, options: RequestInit = {})
   if (!write) return;
   const managementScreen = ({ customers: 'customers', suppliers: 'suppliers', drivers: 'driver_manager', skus: 'inventory', users: 'admin', admin: 'admin', dataSampler: 'data_sampler' } as Record<string, string>)[resource];
   if (managementScreen) require(p.canWrite(managementScreen));
+  if (root === 'suppliers' && (id === 'categories' || operation === 'categories')) {
+    require(user.role === 'ADMIN' && p.canResource('suppliers', 'WRITE'));
+    return;
+  }
   const action: PermissionAction = operation === 'adjust' ? 'ADJUST' : options.method === 'DELETE' ? 'DELETE' : !id && options.method === 'POST' ? 'CREATE' : ['admin', 'dataSampler'].includes(resource) ? 'WRITE' : 'UPDATE';
   require(p.canResource(resource, action));
 }
