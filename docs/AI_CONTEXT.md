@@ -12,6 +12,31 @@ Historical reports explain previous decisions and findings; they do not grant
 permission to change application data, send notifications, publish, migrate a
 shared database or activate permission policies.
 
+## Current backlog reconciliation (2026-11-05)
+
+Start with the [current reconciliation](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md#current-reconciliation)
+and [AUD ticket mapping](AUDIT_DEVELOPMENT_BACKLOG.md#ticket-mapping-and-recommended-order).
+They were source-checked against clean local dev at `6aad0f7` before the
+documentation edits. The current register maps the original 11 AUD tickets,
+32 QA defect records and recent role-audit findings to source evidence, required
+decisions and acceptance checks. Source inspection and existing test files are
+not a fresh browser, database or provider test run.
+
+Creation-time attachments, SSO state/approved OID checks, CSRF/rate limits/headers
+and ordinary record pagination already have implementations. Their original
+backlog statements must not trigger duplicate repairs. Transaction Center still
+has residual status/date and full-set query concerns. Current UI source also
+matches the older Calendar/AM reference-label and View Full Log findings.
+Password/supplier validation, audit action filtering, access-request confirmation
+and Global Search selection retain the qualified scope in the register.
+
+The three repairs in PRs #293–#295 are implemented; real PostgreSQL supplier
+rollback and the other named acceptance checks remain separate tasks. Larger
+master-data, inventory, Warehouse and scheduler changes need the stated business
+or operating decisions. Several historical QA Open labels and the October
+security/issues-report counts predate later fixes. Preserve those observations
+and use the dated reconciliation to decide what to implement or retest.
+
 ## Initial implementation status snapshot (2026-11-05)
 
 Read the [implementation status snapshot](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md)
@@ -21,7 +46,7 @@ reviewed (`e56a8da`), confirmed open fixes, capability decisions, and checks tha
 still need a disposable target. The November 4 UAT report was based on
 `9a6fe2a`; its observations and synthetic data remain historical evidence.
 
-The source reviewed at `e56a8da` still has three confirmed open fixes: LEGACY
+The source reviewed at `e56a8da` had three confirmed open fixes: LEGACY
 notification record visibility, Data Sampler submission validation, and atomic
 supplier creation/audit. Logistics assignment notifications and completion
 email handling also happen after their record transaction; failure behavior
@@ -45,7 +70,8 @@ follow-up from the historical browser/source review at `e56a8da`.
 
 | Document | Source and purpose |
 | --- | --- |
-| [Implementation status](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md) | Historical read-only review at `e56a8da` plus post-merge status for PRs #293–#295 and remaining verification gaps. |
+| [Implementation status](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md) | Current source reconciliation at `6aad0f7`, AUD/DEF dispositions and verification queue; preserves the earlier `e56a8da` review and PR #293–#295 merge evidence. |
+| [Audit backlog](AUDIT_DEVELOPMENT_BACKLOG.md) | Original AUD-001–AUD-011 ticket scope with dated current implementation/decision notes; Notion mapping remains separate. |
 | [Role functionality audit](ROLE_FUNCTIONALITY_AUDIT_2026-10-30.md) | Audit of `0e33fa7`; original findings F1–F8 and role/integration boundaries. Application-source links are pinned to that revision. |
 | [Development skill review](SUPPLY_CHAIN_DEV_SKILL_REVIEW_2026-10-30.md) | Historical rationale for the maintained guidance and bounded evaluation evidence. Installed-copy and temporary-path details describe the original session. |
 | [Role workflow audit](ROLE_WORKFLOW_IMPLEMENTATION_AUDIT_2026-10-30.md) | Audit of `82974de`; findings WF-01–WF-07 after the earlier remediation. |
