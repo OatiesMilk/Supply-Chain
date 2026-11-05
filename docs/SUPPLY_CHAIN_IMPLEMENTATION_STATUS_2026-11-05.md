@@ -13,21 +13,29 @@ remain evidence rather than fresh reproductions.
 ## Follow-up implementation status (2026-11-05)
 
 The review below is a historical snapshot of source revision `e56a8da` and its
-browser observations. The refreshed `dev` branch is now at `269a30e`: PR #293
-merged the LEGACY notification visibility fix, and PR #294 merged Data Sampler
-reference/date validation. Those two findings are resolved in current `dev`.
+browser observations. The refreshed `dev` branch is now at `2c4211d`, with PRs
+#293 (LEGACY notification visibility), #294 (Data Sampler validation), and #295
+(atomic Supplier creation/audit) merged. All three findings are resolved in
+current `dev`; merge status does not establish deployment status.
 
-Supplier creation and its central audit entry are implemented atomically on
-`fix/api-supplier-create-audit`. That branch is not merged yet; do not treat it
-as current `dev` or deployed behavior. Three supplier route tests pass. The
-server suite passes 467 tests with 5 optional PostgreSQL tests skipped, and the
-strict server TypeScript check passes. These route tests use database doubles;
-PostgreSQL rollback behavior has not been verified. An in-app browser check
-against the configured `mg_portal_sandbox` successfully created a temporary
-supplier; the System Audit Log showed its `Supplier CREATE` event, actor, and
-seven initial values. The temporary supplier and matching audit event were
-removed afterward, and the UI counts returned to 5 suppliers and 54 audit
-entries. No operational/shared database was used.
+The Supplier fix passed three route tests; the server suite passed 467 tests
+with 5 optional PostgreSQL tests skipped, and the strict server TypeScript check
+passed. These route tests use database doubles; PostgreSQL rollback behavior on
+audit-write failure has not been verified. An in-app browser check against the
+configured `mg_portal_sandbox` successfully created a temporary supplier; the
+System Audit Log showed its `Supplier CREATE` event, actor, and seven initial
+values. The temporary supplier and matching audit event were removed afterward,
+and the UI counts returned to 5 suppliers and 54 audit entries. No
+operational/shared database was used.
+
+## Remaining next steps after PR #295
+
+1. Verify supplier creation rollback on audit-write failure against a designated
+   disposable `_sandbox` or `_test` database.
+2. Decide retry and idempotency requirements for Logistics assignment
+   notifications and completion email before adding an outbox.
+3. Decide whether the unfinished SKU tabs and a separate Warehouse screen are
+   accepted product scope.
 
 ## Open implementation findings in reviewed source revision `e56a8da`
 
