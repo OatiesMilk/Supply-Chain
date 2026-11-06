@@ -1,5 +1,7 @@
 # API v1 URL migration
 
+Use the [unified deployment runbook](DEPLOYMENT.md) for the end-to-end release procedure. This page documents the URL contract and version-specific cutover requirements.
+
 The user selected a full switch from `/api` to `/api/v1` on 2026-11-04. The canonical request prefix is `/api/v1`; unversioned `/api` endpoints have no compatibility alias or redirect.
 
 This versions the HTTP URL namespace. It does not select `PERMISSION_MODE`, activate permission policies, change record lifecycle rules, or create a new payload contract. Existing resource-relative paths, methods, JSON fields, status codes, cookie authentication, CSRF protections, role restrictions and rate limits continue under the new prefix.

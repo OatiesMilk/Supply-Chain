@@ -1,3 +1,5 @@
+> Hosted deployment: follow the [unified deployment runbook](DEPLOYMENT.md). This guide focuses on local development.
+
 > API URL migration: all current endpoints use `/api/v1`; `/api` has no compatibility alias. See the [cutover requirements](API_V1_MIGRATION.md), including the Microsoft redirect URI update.
 
 # Getting Started
@@ -12,7 +14,7 @@ in Docker on port `5433`.
 ## Prerequisites
 
 - Git
-- Node.js 20 (the version used by CI; see `.github/workflows/ci.yml`) and npm
+- A supported Node.js LTS release and npm. CI currently pins Node 20, which is EOL; align and validate runtime/CI versions before a hosted release (see [runtime prerequisites](DEPLOYMENT.md#2-release-prerequisites))
 - Docker Desktop (Windows) or Docker Engine with the Compose plugin (Linux)
 
 Check the installed tools:
@@ -277,7 +279,7 @@ intended database and `public` schema.
 
 ### Cloudflare deployment
 
-See the [Cloudflare deployment guide](./CLOUDFLARE_DEPLOYMENT.md).
+Start with the [unified deployment runbook](./DEPLOYMENT.md); [Cloudflare details](./CLOUDFLARE_DEPLOYMENT.md) cover the Pages/Worker distinction.
 
 ### Frontend cannot reach the backend
 

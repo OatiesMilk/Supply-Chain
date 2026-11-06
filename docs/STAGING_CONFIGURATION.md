@@ -1,5 +1,7 @@
 # Staging configuration
 
+Start with the [unified deployment runbook](DEPLOYMENT.md). This page retains detailed staging settings and operational notes. API URL references were reviewed against `1f46bfb` on 2026-11-04.
+
 Use the example files as templates and replace placeholders privately. They do
 not change a running environment or create accounts/data. Keep the staging
 frontend, API, database and private storage pointed at the intended staging
@@ -24,7 +26,7 @@ Vite loads its files from `client/`, not the repository root or `server/`.
 Every `VITE_*` value is public browser configuration. Keep `DATABASE_URL`,
 `JWT_SECRET`, Microsoft client secrets and `SUPABASE_SERVICE_ROLE_KEY` on the
 server. The Worker's `API_BASE_URL` is a runtime setting, not a Vite variable;
-the browser sends API requests to same-origin `/api/*`.
+the browser sends API requests to same-origin `/api/v1/*`.
 
 ## Hide login demo content
 
@@ -54,7 +56,7 @@ its page bundle, sidebar entry, search result and Generate Sample controls.
 Direct navigation cannot mount the page. Only the Vite development server in
 `development` mode includes these tools; there is no deployed enable flag.
 
-All `/api/data-sampler/*` endpoints return `404` before authentication or database
+All `/api/v1/data-sampler/*` endpoints return `404` before authentication or database
 access when `NODE_ENV` or `APP_ENV` identifies staging/production (or another
 unsupported environment), or a supported hosting-provider marker is present.
 Local development and test runtimes retain the existing Admin/permission checks;
@@ -87,6 +89,8 @@ require entering their email/password again. Portal logout clears only the
 portal session, preserving Microsoft 365 and Teams sessions. This avoids global
 Microsoft sign-out when switching portal accounts. Tenant and Admin-approved
 Microsoft identity checks still apply to the chosen account.
+
+Register the exact Web redirect URI `<APP_URL>/api/v1/auth/microsoft/callback` using the staging frontend origin. The unversioned callback is retired. See the [SSO deployment steps](DEPLOYMENT.md#microsoft-entra-sign-in).
 
 Leave the Entra app registration's **Front-channel logout URL** blank: the portal
 does not implement that endpoint. This account picker does not implement or
