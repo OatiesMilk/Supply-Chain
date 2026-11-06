@@ -1,0 +1,3335 @@
+{
+  "baseline": "8660bdee15b502867716ca0c60683965c6cd87f6",
+  "repository": "OatiesMilk/Supply-Chain",
+  "note": "Static route observations, not JSON Schema, not complete middleware behavior, not runtime coverage. Read the handwritten contract and linked helpers. Variable status/payload expressions require helper/serializer inspection.",
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/admin/audit-log",
+      "file": "server/src/routes/admin.ts",
+      "line": 11,
+      "guards": [
+        "requireAuth",
+        "requireResource('admin')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [
+          "action",
+          "from",
+          "limit",
+          "page",
+          "to",
+          "userId"
+        ],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{\n    page,\n    limit,\n    total,\n    pages: Math.ceil(total / limit),\n    entries: entries.map(e => ({\n      id: e.id,\n      record_id: e.recordId,\n      record_type: e.recordType,\n      action: e.action,\n      changed_by: e.changedBy.name,\n      changed_by_id: e.changedById,\n      timestamp: e.timestamp\n    }))\n  }",
+          "line": 56
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/deployment-status",
+      "file": "server/src/routes/admin.ts",
+      "line": 114,
+      "guards": [
+        "requireAuth",
+        "requireResource('admin')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "await deploymentStatus(req)",
+          "line": 115
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/integration-status",
+      "file": "server/src/routes/admin.ts",
+      "line": 75,
+      "guards": [
+        "requireAuth",
+        "requireResource('admin')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{\n    azure_sso: {\n      configured: azureConfigured,\n      tenant: azureConfigured ? azureTenant : null,\n      redirect_uri: azureConfigured ? `${appUrl}/api/auth/microsoft/callback` : null,\n    },\n    email: {\n      method: emailMethod,\n      smtp_host: smtpConfigured ? process.env.SMTP_HOST : null,\n      from: process.env.SMTP_FROM || null,\n    },\n    users: {\n      total: totalUsers,\n      active: activeUsers,\n      microsoft_linked: microsoftLinked,\n    },\n    app_url: appUrl,\n    node_env: process.env.NODE_ENV || 'development',\n  }",
+          "line": 89
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/test-email",
+      "file": "server/src/routes/admin.ts",
+      "line": 120,
+      "guards": [
+        "requireAuth",
+        "requireResource('admin')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "to"
+        ],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200",
+        "400"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'A \"to\" email address is required' }",
+          "line": 123
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{\n    ok: result.ok,\n    method: result.method,\n    error: result.error || null,\n  }",
+          "line": 133
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "file": "server/src/routes/auth.ts",
+      "line": 16,
+      "guards": [],
+      "observedRequestFields": {
+        "body": [
+          "email",
+          "password"
+        ],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200",
+        "400",
+        "401"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Email and password are required' }",
+          "line": 19
+        },
+        {
+          "statusExpression": "401",
+          "kind": "json",
+          "payloadSource": "{ error: 'Invalid email or password' }",
+          "line": 24
+        },
+        {
+          "statusExpression": "401",
+          "kind": "json",
+          "payloadSource": "{ error: 'Invalid email or password' }",
+          "line": 29
+        },
+        {
+          "statusExpression": "401",
+          "kind": "json",
+          "payloadSource": "{ error: 'Account is deactivated' }",
+          "line": 33
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "sessionUser(user)",
+          "line": 39
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "file": "server/src/routes/auth.ts",
+      "line": 42,
+      "guards": [],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{ ok: true }",
+          "line": 44
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "file": "server/src/routes/auth.ts",
+      "line": 47,
+      "guards": [
+        "requireAuth"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "req.user",
+          "line": 48
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/microsoft",
+      "file": "server/src/routes/auth.ts",
+      "line": 53,
+      "guards": [],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200",
+        "500",
+        "501"
+      ],
+      "responses": [
+        {
+          "statusExpression": "501",
+          "kind": "json",
+          "payloadSource": "{ error: 'Microsoft login is not configured' }",
+          "line": 56
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{ url: authUrl }",
+          "line": 90
+        },
+        {
+          "statusExpression": "500",
+          "kind": "json",
+          "payloadSource": "{ error: 'Failed to initiate Microsoft login' }",
+          "line": 93
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/microsoft/callback",
+      "file": "server/src/routes/auth.ts",
+      "line": 97,
+      "guards": [],
+      "observedRequestFields": {
+        "body": [],
+        "query": [
+          "code",
+          "error",
+          "state"
+        ],
+        "params": []
+      },
+      "statusExpressions": [
+        "302"
+      ],
+      "responses": [
+        {
+          "statusExpression": "302",
+          "kind": "redirect",
+          "payloadSource": "'/?error=sso_not_configured'",
+          "line": 100
+        },
+        {
+          "statusExpression": "302",
+          "kind": "redirect",
+          "payloadSource": "'/?error=sso_invalid_state'",
+          "line": 115
+        },
+        {
+          "statusExpression": "302",
+          "kind": "redirect",
+          "payloadSource": "'/?error=sso_invalid_state'",
+          "line": 118
+        },
+        {
+          "statusExpression": "302",
+          "kind": "redirect",
+          "payloadSource": "`/?error=sso_failed`",
+          "line": 127
+        },
+        {
+          "statusExpression": "302",
+          "kind": "redirect",
+          "payloadSource": "`/?error=${approval.error}`",
+          "line": 153
+        },
+        {
+          "statusExpression": "302",
+          "kind": "redirect",
+          "payloadSource": "'/'",
+          "line": 164
+        },
+        {
+          "statusExpression": "302",
+          "kind": "redirect",
+          "payloadSource": "'/?error=sso_failed'",
+          "line": 168
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/microsoft/status",
+      "file": "server/src/routes/auth.ts",
+      "line": 174,
+      "guards": [],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{ configured }",
+          "line": 176
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/companies",
+      "file": "server/src/routes/companies.ts",
+      "line": 7,
+      "guards": [
+        "requireAuth",
+        "requireResource('companies')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "companies.map(c => ({\n      id: c.id,\n      name: c.name,\n      sap_number: c.sapNumber,\n      address: c.address,\n      contact_person: c.contactPerson,\n      created_at: c.createdAt\n    }))",
+          "line": 9
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/companies",
+      "file": "server/src/routes/companies.ts",
+      "line": 21,
+      "guards": [
+        "requireAuth",
+        "requireResource('companies')",
+        "requireRole('SALES_COORDINATOR', 'ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "address",
+          "contact_person",
+          "name",
+          "sap_number"
+        ],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "201",
+        "400"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'name is required' }",
+          "line": 23
+        },
+        {
+          "statusExpression": "201",
+          "kind": "json",
+          "payloadSource": "{\n    id: created.id,\n    name: created.name,\n    sap_number: created.sapNumber,\n    address: created.address,\n    contact_person: created.contactPerson,\n    created_at: created.createdAt\n  }",
+          "line": 33
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/customers",
+      "file": "server/src/routes/customers.ts",
+      "line": 9,
+      "guards": [
+        "requireAuth",
+        "requireResource('customers')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "customers.map(c => ({\n      id: c.id,\n      name: c.name,\n      contact_person: c.contactPerson,\n      email: c.email,\n      phone: c.phone,\n      address: c.address,\n      city: c.city,\n      created_by: c.createdBy.name,\n      created_at: c.createdAt,\n      modified_by: c.modifiedBy.name,\n      modified_at: c.modifiedAt\n    }))",
+          "line": 14
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/customers",
+      "file": "server/src/routes/customers.ts",
+      "line": 32,
+      "guards": [
+        "requireAuth",
+        "requireResource('customers')",
+        "requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "201",
+        "400"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "parsed",
+          "line": 34
+        },
+        {
+          "statusExpression": "201",
+          "kind": "json",
+          "payloadSource": "{\n    id: created.id,\n    name: created.name,\n    contact_person: created.contactPerson,\n    email: created.email,\n    phone: created.phone,\n    address: created.address,\n    city: created.city,\n    created_by: created.createdBy.name,\n    created_at: created.createdAt,\n    modified_by: created.modifiedBy.name,\n    modified_at: created.modifiedAt\n  }",
+          "line": 60
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/customers/:id",
+      "file": "server/src/routes/customers.ts",
+      "line": 96,
+      "guards": [
+        "requireAuth",
+        "requireResource('customers')",
+        "requireRole(...CUSTOMER_EDITORS)"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "400",
+        "404",
+        "409"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "parsed",
+          "line": 98
+        },
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'Customer not found.' }",
+          "line": 124
+        },
+        {
+          "statusExpression": "409",
+          "kind": "json",
+          "payloadSource": "{ error: 'Someone else saved changes to this customer after you opened it. Reload to see the latest values, then make your edit again.' }",
+          "line": 125
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'No changes to save.', fields: {} }",
+          "line": 126
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "serializeCustomer(result.updated)",
+          "line": 127
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/customers/:id/audit",
+      "file": "server/src/routes/customers.ts",
+      "line": 131,
+      "guards": [
+        "requireAuth",
+        "requireResource('customers')",
+        "requireRole(...CUSTOMER_EDITORS)"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "entries.map(e => {\n    const previous = e.previousValue ? JSON.parse(e.previousValue) : null;\n    const next = e.newValue ? JSON.parse(e.newValue) : null;\n    return {\n      id: e.id,\n      action: e.action,\n      changed_by: e.changedBy.name,\n      timestamp: e.timestamp,\n      remarks: typeof next?.remarks === 'string' ? next.remarks : '',\n      changes: customerChanges(previous, next),\n    };\n  })",
+          "line": 137
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/dashboard/stats",
+      "file": "server/src/routes/dashboard.ts",
+      "line": 8,
+      "guards": [
+        "requireAuth",
+        "requireResource('dashboard')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{\n      role: 'SALES_COORDINATOR',\n      deliveries_scheduled_today: deliveriesToday,\n      pending_driver_assignment: pendingDriverAssignment,\n      on_hold: onHold,\n      rescheduled: rescheduled,\n      accomplished_today: accomplishedToday\n    }",
+          "line": 21
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{\n      role: 'LOGISTICS',\n      assigned_today: assignedToday,\n      unassigned_count: unassignedCount,\n      completed_today: completedToday,\n      on_hold_rescheduled: onHoldRescheduled\n    }",
+          "line": 47
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{\n      role: 'TASS',\n      open_rma: openRma,\n      rma_on_hold: rmaOnHold,\n      pending_procurement_pickup: pendingProcurementPickup,\n      pending_verification: pendingVerification,\n      verified_today: verifiedToday\n    }",
+          "line": 81
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{\n      role: 'ADMIN',\n      total_active_users: activeUsers,\n      user_breakdown: userBreakdown,\n      records_this_week: recordsThisWeek,\n      unverified_collections: unverifiedCollections,\n      audit_events_today: auditEventsToday,\n      records_by_status: recordsByStatus.map((r: any) => ({ status: r.status, count: r._count._all })),\n      recent_audit: recentAudit.map((e: any) => ({\n        id: e.id,\n        action: e.action,\n        changed_by: e.changedBy.name,\n        record_id: e.recordId,\n        record_type: e.recordType,\n        timestamp: e.timestamp\n      }))\n    }",
+          "line": 129
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{ role }",
+          "line": 148
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/data-sampler/counts",
+      "file": "server/src/routes/data-sampler.ts",
+      "line": 20,
+      "guards": [
+        "requireAuth",
+        "requireResource('dataSampler')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "counts",
+          "line": 29
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/data-sampler/generate",
+      "file": "server/src/routes/data-sampler.ts",
+      "line": 131,
+      "guards": [
+        "requireAuth",
+        "requireResource('dataSampler')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "count",
+          "fields",
+          "module"
+        ],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "201",
+        "400",
+        "500"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: `Unknown module: ${module}` }",
+          "line": 137
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'fields must be an object.' }",
+          "line": 140
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Sample records must start Scheduled. Record Time In and complete through the delivery workflow.' }",
+          "line": 141
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error }",
+          "line": 146
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'RMA Item Type must be Small Item or Unit.' }",
+          "line": 148
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'No companies found. Please seed the database first.' }",
+          "line": 155
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: `Driver \"${fields.driver}\" is inactive or not in the directory. Choose an active entry.` }",
+          "line": 165
+        },
+        {
+          "statusExpression": "201",
+          "kind": "json",
+          "payloadSource": "{ created: created.length, records: created }",
+          "line": 259
+        },
+        {
+          "statusExpression": "500",
+          "kind": "json",
+          "payloadSource": "{ error: 'Failed to generate sample records. See server logs for details.' }",
+          "line": 262
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/data-sampler/reset",
+      "file": "server/src/routes/data-sampler.ts",
+      "line": 305,
+      "guards": [
+        "requireAuth",
+        "requireResource('dataSampler')",
+        "requireRole('ADMIN')",
+        "createDataSamplerResetHandler()"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [],
+      "responses": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/dev/reset-capability",
+      "file": "server/src/routes/dev.ts",
+      "line": 10,
+      "guards": [
+        "requireAuth",
+        "requireResource('admin')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{ enabled: canResetLocalDemo(req) }",
+          "line": 11
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/dev/reset-seed",
+      "file": "server/src/routes/dev.ts",
+      "line": 14,
+      "guards": [
+        "requireAuth",
+        "requireResource('admin')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200",
+        "403",
+        "500"
+      ],
+      "responses": [
+        {
+          "statusExpression": "403",
+          "kind": "json",
+          "payloadSource": "{ error: 'Demo reset is available only on a verified local disposable database' }",
+          "line": 16
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{ ok: true }",
+          "line": 20
+        },
+        {
+          "statusExpression": "500",
+          "kind": "json",
+          "payloadSource": "{ error: 'Failed to reset local demo data' }",
+          "line": 23
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/drivers",
+      "file": "server/src/routes/drivers.ts",
+      "line": 46,
+      "guards": [
+        "requireAuth",
+        "requireResource('drivers')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [
+          "all"
+        ],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "drivers.map(d => serialize(d, req.user!.role === 'ADMIN'))",
+          "line": 48
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/drivers",
+      "file": "server/src/routes/drivers.ts",
+      "line": 52,
+      "guards": [
+        "requireAuth",
+        "requireResource('drivers')",
+        "requireScreen('driver_manager')",
+        "requireRole('LOGISTICS', 'ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "coverage_areas",
+          "name",
+          "type"
+        ],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "201",
+        "400",
+        "403"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: invalid }",
+          "line": 56
+        },
+        {
+          "statusExpression": "403",
+          "kind": "json",
+          "payloadSource": "{ error: 'Only Admin can add drivers. Logistics can add assistants.' }",
+          "line": 58
+        },
+        {
+          "statusExpression": "201",
+          "kind": "json",
+          "payloadSource": "serialize(created, req.user!.role === 'ADMIN')",
+          "line": 65
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/drivers/:id",
+      "file": "server/src/routes/drivers.ts",
+      "line": 86,
+      "guards": [
+        "requireAuth",
+        "requireResource('drivers')",
+        "requireScreen('driver_manager')",
+        "requireRole('LOGISTICS', 'ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "204",
+        "404"
+      ],
+      "responses": [
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'Driver not found' }",
+          "line": 88
+        },
+        {
+          "statusExpression": "204",
+          "kind": "end",
+          "payloadSource": "",
+          "line": 89
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/drivers/:id",
+      "file": "server/src/routes/drivers.ts",
+      "line": 70,
+      "guards": [
+        "requireAuth",
+        "requireResource('drivers')",
+        "requireScreen('driver_manager')",
+        "requireRole('LOGISTICS', 'ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "coverage_areas",
+          "is_active",
+          "name",
+          "type"
+        ],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "400",
+        "404"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: invalid }",
+          "line": 74
+        },
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'Driver not found' }",
+          "line": 81
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "serialize(updated, req.user!.role === 'ADMIN')",
+          "line": 82
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "file": "server/src/index.ts",
+      "line": 67,
+      "guards": [],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "healthy ? 200 : 503"
+      ],
+      "responses": [
+        {
+          "statusExpression": "healthy ? 200 : 503",
+          "kind": "json",
+          "payloadSource": "{ ok: healthy, checks }",
+          "line": 91
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/notifications",
+      "file": "server/src/routes/notifications.ts",
+      "line": 10,
+      "guards": [
+        "requireAuth"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "notifications.map(n => ({\n      id: n.id,\n      title: n.title,\n      message: n.message,\n      record_id: n.recordId,\n      record_type: n.recordType,\n      is_read: n.isRead,\n      created_at: n.createdAt\n    }))",
+          "line": 16
+        }
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/notifications/:id/read",
+      "file": "server/src/routes/notifications.ts",
+      "line": 44,
+      "guards": [
+        "requireAuth"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "404"
+      ],
+      "responses": [
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'Notification not found' }",
+          "line": 48
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{ ok: true }",
+          "line": 54
+        }
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/notifications/read-all",
+      "file": "server/src/routes/notifications.ts",
+      "line": 36,
+      "guards": [
+        "requireAuth"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{ ok: true }",
+          "line": 41
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/notifications/send-email",
+      "file": "server/src/routes/notifications.ts",
+      "line": 100,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "recipients",
+          "recordId",
+          "trigger"
+        ],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200",
+        "400",
+        "404"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'recordId, trigger, and recipients[] are required' }",
+          "line": 103
+        },
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'Record not found' }",
+          "line": 112
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{ ok: true, sent, failed, resolvedCount: targets.length }",
+          "line": 149
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/notifications/unread-count",
+      "file": "server/src/routes/notifications.ts",
+      "line": 29,
+      "guards": [
+        "requireAuth"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{ count }",
+          "line": 33
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/records",
+      "file": "server/src/routes/records.ts",
+      "line": 314,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200",
+        "400"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: parsed.error }",
+          "line": 316
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "records.map(r => serializeRecord(r, req.user!))",
+          "line": 333
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'cursor is invalid or expired' }",
+          "line": 342
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{\n      rows: rows.map(r => serializeRecord(r, req.user!)),\n      nextCursor: null,\n      hasMore: total > offset + take,\n      total,\n      page: parsed.page ?? 1,\n      limit: take,\n    }",
+          "line": 405
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{\n      rows: rows.map(r => serializeRecord(r, req.user!)),\n      nextCursor: null, hasMore: total > offset + take,\n      total, page: parsed.page ?? 1, limit: take,\n    }",
+          "line": 440
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{\n    rows: rows.map(r => serializeRecord(r, req.user!)),\n    nextCursor,\n    hasMore,\n    total,\n    page: parsed.page ?? 1,\n    limit: take,\n  }",
+          "line": 462
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/records",
+      "file": "server/src/routes/records.ts",
+      "line": 945,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess",
+        "requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'TASS')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "account_manager",
+          "address",
+          "amount",
+          "area",
+          "attachments",
+          "category",
+          "company_id",
+          "customer_contact_email",
+          "customer_contact_name",
+          "customer_contact_phone",
+          "delivery_date",
+          "driver",
+          "driver_assistants",
+          "driver_id",
+          "is_draft",
+          "item_description",
+          "item_type",
+          "line_items",
+          "priority",
+          "purchase_date",
+          "reference",
+          "remarks",
+          "rma_reference",
+          "rma_type",
+          "status",
+          "vehicle"
+        ],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "201",
+        "400",
+        "403"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: `Missing required fields: ${missing.join(', ')}` }",
+          "line": 955
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: rmaError }",
+          "line": 960
+        },
+        {
+          "statusExpression": "403",
+          "kind": "json",
+          "payloadSource": "{ error: 'Logistics has view-only access to RMA records' }",
+          "line": 964
+        },
+        {
+          "statusExpression": "403",
+          "kind": "json",
+          "payloadSource": "{ error: 'Sales Coordinator cannot assign drivers — use the Logistics role' }",
+          "line": 972
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Reference is required' }",
+          "line": 975
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Delivery Date is required' }",
+          "line": 976
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Delivery Date must be a valid YYYY-MM-DD date.' }",
+          "line": 977
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Invalid record priority.' }",
+          "line": 978
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'New records must be Draft or Scheduled.' }",
+          "line": 979
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Assign drivers after submitting the record.' }",
+          "line": 980
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Select an existing Company.' }",
+          "line": 982
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Select an existing Company.' }",
+          "line": 1038
+        },
+        {
+          "statusExpression": "201",
+          "kind": "json",
+          "payloadSource": "serializeRecord(created, req.user!)",
+          "line": 1050
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/records/:id",
+      "file": "server/src/routes/records.ts",
+      "line": 1538,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess",
+        "requireRole('SALES_COORDINATOR')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "403"
+      ],
+      "responses": [
+        {
+          "statusExpression": "403",
+          "kind": "json",
+          "payloadSource": "{ error: 'Record deletion is disabled for all roles.' }",
+          "line": 1539
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/records/:id",
+      "file": "server/src/routes/records.ts",
+      "line": 713,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "403",
+        "404"
+      ],
+      "responses": [
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'Record not found' }",
+          "line": 718
+        },
+        {
+          "statusExpression": "403",
+          "kind": "json",
+          "payloadSource": "{ error: 'TASS may only view Accounting Collection and RMA records' }",
+          "line": 721
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "serializeRecord(record, req.user!)",
+          "line": 724
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/records/:id",
+      "file": "server/src/routes/records.ts",
+      "line": 1055,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess",
+        "requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER', 'TASS')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "account_manager",
+          "address",
+          "amount",
+          "area",
+          "attachments",
+          "company_id",
+          "customer_contact_email",
+          "customer_contact_name",
+          "customer_contact_phone",
+          "delivery_date",
+          "driver",
+          "driver_assistants",
+          "driver_id",
+          "is_draft",
+          "item_description",
+          "item_type",
+          "line_items",
+          "linked_collection_id",
+          "priority",
+          "purchase_date",
+          "received_by",
+          "reference",
+          "remarks",
+          "rma_reference",
+          "rma_type",
+          "status",
+          "time_in",
+          "time_out",
+          "vehicle"
+        ],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "400",
+        "403",
+        "404",
+        "result.error === 'Record not found' ? 404 : result.error === 'Record access denied' || result.error.startsWith('Only Sales Coordinator') ? 403 : 400"
+      ],
+      "responses": [
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'Record not found' }",
+          "line": 1057
+        },
+        {
+          "statusExpression": "403",
+          "kind": "json",
+          "payloadSource": "{ error: 'Logistics has view-only access to RMA records' }",
+          "line": 1061
+        },
+        {
+          "statusExpression": "403",
+          "kind": "json",
+          "payloadSource": "{ error: 'TASS write access is limited to RMA records' }",
+          "line": 1065
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Use the status action to change status.' }",
+          "line": 1069
+        },
+        {
+          "statusExpression": "403",
+          "kind": "json",
+          "payloadSource": "{ error: 'Only Logistics or Admin may correct recorded timestamps.' }",
+          "line": 1071
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Corrections require an existing timestamp and a full ISO timestamp with timezone. Use Record Time In to start the run.' }",
+          "line": 1073
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'is_draft must be Yes or No.' }",
+          "line": 1075
+        },
+        {
+          "statusExpression": "403",
+          "kind": "json",
+          "payloadSource": "{ error: 'Only Sales Coordinator, TASS for RMA, or Admin may submit or return drafts.' }",
+          "line": 1076
+        },
+        {
+          "statusExpression": "403",
+          "kind": "json",
+          "payloadSource": "{ error: 'Your role cannot change record priority.' }",
+          "line": 1080
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Invalid record priority.' }",
+          "line": 1083
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Use rma_reference for the RMA document reference.' }",
+          "line": 1088
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: rmaError }",
+          "line": 1090
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: completeError }",
+          "line": 1107
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Remarks are required when editing a record.' }",
+          "line": 1125
+        },
+        {
+          "statusExpression": "403",
+          "kind": "json",
+          "payloadSource": "{ error: 'Drivers may only update their own assigned records' }",
+          "line": 1133
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Delivery Date must be a valid YYYY-MM-DD date.' }",
+          "line": 1139
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'driver_id must be a Driver profile id or null.' }",
+          "line": 1145
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Driver must be a name or an empty string.' }",
+          "line": 1148
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Assistants must be an array of names.' }",
+          "line": 1153
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Linked record must be an existing Accounting Collection record' }",
+          "line": 1177
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Delivery Date must be a valid YYYY-MM-DD date.' }",
+          "line": 1228
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Use rma_reference for the RMA document reference.' }",
+          "line": 1240
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Received By must be a name.' }",
+          "line": 1251
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Select an existing Company.' }",
+          "line": 1252
+        },
+        {
+          "statusExpression": "result.error === 'Record not found' ? 404 : result.error === 'Record access denied' || result.error.startsWith('Only Sales Coordinator') ? 403 : 400",
+          "kind": "json",
+          "payloadSource": "{ error: result.error }",
+          "line": 1317
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "serializeRecord(updated, req.user!)",
+          "line": 1335
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/records/:id/attachments",
+      "file": "server/src/routes/records.ts",
+      "line": 747,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "await Promise.all(attachments.map(async attachment => ({\n    id: attachment.id,\n    name: attachment.originalName,\n    mime_type: attachment.mimeType,\n    is_photo: await isStoredPodPhoto(attachment),\n    size: attachment.size,\n    uploaded_at: attachment.createdAt,\n    download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`,\n    preview_url: `/api/records/${req.params.id}/attachments/${attachment.id}/preview`\n  })))",
+          "line": 752
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/records/:id/attachments",
+      "file": "server/src/routes/records.ts",
+      "line": 764,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess",
+        "requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER', 'TASS')",
+        "podUpload.single('file')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "201",
+        "400",
+        "result.status"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'A file is required.' }",
+          "line": 772
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: inspection.error }",
+          "line": 784
+        },
+        {
+          "statusExpression": "result.status",
+          "kind": "json",
+          "payloadSource": "{ error: result.error, ...(result.code ? { code: result.code } : {}) }",
+          "line": 838
+        },
+        {
+          "statusExpression": "201",
+          "kind": "json",
+          "payloadSource": "{\n      id: attachment.id,\n      name: attachment.originalName,\n      mime_type: attachment.mimeType,\n      is_photo: isPhoto,\n      size: attachment.size,\n      uploaded_at: attachment.createdAt,\n      download_url: `/api/records/${req.params.id}/attachments/${attachment.id}/download`,\n      preview_url: `/api/records/${req.params.id}/attachments/${attachment.id}/preview`\n    }",
+          "line": 840
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/records/:id/attachments/:attachmentId",
+      "file": "server/src/routes/records.ts",
+      "line": 897,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess",
+        "requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'TASS')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "remarks"
+        ],
+        "query": [],
+        "params": [
+          "attachmentId",
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "204",
+        "result.status"
+      ],
+      "responses": [
+        {
+          "statusExpression": "result.status",
+          "kind": "json",
+          "payloadSource": "{ error: result.error }",
+          "line": 921
+        },
+        {
+          "statusExpression": "204",
+          "kind": "send",
+          "payloadSource": "",
+          "line": 922
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/records/:id/attachments/:attachmentId/download",
+      "file": "server/src/routes/records.ts",
+      "line": 853,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "attachmentId",
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "404"
+      ],
+      "responses": [
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'Attachment not found' }",
+          "line": 857
+        },
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'Attachment file not found' }",
+          "line": 866
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/records/:id/attachments/:attachmentId/preview",
+      "file": "server/src/routes/records.ts",
+      "line": 871,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "attachmentId",
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "404",
+        "415"
+      ],
+      "responses": [
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'Attachment not found' }",
+          "line": 873
+        },
+        {
+          "statusExpression": "415",
+          "kind": "json",
+          "payloadSource": "{ error: 'Preview is available for PDF, DOCX, and image files. Legacy DOC files require conversion to PDF or DOCX.' }",
+          "line": 878
+        },
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'Attachment file not found' }",
+          "line": 892
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/records/:id/audit",
+      "file": "server/src/routes/records.ts",
+      "line": 727,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "entries.map((e, index) => ({\n      id: e.id,\n      action: e.action,\n      changed_by: e.changedBy.name,\n      previous_value: snapshots[index].previousValue,\n      new_value: snapshots[index].newValue,\n      timestamp: e.timestamp\n    }))",
+          "line": 735
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/records/:id/comments",
+      "file": "server/src/routes/records.ts",
+      "line": 1543,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "comments.map(c => ({\n      id: c.id,\n      body: c.body,\n      author: c.author.name,\n      created_at: c.createdAt,\n      updated_at: c.updatedAt\n    }))",
+          "line": 1549
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/records/:id/comments",
+      "file": "server/src/routes/records.ts",
+      "line": 1560,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess",
+        "requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER', 'TASS')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "body"
+        ],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "201",
+        "400",
+        "404"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Comment body is required' }",
+          "line": 1563
+        },
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'Record not found' }",
+          "line": 1569
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: dateError }",
+          "line": 1571
+        },
+        {
+          "statusExpression": "201",
+          "kind": "json",
+          "payloadSource": "{\n    id: comment.id,\n    body: comment.body,\n    author: comment.author.name,\n    created_at: comment.createdAt,\n    updated_at: comment.updatedAt\n  }",
+          "line": 1583
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/records/:id/remarks",
+      "file": "server/src/routes/records.ts",
+      "line": 926,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "remarks.map(r => ({\n      id: r.id,\n      body: r.body,\n      context: r.context,\n      author: r.author.name,\n      author_role: r.author.role,\n      created_at: r.createdAt\n    }))",
+          "line": 932
+        }
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/records/:id/status",
+      "file": "server/src/routes/records.ts",
+      "line": 1365,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess",
+        "requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER', 'TASS')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "delivery_date",
+          "priority",
+          "received_by",
+          "remarks",
+          "status",
+          "time_in",
+          "time_out"
+        ],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "400",
+        "403",
+        "result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' || result.error.startsWith('Only Sales Coordinator') ? 403 : 400"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Valid status is required' }",
+          "line": 1367
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Remarks are required when changing status.' }",
+          "line": 1368
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Use Record Time In or timestamp corrections; Time Out is recorded automatically on completion.' }",
+          "line": 1369
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Received By must be a name.' }",
+          "line": 1370
+        },
+        {
+          "statusExpression": "403",
+          "kind": "json",
+          "payloadSource": "{ error: 'Your role cannot change record priority.' }",
+          "line": 1372
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Invalid record priority.' }",
+          "line": 1373
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'New delivery date must be a valid YYYY-MM-DD date.' }",
+          "line": 1376
+        },
+        {
+          "statusExpression": "result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' || result.error.startsWith('Only Sales Coordinator') ? 403 : 400",
+          "kind": "json",
+          "payloadSource": "{ error: result.error }",
+          "line": 1464
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "serializeRecord(updated, req.user!)",
+          "line": 1483
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/records/:id/time-in",
+      "file": "server/src/routes/records.ts",
+      "line": 1339,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess",
+        "requireRole('DRIVER', 'LOGISTICS', 'ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "remarks"
+        ],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "400"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Remarks are required when recording Time In.' }",
+          "line": 1341
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: result.error }",
+          "line": 1360
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "serializeRecord(result.saved, req.user!)",
+          "line": 1361
+        }
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/records/:id/verify-collection",
+      "file": "server/src/routes/records.ts",
+      "line": 1487,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess",
+        "requireRole('TASS')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "400",
+        "403",
+        "404"
+      ],
+      "responses": [
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'Record not found' }",
+          "line": 1492
+        },
+        {
+          "statusExpression": "403",
+          "kind": "json",
+          "payloadSource": "{ error: 'Collection verification only applies to Accounting Collection records' }",
+          "line": 1495
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Collection can only be verified after delivery is marked Accomplished' }",
+          "line": 1499
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'This collection has already been verified' }",
+          "line": 1503
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "serializeRecord(updated, req.user!)",
+          "line": 1534
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/records/active-counts",
+      "file": "server/src/routes/records.ts",
+      "line": 474,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "recordActiveCounts(groups)",
+          "line": 486
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/records/am-summary",
+      "file": "server/src/routes/records.ts",
+      "line": 491,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "result",
+          "line": 546
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/records/calendar-summary",
+      "file": "server/src/routes/records.ts",
+      "line": 551,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [
+          "dateFrom",
+          "dateTo"
+        ],
+        "params": []
+      },
+      "statusExpressions": [
+        "200",
+        "400"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'dateFrom is invalid' }",
+          "line": 557
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'dateTo is invalid' }",
+          "line": 558
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'dateFrom cannot be after dateTo' }",
+          "line": 559
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "records.map(r => serializeRecord(r, req.user!))",
+          "line": 575
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/records/status-history-counts",
+      "file": "server/src/routes/records.ts",
+      "line": 579,
+      "guards": [
+        "requireAuth",
+        "requireResource('records')",
+        "requireRecordAccess"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [
+          "area",
+          "category",
+          "createdAtFrom",
+          "createdAtTo",
+          "dateBasis",
+          "dateFrom",
+          "dateTo",
+          "deliveryDateFrom",
+          "deliveryDateTo",
+          "driver",
+          "region",
+          "status",
+          "subregion"
+        ],
+        "params": []
+      },
+      "statusExpressions": [
+        "200",
+        "400"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Date filters must be single string values.' }",
+          "line": 603
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Location filters must be single string values.' }",
+          "line": 606
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Use one date filter basis per request.' }",
+          "line": 609
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'dateBasis must be deliveryDate or createdAt.' }",
+          "line": 617
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'dateBasis must match the named date filter fields.' }",
+          "line": 621
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: error instanceof Error ? error.message : 'Invalid date range.' }",
+          "line": 644
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'region or subregion is invalid' }",
+          "line": 650
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{\n    ever_held,\n    current,\n    total_records: records.length,\n    date_basis: dateBasis,\n    history_basis: 'lifetime',\n    time_zone: 'Asia/Manila',\n  }",
+          "line": 703
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/reports/summary",
+      "file": "server/src/routes/reports.ts",
+      "line": 15,
+      "guards": [
+        "requireAuth",
+        "requireScreen('statistical_reports')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [
+          "area",
+          "category",
+          "dateFrom",
+          "dateTo",
+          "deliveryDateFrom",
+          "deliveryDateTo",
+          "driver",
+          "status"
+        ],
+        "params": []
+      },
+      "statusExpressions": [
+        "200",
+        "400"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Report filters must be single string values.' }",
+          "line": 30
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Use deliveryDateFrom/deliveryDateTo or the legacy dateFrom/dateTo aliases, not both.' }",
+          "line": 34
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: error instanceof Error ? error.message : 'Invalid delivery date range.' }",
+          "line": 41
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{\n    total,\n    accomplished,\n    completed_in_range: completedInRange,\n    on_hold:         byStatus['On-Hold']  ?? 0,\n    pending:         byStatus['Pending']  ?? 0,\n    completion_rate: total > 0 ? Math.round((accomplished / total) * 100) : 0,\n    date_basis: {\n      cohort: 'deliveryDate',\n      completion: 'timeOut',\n      time_zone: 'Asia/Manila',\n    },\n    by_status:    Object.entries(byStatus).map(([s, count]) => ({ status: s, count })),\n    by_category:  Object.entries(byCategory).map(([c, count]) => ({ category: c, count })),\n    by_area:      Object.entries(byArea).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([a, count]) => ({ area: a, count })),\n    by_driver:    Object.entries(byDriver).sort((a, b) => b[1] - a[1]).map(([d, count]) => ({ driver: d, count })),\n  }",
+          "line": 99
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/skus",
+      "file": "server/src/routes/skus.ts",
+      "line": 52,
+      "guards": [
+        "requireAuth",
+        "requireResource('skus')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "products.map(p => serializeProduct(p))",
+          "line": 58
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/skus",
+      "file": "server/src/routes/skus.ts",
+      "line": 128,
+      "guards": [
+        "requireAuth",
+        "requireResource('skus')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "category",
+          "description",
+          "name",
+          "reorder_point",
+          "sku_code",
+          "unit_cost",
+          "unit_price",
+          "warehouse_location"
+        ],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "201",
+        "400",
+        "409"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error }",
+          "line": 131
+        },
+        {
+          "statusExpression": "201",
+          "kind": "json",
+          "payloadSource": "serializeProduct(created)",
+          "line": 155
+        },
+        {
+          "statusExpression": "409",
+          "kind": "json",
+          "payloadSource": "{ error: 'A SKU with this code already exists.' }",
+          "line": 158
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/skus/:id",
+      "file": "server/src/routes/skus.ts",
+      "line": 62,
+      "guards": [
+        "requireAuth",
+        "requireResource('skus')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "404"
+      ],
+      "responses": [
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'SKU not found' }",
+          "line": 73
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "serializeProduct(product, true)",
+          "line": 74
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/skus/:id",
+      "file": "server/src/routes/skus.ts",
+      "line": 97,
+      "guards": [
+        "requireAuth",
+        "requireResource('skus')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "category",
+          "description",
+          "name",
+          "reorder_point",
+          "sku_code",
+          "unit_cost",
+          "unit_price"
+        ],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "400",
+        "404",
+        "409"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error }",
+          "line": 100
+        },
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'SKU not found' }",
+          "line": 102
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "serializeProduct(updated)",
+          "line": 120
+        },
+        {
+          "statusExpression": "409",
+          "kind": "json",
+          "payloadSource": "{ error: 'A SKU with this code already exists.' }",
+          "line": 122
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/skus/:id/adjust",
+      "file": "server/src/routes/skus.ts",
+      "line": 192,
+      "guards": [
+        "requireAuth",
+        "requireResource('skus')",
+        "requireScreen('inventory')",
+        "requireRole('ADMIN', 'LOGISTICS')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "qty_change",
+          "reference",
+          "type"
+        ],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "400",
+        "404"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Invalid stock adjustment type.' }",
+          "line": 194
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Reference is required.' }",
+          "line": 195
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'qty_change must be a non-zero finite whole number within the supported range.' }",
+          "line": 198
+        },
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'SKU not found' }",
+          "line": 201
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "serializeProduct(updated, true)",
+          "line": 252
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: err.message }",
+          "line": 255
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/skus/:id/audit",
+      "file": "server/src/routes/skus.ts",
+      "line": 78,
+      "guards": [
+        "requireAuth",
+        "requireResource('skus')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "entries.map(e => ({\n      id: e.id,\n      action: e.action,\n      changed_by: e.changedBy.name,\n      previous_value: e.previousValue ? JSON.parse(e.previousValue) : null,\n      new_value: e.newValue ? JSON.parse(e.newValue) : null,\n      timestamp: e.timestamp\n    }))",
+          "line": 84
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/suppliers",
+      "file": "server/src/routes/suppliers.ts",
+      "line": 7,
+      "guards": [
+        "requireAuth",
+        "requireResource('suppliers')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "suppliers.map(s => ({\n      id: s.id,\n      name: s.name,\n      contact_person: s.contactPerson,\n      email: s.email,\n      phone: s.phone,\n      address: s.address,\n      city: s.city,\n      category: s.category,\n      created_by: s.createdBy.name,\n      created_at: s.createdAt,\n      modified_by: s.modifiedBy.name,\n      modified_at: s.modifiedAt\n    }))",
+          "line": 12
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/suppliers",
+      "file": "server/src/routes/suppliers.ts",
+      "line": 30,
+      "guards": [
+        "requireAuth",
+        "requireResource('suppliers')",
+        "requireScreen('suppliers')",
+        "requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "address",
+          "category",
+          "city",
+          "contact_person",
+          "email",
+          "name",
+          "phone"
+        ],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "201",
+        "400"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'name and category are required' }",
+          "line": 32
+        },
+        {
+          "statusExpression": "201",
+          "kind": "json",
+          "payloadSource": "{\n    id: created.id,\n    name: created.name,\n    contact_person: created.contactPerson,\n    email: created.email,\n    phone: created.phone,\n    address: created.address,\n    city: created.city,\n    category: created.category,\n    created_by: created.createdBy.name,\n    created_at: created.createdAt,\n    modified_by: created.modifiedBy.name,\n    modified_at: created.modifiedAt\n  }",
+          "line": 49
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/transactions",
+      "file": "server/src/routes/transactions.ts",
+      "line": 27,
+      "guards": [
+        "requireAuth",
+        "requireTransactionAccess"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [
+          "category",
+          "from",
+          "limit",
+          "page",
+          "source",
+          "status",
+          "to"
+        ],
+        "params": []
+      },
+      "statusExpressions": [
+        "200",
+        "400",
+        "403"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Invalid source. Must be \"all\", \"delivery\" or \"inventory\".' }",
+          "line": 40
+        },
+        {
+          "statusExpression": "403",
+          "kind": "json",
+          "payloadSource": "{ error: 'Inventory access denied' }",
+          "line": 43
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{ page, limit, total, pages, transactions }",
+          "line": 144
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/transactions/:source/:id",
+      "file": "server/src/routes/transactions.ts",
+      "line": 149,
+      "guards": [
+        "requireAuth",
+        "requireTransactionAccess"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "id",
+          "source"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "400",
+        "403",
+        "404"
+      ],
+      "responses": [
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'Delivery record not found' }",
+          "line": 159
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{\n      id:               record.id,\n      source:           'delivery',\n      type:             CATEGORY_FROM_DB[record.category] ?? record.category,\n      reference:        record.reference,\n      entity:           record.company.name,\n      entity_id:        record.companyId,\n      status:           record.status,\n      description:      record.itemDescription,\n      vehicle:          record.vehicle,\n      area:             record.area,\n      driver:           record.driver,\n      driver_assistants: parseDriverAssistants(record.driverAssistants),\n      account_manager:  record.accountManager,\n      delivery_date:    record.deliveryDate,\n      \n      item_type:        record.itemType,\n      remarks:          record.remarks,\n      priority:         record.priority,\n      created_by:       record.createdBy?.name ?? '',\n      created_at:       record.createdAt,\n      updated_at:       record.updatedAt,\n      timeline\n    }",
+          "line": 198
+        },
+        {
+          "statusExpression": "403",
+          "kind": "json",
+          "payloadSource": "{ error: 'Access denied' }",
+          "line": 226
+        },
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'Inventory transaction not found' }",
+          "line": 233
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{\n      id:                txn.id,\n      source:            'inventory',\n      type:              txn.type,\n      reference:         txn.reference,\n      entity:            txn.product.name,\n      entity_id:         txn.productId,\n      status:            null,\n      qty_change:        txn.qtyChange,\n      resulting_balance: txn.resultingBalance,\n      created_by:        null,\n      created_at:        txn.createdAt,\n      updated_at:        txn.createdAt,\n      product: {\n        id:       txn.product.id,\n        sku_code: txn.product.skuCode,\n        name:     txn.product.name,\n        category: txn.product.category\n      },\n      related_transactions: related.map(r => ({\n        id:                r.id,\n        date:              r.date.toISOString().split('T')[0],\n        type:              r.type,\n        qty_change:        r.qtyChange,\n        resulting_balance: r.resultingBalance,\n        reference:         r.reference\n      }))\n    }",
+          "line": 242
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Invalid source. Must be \"delivery\" or \"inventory\".' }",
+          "line": 272
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/users",
+      "file": "server/src/routes/users.ts",
+      "line": 14,
+      "guards": [
+        "requireAuth",
+        "requireResource('users')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "200"
+      ],
+      "responses": [
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "users.map(u => ({\n    id: u.id,\n    name: u.name,\n    email: u.email,\n    role: u.role,\n    is_active: u.isActive,\n    microsoft_linked: !!u.microsoftOid,\n    created_at: u.createdAt,\n    driver_profile: u.driverProfile,\n  }))",
+          "line": 16
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/users",
+      "file": "server/src/routes/users.ts",
+      "line": 31,
+      "guards": [
+        "requireAuth",
+        "requireResource('users')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "driver_profile_id",
+          "email",
+          "microsoft_oid",
+          "name",
+          "password",
+          "role"
+        ],
+        "query": [],
+        "params": []
+      },
+      "statusExpressions": [
+        "201",
+        "400",
+        "409",
+        "error.status"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'name, email, password, and role are required' }",
+          "line": 34
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: `role must be one of: ${validRoles.join(', ')}` }",
+          "line": 38
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'driver_profile_id is only valid for a DRIVER login and must be a Driver profile id.' }",
+          "line": 41
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'microsoft_oid must be a Microsoft Entra object GUID' }",
+          "line": 44
+        },
+        {
+          "statusExpression": "201",
+          "kind": "json",
+          "payloadSource": "{\n      id: created.id,\n      name: created.name,\n      email: created.email,\n      role: created.role,\n      is_active: created.isActive,\n      microsoft_linked: !!created.microsoftOid,\n      created_at: created.createdAt,\n      driver_profile: profile ? { id: profile.id, name: profile.name } : null,\n    }",
+          "line": 69
+        },
+        {
+          "statusExpression": "error.status",
+          "kind": "json",
+          "payloadSource": "{ error: error.message }",
+          "line": 80
+        },
+        {
+          "statusExpression": "409",
+          "kind": "json",
+          "payloadSource": "{ error: identityCollision ? 'Microsoft identity is already linked to another account' : 'An account with this email already exists.' }",
+          "line": 88
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/users/:id",
+      "file": "server/src/routes/users.ts",
+      "line": 253,
+      "guards": [
+        "requireAuth",
+        "requireResource('users')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "400",
+        "404",
+        "409"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'You cannot delete your own account' }",
+          "line": 258
+        },
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'User not found' }",
+          "line": 262
+        },
+        {
+          "statusExpression": "409",
+          "kind": "json",
+          "payloadSource": "{\n      error: `Cannot delete this user because they have ${totalLinked} associated record(s) in the system (delivery records, audit logs, products, etc.). Deactivate the account instead to preserve data integrity.`,\n      linked_records: totalLinked,\n    }",
+          "line": 296
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{ ok: true, deleted_id: id }",
+          "line": 307
+        }
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/users/:id",
+      "file": "server/src/routes/users.ts",
+      "line": 149,
+      "guards": [
+        "requireAuth",
+        "requireResource('users')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "email",
+          "name",
+          "role"
+        ],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "400",
+        "404",
+        "409"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Enter a valid email address.' }",
+          "line": 153
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'Name must be non-empty text.' }",
+          "line": 154
+        },
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'User not found' }",
+          "line": 156
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: `role must be one of: ${validRoles.join(', ')}` }",
+          "line": 160
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'You cannot change your own admin role. Another admin must perform this action to prevent self-lockout.' }",
+          "line": 163
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'At least one field (name, email, role) is required' }",
+          "line": 172
+        },
+        {
+          "statusExpression": "409",
+          "kind": "json",
+          "payloadSource": "{ error: 'An account with this email already exists.' }",
+          "line": 183
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{\n    id: updated.id,\n    name: updated.name,\n    email: updated.email,\n    role: updated.role,\n    is_active: updated.isActive,\n    microsoft_linked: !!updated.microsoftOid,\n    created_at: updated.createdAt,\n  }",
+          "line": 186
+        }
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/users/:id/activate",
+      "file": "server/src/routes/users.ts",
+      "line": 227,
+      "guards": [
+        "requireAuth",
+        "requireResource('users')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "400",
+        "404"
+      ],
+      "responses": [
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'User not found' }",
+          "line": 230
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'User is already active' }",
+          "line": 231
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{\n    id: updated.id,\n    name: updated.name,\n    email: updated.email,\n    role: updated.role,\n    is_active: updated.isActive,\n    microsoft_linked: !!updated.microsoftOid,\n    created_at: updated.createdAt,\n  }",
+          "line": 238
+        }
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/users/:id/deactivate",
+      "file": "server/src/routes/users.ts",
+      "line": 198,
+      "guards": [
+        "requireAuth",
+        "requireResource('users')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "400",
+        "404"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'You cannot deactivate your own account' }",
+          "line": 203
+        },
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'User not found' }",
+          "line": 207
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'User is already deactivated' }",
+          "line": 208
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{\n    id: updated.id,\n    name: updated.name,\n    email: updated.email,\n    role: updated.role,\n    is_active: updated.isActive,\n    microsoft_linked: !!updated.microsoftOid,\n    created_at: updated.createdAt,\n  }",
+          "line": 215
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/users/:id/driver-profile",
+      "file": "server/src/routes/users.ts",
+      "line": 96,
+      "guards": [
+        "requireAuth",
+        "requireResource('users')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "driver_profile_id"
+        ],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "400",
+        "error.status"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'driver_profile_id must be a Driver profile id or null.' }",
+          "line": 99
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{ user_id: req.params.id, driver_profile: profile ? { id: profile.id, name: profile.name } : null }",
+          "line": 107
+        },
+        {
+          "statusExpression": "error.status",
+          "kind": "json",
+          "payloadSource": "{ error: error.message }",
+          "line": 109
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/users/:id/microsoft-identity",
+      "file": "server/src/routes/users.ts",
+      "line": 117,
+      "guards": [
+        "requireAuth",
+        "requireResource('users')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "microsoft_oid"
+        ],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "400",
+        "404",
+        "409"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'microsoft_oid must be a Microsoft Entra object GUID or null' }",
+          "line": 120
+        },
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'User not found' }",
+          "line": 140
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "{ user_id: updated.id, microsoft_linked: !!updated.microsoftOid }",
+          "line": 141
+        },
+        {
+          "statusExpression": "409",
+          "kind": "json",
+          "payloadSource": "{ error: 'Microsoft identity is already linked to another account' }",
+          "line": 143
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/users/:id/permissions",
+      "file": "server/src/routes/users.ts",
+      "line": 311,
+      "guards": [
+        "requireAuth",
+        "requireResource('users')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "404"
+      ],
+      "responses": [
+        {
+          "statusExpression": "404",
+          "kind": "json",
+          "payloadSource": "{ error: 'User not found' }",
+          "line": 313
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "permissionEditor(user)",
+          "line": 314
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/users/:id/permissions",
+      "file": "server/src/routes/users.ts",
+      "line": 317,
+      "guards": [
+        "requireAuth",
+        "requireResource('users')",
+        "requireRole('ADMIN')"
+      ],
+      "observedRequestFields": {
+        "body": [
+          "expectedVersion",
+          "permissions"
+        ],
+        "query": [],
+        "params": [
+          "id"
+        ]
+      },
+      "statusExpressions": [
+        "200",
+        "400",
+        "error.status"
+      ],
+      "responses": [
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error }",
+          "line": 320
+        },
+        {
+          "statusExpression": "400",
+          "kind": "json",
+          "payloadSource": "{ error: 'expectedVersion is required' }",
+          "line": 321
+        },
+        {
+          "statusExpression": "200",
+          "kind": "json",
+          "payloadSource": "await replacePermissions(prisma, req.params.id, req.user!.id, permissions, expectedVersion)",
+          "line": 323
+        },
+        {
+          "statusExpression": "error.status",
+          "kind": "json",
+          "payloadSource": "{ error: error.message }",
+          "line": 325
+        }
+      ]
+    }
+  ]
+}

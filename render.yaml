@@ -3,6 +3,7 @@ services:
     name: supply-chain-api
     env: node
     rootDir: server
+    healthCheckPath: /api/v1/health
     buildCommand: npm install --include=dev && npx prisma generate && npm run build
     # Apply all committed migrations before starting the API. Render's managed
     # database starts empty, so the application must not boot against an

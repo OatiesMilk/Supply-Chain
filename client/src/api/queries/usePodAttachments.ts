@@ -1,15 +1,18 @@
+import { assertCurrentRecord, canCurrentRecord, permissionStagingKey } from '../permissionRuntime';
 import { useIsMutating, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { api, type ApiPodAttachment } from '@/api';
 import { hasSavedPodPhoto, type PodReadiness } from '@/utils/podRequirement';
 import { getStagedFiles, saveStagedFile, removeStagedFile, clearStagedFiles, type StagedFile } from '@/utils/idbFiles';
+import { invalidateOperationalQueries, operationalSyncOptions } from './operationalSync';
 
 export const podAttachmentsKey = (recordId: string) => ['pod-attachments', recordId] as const;
 export const podStagedKey = (recordId: string) => ['pod-staged', recordId] as const;
 
 export async function uploadStagedFiles(recordId: string, client?: QueryClient): Promise<void> {
   if (!recordId) return;
-  const staged = await getStagedFiles(recordId);
+  const staged = await getStagedFiles(permissionStagingKey(recordId));
   if (staged.length === 0) return;
+  assertCurrentRecord(recordId, 'POD');
   const queryKey = podAttachmentsKey(recordId);
   const stagedKey = podStagedKey(recordId);
   if (client) await client.cancelQueries({ queryKey });
@@ -23,6 +26,7 @@ export async function uploadStagedFiles(recordId: string, client?: QueryClient):
   if (client) {
     await client.invalidateQueries({ queryKey: stagedKey });
     await client.invalidateQueries({ queryKey });
+    await invalidateOperationalQueries(client);
   }
 }
 
@@ -33,6 +37,10 @@ export function usePodAttachments(recordId: string) {
   const mutationKey = ['pod-attachment-write', recordId];
   
   const query = useQuery({
+    ...operationalSyncOptions,
+    // Upload mutations invalidate this query. Repeated polling here multiplies
+    // requests by every visible POD uploader on the current page.
+    refetchInterval: false,
     queryKey,
     queryFn: () => api.getRecordAttachments(recordId),
     enabled: Boolean(recordId),
@@ -40,8 +48,8 @@ export function usePodAttachments(recordId: string) {
 
   const stagedQuery = useQuery({
     queryKey: stagedKey,
-    queryFn: () => getStagedFiles(recordId),
-    enabled: Boolean(recordId),
+    queryFn: () => getStagedFiles(permissionStagingKey(recordId)),
+    enabled: Boolean(recordId) && canCurrentRecord(recordId, 'POD'),
   });
 
   const upload = useMutation({
@@ -59,10 +67,11 @@ export function usePodAttachments(recordId: string) {
 
   const stage = useMutation({
     mutationFn: async (files: readonly File[]) => {
+      assertCurrentRecord(recordId, 'POD');
       for (const file of files) {
         await saveStagedFile({
           id: Math.random().toString(36).substring(2, 15),
-          recordId,
+          recordId: permissionStagingKey(recordId),
           file,
           stagedAt: Date.now(),
         });
@@ -87,23 +96,23 @@ export function usePodAttachments(recordId: string) {
         client.setQueryData<ApiPodAttachment[]>(queryKey, previous => [saved, ...(previous ?? [])]);
       }
     },
-    onSettled: () => client.invalidateQueries({ queryKey }),
+    onSettled: () => invalidateOperationalQueries(client),
   });
 
   const remove = useMutation({
     mutationKey,
     mutationFn: ({ id: attachmentId, remarks }: { id: string; remarks: string }) => api.deleteRecordAttachment(recordId, attachmentId, remarks),
-    onSettled: () => client.invalidateQueries({ queryKey }),
+    onSettled: () => invalidateOperationalQueries(client),
   });
 
   const uploading = useIsMutating({ mutationKey }) > 0;
   const files = query.data ?? [];
-  const stagedFiles = stagedQuery.data ?? [];
+  const stagedFiles = canCurrentRecord(recordId, 'POD') ? stagedQuery.data ?? [] : [];
 
   const combinedHasPhoto = hasSavedPodPhoto(files) || stagedFiles.some(s => s.file.type.startsWith('image/'));
 
   const readiness: PodReadiness = {
-    loading: query.isPending || query.isFetching || stagedQuery.isPending,
+    loading: query.isPending || canCurrentRecord(recordId, 'POD') && stagedQuery.isPending,
     uploading,
     hasPhoto: combinedHasPhoto,
     loadFailed: query.isError,

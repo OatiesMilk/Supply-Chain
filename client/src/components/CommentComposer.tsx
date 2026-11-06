@@ -21,13 +21,14 @@ export function composerTextareaSize(scrollHeight: number) {
 }
 
 export default function CommentComposer({
-  id, value, onChange, onSubmit, submitting, describedBy, error, className = '',
+  id, value, onChange, onSubmit, submitting, describedBy, error, className = '', disabled = false,
 }: {
   id: string;
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
   submitting: boolean;
+  disabled?: boolean;
   describedBy?: string;
   error?: string;
   className?: string;
@@ -69,11 +70,11 @@ export default function CommentComposer({
           id={id}
           ref={textareaRef}
           aria-describedby={describedBy}
-          disabled={submitting}
+          disabled={submitting || disabled}
           value={value}
           onChange={e => onChange(e.target.value)}
           onKeyDown={e => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); onSubmit(); }
+            if (!disabled && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); onSubmit(); }
           }}
           placeholder="Add to the discussion… (Ctrl+Enter to send)"
           rows={1}
@@ -84,7 +85,7 @@ export default function CommentComposer({
           aria-label="Send comment"
           title="Send comment (Ctrl+Enter)"
           onClick={onSubmit}
-          disabled={!value.trim() || submitting}
+          disabled={!value.trim() || submitting || disabled}
           className="flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-md bg-[#0078C1] text-white hover:bg-[#005fa3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {submitting ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Send aria-hidden="true" className="h-4 w-4" />}

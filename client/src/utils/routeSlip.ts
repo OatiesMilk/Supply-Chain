@@ -4,15 +4,17 @@
  */
 
 import { DeliveryRecord } from '../types';
-import { apiUrl } from '../api';
-import { fmtDate } from './export';
+import { api } from '../api';
+import { filterRouteSlipRecords, routeSlipDriverNames, routeSlipPeriodLabel, type RouteSlipPeriod } from './routeSlipPeriod';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE, getExcelPageSetup, getPdfFormat, fitColumnWidths, getDocxDimensions, getDocxLandscapeContentWidth } from './documentSize';
 
 export interface RouteSlipParams {
   records: DeliveryRecord[];
   driverName: string;
-  /** YYYY-MM-DD from the date filter, or today if not set */
-  date: string;
+  /** Legacy single-day callers may pass date. New callers pass dateFrom/dateTo. */
+  date?: string;
+  dateFrom?: string;
+  dateTo?: string;
   preparedBy: string;
   filename: string;
   /** When provided, counts are built from the full status history (Status Trail mode). */
@@ -85,9 +87,7 @@ export async function fetchHistoricStatusSets(records: DeliveryRecord[]): Promis
 
   await Promise.all(records.map(async r => {
     try {
-      const res = await fetch(`${apiUrl(`/records/${r.id}/audit`)}`, { credentials: 'include' });
-      if (!res.ok) return;
-      const entries: { previous_value: unknown; new_value: unknown }[] = await res.json();
+      const entries = await api.getRecordAudit(r.id);
       const set = sets.get(r.id)!;
       for (const e of entries) {
         const nv = e.new_value  as Record<string, unknown> | null;
@@ -120,8 +120,8 @@ const TRAIL_FOOTNOTE = '* Status Trail counts reflect all statuses each record h
 // ─── Excel ────────────────────────────────────────────────────────────────────
 
 export async function downloadRouteSlipExcel({
-  records, driverName, date, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
-}: RouteSlipParams): Promise<void> {
+  records, driverName, date, dateFrom, dateTo, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
+}: RouteSlipParams, returnBlob = false): Promise<void | Blob> {
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Route Slip', {
@@ -130,9 +130,9 @@ export async function downloadRouteSlipExcel({
 
   const now  = new Date();
   const year = now.getFullYear();
-  const dateDisplay = date
-    ? fmtDate(`${date}T12:00:00`)
-    : fmtDate(now.toISOString());
+  const period = exportPeriod({ date, dateFrom, dateTo });
+  records = filterRouteSlipRecords(records, period);
+  const periodDisplay = routeSlipPeriodLabel(period);
 
   const vehicle = records.find(r => r.vehicle)?.vehicle ?? '';
   const helper  = records.find(r => r.driver_assistants?.length)
@@ -180,7 +180,7 @@ export async function downloadRouteSlipExcel({
   r1.height = 48;
 
   // ── Row 2: Date (left) | logo area (center) | YR-[year] in red (right) ─────
-  const r2 = next(['Date: ' + dateDisplay, ...E(3), '', ...E(3), `YR-${year}`, ...E(3)]);
+  const r2 = next(['Period: ' + periodDisplay, ...E(3), '', ...E(3), `YR-${year}`, ...E(3)]);
   ws.mergeCells(rn, 1, rn, 4);
   ws.mergeCells(rn, 5, rn, 8);
   ws.mergeCells(rn, 9, rn, NCOLS);
@@ -418,6 +418,7 @@ export async function downloadRouteSlipExcel({
   const blob   = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
+  if (returnBlob) return blob;
   const url = URL.createObjectURL(blob);
   const a   = document.createElement('a');
   a.href     = url;
@@ -429,17 +430,17 @@ export async function downloadRouteSlipExcel({
 // ─── PDF ──────────────────────────────────────────────────────────────────────
 
 export async function downloadRouteSlipPDF({
-  records, driverName, date, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
-}: RouteSlipParams): Promise<void> {
+  records, driverName, date, dateFrom, dateTo, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
+}: RouteSlipParams, returnBlob = false): Promise<void | Blob> {
   const { jsPDF }             = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
 
   const doc  = new jsPDF({ orientation: 'landscape', unit: 'mm', format: getPdfFormat(documentSize) });
   const now  = new Date();
   const year = now.getFullYear();
-  const dateDisplay = date
-    ? fmtDate(`${date}T12:00:00`)
-    : fmtDate(now.toISOString());
+  const period = exportPeriod({ date, dateFrom, dateTo });
+  records = filterRouteSlipRecords(records, period);
+  const periodDisplay = routeSlipPeriodLabel(period);
 
   const pageW = doc.internal.pageSize.getWidth();   // 297mm landscape
   const pageH = doc.internal.pageSize.getHeight();  // 210mm landscape
@@ -478,7 +479,7 @@ export async function downloadRouteSlipPDF({
   };
 
   labelValue('Vehicle:', vehicle,     leftX, lY);      lY += 5;
-  labelValue('Date:',    dateDisplay, leftX, lY);      lY += 5;
+  labelValue('Period:',    periodDisplay, leftX, lY);      lY += 5;
   labelValue('Driver:',  driverName,  leftX, lY);      lY += 5;
   labelValue('Helper:',  helper,      leftX, lY);
 
@@ -695,6 +696,7 @@ export async function downloadRouteSlipPDF({
   doc.setTextColor(100, 116, 139);
   doc.text('Logistics Coordinator', MARGIN + colW + 10, fy);
 
+  if (returnBlob) return doc.output('blob');
   doc.save(`${filename}-route-slip-${now.toISOString().split('T')[0]}.pdf`);
 }
 
@@ -702,8 +704,10 @@ export async function downloadRouteSlipPDF({
 
 export interface AllDriversRouteSlipParams {
   records: DeliveryRecord[];
-  /** YYYY-MM-DD date filter, or '' if none set */
-  date: string;
+  /** Legacy single-day callers may pass date. New callers pass dateFrom/dateTo. */
+  date?: string;
+  dateFrom?: string;
+  dateTo?: string;
   preparedBy: string;
   filename: string;
   /** When provided, counts are built from the full status history (Status Trail mode). */
@@ -732,14 +736,16 @@ function groupByDriver(records: DeliveryRecord[]): [string, DeliveryRecord[]][] 
 }
 
 export async function downloadAllDriversRouteSlipExcel({
-  records, date, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
-}: AllDriversRouteSlipParams): Promise<void> {
+  records, date, dateFrom, dateTo, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
+}: AllDriversRouteSlipParams, returnBlob = false): Promise<void | Blob> {
   const ExcelJS = (await import('exceljs')).default;
   const wb      = new ExcelJS.Workbook();
   const logo    = await loadLogoBase64();
   const now     = new Date();
   const year    = now.getFullYear();
-  const dateDisplay = date ? fmtDate(`${date}T12:00:00`) : fmtDate(now.toISOString());
+  const period = exportPeriod({ date, dateFrom, dateTo });
+  records = filterRouteSlipRecords(records, period);
+  const periodDisplay = routeSlipPeriodLabel(period);
   const groups = groupByDriver(records);
 
   const addSheet = (driverName: string, driverRecords: DeliveryRecord[]) => {
@@ -775,7 +781,7 @@ export async function downloadAllDriversRouteSlipExcel({
     r1.height = 48;
 
     // Row 2: Date | logo area | YR-[year] red
-    const r2 = next(['Date: ' + dateDisplay, ...E(3), '', ...E(3), `YR-${year}`, ...E(3)]);
+    const r2 = next(['Period: ' + periodDisplay, ...E(3), '', ...E(3), `YR-${year}`, ...E(3)]);
     ws.mergeCells(rn, 1, rn, 4); ws.mergeCells(rn, 5, rn, 8); ws.mergeCells(rn, 9, rn, NCOLS);
     r2.getCell(1).font = { size: 10 }; r2.getCell(1).alignment = { vertical: 'middle' };
     r2.getCell(9).font = { bold: true, size: 12, color: { argb: RED_ARGB } };
@@ -949,6 +955,7 @@ export async function downloadAllDriversRouteSlipExcel({
 
   const buffer = await wb.xlsx.writeBuffer();
   const blob   = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  if (returnBlob) return blob;
   const url    = URL.createObjectURL(blob);
   const a      = document.createElement('a');
   a.href     = url;
@@ -958,15 +965,17 @@ export async function downloadAllDriversRouteSlipExcel({
 }
 
 export async function downloadAllDriversRouteSlipPDF({
-  records, date, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
-}: AllDriversRouteSlipParams): Promise<void> {
+  records, date, dateFrom, dateTo, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
+}: AllDriversRouteSlipParams, returnBlob = false): Promise<void | Blob> {
   const { jsPDF }             = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
   const logo = await loadLogoBase64();
 
   const now         = new Date();
   const year        = now.getFullYear();
-  const dateDisplay = date ? fmtDate(`${date}T12:00:00`) : fmtDate(now.toISOString());
+  const period = exportPeriod({ date, dateFrom, dateTo });
+  records = filterRouteSlipRecords(records, period);
+  const periodDisplay = routeSlipPeriodLabel(period);
   const groups = groupByDriver(records);
 
   const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: getPdfFormat(documentSize) });
@@ -992,7 +1001,7 @@ export async function downloadAllDriversRouteSlipPDF({
       doc.text(value || ' ', x + doc.getTextWidth(label) + 1.5, y);
     };
     lv('Vehicle:', vehicle,     MARGIN, lY); lY += 5;
-    lv('Date:',    dateDisplay, MARGIN, lY); lY += 5;
+    lv('Period:',    periodDisplay, MARGIN, lY); lY += 5;
     lv('Driver:',  driverName,  MARGIN, lY); lY += 5;
     lv('Helper:',  helper,      MARGIN, lY);
 
@@ -1150,14 +1159,15 @@ export async function downloadAllDriversRouteSlipPDF({
     }
   }
 
+  if (returnBlob) return doc.output('blob');
   doc.save(`${filename}-route-slip-all-drivers-${now.toISOString().split('T')[0]}.pdf`);
 }
 
 // ─── DOCX ─────────────────────────────────────────────────────────────────────
 
 export async function downloadRouteSlipDocx({
-  records, driverName, date, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
-}: RouteSlipParams): Promise<void> {
+  records, driverName, date, dateFrom, dateTo, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
+}: RouteSlipParams, returnBlob = false): Promise<void | Blob> {
   const {
     Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, ImageRun,
     AlignmentType, WidthType, PageOrientation, VerticalAlign,
@@ -1165,7 +1175,9 @@ export async function downloadRouteSlipDocx({
 
   const now         = new Date();
   const year        = now.getFullYear();
-  const dateDisplay = date ? fmtDate(`${date}T12:00:00`) : fmtDate(now.toISOString());
+  const period = exportPeriod({ date, dateFrom, dateTo });
+  records = filterRouteSlipRecords(records, period);
+  const periodDisplay = routeSlipPeriodLabel(period);
   const vehicle     = records.find(r => r.vehicle)?.vehicle ?? '';
   const helper      = records.find(r => r.driver_assistants?.length)?.driver_assistants.join(', ') ?? '';
   const sorted = sortedRecords(records);
@@ -1230,7 +1242,7 @@ export async function downloadRouteSlipDocx({
     rows: [new TableRow({ children: [
       new TableCell({ borders: noBorders, width: { size: leftW, type: WidthType.DXA }, verticalAlign: VerticalAlign.CENTER, children: [
         new Paragraph({ children: [new TextRun({ text: `Vehicle: ${vehicle}`, bold: true, size: 18 })] }),
-        new Paragraph({ children: [new TextRun({ text: `Date: ${dateDisplay}`, size: 18 })] }),
+        new Paragraph({ children: [new TextRun({ text: `Period: ${periodDisplay}`, size: 18 })] }),
         new Paragraph({ children: [new TextRun({ text: `Driver: ${driverName}`, bold: true, size: 18 })] }),
         new Paragraph({ children: [new TextRun({ text: `Helper: ${helper}`, size: 18 })] }),
       ] }),
@@ -1310,6 +1322,7 @@ export async function downloadRouteSlipDocx({
   });
 
   const blob = await Packer.toBlob(doc);
+  if (returnBlob) return blob;
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
@@ -1319,8 +1332,8 @@ export async function downloadRouteSlipDocx({
 }
 
 export async function downloadAllDriversRouteSlipDocx({
-  records, date, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
-}: AllDriversRouteSlipParams): Promise<void> {
+  records, date, dateFrom, dateTo, preparedBy, filename, auditSets, documentSize = DEFAULT_DOCUMENT_SIZE
+}: AllDriversRouteSlipParams, returnBlob = false): Promise<void | Blob> {
   const {
     Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, ImageRun,
     AlignmentType, WidthType, PageOrientation, VerticalAlign,
@@ -1328,7 +1341,9 @@ export async function downloadAllDriversRouteSlipDocx({
 
   const now         = new Date();
   const year        = now.getFullYear();
-  const dateDisplay = date ? fmtDate(`${date}T12:00:00`) : fmtDate(now.toISOString());
+  const period = exportPeriod({ date, dateFrom, dateTo });
+  records = filterRouteSlipRecords(records, period);
+  const periodDisplay = routeSlipPeriodLabel(period);
   const groups = groupByDriver(records);
 
   const logoDataUrl = await loadLogoBase64();
@@ -1394,7 +1409,7 @@ export async function downloadAllDriversRouteSlipDocx({
       rows: [new TableRow({ children: [
         new TableCell({ borders: noBorders, width: { size: leftW, type: WidthType.DXA }, verticalAlign: VerticalAlign.CENTER, children: [
           new Paragraph({ children: [new TextRun({ text: `Vehicle: ${vehicle}`, bold: true, size: 18 })] }),
-          new Paragraph({ children: [new TextRun({ text: `Date: ${dateDisplay}`, size: 18 })] }),
+          new Paragraph({ children: [new TextRun({ text: `Period: ${periodDisplay}`, size: 18 })] }),
           new Paragraph({ children: [new TextRun({ text: `Driver: ${driverName}`, bold: true, size: 18 })] }),
           new Paragraph({ children: [new TextRun({ text: `Helper: ${helper}`, size: 18 })] }),
         ] }),
@@ -1483,10 +1498,44 @@ export async function downloadAllDriversRouteSlipDocx({
   });
 
   const blob = await Packer.toBlob(doc);
+  if (returnBlob) return blob;
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
   a.download = `${filename}-route-slip-all-drivers-${now.toISOString().split('T')[0]}.docx`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/** Resolve legacy single-day parameters without substituting a generated date. */
+function exportPeriod(params: { date?: string; dateFrom?: string; dateTo?: string }): RouteSlipPeriod {
+  return params.dateFrom !== undefined
+    ? { dateFrom: params.dateFrom, dateTo: params.dateTo }
+    : { dateFrom: params.date ?? '', dateTo: params.date };
+}
+
+export type RouteSlipFormat = 'excel' | 'pdf' | 'docx';
+
+/** Both export menus use this path: period selection and actual driver grouping stay consistent. */
+export async function downloadRouteSlipForPeriod(
+  format: RouteSlipFormat,
+  params: AllDriversRouteSlipParams & { variant?: 'current' | 'trail' },
+  returnBlob = false,
+): Promise<void | Blob> {
+  const period = exportPeriod(params);
+  const records = filterRouteSlipRecords(params.records, period);
+  const drivers = routeSlipDriverNames(records);
+  if (!drivers.length) throw new Error('No assigned-driver records match this period and the active filters.');
+  const auditSets = params.variant === 'trail' ? await fetchHistoricStatusSets(records) : params.auditSets;
+  const shared = { ...params, ...period, records, auditSets };
+  if (drivers.length === 1) {
+    const single = { ...shared, records: records.filter(record => record.driver?.trim() === drivers[0]), driverName: drivers[0] };
+    if (format === 'excel') return await downloadRouteSlipExcel(single, returnBlob);
+    if (format === 'pdf') return await downloadRouteSlipPDF(single, returnBlob);
+    if (format === 'docx') return await downloadRouteSlipDocx(single, returnBlob);
+  } else {
+    if (format === 'excel') return await downloadAllDriversRouteSlipExcel(shared, returnBlob);
+    if (format === 'pdf') return await downloadAllDriversRouteSlipPDF(shared, returnBlob);
+    if (format === 'docx') return await downloadAllDriversRouteSlipDocx(shared, returnBlob);
+  }
 }

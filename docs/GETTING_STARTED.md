@@ -1,3 +1,7 @@
+> Hosted deployment: follow the [unified deployment runbook](DEPLOYMENT.md). This guide focuses on local development.
+
+> API URL migration: all current endpoints use `/api/v1`; `/api` has no compatibility alias. See the [cutover requirements](API_V1_MIGRATION.md), including the Microsoft redirect URI update.
+
 # Getting Started
 
 > Last verified: 2026-10-09 against commit `ccbf192` (`dev`).
@@ -10,7 +14,7 @@ in Docker on port `5433`.
 ## Prerequisites
 
 - Git
-- Node.js 20 (the version used by CI; see `.github/workflows/ci.yml`) and npm
+- A supported Node.js LTS release and npm. CI currently pins Node 20, which is EOL; align and validate runtime/CI versions before a hosted release (see [runtime prerequisites](DEPLOYMENT.md#2-release-prerequisites))
 - Docker Desktop (Windows) or Docker Engine with the Compose plugin (Linux)
 
 Check the installed tools:
@@ -117,7 +121,7 @@ database rather than accepting an automatic reset.
 
 ### Secure local seed and reset policy (TSK-122)
 
-Anonymous `POST /api/dev/public-seed` and `POST /api/dev/public-seed-uat`
+Anonymous `POST /api/v1/dev/public-seed` and `POST /api/v1/dev/public-seed-uat`
 endpoints do not exist. Destructive seed/reset operations are always denied in
 staging, production, CI and recognized cloud deployments.
 
@@ -178,9 +182,14 @@ npm run dev
 
 This starts both workspaces:
 
-- Frontend: <http://localhost:3000> (Vite proxies `/api/*` to port 4000)
+- Frontend: <http://localhost:3000> (Vite proxies `/api/v1/*` to port 4000)
 - Backend API: <http://localhost:4000>
-- Health check: <http://localhost:4000/api/health>
+- Health check: <http://localhost:4000/api/v1/health>
+
+Readiness returns HTTP 200 with `{"ok":true}`, or HTTP 503 with
+`{"ok":false}`, and disables response caching. For mailer/configuration
+diagnostics, sign in as Admin and open Integrations or the protected deployment
+check; the public response contains no diagnostic details.
 
 To run them separately, use `npm run dev --workspace=server` and
 `npm run dev --workspace=client` in two terminals.
@@ -270,12 +279,12 @@ intended database and `public` schema.
 
 ### Cloudflare deployment
 
-See the [Cloudflare deployment guide](./CLOUDFLARE_DEPLOYMENT.md).
+Start with the [unified deployment runbook](./DEPLOYMENT.md); [Cloudflare details](./CLOUDFLARE_DEPLOYMENT.md) cover the Pages/Worker distinction.
 
 ### Frontend cannot reach the backend
 
 Make sure the backend is running on port `4000` and open
-<http://localhost:4000/api/health>. Check the backend terminal for errors.
+<http://localhost:4000/api/v1/health>. Check the backend terminal for errors.
 
 ### Port already in use
 

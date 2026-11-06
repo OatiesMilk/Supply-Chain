@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { FileDown, FileSpreadsheet, FileText, ChevronDown, Loader2, Route, Clock, History } from 'lucide-react';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '../utils/documentSize';
 import DocumentSizeSelect from './DocumentSizeSelect';
@@ -16,14 +16,18 @@ import {
   downloadAllOpsExcel,
   downloadAllOpsPDF,
 } from '../utils/allOpsExport';
-import { downloadRouteSlipExcel, downloadRouteSlipPDF, downloadRouteSlipDocx } from '../utils/routeSlip';
+import { downloadRouteSlipForPeriod } from '../utils/routeSlip';
+import { filterRouteSlipRecords, routeSlipDriverNames, routeSlipSelectionError } from '../utils/routeSlipPeriod';
+import RouteSlipPeriodFields, { type RouteSlipPeriodFieldsProps } from './RouteSlipPeriodFields';
 import { downloadDocx } from '../utils/exportDocx';
 import { DeliveryRecord } from '../types';
+import ExportPreviewDialog, { type ExportPreviewFormat } from './ExportPreviewDialog';
+import { downloadBlob } from '../utils/downloadBlob';
 
 interface RouteSlipProps {
   records: DeliveryRecord[];
-  driverName: string;
-  date: string;
+  dateFrom: string;
+  dateTo?: string;
   preparedBy: string;
 }
 
@@ -39,6 +43,7 @@ interface Props {
   pdfPortrait?: boolean;
   summary?: AllOpsSummary;
   routeSlipProps?: RouteSlipProps;
+  routeSlipPeriodFields?: RouteSlipPeriodFieldsProps;
   statusHistoryCounts?: StatusHistoryCounts;
   totalCount?: number;
   fetchExportData?: () => Promise<{
@@ -64,6 +69,7 @@ export default function ExportMenu({
   pdfPortrait = false,
   summary,
   routeSlipProps,
+  routeSlipPeriodFields,
   statusHistoryCounts,
   totalCount,
   fetchExportData,
@@ -71,7 +77,21 @@ export default function ExportMenu({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState<LoadingKey | null>(null);
   const [docSize, setDocSize] = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
+  const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{
+    format: Format;
+    variant: Variant;
+    rows: Record<string, string | number | null | undefined>[];
+    columns: ExportColumn[];
+    title: string;
+    fileBlob: Blob;
+    fileName: string;
+    statusHistoryCounts?: StatusHistoryCounts;
+    summary?: AllOpsSummary;
+  } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const periodError = routeSlipProps && routeSlipPeriodFields ? routeSlipSelectionError(routeSlipPeriodFields.selection) : null;
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -84,7 +104,10 @@ export default function ExportMenu({
   const hasTrail = !!statusHistoryCounts;
 
   const run = async (fmt: Format, variant: Variant) => {
+    if (fmt !== 'csv' && periodError) return;
+    setError(null);
     setOpen(false);
+    triggerRef.current?.focus();
     const key: LoadingKey = `${fmt}-${variant}`;
     setLoading(key);
     const hist = variant === 'trail' ? statusHistoryCounts : undefined;
@@ -99,31 +122,52 @@ export default function ExportMenu({
         if (fetched.routeSlipProps) exportRouteSlip = fetched.routeSlipProps;
       }
 
+      const summaryTitle = pdfTitle.replace(/ records?$/i, '') + ' — Comprehensive Report';
+      const title = exportRouteSlip ? 'Courier/Daily Route Slip Report' : exportSummary && fmt === 'pdf' ? summaryTitle : pdfTitle;
+      const previewColumns = fmt === 'pdf' ? pdfColumns ?? columns : columns;
+      let fileBlob: Blob;
       if (exportRouteSlip && fmt !== 'csv') {
-        const rsParams = { ...exportRouteSlip, filename, documentSize: docSize };
-        if (fmt === 'excel') await downloadRouteSlipExcel(rsParams);
-        if (fmt === 'pdf')   await downloadRouteSlipPDF(rsParams);
-        if (fmt === 'docx')  await downloadRouteSlipDocx(rsParams);
-      } else if (exportSummary) {
-        const summaryTitle = pdfTitle.replace(/ records?$/i, '') + ' — Comprehensive Report';
-        if (fmt === 'csv')   downloadAllOpsCSV(exportRows, columns, filename, meta, exportSummary, summaryTitle, hist);
-        if (fmt === 'excel') await downloadAllOpsExcel(exportRows, columns, filename, meta, exportSummary, summaryTitle, hist, docSize);
-        if (fmt === 'pdf')   await downloadAllOpsPDF(exportRows, pdfColumns ?? columns, filename, meta, exportSummary, summaryTitle, hist, docSize);
-        if (fmt === 'docx')  await downloadDocx(exportRows, columns, pdfTitle, filename, meta, exportSummary, summaryTitle, hist, docSize);
+        fileBlob = await downloadRouteSlipForPeriod(fmt, { ...exportRouteSlip, filename, documentSize: docSize, variant }, true) as Blob;
+      } else if (fmt === 'csv') {
+        fileBlob = exportSummary
+          ? downloadAllOpsCSV(exportRows, columns, filename, meta, exportSummary, summaryTitle, hist, true) as Blob
+          : downloadCSV(exportRows, columns, filename, meta, hist, true) as Blob;
+      } else if (fmt === 'excel') {
+        fileBlob = exportSummary
+          ? await downloadAllOpsExcel(exportRows, columns, filename, meta, exportSummary, summaryTitle, hist, docSize, true) as Blob
+          : await downloadExcel(exportRows, columns, sheetName, filename, meta, hist, docSize, true) as Blob;
+      } else if (fmt === 'pdf') {
+        fileBlob = exportSummary
+          ? await downloadAllOpsPDF(exportRows, previewColumns, filename, meta, exportSummary, summaryTitle, hist, docSize, true) as Blob
+          : await downloadPDF(exportRows, previewColumns, pdfTitle, filename, meta, !pdfPortrait, hist, docSize, true) as Blob;
       } else {
-        if (fmt === 'csv')   downloadCSV(exportRows, columns, filename, meta, hist);
-        if (fmt === 'excel') await downloadExcel(exportRows, columns, sheetName, filename, meta, hist, docSize);
-        if (fmt === 'pdf')   await downloadPDF(exportRows, pdfColumns ?? columns, pdfTitle, filename, meta, !pdfPortrait, hist, docSize);
-        if (fmt === 'docx')  await downloadDocx(exportRows, columns, pdfTitle, filename, meta, undefined, undefined, hist, docSize);
+        fileBlob = exportSummary
+          ? await downloadDocx(exportRows, columns, pdfTitle, filename, meta, exportSummary, summaryTitle, hist, docSize, true) as Blob
+          : await downloadDocx(exportRows, columns, pdfTitle, filename, meta, undefined, undefined, hist, docSize, true) as Blob;
       }
+      const dateStamp = new Date().toISOString().split('T')[0];
+      const routeSlipSingleDriver = exportRouteSlip && routeSlipDriverNames(filterRouteSlipRecords(exportRouteSlip.records, {
+        dateFrom: exportRouteSlip.dateFrom,
+        dateTo: exportRouteSlip.dateTo,
+      })).length === 1;
+      const routeSlipSuffix = routeSlipSingleDriver ? '-route-slip' : '-route-slip-all-drivers';
+      const extension = fmt === 'excel' ? 'xlsx' : fmt;
+      const fileName = exportRouteSlip
+        ? `${filename}${routeSlipSuffix}-${dateStamp}.${extension}`
+        : `${filename}-${dateStamp}.${extension}`;
+      setPreview({ format: fmt, variant, rows: exportRows, columns: previewColumns, title, fileBlob, fileName, statusHistoryCounts: hist, summary: exportSummary });
     } catch (err) {
-      console.error('Export failed:', err);
+      setError(err instanceof Error ? err.message : 'Export failed. Please try again.');
     } finally {
       setLoading(null);
     }
   };
 
   const isLoading = loading !== null;
+  const closePreview = useCallback(() => setPreview(null), []);
+  const downloadPreview = useCallback(async () => {
+    if (preview) downloadBlob(preview.fileBlob, preview.fileName);
+  }, [preview]);
   const loadingLabel = loading
     ? (() => { const [fmt] = loading.split('-') as [Format, Variant]; return fmt.toUpperCase(); })()
     : '';
@@ -132,7 +176,8 @@ export default function ExportMenu({
     <button
       key={`${fmt}-${variant}`}
       onClick={() => run(fmt, variant)}
-      className={`w-full flex items-center gap-2.5 px-3.5 py-1.5 text-[11px] font-bold transition-colors cursor-pointer ${color}`}
+      disabled={fmt !== 'csv' && Boolean(periodError)}
+      className={`w-full flex items-center gap-2.5 px-3.5 py-1.5 text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${color}`}
     >
       {icon} {label}
     </button>
@@ -149,8 +194,12 @@ export default function ExportMenu({
   const pdfLabel   = routeSlipProps ? 'Route Slip — PDF' : 'Export PDF';
 
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative" ref={ref} onKeyDown={event => {
+      if (event.key === 'Escape') { event.preventDefault(); setOpen(false); triggerRef.current?.focus(); }
+    }}>
       <button
+        ref={triggerRef}
+        aria-expanded={open}
         onClick={() => !isLoading && setOpen(o => !o)}
         disabled={isLoading}
         className="flex items-center gap-1.5 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-600 text-[11px] font-bold uppercase tracking-wider px-3 py-2 rounded-lg transition-all cursor-pointer disabled:opacity-60 shadow-xs"
@@ -164,7 +213,8 @@ export default function ExportMenu({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg p-3 min-w-[220px]">
+        <div className={`absolute right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg p-3 ${routeSlipProps ? 'w-80 max-w-[calc(100vw-2rem)]' : 'min-w-[220px]'}`}>
+          {routeSlipProps && routeSlipPeriodFields && <RouteSlipPeriodFields {...routeSlipPeriodFields} />}
           <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={isLoading} />
           <div className="flex flex-col -mx-3">
             {hasTrail ? (
@@ -207,6 +257,22 @@ export default function ExportMenu({
           </div>
         </div>
       )}
+      {error && <p role="alert" className="absolute right-0 top-full mt-1 z-30 bg-red-50 border border-red-200 rounded-lg p-3 w-80 max-w-[calc(100vw-2rem)] text-xs text-red-700">{error}</p>}
+      {preview && <ExportPreviewDialog
+        format={preview.format as ExportPreviewFormat}
+        variant={preview.variant}
+        rows={preview.rows}
+        columns={preview.columns}
+        meta={meta}
+        title={preview.title}
+        documentSize={docSize}
+        statusHistoryCounts={preview.statusHistoryCounts}
+        summary={preview.summary}
+        excelBlob={preview.format === 'excel' ? preview.fileBlob : undefined}
+        fileBlob={preview.fileBlob}
+        onClose={closePreview}
+        onDownload={downloadPreview}
+      />}
     </div>
   );
 }

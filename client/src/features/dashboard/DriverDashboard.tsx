@@ -1,4 +1,7 @@
-import { useState, useCallback } from "react";
+import RecordStatus from '@/components/RecordStatus';
+import { usePermissions } from '@/hooks/usePermissions';
+import RmaWorkflowPanel from '@/features/deliveries/RmaWorkflowPanel';
+import { useState, useCallback, type ReactNode } from "react";
 import {
   CheckCircle,
   MapPin,
@@ -7,7 +10,6 @@ import {
   Navigation,
   Clock,
   UserCheck,
-  LogOut,
   X,
   Loader2
 } from "lucide-react";
@@ -15,19 +17,28 @@ import { DeliveryRecord, DeliveryStatus } from "@/types";
 import PodUploader from "@/components/PodUploader";
 import { completionError, type PodReadiness } from "@/utils/podRequirement";
 
-import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
+import { useRecordTimeInMutation, usePagedRecordsQuery } from '@/api/queries/useRecordsQuery';
+import { useDriverOverviewQuery, useClampRecordPage } from '@/api/queries/useOperationalViews';
+import RecordPageControls from '@/components/RecordPageControls';
 import { canRecordTimeIn, dashboardRunDaysLate, deliveryScheduleState, hasValidRunTimeIn, isDashboardRunActionable, isDraftRecord, manilaToday } from '@/utils/recordLifecycle';
 import DoneRecordModal from "./DoneRecordModal";
 import { uploadStagedFiles } from '@/api/queries/usePodAttachments';
 import { useQueryClient } from '@tanstack/react-query';
 import { notify } from '@/utils/notify';
+import AccountMenu from '@/layouts/AccountMenu';
 
 interface DriverDashboardProps {
   records: DeliveryRecord[];
   currentUserName: string;
+  currentUserEmail: string;
+  canManageAdmin: boolean;
+  onNavigate: (screen: string) => void;
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   onLogout: () => void;
   dataLoading: boolean;
+  serverPaging?: boolean;
+  queueControls?: ReactNode;
+  dashboardCounts?: { today: number; remaining: number; completed: number; rma_active: number; rma_completed: number };
 }
 
 const STATUS_VERB: Record<string, string> = {
@@ -44,17 +55,65 @@ function fmtTime(iso: string) {
   });
 }
 
-export default function DriverDashboard({
+function isManilaDate(iso: string | null | undefined, targetDate: string): boolean {
+  if (!iso) return false;
+  const timestamp = new Date(iso);
+  if (Number.isNaN(timestamp.getTime())) return false;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(timestamp);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value ?? '';
+  return `${part('year')}-${part('month')}-${part('day')}` === targetDate;
+}
+
+export default function DriverDashboard(props: DriverDashboardProps) {
+  return props.serverPaging ? <PagedDriverDashboard {...props} /> : <DriverDashboardContent {...props} />;
+}
+function PagedDriverDashboard(props: DriverDashboardProps) {
+  const [page, setPage] = useState(1);
+  const [queue, setQueue] = useState<'active' | 'completed'>('active');
+  const query = usePagedRecordsQuery({ view: 'driver_dashboard', queue, page, limit: 25 });
+  const overview = useDriverOverviewQuery();
+  useClampRecordPage(page, query.data?.total, setPage);
+  const queueControls = <section aria-label="Run queues" className="mb-5 space-y-3">
+    <nav className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-sm sm:grid-cols-2" aria-label="Run queues">
+      {(['active', 'completed'] as const).map(value => <button key={value} type="button" aria-pressed={queue === value}
+        onClick={() => { setQueue(value); setPage(1); }}
+        className={`min-h-11 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] ${queue === value ? 'bg-[#1F3864] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+        {value === 'active' ? 'Active work' : 'Completed today / RMA awaiting receipt'}
+      </button>)}
+    </nav>
+    <RecordPageControls page={page} total={query.data?.total ?? 0} onPageChange={setPage} loading={query.isPending}
+      error={query.error} retry={() => { void query.refetch(); void overview.refetch(); }} />
+  </section>;
+
+  return <DriverDashboardContent {...props} records={query.data?.rows ?? []} dashboardCounts={overview.data?.dashboard}
+    dataLoading={query.isPending} queueControls={queueControls} />;
+}
+function DriverDashboardContent({
   records,
   currentUserName,
+  currentUserEmail,
+  canManageAdmin,
+  onNavigate,
   onUpdateRecord,
   onLogout,
-  dataLoading,
+  dataLoading, dashboardCounts, queueControls,
 }: DriverDashboardProps) {
+  const access = usePermissions();
   const today = manilaToday();
   const timeInMutation = useRecordTimeInMutation();
   const queryClient = useQueryClient();
-  records = records.filter(record => !isDraftRecord(record));
+  records = records.filter(record => access.canRecord(record.category) && !isDraftRecord(record));
+  const allRmaTransportRecords = records.filter(record => record.category === 'RMA' && record.rma_movement === 'LOGISTICS_TRANSPORT');
+  const completedRmaIds = new Set(allRmaTransportRecords
+    .filter(record => record.rma_transport_status === 'COMPLETED'
+      ? record.status !== 'Delivered' || isManilaDate(record.rma_transport_completed_at ?? record.rma_completed_at, today)
+      : record.status === 'Delivered' && isManilaDate(record.rma_completed_at, today))
+    .map(record => record.id));
+  const activeRmaRecords = allRmaTransportRecords.filter(record => record.status !== 'Delivered' && record.rma_transport_status !== 'COMPLETED');
+  records = records.filter(record => record.category !== 'RMA' || completedRmaIds.has(record.id));
+  const accessibleRecords = [...records, ...activeRmaRecords];
   const todayLabel = new Date().toLocaleDateString("en-PH", {
     timeZone: "Asia/Manila",
     weekday: "long",
@@ -84,18 +143,22 @@ export default function DriverDashboard({
     ? completionError(pendingAction.rec, pendingAction.status, receivedByInputs[pendingAction.rec.id] ?? pendingAction.rec.received_by, podStates[pendingAction.rec.id])
     : null;
 
-  // The server returns all assigned non-draft records. Deliveries use the latest
-  // saved date: overdue runs are actionable, while future unstarted runs are read-only.
-  const todayRecs = records.filter((r) => r.delivery_date === today);
+  // The server returns the linked Driver's assigned non-draft records. Every
+  // non-RMA category keeps overdue and started runs active across Manila midnight.
+  const todayRecs = accessibleRecords.filter((r) => r.delivery_date === today);
   const actionableRecs = records.filter(record => isDashboardRunActionable(record, today));
   const activeRecs = actionableRecs.filter((r) => r.status !== "Delivered");
-  const doneRecs = records.filter((r) => r.status === "Delivered" &&
-    (r.category === 'Deliveries'
+  const activeWorkRecords = [...activeRecs, ...activeRmaRecords]
+    .sort((a, b) => a.delivery_date.localeCompare(b.delivery_date));
+  const accomplishedRecords = records.filter(r => r.category === 'RMA'
+    ? completedRmaIds.has(r.id)
+    : r.status === 'Delivered' && (dashboardCounts ? true : r.category === 'Deliveries'
       ? r.delivery_date === today || !!r.completed_late || (deliveryScheduleState(r.delivery_date, today).future && hasValidRunTimeIn(r.time_in))
       : r.delivery_date === today));
-  const runsInScope = activeRecs.length + doneRecs.length;
+  const recordsInScope = activeWorkRecords.length + accomplishedRecords.length;
 
   const handleTimeIn = (rec: DeliveryRecord) => {
+    if (!access.canRecord(rec.category, 'TIME_IN')) return;
     setPendingAction({ rec, status: "In Transit" });
     setRemarksInput("");
     setSaveFeedback(null);
@@ -106,6 +169,7 @@ export default function DriverDashboard({
     status: DeliveryStatus,
     remarks: string,
   ) => {
+    if (!access.canRecord(rec.category, 'STATUS') || status === 'Delivered' && !access.canRecord(rec.category, 'COMPLETE')) throw new Error('This action is no longer available for your account.');
     const extra =
       status === "Delivered"
         ? {
@@ -119,96 +183,77 @@ export default function DriverDashboard({
     } as any);
   };
 
-  const statusBadge = (status: DeliveryStatus) => {
-    switch (status) {
-      case "Delivered":
-        return "bg-emerald-100 text-emerald-700 border-emerald-200";
-      case "Pending":
-        return "bg-amber-100 text-amber-700 border-amber-200";
-      case "Rescheduled":
-        return "bg-purple-100 text-purple-700 border-purple-200";
-      case "On-Hold":
-        return "bg-red-100 text-red-700 border-red-200";
-      default:
-        return "bg-blue-100 text-blue-700 border-blue-200";
-    }
-  };
 
   return (
-    <div className="min-h-screen bg-[#F0F4F8] flex flex-col">
-      {/* Header */}
-      <div className="bg-[#1F3864] text-white px-4 pt-10 pb-5 shadow-lg">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <p className="text-[10px] font-bold tracking-widest uppercase text-blue-200">
-              Microgenesis Field Mobile
-            </p>
-            <h1 className="text-lg font-black leading-tight">
-              {currentUserName}
-            </h1>
-            <p className="text-[11px] text-blue-200 mt-0.5">{todayLabel}</p>
+    <div className="min-h-screen bg-[#F8F9FB] font-sans text-slate-800">
+      <header className="h-16 border-b border-slate-200 bg-white">
+        <div className="mx-auto flex h-full max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+          <div className="min-w-0">
+            <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500">Microgenesis Field Mobile</p>
+            <h1 className="truncate text-sm font-semibold text-slate-900 sm:text-base">Driver dashboard</h1>
           </div>
-          <button
-            onClick={onLogout}
-            className="flex items-center gap-1.5 text-[10px] font-bold text-white/70 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg transition-colors cursor-pointer"
-          >
-            <LogOut className="w-3.5 h-3.5" /> Log Out
-          </button>
+          <div className="flex shrink-0 items-center gap-3">
+            <p className="hidden text-sm text-slate-600 sm:block">{currentUserName} · {todayLabel}</p>
+            <AccountMenu name={currentUserName} email={currentUserEmail} role="Driver"
+              canManageAdmin={canManageAdmin} onNavigate={onNavigate} onLogout={onLogout} />
+          </div>
         </div>
+      </header>
 
-        {/* Stats strip */}
-        <div className="grid grid-cols-3 gap-3 mt-3">
+      <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+        <section aria-label="Driver summary" className="mb-5 grid grid-cols-3 gap-2 sm:gap-3">
           {[
             {
               label: "Today's Runs",
-              value: todayRecs.length,
-              color: "text-white",
+              value: dashboardCounts?.today ?? todayRecs.length,
+              color: "text-[#1F3864]",
             },
             {
               label: "Accomplished",
-              value: doneRecs.length,
-              color: "text-emerald-300",
+              value: dashboardCounts ? dashboardCounts.completed + dashboardCounts.rma_completed : accomplishedRecords.length,
+              color: "text-emerald-700",
             },
             {
               label: "Remaining",
-              value: activeRecs.length,
-              color: "text-amber-300",
+              value: dashboardCounts ? dashboardCounts.remaining + dashboardCounts.rma_active : activeWorkRecords.length,
+              color: "text-amber-700",
             },
           ].map((s) => (
             <div
               key={s.label}
-              className="bg-white/10 rounded-xl px-3 py-2.5 text-center"
+              className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-3 text-center shadow-sm sm:px-4"
             >
-              <p className={`text-xl font-black ${s.color}`}>{s.value}</p>
-              <p className="text-[9px] text-blue-200 font-bold uppercase tracking-wider mt-0.5">
+              <p className={`text-xl font-bold sm:text-2xl ${s.color}`}>{s.value}</p>
+              <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 sm:text-xs">
                 {s.label}
               </p>
             </div>
           ))}
-        </div>
-      </div>
+        </section>
+
+        {queueControls}
 
       {saveFeedback && !pendingAction && (
-        <div className="px-4 py-3 pb-0">
-          <div role="alert" className={`rounded-xl border p-3 text-xs font-semibold shadow-sm ${saveFeedback.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : saveFeedback.type === 'info' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
+        <div className="mb-4">
+          <div role="alert" className={`rounded-xl border p-3 text-sm font-semibold shadow-sm ${saveFeedback.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : saveFeedback.type === 'info' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
             {saveFeedback.message}
           </div>
         </div>
       )}
 
       {/* Body */}
-      <div className="flex-1 px-4 py-5 space-y-4 max-w-lg mx-auto w-full">
+      <div className="space-y-4">
         {dataLoading && (
-          <div className="flex items-center justify-center gap-2 py-6 text-slate-400 text-xs">
+          <div role="status" className="flex min-h-20 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-6 text-sm text-slate-600 shadow-sm">
             <Loader2 className="w-4 h-4 animate-spin" /> Loading runs…
           </div>
         )}
 
-        {!dataLoading && runsInScope === 0 && (
+        {!dataLoading && recordsInScope === 0 && (
           <div className="text-center py-16 text-slate-400">
             <CheckCircle className="w-10 h-10 mx-auto mb-3 text-emerald-400" />
             <p className="font-bold text-slate-600">
-              No runs ready for execution today.
+              {dashboardCounts ? 'No records in this queue.' : 'No runs ready for execution today.'}
             </p>
             <p className="text-xs mt-1">
               Check back later or contact Logistics.
@@ -216,244 +261,198 @@ export default function DriverDashboard({
           </div>
         )}
 
-        {/* Active records */}
-        {activeRecs.map((rec) => {
-          const daysLate = dashboardRunDaysLate(rec, today);
-          const futureStarted = rec.category === 'Deliveries' && deliveryScheduleState(rec.delivery_date, today).future && hasValidRunTimeIn(rec.time_in);
-          return (
-            <div
-              key={rec.id}
-              className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden"
-            >
-              {/* Card header */}
-              <div className="bg-slate-50 border-b border-slate-100 px-4 py-3 flex items-center justify-between">
-                <div>
-                  <p className="font-mono text-[10px] text-slate-400">
-                    {rec.reference}
-                  </p>
-                  <p className="font-black text-sm text-slate-900 leading-tight">
-                    {rec.company_name}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  {daysLate > 0 && rec.category === 'Deliveries' && (
-                    <span className="px-2 py-0.5 rounded-full border border-rose-200 bg-rose-50 text-[9px] font-bold text-rose-700">
-                      Overdue · {daysLate} day{daysLate === 1 ? '' : 's'} late
+        {activeWorkRecords.length > 0 && <section aria-label="Active work" className="space-y-3">
+          <h2 className="text-sm font-semibold text-slate-700">Active work ({activeWorkRecords.length})</h2>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {activeWorkRecords.map(rec => {
+              const isRma = rec.category === 'RMA';
+              const categoryLabel = isRma ? 'RMA transport' : rec.category === 'Deliveries' ? 'Delivery' : rec.category;
+              const recordLabel = isRma ? rec.rma_reference || rec.reference || rec.id : rec.reference || rec.id;
+              const daysLate = dashboardRunDaysLate(rec, today);
+              const futureStarted = !isRma && deliveryScheduleState(rec.delivery_date, today).future && hasValidRunTimeIn(rec.time_in);
+              return <article
+                aria-label={`Active ${categoryLabel.toLowerCase()} ${recordLabel}`}
+                key={rec.id}
+                className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3 sm:items-center">
+                  <div className="min-w-0">
+                    <p className="break-all font-mono text-[11px] text-slate-500">{recordLabel}</p>
+                    <p className="mt-0.5 break-words text-sm font-semibold leading-snug text-slate-900">{rec.company_name}</p>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                    <span className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${isRma ? 'border-violet-200 bg-violet-50 text-violet-700' : 'border-blue-200 bg-blue-50 text-blue-700'}`}>
+                      {categoryLabel}
                     </span>
-                  )}
-                  {futureStarted && (
-                    <span className="px-2 py-0.5 rounded-full border border-blue-200 bg-blue-50 text-[9px] font-bold text-blue-700">Started</span>
-                  )}
-                  <span className={`px-2 py-0.5 rounded-full border text-[9px] font-bold uppercase tracking-wider ${statusBadge(rec.status)}`}>
-                    {rec.status}
-                  </span>
-                </div>
-              </div>
-
-              <div className="px-4 py-3 space-y-3">
-                <div className="flex items-start gap-4 text-xs text-slate-500">
-                  <p className="flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5 text-red-400 shrink-0" />
-                    {rec.area}
-                  </p>
-                  {rec.item_description && (
-                    <p className="flex items-center gap-1.5">
-                      <Package className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      {rec.item_description.slice(0, 40)}
-                      {rec.item_description.length > 40 ? "…" : ""}
-                    </p>
-                  )}
+                    {daysLate > 0 && !isRma && <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700">Overdue · {daysLate} day{daysLate === 1 ? '' : 's'} late</span>}
+                    {futureStarted && <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700">Started</span>}
+                    <RecordStatus record={rec} compact={isRma} />
+                  </div>
                 </div>
 
-                {/* ePOD flow */}
-                <div className="space-y-2.5 border-t border-slate-100 pt-3">
-                  {/* Step 1: Time In */}
-                  {!rec.time_in ? (
-                    <button
-                      onClick={() => handleTimeIn(rec)}
-                      disabled={saving || !canRecordTimeIn(rec)}
-                      className="w-full py-2.5 rounded-xl font-bold text-xs tracking-wide uppercase bg-blue-600 hover:bg-blue-700 text-white transition-all flex items-center justify-center gap-2"
-                    >
-                      <Clock className="w-4 h-4" /> Record Time In
-                    </button>
-                  ) : (
-                    <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-xs text-blue-700 font-bold">
-                      <Clock className="w-4 h-4 text-blue-500 shrink-0" />
-                      Time In recorded: {fmtTime(rec.time_in)}
+                <div className="space-y-3 px-4 py-3">
+                  <div className="flex min-w-0 flex-wrap items-start gap-x-4 gap-y-2 text-sm text-slate-600">
+                    <p className="flex min-w-0 items-center gap-1.5 break-words"><MapPin aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-red-400" />{rec.area || 'Area not set'}</p>
+                    <p className="flex items-center gap-1.5 text-xs text-slate-500"><Clock aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />Due {rec.delivery_date || 'date not set'}</p>
+                    {rec.item_description && <p className="flex min-w-0 items-center gap-1.5 break-words"><Package aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-slate-400" />{rec.item_description.slice(0, 40)}{rec.item_description.length > 40 ? '…' : ''}</p>}
+                  </div>
+
+                  {isRma ? <RmaWorkflowPanel record={rec} currentUserRole="Driver" embedded /> : (
+                    <div className="space-y-2.5 border-t border-slate-100 pt-3">
+                      {!rec.time_in ? (
+                        <button
+                          onClick={() => handleTimeIn(rec)}
+                          aria-label="Record Time In — Start transport"
+                          disabled={saving || !access.canRecord(rec.category, 'TIME_IN') || !canRecordTimeIn(rec)}
+                          className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#0078C1] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1F3864] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Clock aria-hidden="true" className="h-4 w-4" /> Start transport
+                        </button>
+                      ) : <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700">
+                        <Clock aria-hidden="true" className="h-4 w-4 shrink-0 text-blue-500" />Transport started: {fmtTime(rec.time_in)}
+                      </div>}
+
+                      <PodUploader recordId={rec.id} required disabled={saving} onReadinessChange={onPodReadinessChange} />
+
+                      <div className="space-y-1">
+                        <label className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                          <UserCheck aria-hidden="true" className="h-3.5 w-3.5" />Received By *
+                        </label>
+                        <input
+                          type="text"
+                          value={receivedByInputs[rec.id] ?? rec.received_by ?? ''}
+                          onChange={event => setReceivedByInputs(previous => ({ ...previous, [rec.id]: event.target.value }))}
+                          placeholder="Name of person who received the item…"
+                          className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#0078C1] focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30"
+                        />
+                      </div>
+
+                      {completionError(rec, 'Delivered', receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id]) && <p className="text-xs text-slate-600">{completionError(rec, 'Delivered', receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}</p>}
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          onClick={() => { setPendingAction({ rec, status: 'Delivered' }); setRemarksInput(''); setSaveFeedback(null); }}
+                          disabled={saving || !access.canRecord(rec.category, 'COMPLETE') || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes('Delivered') || !!completionError(rec, 'Delivered', receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}
+                          className="flex min-h-11 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg bg-emerald-700 px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        ><CheckCircle aria-hidden="true" className="h-4 w-4" />Accomplish</button>
+                        <button
+                          onClick={() => { setPendingAction({ rec, status: 'Pending' }); setRemarksInput(''); setSaveFeedback(null); }}
+                          disabled={saving || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes('Pending')}
+                          className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg bg-amber-600 px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        ><Navigation aria-hidden="true" className="h-4 w-4" />Pending</button>
+                        <button
+                          onClick={() => { setPendingAction({ rec, status: 'Rescheduled' }); setRemarksInput(''); setSaveFeedback(null); }}
+                          disabled={saving || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes('Rescheduled')}
+                          className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg bg-[#1F3864] px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-[#0078C1] disabled:cursor-not-allowed disabled:opacity-50"
+                        ><RefreshCw aria-hidden="true" className="h-4 w-4" />Reschedule</button>
+                      </div>
                     </div>
                   )}
-
-                  {/* Step 2: Proof of Delivery */}
-                  <PodUploader recordId={rec.id} required disabled={saving} onReadinessChange={onPodReadinessChange} />
-
-                  {/* Receiver name is required for completion. */}
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                      <UserCheck className="w-3.5 h-3.5" /> Received By *
-                    </label>
-                    <input
-                      type="text"
-                      value={receivedByInputs[rec.id] ?? rec.received_by ?? ""}
-                      onChange={(e) =>
-                        setReceivedByInputs((prev) => ({
-                          ...prev,
-                          [rec.id]: e.target.value,
-                        }))
-                      }
-                      placeholder="Name of person who received the item…"
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
-                    />
-                  </div>
-
-                  {completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id]) && <p className="text-xs text-slate-600">{completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}</p>}
-                  {/* Step 3: Status buttons */}
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      onClick={() => {
-                        setPendingAction({ rec, status: "Delivered" });
-                        setRemarksInput("");
-                        setSaveFeedback(null);
-                      }}
-                      disabled={saving || !(rec.allowed_statuses ?? []).includes("Delivered") || !!completionError(rec, "Delivered", receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}
-                      className="disabled:opacity-40 disabled:cursor-not-allowed py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-emerald-600 hover:bg-emerald-700 text-white transition-all flex flex-col items-center gap-1 cursor-pointer"
-                    >
-                      <CheckCircle className="w-4 h-4" /> Accomplish
-                    </button>
-                    <button
-                      onClick={() => {
-                        setPendingAction({ rec, status: "Pending" });
-                        setRemarksInput("");
-                        setSaveFeedback(null);
-                      }}
-                      disabled={saving || !(rec.allowed_statuses ?? []).includes("Pending")}
-                      className="disabled:opacity-40 py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-amber-500 hover:bg-amber-600 text-white transition-all flex flex-col items-center gap-1"
-                    >
-                      <Navigation className="w-4 h-4" /> Pending
-                    </button>
-                    <button
-                      onClick={() => {
-                        setPendingAction({ rec, status: "Rescheduled" });
-                        setRemarksInput("");
-                        setSaveFeedback(null);
-                      }}
-                      disabled={saving || !(rec.allowed_statuses ?? []).includes("Rescheduled")}
-                      className="disabled:opacity-40 py-2.5 rounded-xl font-bold text-[10px] tracking-wide uppercase bg-purple-500 hover:bg-purple-600 text-white transition-all flex flex-col items-center gap-1"
-                    >
-                      <RefreshCw className="w-4 h-4" /> Reschedule
-                    </button>
-                  </div>
                 </div>
-              </div>
-            </div>
-          );
-        })}
+              </article>;
+            })}
+          </div>
+        </section>}
 
         {/* Completed records */}
-        {doneRecs.length > 0 && (
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-px bg-slate-200" />
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                Accomplished ({doneRecs.length})
-              </p>
-              <div className="flex-1 h-px bg-slate-200" />
-            </div>
-            {doneRecs.map((rec) => (
-              <button
+        {accomplishedRecords.length > 0 && (
+          <section aria-label="Accomplished records" className="space-y-3">
+            <h2 className="text-sm font-semibold text-slate-700">Accomplished ({accomplishedRecords.length})</h2>
+            {accomplishedRecords.map(rec => {
+              const isRma = rec.category === 'RMA';
+              const categoryLabel = isRma ? 'RMA transport' : rec.category === 'Deliveries' ? 'Delivery' : rec.category;
+              const recordLabel = isRma ? rec.rma_reference || rec.reference || rec.id : rec.reference || rec.id;
+              const startedAt = isRma ? rec.rma_transport_started_at : rec.time_in;
+              const finishedAt = isRma ? rec.rma_transport_completed_at ?? rec.rma_completed_at : rec.time_out;
+              const waitingTass = isRma && rec.status !== 'Delivered';
+              const completionBadge = waitingTass
+                ? rec.rma_received_at ? 'Awaiting TASS completion' : 'Awaiting TASS receipt'
+                : isRma ? 'RMA complete' : 'Done';
+              return <button
                 type="button"
                 key={rec.id}
                 onClick={() => setSelectedDoneRecord(rec)}
-                className="w-full text-left bg-white rounded-2xl border border-emerald-200 px-4 py-3 flex items-start justify-between gap-3 hover:bg-emerald-50 transition-colors cursor-pointer"
+                className="flex w-full items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] cursor-pointer"
               >
                 <div className="min-w-0">
-                  <p className="font-mono text-[10px] text-slate-400">
-                    {rec.reference}
-                  </p>
-                  <p className="font-bold text-sm text-slate-800 truncate">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-mono text-[11px] text-slate-500">{recordLabel}</p>
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${isRma ? 'border-violet-200 bg-violet-50 text-violet-700' : 'border-blue-200 bg-blue-50 text-blue-700'}`}>{categoryLabel}</span>
+                  </div>
+                  <p className="break-words text-sm font-semibold text-slate-900">
                     {rec.company_name}
                   </p>
                   {rec.completed_late && (
-                    <p className="text-[10px] font-bold text-rose-700 mt-0.5">
+                    <p className="mt-1 text-xs font-semibold text-rose-700">
                       Completed {rec.days_late ?? 0} day{rec.days_late === 1 ? '' : 's'} late
                     </p>
                   )}
-                  <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+                  <p className="mt-1 flex items-center gap-1 text-xs text-slate-600">
                     <MapPin className="w-3 h-3 text-red-400 shrink-0" />
                     {rec.area}
                   </p>
-                  {(rec.time_in || rec.time_out) && (
-                    <div className="flex items-center gap-3 mt-1.5 text-[10px] text-slate-500 font-bold">
-                      {rec.time_in && (
+                  {(startedAt || finishedAt) && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs font-medium text-slate-600">
+                      {startedAt && (
                         <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-blue-400" /> In:{" "}
-                          {fmtTime(rec.time_in)}
+                          <Clock aria-hidden="true" className="h-3 w-3 text-blue-400" />Started: {fmtTime(startedAt)}
                         </span>
                       )}
-                      {rec.time_out && (
+                      {finishedAt && (
                         <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-emerald-400" /> Out:{" "}
-                          {fmtTime(rec.time_out)}
+                          <Clock aria-hidden="true" className="h-3 w-3 text-emerald-400" />{isRma && rec.rma_transport_completed_at ? 'Transport complete:' : isRma ? 'RMA complete:' : 'Completed:'} {fmtTime(finishedAt)}
                         </span>
                       )}
                     </div>
                   )}
-                  {rec.received_by && (
-                    <p className="text-[10px] text-emerald-600 font-bold mt-0.5 flex items-center gap-1">
-                      <UserCheck className="w-3 h-3" /> {rec.received_by}
+                  {(rec.received_by || rec.rma_recipient) && (
+                    <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                      <UserCheck aria-hidden="true" className="h-3 w-3" /> {isRma ? rec.rma_recipient : rec.received_by}
                     </p>
                   )}
                 </div>
-                <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full shrink-0">
-                  Done
+                <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">
+                  {completionBadge}
                 </span>
-              </button>
-            ))}
-          </div>
+              </button>;
+            })}
+          </section>
         )}
 
         {/* Upcoming and other-date records stay visible without execution controls. */}
         {records.filter(
-          (r) => !isDashboardRunActionable(r, today) && r.status !== "Delivered",
+          (r) => r.category !== 'RMA' && !isDashboardRunActionable(r, today) && r.status !== "Delivered",
         ).length > 0 && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-px bg-slate-200" />
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                Upcoming / Other Dates
-              </p>
-              <div className="flex-1 h-px bg-slate-200" />
-            </div>
+          <section aria-label="Upcoming and other-date runs" className="space-y-3">
+            <h2 className="text-sm font-semibold text-slate-700">Upcoming / Other Dates</h2>
             {records
-              .filter((r) => !isDashboardRunActionable(r, today) && r.status !== "Delivered")
+              .filter((r) => r.category !== 'RMA' && !isDashboardRunActionable(r, today) && r.status !== "Delivered")
               .map((rec) => (
                 <div
                   key={rec.id}
-                  className="bg-white/70 rounded-xl border border-slate-200 px-4 py-2.5 flex items-center justify-between"
+                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm"
                 >
                   <div>
-                    <p className="font-mono text-[10px] text-slate-400">
+                    <p className="font-mono text-[11px] text-slate-500">
                       {rec.reference} · {rec.delivery_date}
                     </p>
-                    <p className="text-xs font-bold text-slate-700">
+                    <p className="text-sm font-semibold text-slate-900">
                       {rec.company_name}
                     </p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">
+                    <p className="mt-1 text-xs text-slate-600">
                       {rec.area}{rec.item_description ? ` · ${rec.item_description}` : ''}
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
-                    <span className="text-[9px] font-bold border border-slate-200 bg-slate-50 px-2 py-0.5 rounded-full text-slate-600">
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600">
                       {rec.category === 'Deliveries'
                         ? deliveryScheduleState(rec.delivery_date, today).valid ? 'Upcoming · read-only' : 'Delivery Date needed · read-only'
                         : 'Other date · read-only'}
                     </span>
-                    <span className={`text-[9px] font-bold border px-2 py-0.5 rounded-full ${statusBadge(rec.status)}`}>
-                      {rec.status}
-                    </span>
+                    <RecordStatus record={rec} />
                   </div>
                 </div>
               ))}
-          </div>
+          </section>
         )}
       </div>
 
@@ -541,7 +540,7 @@ export default function DriverDashboard({
                     }
                     setPendingAction(null);
                     setRemarksInput("");
-                    notify.success('Status updated successfully');
+                    notify.success(pendingAction.status === 'In Transit' ? 'Transport started successfully' : 'Status updated successfully');
                   } catch (error) {
                     const message = error instanceof Error ? error.message : 'Could not update the delivery. Please try again.';
                     setSaveFeedback({ message, type: 'error' });
@@ -565,6 +564,7 @@ export default function DriverDashboard({
           onClose={() => setSelectedDoneRecord(null)}
         />
       )}
+      </main>
     </div>
   );
 }

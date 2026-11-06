@@ -3,16 +3,18 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToPipeableStream } from 'react-dom/server';
 import { PassThrough } from 'node:stream';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DriversPage, type DriversPageProps } from '../src/pages/DriversPage';
 import { driverLandingScreen, isDriverScreen, rememberDriverTab } from '../src/routes/screenRouting';
 
 function renderLoadedPage(element: React.ReactElement): Promise<string> {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   return new Promise((resolve, reject) => {
     const output = new PassThrough();
     const chunks: Buffer[] = [];
     output.on('data', chunk => chunks.push(Buffer.from(chunk)));
-    output.on('end', () => resolve(Buffer.concat(chunks).toString()));
-    const stream = renderToPipeableStream(element, {
+    output.on('end', () => { client.clear(); resolve(Buffer.concat(chunks).toString()); });
+    const stream = renderToPipeableStream(React.createElement(QueryClientProvider, { client }, element), {
       onAllReady() { stream.pipe(output); }, onError: reject,
     });
   });

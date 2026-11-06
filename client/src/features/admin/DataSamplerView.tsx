@@ -13,7 +13,8 @@ import {
   Trash2
 } from 'lucide-react';
 import { api, ApiCompany, ApiError } from '@/api';
-import { AREAS, VEHICLES, PRIORITIES, ITEM_TYPES, ACCOUNT_MANAGERS, DRIVERS } from '@/data';
+import { AREAS, VEHICLES, PRIORITIES, ITEM_TYPES, RMA_ITEM_TYPES, ACCOUNT_MANAGERS, DRIVERS } from '@/data';
+import { RMA_CATEGORIES } from '@/utils/rma';
 
 interface ModuleCount {
   key: string;
@@ -55,7 +56,6 @@ const DEFAULT_STATUSES = ['Scheduled'];
 
 const REF_PREFIXES: Record<string, string> = {
   deliveries:            'SAP',
-  rma:                   'SAP-RMA',
   accounting_collection: 'SAP-COLL',
   procurement_pickup:    'SAP-PU',
   sales_orders:          'SAP-SO',
@@ -72,14 +72,19 @@ function randDate(daysBack = 30, daysForward = 14) {
   return d.toISOString().split('T')[0];
 }
 
-function buildManualDefaults(module: string, companies: ApiCompany[]) {
+export function buildManualDefaults(module: string, companies: ApiCompany[]) {
   const prefix = REF_PREFIXES[module] ?? 'SAP';
   const company = companies[Math.floor(Math.random() * companies.length)];
   const isAC = module === 'accounting_collection';
   return {
     company_id: company?.id ?? '',
     priority: '2 - Moderate',
-    reference: randRef(prefix),
+    reference: module === 'rma' ? '' : randRef(prefix),
+    rma_type: module === 'rma' ? RMA_CATEGORIES[Math.floor(Math.random() * RMA_CATEGORIES.length)] : '',
+    purchase_date: '',
+    customer_contact_name: '',
+    customer_contact_email: '',
+    customer_contact_phone: '',
     remarks: '',
     status: 'Scheduled',
     vehicle: '(None)',
@@ -92,6 +97,13 @@ function buildManualDefaults(module: string, companies: ApiCompany[]) {
     item_description: '',
     amount: isAC ? String(Math.round((Math.random() * 145000 + 5000) / 1000) * 1000) : '',
   };
+}
+
+export function dataSamplerSubmissionError(module: string, fields: Record<string, string>): string | null {
+  if (module === 'rma') return null;
+  if (!fields.reference?.trim()) return 'Reference is required to submit the record.';
+  if (!fields.delivery_date) return 'Delivery Date is required';
+  return null;
 }
 
 export default function DataSamplerView({ companies, currentUserName, onRefresh }: Props) {
@@ -154,6 +166,13 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
     clearMessages();
 
     const isManual = mode === 'manual';
+    if (isManual) {
+      const validationError = dataSamplerSubmissionError(selectedModule, manualFields);
+      if (validationError) {
+        setErrorMsg(validationError);
+        return;
+      }
+    }
     setGenerating(true);
     setSavingManual(isManual);
 
@@ -161,6 +180,7 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
       const fields = isManual
         ? {
             ...manualFields,
+            ...(selectedModule === 'rma' ? { rma_reference: manualFields.reference, reference: undefined } : {}),
             amount: manualFields.amount ? parseFloat(manualFields.amount) : undefined,
           }
         : undefined;
@@ -223,6 +243,7 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
   };
 
   const isAC = selectedModule === 'accounting_collection';
+  const isRma = selectedModule === 'rma';
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -384,14 +405,25 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
 
                 {/* Reference */}
                 <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Reference</label>
+                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Reference{isRma ? ' (optional)' : ' *'}</label>
                   <input
                     type="text"
+                    required={!isRma}
                     value={manualFields.reference ?? ''}
                     onChange={e => patch('reference', e.target.value)}
+                    placeholder={isRma ? 'Enter document reference (optional)' : undefined}
                     className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
                   />
                 </div>
+
+                {isRma && <div>
+                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Category (optional)</label>
+                  <select value={manualFields.rma_type ?? ''} onChange={e => patch('rma_type', e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]">
+                    <option value="">— Select —</option>
+                    {RMA_CATEGORIES.map(value => <option key={value}>{value}</option>)}
+                  </select>
+                </div>}
 
                 {/* Status */}
                 <div>
@@ -419,9 +451,10 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
 
                 {/* Delivery Date */}
                 <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Delivery Date</label>
+                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Delivery Date{isRma ? ' (optional)' : ' *'}</label>
                   <input
                     type="date"
+                    required={!isRma}
                     value={manualFields.delivery_date ?? ''}
                     onChange={e => patch('delivery_date', e.target.value)}
                     className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
@@ -485,9 +518,20 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
                     onChange={e => patch('item_type', e.target.value)}
                     className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
                   >
-                    {ITEM_TYPES.map(t => <option key={t}>{t}</option>)}
+                    {(isRma ? RMA_ITEM_TYPES : ITEM_TYPES).map(t => <option key={t}>{t}</option>)}
                   </select>
                 </div>
+
+                {isRma && ([
+                  ['purchase_date', 'Purchase Date', 'date'],
+                  ['customer_contact_name', 'Customer Contact Name', 'text'],
+                  ['customer_contact_email', 'Customer Contact Email', 'email'],
+                  ['customer_contact_phone', 'Customer Contact Phone', 'tel'],
+                ] as const).map(([field, label, type]) => <div key={field}>
+                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">{label} (optional)</label>
+                  <input type={type} value={manualFields[field] ?? ''} onChange={e => patch(field, e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]" />
+                </div>)}
 
                 {/* Amount — AC only */}
                 {isAC && (

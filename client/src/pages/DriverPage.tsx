@@ -19,6 +19,7 @@ export const DriverPage: React.FC<DriverPageProps> = ({
 }) => {
   return (
     <DriverView
+      serverPaging
       records={records}
       onUpdateRecord={onUpdateRecord}
       currentUserName={currentUserName}

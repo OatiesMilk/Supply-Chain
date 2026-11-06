@@ -79,7 +79,7 @@ test('Microsoft login offers account selection before and after portal-only logo
       assert.equal(url.origin, 'https://login.microsoftonline.com');
       assert.equal(url.pathname, `/${TENANT}/oauth2/v2.0/authorize`);
       assert.equal(url.searchParams.get('prompt'), 'select_account');
-      assert.equal(url.searchParams.get('redirect_uri'), `${ORIGIN}/api/auth/microsoft/callback`);
+      assert.equal(url.searchParams.get('redirect_uri'), `${ORIGIN}/api/v1/auth/microsoft/callback`);
       assert.equal(url.searchParams.get('response_type'), 'code');
       assert.equal(url.searchParams.get('response_mode'), 'query');
       assert.equal(url.searchParams.has('login_hint'), false, 'No previous identity is pinned');
@@ -90,7 +90,7 @@ test('Microsoft login offers account selection before and after portal-only logo
       const state = url.searchParams.get('state')!;
       assert.match(state, /^[a-f0-9]{64}$/);
       assert.equal(registered[index].id, stateDigest(state));
-      assert.deepEqual(result.cookies, [{ name: 'mg_sso_state', value: state, options: { httpOnly: true, secure: true, sameSite: 'lax', path: '/api/auth/microsoft/callback', maxAge: 300000 } }]);
+      assert.deepEqual(result.cookies, [{ name: 'mg_sso_state', value: state, options: { httpOnly: true, secure: true, sameSite: 'lax', path: '/api/v1/auth/microsoft/callback', maxAge: 300000 } }]);
     }
     assert.notEqual(new URL(before.body.url).searchParams.get('state'), new URL(after.body.url).searchParams.get('state'));
     assert.equal(registered.length, 2);

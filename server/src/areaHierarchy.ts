@@ -65,3 +65,16 @@ const CANONICAL = new Map<string, string>(
 export function canonicalCoverage(value: string): string | null {
   return CANONICAL.get(key(value)) ?? null;
 }
+
+export function areasForLocation(region?: string, subregion?: string): string[] | null {
+  const matchingRegions = region
+    ? AREA_HIERARCHY.filter(item => item.region === region)
+    : AREA_HIERARCHY;
+  if (region && matchingRegions.length === 0) return null;
+
+  const matchingSubregions = matchingRegions.flatMap(item => item.subregions)
+    .filter(item => !subregion || item.name === subregion);
+  if (subregion && matchingSubregions.length === 0) return null;
+
+  return matchingSubregions.flatMap(item => item.areas);
+}

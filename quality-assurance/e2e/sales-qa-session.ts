@@ -28,11 +28,11 @@ async function awaitSession() {
       if (!endpoint.startsWith('/') || endpoint.includes('://') || endpoint.startsWith('//') || endpoint.includes('\\')) throw new Error('Only local relative API paths allowed');
       if (method !== 'GET') throw new Error('This QA session is read-only; mutations are blocked');
       const result = await page.evaluate(async ({ method, endpoint, body }) => {
-        const csrfResponse = method === 'GET' ? null : await fetch('/api/auth/me');
+        const csrfResponse = method === 'GET' ? null : await fetch('/api/v1/auth/me');
         const headers: Record<string,string> = { 'Content-Type': 'application/json' };
         const csrf = csrfResponse?.headers.get('X-CSRF-Token');
         if (csrf) headers['X-CSRF-Token'] = csrf;
-        const response = await fetch(`/api${endpoint}`, { method, redirect: 'error', headers,
+        const response = await fetch(`/api/v1${endpoint}`, { method, redirect: 'error', headers,
           body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(15000) });
         const text = await response.text();
         return { status: response.status, body: response.headers.get('content-type')?.includes('application/json') ? JSON.parse(text) : text };

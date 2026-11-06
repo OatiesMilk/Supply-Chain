@@ -17,10 +17,10 @@ export const ATTACHMENT_MIME_TYPES: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.png': 'image/png',
-  '.doc': 'application/msword',
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
-export const UNSUPPORTED_FILE_TYPE = 'Unsupported file type. Allowed formats: PDF, JPG, PNG, DOC, and DOCX.';
+export const UNSUPPORTED_FILE_TYPE = 'Unsupported file type. Allowed formats: PDF, JPG, PNG, DOCX, and XLSX.';
 
 export function attachmentMimeType(originalName: string): string | undefined {
   return ATTACHMENT_MIME_TYPES[path.extname(originalName).toLowerCase()];
@@ -78,16 +78,22 @@ const ZIP_LOCAL_HEADER = 0x04034b50;
 const ZIP_CENTRAL_HEADER = 0x02014b50;
 const ZIP_END_RECORD = 0x06054b50;
 const DOCX_MAIN_PART = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml';
+const XLSX_MAIN_PART = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml';
 const DOCX_MAX_ENTRIES = 1000;
 const DOCX_MAX_UNPACKED_BYTES = 200 * 1024 * 1024;
+// Preview conversion is deliberately much tighter than upload acceptance. The
+// three shared in-memory slots therefore bound actual DOCX expansion to 96 MiB
+// total, in addition to the 10 MiB compressed attachment cap.
+export const DOCX_PREVIEW_MAX_UNPACKED_BYTES = 32 * 1024 * 1024;
+export const DOCX_PREVIEW_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 
-// A .docx is a ZIP package, and so are spreadsheets, Java archives and plain
+// Office Open XML files are ZIP packages, as are Java archives and plain
 // archives, so the ZIP signature proves nothing. The whole file must be one
-// well-formed archive (nothing before, between or after its parts), its index
-// must list the Word parts, and its content-type manifest must declare an
-// ordinary Word document. Macro-enabled packages and encrypted or oversized
-// entries are refused. Only the small manifest is ever decompressed.
-export function isDocxDocument(buffer: Buffer): boolean {
+// well-formed archive, its index must contain the requested main part, and its
+// content-type manifest must declare the matching Office document. Macro-
+// enabled packages and encrypted or oversized entries are refused. Only the
+// small manifest is ever decompressed.
+function isOpenXmlDocument(buffer: Buffer, mainPart: string, contentType: string): boolean {
   try {
     const end = buffer.length - 22;
     if (end < 0 || buffer.readUInt32LE(0) !== ZIP_LOCAL_HEADER || buffer.readUInt32LE(end) !== ZIP_END_RECORD) return false;
@@ -120,8 +126,8 @@ export function isDocxDocument(buffer: Buffer): boolean {
     }
     if (offset !== end) return false;
 
-    if (!entries.has('word/document.xml') || !entries.has('_rels/.rels')) return false;
-    if ([...entries.keys()].some(name => /(^|\/)vba(Project\.bin|Data\.xml)$/i.test(name))) return false;
+    if (!entries.has(mainPart) || !entries.has('_rels/.rels')) return false;
+    if ([...entries.keys()].some(name => /(^|\/)(vbaProject\.bin|vbaData\.xml)$/i.test(name))) return false;
 
     const manifest = entries.get('[Content_Types].xml');
     if (!manifest) return false;
@@ -129,9 +135,72 @@ export function isDocxDocument(buffer: Buffer): boolean {
     if (dataStart + manifest.packed > indexStart) return false;
     const packedManifest = buffer.subarray(dataStart, dataStart + manifest.packed);
     const xml = (manifest.method === 0 ? packedManifest : zlib.inflateRawSync(packedManifest, { maxOutputLength: 1024 * 1024 })).toString('utf8');
-    return xml.includes(DOCX_MAIN_PART) && !/macroEnabled/i.test(xml);
+    const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const mainPartOverride = xml.match(/<Override\b[^>]*\/?>/gi)?.find(tag =>
+      new RegExp(`\\bPartName=["']/${escapeRegex(mainPart)}["']`, 'i').test(tag),
+    );
+    const declaredType = mainPartOverride?.match(/\bContentType=["']([^"']+)["']/i)?.[1];
+    return declaredType === contentType;
   } catch {
     // Out-of-range offsets and corrupt compressed data are simply not a document.
     return false;
   }
+}
+
+export function isDocxDocument(buffer: Buffer): boolean {
+  return isOpenXmlDocument(buffer, 'word/document.xml', DOCX_MAIN_PART);
+}
+
+export type DocxPreviewArchiveResult = 'valid' | 'oversized' | 'invalid';
+
+// Verify actual decompressed sizes before Mammoth sees the archive. ZIP central
+// directory sizes are untrusted declarations, so each member is inflated with
+// a cap based on the remaining preview budget and checked against its declared
+// size. Only one member's output is retained at a time.
+export function inspectDocxPreviewArchive(buffer: Buffer): DocxPreviewArchiveResult {
+  if (!isDocxDocument(buffer)) return 'invalid';
+  try {
+    const end = buffer.length - 22;
+    const entryCount = buffer.readUInt16LE(end + 10);
+    const indexStart = buffer.readUInt32LE(end + 16);
+    let offset = indexStart;
+    let actualTotal = 0;
+
+    for (let index = 0; index < entryCount; index++) {
+      if (offset + 46 > end || buffer.readUInt32LE(offset) !== ZIP_CENTRAL_HEADER) return 'invalid';
+      const method = buffer.readUInt16LE(offset + 10);
+      const packed = buffer.readUInt32LE(offset + 20);
+      const declared = buffer.readUInt32LE(offset + 24);
+      const nameLength = buffer.readUInt16LE(offset + 28);
+      const local = buffer.readUInt32LE(offset + 42);
+      const next = offset + 46 + nameLength + buffer.readUInt16LE(offset + 30) + buffer.readUInt16LE(offset + 32);
+      if (next > end || local + 30 > indexStart || buffer.readUInt32LE(local) !== ZIP_LOCAL_HEADER) return 'invalid';
+      const dataStart = local + 30 + buffer.readUInt16LE(local + 26) + buffer.readUInt16LE(local + 28);
+      if (dataStart + packed > indexStart) return 'invalid';
+
+      const remaining = DOCX_PREVIEW_MAX_UNPACKED_BYTES - actualTotal;
+      const compressed = buffer.subarray(dataStart, dataStart + packed);
+      let expanded: Buffer;
+      try {
+        expanded = method === 0
+          ? compressed
+          : zlib.inflateRawSync(compressed, { maxOutputLength: Math.max(1, remaining + 1) });
+      } catch (error) {
+        // zlib reports a bounded-output breach as ERR_BUFFER_TOO_LARGE.
+        if ((error as NodeJS.ErrnoException).code === 'ERR_BUFFER_TOO_LARGE') return 'oversized';
+        return 'invalid';
+      }
+      if (expanded.length > remaining) return 'oversized';
+      if (expanded.length !== declared) return 'invalid';
+      actualTotal += expanded.length;
+      offset = next;
+    }
+    return offset === end ? 'valid' : 'invalid';
+  } catch {
+    return 'invalid';
+  }
+}
+
+export function isXlsxDocument(buffer: Buffer): boolean {
+  return isOpenXmlDocument(buffer, 'xl/workbook.xml', XLSX_MAIN_PART);
 }

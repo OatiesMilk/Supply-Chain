@@ -1,5 +1,15 @@
 # Microgenesis Supply Chain Portal — Audit & Issues Report
 
+> **Historical snapshot — status reconciliation added 2026-11-05.** The counts,
+> statuses, paths and recommendations below describe the cited October 9 or older
+> baselines, not today's dev or a live deployment. Later implementation means
+> some original Open/Partial findings no longer describe missing code. Consult
+> the [current register](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md#current-reconciliation)
+> and [AUD mapping](AUDIT_DEVELOPMENT_BACKLOG.md#ticket-mapping-and-recommended-order)
+> before selecting work. The reconciliation does not re-audit every older finding
+> or clear untraced visual, performance, dependency or operational concerns.
+> Original observations and counts are preserved; this note claims no new UAT.
+
 **Document Date:** September 9, 2026  
 **Last Updated:** October 9, 2026 (re-audited against commit `ccbf192` on `dev`)  
 **Audited Target:** Frontend (`client/src/`), Backend (`server/`), Database (`server/prisma/schema.prisma`), and Deployment Configuration (`render.yaml`)  
@@ -298,6 +308,8 @@ As of September 23, 2026, **17 of 29 critical and functional issues have been re
 - **Remediation:** Enforce runtime schema validation using **Zod** middleware before database queries.
 
 ---
+
+<a id="3-simulated--incomplete-features"></a>
 
 ## 3. Simulated & Incomplete Features (Technical Debt)
 
@@ -826,7 +838,11 @@ Addressing both technical vulnerabilities, business domain completeness, and CI/
 
 ---
 
+<a id="11-comprehensive-remediation-roadmap"></a>
+
 ## 11. Comprehensive Remediation Roadmap & Status Checklist
+
+<a id="implementation-progress--system-health-scorecard"></a>
 
 ### Implementation Progress & System Health Scorecard *(Re-audit 2026-10-09: these percentages are the September 23 estimates and were not recomputed)*
 
@@ -909,6 +925,8 @@ pie title Roadmap Completion Breakdown
 - [ ] **4. Consolidate Master Directories:** Merge `Company` and `Customer` into a unified client directory linked to SAP numbers.
 - [ ] **5. Driver Offline PWA Support:** Add IndexedDB queue and Service Worker to enable offline delivery completion in low-connectivity areas.
 - [ ] **6. End-to-End (E2E) Test Automation:** Implement Playwright test suites in CI covering the complete fulfillment and collection journeys. *(Re-audit 2026-10-09: a Playwright suite exists in `e2e/` (Sales Coordinator, Logistics, Driver, integration) but does not run in CI)*
+
+<a id="phase-4-architectural-modernization--code-quality-p3--modernization"></a>
 
 ### Phase 4: Architectural Modernization & UI/UX Overhaul (P3 — Modernization)
 

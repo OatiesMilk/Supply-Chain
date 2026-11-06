@@ -1,4 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { usePermissions } from '@/hooks/usePermissions';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { BarChart2, Loader2, AlertTriangle, RefreshCw, FileDown, FileSpreadsheet, FileText, ChevronDown } from 'lucide-react';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
 import DocumentSizeSelect from '@/components/DocumentSizeSelect';
@@ -6,6 +8,8 @@ import { api, ApiReportSummary } from '@/api';
 import { DELIVERY_STATUSES } from '@/data';
 import { ExportColumn, ExportMeta, fmtDate, fmtTime, downloadCSV, downloadExcel, downloadPDF } from '@/utils/export';
 import { downloadDocx } from '@/utils/exportDocx';
+import ExportPreviewDialog, { type ExportPreviewFormat } from '@/components/ExportPreviewDialog';
+import { downloadBlob } from '@/utils/downloadBlob';
 
 const CATEGORIES = ['Deliveries', 'RMA', 'Accounting Collection', 'Procurement Pick-up', 'Sales Orders'];
 
@@ -81,6 +85,7 @@ function StatReportExportMenu({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState<ExportFmt | null>(null);
   const [docSize, setDocSize] = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
+  const [preview, setPreview] = useState<{ format: ExportFmt; rows: ReturnType<typeof buildReportRows>; meta: ExportMeta; title: string; fileBlob?: Blob; fileName?: string } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -107,15 +112,39 @@ function StatReportExportMenu({
       generatedByRole: currentUserRole,
     };
     try {
-      if (fmt === 'csv')   downloadCSV(rows, REPORT_COLUMNS, 'mg-statistical-report', meta);
-      if (fmt === 'excel') await downloadExcel(rows, REPORT_COLUMNS, 'Statistical Report', 'mg-statistical-report', meta, undefined, docSize);
-      if (fmt === 'pdf')   await downloadPDF(rows, REPORT_COLUMNS, title, 'mg-statistical-report', meta, false, undefined, docSize);
-      if (fmt === 'docx')  await downloadDocx(rows, REPORT_COLUMNS, title, `mg-statistical-report-${new Date().toISOString().split('T')[0]}`, meta, undefined, undefined, undefined, docSize);
+      const stamp = new Date().toISOString().split('T')[0];
+      let fileBlob: Blob;
+      let fileName = `mg-statistical-report-${stamp}.${fmt === 'excel' ? 'xlsx' : fmt}`;
+      if (fmt === 'csv') fileBlob = downloadCSV(rows, REPORT_COLUMNS, 'mg-statistical-report', meta, undefined, true) as Blob;
+      else if (fmt === 'excel') fileBlob = await downloadExcel(rows, REPORT_COLUMNS, 'Statistical Report', 'mg-statistical-report', meta, undefined, docSize, true) as Blob;
+      else if (fmt === 'pdf') fileBlob = await downloadPDF(rows, REPORT_COLUMNS, title, 'mg-statistical-report', meta, false, undefined, docSize, true) as Blob;
+      else { fileBlob = await downloadDocx(rows, REPORT_COLUMNS, title, `mg-statistical-report-${stamp}`, meta, undefined, undefined, undefined, docSize, true) as Blob; fileName = `mg-statistical-report-${stamp}.docx`; }
+      setPreview({ format: fmt, rows, meta, title, fileBlob, fileName });
     } catch (err) {
       console.error('Statistical report export failed:', err);
     } finally {
       setLoading(null);
     }
+  };
+
+  const closePreview = useCallback(() => setPreview(null), []);
+  const downloadPreview = async () => {
+    if (!preview) return;
+    const { format: fmt, rows, meta, title } = preview;
+    setLoading(fmt);
+    try {
+      if (preview.fileBlob) {
+        downloadBlob(preview.fileBlob, preview.fileName ?? 'mg-statistical-report.xlsx');
+        return;
+      }
+      if (fmt === 'csv') downloadCSV(rows, REPORT_COLUMNS, 'mg-statistical-report', meta);
+      if (fmt === 'excel') await downloadExcel(rows, REPORT_COLUMNS, 'Statistical Report', 'mg-statistical-report', meta, undefined, docSize);
+      if (fmt === 'pdf') await downloadPDF(rows, REPORT_COLUMNS, title, 'mg-statistical-report', meta, false, undefined, docSize);
+      if (fmt === 'docx') await downloadDocx(rows, REPORT_COLUMNS, title, `mg-statistical-report-${new Date().toISOString().split('T')[0]}`, meta, undefined, undefined, undefined, docSize);
+    } catch (err) {
+      console.error('Statistical report export failed:', err);
+      throw err;
+    } finally { setLoading(null); }
   };
 
   const isLoading = loading !== null;
@@ -153,6 +182,19 @@ function StatReportExportMenu({
           </div>
         </div>
       )}
+      {preview && <ExportPreviewDialog
+        format={preview.format as ExportPreviewFormat}
+        variant="current"
+        rows={preview.rows}
+        columns={REPORT_COLUMNS}
+        meta={preview.meta}
+        title={preview.title}
+        documentSize={docSize}
+        excelBlob={preview.format === 'excel' ? preview.fileBlob : undefined}
+        fileBlob={preview.fileBlob}
+        onClose={closePreview}
+        onDownload={downloadPreview}
+      />}
     </div>
   );
 }
@@ -164,6 +206,19 @@ export default function StatisticalReportView({ currentUserName = '', currentUse
   const [status,    setStatus]    = useState('');
   const [driver,    setDriver]    = useState('');
   const [area,      setArea]      = useState('');
+  const access = usePermissions();
+  const reportCategories = CATEGORIES.filter(value => access.canCategory(value));
+  const filterOptions = useQuery({
+    queryKey: ['reports', 'filter-options', reportCategories],
+    enabled: access.canAccess('statistical_reports') && reportCategories.length > 0,
+    queryFn: async () => {
+      const options = await Promise.all(reportCategories.map(value => api.getRecordFilterOptions(value)));
+      const unique = (values: string[]) => [...new Set(values.filter(value => value.trim()))].sort((a, b) => a.localeCompare(b));
+      return { drivers: unique(options.flatMap(value => value.drivers)), areas: unique(options.flatMap(value => value.areas)) };
+    },
+    staleTime: 30_000,
+  });
+
 
   const [data,    setData]    = useState<ApiReportSummary | null>(null);
   const [loading, setLoading] = useState(false);
@@ -237,14 +292,22 @@ export default function StatisticalReportView({ currentUserName = '', currentUse
             </select>
           </div>
           <div>
-            <label className={labelCls}>Driver</label>
-            <input type="text" value={driver} onChange={e => setDriver(e.target.value)} placeholder="Any driver" className={inputCls} />
+            <label htmlFor="report-driver" className={labelCls}>Driver</label>
+            <select id="report-driver" value={driver} onChange={e => setDriver(e.target.value)} disabled={filterOptions.isLoading || filterOptions.isError} className={inputCls}>
+              <option value="">All drivers</option>
+              {filterOptions.data?.drivers.map(value => <option key={value} value={value}>{value}</option>)}
+            </select>
           </div>
           <div>
-            <label className={labelCls}>Area</label>
-            <input type="text" value={area} onChange={e => setArea(e.target.value)} placeholder="Any area" className={inputCls} />
+            <label htmlFor="report-area" className={labelCls}>Area</label>
+            <select id="report-area" value={area} onChange={e => setArea(e.target.value)} disabled={filterOptions.isLoading || filterOptions.isError} className={inputCls}>
+              <option value="">All areas</option>
+              {filterOptions.data?.areas.map(value => <option key={value} value={value}>{value}</option>)}
+            </select>
           </div>
         </div>
+        {filterOptions.isLoading && <p role="status" className="mt-2 text-xs text-slate-500">Loading Driver and Area options…</p>}
+        {filterOptions.isError && <p role="alert" className="mt-2 text-xs text-red-600">Could not load Driver and Area options. <button type="button" className="underline" onClick={() => void filterOptions.refetch()}>Retry options</button></p>}
         <div className="flex items-center gap-2 mt-4">
           <button
             onClick={handleFetch}

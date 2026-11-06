@@ -9,6 +9,10 @@
 | Author agent | Claude Code |
 | Status | In force |
 
+## Current acceptance addenda
+
+- [V1 dashboard screen, resource and category permissions — accepted 2026-11-04](06-reports/2026-11-04-v1-dashboard-access-acceptance.md). Includes manual cases and verification limits; live execution remains pending.
+
 ## Purpose
 
 This folder is the single, organized workspace for **User Acceptance Testing (UAT) of the Microgenesis Supply Chain Portal as it exists today**. It is a findings-only exercise: the goal is to establish what passes and what fails. Nobody here fixes the system; failures are recorded and reported to the user.

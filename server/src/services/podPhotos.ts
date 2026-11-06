@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import type { Prisma } from '@prisma/client';
 import { podStorage, withFileInMemory } from './podStorage';
-import { ATTACHMENT_MIME_TYPES, UNSUPPORTED_FILE_TYPE, attachmentMimeType, isDocxDocument, isPdfDocument, isWordDocument } from './attachmentRules';
+import { ATTACHMENT_MIME_TYPES, UNSUPPORTED_FILE_TYPE, attachmentMimeType, isDocxDocument, isPdfDocument, isXlsxDocument } from './attachmentRules';
 import sharp from 'sharp';
 
 export const DELIVERY_PHOTO_REQUIRED = 'Upload at least one JPG or PNG delivery photo before marking this delivery Accomplished.';
@@ -63,8 +63,8 @@ export async function isVerifiedPodPhoto(buffer: Buffer, mimeType: string): Prom
 // How each accepted document type proves itself, and what to call it in errors.
 const DOCUMENT_CHECKS: Record<string, { label: string; valid: (content: Buffer) => boolean }> = {
   [ATTACHMENT_MIME_TYPES['.pdf']]: { label: 'PDF', valid: isPdfDocument },
-  [ATTACHMENT_MIME_TYPES['.doc']]: { label: 'Word (.doc)', valid: isWordDocument },
   [ATTACHMENT_MIME_TYPES['.docx']]: { label: 'Word (.docx)', valid: isDocxDocument },
+  [ATTACHMENT_MIME_TYPES['.xlsx']]: { label: 'Excel (.xlsx)', valid: isXlsxDocument },
 };
 
 // SEC-08: decide what a quarantined upload really is from its bytes. The file

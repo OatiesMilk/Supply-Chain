@@ -1,4 +1,5 @@
-import { afterEach, test, mock } from 'node:test';
+import { installRmaPolicyLookup, rmaTestAccount } from './rmaTestPolicy';
+import { beforeEach, afterEach, test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import type { PrismaClient } from '@prisma/client';
 import express from 'express';
@@ -13,13 +14,15 @@ import transactionsRoutes from '../src/routes/transactions';
 import recordsRoutes from '../src/routes/records';
 import driversRoutes from '../src/routes/drivers';
 import { effectiveScreens, permissionEditor, permissionInputError, permissionSnapshot, replacePermissions, sessionUser, type Permission } from '../src/services/permissions';
-import { canWriteCategory, recordScope } from '../src/services/recordAccess';
+import { canCreateCategory, canWriteCategory, recordScope } from '../src/services/recordAccess';
 import type { AuthUser } from '../src/middleware/auth';
 
-afterEach(() => mock.restoreAll());
+let restoreRmaPolicy: (() => void) | undefined;
+beforeEach(() => { restoreRmaPolicy = installRmaPolicyLookup(); });
+afterEach(() => { restoreRmaPolicy?.(); mock.restoreAll(); });
 const account = (role = 'SALES_COORDINATOR', permissions: Permission[] = []) => ({
   id: 'test-account', name: 'Test User', email: 'test@example.com', role, permissions,
-  isActive: true, password: bcrypt.hashSync('test-password', 4),
+  isActive: true, password: bcrypt.hashSync('test-password', 4), authorizationRevision: 1n, permissionOverrides: [],
 });
 
 test('editor, login and restored sessions share defaults, overrides, catalog and locked modules', () => {
@@ -52,6 +55,40 @@ test('editor, login and restored sessions share defaults, overrides, catalog and
   assert.ok(!sessionUser(account('LOGISTICS', [{ screen: 'transactions', granted: false }])).resources.includes('skus'));
 });
 
+test('RMA access defaults keep Sales out, TASS as owner, Logistics read-only, and Admin unchanged', () => {
+  const sales = permissionEditor(account('SALES_COORDINATOR'));
+  assert.ok(!sales.roleDefaults.includes('rma'));
+  assert.ok(!sales.effectiveScreens.includes('rma'));
+  assert.ok(!sales.editableScreens.includes('rma'));
+  assert.ok(!effectiveScreens('SALES_COORDINATOR', [{ screen: 'rma', granted: true }]).includes('rma'));
+  assert.ok(!recordScope(sessionUser(account('SALES_COORDINATOR')) as AuthUser).category.in.includes('RMA'));
+  assert.equal(canWriteCategory(sessionUser(account('SALES_COORDINATOR')) as AuthUser, 'RMA'), false);
+
+  const logistics = permissionEditor(account('LOGISTICS'));
+  const logisticsUser = sessionUser(account('LOGISTICS')) as AuthUser;
+  assert.ok(logistics.roleDefaults.includes('rma'));
+  assert.ok(logistics.effectiveScreens.includes('rma'));
+  assert.ok(recordScope(logisticsUser).category.in.includes('RMA'));
+  assert.equal(canWriteCategory(logisticsUser, 'RMA'), false);
+  assert.equal(canCreateCategory(logisticsUser, 'RMA'), false);
+  assert.equal(canWriteCategory(logisticsUser, 'DELIVERY'), true, 'Logistics keeps its existing delivery operations');
+  assert.equal(canCreateCategory(logisticsUser, 'DELIVERY'), false, 'only Sales Coordinator/Admin create Deliveries');
+
+  const tass = permissionEditor(account('TASS'));
+  const tassUser = sessionUser(account('TASS')) as AuthUser;
+  assert.ok(tass.roleDefaults.includes('rma'));
+  assert.ok(tass.effectiveScreens.includes('rma'));
+  assert.ok(recordScope(tassUser).category.in.includes('RMA'));
+  assert.equal(canWriteCategory(tassUser, 'RMA'), true);
+  assert.equal(canCreateCategory(tassUser, 'RMA'), true);
+  assert.ok(recordScope(tassUser).category.in.includes('ACCOUNTING_COLLECTION'));
+
+  const admin = permissionEditor(account('ADMIN'));
+  assert.ok(admin.roleDefaults.includes('rma'));
+  assert.ok(canWriteCategory(sessionUser(account('ADMIN')) as AuthUser, 'RMA'));
+  assert.ok(canCreateCategory(sessionUser(account('ADMIN')) as AuthUser, 'DELIVERY'));
+});
+
 test('invalid, unknown and duplicate permission inputs fail validation', () => {
   for (const input of [null, {}, [null], [{ screen: 'dashboard', granted: false, userId: 'another-account' }], [{ screen: 'dashboard', granted: 'false' }], [{ screen: 'constructor', granted: true }], [{ screen: 'unknown', granted: true }], [{ screen: 'main', granted: false }, { screen: 'main', granted: true }]]) {
     assert.ok(permissionInputError(input));
@@ -61,7 +98,8 @@ test('invalid, unknown and duplicate permission inputs fail validation', () => {
 });
 
 test('permission replacement is atomic, audited, rejects stale editors and can reset to defaults', async () => {
-  let row = account();
+  let row = { ...account(), authorizationRevision: 1n, permissionOverrides: [], permissionConversion: null, driverProfile: null };
+  let actor = { ...row, id: 'admin', role: 'ADMIN' };
   let audits: unknown[] = [];
   let auditFailure = false;
   const db = { $transaction: async (fn: any) => {
@@ -69,20 +107,24 @@ test('permission replacement is atomic, audited, rejects stale editors and can r
     const beforeAudits = [...audits];
     try {
       return await fn({
+        $executeRaw: async () => 1,
         $queryRaw: async () => [{ id: row.id }],
-        user: { findUnique: async () => row },
+        user: { findUnique: async ({ where }: any) => where.id === actor.id ? actor : where.id === row.id ? row : null },
         userPermission: {
-          deleteMany: async () => { row.permissions = []; },
-          createMany: async ({ data }: any) => { row.permissions = data.map(({ screen, granted }: Permission) => ({ screen, granted })); },
+          deleteMany: async () => { row.authorizationRevision += BigInt(row.permissions.length); row.permissions = []; },
+          createMany: async ({ data }: any) => {
+            row.permissions = data.map(({ screen, granted }: Permission) => ({ screen, granted }));
+            row.authorizationRevision += BigInt(data.length);
+          },
         },
         auditLog: { create: async (data: unknown) => { if (auditFailure) throw new Error('audit failed'); audits.push(data); } },
       });
     } catch (error) { row = before; audits = beforeAudits; throw error; }
   } } as unknown as PrismaClient;
-  const originalVersion = permissionSnapshot(row.role, row.permissions).permissionVersion;
+  const originalVersion = permissionEditor(row).permissionVersion;
   const denied = await replacePermissions(db, row.id, 'admin', [{ screen: 'dashboard', granted: false }], originalVersion);
   assert.ok(!denied.effectiveScreens.includes('dashboard'));
-  assert.equal(audits.length, 1);
+  assert.equal(audits.length, 2, 'legacy permission diff and account authorization change are audited atomically');
   await assert.rejects(replacePermissions(db, row.id, 'admin', [], originalVersion), /changed/);
   await assert.rejects(replacePermissions(db, row.id, 'admin', [{ screen: 'admin', granted: true }], denied.permissionVersion), /cannot customize/);
   auditFailure = true;
@@ -91,7 +133,10 @@ test('permission replacement is atomic, audited, rejects stale editors and can r
   auditFailure = false;
   const reset = await replacePermissions(db, row.id, 'admin', [], denied.permissionVersion);
   assert.ok(reset.effectiveScreens.includes('dashboard'));
-  assert.equal(audits.length, 2);
+  assert.equal(audits.length, 4);
+  actor = { ...actor, role: 'LOGISTICS' };
+  await assert.rejects(replacePermissions(db, row.id, actor.id, [], reset.permissionVersion), /active ADMIN/);
+  assert.equal(audits.length, 4, 'a demoted actor cannot write or append a success audit');
 });
 
 test('record scopes retain role limits and explicit denials even through shared views', () => {

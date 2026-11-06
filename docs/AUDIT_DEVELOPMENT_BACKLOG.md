@@ -1,8 +1,8 @@
 # Audit Development Backlog
 
-Generated from the 2026-10-09 completeness audit, with emphasis on the Sales Coordinator and Logistics workflows. **Reconciled 2026-10-13** against `dev` at [`875612a`](https://github.com/MarcZxc1/Supply-Chain/commit/875612a363e5fb5611778bc81af4ba181b4292e5) (merge of PR #142). This is a planning and evidence record, **not** a declaration of staging or production readiness.
+Generated from the 2026-10-09 completeness audit, with emphasis on the Sales Coordinator and Logistics workflows. **Source reconciliation: 2026-11-05 against `dev` at `6aad0f7`.** The earlier 2026-10-13 reconciliation at `875612a` remains the source of the recorded AUD-009 CI evidence. This is a planning and evidence record, not staging or production sign-off.
 
-**Temporary source of truth:** all 11 original audit tickets (10 open and AUD-009 completed) are stored in this file for development while the replacement Notion workspace is being prepared. Migrate them into the new workspace when it is available, keep each `AUD-XXX` ID in the page body, and fill in the Notion ticket ID and URL in the mapping table below. Until then, use this Markdown file as the canonical ticket record.
+**Ticket record:** all 11 original audit tickets are retained here while the replacement Notion workspace is being prepared. The table and dated reconciliation notes below describe current source status. Original problem statements, plans and unchecked acceptance criteria describe the original ticket scope; they are not evidence that an implementation is still absent. Use the [current implementation register](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md#current-reconciliation) for additional findings, QA dispositions and verification tasks. Notion IDs and URLs remain unset until corresponding pages are verified.
 
 ## Working Agreement
 
@@ -14,27 +14,31 @@ Generated from the 2026-10-09 completeness audit, with emphasis on the Sales Coo
 
 ## Ticket Mapping and Recommended Order
 
-**Status definitions:** **Ready** means sufficiently specified to begin the scoped implementation and validation; **Decision needed** means a named policy, contract, or architecture choice must be approved before implementing that part of the ticket; **Done — merged** means the documented acceptance criteria were verified in merged work. A decision-dependent ticket may be investigated or tested in advance, but its unresolved policy must not be silently assumed. The Notion ID remains **Pending** until a corresponding page is verified and linked; it is independent of implementation status.
+**Status definitions:** **Implemented; verification pending** means the source contains the repair, with the stated acceptance checks still outstanding. **Partially implemented** identifies the remaining scope explicitly. **Decision needed** means the product or operating rule must be agreed before that part is implemented. **Done — merged** retains recorded merge and acceptance evidence. Source inspection and existing test files do not constitute a fresh test run. The Notion ID remains **Pending** until a corresponding page is verified and linked; it is independent of implementation status.
 
 | Local ID | Notion ID | Priority | Status | Title | Dependency/decision |
 | --- | --- | --- | --- | --- | --- |
-| AUD-001 | Pending | P2 High | Ready | Creation-time attachments are discarded after save | None |
-| AUD-002 | Pending | P1 Critical | Decision needed | Lock Microsoft SSO to approved accounts and validate OAuth state | Approve tenant, pre-provisioning and identity binding policy |
-| AUD-003 | Pending | P1 Critical | Decision needed | Add CSRF protection, request rate limits, and HTTP security headers | Confirm production origins and Teams embedding policy |
+| AUD-001 | Pending | P2 High | Implemented; verification pending | Creation-time attachments and recovery | Browser reload/download and partial-failure acceptance |
+| AUD-002 | Pending | P1 Critical | Implemented; verification pending | Approved-account SSO and OAuth state | Verify deployed tenant/provisioning and real sign-in |
+| AUD-003 | Pending | P1 Critical | Implemented; verification pending | CSRF protection, rate limits and security headers | Verify deployed origins, proxy and Teams behavior |
 | AUD-004 | Pending | P2 High | Decision needed | Let Sales Coordinators manage the Company master | Approve Company duplicate and edit policy |
 | AUD-005 | Pending | P2 High | Decision needed | Replace hard-coded Account Manager picker with stable identities | Identity model |
 | AUD-006 | Pending | P2 High | Decision needed | Managed vehicle fleet and dispatch conflict prevention | Scheduling/conflict policy |
 | AUD-007 | Pending | P2 High | Decision needed | Link Suppliers and SKU items to operational records | Inventory business rules |
-| AUD-008 | Pending | P2 High | Ready | Server-side record pagination and filters | API migration design |
+| AUD-008 | Pending | P2 High | Partially implemented | Server-side record pagination and filters | Transaction Center full-set reads and representative-volume acceptance |
 | AUD-009 | Pending | P2 High | Done — merged | Make tests authoritative CI gates | PRs [#140](https://github.com/MarcZxc1/Supply-Chain/pull/140) and [#142](https://github.com/MarcZxc1/Supply-Chain/pull/142); CI passed |
-| AUD-010 | Pending | P3 Medium | Decision needed | Align report date semantics | Date-semantics matrix |
-| AUD-011 | Pending | P2 High | Decision needed | Externalize scheduled jobs and add deployment health checks | Approve scheduler, catch-up and retry policy |
+| AUD-010 | Pending | P3 Medium | Partially implemented | Align report date semantics | Confirm cross-view semantics; Transaction Center inventory boundaries remain |
+| AUD-011 | Pending | P2 High | Partially implemented; decision needed | Durable scheduled jobs and deployment health checks | Verify deployed readiness configuration; approve scheduler/catch-up/retry |
 
-**Recommended next sequence:** prioritize the two P1 security decisions and fixes, `AUD-002` and `AUD-003`, **before production enablement**; resolve tenant/provisioning and deployment/Teams-origin policies first. With those safeguards underway, implement the ready user-facing repair `AUD-001` and pagination `AUD-008`. Then address `AUD-004` and `AUD-011` once their explicit decisions are approved, followed by decision-dependent `AUD-005`–`AUD-007` and `AUD-010`. `AUD-009` is **complete** and is not pending implementation. Work on independent tasks can be parallelized without implying that unresolved security items are safe to defer for production.
+**Recommended next sequence:** use the current register to confirm each approved issue before editing. Complete deployment/acceptance verification for existing AUD-001–AUD-003 safeguards rather than rebuilding them. Address confirmed security/validation gaps, data-integrity checks and notification reliability before smaller functional repairs and the approved scheduler work. Schedule AUD-004–AUD-007 after their business decisions. Retain AUD-008/AUD-010 residual checks and AUD-009's recorded completion. The seven work stages are planning stages, not seven individual defects or a fixed number of PRs.
 
 ---
 
 ## AUD-001 - Creation-time attachments are discarded after save
+
+### Current reconciliation — 2026-11-05
+
+**Implemented; verification pending.** [RecordCreateForm](../client/src/features/deliveries/RecordCreateForm.tsx) and [AccountingCollectionView](../client/src/features/accounting/AccountingCollectionView.tsx) retain File objects, upload after record creation, preserve the created ID, and expose failed-upload retry through [recordAttachments](../client/src/utils/recordAttachments.ts). The [existing recovery tests](../client/tests/recordAttachments.test.ts) cover a saved upload whose response was lost. Recheck browser reload/download and creation recovery on a disposable target before closing the full original acceptance scope.
 
 **Type:** Bug
 **Modules:** Deliveries, RMA, Procurement Pick-up, Sales Orders, Accounting Collection
@@ -82,6 +86,10 @@ Report changed files, upload failure/retry behavior, test output, and manual rel
 
 ## AUD-002 - Lock Microsoft SSO to approved accounts and validate OAuth state
 
+### Current reconciliation — 2026-11-05
+
+**Implemented; verification pending.** [auth routes](../server/src/routes/auth.ts), [ssoState](../server/src/services/ssoState.ts) and [ssoIdentity](../server/src/services/ssoIdentity.ts) now enforce browser-bound expiring state with atomic single use, an explicit tenant GUID, and an active Admin-preapproved OID. Unknown identities are not auto-created or linked by email. Existing [state](../server/tests/ssoState.test.ts), [identity](../server/tests/ssoIdentity.test.ts) and [route](../server/tests/ssoRoutes.test.ts) tests cover those boundaries. Actual tenant/provisioning configuration and provider sign-in remain deployment verification; the original missing-controls claim below is historical.
+
 **Type:** Security bug
 **Modules:** Authentication, Administration
 **Access:** All
@@ -115,6 +123,10 @@ The Microsoft authorization flow does not generate/validate OAuth `state`, and t
 
 ## AUD-003 - Add CSRF protection, rate limits, and baseline HTTP security headers
 
+### Current reconciliation — 2026-11-05
+
+**Implemented; verification pending.** [security middleware](../server/src/middleware/security.ts), [CSRF validation](../server/src/middleware/csrf.ts), [rate limits](../server/src/middleware/rateLimits.ts) and the [Worker](../worker.js) implement these controls. The [security suite](../server/tests/security.test.ts) contains origin/token, throttling, proxy and header assertions. Verify effective deployed origins, proxy-secret routing and Teams behavior before rollout acceptance. Do not remove or duplicate the existing protections based on the original problem statement.
+
 **Type:** Security development
 **Modules:** All
 **Access:** All
@@ -147,6 +159,10 @@ Production uses an `httpOnly`, `Secure`, `SameSite=None` cookie while mutations 
 ---
 
 ## AUD-004 - Let Sales Coordinators manage the Company master
+
+### Current reconciliation — 2026-11-05
+
+**Decision needed.** The SC/Admin [Company create API](../server/src/routes/companies.ts) exists, but a Company create/edit client workflow was not found in the current API client or screen routing. Company and Customer remain separate models. Agree on duplicate/SAP uniqueness, edit authority and historical identity before implementing the missing portal workflow.
 
 **Type:** Feature
 **Modules:** Customers, Deliveries, Sales Orders, Procurement Pick-up, Accounting Collection, RMA
@@ -186,6 +202,10 @@ Automatic Company/Customer merging, SAP integration, and historical ownership re
 
 ## AUD-005 - Replace the hard-coded Account Manager picker with stable identities
 
+### Current reconciliation — 2026-11-05
+
+**Decision needed.** [Account Manager choices](../client/src/data.ts) remain static and DeliveryRecord stores a name string. [Mail recipient resolution](../server/src/services/mailPermissions.ts) now requires an exact, unique active account with record access; the earlier unsafe recipient behavior must not be reintroduced. Stable identity and historical rename behavior still require the User-versus-master-entity decision.
+
 **Type:** Feature
 **Modules:** Deliveries, Sales Orders, Accounting Collection, Administration
 **Access:** Sales Coordinator, Admin
@@ -217,6 +237,10 @@ Decide whether Account Managers are `User` records, a dedicated master entity, o
 ---
 
 ## AUD-006 - Add a managed vehicle fleet and prevent conflicting dispatch assignments
+
+### Current reconciliation — 2026-11-05
+
+**Decision needed.** [Vehicle choices](../client/src/data.ts) remain static and the [record schema](../server/prisma/schema.prisma) stores vehicle text rather than a Vehicle relation. Existing Driver profile identity/assignment checks do not establish fleet availability or booking rules. Define overlap windows, warn/block behavior and override authority before adding conflict enforcement.
 
 **Type:** Feature
 **Modules:** Driver Tools, Deliveries, Calendar
@@ -251,6 +275,10 @@ Define date-only versus time-window scheduling, warn versus block behavior, over
 
 ## AUD-007 - Link Suppliers and SKU line items to operational records
 
+### Current reconciliation — 2026-11-05
+
+**Decision needed.** The [schema](../server/prisma/schema.prisma) still has no Supplier foreign key on DeliveryRecord or Product relation on LineItem. Supplier pickup context uses name matching in [records routes](../server/src/routes/records.ts). Supplier creation/audit is already transactional after PR #295. The separate [Admin catalog/multiple-category feature](SUPPLIER_CATEGORIES.md) is implemented locally, including Admin-only assignment edits and real PostgreSQL audit rollback verification; it does not resolve this operational traceability ticket. Agree on stable links and any inventory effects before implementation. Operational stock movement remains manual.
+
 **Type:** Feature
 **Modules:** Suppliers, Procurement Pick-up, SKU Master, Inventory, Deliveries, RMA, Sales Orders
 **Access:** Sales Coordinator, Logistics, Admin
@@ -283,6 +311,10 @@ Define which categories/lifecycle transitions affect stock, movement type, parti
 ---
 
 ## AUD-008 - Replace unbounded record loading with server-side pagination and filters
+
+### Current reconciliation — 2026-11-05
+
+**Partially implemented.** [Records routes](../server/src/routes/records.ts) provide page/cursor filtering and bound unpaged reads to 100. The [workflow follow-up](ROLE_WORKFLOW_FIXES_2026-10-31.md) records bounded operational views, aggregates and explicit export traversal. [Transaction Center](../server/src/routes/transactions.ts) still reads matching delivery/inventory sets before merging and slicing, so do not claim all application reads are bounded. Review that residual path and verify agreed representative-volume latency/memory and complete exports on a disposable target. Existing [paging tests](../client/tests/operationalRecordPaging.test.ts) are source evidence, not a fresh benchmark.
 
 **Type:** Development
 **Modules:** All operational modules, Dashboard, Reports
@@ -350,6 +382,10 @@ At the 2026-10-09 baseline, five client test files crashed on import because `cl
 
 ## AUD-010 - Align report date filters with Delivery Date and completion Time Out
 
+### Current reconciliation — 2026-11-05
+
+**Partially implemented.** [Statistical reports](../server/src/routes/reports.ts) distinguish Delivery Date cohorts from Time Out completions; [status counts](../server/src/routes/records.ts) accept explicit Delivery Date/creation-date bases; [report lifecycle tests](../server/tests/reportsLifecycle.test.ts) cover Manila ranges and labels are explicit in the client report. [Transaction Center](../server/src/routes/transactions.ts) still uses the server-local end-of-day setter for inventory dates. Reconcile that residual boundary and cross-view/export expectations before closing the original ticket; retain the creation-date meaning of explicitly labelled creation metrics.
+
 **Type:** Bug
 **Modules:** Reports, Dashboard, Deliveries
 **Access:** Sales Coordinator, Logistics, Admin
@@ -382,6 +418,10 @@ Approve a matrix: scheduled operations use `deliveryDate`; completion reports us
 
 ## AUD-011 - Externalize scheduled jobs and configure deployment health checks
 
+### Current reconciliation — 2026-11-05
+
+**Partially implemented; decision needed.** Health follow-up merged via PR #299 (present in local dev `8adf405`): [readiness](../server/src/routes/health.ts) retains database and production-setting checks with minimal no-store 200/503 responses, and [render.yaml](../render.yaml) now sets healthCheckPath to /api/v1/health. Authenticated Admin diagnostics retain details. See the [validation record](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md#healthreadiness-follow-up). Effective Render configuration still needs deployment verification. Reminders still use in-process timers; scheduler, catch-up, retry and duplicate-prevention choices remain open.
+
 **Type:** Development
 **Modules:** Administration, Reports
 **Access:** Admin
@@ -396,8 +436,8 @@ The 4 PM reminder, 6 PM end-of-day, and Monday weekly jobs use in-process timers
 1. Move jobs to the approved durable scheduler/worker with explicit Asia/Manila schedules.
 2. Add unique execution records/idempotency keys by job and schedule window.
 3. Separate job handlers from scheduling and test with an injected clock.
-4. Configure `healthCheckPath: /api/health`; define dependency/config readiness and return `503` when unhealthy.
-5. Remove duplicate/unreachable health routing and minimize public diagnostic detail.
+4. Configure `healthCheckPath: /api/v1/health` using the existing readiness route and preserve unhealthy `503` responses.
+5. Minimize public readiness detail while retaining authenticated Admin deployment diagnostics.
 6. Document retries, catch-up/missed runs, alerting, staging verification, and rollback.
 
 ### Acceptance criteria
@@ -405,7 +445,7 @@ The 4 PM reminder, 6 PM end-of-day, and Monday weekly jobs use in-process timers
 - [ ] Restarts/host sleep do not permanently lose eligible work under the approved catch-up policy.
 - [ ] Concurrent workers produce at most one logical job result per schedule window.
 - [ ] Retries are idempotent and failures observable without exposing secrets.
-- [ ] Render gates traffic on `/api/health` and unhealthy readiness returns `503`.
+- [ ] Render gates traffic on `/api/v1/health` and unhealthy readiness returns `503`.
 - [ ] Tests cover the three Manila schedules, retries, and concurrency.
 
 ### Decision needed

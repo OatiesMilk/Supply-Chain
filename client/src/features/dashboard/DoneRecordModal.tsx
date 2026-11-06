@@ -2,14 +2,7 @@ import { X, Clock, UserCheck } from 'lucide-react';
 import { DeliveryRecord } from '@/types';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
 import { PodAttachmentList } from '@/components/PodAttachmentPreview';
-
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString([], {
-    timeZone: 'Asia/Manila',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
+import { formatManilaTime, formatManilaTimestamp } from '@/utils/manilaTimestamp';
 
 export default function DoneRecordModal({
   record,
@@ -19,6 +12,14 @@ export default function DoneRecordModal({
   onClose: () => void;
 }) {
   const { files, readiness } = usePodAttachments(record.id);
+  const isRma = record.category === 'RMA';
+  const isRmaTransportHandoff = isRma && record.status !== 'Delivered' && record.rma_transport_status === 'COMPLETED';
+  const waitingForTassReceipt = isRmaTransportHandoff && !record.rma_received_at;
+  const completedAt = formatManilaTimestamp(isRmaTransportHandoff
+    ? record.rma_transport_completed_at ?? record.rma_completed_at
+    : isRma ? record.rma_completed_at : record.time_out);
+  const completedLabel = isRmaTransportHandoff ? 'Transport completed on' : isRma ? 'RMA completed on' : 'Accomplished on';
+  const recordLabel = isRma ? record.rma_reference || record.reference || record.id : record.reference;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -30,8 +31,8 @@ export default function DoneRecordModal({
       >
         <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-4">
           <div>
-            <h2 id="accomplished-run-details-title" className="text-lg font-bold text-slate-900">Accomplished Run Details</h2>
-            <p className="mt-1 font-mono text-xs text-slate-500">{record.reference} · {record.company_name}</p>
+            <h2 id="accomplished-run-details-title" className="text-lg font-bold text-slate-900">Accomplished {isRmaTransportHandoff ? 'RMA Transport' : isRma ? 'RMA' : 'Run'} Details</h2>
+            <p className="mt-1 font-mono text-xs text-slate-500">{recordLabel} · {record.company_name}</p>
           </div>
           <button
             type="button"
@@ -44,20 +45,23 @@ export default function DoneRecordModal({
         </div>
 
         <div className="space-y-4 text-sm text-slate-700">
+          {isRmaTransportHandoff && <p role="status" className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm text-blue-900">
+            {waitingForTassReceipt ? 'Driver transport is complete; awaiting TASS physical receipt.' : 'Physical receipt is confirmed; awaiting final TASS RMA completion.'}
+          </p>}
           <div>
-            <h3 className="font-bold text-slate-900 mb-1">Status & Timestamps</h3>
+            <h3 className="font-bold text-slate-900 mb-1">{isRma ? 'RMA status & timestamps' : 'Status & Timestamps'}</h3>
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-emerald-900">
-              <p className="font-bold">Accomplished on {new Date(record.delivery_date).toLocaleDateString()}</p>
+              <p className="font-bold">{completedAt === '—' ? 'Completion date unavailable' : `${completedLabel} ${completedAt}`}</p>
               <div className="mt-2 flex flex-col gap-1 text-xs">
-                {record.time_in && (
-                  <span className="flex items-center gap-1.5"><Clock className="h-4 w-4" /> Time in: {fmtTime(record.time_in)}</span>
-                )}
-                {record.time_out && (
-                  <span className="flex items-center gap-1.5"><Clock className="h-4 w-4" /> Time out: {fmtTime(record.time_out)}</span>
-                )}
-                {record.received_by && (
-                  <span className="flex items-center gap-1.5"><UserCheck className="h-4 w-4" /> Received by: {record.received_by}</span>
-                )}
+                {isRma ? <>
+                  {record.rma_transport_started_at && <span className="flex items-center gap-1.5"><Clock className="h-4 w-4" /> Transport started: {formatManilaTime(record.rma_transport_started_at)}</span>}
+                  {record.rma_transport_completed_at && <span className="flex items-center gap-1.5"><Clock className="h-4 w-4" /> Transport completed: {formatManilaTime(record.rma_transport_completed_at)}</span>}
+                  {record.rma_received_at && <span className="flex items-center gap-1.5"><UserCheck className="h-4 w-4" /> Physical receipt: {formatManilaTime(record.rma_received_at)}{record.rma_recipient ? ` · ${record.rma_recipient}` : ''}</span>}
+                </> : <>
+                  {record.time_in && <span className="flex items-center gap-1.5"><Clock className="h-4 w-4" /> Time in: {formatManilaTime(record.time_in)}</span>}
+                  {record.time_out && <span className="flex items-center gap-1.5"><Clock className="h-4 w-4" /> Time out: {formatManilaTime(record.time_out)}</span>}
+                  {record.received_by && <span className="flex items-center gap-1.5"><UserCheck className="h-4 w-4" /> Received by: {record.received_by}</span>}
+                </>}
               </div>
             </div>
           </div>
@@ -70,7 +74,7 @@ export default function DoneRecordModal({
           </div>
 
           <div>
-            <h3 className="font-bold text-slate-900 mb-2">Proof of Delivery (POD)</h3>
+            <h3 className="font-bold text-slate-900 mb-2">{isRma ? 'Return transport proof (POD)' : 'Proof of Delivery (POD)'}</h3>
             {readiness.loading ? (
               <p className="text-xs text-slate-500">Loading attachments...</p>
             ) : readiness.loadFailed ? (

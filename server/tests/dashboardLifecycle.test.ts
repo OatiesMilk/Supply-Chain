@@ -2,6 +2,7 @@ import { afterEach, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { prisma } from '../src/db';
 import dashboard from '../src/routes/dashboard';
+import { sessionUser } from '../src/services/permissions';
 
 const restorers: (() => void)[] = [];
 function stub(target: any, key: string, implementation: (...args: any[]) => any) {
@@ -25,7 +26,7 @@ async function stats(role: string) {
   const route = (dashboard as any).stack.find((layer: any) => layer.route?.path === '/stats').route;
   const handler = route.stack[route.stack.length - 1].handle;
   let response: any;
-  await handler({ user: { role } }, { json(body: any) { response = body; } });
+  await handler({ user: sessionUser({ id: 'test', name: 'Test', email: 'test@example.test', role, permissions: [] }) }, { json(body: any) { response = body; } });
   return { queries, response };
 }
 

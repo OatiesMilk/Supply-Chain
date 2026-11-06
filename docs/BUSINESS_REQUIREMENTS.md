@@ -1,8 +1,9 @@
 # Business System Requirements: Microgenesis Supply Chain Portal
 
-> Last verified: 2026-10-09 against commit `ccbf192` (`dev`).
+> Last full-document verification: 2026-10-09 against commit `ccbf192` (`dev`).
 > Status tags: **Implemented** (verified in code), **Partial** (works with a stated gap), **Planned** (not built), **Open question** (needs a stakeholder decision).
 > This document describes what the system does today. It is not a signed-off specification; items marked *Open question* have not been confirmed with the owning department.
+> Targeted update (2026-11-05): Supplier creation now records the initial details and actor in a central `Supplier` CREATE audit event in the same transaction. This update does not replace the full-document verification above.
 
 ## 1. Purpose and scope
 
@@ -78,10 +79,11 @@ Out of scope today: automatic stock movement from deliveries, customer signature
 | :--- | :--- | :--- | :--- |
 | BR-DIR-01 | Companies (SAP number, address, contact) used on records | Implemented | Read: any permitted record screen. Create: Sales Coordinator, Admin |
 | BR-DIR-02 | Customers directory with edit, validation, reason-for-change and audit trail | Implemented | Edit: Sales Coordinator, Logistics, Admin. Create also open to Driver |
-| BR-DIR-03 | Suppliers directory | Implemented | Create: SC, Logistics, Admin, Driver. No edit/delete route |
+| BR-DIR-03 | Suppliers directory | Implemented | Create: SC, Logistics, Admin, Driver under applicable supplier permissions. Creation records a central `Supplier` CREATE audit event atomically. Existing category assignments may be edited by Admin only; general contact editing/deletion remains unavailable. See BR-DIR-07 |
 | BR-DIR-04 | Driver and assistant directory with coverage areas, active flag and Admin-linked login | Implemented | Admin adds Drivers; Logistics adds Assistants and edits coverage/status; type changes and Driver renames are Admin only (TSK-119) |
 | BR-DIR-05 | Account Manager directory | Implemented | Sales Coordinator, Admin (screen) |
 | BR-DIR-06 | Single unified Company/Customer directory | Planned | Two directories remain |
+| BR-DIR-07 | Admin-managed supplier category catalog with multiple categories per supplier | Implemented locally — awaiting PR/deployment | Admin creates/renames/deactivates/reactivates categories and edits existing assignments; supplier creators select active categories under their existing authority. Relations, API/UI/filter/export/audit, conflict handling and additive legacy mapping are implemented. See [contract and verification](SUPPLIER_CATEGORIES.md). Supersedes the fixed-five-only proposal |
 
 ### 3.6 SKU Master and stock
 
@@ -119,9 +121,9 @@ Out of scope today: automatic stock movement from deliveries, customer signature
 | :--- | :--- | :--- | :--- |
 | BR-ADM-01 | Create, edit, deactivate, activate and delete users; link a Driver login to a driver profile | Implemented | Admin; an Admin cannot remove their own admin role |
 | BR-ADM-02 | Per-user module access (grant/deny/reset) with version conflict protection and immediate effect | Implemented | See [Module access](./MODULE_ACCESS.md) |
-| BR-ADM-03 | System audit log and per-entity audit trails | Implemented | |
+| BR-ADM-03 | System audit log and per-entity audit trails | Implemented | Supplier creation stores the initial detail snapshot and actor with the supplier row in one transaction |
 | BR-ADM-04 | Integration status and test email | Implemented | Admin |
-| BR-ADM-05 | Data Sampler for generating demo data and resetting an approved disposable local sandbox | Implemented | Generation: Admin. Reset: authenticated Admin only after server-side local-environment and database-target validation; always denied in staging/production |
+| BR-ADM-05 | Temporary Data Sampler for development/demo data | Temporary; removal planned after development | User decision 2026-11-05: no further sampler fixes; remove when development is complete because it is outside final product scope. Current generation is Admin-only and local development/test only; reset has additional disposable-database safeguards. Removal is not yet implemented; see the [retirement task](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md#data-sampler-retirement-task) |
 | BR-ADM-06 | Local email/password login plus optional Microsoft SSO | Implemented (login); SSO planned for company rollout | SSO is intended for company use once the system is complete and has not been rolled out. Before rollout, decide how unknown Microsoft users are provisioned: today they are auto-created as Sales Coordinator (issues report 13.4) |
 | BR-ADM-07 | Microsoft Teams tab packaging | Partial | Manifest and script in `teams/`; not verified in a live tenant |
 

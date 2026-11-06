@@ -1,3 +1,6 @@
+import { beforeEach } from 'node:test';
+import { installLegacySession } from './helpers/permissionSession';
+beforeEach(() => { installLegacySession('ADMIN', 'inventory'); });
 import { afterEach, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
@@ -13,13 +16,18 @@ import { createSkuMutationOptions, SKUS_QUERY_KEY } from '../src/api/queries/use
 
 afterEach(() => mock.restoreAll());
 
-test('only Admin sees SKU creation', () => {
-  for (const currentUserRole of ['Admin', 'Logistics', 'Sales Coordinator', 'Driver', 'TASS']) {
-    const html = renderToString(React.createElement(InventoryView, {
-      skus: [], currentUserRole, currentUserName: 'Test', onRefresh: () => {}, clearSelectedProductId: () => {},
-    }));
-    assert.equal(html.includes('Create SKU'), currentUserRole === 'Admin', currentUserRole);
-  }
+test('only Admin sees SKU creation', async () => {
+  await withDom(async (dom, root) => {
+    for (const [currentUserRole, apiRole] of [['Admin', 'ADMIN'], ['Logistics', 'LOGISTICS'], ['Sales Coordinator', 'SALES_COORDINATOR'], ['Driver', 'DRIVER'], ['TASS', 'TASS']] as const) {
+      await act(async () => {
+        installLegacySession(apiRole, 'inventory');
+        root.render(React.createElement(InventoryView, {
+          skus: [], currentUserRole, currentUserName: 'Test', onRefresh: () => {}, clearSelectedProductId: () => {},
+        }));
+      });
+      assert.equal(dom.window.document.body.textContent!.includes('Create SKU'), currentUserRole === 'Admin', currentUserRole);
+    }
+  });
 });
 
 test('successful SKU creation updates catalog cache and refreshes', async () => {
@@ -89,12 +97,15 @@ test('SKU form preserves fields on conflict and can retry successfully', async (
 test('report failure ends loading and displays error with retry available', async () => {
   await withDom(async (dom, root) => {
     mock.method(api, 'getReportSummary', async () => { throw new Error('Report unavailable'); });
-    await act(async () => root.render(React.createElement(StatisticalReportView)));
+    const reportClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    mock.method(api, 'getRecordFilterOptions', async () => ({ drivers: [], areas: [], accountManagers: [] }));
+    await act(async () => root.render(React.createElement(QueryClientProvider, { client: reportClient }, React.createElement(StatisticalReportView))));
     const button = [...dom.window.document.querySelectorAll('button')].find(item => item.textContent?.includes('Generate Report'))!;
     await act(async () => button.click());
     assert.match(dom.window.document.body.textContent!, /Report unavailable/);
     assert.equal(button.disabled, false);
     assert.match(button.textContent!, /Generate Report/);
+    reportClient.clear();
   });
 });
 

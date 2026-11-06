@@ -1,5 +1,27 @@
 # Security Audit Report — Microgenesis Supply Chain Portal
 
+> **Historical assessment — source reconciliation added 2026-11-05.** The
+> October 9 findings, CVSS estimates and vulnerability counts below are retained
+> as evidence of that baseline. Several safeguards now exist. Use the table
+> below and the [current implementation register](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md#current-reconciliation)
+> before requesting a repair. This documentation check did not run npm audit,
+> penetration tests, provider calls or deployed-configuration verification.
+
+| Original finding | Source disposition / dated follow-up | Remaining evidence / scope |
+| --- | --- | --- |
+| SEC-01 — anonymous seed/wipe | Removed/guarded implementation exists in [dev routes](../server/src/routes/dev.ts) and [seed-reset tests](../server/tests/seedResetSecurity.test.ts). | Verify deployed revision/configuration; never reinstate the anonymous route from the historical example. |
+| SEC-02 — SSO state/auto-provisioning | [State storage](../server/src/services/ssoState.ts), [approved OID lookup](../server/src/services/ssoIdentity.ts) and [auth flow](../server/src/routes/auth.ts) implement browser-bound single-use state, explicit tenant and preapproved active accounts. | Live tenant/provisioning and sign-in acceptance; historical auto-create/email-link claims are superseded in source. |
+| SEC-03 / SEC-04 / SEC-05 — CSRF, throttling, headers | [Security middleware](../server/src/middleware/security.ts), [CSRF](../server/src/middleware/csrf.ts), [rate limits](../server/src/middleware/rateLimits.ts) and [Worker headers](../worker.js) exist; [security assertions](../server/tests/security.test.ts) cover those boundaries. | Verify actual origins, trusted proxy routing, Teams framing and production responses. |
+| SEC-06 — dependency advisories | Verification pending. The October count and package claims are historical, not a current advisory result. | Obtain a fresh dependency/advisory assessment for the intended lockfile and distinguish production from development exposure. |
+| SEC-07 — upload buffering/quotas | [Private disk quarantine](../server/src/services/podStorage.ts) replaces upload memory buffering; [attachment rules](../server/src/services/attachmentRules.ts) limit each record to 10 files / 50 MiB, each upload to 10 MiB. | Provider/resource-load and deployment verification; existing quota/cleanup tests do not establish production capacity. |
+| SEC-08 — document validation | [Attachment rules](../server/src/services/attachmentRules.ts) and [routes](../server/src/routes/records.ts) verify supported document content; [tests](../server/tests/attachmentRules.test.ts) exist. | Real browser/private-provider acceptance; do not regress to extension/MIME-only trust. |
+| SEC-09 — credentials/revocation | Partially addressed: email is validated and [authentication](../server/src/middleware/auth.ts) reloads current account authority. [User creation](../server/src/routes/users.ts) still only requires a non-empty password; password change/reset is absent from the auth API. | User decision 2026-11-05: defer password-policy work during development for easier development logins; revisit at development completion. The remaining gap is not marked fixed. Current authority reload is not a full JWT revocation assessment. |
+| SEC-10 — public diagnostics/fallback URL | Health follow-up implemented locally on dev baseline 419b8bf, 2026-11-05: [public readiness](../server/src/routes/health.ts) now exposes only availability with no-store 200/503 responses. Detailed Admin diagnostics remain protected. The [Worker](../worker.js) already fails with 503 when API_BASE_URL is absent. | Awaiting PR/merge/deployment and verification of the hosted health path/response. See [validation and limits](SUPPLY_CHAIN_IMPLEMENTATION_STATUS_2026-11-05.md#healthreadiness-follow-up); no production outage or provider send was exercised. |
+
+---
+
+## Original assessment (2026-10-09)
+
 **Date:** October 9, 2026  
 **Auditor:** Application Security Team / Antigravity Security Audit  
 **Target Repository:** `Microgenesis Supply Chain Management System`  

@@ -32,9 +32,9 @@ try {
 
 console.log('READY: in-memory Admin Playwright session; send one JSON command per line, or {"op":"close"}.');
 const api = async (method, route, body, timeoutMs = 15000) => page.evaluate(async ({ method, route, body, timeoutMs }) => {
-  const me = await fetch('/api/auth/me');
+  const me = await fetch('/api/v1/auth/me');
   const csrf = me.headers.get('X-CSRF-Token');
-  const response = await fetch(route.startsWith('/api/') ? route : `/api${route}`, {
+  const response = await fetch(route.startsWith('/api/v1/') ? route : `/api/v1${route}`, {
     method,
     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
     body: body === undefined ? undefined : JSON.stringify(body),

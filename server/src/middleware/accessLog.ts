@@ -5,7 +5,8 @@ export function safeAccessLogUrl(url: string, isProduction = process.env.NODE_EN
   const pathname = url.split('?')[0];
   // Express routing accepts case variants and a trailing slash. Redact every
   // callback parameter, including provider errors, regardless of its name.
-  return isProduction || /^\/api\/auth\/microsoft\/callback\/?$/i.test(pathname) ? pathname : url;
+  // Redact retired callback URLs too: a stale login can still send a code.
+  return isProduction || /^\/api\/(?:v1\/)?auth\/microsoft\/callback\/?$/i.test(pathname) ? pathname : url;
 }
 
 morgan.token('safe-url', req => safeAccessLogUrl((req as Request).originalUrl || req.url || '-'));

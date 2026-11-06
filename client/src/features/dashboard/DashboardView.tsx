@@ -14,22 +14,16 @@ import {
   RefreshCw,
   RotateCw,
 } from "lucide-react";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
+import DashboardStatusChart from './DashboardStatusChart';
 import {
   Product,
   InventoryItem,
   DeliveryRecord,
   DeliveryStatus,
 } from "@/types";
-import { ApiDashboardStats } from "@/api";
+import { api, ApiDashboardStats } from "@/api";
+import { useQuery } from "@tanstack/react-query";
+import { operationalSyncOptions } from "@/api/queries/operationalSync";
 import LogisticsDashboard from "@/features/dashboard/LogisticsDashboard";
 import TassDashboard from "@/features/dashboard/TassDashboard";
 import AdminDashboard from "@/features/dashboard/AdminDashboard";
@@ -54,6 +48,10 @@ export default function DashboardView({
   currentUserRole,
   onRefresh,
 }: DashboardViewProps) {
+  const overviewQuery = useQuery({ ...operationalSyncOptions, queryKey: ['dashboard-overview'], queryFn: api.getDashboardOverview });
+  if (overviewQuery.isPending) return <p role="status" className="p-5 text-sm text-slate-600">Loading dashboard totals…</p>;
+  if (overviewQuery.isError) return <div role="alert" className="p-5 text-sm text-red-700">Could not load dashboard totals. <button type="button" className="underline" onClick={() => void overviewQuery.refetch()}>Retry dashboard</button></div>;
+  const overview = overviewQuery.data;
   // Narrow the discriminated union to the correct branch per role
   const salesStats =
     dashboardStats?.role === "SALES_COORDINATOR" ? dashboardStats : null;
@@ -67,6 +65,7 @@ export default function DashboardView({
     return (
       <LogisticsDashboard
         stats={logisticsStats}
+        overview={overview}
         deliveryRecords={deliveryRecords}
         onNavigate={onNavigate}
         onRefresh={onRefresh}
@@ -78,6 +77,7 @@ export default function DashboardView({
     return (
       <TassDashboard
         stats={tassStats}
+        overview={overview}
         deliveryRecords={deliveryRecords}
         onNavigate={onNavigate}
         onRefresh={onRefresh}
@@ -89,6 +89,7 @@ export default function DashboardView({
     return (
       <AdminDashboard
         stats={adminStats}
+        overview={overview}
         deliveryRecords={deliveryRecords}
         onNavigate={onNavigate}
         onRefresh={onRefresh}
@@ -116,35 +117,31 @@ export default function DashboardView({
     filterRecordsForDashboard(deliveryRecords, 'sc-completed-today', today).length;
 
   const statusChartData: {
-    name: DeliveryStatus;
+    status: DeliveryStatus;
     count: number;
-    fill: string;
   }[] = [
     {
-      name: "Scheduled",
-      count: deliveryRecords.filter((r) => r.status === "Scheduled").length,
-      fill: "#0078C1",
+      status: "Scheduled",
+      count: overview.status_totals.Scheduled ?? 0,
     },
     {
-      name: "Pending",
-      count: deliveryRecords.filter((r) => r.status === "Pending").length,
-      fill: "#d97706",
+      status: "Pending",
+      count: overview.status_totals.Pending ?? 0,
     },
-    { name: "On-Hold", count: onHoldCount, fill: "#dc2626" },
-    { name: "Rescheduled", count: rescheduledCount, fill: "#9333ea" },
+    { status: "In Transit", count: overview.status_totals["In Transit"] ?? 0 },
+    { status: "On-Hold", count: overview.status_totals["On-Hold"] ?? 0 },
+    { status: "Rescheduled", count: overview.status_totals.Rescheduled ?? 0 },
     {
-      name: "Delivered",
-      count: deliveryRecords.filter((r) => r.status === "Delivered").length,
-      fill: "#059669",
+      status: "Delivered",
+      count: overview.status_totals.Delivered ?? 0,
     },
   ];
 
-  const noDriverApproaching = filterRecordsForDashboard(deliveryRecords, 'sc-attention-no-driver', today);
-  const onHoldOrRescheduled = filterRecordsForDashboard(deliveryRecords, 'sc-attention-on-hold-rescheduled', today);
-  const pendingConfirmation = filterRecordsForDashboard(deliveryRecords, 'sc-attention-pending-confirmation', today);
-  const needsAttentionCount = filterRecordsForDashboard(deliveryRecords, 'sc-attention-all', today).length;
-
-  const totalRecordCount = deliveryRecords.length + products.length;
+  const noDriverApproachingCount = overview.counts['sc-attention-no-driver'] ?? 0;
+  const onHoldOrRescheduledCount = overview.counts['sc-attention-on-hold-rescheduled'] ?? 0;
+  const pendingConfirmationCount = overview.counts['sc-attention-pending-confirmation'] ?? 0;
+  const needsAttentionCount = overview.counts['sc-attention-all'] ?? 0;
+  const totalRecordCount = overview.record_total + products.length;
 
   return (
     <div className="space-y-6" id="dashboard-view-container">
@@ -279,42 +276,7 @@ export default function DashboardView({
             Status breakdown across all your delivery records
           </p>
           <div className="h-64" id="status-chart-wrapper">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={statusChartData}
-                layout="vertical"
-                margin={{ top: 5, right: 15, left: 5, bottom: 5 }}
-              >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  horizontal={false}
-                  stroke="#F1F5F9"
-                />
-                <XAxis
-                  type="number"
-                  stroke="#94A3B8"
-                  fontSize={11}
-                  tickLine={false}
-                />
-                <YAxis
-                  dataKey="name"
-                  type="category"
-                  stroke="#94A3B8"
-                  fontSize={10}
-                  tickLine={false}
-                  width={80}
-                />
-                <Tooltip
-                  formatter={(value: any) => [`${value} records`, "Total"]}
-                  contentStyle={{
-                    backgroundColor: "#fff",
-                    border: "1px solid #E2E8F0",
-                    borderRadius: "8px",
-                  }}
-                />
-                <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={20} />
-              </BarChart>
-            </ResponsiveContainer>
+            <DashboardStatusChart data={statusChartData} />
           </div>
         </div>
 
@@ -344,7 +306,7 @@ export default function DashboardView({
                 <span>No Driver, Due Soon</span>
               </span>
               <p className="text-2xl font-black text-slate-900">
-                {noDriverApproaching.length}
+                {noDriverApproachingCount}
               </p>
               <p className="text-[11px] text-slate-400 font-medium flex-1">
                 Deliveries with no driver assigned, due within 2 days.
@@ -362,7 +324,7 @@ export default function DashboardView({
                 <span>On-Hold / Rescheduled</span>
               </span>
               <p className="text-2xl font-black text-slate-900">
-                {onHoldOrRescheduled.length}
+                {onHoldOrRescheduledCount}
               </p>
               <p className="text-[11px] text-slate-400 font-medium flex-1">
                 Records blocked or bumped to a new date.
@@ -380,7 +342,7 @@ export default function DashboardView({
                 <span>Pending Confirmation</span>
               </span>
               <p className="text-2xl font-black text-slate-900">
-                {pendingConfirmation.length}
+                {pendingConfirmationCount}
               </p>
               <p className="text-[11px] text-slate-400 font-medium flex-1">
                 Scheduled or pending records awaiting confirmation.
@@ -406,10 +368,10 @@ export default function DashboardView({
           <span className="font-black text-slate-800">
             {totalRecordCount.toLocaleString()}
           </span>{" "}
-          ({deliveryRecords.length} delivery records, {products.length} SKUs)
+          ({overview.record_total} operational records, {products.length} SKUs)
         </span>
         <span className="text-emerald-600 font-bold">
-          No list-view threshold — unlimited record growth supported.
+          Counts include all records you can access.
         </span>
       </div>
     </div>

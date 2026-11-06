@@ -1,12 +1,16 @@
 # System API Contract
 
+> **Automation reference:** use [System capabilities, payloads and test boundaries](testing-reference/README.md) for the source-pinned 2026-10-27 module inventory, all 74 API endpoints, request/response examples, proposed test matrix, and current-versus-historical PR behavior. The older descriptions below have known differences from that baseline, including operational record deletion and RMA ownership/lifecycle; do not use them alone as test acceptance criteria.
+
 > Last verified: 2026-10-09 against commit `ccbf192` (`dev`). Derived from `server/src/routes/*.ts` and `server/src/index.ts`.
 
-This document describes the REST API of the Microgenesis Supply Chain Portal. All endpoints are prefixed with `/api`. Unless marked **Public**, an endpoint requires a valid session cookie (`mg_session`), and the account and its permissions are reloaded on every request.
+> Targeted health update (2026-11-05): public readiness returns only an availability boolean with no-store caching. The runtime prefix is `/api/v1`; see [API URL migration](API_V1_MIGRATION.md). Other older contracts retain the verification limits above.
+
+This document describes the REST API of the Microgenesis Supply Chain Portal. Paths below are relative to `/api/v1`. Unless marked **Public**, an endpoint requires a valid session cookie (`mg_session`), and the account and its permissions are reloaded on every request.
 
 **Guard legend.** `Auth` = `requireAuth`. `Res:x` = `requireResource('x')` (the account's effective screens must grant the shared resource, see [Module access](./MODULE_ACCESS.md)). `Screen:x` = `requireScreen('x')`. `Rec` = `requireRecordAccess` (record category/ownership scope). Roles: SC = SALES_COORDINATOR, LOG = LOGISTICS, ADM = ADMIN, DRV = DRIVER, TASS.
 
-**Common errors.** `400` validation, `401` no/invalid session or deactivated account, `403` role/screen/ownership denied, `404` not found or outside the caller's scope, `409` conflict (duplicate email, stale permission version), `501` Microsoft SSO not configured, `503` unhealthy (`/api/health`).
+**Common errors.** `400` validation, `401` no/invalid session or deactivated account, `403` role/screen/ownership denied, `404` not found or outside the caller's scope, `409` conflict (duplicate email, stale permission version), `501` Microsoft SSO not configured, `503` unhealthy (`/api/v1/health`).
 
 ---
 
@@ -14,13 +18,18 @@ This document describes the REST API of the Microgenesis Supply Chain Portal. Al
 
 | Method | Path | Guards / roles | Purpose |
 | :--- | :--- | :--- | :--- |
-| GET | `/health` | Public | Database ping, mailer mode (`graph`/`smtp`/`mock`), required env check. `200` or `503` |
+| GET | `/health` | Public | Uncached readiness: database ping and required production configuration. `200 { "ok": true }` or `503 { "ok": false }`, with `Cache-Control: no-store`. No infrastructure, mailer, environment or error details |
 | POST | `/auth/login` | Public | Email/password login; sets `mg_session`; returns the session user |
 | POST | `/auth/logout` | Public | Clears the cookie |
 | GET | `/auth/me` | Auth | Current session user (same shape as login), `Cache-Control: no-store` |
 | POST | `/auth/microsoft` | Public | Starts Microsoft SSO (501 if not configured) |
 | GET | `/auth/microsoft/callback` | Public | SSO callback: browser-bound state consumed atomically (5-min expiry), tenant verified; only Admin-prelinked active `microsoftOid` accounts may sign in; unknown identities denied |
 | GET | `/auth/microsoft/status` | Public | `{ configured: boolean }` |
+
+Readiness verifies database connectivity on every request and, in production,
+requires DATABASE_URL and JWT_SECRET. It does not test email delivery or storage.
+Detailed checks remain behind Admin authentication/resource authority at
+`/admin/deployment-status` and `/admin/integration-status`.
 
 `POST /auth/login` request: `{ "email": "...", "password": "..." }`.
 Login and `/auth/me` response (session DTO):
@@ -91,11 +100,23 @@ Clients must not send `time_in` or `time_out` on `PATCH /status`; the server rej
 | PUT | `/customers/:id` | Res:customers; SC, LOG, ADM | Edit with validation and reason for change |
 | GET | `/customers/:id/audit` | Res:customers; SC, LOG, ADM | Customer audit trail |
 | GET | `/suppliers` | Auth, Res:suppliers | List suppliers |
-| POST | `/suppliers` | Res:suppliers, Screen:suppliers; SC, LOG, ADM, DRV | Create |
+| POST | `/suppliers` | Res:suppliers Create, Screen:suppliers Write; SC, LOG, ADM, DRV | Create with `name`, nonempty `category_ids`, optional contact fields; atomic CREATE audit |
+| GET | `/suppliers/categories` | Auth, Res:suppliers Read | Active/inactive catalog DTOs `{id,name,is_active,version}` |
+| POST | `/suppliers/categories` | Auth, Res:suppliers Write, Screen:suppliers Write; ADM | Create `{name}`; case-insensitive uniqueness includes inactive entries |
+| PATCH | `/suppliers/categories/:id` | Same; ADM | `{expected_version,name?,is_active?}`; rename/deactivate/reactivate, 409 on stale version |
+| PUT | `/suppliers/:id/categories` | Same; ADM | Replace assignments `{category_ids,expected_version}`; 409 on stale version/new inactive selection |
 | GET | `/drivers` | Auth, Res:drivers | Driver/assistant directory (`?all=1` includes inactive). Reads never seed or import |
 | POST | `/drivers` | Res:drivers, Screen:driver_manager; LOG, ADM | Create. Type `DRIVER` requires ADM; LOG may add assistants |
 | PUT | `/drivers/:id` | same; LOG, ADM | Update. Driver renames and type changes are ADM only |
 | DELETE | `/drivers/:id` | same; LOG, ADM | Deactivate (`204`) |
+
+Supplier responses include `version` and `categories` (catalog DTOs). Creation
+needs 1–100 distinct active IDs; edits need 1–100 IDs and may retain existing
+inactive assignments. The deprecated `category` response is a joined display
+label, not an identifier. Legacy creation with one known active `category`
+label is still accepted; unknown labels or simultaneous `category` and
+`category_ids` return 400. Catalog/assignment writes and audits are transactional;
+deactivation preserves links/history. See the [full supplier contract and migration](SUPPLIER_CATEGORIES.md).
 
 ## 4. SKUs and transactions
 

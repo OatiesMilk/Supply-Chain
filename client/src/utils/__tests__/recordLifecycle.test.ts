@@ -17,6 +17,21 @@ test('Save as Draft accepts an incomplete reference; Submit requires the referen
   assert.match(submissionErrors({ ...draft, company_name: '   ' }, false).company_name, /required/);
 });
 
+test('RMA submissions add explicit movement and conditional transport date to shared required fields', () => {
+  const draft = {
+    company_name: 'Customer', company_id: 'company-1', reference: '', delivery_date: '2026-08-01', category: 'RMA',
+    rma_reference: '', rma_type: '', purchase_date: '', customer_contact_name: '', customer_contact_email: '', customer_contact_phone: '',
+  };
+  for (const isDraft of [true, false]) {
+    assert.deepEqual(Object.keys(submissionErrors(draft, isDraft)).sort(), isDraft ? ['account_manager', 'area', 'priority'] : ['account_manager', 'area', 'priority', 'rma_movement']);
+    const complete = { ...draft, priority: '2 - Moderate', area: 'Carmona', account_manager: 'Alex AM', delivery_date: '', rma_movement: 'INTERNAL_NO_DRIVER' };
+    assert.deepEqual(submissionErrors(complete, isDraft), {});
+    assert.match(submissionErrors({ ...complete, company_id: '' }, isDraft).company_name, /Select/);
+    assert.match(submissionErrors({ ...complete, priority: 'invalid' }, isDraft).priority, /valid/);
+    assert.match(submissionErrors({ ...complete, customer_contact_email: 'invalid' }, isDraft).customer_contact_email, /valid email/);
+  }
+});
+
 test('frontend choices use server transitions and limit Draft to SC/Admin before Time In', () => {
   const run = record();
   assert.deepEqual(selectableStatuses(run, 'Logistics'), ['On-Hold', 'Rescheduled']);
@@ -36,6 +51,7 @@ test('drafts can be submitted but cannot start runs or receive assignments', () 
 });
 
 test('only assigned, not-yet-started Scheduled/Rescheduled runs offer Time In', () => {
+  assert.equal(canRecordTimeIn(record({ category: 'RMA' })), false);
   assert.equal(canRecordTimeIn(record()), true);
   assert.equal(canRecordTimeIn(record({ status: 'Rescheduled' })), true);
   assert.equal(canRecordTimeIn(record({ driver: '' })), false);
@@ -59,8 +75,31 @@ test('Delivery actionability uses the latest date, allows overdue runs, and keep
   assert.equal(dashboardRunDaysLate(record({ category: 'Deliveries', delivery_date: '2026-10-06' }), today), 2);
   assert.equal(isDashboardRunActionable(record({ category: 'Deliveries', delivery_date: '2026-10-09' }), today), false);
   assert.equal(isDashboardRunActionable(record({ category: 'Deliveries', delivery_date: '2026-10-09', time_in: '2026-10-09T01:00:00Z' }), today), true);
-  assert.equal(isDashboardRunActionable(record({ category: 'Accounting Collection', delivery_date: '2026-10-06' }), today), false);
+  assert.equal(isDashboardRunActionable(record({ category: 'Accounting Collection', delivery_date: '2026-10-06' }), today), true);
   assert.equal(isDashboardRunActionable(record({ category: 'Deliveries', delivery_date: '2026-02-30' }), today), false);
+});
+
+test('every non-RMA category keeps unfinished overdue and started runs actionable across Manila midnight', () => {
+  const beforeMidnight = manilaToday(new Date('2026-10-08T15:59:59Z'));
+  const afterMidnight = manilaToday(new Date('2026-10-08T16:00:00Z'));
+  for (const category of ['Deliveries', 'Procurement Pick-up', 'Accounting Collection', 'Sales Orders'] as const) {
+    const run = record({ category, delivery_date: beforeMidnight });
+    assert.equal(isDashboardRunActionable(run, beforeMidnight), true, category);
+    assert.equal(isDashboardRunActionable(run, afterMidnight), true, category);
+    assert.equal(isDashboardRunActionable({ ...run, time_in: '2026-10-08T15:00:00Z' }, afterMidnight), true, category);
+    assert.equal(isDashboardRunActionable({ ...run, delivery_date: '2026-10-10' }, afterMidnight), false, category);
+    assert.equal(isDashboardRunActionable({ ...run, delivery_date: '2026-10-10', time_in: '2026-10-08T15:00:00Z' }, afterMidnight), true, category);
+    assert.equal(isDashboardRunActionable({ ...run, delivery_date: '2026-02-30' }, afterMidnight), false, category);
+    assert.equal(isDashboardRunActionable({ ...run, delivery_date: '', time_in: 'bad timestamp' }, afterMidnight), false, category);
+    assert.equal(isDashboardRunActionable({ ...run, status: 'Delivered' }, afterMidnight), false, category);
+    assert.equal(isDashboardRunActionable({ ...run, status: 'Draft' }, afterMidnight), false, category);
+    assert.equal(isDashboardRunActionable({ ...run, is_draft: 'Yes' }, afterMidnight), false, category);
+    assert.equal(isDashboardRunActionable({ ...run, driver: '' }, afterMidnight), false, category);
+    for (const status of ['Scheduled', 'Rescheduled', 'In Transit', 'Pending', 'On-Hold'] as const) {
+      assert.equal(isDashboardRunActionable({ ...run, status }, afterMidnight), true, `${category}: ${status}`);
+    }
+  }
+  assert.equal(isDashboardRunActionable(record({ category: 'RMA', delivery_date: beforeMidnight, time_in: '2026-10-08T15:00:00Z' }), afterMidnight), false);
 });
 
 test('completed-late display uses the persisted completion value', () => {
@@ -105,4 +144,36 @@ test('TSK-125: Return to Draft consequences name the driver only when assigned a
   const rma = returnToDraftConsequences({ driver: '  ', category: 'RMA' });
   assert.deepEqual(rma, ['You can edit the details, then press Submit to send it again.']);
   assert.equal(returnToDraftConsequences({ driver: 'Leo Driver', category: 'RMA' }).some(line => /Logistics/.test(line)), false);
+});
+
+test('Logistics RMA submission needs a valid date; no-driver and supplier movements never require a driver or date', () => {
+  const fields = { company_name: 'Company', company_id: 'company', reference: '', delivery_date: '', category: 'RMA', priority: '2 - Moderate', area: 'Carmona', account_manager: 'AM' };
+  for (const rma_movement of ['SUPPLIER_COLLECTION', 'INTERNAL_NO_DRIVER']) assert.deepEqual(submissionErrors({ ...fields, rma_movement }, false), {});
+  assert.match(submissionErrors({ ...fields, rma_movement: 'LOGISTICS_TRANSPORT' }, false).delivery_date, /valid Delivery Date/);
+  assert.match(submissionErrors({ ...fields, rma_movement: 'LOGISTICS_TRANSPORT', delivery_date: '2026-02-30' }, false).delivery_date, /valid Delivery Date/);
+  assert.deepEqual(submissionErrors({ ...fields, rma_movement: 'LOGISTICS_TRANSPORT', delivery_date: '2026-10-28' }, false), {});
+  assert.deepEqual(submissionErrors({ ...fields, rma_movement: null }, true), {});
+});
+
+test('final RMA completion is selectable only by TASS while Admin Delivery completion remains available', () => {
+  const rma = record({ category: 'RMA', allowed_statuses: ['Pending', 'Delivered'] });
+  assert.deepEqual(selectableStatuses(rma, 'TASS'), ['Pending', 'Delivered']);
+  for (const role of ['Admin', 'Logistics', 'Driver', 'Sales Coordinator'] as const) assert.equal(selectableStatuses(rma, role).includes('Delivered'), false);
+  assert.deepEqual(selectableStatuses(record({ category: 'Deliveries', allowed_statuses: ['Delivered'] }), 'Admin'), ['Delivered']);
+});
+
+test('Return to Draft is omitted from selectableStatuses for RMAs with started transport or confirmed receipt', () => {
+  const unstartedRma = record({ category: 'RMA', status: 'Scheduled', allowed_statuses: ['Pending', 'On-Hold', 'Rescheduled', 'Delivered', 'Draft'] });
+  assert.equal(selectableStatuses(unstartedRma, 'Admin').includes('Draft'), true);
+  assert.equal(selectableStatuses(unstartedRma, 'TASS').includes('Draft'), true);
+
+  for (const startedRma of [
+    record({ ...unstartedRma, rma_transport_started_at: '2026-11-03T04:00:00Z' }),
+    record({ ...unstartedRma, rma_transport_status: 'IN_TRANSIT' }),
+    record({ ...unstartedRma, rma_transport_status: 'COMPLETED' }),
+    record({ ...unstartedRma, rma_received_at: '2026-11-03T05:00:00Z' }),
+  ]) {
+    assert.equal(selectableStatuses(startedRma, 'Admin').includes('Draft'), false);
+    assert.equal(selectableStatuses(startedRma, 'TASS').includes('Draft'), false);
+  }
 });

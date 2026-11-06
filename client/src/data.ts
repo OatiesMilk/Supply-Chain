@@ -87,6 +87,7 @@ export function getNearbyAreas(area: string): string[] {
 export const VEHICLES = ['(None)', 'Truck-A (6-Wheeler)', 'Truck-B (10-Wheeler)', 'Van-01 (L300)', 'Motorcycle-01 (Express)'];
 export const PRIORITIES = ['1 - Low', '2 - Moderate', '3 - High'] as const;
 export const ITEM_TYPES = ['Small Item', 'Medium Item', 'Large / Pallet'] as const;
+export const RMA_ITEM_TYPES = ['Small Item', 'Unit'] as const;
 export const DELIVERY_STATUSES = ['Draft', 'Scheduled', 'In Transit', 'Delivered', 'On-Hold', 'Rescheduled', 'Pending'] as const;
 
 // Accounting Collection displays collection-domain vocabulary in its UI while
@@ -104,7 +105,7 @@ export const CATEGORIES = ['Sales Orders', 'Deliveries', 'RMA', 'Accounting Coll
 export const ACCOUNT_MANAGERS = ['P. Soriano', 'D. Macaraeg', 'F. Valenzuela', 'R. Pagkalinawan', 'M. Reyes', 'A. Santos', 'C. Lim'];
 
 // ── Managed driver store ─────────────────────────────────────────────────────
-// These mutable arrays are populated from the /api/drivers endpoint at startup
+// These mutable arrays are populated from the /api/v1/drivers endpoint at startup
 // (see App.tsx → setManagedDriverList). Components that import DRIVERS,
 // DRIVER_ASSISTANTS, and DRIVER_COVERAGE get the live managed list.
 // Assignment options remain empty until the API provides the roster.

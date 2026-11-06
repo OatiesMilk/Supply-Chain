@@ -1,3 +1,6 @@
+import { beforeEach } from 'node:test';
+import { installLegacySession } from './helpers/permissionSession';
+beforeEach(() => { installLegacySession('SALES_COORDINATOR', 'deliveries'); });
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';

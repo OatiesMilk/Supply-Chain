@@ -1,0 +1,53 @@
+TAP version 13
+# Subtest: Layer 1 (Unit): Delivery Lifecycle & Status Transitions
+    # Subtest: test_draft_status_only_transitions_to_scheduled
+    ok 1 - test_draft_status_only_transitions_to_scheduled
+      ---
+      duration_ms: 1.435655
+      type: 'test'
+      ...
+    # Subtest: test_scheduled_status_transitions_to_on_hold_rescheduled_or_draft
+    ok 2 - test_scheduled_status_transitions_to_on_hold_rescheduled_or_draft
+      ---
+      duration_ms: 0.216411
+      type: 'test'
+      ...
+    # Subtest: test_direct_transition_to_in_transit_is_blocked_requiring_time_in_action
+    ok 3 - test_direct_transition_to_in_transit_is_blocked_requiring_time_in_action
+      ---
+      duration_ms: 0.163013
+      type: 'test'
+      ...
+    # Subtest: test_delivered_status_is_terminal_and_locks_all_further_transitions
+    ok 4 - test_delivered_status_is_terminal_and_locks_all_further_transitions
+      ---
+      duration_ms: 0.168313
+      type: 'test'
+      ...
+    # Subtest: test_return_to_draft_role_matrix_permits_sc_and_admin_only
+    ok 5 - test_return_to_draft_role_matrix_permits_sc_and_admin_only
+      ---
+      duration_ms: 0.168633
+      type: 'test'
+      ...
+    # Subtest: test_started_run_with_time_in_cannot_be_returned_to_draft_by_any_role
+    ok 6 - test_started_run_with_time_in_cannot_be_returned_to_draft_by_any_role
+      ---
+      duration_ms: 0.144688
+      type: 'test'
+      ...
+    1..6
+ok 1 - Layer 1 (Unit): Delivery Lifecycle & Status Transitions
+  ---
+  duration_ms: 3.589652
+  type: 'suite'
+  ...
+1..1
+# tests 6
+# suites 1
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 14.444656

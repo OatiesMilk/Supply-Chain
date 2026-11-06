@@ -5,6 +5,8 @@ import records from '../src/routes/records';
 import skus from '../src/routes/skus';
 import users from '../src/routes/users';
 import customers from '../src/routes/customers';
+import { recordEditVersion } from '../src/services/recordEditVersion';
+import { accountMetadataVersion } from '../src/services/permissionManagement';
 
 const restorers: (() => void)[] = [];
 function stub(target: any, key: string, implementation: (...args: any[]) => any) {
@@ -17,6 +19,7 @@ const row = { id: 'record', company: { name: 'Test company' }, companyId: 'compa
 async function invoke(router: any, method: string, path: string, role: string, body: unknown = {}) {
   const route = router.stack.find((layer: any) => layer.route?.path === path && layer.route.methods[method]).route;
   let status = 200; let response: any;
+  if (router === records && method === 'put') body = { expected_edit_version: recordEditVersion(row), ...(body as any) };
   const req = { params: { id: 'record' }, body, user: actor(role) };
   const res = { status(value: number) { status = value; return this; }, json(value: unknown) { response = value; return this; } };
   // Sessions/module ownership are separately covered by HTTP integration tests.
@@ -29,7 +32,7 @@ test('existing Draft submission refuses Logistics without writes and permits Sal
   const update = mock.fn(async ({ data }: any) => ({ ...row, ...data }));
   const audit = mock.fn(async () => ({}));
   stub(prisma.user, 'findMany', async () => []);
-  stub(prisma, '$transaction', async (fn: any) => fn({ $queryRaw: async () => [], deliveryRecord: { findUnique: async () => row, update }, auditLog: { create: audit }, remarkLog: { create: async () => ({}) } }));
+  stub(prisma, '$transaction', async (fn: any) => fn({ user: { findMany: async () => [] }, $queryRaw: async () => [], deliveryRecord: { findUnique: async () => row, update }, auditLog: { create: audit }, remarkLog: { create: async () => ({}) } }));
   const denied = await invoke(records, 'patch', '/:id/status', 'LOGISTICS', { status: 'Scheduled', remarks: 'Submit' });
   assert.equal(denied.status, 403); assert.equal(update.mock.callCount(), 0); assert.equal(audit.mock.callCount(), 0);
   for (const role of ['SALES_COORDINATOR', 'ADMIN']) {
@@ -93,7 +96,7 @@ test('editing a record to an unknown company is a 400 without writes, including 
 test('valid creation preserves Scheduled defaults and an optional empty Draft date', async () => {
   stub(prisma.company, 'findUnique', async () => ({ id: 'company' }));
   stub(prisma.user, 'findMany', async () => []);
-  stub(prisma, '$transaction', async (fn: any) => fn({ deliveryRecord: { create: async ({ data }: any) => ({ ...row, ...data, lineItems: [] }) }, auditLog: { create: async () => ({}) } }));
+  stub(prisma, '$transaction', async (fn: any) => fn({ user: { findMany: async () => [] }, deliveryRecord: { create: async ({ data }: any) => ({ ...row, ...data, lineItems: [] }) }, auditLog: { create: async () => ({}) } }));
   const scheduled = await invoke(records, 'post', '/', 'LOGISTICS', createBody);
   assert.equal(scheduled.status, 201); assert.equal(scheduled.body.priority, '2 - Moderate');
   const draft = await invoke(records, 'post', '/', 'SALES_COORDINATOR', { company_id: 'company', category: 'Deliveries', status: 'Draft' });
@@ -147,12 +150,22 @@ test('duplicate user email returns 409 and unexpected failures are forwarded', a
   await assert.rejects(invoke(users, 'patch', '/:id', 'ADMIN', { email: 'test@example.com' }), /database unavailable/);
 });
 test('valid user email edits normalize email; invalid input is rejected without writing', async () => {
-  stub(prisma.user, 'findUnique', async () => ({ id: 'record', role: 'SALES_COORDINATOR' }));
-  const transaction = stub(prisma, '$transaction', async (fn: any) => fn({ user: { update: async ({ data }: any) => ({ id: 'record', ...data }) } }));
+  let target = { id: 'record', name: 'User', email: 'old@example.com', role: 'SALES_COORDINATOR', isActive: true,
+    authorizationRevision: 1n, permissions: [], permissionOverrides: [], permissionConversion: null, driverProfile: null };
+  const admin = { ...target, id: 'actor', role: 'ADMIN' };
+  const audit = mock.fn(async () => ({}));
+  const update = mock.fn(async ({ data }: any) => { target = { ...target, ...data }; return target; });
+  const transaction = stub(prisma, '$transaction', async (fn: any) => fn({
+    $executeRaw: async () => 1, $queryRaw: async () => [],
+    user: { findUnique: async ({ where }: any) => where.id === admin.id ? admin : where.id === target.id ? target : null, update },
+    auditLog: { create: audit },
+  }));
   for (const email of [null, {}, '', 'bad']) assert.equal((await invoke(users, 'patch', '/:id', 'ADMIN', { email })).status, 400);
   assert.equal(transaction.mock.callCount(), 0);
-  const result = await invoke(users, 'patch', '/:id', 'ADMIN', { email: ' TEST@example.com ' });
+  const result = await invoke(users, 'patch', '/:id', 'ADMIN', { email: ' TEST@example.com ', expectedMetadataVersion: accountMetadataVersion(target) });
   assert.equal(result.status, 200); assert.equal(result.body.email, 'test@example.com');
+  assert.equal(update.mock.callCount(), 1);
+  assert.equal(audit.mock.callCount(), 1, 'the accepted account edit is audited in its transaction');
 });
 
 test('customer creation rejects malformed/empty/invalid text without writes', async () => {

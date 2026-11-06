@@ -15,6 +15,10 @@
 > B-2.5b (bulk priority lock), and C-3.2 (POD lightbox) non-skippable.
 > Never run `seed:uat` against staging, production, or shared databases.
 
+## V1 dashboard acceptance addendum — 2026-11-04
+
+The user accepted separate screen, API-resource and category-data permissions in V1. The [accepted policy and manual cases V1-DASH-01–06](../quality-assurance/06-reports/2026-11-04-v1-dashboard-access-acceptance.md) govern dashboard access checks. This scoped addendum does not revalidate the older baseline or record a live UAT pass. LEGACY retains its existing module-access expectations.
+
 ---
 
 ## Pre-Test: Test-data verification
@@ -29,7 +33,7 @@ is permitted only for a disposable loopback database.
 |------|--------|-----------------|
 | P-1 | Confirm staging uses its own database and POD storage and that the required fixture accounts/records were provisioned through the approved environment process | Test data exists without changing any shared, development or production data |
 | P-1.1 | Optionally set `VITE_SHOW_DEMO_ACCOUNTS=true` for the staging frontend | The login screen shows demo-account Quick Switch only; it does not show a seed/reset action |
-| P-1.2 | Confirm `POST /api/dev/public-seed` and `/api/dev/public-seed-uat` return 404, and an authenticated Admin reset in staging returns 403 | No destructive operation runs and the existing fixtures remain unchanged |
+| P-1.2 | Confirm `POST /api/v1/dev/public-seed` and `/api/v1/dev/public-seed-uat` return 404, and an authenticated Admin reset in staging returns 403 | No destructive operation runs and the existing fixtures remain unchanged |
 | P-2 | Open `http://localhost:3000` in browser | Login page is visible |
 | P-3 | Check that you have one user per role: **Sales Coordinator**, **Logistics**, **Driver** | All three accounts are accessible |
 
@@ -98,7 +102,7 @@ is permitted only for a disposable loopback database.
 | A-4.4 | Company delivery history shows linked records | Open any record → click the company name in the record summary | A Company history panel lists that Company's records you can access, newest first. Clicking a row opens it in its own module. A Customer with the same name as the Company is not included. As TASS, only RMA and Accounting Collection records appear | |
 | A-4.5 | Edit an existing customer | As SC, Logistics or Admin: open a customer → **Edit customer** → change a field → enter a Reason for change → **Save changes** (bottom right) | The new value is shown, "Changes saved" appears, and the Audit Trail tab lists your name, the reason, and the before/after values | |
 | A-4.6 | Customer edit validation | In the edit form, clear the name, enter an invalid email, leave the reason empty → **Save changes** | Each problem is shown under its field and nothing is saved. Your other entries stay in the form. Leaving with unsaved edits asks you to confirm | |
-| A-4.7 | Unauthorized customer edit | Sign in as TASS or Driver | There is no Edit option, and a direct `PUT /api/customers/:id` request is rejected with 403 | |
+| A-4.7 | Unauthorized customer edit | Sign in as TASS or Driver | There is no Edit option, and a direct `PUT /api/v1/customers/:id` request is rejected with 403 | |
 
 ---
 
@@ -231,7 +235,7 @@ is permitted only for a disposable loopback database.
 | C-2.9 | Mark as Pending | On a different active record, click amber **Pending** → enter remarks → Confirm | Record stays visible but status changes to Pending; no delivery photo is required | |
 | C-2.10 | Mark as Rescheduled | Click purple **Reschedule** → enter remarks → Confirm | Record is marked Rescheduled; no delivery photo is required | |
 | C-2.11 | Remarks are required | With a saved JPG/PNG, click **Accomplish** → click Confirm without entering remarks | Confirm button is **disabled**; cannot submit | |
-| C-2.12 | Cannot complete through the API without a photo | Send a direct `PATCH /api/records/:id/status` request with `status=Delivered` and remarks but no saved photo | Backend returns **400** with the photo-required message; record remains unchanged | |
+| C-2.12 | Cannot complete through the API without a photo | Send a direct `PATCH /api/v1/records/:id/status` request with `status=Delivered` and remarks but no saved photo | Backend returns **400** with the photo-required message; record remains unchanged | |
 | C-2.13 | Cannot update other driver's record | Attempt to upload or complete a record belonging to another driver via URL/API manipulation | Backend returns **403**; assigned-driver access is enforced | |
 
 ---
@@ -260,11 +264,14 @@ These cases cover behavior shipped after v1.0 (TSK numbers refer to the Notion t
 | Test ID | Test Case | Steps | Expected Result | Pass / Fail |
 |---------|-----------|-------|-----------------|-------------|
 | D-1.1 | SKU Master is Admin-only by default (TSK-118) | Sign in as Sales Coordinator, then Logistics, then Admin; inspect sidebars | SKU Master appears only for Admin | |
-| D-1.2 | Module access takes effect without re-login (TSK-55) | As Admin, open Admin Panel → Users → Module access for the Sales Coordinator and deny Dashboard; keep the SC session open in another browser | Within about 30 seconds (or on window focus) the Dashboard link disappears; `/dashboard` falls back to an allowed screen; direct API calls are denied | |
+| D-1.2 | Dashboard screen access refreshes without re-login (TSK-55) | Keep the SC session open. In V1, deny Dashboard screen Read and dependent Write, keeping dashboard resource/category Read allowed | Within about 30 seconds or on focus, Dashboard is hidden and `/dashboard` is unavailable; separately authorized API reads may still succeed (V1-DASH-01). In LEGACY, the Boolean Dashboard denial also removes its dashboard resource access | |
 | D-1.3 | Stale module-access editor | Open the same user's Module access in two Admin sessions; save in one, then the other | The stale editor reports a conflict and does not overwrite | |
 | D-1.4 | Only Admin can add Drivers (TSK-119) | As Logistics, open Drivers → Manager tab and add a person of type Driver; then add an Assistant | The Driver is rejected ("Only Admin can add drivers. Logistics can add assistants."); the Assistant is created | |
 | D-1.5 | Driver login linking | As Admin create a DRIVER account without a linked profile and sign in as it; then link a profile and assign a run | Unlinked Driver sees no runs; after linking the Driver sees only runs assigned to that profile | |
 | D-1.6 | Admin cannot lock themselves out | As Admin, change your own role or deactivate your own account | Rejected with a self-lockout message | |
+| D-1.7 | Dashboard API access is separate in V1 | Deny dashboard resource Read while screen Read stays allowed; request stats and overview | Both APIs reject with 403; a screen grant does not restore data access (V1-DASH-02) | |
+| D-1.8 | Category denial excludes dashboard data in V1 | Keep dashboard access allowed; deny Delivery category Read with valid dependent denials | Delivery aggregates exclude denied data and direct Delivery reads reject; other authorized categories remain available (V1-DASH-04) | |
+| D-1.9 | Screen denial alone does not revoke category data in V1 | Deny Deliveries screen Read/Write, retaining dashboard and Delivery category Read | Deliveries is unavailable; authorized Delivery dashboard counts may remain (V1-DASH-03) | |
 
 ### D-2 Workflow Behavior
 

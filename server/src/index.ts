@@ -6,13 +6,18 @@ import { accessLog } from './middleware/accessLog';
 import path from 'path';
 import fs from 'fs';
 import { prisma } from './db';
+import { permissionMode } from './services/permissionManagement';
+import { runScopedSummaries } from './services/scopedSummaries';
 import { notifyRole, notifyUser } from './services/inAppNotify';
 import { sendMailReal, sendEmail } from './services/mailer';
 import { manilaToday } from './services/deliveryLifecycle';
 import { saveDailyStatusSnapshot as writeDailyStatusSnapshot } from './services/dailyStatusSnapshot';
+import healthRoutes, { HEALTH_PATH } from './routes/health';
 
 import authRoutes from './routes/auth';
 import recordsRoutes from './routes/records';
+import rmaDispatchRoutes from './routes/rmaDispatch';
+import { dispatchMovementScope } from './services/rmaMovement';
 import companiesRoutes from './routes/companies';
 import customersRoutes from './routes/customers';
 import suppliersRoutes from './routes/suppliers';
@@ -29,6 +34,7 @@ import driversRoutes from './routes/drivers';
 import { uploadErrorHandler } from './middleware/uploadErrors';
 import { applySecurity } from './middleware/security';
 import { removeStaleUploads } from './services/podStorage';
+import { startPodDeletionCleanup } from './services/podDeletionCleanup';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -46,7 +52,7 @@ process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err);
 });
 
-// In dev, the Vite dev server (port 3000) proxies /api to here, so we need
+// In dev, the Vite dev server (port 3000) proxies /api/v1 to here, so we need
 // CORS to allow that cross-origin cookie. In production, Express serves the
 // built frontend directly — same origin, so CORS is not needed.
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:3000';
@@ -60,53 +66,30 @@ app.use(cookieParser());
 // AUD-003: must stay ahead of every route below.
 applySecurity(app);
 
-// Suitable as the host's health-check path (render.yaml does not set one yet):
-// it verifies the service can do its job, not just that the process is alive.
-// It does not prove which database or file store is connected; an Admin reads
-// that from GET /api/admin/deployment-status.
-app.get('/api/health', async (_req, res) => {
-  const checks: Record<string, string> = {};
-  let healthy = true;
+// Render and the client probe public readiness; detailed identities/configuration
+// remain behind /api/v1/admin/deployment-status and /integration-status.
+app.use(HEALTH_PATH, healthRoutes);
 
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    checks.database = 'ok';
-  } catch (err) {
-    console.error('[health] database check failed', err);
-    checks.database = 'unreachable';
-    healthy = false;
-  }
-
-  checks.mailer =
-    process.env.AZURE_CLIENT_ID && process.env.AZURE_CLIENT_SECRET && process.env.AZURE_TENANT_ID
-      ? 'graph'
-      : process.env.SMTP_HOST
-        ? 'smtp'
-        : 'mock';
-
-  const missingEnv = ['DATABASE_URL', 'JWT_SECRET'].filter((key) => !process.env[key]);
-  checks.environment = missingEnv.length === 0 ? 'ok' : `missing: ${missingEnv.join(', ')}`;
-  if (IS_PROD && missingEnv.length > 0) healthy = false;
-
-  res.status(healthy ? 200 : 503).json({ ok: healthy, checks });
-});
-
-app.use('/api/auth', authRoutes);
-app.use('/api/records', recordsRoutes);
-app.use('/api/companies', companiesRoutes);
-app.use('/api/customers', customersRoutes);
-app.use('/api/suppliers', suppliersRoutes);
-app.use('/api/users', usersRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/skus', skusRoutes);
-app.use('/api/transactions', transactionsRoutes);
-app.use('/api/notifications', notificationsRoutes);
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/records', rmaDispatchRoutes);
+app.use('/api/v1/records', recordsRoutes);
+app.use('/api/v1/companies', companiesRoutes);
+app.use('/api/v1/customers', customersRoutes);
+app.use('/api/v1/suppliers', suppliersRoutes); // Includes supplier category catalog/assignment endpoints.
+app.use('/api/v1/users', usersRoutes);
+app.use('/api/v1/dashboard', dashboardRoutes);
+app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1/skus', skusRoutes);
+app.use('/api/v1/transactions', transactionsRoutes);
+app.use('/api/v1/notifications', notificationsRoutes);
 // TSK-122: deprecated dev router is empty. HTTP resets have been removed.
-app.use('/api/dev', devRoutes);
-app.use('/api/data-sampler', dataSamplerRoutes);
-app.use('/api/reports', reportsRoutes);
-app.use('/api/drivers', driversRoutes);
+app.use('/api/v1/dev', devRoutes);
+app.use('/api/v1/data-sampler', dataSamplerRoutes);
+app.use('/api/v1/reports', reportsRoutes);
+app.use('/api/v1/drivers', driversRoutes);
+
+// API misses are JSON 404s, including in production when the SPA is served.
+app.use('/api', (_req, res) => { res.status(404).json({ error: 'API endpoint not found. Use /api/v1.' }); });
 
 // In production, serve the built Vite frontend and handle client-side routing
 // by falling back to index.html for any non-API route.
@@ -134,12 +117,13 @@ app.listen(PORT, () => {
   saveDailyStatusSnapshot(); // seed today's snapshot immediately on boot
   // SEC-07: clear quarantined uploads abandoned by a previous crash or restart.
   removeStaleUploads().catch(err => console.error('[POD] Stale upload cleanup failed', err));
+  startPodDeletionCleanup();
 
   // Self-ping to prevent Render free tier from sleeping
   const externalUrl = process.env.RENDER_EXTERNAL_URL;
   if (externalUrl) {
     setInterval(() => {
-      fetch(`${externalUrl}/api/health`)
+      fetch(`${externalUrl}${HEALTH_PATH}`)
         .then(res => res.json())
         .then(data => console.log('[Self-Ping]', data))
         .catch(err => console.error('[Self-Ping Error]', err.message));
@@ -162,9 +146,10 @@ function scheduleDaily(hour: number, minute: number, task: () => void) {
 
 async function notify4PM() {
   try {
+    if (permissionMode() === 'V1') return await runScopedSummaries('4PM');
     // 4 PM logistics alert: unassigned scheduled records
     const unassigned = await prisma.deliveryRecord.findMany({
-      where: { status: 'SCHEDULED', draft: false, driver: '', deletedAt: null }
+      where: { status: 'SCHEDULED', draft: false, driver: '', deletedAt: null, AND: [dispatchMovementScope] }
     });
     if (unassigned.length > 0) {
       await notifyRole(
@@ -235,6 +220,7 @@ async function notify4PM() {
 
 async function notify6PM() {
   try {
+    if (permissionMode() === 'V1') { await runScopedSummaries('6PM'); await saveDailyStatusSnapshot(); return; }
     const stillOpen = await prisma.deliveryRecord.findMany({
       where: { status: { in: ['SCHEDULED', 'IN_TRANSIT'] }, draft: false, deletedAt: null }
     });
@@ -282,6 +268,7 @@ function scheduleWeekly(dayOfWeek: number, hour: number, minute: number, task: (
 
 async function notifyWeeklyReport() {
   try {
+    if (permissionMode() === 'V1') return await runScopedSummaries('WEEKLY');
     const now     = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const dateTo   = manilaToday(now);

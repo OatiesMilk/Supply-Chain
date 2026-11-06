@@ -23,7 +23,7 @@ export function localUrl(value: string, port: string, prefix: string): URL {
   return url;
 }
 export function apiBase(): string {
-  return localUrl(process.env.API_BASE_URL ?? 'http://localhost:4000/api', '4000', '/api').href.replace(/\/$/, '');
+  return localUrl(process.env.API_BASE_URL ?? 'http://localhost:4000/api/v1', '4000', '/api/v1').href.replace(/\/$/, '');
 }
 export const WEB_BASE = 'http://localhost:3000';
 export function credentials(role: RoleKey) {

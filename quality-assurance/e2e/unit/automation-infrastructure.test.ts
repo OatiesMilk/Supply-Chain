@@ -27,9 +27,9 @@ test('runner discovers canonical regression and browser files, excluding interac
   assert.ok(!discover(QA_ROOT, 'browser').some((file: string) => file.endsWith('sso-session.test.ts')));
 });
 test('target guard rejects external hosts, credentials and wrong ports or prefixes', () => {
-  assert.equal(localUrl('http://localhost:4000/api', '4000', '/api').hostname, 'localhost');
-  for (const url of ['https://example.com/api', 'http://localhost:3000/api', 'http://user@localhost:4000/api', 'http://localhost:4000/other', 'http://localhost:4000/api?token=x']) {
-    assert.throws(() => localUrl(url, '4000', '/api'));
+  assert.equal(localUrl('http://localhost:4000/api/v1', '4000', '/api/v1').hostname, 'localhost');
+  for (const url of ['https://example.com/api/v1', 'http://localhost:3000/api/v1', 'http://user@localhost:4000/api/v1', 'http://localhost:4000/other', 'http://localhost:4000/api/v1?token=x']) {
+    assert.throws(() => localUrl(url, '4000', '/api/v1'));
   }
 });
 test('write guard rejects production names and remote databases', () => {
@@ -38,7 +38,7 @@ test('write guard rejects production names and remote databases', () => {
   assert.throws(() => disposableDatabase('postgresql://remote.example/qa_test'));
 });
 test('API path guard rejects cross-origin and traversal targets before fetching', async () => {
-  for (const route of ['https://example.com/api', '//example.com/api', '/../outside', '/\\example.com']) {
+  for (const route of ['https://example.com/api/v1', '//example.com/api', '/../outside', '/\\example.com']) {
     await assert.rejects(() => apiRequest('GET', route));
   }
 });

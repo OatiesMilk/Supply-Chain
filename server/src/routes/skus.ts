@@ -48,7 +48,7 @@ function serializeProduct(p: any, includeTransactions = false): object {
   };
 }
 
-// GET /api/skus — All roles, returns all products with inventory
+// GET /api/v1/skus — All roles, returns all products with inventory
 router.get('/', requireAuth, requireResource('skus'), async (_req, res) => {
   const products = await prisma.product.findMany({
     where: { deletedAt: null },
@@ -58,7 +58,7 @@ router.get('/', requireAuth, requireResource('skus'), async (_req, res) => {
   res.json(products.map(p => serializeProduct(p)));
 });
 
-// GET /api/skus/:id — All roles, returns single product + inventory + last 20 transactions
+// GET /api/v1/skus/:id — All roles, returns single product + inventory + last 20 transactions
 router.get('/:id', requireAuth, requireResource('skus'), async (req, res) => {
   const product = await prisma.product.findFirst({
     where: { id: req.params.id, deletedAt: null },
@@ -74,7 +74,7 @@ router.get('/:id', requireAuth, requireResource('skus'), async (req, res) => {
   res.json(serializeProduct(product, true));
 });
 
-// GET /api/skus/:id/audit — Admin only
+// GET /api/v1/skus/:id/audit — Admin only
 router.get('/:id/audit', requireAuth, requireResource('skus'), requireRole('ADMIN'), async (req, res) => {
   const entries = await prisma.auditLog.findMany({
     where: { recordId: req.params.id, recordType: 'SKU' },
@@ -93,8 +93,8 @@ router.get('/:id/audit', requireAuth, requireResource('skus'), requireRole('ADMI
   );
 });
 
-// PUT /api/skus/:id — Admin only, update product fields
-router.put('/:id', requireAuth, requireResource('skus'), requireRole('ADMIN'), asyncRoute(async (req, res) => {
+// PUT /api/v1/skus/:id — Admin only, update product fields
+router.put('/:id', requireAuth, requireResource('skus', 'UPDATE'), requireRole('ADMIN'), asyncRoute(async (req, res) => {
   const b = req.body ?? {};
   const error = skuInputError(b, true);
   if (error) return res.status(400).json({ error });
@@ -124,8 +124,8 @@ router.put('/:id', requireAuth, requireResource('skus'), requireRole('ADMIN'), a
   }
 }));
 
-// POST /api/skus — Admin only, create product + inventory row
-router.post('/', requireAuth, requireResource('skus'), requireRole('ADMIN'), asyncRoute(async (req, res) => {
+// POST /api/v1/skus — Admin only, create product + inventory row
+router.post('/', requireAuth, requireResource('skus', 'CREATE'), requireRole('ADMIN'), asyncRoute(async (req, res) => {
   const b = req.body ?? {};
   const error = skuInputError(b);
   if (error) return res.status(400).json({ error });
@@ -187,9 +187,9 @@ async function withProductLock<T>(productId: string, fn: () => Promise<T>): Prom
   }
 }
 
-// POST /api/skus/:id/adjust — Admin + Logistics, stock adjustment
+// POST /api/v1/skus/:id/adjust — Admin + Logistics, stock adjustment
 // Stock adjustment is a SKU Master action: read-only SKU lookup is not enough (TSK-118).
-router.post('/:id/adjust', requireAuth, requireResource('skus'), requireScreen('inventory'), requireRole('ADMIN', 'LOGISTICS'), asyncRoute(async (req, res) => {
+router.post('/:id/adjust', requireAuth, requireResource('skus', 'ADJUST'), requireScreen('inventory'), requireRole('ADMIN', 'LOGISTICS'), asyncRoute(async (req, res) => {
   const { type, qty_change, reference } = req.body ?? {};
   if (!['Goods Receipt', 'Sale', 'Adjustment', 'Transfer'].includes(type)) return res.status(400).json({ error: 'Invalid stock adjustment type.' });
   if (typeof reference !== 'string' || !reference.trim()) return res.status(400).json({ error: 'Reference is required.' });

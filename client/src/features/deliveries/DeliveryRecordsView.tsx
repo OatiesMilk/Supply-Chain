@@ -1,3 +1,6 @@
+import RecordStatus from '@/components/RecordStatus';
+import { usePermissions } from '@/hooks/usePermissions';
+import { rmaWorkflowExportFields } from '@/utils/rmaTransport';
 import { selectableStatuses, manilaToday, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
@@ -19,20 +22,24 @@ import {
 import ExportMenu from '@/components/ExportMenu';
 import DriverReportModal from '@/features/drivers/DriverReportModal';
 import RouteSlipMenu from '@/components/RouteSlipMenu';
+import { routeSlipModeForDates, routeSlipPeriod, routeSlipSelectionError, type RouteSlipPeriodMode, type RouteSlipPeriodSelection } from '@/utils/routeSlipPeriod';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { computeAllOpsSummary } from '@/utils/allOpsExport';
-import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, PDF_DELIVERY_COLUMNS, PDF_AC_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
+import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, RMA_EXTRA_COLUMNS, PDF_DELIVERY_COLUMNS, PDF_AC_COLUMNS, PDF_RMA_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel } from '@/types';
 import { ApiCompany, api, apiUrl, ApiError } from '@/api';
-import { usePagedRecordsQuery, normalizeApiRecord } from '@/api/queries/useRecordsQuery';
+import { usePagedRecordsQuery, useSelectedRecordQuery, normalizeApiRecord } from '@/api/queries/useRecordsQuery';
+import { useRecordFilterOptionsQuery } from '@/api/queries/useOperationalViews';
 import { sortDeliveryRows } from '@/utils/dateSort';
 import { DELIVERY_STATUSES, AREA_HIERARCHY, getRegion, getSubregion } from '@/data';
 import DeliveryRecordWorkspace from '@/features/deliveries/DeliveryRecordWorkspace';
 import RecordCreateForm from '@/features/deliveries/RecordCreateForm';
 import FilterPopover, { FilterCombobox } from '@/components/FilterPopover';
-import { dateRangeAfterFromChange, dateRangeState } from '@/utils/dateRange';
+import { dateRangeState } from '@/utils/dateRange';
+import DateRangePicker from '@/components/DateRangePicker';
 import { DashboardFilterId, matchesDashboardFilter } from '@/utils/dashboardFilters';
 import DashboardFilterChip from '@/components/DashboardFilterChip';
+import { DATA_SAMPLER_ENABLED } from '@/utils/developmentTools';
 
 interface DeliveryRecordsViewProps {
   category: DeliveryCategory;
@@ -62,18 +69,6 @@ const outputLineIcon = (message: string) => {
   return <Send className="w-3 h-3 shrink-0" />;
 };
 
-const statusColor = (status: DeliveryStatus) => {
-  switch (status) {
-    case 'Draft': return 'bg-slate-100 text-slate-700 border-slate-300';
-    case 'In Transit': return 'bg-cyan-50 text-cyan-700 border-cyan-200';
-    case 'Delivered': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-    case 'On-Hold': return 'bg-red-50 text-red-700 border-red-200';
-    case 'Rescheduled': return 'bg-purple-50 text-purple-700 border-purple-200';
-    case 'Pending': return 'bg-amber-50 text-amber-700 border-amber-200';
-    case 'Scheduled':
-    default: return 'bg-blue-50 text-blue-700 border-blue-200';
-  }
-};
 
 
 export default function DeliveryRecordsView({
@@ -95,6 +90,8 @@ export default function DeliveryRecordsView({
   clearDashboardFilter,
   onRefresh
 }: DeliveryRecordsViewProps) {
+  const access = usePermissions();
+  const showAccountManagerFilter = category !== 'RMA';
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -104,14 +101,14 @@ export default function DeliveryRecordsView({
   const [areaFilter, setAreaFilter] = useState<string>('All Areas');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [routeSlipMode, setRouteSlipMode] = useState<RouteSlipPeriodMode>('day');
   const [dateSort, setDateSort] = useState<'default' | 'nearest' | 'oldest' | 'furthest'>('default');
   const [amFilter, setAmFilter] = useState('');
   const [driverFilter, setDriverFilter] = useState('');
-  const dateFromRef = useRef<HTMLInputElement>(null);
+  const [showDateRangePicker, setShowDateRangePicker] = useState(false);
   // Always enforce chronological date ranges across all categories and roles.
   const {
     error: dateRangeError,
-    dateToMin,
     appliedDateFrom,
     appliedDateTo,
   } = dateRangeState(dateFrom, dateTo);
@@ -121,6 +118,7 @@ export default function DeliveryRecordsView({
 
   // Bulk selection (Logistics only)
   const [selectedBulkIds, setSelectedBulkIds] = useState<Set<string>>(new Set());
+  const bulkSnapshots = useRef(new Map<string, DeliveryRecord>());
   const [bulkStatus, setBulkStatus] = useState<DeliveryStatus | ''>('');
   const [bulkApplying, setBulkApplying] = useState(false);
   const [bulkPriority, setBulkPriority] = useState<PriorityLevel | ''>('');
@@ -144,6 +142,7 @@ export default function DeliveryRecordsView({
   };
 
   const handleGenerateSample = async () => {
+    if (!DATA_SAMPLER_ENABLED) return;
     const module = CATEGORY_MODULE[category];
     if (!module) return;
     setSamplerGenerating(true);
@@ -159,14 +158,6 @@ export default function DeliveryRecordsView({
     }
   };
 
-  // TASS filter state (applied when currentUserRole === 'TASS')
-  const [tassDateFrom, setTassDateFrom] = useState('');
-  const [tassDateTo, setTassDateTo] = useState('');
-  const [tassStatusFilter, setTassStatusFilter] = useState('');
-  const [tassAccountManager, setTassAccountManager] = useState('');
-
-
-
   const initializedCategoryRef = useRef<DeliveryCategory | null>(null);
 
   // Reset module state before applying an incoming record link so initialization
@@ -179,8 +170,9 @@ export default function DeliveryRecordsView({
       setRegionFilter('All Regions');
       setSubregionFilter('All Subregions');
       setAreaFilter('All Areas');
-      setDateFrom('');
+      setRouteSlipMode('day'); setDateFrom('');
       setDateTo('');
+      setShowDateRangePicker(false);
       setDateSort('default');
       setAmFilter('');
       setDriverFilter('');
@@ -203,21 +195,17 @@ export default function DeliveryRecordsView({
     setRegionFilter('All Regions');
     setSubregionFilter('All Subregions');
     setAreaFilter('All Areas');
-    setDateFrom('');
+    setRouteSlipMode('day'); setDateFrom('');
     setDateTo('');
     setDateSort('default');
     setAmFilter('');
     setDriverFilter('');
-    setTassDateFrom('');
-    setTassDateTo('');
-    setTassStatusFilter('');
-    setTassAccountManager('');
 
     if (category === 'Deliveries') {
       if (dashboardFilterId === 'sc-scheduled-today') {
         const today = manilaToday();
         setStatusFilter('Scheduled');
-        setDateFrom(today);
+        setRouteSlipMode('day'); setDateFrom(today);
         setDateTo(today);
       } else if (dashboardFilterId === 'sc-on-hold' || dashboardFilterId === 'log-on-hold') {
         setStatusFilter('On-Hold');
@@ -225,7 +213,7 @@ export default function DeliveryRecordsView({
         setStatusFilter('Rescheduled');
       } else if (dashboardFilterId === 'log-assigned-today') {
         const today = manilaToday();
-        setDateFrom(today);
+        setRouteSlipMode('day'); setDateFrom(today);
         setDateTo(today);
       } else if (dashboardFilterId === 'sc-completed-today' || dashboardFilterId === 'log-completed-today') {
         setStatusFilter('Delivered');
@@ -238,7 +226,7 @@ export default function DeliveryRecordsView({
   const [statusHistoryCounts, setStatusHistoryCounts] = useState<StatusHistoryCounts | undefined>(undefined);
 
   useEffect(() => {
-    if (dateRangeError || dateRangeState(tassDateFrom, tassDateTo).error) {
+    if (dateRangeError) {
       setStatusHistoryCounts(undefined);
       return;
     }
@@ -249,39 +237,39 @@ export default function DeliveryRecordsView({
       'Procurement Pick-up': 'PROCUREMENT_PICKUP', 'Sales Orders': 'SALES_ORDERS',
     };
     if (category) params.set('category', CATEGORY_TO_DB[category] ?? category);
-    if (tassDateFrom || appliedDateFrom) params.set('deliveryDateFrom', tassDateFrom || appliedDateFrom);
-    if (tassDateTo || appliedDateTo) params.set('deliveryDateTo', tassDateTo || appliedDateTo);
+    if (appliedDateFrom) params.set('deliveryDateFrom', appliedDateFrom);
+    if (appliedDateTo) params.set('deliveryDateTo', appliedDateTo);
     if (areaFilter !== 'All Areas') params.set('area', areaFilter);
+    if (regionFilter !== 'All Regions') params.set('region', regionFilter);
+    if (subregionFilter !== 'All Subregions') params.set('subregion', subregionFilter);
     if (driverFilter) params.set('driver', driverFilter);
     if (statusFilter !== 'All') params.set('status', statusFilter);
 
-    fetch(`${apiUrl('/records/status-history-counts')}?${params}`, { credentials: 'include' })
-      .then(r => r.ok ? r.json() : null)
+    api.getStatusHistoryCounts(params)
       .then(data => { if (active) setStatusHistoryCounts(data ?? undefined); })
       .catch(() => { if (active) setStatusHistoryCounts(undefined); });
     return () => { active = false; };
-  }, [category, dateRangeError, appliedDateFrom, appliedDateTo, tassDateFrom, tassDateTo, areaFilter, driverFilter, statusFilter]);
+  }, [category, dateRangeError, appliedDateFrom, appliedDateTo, areaFilter, regionFilter, subregionFilter, driverFilter, statusFilter]);
 
 
 
-  const canEdit =
+  const roleCanEdit =
     currentUserRole === 'Sales Coordinator' ||
-    (currentUserRole === 'Logistics' && category !== 'RMA');
+    (currentUserRole === 'Logistics' && category !== 'RMA') ||
+    (currentUserRole === 'TASS' && category === 'RMA');
+  const canEdit = roleCanEdit && access.canRecord(category, 'UPDATE');
+  const canCreateRecord = roleCanEdit && access.canRecord(category, 'CREATE') && !(currentUserRole === 'Logistics' && category === 'Deliveries');
   // Driver assignment is Logistics-only (SoD enforcement)
-  const canAssignDriver = currentUserRole === 'Logistics' && category !== 'RMA';
+  const canAssignDriver = currentUserRole === 'Logistics' && category !== 'RMA' && access.canRecord(category, 'STATUS');
 
   // ── Record list filtering ──────────────────────────────────────────────────
   const categoryRecords = records.filter(r => r.category === category);
 
-  const amOptions = useMemo(
-    () => [...new Set(categoryRecords.map(r => r.account_manager).filter(Boolean))].sort(),
-    [categoryRecords]
-  );
-
-  const driverOptions = useMemo(
-    () => [...new Set(categoryRecords.map(r => r.driver).filter(Boolean))].sort(),
-    [categoryRecords]
-  );
+  const filterOptions = useRecordFilterOptionsQuery(category);
+  const amOptions = filterOptions.isError ? [] : filterOptions.data?.accountManagers
+    ?? [...new Set(categoryRecords.map(r => r.account_manager).filter(Boolean))].sort();
+  const driverOptions = filterOptions.isError ? [] : filterOptions.data?.drivers
+    ?? [...new Set(categoryRecords.map(r => r.driver).filter(Boolean))].sort();
 
   // Areas visible in the specific-area dropdown, scoped by current region+subregion selection
   const areasInScope = (() => {
@@ -294,7 +282,7 @@ export default function DeliveryRecordsView({
 
   const distinctAreasForFilter = [
     'All Areas',
-    ...Array.from(new Set(categoryRecords.filter(r => areasInScope.has(r.area)).map(r => r.area).filter(Boolean))).sort(),
+    ...(filterOptions.isError ? [] : filterOptions.data?.areas ?? [...new Set(categoryRecords.map(r => r.area).filter(Boolean))]).filter(area => areasInScope.has(area)).sort(),
   ];
 
   const baseFiltered = categoryRecords.filter(r => {
@@ -303,8 +291,8 @@ export default function DeliveryRecordsView({
     if (subregionFilter !== 'All Subregions' && getSubregion(r.area) !== subregionFilter) return false;
     if (areaFilter !== 'All Areas' && r.area !== areaFilter) return false;
     if (statusFilter !== 'All' && r.status !== statusFilter) return false;
-    if (amFilter && !r.account_manager.toLowerCase().includes(amFilter.toLowerCase())) return false;
-    if (driverFilter && r.driver.toLowerCase() !== driverFilter.toLowerCase()) return false;
+    if (showAccountManagerFilter && amFilter && !r.account_manager.toLowerCase().includes(amFilter.toLowerCase())) return false;
+    if (driverFilter && !r.driver.toLowerCase().includes(driverFilter.toLowerCase())) return false;
     if (appliedDateFrom && (!r.delivery_date || r.delivery_date < appliedDateFrom)) return false;
     if (appliedDateTo && (!r.delivery_date || r.delivery_date > appliedDateTo)) return false;
     const q = searchQuery.toLowerCase();
@@ -313,58 +301,42 @@ export default function DeliveryRecordsView({
       r.id.toLowerCase().includes(q) ||
       r.company_name.toLowerCase().includes(q) ||
       r.reference.toLowerCase().includes(q) ||
+      (r.legacy_sap_reference ?? '').toLowerCase().includes(q) ||
+      (r.rma_type ?? '').toLowerCase().includes(q) ||
+      (r.customer_contact_name ?? '').toLowerCase().includes(q) ||
+      (r.customer_contact_email ?? '').toLowerCase().includes(q) ||
+      (r.customer_contact_phone ?? '').toLowerCase().includes(q) ||
       r.driver.toLowerCase().includes(q) ||
       r.area.toLowerCase().includes(q) ||
       r.account_manager.toLowerCase().includes(q)
     );
   });
 
-  // TASS-specific extra filters (client-side, no extra API call)
-  const filtered = currentUserRole === 'TASS'
-    ? baseFiltered.filter(r => {
-      if (tassDateFrom && r.delivery_date) {
-        const rd = new Date(r.delivery_date);
-        const df = new Date(tassDateFrom);
-        if (rd < df) return false;
-      }
-      if (tassDateTo && r.delivery_date) {
-        const rd = new Date(r.delivery_date);
-        const dt = new Date(tassDateTo);
-        if (rd > dt) return false;
-      }
-      if (tassAccountManager && !r.account_manager.toLowerCase().includes(tassAccountManager.toLowerCase())) return false;
-      if (tassStatusFilter) {
-        if (tassStatusFilter === 'Collection Verified') return r.collection_verified === true;
-        if (tassStatusFilter === 'Accomplished') return r.status === 'Delivered';
-        return r.status === tassStatusFilter;
-      }
-      return true;
-    })
-    : baseFiltered;
-
   const now = Date.now();
   const sortRows = <T extends { delivery_date?: string | null }>(rows: T[]) => sortDeliveryRows(rows, dateSort, now);
-  const sortedFiltered = dateRangeError || dateRangeState(tassDateFrom, tassDateTo).error ? [] : sortRows(filtered);
+  const sortedFiltered = dateRangeError ? [] : sortRows(baseFiltered);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
-  const effectiveStatusFilter = tassStatusFilter || (statusFilter !== 'All' ? statusFilter : undefined);
-  const effectiveAmFilter = tassAccountManager || amFilter || undefined;
-  const tassRange = dateRangeState(tassDateFrom, tassDateTo);
-  const hasInvalidDateRange = Boolean(dateRangeError || tassRange.error);
-  const effectiveDateFrom = tassDateFrom || appliedDateFrom || undefined;
-  const effectiveDateTo = tassDateTo || appliedDateTo || undefined;
+  const effectiveStatusFilter = statusFilter !== 'All' ? statusFilter : undefined;
+  const effectiveAmFilter = showAccountManagerFilter ? amFilter || undefined : undefined;
+  const hasInvalidDateRange = Boolean(dateRangeError);
+  const effectiveDateFrom = appliedDateFrom || undefined;
+  const effectiveDateTo = appliedDateTo || undefined;
   const effectiveAreaFilter = areaFilter !== 'All Areas' ? areaFilter : undefined;
 
-  const { data: pagedData, isLoading: pagedLoading } = usePagedRecordsQuery({
+  const { data: pagedData, isLoading: pagedLoading, isError: pagedError, refetch: retryPage } = usePagedRecordsQuery({
     category,
+    dateSort,
     page: currentPage,
     limit: pageSize,
     status: effectiveStatusFilter,
     search: searchQuery || undefined,
     driver: driverFilter || undefined,
     area: effectiveAreaFilter,
+    region: regionFilter !== 'All Regions' ? regionFilter : undefined,
+    subregion: subregionFilter !== 'All Subregions' ? subregionFilter : undefined,
     account_manager: effectiveAmFilter,
     dateFrom: effectiveDateFrom,
     dateTo: effectiveDateTo,
@@ -387,10 +359,6 @@ export default function DeliveryRecordsView({
     dateSort,
     amFilter,
     driverFilter,
-    tassDateFrom,
-    tassDateTo,
-    tassStatusFilter,
-    tassAccountManager,
     dashboardFilterId,
   ]);
 
@@ -405,15 +373,25 @@ export default function DeliveryRecordsView({
     return sortedFiltered.slice(startIndex, startIndex + pageSize);
   }, [sortedFiltered, safeCurrentPage, pageSize]);
 
-  // Apply the client-side sort to server-paged rows so the sort dropdown
-  // works even when the API does not support an order-by parameter.
-  const displayRecords = hasInvalidDateRange ? [] : pagedData ? pagedData.rows : paginatedRecords;
+  // Server pages are already sorted; only fixture fallback rows are sliced locally.
+  const displayRecords = hasInvalidDateRange || pagedError ? [] : pagedData ? pagedData.rows : paginatedRecords;
 
-  const activeRecord = (pagedData?.rows ?? []).find(r => r.id === selectedId) || records.find(r => r.id === selectedId);
+  const selectedRecord = useSelectedRecordQuery(selectedId,
+    displayRecords.find(r => r.id === selectedId) ?? categoryRecords.find(r => r.id === selectedId));
+  const activeRecord = selectedRecord.isError ? undefined : selectedRecord.data;
+
+  // Bulk edits retain the version the user selected, including across polling.
+  // Changing the page or filters starts a new selection.
+  useEffect(() => {
+    bulkSnapshots.current.clear();
+    setSelectedBulkIds(new Set());
+    setBulkResult(null);
+  }, [category, currentPage, pageSize, searchQuery, statusFilter, regionFilter, subregionFilter,
+    areaFilter, dateFrom, dateTo, dateSort, amFilter, driverFilter, dashboardFilterId]);
 
   // Delivered records keep their Priority, so a bulk Priority never applies to them (TSK-124).
   const allSelectedPriorityLocked = selectedBulkIds.size > 0 && [...selectedBulkIds].every(id => {
-    const record = categoryRecords.find(r => r.id === id);
+    const record = bulkSnapshots.current.get(id);
     return !!record && isPriorityLocked(record);
   });
   const effectiveBulkPriority: PriorityLevel | '' = allSelectedPriorityLocked ? '' : bulkPriority;
@@ -429,10 +407,11 @@ export default function DeliveryRecordsView({
     let unchangedCount = 0;
     let lockedCount = 0;
     const ids = [...selectedBulkIds];
+    const snapshots = new Map(bulkSnapshots.current);
     try {
       for (const id of ids) {
         try {
-          const record = categoryRecords.find(record => record.id === id);
+          const record = snapshots.get(id);
           if (!record) throw new Error('The selected record is no longer available. Refresh and try again.');
           const updates: Partial<DeliveryRecord> = {};
           const remarks: string[] = [];
@@ -452,6 +431,7 @@ export default function DeliveryRecordsView({
             continue;
           }
           updates.remarks = remarks.join('; ');
+          if (!updates.status || updates.priority !== undefined) updates.expected_edit_version = record.edit_version;
           await onUpdateRecord(id, updates);
           savedCount++;
         } catch (error) {
@@ -492,16 +472,22 @@ export default function DeliveryRecordsView({
   const toggleBulkId = (id: string) => {
     setSelectedBulkIds(prev => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) { next.delete(id); bulkSnapshots.current.delete(id); }
+      else {
+        const record = displayRecords.find(row => row.id === id);
+        if (record) { next.add(id); bulkSnapshots.current.set(id, record); }
+      }
       return next;
     });
   };
 
   const toggleAllBulk = () => {
-    if (selectedBulkIds.size === sortedFiltered.length) {
+    if (displayRecords.every(record => selectedBulkIds.has(record.id))) {
+      bulkSnapshots.current.clear();
       setSelectedBulkIds(new Set());
     } else {
-      setSelectedBulkIds(new Set(sortedFiltered.map(r => r.id)));
+      bulkSnapshots.current = new Map(displayRecords.map(record => [record.id, record]));
+      setSelectedBulkIds(new Set(displayRecords.map(record => record.id)));
     }
   };
 
@@ -512,16 +498,28 @@ export default function DeliveryRecordsView({
   const showExports = (() => {
     if (category === 'Accounting Collection') return currentUserRole === 'TASS' || currentUserRole === 'Admin';
     // Deliveries, RMA, Procurement Pick-up, Sales Orders
-    return ['Sales Coordinator', 'Logistics', 'Admin'].includes(currentUserRole);
+    return ['Sales Coordinator', 'Logistics', 'TASS', 'Admin'].includes(currentUserRole);
   })();
 
   const isAC = category === 'Accounting Collection';
-  const exportColumns = isAC ? [...DELIVERY_COLUMNS, ...AC_EXTRA_COLUMNS] : DELIVERY_COLUMNS;
-  const pdfCols = isAC ? PDF_AC_COLUMNS : PDF_DELIVERY_COLUMNS;
+  const isRma = category === 'RMA';
+  const baseExportColumns = isRma
+    ? DELIVERY_COLUMNS.map(column => column.key === 'reference' ? { ...column, header: 'RMA Document Reference', key: 'rma_reference' } : column)
+    : DELIVERY_COLUMNS;
+  const exportColumns = isAC ? [...DELIVERY_COLUMNS, ...AC_EXTRA_COLUMNS] : isRma ? [...baseExportColumns, ...RMA_EXTRA_COLUMNS] : DELIVERY_COLUMNS;
+  const pdfCols = isAC ? PDF_AC_COLUMNS : isRma ? PDF_RMA_COLUMNS : PDF_DELIVERY_COLUMNS;
   const exportRows = sortedFiltered.map(r => ({
     id: r.id,
     company_name: r.company_name,
     reference: r.reference,
+    rma_reference: r.rma_reference ?? '',
+    legacy_sap_reference: r.legacy_sap_reference ?? '',
+    rma_type: r.rma_type ?? '',
+    ...rmaWorkflowExportFields(r),
+    purchase_date_fmt: r.purchase_date ? fmtDate(r.purchase_date) : '',
+    customer_contact_name: r.customer_contact_name ?? '',
+    customer_contact_email: r.customer_contact_email ?? '',
+    customer_contact_phone: r.customer_contact_phone ?? '',
     category: r.category,
     priority: r.priority,
     area: r.area,
@@ -557,14 +555,33 @@ export default function DeliveryRecordsView({
     dateSort === 'default' ? 'nearest' : dateSort
   );
 
+  const routeSlipSelection: RouteSlipPeriodSelection = { mode: routeSlipMode, dateFrom, dateTo };
+  const changeRouteSlipSelection = (selection: RouteSlipPeriodSelection) => {
+    setRouteSlipMode(selection.mode);
+    setDateFrom(selection.dateFrom);
+    setDateTo(selection.mode === 'day' ? selection.dateFrom : selection.mode === 'from' ? '' : selection.dateTo);
+  };
   const routeSlipProps = driverFilter
-    ? {
-      records: sortedFiltered,
-      driverName: driverFilter,
-      date: appliedDateFrom || manilaToday(),
-      preparedBy: currentUserName,
-    }
+    ? { records: sortedFiltered, ...routeSlipPeriod(routeSlipSelection), preparedBy: currentUserName }
     : undefined;
+
+  const fetchRouteSlipRecords = async () => {
+    const error = routeSlipSelectionError(routeSlipSelection);
+    if (error) throw new Error(error);
+    const raw = await api.getAllRecordsForExport({
+      category,
+      status: effectiveStatusFilter,
+      search: searchQuery || undefined,
+      driver: driverFilter || undefined,
+      area: effectiveAreaFilter,
+      region: regionFilter !== 'All Regions' ? regionFilter : undefined,
+      subregion: subregionFilter !== 'All Subregions' ? subregionFilter : undefined,
+      account_manager: effectiveAmFilter,
+      ...routeSlipPeriod(routeSlipSelection),
+      dashboard_filter: dashboardFilterId || undefined,
+    });
+    return sortRows(raw.map(normalizeApiRecord));
+  };
 
   const fetchExportData = async () => {
     const rawAll = await api.getAllRecordsForExport({
@@ -573,6 +590,8 @@ export default function DeliveryRecordsView({
       search: searchQuery || undefined,
       driver: driverFilter || undefined,
       area: effectiveAreaFilter,
+      region: regionFilter !== 'All Regions' ? regionFilter : undefined,
+      subregion: subregionFilter !== 'All Subregions' ? subregionFilter : undefined,
       account_manager: effectiveAmFilter,
       dateFrom: effectiveDateFrom,
       dateTo: effectiveDateTo,
@@ -585,6 +604,14 @@ export default function DeliveryRecordsView({
       id: r.id,
       company_name: r.company_name,
       reference: r.reference,
+      rma_reference: r.rma_reference ?? '',
+      legacy_sap_reference: r.legacy_sap_reference ?? '',
+      rma_type: r.rma_type ?? '',
+    ...rmaWorkflowExportFields(r),
+      purchase_date_fmt: r.purchase_date ? fmtDate(r.purchase_date) : '',
+      customer_contact_name: r.customer_contact_name ?? '',
+      customer_contact_email: r.customer_contact_email ?? '',
+      customer_contact_phone: r.customer_contact_phone ?? '',
       category: r.category,
       priority: r.priority,
       area: r.area,
@@ -613,8 +640,7 @@ export default function DeliveryRecordsView({
     const rsProps = driverFilter
       ? {
         records: sortedAll,
-        driverName: driverFilter,
-        date: appliedDateFrom || manilaToday(),
+        ...routeSlipPeriod(routeSlipSelection),
         preparedBy: currentUserName,
       }
       : undefined;
@@ -622,22 +648,19 @@ export default function DeliveryRecordsView({
     return { rows, summary, routeSlipProps: rsProps };
   };
 
-  const showTassFilters = currentUserRole === 'TASS';
-  const isCreating = showForm && canEdit;
+  const isCreating = showForm && canCreateRecord;
 
   const activeFilterCount = [
     regionFilter !== 'All Regions', subregionFilter !== 'All Subregions', areaFilter !== 'All Areas',
-    !!amFilter, !!driverFilter, !!dateFrom, !!dateTo, dateSort !== 'default',
+    showAccountManagerFilter && !!amFilter, !!driverFilter, Boolean(dateFrom || dateTo), dateSort !== 'default',
     statusFilter !== 'All', !!searchQuery,
-    ...(showTassFilters ? [!!tassDateFrom, !!tassDateTo, !!tassStatusFilter, !!tassAccountManager] : []),
     !!dashboardFilterId,
   ].filter(Boolean).length;
 
   const clearAllFilters = () => {
     setSearchQuery(''); setStatusFilter('All'); setRegionFilter('All Regions');
     setSubregionFilter('All Subregions'); setAreaFilter('All Areas');
-    setAmFilter(''); setDriverFilter(''); setDateFrom(''); setDateTo(''); setDateSort('default');
-    setTassDateFrom(''); setTassDateTo(''); setTassStatusFilter(''); setTassAccountManager('');
+    setAmFilter(''); setDriverFilter(''); setRouteSlipMode('day'); setDateFrom(''); setDateTo(''); setDateSort('default');
     clearDashboardFilter();
   };
 
@@ -686,6 +709,7 @@ export default function DeliveryRecordsView({
               meta={exportMeta}
               summary={exportSummary}
               routeSlipProps={routeSlipProps}
+              routeSlipPeriodFields={{ selection: routeSlipSelection, onChange: changeRouteSlipSelection }}
               statusHistoryCounts={statusHistoryCounts}
               totalCount={displayTotalCount}
               fetchExportData={fetchExportData}
@@ -693,24 +717,12 @@ export default function DeliveryRecordsView({
           )}
           {showExports && (
             <RouteSlipMenu
-              records={sortedFiltered}
               driverFilter={driverFilter}
-              dateFrom={appliedDateFrom}
+              selection={routeSlipSelection}
+              onChange={changeRouteSlipSelection}
+              fetchRecords={fetchRouteSlipRecords}
               preparedBy={currentUserName}
               filename={category.toLowerCase().replace(/\s+/g, '-')}
-              onFocusDateFilter={() => {
-                setShowAdvancedFilters(false);
-                if (dateFromRef.current) {
-                  dateFromRef.current.focus();
-                  try {
-                    if (typeof dateFromRef.current.showPicker === 'function') {
-                      dateFromRef.current.showPicker();
-                    }
-                  } catch {
-                    // Keep the visible field focused for browsers that block showPicker.
-                  }
-                }
-              }}
             />
           )}
           {/* Monthly Driver Report — Logistics / Admin, Deliveries only */}
@@ -726,13 +738,14 @@ export default function DeliveryRecordsView({
           {showDriverReportModal && (
             <DriverReportModal
               records={records}
+              serverPaging
               onClose={() => setShowDriverReportModal(false)}
               generatedByName={currentUserName}
               generatedByRole={currentUserRole}
             />
           )}
           {/* Generate Sample — Admin only */}
-          {currentUserRole === 'Admin' && (
+          {DATA_SAMPLER_ENABLED && currentUserRole === 'Admin' && access.canResource('dataSampler', 'WRITE') && (
             <div className="relative">
               <button
                 onClick={() => { setShowSampler(p => !p); setSamplerResult(null); }}
@@ -784,7 +797,7 @@ export default function DeliveryRecordsView({
               )}
             </div>
           )}
-          {canEdit && (
+          {canCreateRecord && (
             <button
               onClick={() => { setShowForm(true); setSelectedId(null); }}
               className="bg-[#1F3864] hover:bg-blue-900 text-white text-[12px] font-bold px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition-all shadow-xs cursor-pointer self-start"
@@ -794,47 +807,32 @@ export default function DeliveryRecordsView({
           )}
         </div>
 
-        {/* Date Range Controls — list filters, so hidden while the create form is open */}
+        {/* One shared set of list filters, hidden while creating a record. */}
         {!isCreating && (
-        <div className="flex flex-wrap gap-3 items-end text-xs" id="date-range-filters">
-        <div className="space-y-1 flex-1 min-w-[120px]">
-          <label htmlFor="dateFrom" className="font-bold text-slate-700 block">Date From</label>
-          <input
-            id="dateFrom"
-            ref={dateFromRef}
-            type="date"
-            value={dateFrom}
-            onChange={e => {
-              const next = dateRangeAfterFromChange(e.target.value, dateTo);
-              setDateFrom(next.dateFrom);
-              if (next.dateTo !== dateTo) setDateTo(next.dateTo);
-            }}
-            title="Date from"
-            className="w-full text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
-          />
+        <div className="grid grid-cols-1 min-[400px]:grid-cols-2 lg:grid-cols-4 gap-3 items-start text-xs" id="date-range-filters">
+        <div className="min-w-0 min-[400px]:col-span-2">
+          <DateRangePicker dateFrom={dateFrom} dateTo={dateTo} open={showDateRangePicker} onOpenChange={setShowDateRangePicker}
+            onChange={range => { setRouteSlipMode(routeSlipModeForDates(range.from, range.to)); setDateFrom(range.from); setDateTo(range.to); }} />
         </div>
-        <div className="space-y-1 flex-1 min-w-[120px]">
-          <label htmlFor="dateTo" className="font-bold text-slate-700 block">Date To</label>
-          <input
-            id="dateTo"
-            type="date"
-            value={dateTo}
-            min={dateToMin}
-            onChange={e => setDateTo(e.target.value)}
-            title="Date to"
-            aria-invalid={dateRangeError ? 'true' : undefined}
-            aria-describedby={dateRangeError ? 'date-range-error' : undefined}
-            className={`w-full text-[11px] font-semibold border rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer ${dateRangeError ? 'border-red-400' : 'border-slate-200'}`}
-          />
-          {dateRangeError && <p id="date-range-error" role="alert" className="text-[10px] font-semibold text-red-700">{dateRangeError}</p>}
+        <div className="space-y-1 min-w-0">
+          <label htmlFor="recordStatusFilter" className="font-bold text-slate-700 block">{category === 'RMA' ? 'Final RMA status' : 'Status'}</label>
+          <select
+            id="recordStatusFilter"
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value)}
+            className="min-h-10 w-full text-xs font-semibold border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+          >
+            <option value="All">All Statuses</option>
+            {DELIVERY_STATUSES.map(status => <option key={status} value={status}>{status}</option>)}
+          </select>
         </div>
-        <div className="space-y-1 flex-1 min-w-[150px]">
+        <div className="space-y-1 min-w-0">
           <label htmlFor="dateSort" className="font-bold text-slate-700 block">Sort</label>
           <select
             id="dateSort"
             value={dateSort}
             onChange={e => setDateSort(e.target.value as typeof dateSort)}
-            className="w-full text-[11px] font-semibold border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
+            className="min-h-10 w-full text-xs font-semibold border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#0078C1] cursor-pointer"
           >
             <option value="default">Date: Default</option>
             <option value="nearest">Nearest to Present</option>
@@ -842,57 +840,19 @@ export default function DeliveryRecordsView({
             <option value="furthest">Furthest Future First</option>
           </select>
         </div>
-        {(dateFrom || dateTo) && (
-          <button
-            onClick={() => { setDateFrom(''); setDateTo(''); }}
-            title="Clear date filter"
-            className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[11px] uppercase rounded-lg cursor-pointer h-[34px] flex items-center gap-1"
-          >
-            <X className="w-3.5 h-3.5" /> Clear
-          </button>
+        {activeFilterCount > 0 && (
+          <div className="col-span-full flex justify-end">
+            <button
+              onClick={clearAllFilters}
+              className="min-h-10 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[11px] rounded-lg cursor-pointer flex items-center gap-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1]"
+            >
+              <X className="w-3.5 h-3.5" /> Clear All Filters
+            </button>
+          </div>
         )}
         </div>
         )}
       </div>
-
-      {/* TASS filter controls */}
-      {showTassFilters && (
-        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap gap-3 items-end text-xs print:hidden" id="tass-filters">
-          <div className="space-y-1">
-            <label htmlFor="tass-date-from" className="font-bold text-slate-700 block">Delivery Date From</label>
-            <input id="tass-date-from" type="date" value={tassDateFrom} onChange={e => { const next = dateRangeAfterFromChange(e.target.value, tassDateTo); setTassDateFrom(next.dateFrom); if (next.dateTo !== tassDateTo) setTassDateTo(next.dateTo); }}
-              className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
-          </div>
-          <div className="space-y-1">
-            <label htmlFor="tass-date-to" className="font-bold text-slate-700 block">Delivery Date To</label>
-            <input id="tass-date-to" type="date" value={tassDateTo} min={tassRange.dateToMin} aria-invalid={tassRange.error ? 'true' : undefined} onChange={e => setTassDateTo(e.target.value)}
-              className="px-3 py-2 border border-slate-300 rounded-lg text-xs" />
-          </div>
-          {tassRange.error && <p role="alert" className="text-[10px] font-semibold text-red-700">{tassRange.error}</p>}
-          <div className="space-y-1">
-            <label htmlFor="tass-status-filter" className="font-bold text-slate-700 block">Status</label>
-            <select id="tass-status-filter" value={tassStatusFilter} onChange={e => setTassStatusFilter(e.target.value)}
-              className="px-3 py-2 border border-slate-300 rounded-lg bg-white text-xs w-44">
-              <option value="">All Statuses</option>
-              <option value="Accomplished">Accomplished</option>
-              <option value="Collection Verified">Collection Verified</option>
-              <option value="Pending">Pending</option>
-              <option value="Scheduled">Scheduled</option>
-            </select>
-          </div>
-          <div className="min-w-[180px]">
-            <FilterCombobox label="Account Manager" placeholder="All Account Managers" value={tassAccountManager} onChange={setTassAccountManager} options={amOptions} />
-          </div>
-          {activeFilterCount > 0 && (
-            <button
-              onClick={clearAllFilters}
-              className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[11px] uppercase rounded-lg cursor-pointer"
-            >
-              Clear All Filters
-            </button>
-          )}
-        </div>
-      )}
 
       {/* Bulk action bar — Logistics: status / Sales Coordinator: priority */}
       {selectedBulkIds.size > 0 && (canAssignDriver || canEdit) && (
@@ -909,7 +869,7 @@ export default function DeliveryRecordsView({
                 className="text-[11px] font-bold bg-white/10 border border-white/20 text-white rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
               >
                 <option value="" className="text-slate-900 bg-white">Keep unchanged</option>
-                {DELIVERY_STATUSES.filter(s => s !== 'In Transit' && s !== 'Delivered' && s !== 'Draft' && !(category === 'Deliveries' && s === 'Rescheduled') && [...selectedBulkIds].every(id => { const record = categoryRecords.find(r => r.id === id); return record && (record.status === s || selectableStatuses(record, currentUserRole).includes(s)); })).map(s => (
+                {DELIVERY_STATUSES.filter(s => s !== 'In Transit' && s !== 'Delivered' && s !== 'Draft' && !(category === 'Deliveries' && s === 'Rescheduled') && [...selectedBulkIds].every(id => { const record = bulkSnapshots.current.get(id); return record && (record.status === s || selectableStatuses(record, currentUserRole).includes(s)); })).map(s => (
                   <option key={s} value={s} className="text-slate-900 bg-white">{s}</option>
                 ))}
               </select>
@@ -985,12 +945,18 @@ export default function DeliveryRecordsView({
             setCreationBanner({ recordId, referenceLabel, lines })
           }
         />
+      ) : selectedId && (selectedRecord.isError || !activeRecord || activeRecord.category !== category) ? (
+        <div role={selectedRecord.isError || activeRecord ? 'alert' : 'status'} className="rounded-xl border border-slate-200 bg-white p-6 space-y-3">
+          <p>{selectedRecord.isError ? 'Could not load this record.' : activeRecord ? 'This record belongs to another category.' : 'Loading record…'}</p>
+          {selectedRecord.isError && <button onClick={() => void selectedRecord.refetch()} className="px-3 py-2 rounded-lg border">Retry loading record</button>}
+          <button onClick={() => setSelectedId(null)} className="px-3 py-2 rounded-lg border">Back to records</button>
+        </div>
       ) : selectedId && activeRecord ? (
         /* ── Full-page Entity Workspace ─────────────────────────────────────── */
         <DeliveryRecordWorkspace
           record={activeRecord}
-          allRecordIds={sortedFiltered.map(r => r.id)}
-          allRecords={records}
+          allRecordIds={[...new Set([...displayRecords.map(r => r.id), selectedId])]}
+          allRecords={displayRecords}
           currentUserRole={currentUserRole}
           currentUserName={currentUserName}
           companies={companies}
@@ -1002,6 +968,10 @@ export default function DeliveryRecordsView({
         />
       ) : (
         <div className="grid grid-cols-1 gap-6 items-start">
+          {pagedError && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4">
+            <p>Could not load records.</p>
+            <button onClick={() => void retryPage()}>Retry loading records</button>
+          </div>}
           {/* List — full width, no drawer */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm lg:col-span-3">
             <div className="p-4 border-b border-slate-200 space-y-0 print:hidden">
@@ -1069,13 +1039,13 @@ export default function DeliveryRecordsView({
                       <fieldset className="min-w-0">
                         <legend className="text-xs font-bold text-slate-800 mb-2">Personnel</legend>
                         <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-2">
-                          <FilterCombobox label="Account Manager" placeholder="All Account Managers" value={amFilter} onChange={setAmFilter} options={amOptions} />
+                          {showAccountManagerFilter && <FilterCombobox label="Account Manager" placeholder="All Account Managers" value={amFilter} onChange={setAmFilter} options={amOptions} />}
                           <FilterCombobox label="Driver" placeholder="All Drivers" value={driverFilter} onChange={setDriverFilter} options={driverOptions} />
                         </div>
                       </fieldset>
                     </FilterPopover>
 
-                  <span className="text-[11px] font-bold text-slate-400 tabular-nums shrink-0">{sortedFiltered.length}</span>
+                  <span className="text-[11px] font-bold text-slate-400 tabular-nums shrink-0">{displayTotalCount}</span>
                 </div>
               </div>
             </div>
@@ -1099,7 +1069,8 @@ export default function DeliveryRecordsView({
                         <input
                           type="checkbox"
                           className="rounded cursor-pointer"
-                          checked={sortedFiltered.length > 0 && selectedBulkIds.size === sortedFiltered.length}
+                          aria-label="Select all records on this page"
+                          checked={displayRecords.length > 0 && displayRecords.every(record => selectedBulkIds.has(record.id))}
                           onChange={toggleAllBulk}
                         />
                       </th>
@@ -1139,13 +1110,15 @@ export default function DeliveryRecordsView({
                         <td className="px-4 py-3.5 font-bold text-slate-400 truncate">{rec.id}</td>
                         <td className="px-4 py-3.5">
                           <div className="font-semibold text-sm text-slate-900 truncate" title={rec.company_name}>{rec.company_name}</div>
+                          {category === 'RMA' && <div className="text-[10px] text-slate-500 mt-0.5 truncate" title={rec.rma_reference ?? ''}>RMA document ref: {rec.rma_reference || 'Not assigned'}</div>}
+                          {category === 'RMA' && rec.legacy_sap_reference && <div className="text-[10px] text-slate-400 truncate" title={rec.legacy_sap_reference}>Legacy SAP ref: {rec.legacy_sap_reference}</div>}
                           <div className="text-xs text-gray-400 mt-0.5 truncate" title={rec.area}>{rec.area}</div>
                         </td>
                         <td className="px-4 py-3.5 truncate text-slate-600" title={rec.area}>{rec.area}</td>
                         <td className="px-4 py-3.5 text-center text-slate-600 tabular-nums">{rec.delivery_date}</td>
                         <td className="px-4 py-3.5 truncate text-slate-600" title={rec.driver}>{rec.driver || <span className="text-xs text-slate-400 italic">Unassigned</span>}</td>
                         <td className="px-4 py-3.5 text-center">
-                          <span className={`px-2.5 py-0.5 rounded-full border text-[10.5px] font-semibold inline-block ${statusColor(rec.status)}`}>{rec.status}</span>
+                          <RecordStatus record={rec} compact />
                         </td>
                         {currentUserRole === 'TASS' && category === 'Accounting Collection' && (
                           <td className="px-4 py-3.5 text-center">

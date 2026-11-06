@@ -7,27 +7,66 @@
  *
  * Test IDs match the UAT_PLAN.md document (B-1.x, B-2.x, B-3.x, B-4.x, B-5.x).
  */
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, Page, type Browser } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
 import path from 'path';
 import fs from 'fs';
-import { DEMO_LOCATION_FIXTURES } from '../../client/src/utils/demoLocations';
+import * as XLSX from 'xlsx';
+import { recordRows } from '../support/recordRows';
 
 const BASE_URL = 'http://localhost:3000';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function openFirstRecord(page: Page) {
+async function openFirstRecord(page: Page, status?: string) {
   await page.goto(`${BASE_URL}/deliveries`);
   await page.waitForLoadState('networkidle');
-  const firstRow = page.getByRole('row').nth(1);
+  if (status) await page.getByRole('button', { name: status, exact: true }).click();
+  const firstRow = recordRows(page).first();
   await firstRow.waitFor({ state: 'visible', timeout: 10_000 });
   await firstRow.click();
   await page.waitForTimeout(800);
 }
 
-function assertDemoLocationPair(area: string, address: string) {
-  const fixture = DEMO_LOCATION_FIXTURES.find(location => location.area === area && location.address === address);
-  expect(fixture, `Expected one demo-location fixture for ${area} / ${address}`).toBeTruthy();
+// Each mutating test owns its fixture; leave assigned Driver demo runs untouched.
+// These records live in the disposable CI database (record deletion is disabled).
+async function openNewScheduledRecord(page: Page, browser: Browser) {
+  const sales = await browser.newContext({ storageState: './helpers/auth-sc.json' });
+  let recordId: string;
+  try {
+    const session = await sales.request.get(`${BASE_URL}/api/v1/auth/me`);
+    expect(session.ok()).toBeTruthy();
+    const csrf = session.headers()['x-csrf-token'];
+    expect(csrf).toBeTruthy();
+    const companiesResponse = await sales.request.get(`${BASE_URL}/api/v1/companies`);
+    expect(companiesResponse.ok()).toBeTruthy();
+    const companies = await companiesResponse.json();
+    expect(companies.length).toBeGreaterThan(0);
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date());
+    const response = await sales.request.post(`${BASE_URL}/api/v1/records`, {
+      headers: { 'X-CSRF-Token': csrf },
+      data: {
+        company_id: companies[0].id, category: 'Deliveries',
+        reference: `UAT-LOG-${randomUUID()}`, delivery_date: today,
+        status: 'Scheduled', is_draft: 'No', priority: '2 - Moderate',
+        area: 'Makati', account_manager: 'UAT Account Manager',
+      },
+    });
+    expect(response.status(), 'Sales Coordinator must create the test fixture').toBe(201);
+    const saved = await response.json();
+    expect(saved.status).toBe('Scheduled');
+    expect(saved.id).toBeTruthy();
+    recordId = saved.id;
+  } finally {
+    await sales.close();
+  }
+  await page.goto(`${BASE_URL}/deliveries`);
+  await page.getByRole('textbox', { name: 'Search delivery records' }).fill(recordId);
+  await page.getByRole('row').filter({
+    has: page.getByRole('cell', { name: recordId, exact: true }),
+  }).click();
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -157,111 +196,108 @@ test.describe('TSK-126 dashboard card filters', () => {
     await expect(page.getByRole('button', { name: 'Clear dashboard filter: No Driver Assigned' })).toBeVisible();
     const recordsInfo = page.getByTestId('pagination-records-info');
     await expect(recordsInfo).toContainText(/of\s+\d+\s+records/i);
-    const rowCount = Number((await recordsInfo.innerText()).match(/of\s+(\d+)\s+records/i)?.[1]);
-    expect(rowCount).toBe(cardCount);
+    await expect.poll(async () =>
+      Number((await recordsInfo.innerText()).match(/of\s+(\d+)\s+records/i)?.[1])
+    ).toBe(cardCount);
   });
 });
 
 test.describe('B-2 Dispatch & Assign Driver', () => {
-  test('B-2.0a Auto Fill keeps Area and Address in one demo-location fixture', async ({ page }) => {
+  test('B-2.0a Logistics cannot create Delivery records', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
-    await page.getByRole('button', { name: /new record/i }).click();
-
-    const areaInput = page.locator('label').filter({ hasText: /^Area/ }).locator('..').locator('input');
-    const addressInput = page.getByPlaceholder(/street, building, floor/i);
-    const autoFill = page.getByRole('button', { name: /auto fill/i });
-
-    for (let attempt = 0; attempt < 3; attempt++) {
-      await autoFill.click();
-      // Area and Address render one after the other, so retry until both settle.
-      await expect(async () => {
-        assertDemoLocationPair(await areaInput.inputValue(), await addressInput.inputValue());
-      }).toPass({ timeout: 5000 });
-    }
-
-    await areaInput.fill('Makati CBD');
-    await addressInput.fill('Manually entered delivery address');
-    await expect(areaInput).toHaveValue('Makati CBD');
-    await expect(addressInput).toHaveValue('Manually entered delivery address');
+    await expect(page.getByRole('button', { name: /new record/i })).toHaveCount(0);
   });
 
-  test('B-2.0 Delivery date range enforces chronological filters without losing focus', async ({ page }) => {
+  test('B-2.0 Delivery dates support reverse dragging, keyboard selection and cancellation', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
 
-    const dateFrom = page.getByLabel('Date From', { exact: true });
-    const dateTo = page.getByLabel('Date To', { exact: true });
+    const trigger = page.getByRole('button', { name: /^Delivery dates / });
+    await trigger.click();
+    const dialog = page.getByRole('dialog', { name: 'Select delivery dates' });
+    await dialog.getByLabel('Calendar year').selectOption('2026');
+    await dialog.getByLabel('Calendar month').selectOption('9');
+    const start = dialog.locator('[data-calendar-day="2026-10-20"]');
+    const end = dialog.locator('[data-calendar-day="2026-10-14"]');
+    const startBox = (await start.boundingBox())!;
+    const endBox = (await end.boundingBox())!;
+    await page.mouse.move(startBox.x + startBox.width / 2, startBox.y + startBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(endBox.x + endBox.width / 2, endBox.y + endBox.height / 2, { steps: 12 });
+    await page.mouse.up();
+    await expect(dialog.locator('[aria-live="polite"]')).toHaveText('14 Oct 2026 – 20 Oct 2026');
+    await expect(trigger).toContainText('All delivery dates');
+    await dialog.getByRole('button', { name: 'Apply dates', exact: true }).click();
+    await expect(trigger).toContainText('14 Oct 2026 – 20 Oct 2026');
+    await expect(trigger).toBeFocused();
 
-    await dateFrom.fill('2026-10-08');
-    await expect(dateTo).toHaveAttribute('min', '2026-10-08');
+    await trigger.click();
+    await dialog.getByRole('button', { name: 'Today', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(trigger).toContainText('14 Oct 2026 – 20 Oct 2026');
 
-    await dateTo.fill('2026-10-01');
-    await expect(page.getByText('Date To cannot be earlier than Date From.', { exact: true })).toBeVisible();
-
-    await dateTo.fill('2026-10-08');
-    await expect(page.getByText('Date To cannot be earlier than Date From.', { exact: true })).not.toBeVisible();
-
-    await dateFrom.fill('2026-10-09');
-    await expect(dateTo).toHaveValue('');
-    await expect(dateFrom).toBeFocused();
-
-    await dateFrom.fill('');
-    await expect(dateTo).not.toHaveAttribute('min');
+    await trigger.click();
+    await dialog.locator('[data-calendar-day="2026-10-14"]').click();
+    await dialog.locator('[data-calendar-day="2026-10-14"]').press('ArrowRight');
+    await expect(dialog.locator('[data-calendar-day="2026-10-15"]')).toBeFocused();
+    await page.keyboard.press('Enter');
+    await dialog.getByRole('button', { name: 'Apply dates', exact: true }).click();
+    await expect(trigger).toContainText('14 Oct 2026 – 15 Oct 2026');
+    await trigger.click();
+    await dialog.getByRole('button', { name: 'Clear dates', exact: true }).click();
+    await expect(trigger).toContainText('All delivery dates');
   });
 
-  test('B-2.1 Dispatch & Logistics tab is visible', async ({ page }) => {
+  test('B-2.1 Status & Actions tab is visible', async ({ page }) => {
     await openFirstRecord(page);
-    await expect(page.getByRole('tab', { name: /dispatch|logistics/i })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Status & Actions', exact: true })).toBeVisible();
   });
 
   test('B-2.3 Driver assignment blocked without remarks', async ({ page }) => {
-    await openFirstRecord(page);
-    const dispatchTab = page.getByRole('tab', { name: /dispatch|logistics/i });
+    await openFirstRecord(page, 'Scheduled');
+    const dispatchTab = page.getByRole('tab', { name: 'Status & Actions', exact: true });
     await dispatchTab.click();
     await page.waitForTimeout(500);
 
-    // Change the driver dropdown
-    const driverSelect = page.locator('select').filter({ hasText: /driver|select/i }).first();
-    if (await driverSelect.isVisible()) {
-      await driverSelect.selectOption({ index: 1 });
-    }
+    const driverSelect = page.locator('select').filter({ has: page.locator('option', { hasText: '-- Unassigned --' }) });
+    await expect(driverSelect).toBeEnabled();
+    const current = await driverSelect.inputValue();
+    const values = await driverSelect.locator('option').evaluateAll(options =>
+      options.map(option => (option as HTMLOptionElement).value));
+    const replacement = values.find(value => value !== current);
+    expect(replacement, 'The UAT fixture must offer an alternative Driver assignment').toBeDefined();
+    await driverSelect.selectOption(replacement!);
 
-    // Try to save without remarks
-    const saveBtn = page.getByRole('button', { name: /save driver|save fields/i });
-    if (await saveBtn.isVisible()) {
-      await saveBtn.click();
-      await expect(page.getByText(/remarks.*required|required.*remarks/i)).toBeVisible({ timeout: 5_000 });
-    }
+    await page.getByRole('button', { name: 'Save Changes', exact: true }).click();
+    await expect(page.getByText('A reason is required when making changes to dispatch or status fields.', { exact: true })).toBeVisible();
+    await expect(driverSelect).toHaveValue(replacement!);
   });
 
-  test('B-2.5 Status change works with remarks', async ({ page }) => {
-    await openFirstRecord(page);
-    const dispatchTab = page.getByRole('tab', { name: /dispatch|logistics/i });
+  test('B-2.5 Status change works with remarks', async ({ page, browser }) => {
+    await openNewScheduledRecord(page, browser);
+    const dispatchTab = page.getByRole('tab', { name: 'Status & Actions', exact: true });
     await dispatchTab.click();
     await page.waitForTimeout(500);
 
-    // Fill status remarks
-    const remarksArea = page.getByPlaceholder(/Reason for the changes|Optional note/i);
-    if (await remarksArea.isVisible()) {
-      await remarksArea.fill('UAT automated status change');
-      // Pick a different status
-      const statusSelect = page.locator('select').filter({ hasText: /status|scheduled|pending/i }).first();
-      if (await statusSelect.isVisible()) {
-        await statusSelect.selectOption({ value: 'On-Hold' });
-        await page.getByRole('button', { name: /confirm|update status/i }).click();
-        await page.waitForLoadState('networkidle');
-        await expect(page.getByText(/on.hold/i)).toBeVisible({ timeout: 8_000 });
-      }
-    }
+    await page.getByRole('button', { name: 'On-Hold', exact: true }).click();
+    await page.getByPlaceholder(/Reason for the changes|Optional note/i).fill('UAT automated status change');
+    const updatedResponse = page.waitForResponse(response =>
+      /\/api\/v1\/records\/[^/]+\/status$/.test(new URL(response.url()).pathname) && response.request().method() === 'PATCH');
+    await page.getByRole('button', { name: 'Save Changes', exact: true }).click();
+    const response = await updatedResponse;
+    expect(response.ok()).toBeTruthy();
+    expect((await response.json()).status).toBe('On-Hold');
+    await expect(page.getByText(/changes saved/i).first()).toBeVisible();
   });
 
-  test('B-2.5a TSK-123 Rescheduled requires a new delivery date saved with the status', async ({ page }) => {
-    await openFirstRecord(page);
-    await page.getByRole('tab', { name: /dispatch|logistics/i }).click();
+  test('B-2.5a TSK-123 Rescheduled requires a new delivery date saved with the status', async ({ page, browser }) => {
+    await openNewScheduledRecord(page, browser);
+    await page.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
 
     const reschedule = page.getByRole('button', { name: 'Rescheduled', exact: true });
-    test.skip(!(await reschedule.isVisible()) || (await reschedule.getAttribute('aria-pressed')) === 'true', 'First delivery cannot be rescheduled');
+    await expect(reschedule).toBeVisible();
+    await expect(reschedule).toHaveAttribute('aria-pressed', 'false');
 
     const dateField = page.getByLabel(/new delivery date/i);
     await expect(dateField).toHaveCount(0);
@@ -316,21 +352,18 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
   test('B-2.5c TSK-125 Logistics has no Return to Draft action', async ({ page }) => {
     await openFirstRecord(page);
     await expect(page.getByRole('button', { name: 'Return to Draft', exact: true })).toHaveCount(0);
-    await page.getByRole('tab', { name: /dispatch|logistics/i }).click();
+    await page.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Return to Draft', exact: true })).toHaveCount(0);
   });
 
   test('B-2.6 Saving without changes shows feedback', async ({ page }) => {
     await openFirstRecord(page);
-    const dispatchTab = page.getByRole('tab', { name: /dispatch|logistics/i });
+    const dispatchTab = page.getByRole('tab', { name: 'Status & Actions', exact: true });
     await dispatchTab.click();
     await page.waitForTimeout(500);
 
-    const saveBtn = page.getByRole('button', { name: /save changes/i });
-    if (await saveBtn.isVisible()) {
-      await saveBtn.click();
-      await expect(page.getByText('No changes detected to save.', { exact: true })).toBeVisible({ timeout: 5_000 });
-    }
+    await page.getByRole('button', { name: 'Save Changes', exact: true }).click();
+    await expect(page.getByText('No changes detected to save.', { exact: true })).toBeVisible({ timeout: 5_000 });
   });
 
   test('B-2.7 Active Deliveries sidebar uses the existing discard guard for unsaved driver changes', async ({ page }) => {
@@ -338,10 +371,10 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     await page.waitForLoadState('networkidle');
     await page.getByRole('button', { name: 'Scheduled', exact: true }).click();
 
-    const firstRow = page.getByRole('row').nth(1);
+    const firstRow = recordRows(page).first();
     await expect(firstRow).toBeVisible();
     await firstRow.click();
-    await page.getByRole('tab', { name: /dispatch|logistics/i }).click();
+    await page.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
 
     const driverSelect = page.locator('select').filter({ hasText: /-- Unassigned --/i }).first();
     await expect(driverSelect).toBeEnabled();
@@ -375,12 +408,13 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     await page.waitForLoadState('networkidle');
     await page.getByRole('button', { name: 'Scheduled', exact: true }).click();
 
-    const firstRow = page.getByRole('row').nth(1);
+    const firstRow = recordRows(page).first();
     await expect(firstRow).toBeVisible();
     const recordId = (await firstRow.getByRole('cell').first().innerText()).trim();
+    expect(recordId).toMatch(/^REC-[\w-]+$/);
     const search = page.getByRole('textbox', { name: 'Search accounting collection records' });
     await search.fill(recordId);
-    const filteredRow = page.getByRole('row').filter({ hasText: recordId }).first();
+    const filteredRow = recordRows(page).filter({ hasText: recordId }).first();
     await expect(filteredRow).toBeVisible();
     await filteredRow.click();
     await expect(page.locator('#accounting-collection-workspace')).toBeVisible();
@@ -411,13 +445,20 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
       await page.waitForLoadState('networkidle');
       await expect(page.getByRole('table')).toBeVisible();
 
-      const firstRow = page.getByRole('row').nth(1);
+      const firstRow = recordRows(page).first();
       await expect(firstRow).toBeVisible();
       await firstRow.click();
       await expect(page.locator('[id^="delivery-record-workspace-"]')).toBeVisible();
 
       if (module.path === 'rma') {
-        await expect(page.getByRole('tab', { name: /dispatch|logistics/i })).not.toBeVisible();
+        // RMA transport is visible to Logistics; physical receipt and final
+        // completion remain TASS-only even when assignment is available.
+        await page.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
+        const workflow = page.getByRole('region', { name: 'RMA transport', exact: true });
+        await expect(workflow).toBeVisible();
+        await expect(workflow.getByRole('button', {
+          name: /^(Confirm physical receipt|Complete RMA|Save RMA status)$/,
+        })).toHaveCount(0);
       }
 
       await page.getByRole('navigation').getByRole('button', { name: module.sidebarName }).click();
@@ -458,17 +499,15 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
 
   test('B-4.1a Invalid upload shows a toast and no inline duplicate', async ({ page }) => {
     const fileName = 'invoice.exe';
-    const filePath = path.join('/tmp', fileName);
-    fs.writeFileSync(filePath, 'not an allowed attachment');
 
     await openFirstRecord(page);
     const docsTab = page.getByRole('tab', { name: /documents/i });
     await docsTab.click();
 
     const fileInput = page.locator('input[type="file"]').last();
-    await fileInput.setInputFiles(filePath);
+    await fileInput.setInputFiles({ name: fileName, mimeType: 'application/octet-stream', buffer: Buffer.from('not an allowed attachment') });
 
-    const message = 'invoice.exe — file type not allowed. Use JPG, PNG, PDF, DOC or DOCX.';
+    const message = 'invoice.exe — file type not allowed. Use JPG, PNG, PDF, DOCX or XLSX.';
     await expect(page.getByText(message, { exact: true })).toBeVisible();
     await expect(page.locator('p', { hasText: message })).toHaveCount(0);
   });
@@ -493,8 +532,33 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     await page.getByRole('button', { name: 'Save Files' }).click();
     await expect(page.getByText('Waiting to upload', { exact: true })).not.toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(pdfName)).toBeVisible();
-    await expect(page.getByRole('button', { name: `Preview ${pdfName}` })).toHaveCount(0);
+    const preview = page.getByRole('button', { name: `Preview ${pdfName}` });
+    await expect(preview).toBeVisible();
+    const previewResponsePromise = page.waitForResponse(response =>
+      response.request().method() === 'GET' && new URL(response.url()).pathname.endsWith('/preview'),
+    );
+    await preview.click();
+    const previewResponse = await previewResponsePromise;
+    expect(previewResponse.ok()).toBeTruthy();
+    expect(previewResponse.headers()['content-type']).toMatch(/^application\/pdf\b/i);
+    expect(previewResponse.headers()['cache-control']).toMatch(/private.*no-store/i);
+    const documentPreview = page.getByRole('dialog', { name: `Preview ${pdfName}` });
+    await expect(documentPreview).toBeVisible();
+    await expect(documentPreview.locator('iframe')).toHaveAttribute('src', /^blob:/);
+    await page.keyboard.press('Shift+Tab');
+    await expect(documentPreview.getByRole('link', { name: `Download ${pdfName}` })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(documentPreview.getByRole('button', { name: 'Close document preview' })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(documentPreview).toBeHidden();
+    await expect(preview).toBeFocused();
     await expect(page.getByRole('link', { name: `Download ${pdfName}` })).toHaveAttribute('download', pdfName);
+    const [pdfDownload] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('link', { name: `Download ${pdfName}` }).click(),
+    ]);
+    expect(pdfDownload.suggestedFilename()).toBe(pdfName);
+    expect(fs.readFileSync(await pdfDownload.path()!)).toEqual(fs.readFileSync(pdfPath));
     await page.getByRole('button', { name: `Remove ${pdfName}` }).click();
     await page.getByRole('alertdialog', { name: 'Remove Attachment' }).getByRole('button', { name: 'Remove', exact: true }).click();
     await expect(page.getByText(pdfName)).toHaveCount(0);
@@ -502,7 +566,56 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     fs.unlinkSync(pdfPath);
   });
 
-  test('B-4.3 Persisted photos open in the shared preview with visible actions', async ({ page }) => {
+  test('B-4.3 Excel attachments open in the in-app workbook preview', async ({ page }) => {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      ['Reference', 'Status'],
+      ['REC-XL-9001', 'Ready'],
+    ]), 'Summary');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      ['Total'],
+      [1],
+    ]), 'Totals');
+    const bytes = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' }) as Buffer;
+    const fileName = `uat-test-${Date.now()}.xlsx`;
+
+    await openFirstRecord(page);
+    await page.getByRole('tab', { name: /documents/i }).click();
+    await page.locator('input[type="file"]').last().setInputFiles({
+      name: fileName,
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer: bytes,
+    });
+    await expect(page.getByText(fileName)).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Save Files' }).click();
+    await expect(page.getByText('Waiting to upload', { exact: true })).not.toBeVisible({ timeout: 15_000 });
+
+    const preview = page.getByRole('button', { name: `Preview ${fileName}` });
+    const previewResponsePromise = page.waitForResponse(response =>
+      response.request().method() === 'GET' && new URL(response.url()).pathname.endsWith('/preview'),
+    );
+    await preview.click();
+    const previewResponse = await previewResponsePromise;
+    expect(previewResponse.ok()).toBeTruthy();
+    expect(previewResponse.headers()['content-type']).toMatch(/spreadsheetml\.sheet/i);
+
+    const documentPreview = page.getByRole('dialog', { name: `Preview ${fileName}` });
+    await expect(documentPreview.getByText('REC-XL-9001', { exact: true })).toBeVisible();
+    await documentPreview.getByRole('tab', { name: 'Totals' }).click();
+    await expect(documentPreview.locator('tbody tr').nth(1).locator('td').first()).toHaveText('1');
+    await documentPreview.getByRole('button', { name: 'Close document preview' }).click();
+    const [workbookDownload] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('link', { name: `Download ${fileName}` }).click(),
+    ]);
+    expect(workbookDownload.suggestedFilename()).toBe(fileName);
+    expect(fs.readFileSync(await workbookDownload.path()!)).toEqual(bytes);
+    await page.getByRole('button', { name: `Remove ${fileName}` }).click();
+    await page.getByRole('alertdialog', { name: 'Remove Attachment' }).getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(page.getByText(fileName)).toHaveCount(0);
+  });
+
+  test('B-4.4 Persisted photos open in the shared preview with visible actions', async ({ page }) => {
     const photoName = `logistics-preview-${Date.now()}.png`;
     const onePixelPng = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -521,6 +634,10 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
 
     const preview = page.getByRole('button', { name: `Preview ${photoName}` });
     await expect(preview).toBeVisible({ timeout: 15_000 });
+    const thumbnail = page.getByRole('img', { name: photoName });
+    await expect(thumbnail).toBeVisible();
+    await expect.poll(() => thumbnail.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+    await expect(thumbnail).toHaveAttribute('src', /\/preview$/);
     await expect(page.getByRole('link', { name: `Download ${photoName}` })).toHaveAttribute('download', photoName);
     await expect(page.getByRole('button', { name: `Remove ${photoName}` })).toBeVisible();
     await page.setViewportSize({ width: 375, height: 812 });
@@ -528,6 +645,9 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     await preview.click();
     const lightbox = page.getByRole('dialog', { name: `Preview ${photoName}` });
     await expect(lightbox).toBeVisible();
+    const fullImage = lightbox.getByRole('img', { name: photoName });
+    await expect(fullImage).toHaveAttribute('src', /\/preview$/);
+    await expect.poll(() => fullImage.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
     const bounds = await lightbox.boundingBox();
     expect(bounds?.width).toBeLessThanOrEqual(375);
     expect(bounds?.height).toBeLessThanOrEqual(812);
@@ -538,6 +658,56 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
     const confirmation = page.getByRole('alertdialog', { name: 'Remove Attachment' });
     await expect(confirmation).toBeVisible();
     await expect(confirmation.getByRole('textbox')).toHaveCount(0);
+    await confirmation.getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(preview).toHaveCount(0);
+  });
+
+  test('B-4.5 Persisted JPG thumbnails and lightbox preview inline without downloading', async ({ page }) => {
+    const photoName = `logistics-preview-${Date.now()}.jpg`;
+    const jpegBase64 = await page.evaluate(() => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 2;
+      canvas.height = 2;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Canvas is unavailable');
+      context.fillStyle = '#2563eb';
+      context.fillRect(0, 0, 2, 2);
+      return canvas.toDataURL('image/jpeg').split(',')[1];
+    });
+    const downloads: string[] = [];
+    page.on('download', download => downloads.push(download.suggestedFilename()));
+
+    await openFirstRecord(page);
+    await page.getByRole('tab', { name: /documents/i }).click();
+    await page.locator('input[type="file"]').last().setInputFiles({
+      name: photoName,
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from(jpegBase64, 'base64'),
+    });
+    await expect(page.getByText('Waiting to upload', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Save Files' }).click();
+
+    const preview = page.getByRole('button', { name: `Preview ${photoName}` });
+    await expect(preview).toBeVisible({ timeout: 15_000 });
+    const thumbnail = page.getByRole('img', { name: photoName });
+    await expect.poll(() => thumbnail.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+    await expect(thumbnail).toHaveAttribute('src', /\/preview$/);
+    await preview.click();
+
+    const lightbox = page.getByRole('dialog', { name: `Preview ${photoName}` });
+    await expect(lightbox).toBeVisible();
+    const fullImage = lightbox.getByRole('img', { name: photoName });
+    await expect(fullImage).toHaveAttribute('src', /\/preview$/);
+    await expect.poll(() => fullImage.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+    expect(downloads).toEqual([]);
+
+    await page.keyboard.press('Escape');
+    await expect(lightbox).not.toBeVisible();
+    await expect(preview).toBeFocused();
+    expect(downloads).toEqual([]);
+
+    await page.getByRole('button', { name: `Remove ${photoName}` }).click();
+    const confirmation = page.getByRole('alertdialog', { name: 'Remove Attachment' });
     await confirmation.getByRole('button', { name: 'Remove', exact: true }).click();
     await expect(preview).toHaveCount(0);
   });

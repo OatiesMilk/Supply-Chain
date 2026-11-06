@@ -21,6 +21,10 @@
 
 ---
 
+## Accepted V1 dashboard addendum — 2026-11-04
+
+For V1 dashboard permissions, use the [accepted policy and manual cases V1-DASH-01–06](../06-reports/2026-11-04-v1-dashboard-access-acceptance.md). Screen access, dashboard API access and category data access are tested independently. The original baseline and historical execution results below remain historical; this addendum records policy acceptance, not a live UAT pass.
+
 ## 1. Introduction
 
 This plan governs User Acceptance Testing (UAT) of the Microgenesis Supply Chain Portal as it exists today. The portal is an internal web application that manages Deliveries, RMA, Accounting Collection, Procurement Pick-up and Sales Orders records, the drivers who execute them, the supporting directories (companies, customers, suppliers, drivers, SKUs), dashboards, notifications and administration.

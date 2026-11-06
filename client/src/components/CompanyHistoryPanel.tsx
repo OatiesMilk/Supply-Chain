@@ -1,3 +1,4 @@
+import RecordStatus from '@/components/RecordStatus';
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { History, Loader2, Lock, X } from 'lucide-react';
@@ -27,15 +28,6 @@ const CATEGORY_RAIL: Record<DeliveryCategory, string> = {
   'Sales Orders':          'bg-slate-400',
 };
 
-const STATUS_COLOR: Record<string, string> = {
-  'Draft':       'bg-slate-100 text-slate-700 border-slate-300',
-  'In Transit':  'bg-cyan-50 text-cyan-700 border-cyan-200',
-  'Delivered':   'bg-emerald-50 text-emerald-700 border-emerald-200',
-  'On-Hold':     'bg-red-50 text-red-700 border-red-200',
-  'Rescheduled': 'bg-purple-50 text-purple-700 border-purple-200',
-  'Pending':     'bg-amber-50 text-amber-700 border-amber-200',
-  'Scheduled':   'bg-blue-50 text-blue-700 border-blue-200',
-};
 
 function RowBody({ record, note }: { record: DeliveryRecord; note?: string }) {
   return (
@@ -44,9 +36,7 @@ function RowBody({ record, note }: { record: DeliveryRecord; note?: string }) {
       <span className="min-w-0 flex-1">
         <span className="flex items-center justify-between gap-3">
           <span className="font-mono text-sm font-bold text-slate-900">{record.id}</span>
-          <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${STATUS_COLOR[record.status] ?? 'bg-slate-50 text-slate-700 border-slate-200'}`}>
-            {record.status}
-          </span>
+          <RecordStatus record={record} />
         </span>
         <span className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">
           <span className="font-semibold text-slate-700">{record.category}</span>

@@ -5,6 +5,7 @@ import { renderToString } from 'react-dom/server';
 import { type ApiUser } from '../src/api';
 import { AppRouter, type AppRouterProps } from '../src/routes/AppRouter';
 import { isResourceQueryEnabled } from '../src/hooks/useAppData';
+import { PERMISSION_SCREENS } from '../src/types/permissions';
 
 const mockUser = (role = 'ADMIN'): ApiUser => ({
   id: 'usr-1',
@@ -12,7 +13,7 @@ const mockUser = (role = 'ADMIN'): ApiUser => ({
   email: 'test@example.com',
   role: role as any,
   permissions: [],
-  effectiveScreens: ['dashboard', 'customers', 'suppliers', 'inventory'],
+  effectiveScreens: [...PERMISSION_SCREENS],
   resources: ['records', 'companies', 'customers', 'suppliers', 'skus', 'drivers', 'dashboard'],
   permissionVersion: 'v1',
 });
@@ -87,10 +88,10 @@ test('isResourceQueryEnabled scopes queries to active screens while keeping glob
   assert.equal(isResourceQueryEnabled('customers', restrictedUser, 'customers'), false);
 });
 
-test('record lists load for operational screens but not unrelated directories', () => {
+test('shared app loading never polls the complete records collection on any screen', () => {
   const user = mockUser('ADMIN');
   for (const screen of ['main','dashboard','deliveries','rma','accounting_collection','procurement_pickup','sales_orders','calendar','driver','driver_board','suppliers','am_directory']) {
-    assert.equal(isResourceQueryEnabled('records', user, screen), true, screen);
+    assert.equal(isResourceQueryEnabled('records', user, screen), false, screen);
   }
   for (const screen of ['customers','inventory','admin','data_sampler','transactions','statistical_reports','driver_manager']) {
     assert.equal(isResourceQueryEnabled('records', user, screen), false, screen);
@@ -105,5 +106,6 @@ test('driver directory loads on every operational creation and assignment screen
   assert.equal(isResourceQueryEnabled('drivers', user, 'customers'), false);
   assert.equal(isResourceQueryEnabled('drivers', { ...user, resources: ['records'] }, 'deliveries'), false);
   const driver: ApiUser = { ...user, role: 'DRIVER', effectiveScreens: ['driver_dashboard'] };
-  assert.equal(isResourceQueryEnabled('records', driver, 'dashboard'), true);
+  assert.equal(isResourceQueryEnabled('records', driver, 'driver_dashboard'), false, 'Driver dashboard owns a bounded queue query');
+  assert.equal(isResourceQueryEnabled('records', driver, 'dashboard'), false, 'a denied route cannot initiate a query');
 });

@@ -9,6 +9,7 @@
 import { test, expect, Page } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { DEMO_LOCATION_FIXTURES } from '../../client/src/utils/demoLocations';
 
 const BASE_URL = 'http://localhost:3000';
 
@@ -97,6 +98,30 @@ test.describe('A-2 Create a Delivery Record', () => {
     await page.waitForLoadState('networkidle');
   });
 
+  test('A-2.1 Auto Fill keeps Area and Address in one demo-location fixture', async ({ page }) => {
+    await page.getByRole('button', { name: /new record/i }).click();
+
+    const areaInput = page.locator('label').filter({ hasText: /^Area/ }).locator('..').locator('input');
+    const addressInput = page.getByPlaceholder(/street, building, floor/i);
+    const autoFill = page.getByRole('button', { name: /auto fill/i });
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await autoFill.click();
+      // Area and Address render one after the other, so retry until both settle.
+      await expect(async () => {
+        const area = await areaInput.inputValue();
+        const address = await addressInput.inputValue();
+        const fixture = DEMO_LOCATION_FIXTURES.find(location => location.area === area && location.address === address);
+        expect(fixture, `Expected one demo-location fixture for ${area} / ${address}`).toBeTruthy();
+      }).toPass({ timeout: 5000 });
+    }
+
+    await areaInput.fill('Makati CBD');
+    await addressInput.fill('Manually entered delivery address');
+    await expect(areaInput).toHaveValue('Makati CBD');
+    await expect(addressInput).toHaveValue('Manually entered delivery address');
+  });
+
   test('A-2.2 Empty form submission shows validation errors', async ({ page }) => {
     // Open the create form
     const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
@@ -138,18 +163,36 @@ test.describe('A-2 Create a Delivery Record', () => {
 
     // Fill reference
     const refInput = page.getByPlaceholder(/reference|sap/i).first();
-    await refInput.fill(`UAT-${Date.now()}`);
+    const reference = `UAT-${Date.now()}`;
+    await refInput.fill(reference);
 
     // Set delivery date to today
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date());
     const dateInput = page.locator('form input[type="date"]').first();
     await dateInput.fill(today);
 
+    const createdResponsePromise = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/v1/records' && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Submit', exact: true }).click();
-    await page.waitForLoadState('networkidle');
+    const createdResponse = await createdResponsePromise;
+    expect(createdResponse.status(), 'creating the Delivery must succeed').toBe(201);
+    const saved = await createdResponse.json();
+    expect(saved.id).toBeTruthy();
+    expect(saved.reference).toBe(reference);
+    expect(saved.status).toBe('Scheduled');
+    expect(saved.is_draft).toBe('No');
+    await expect(page.getByText(`${reference} · ${saved.id}`, { exact: true })).toBeVisible();
 
-    // Record should appear in the list — status badge shows Scheduled
-    await expect(page.getByText(/scheduled/i).first()).toBeVisible({ timeout: 10_000 });
+    // Reload and inspect only the newly saved row, never a filter option or seed row.
+    await page.reload();
+    await page.getByRole('textbox', { name: 'Search delivery records' }).fill(saved.id);
+    const createdRow = page.getByRole('row').filter({
+      has: page.getByRole('cell', { name: saved.id, exact: true }),
+    });
+    await expect(createdRow).toHaveCount(1);
+    await expect(createdRow.getByText('Scheduled', { exact: true })).toBeVisible();
   });
 
   test('A-2.7 Reject file over 10 MB', async ({ page }) => {
@@ -174,15 +217,10 @@ test.describe('A-2 Create a Delivery Record', () => {
     const newBtn = page.getByRole('button', { name: /new record|add record|\+ new/i }).first();
     await newBtn.click();
 
-    const badFilePath = path.join('/tmp', 'malicious.exe');
-    fs.writeFileSync(badFilePath, Buffer.from('MZ'));
-
     const fileInput = page.locator('input[type="file"]').first();
-    await fileInput.setInputFiles(badFilePath);
+    await fileInput.setInputFiles({ name: 'malicious.exe', mimeType: 'application/octet-stream', buffer: Buffer.from('MZ') });
 
-    await expect(page.getByText('malicious.exe — file type not allowed. Use JPG, PNG, PDF, DOC or DOCX.', { exact: true })).toBeVisible({ timeout: 5_000 });
-
-    fs.unlinkSync(badFilePath);
+    await expect(page.getByText('malicious.exe — file type not allowed. Use JPG, PNG, PDF, DOCX or XLSX.', { exact: true })).toBeVisible({ timeout: 5_000 });
   });
 });
 
@@ -290,17 +328,16 @@ test.describe('A-3 Edit a Record', () => {
     await expect(page.getByRole('table')).toBeVisible();
   });
 
-  test('A-3.3 Dispatch & Logistics tab NOT visible for SC', async ({ page }) => {
+  test('A-3.3 Status & Actions tab NOT visible for SC', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
 
     // Open first record
     const firstRow = page.getByRole('row').nth(1);
-    if (await firstRow.isVisible()) {
-      await firstRow.click();
-      await page.waitForTimeout(800);
-      await expect(page.getByRole('tab', { name: /dispatch/i })).not.toBeVisible();
-    }
+    await expect(firstRow).toBeVisible();
+    await firstRow.click();
+    await expect(page.locator('[id^="delivery-record-workspace-"]')).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Status & Actions', exact: true })).toHaveCount(0);
   });
 
   test('A-3.5 SC can leave a comment', async ({ page }) => {

@@ -1,3 +1,6 @@
+import { beforeEach } from 'node:test';
+import { installLegacySession } from './helpers/permissionSession';
+beforeEach(() => { installLegacySession(); });
 import { afterEach, test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkServerHealth, SERVER_CHECK_EVENT } from '../src/api/availability';
@@ -13,7 +16,7 @@ afterEach(() => {
 test('health requires an explicit healthy response, bypasses cache, and supports cancellation', async () => {
   const signal = new AbortController().signal;
   const fetchMock = mock.method(globalThis, 'fetch', async (_url: string, options: RequestInit) => {
-    assert.equal(_url, '/api/health');
+    assert.equal(_url, '/api/v1/health');
     assert.equal(options.cache, 'no-store');
     assert.equal(options.signal, signal);
     return Response.json({ ok: true });

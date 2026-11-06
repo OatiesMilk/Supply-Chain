@@ -1,11 +1,27 @@
 import type { DeliveryRecord, DeliveryStatus, UserRole } from '../types';
 
-export function submissionErrors(data: { company_name: string; company_id: string; reference: string; delivery_date: string }, isDraft: boolean): Record<string, string> {
+export function submissionErrors(data: {
+  company_name: string; company_id: string; reference: string; delivery_date: string; category?: string;
+  rma_reference?: string; rma_type?: string; purchase_date?: string; rma_movement?: string | null;
+  priority?: string; area?: string; account_manager?: string;
+  customer_contact_name?: string; customer_contact_email?: string; customer_contact_phone?: string;
+}, isDraft: boolean): Record<string, string> {
   const errors: Record<string, string> = {};
   if (!data.company_name.trim()) errors.company_name = 'Company Name is required';
   else if (!data.company_id) errors.company_name = 'Select a company from the list';
-  if (!isDraft && !data.reference.trim()) errors.reference = 'Reference (SAP number) is required';
-  if (!isDraft && !data.delivery_date) errors.delivery_date = 'Delivery Date is required';
+  const isRma = data.category === 'RMA';
+  if (!isRma && !isDraft && !data.reference.trim()) errors.reference = 'Reference (SAP number) is required';
+  if (!isRma && !isDraft && !data.delivery_date) errors.delivery_date = 'Delivery Date is required';
+  if (isRma) {
+    if (!isDraft && !['LOGISTICS_TRANSPORT', 'SUPPLIER_COLLECTION', 'INTERNAL_NO_DRIVER'].includes(data.rma_movement ?? '')) errors.rma_movement = 'Select a movement method before submitting';
+    if (!isDraft && data.rma_movement === 'LOGISTICS_TRANSPORT' && !deliveryScheduleState(data.delivery_date).valid) errors.delivery_date = 'A valid Delivery Date is required for Logistics transport';
+    if (!data.priority?.trim()) errors.priority = 'Priority is required';
+    else if (!['1 - Low', '2 - Moderate', '3 - High'].includes(data.priority)) errors.priority = 'Select a valid Priority';
+    if (!data.area?.trim()) errors.area = 'Area is required';
+    if (!data.account_manager?.trim()) errors.account_manager = 'Account Manager is required';
+    const email = data.customer_contact_email?.trim() ?? '';
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.customer_contact_email = 'Enter a valid email address';
+  }
   return errors;
 }
 
@@ -14,9 +30,16 @@ export function isDraftRecord(record: Pick<DeliveryRecord, 'status' | 'is_draft'
 }
 
 export function selectableStatuses(record: DeliveryRecord, role: UserRole): DeliveryStatus[] {
+  const isStartedRma = record.category === 'RMA' && Boolean(
+    record.rma_transport_started_at ||
+    record.rma_received_at ||
+    record.rma_transport_status === 'IN_TRANSIT' ||
+    record.rma_transport_status === 'COMPLETED'
+  );
   return (record.allowed_statuses ?? []).filter(status => status !== 'In Transit' &&
+    (record.category !== 'RMA' || status !== 'Delivered' || role === 'TASS') &&
     (role !== 'Sales Coordinator' || status === 'Draft' || (isDraftRecord(record) && status === 'Scheduled')) &&
-    (status !== 'Draft' || ((role === 'Sales Coordinator' || role === 'Admin') && !record.time_in)));
+    (status !== 'Draft' || ((role === 'Sales Coordinator' || role === 'Admin' || (role === 'TASS' && record.category === 'RMA')) && !record.time_in && !isStartedRma)));
 }
 
 /** Plain-language effects shown before a submitted record is returned to Draft. */
@@ -33,7 +56,7 @@ export function returnToDraftConsequences(record: Pick<DeliveryRecord, 'driver' 
 }
 
 export function canRecordTimeIn(record: DeliveryRecord): boolean {
-  return !isDraftRecord(record) && !!record.driver && !record.time_in &&
+  return record.category !== 'RMA' && !isDraftRecord(record) && !!record.driver && !record.time_in &&
     (record.status === 'Scheduled' || record.status === 'Rescheduled');
 }
 
@@ -61,7 +84,7 @@ export function hasValidRunTimeIn(value: unknown): boolean {
 }
 
 export function isDashboardRunActionable(record: DeliveryRecord, today = manilaToday()): boolean {
-  if (record.category !== 'Deliveries') return record.delivery_date === today;
+  if (record.category === 'RMA' || isDraftRecord(record) || record.status === 'Delivered' || !record.driver) return false;
   const schedule = deliveryScheduleState(record.delivery_date, today);
   const started = hasValidRunTimeIn(record.time_in);
   return started || (schedule.valid && !schedule.future);

@@ -92,6 +92,8 @@ Conventions used in every case:
 | Defect ID | RUN-20261014-02: — |
 ### TC-RPT-004: Dashboard counts respect per-user category denials
 
+> V1 acceptance update (2026-11-04): use [V1-DASH-03 and V1-DASH-04](../../06-reports/2026-11-04-v1-dashboard-access-acceptance.md). Denying the Deliveries screen alone does not deny Delivery data on an authorized dashboard. Deny category Read to exclude that data. The original case and run results below retain their historical LEGACY baseline.
+
 | Field | Description |
 |---|---|
 | Test Case ID | TC-RPT-004 |

@@ -1,9 +1,14 @@
+import RecordStatus from '@/components/RecordStatus';
+import { usePermissions } from '@/hooks/usePermissions';
 import React, { useEffect, useId, useState } from 'react';
 import { Truck, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { DeliveryRecord } from '@/types';
 import { DRIVERS, DRIVER_COVERAGE, driverIdForName } from '@/data';
 import { rankDriversByCoverage } from '@/utils/driverCoverage';
 import { isDraftRecord } from '@/utils/recordLifecycle';
+import { usePagedRecordsQuery } from '@/api/queries/useRecordsQuery';
+import { useDriverOverviewQuery, useClampRecordPage } from '@/api/queries/useOperationalViews';
+import RecordPageControls from '@/components/RecordPageControls';
 
 // Same coverage rules as the Dispatch dropdown: exact Area first, then explicit Subregion.
 function splitDriversByArea(recordArea: string): { matched: string[]; others: string[] } {
@@ -16,6 +21,9 @@ interface Props {
   onNavigate: (screen: string, item_id?: string) => void;
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   currentUserName: string;
+  serverPaging?: boolean;
+  availableAreas?: string[];
+  onAreaChange?: (area: string) => void;
 }
 
 const CATEGORY_SCREEN: Record<string, string> = {
@@ -26,20 +34,12 @@ const CATEGORY_SCREEN: Record<string, string> = {
   'Sales Orders':          'sales_orders'
 };
 
-const STATUS_COLOR: Record<string, string> = {
-  'In Transit': 'bg-cyan-100 text-cyan-700 border-cyan-200',
-  Delivered:   'bg-emerald-100 text-emerald-700 border-emerald-200',
-  Scheduled:   'bg-blue-100 text-blue-700 border-blue-200',
-  Pending:     'bg-amber-100 text-amber-700 border-amber-200',
-  'On-Hold':   'bg-red-100 text-red-700 border-red-200',
-  Rescheduled: 'bg-purple-100 text-purple-700 border-purple-200'
-};
 
 function initials(name: string) {
   return name.split(/\s+/).map(p => p[0]).join('').slice(0, 2).toUpperCase();
 }
 
-type AssignmentState = { editing: boolean; pending: boolean; error: string; feedback?: { message: string; type: 'success' | 'error' }; };
+type AssignmentState = { editing: boolean; pending: boolean; error: string; editVersion?: string; feedback?: { message: string; type: 'success' | 'error' }; };
 const idleAssignment: AssignmentState = { editing: false, pending: false, error: '' };
 const focusStyle = 'touch-manipulation focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700';
 
@@ -68,6 +68,7 @@ interface CardProps {
 
 const RecordCard: React.FC<CardProps> = function RecordCard({ record, onNavigate, onAssign, assignment, onEdit }) {
   const id = useId();
+  const canAssign = usePermissions().canRecord(record.category, 'ASSIGN');
 
   return (
     <article aria-label={`${record.reference}: ${record.company_name}`} aria-busy={assignment.pending} className="min-w-0 bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-3">
@@ -82,9 +83,7 @@ const RecordCard: React.FC<CardProps> = function RecordCard({ record, onNavigate
         </button>
         <div className="flex flex-wrap gap-2">
           <span className={`text-xs font-semibold border px-2.5 py-1 rounded-full ${record.priority === '3 - High' ? 'bg-red-50 text-red-800 border-red-200' : record.priority === '2 - Moderate' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-slate-50 text-slate-700 border-slate-200'}`}>Priority: {record.priority}</span>
-          <span className={`text-xs font-semibold border px-2.5 py-1 rounded-full ${STATUS_COLOR[record.status] ?? 'bg-slate-100 text-slate-600 border-slate-200'}`}>
-            {record.status}
-          </span>
+          <RecordStatus record={record} />
         </div>
       </div>
       <dl className="text-sm space-y-1.5">
@@ -93,7 +92,7 @@ const RecordCard: React.FC<CardProps> = function RecordCard({ record, onNavigate
         <div className="flex gap-2"><dt className="shrink-0 text-slate-500">Module</dt><dd className="text-slate-800">{record.category}</dd></div>
       </dl>
       <div className="border-t border-slate-100 pt-3">
-        {assignment.editing ? (
+        {assignment.editing && canAssign ? (
           <div>
           <label htmlFor={`${id}-driver`} className="mb-1 block text-sm font-medium text-slate-700">Assign driver</label>
           <select
@@ -138,6 +137,7 @@ const RecordCard: React.FC<CardProps> = function RecordCard({ record, onNavigate
             <button
               type="button"
               aria-label={`Reassign ${record.reference || record.id}`}
+              disabled={!canAssign}
               onClick={() => onEdit(record.id, true)}
               className={`min-h-11 shrink-0 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-blue-700 hover:bg-blue-50 ${focusStyle}`}
             >
@@ -152,8 +152,26 @@ const RecordCard: React.FC<CardProps> = function RecordCard({ record, onNavigate
   );
 }
 
-export default function DriverBoard({ records, onNavigate, onUpdateRecord, currentUserName }: Props) {
+export default function DriverBoard(props: Props) {
+  return props.serverPaging ? <PagedDriverBoard {...props} /> : <DriverBoardContent {...props} />;
+}
+function PagedDriverBoard(props: Props) {
+  const [page, setPage] = useState(1);
+  const [area, setArea] = useState('All');
+  const query = usePagedRecordsQuery({ view: 'dispatch', area: area === 'All' ? undefined : area, page, limit: 25 });
+  const overview = useDriverOverviewQuery();
+  useClampRecordPage(page, query.data?.total, setPage);
+  return <div className="space-y-3">
+    <RecordPageControls page={page} total={query.data?.total ?? 0} onPageChange={setPage}
+      loading={query.isPending} error={query.error} retry={() => void query.refetch()} />
+    <p className="text-xs text-slate-600">Driver groups and counts below describe this page. Use pagination to reach every active record.</p>
+    <DriverBoardContent {...props} records={query.data?.rows ?? []} availableAreas={overview.data?.areas}
+      onAreaChange={value => { setArea(value); setPage(1); }} />
+  </div>;
+}
+function DriverBoardContent({ records, onNavigate, onUpdateRecord, currentUserName, availableAreas, onAreaChange }: Props) {
   const id = useId();
+  const access = usePermissions();
   const driverColumnCount = useDriverColumnCount();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [areaFilter, setAreaFilter] = useState<string>('All');
@@ -161,10 +179,10 @@ export default function DriverBoard({ records, onNavigate, onUpdateRecord, curre
   const [assignments, setAssignments] = useState<Record<string, AssignmentState>>({});
 
   // Active (non-Delivered) records only for the board
-  const activeRecords = records.filter(r => r.status !== 'Delivered' && !isDraftRecord(r));
+  const activeRecords = records.filter(r => r.status !== 'Delivered' && !isDraftRecord(r) && (r.category !== 'RMA' || r.rma_movement === 'LOGISTICS_TRANSPORT' && r.rma_transport_status !== 'COMPLETED'));
 
   // Collect distinct areas for filter chips
-  const allAreas = ['All', ...Array.from(new Set(activeRecords.map(r => r.area).filter(Boolean))).sort()];
+  const allAreas = ['All', ...(availableAreas ?? Array.from(new Set(activeRecords.map(r => r.area).filter(Boolean))).sort())];
 
   // Apply area filter
   const filteredRecords = areaFilter === 'All'
@@ -179,26 +197,33 @@ export default function DriverBoard({ records, onNavigate, onUpdateRecord, curre
     byDriver[r.driver].push(r);
   }
 
-  const onEdit = (recordId: string, editing: boolean) => setAssignments(previous => ({
-    ...previous, [recordId]: { ...(previous[recordId] ?? idleAssignment), editing, error: '' },
-  }));
+  const onEdit = (recordId: string, editing: boolean) => {
+    const record = records.find(record => record.id === recordId);
+    if (!record || !access.canRecord(record.category, 'ASSIGN')) return;
+    if (record.category === 'RMA') {
+      onNavigate('rma', recordId);
+      return;
+    }
+    setAssignments(previous => ({ ...previous, [recordId]: { ...(previous[recordId] ?? idleAssignment), editing, error: '', editVersion: editing ? record.edit_version : undefined } }));
+  };
   const handleAssign = async (recordId: string, driver: string) => {
-    if (assignments[recordId]?.pending) return;
-    setAssignments(previous => ({ ...previous, [recordId]: { editing: true, pending: true, error: '' } }));
+    const record = records.find(record => record.id === recordId);
+    if (!record || !access.canRecord(record.category, 'ASSIGN') || assignments[recordId]?.pending) return;
+    setAssignments(previous => ({ ...previous, [recordId]: { editing: true, pending: true, error: '', editVersion: previous[recordId]?.editVersion } }));
     try {
       // Save the stable Driver profile id; the server copies the display name.
       const driverId = driver ? driverIdForName(driver) : null;
       await onUpdateRecord(recordId, {
+        expected_edit_version: assignments[recordId]?.editVersion,
         ...(driver && !driverId ? { driver } : { driver_id: driverId }),
         remarks: driver ? `Driver assigned: ${driver}` : 'Driver unassigned',
         modified_by: `${currentUserName} (Logistics)`,
-        modified_at: new Date().toISOString()
       });
       setAssignments(previous => ({ ...previous, [recordId]: { ...idleAssignment, feedback: { message: driver ? 'Driver assigned successfully.' : 'Driver unassigned successfully.', type: 'success' } } }));
       setTimeout(() => setAssignments(prev => ({ ...prev, [recordId]: { ...(prev[recordId] ?? idleAssignment), feedback: undefined } })), 3000);
     } catch (error) {
       const message = error instanceof Error && error.message.trim() ? error.message : 'Could not save the assignment.';
-      setAssignments(previous => ({ ...previous, [recordId]: { editing: true, pending: false, error: `${message} Choose a driver to try again.` } }));
+      setAssignments(previous => ({ ...previous, [recordId]: { editing: true, pending: false, editVersion: assignments[recordId]?.editVersion, error: `${message} Close this editor and review the latest record before retrying.` } }));
     }
   };
 
@@ -286,7 +311,7 @@ export default function DriverBoard({ records, onNavigate, onUpdateRecord, curre
             key={area}
             type="button"
             aria-pressed={areaFilter === area}
-            onClick={() => setAreaFilter(area)}
+            onClick={() => { setAreaFilter(area); onAreaChange?.(area); }}
             className={`min-h-11 max-w-full break-words [overflow-wrap:anywhere] px-3 py-2 rounded-lg text-sm font-semibold border cursor-pointer ${focusStyle} ${
               areaFilter === area
                 ? 'bg-[#1F3864] text-white border-[#1F3864]'

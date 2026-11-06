@@ -1,16 +1,22 @@
+export interface RmaCapabilities { assign: boolean; transport: boolean; receive: boolean; complete: boolean; pod: boolean; status?: boolean; }
+
 /**
  * Thin fetch wrapper for the real Express + Prisma backend (server/). All
- * requests go through the Vite dev proxy at /api/* (see vite.config.ts), so
+ * requests go through the Vite dev proxy at /api/v1/* (see vite.config.ts), so
  * they're same-origin and the httpOnly session cookie set by the backend is
  * sent automatically via `credentials: 'include'`.
  */
 
+import { assertPermissionRequest, checkPermissionResponse, permissionRequestVersion, assertPermissionRequestVersion, ClientPermissionError } from './permissionRuntime';
+import type { PermissionSession } from '../types/permissions';
+import type { SupplierCategory, CreateSupplierInput } from '../types/supplier';
+import type { RolePermissionEditor, UserPermissionEditor, PolicySave, PolicyAuditState } from '../types/permissionEditor';
 import { requestServerCheck } from './availability';
 
 export const API_BASE = '';
 
 export function apiUrl(path: string): string {
-  return `${API_BASE}/api${path}`;
+  return `${API_BASE}/api/v1${path}`;
 }
 
 export interface RecordActiveCounts {
@@ -21,7 +27,10 @@ export interface RecordActiveCounts {
   procurement_pickup: number;
 }
 
+export type AccountPolicyVersion = { expectedMetadataVersion?: string; contractVersion?: 1; expectedVersion?: string; removedOverrideKeys?: string[] };
+
 export class ApiError extends Error {
+  details?: { userIds?: string[] };
   status: number;
   /** Per-field validation messages from the server, keyed by API field name. */
   fields: Record<string, string>;
@@ -53,6 +62,8 @@ async function send(path: string, options: RequestInit): Promise<Response> {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  assertPermissionRequest(path, options);
+  const permissionVersion = permissionRequestVersion();
   let res: Response;
   try {
     res = await send(path, options);
@@ -60,10 +71,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     // (for example in another tab) is refused. Fetch the current one and retry once.
     if (res.status === 403 && res.headers.get('X-CSRF-Error') === 'token') {
       await send('/auth/me', {});
+      assertPermissionRequestVersion(permissionVersion);
+      assertPermissionRequest(path, options);
       res = await send(path, options);
     }
   } catch (error) {
-    if (!(error instanceof DOMException && error.name === 'AbortError')) requestServerCheck();
+    if (!(error instanceof ClientPermissionError) && !(error instanceof DOMException && error.name === 'AbortError')) requestServerCheck();
     throw error;
   }
 
@@ -76,18 +89,37 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
     let fields: Record<string, string> = {};
+    let details: { userIds?: string[] } | undefined;
     try {
       const body = await res.json();
       if (body?.error) message = body.error;
       if (body?.fields && typeof body.fields === 'object') fields = body.fields;
+      if (Array.isArray(body?.details?.userIds)) details = { userIds: body.details.userIds.filter((id: unknown): id is string => typeof id === 'string') };
     } catch {
       // ignore non-JSON error bodies
     }
-    throw new ApiError(message, res.status, fields);
+    const error = new ApiError(message, res.status, fields);
+    error.details = details;
+    throw error;
   }
 
+  if (!path.startsWith('/auth/')) assertPermissionRequestVersion(permissionVersion);
   if (res.status === 204) return undefined as unknown as T;
-  return res.json() as Promise<T>;
+  const body = await res.json() as T;
+  if (!path.startsWith('/auth/')) assertPermissionRequestVersion(permissionVersion);
+  return checkPermissionResponse(path, body);
+}
+
+/** All attachment previews use the same authorization guard as JSON requests. */
+export async function fetchProtectedAttachment(url: string, signal?: AbortSignal): Promise<Response> {
+  const target = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'https://permission.local');
+  if (!target.pathname.startsWith('/api/v1/records/')) throw new ApiError('Attachment is not available.', 403);
+  const path = target.pathname.slice('/api/v1'.length) + target.search;
+  assertPermissionRequest(path);
+  const version = permissionRequestVersion();
+  const response = await send(path, { signal });
+  assertPermissionRequestVersion(version);
+  return response;
 }
 
 /** Optional server-side filters for GET /records; the server always applies the user's record scope. */
@@ -101,6 +133,8 @@ export interface RecordListFilters {
   search?: string;
   driver?: string;
   area?: string;
+  region?: string;
+  subregion?: string;
   account_manager?: string;
   priority?: string;
   dashboard_filter?: string;
@@ -108,6 +142,11 @@ export interface RecordListFilters {
   cursor?: string;
   page?: number;
   paged?: boolean;
+  view?: 'dispatch' | 'runs' | 'driver_dashboard';
+  queue?: 'active' | 'completed';
+  driver_exact?: string;
+  account_manager_exact?: string;
+  supplier_name?: string;
 }
 
 export interface PagedRecordResponse {
@@ -119,7 +158,7 @@ export interface PagedRecordResponse {
   limit: number;
 }
 
-export interface ApiUser {
+export interface ApiUser extends PermissionSession {
   id: string;
   name: string;
   email: string;
@@ -143,6 +182,7 @@ export interface ApiPermissionEditor {
 
 // Extended user record returned by the admin user-management endpoint
 export interface ApiUserAdmin {
+  metadata_version?: string;
   id: string;
   name: string;
   email: string;
@@ -216,6 +256,8 @@ export interface ApiSupplier {
   address: string;
   city: string;
   category: string;
+  categories: SupplierCategory[];
+  version: number;
   created_by: string;
   created_at: string;
   modified_by: string;
@@ -234,6 +276,17 @@ export interface ApiDriver {
   created_at: string;
   modified_by: string;
   modified_at: string;
+}
+
+export interface ApiDashboardOverview {
+  role: string;
+  record_total: number;
+  status_totals: Record<string, number>;
+  counts: Record<string, number>;
+  record_previews: { rma_requests: import('../types').DeliveryRecord[]; rma_attention: import('../types').DeliveryRecord[] };
+  drivers_out: Array<{ driver: string; total: number; records: import('../types').DeliveryRecord[] }>;
+  drivers_out_total: number;
+  unverified_collections_amount: number;
 }
 
 export type ApiDashboardStats =
@@ -322,6 +375,7 @@ export interface ApiPodAttachment {
   size: number;
   uploaded_at: string;
   download_url: string;
+  preview_url: string | null;
 }
 
 export interface ApiReportSummary {
@@ -339,6 +393,8 @@ export interface ApiReportSummary {
 }
 
 export interface ApiAdminAuditEntry {
+  previous?: PolicyAuditState & Record<string, unknown> | null;
+  next?: PolicyAuditState & Record<string, unknown> | null;
   id: string;
   record_id: string;
   record_type: string;
@@ -481,6 +537,11 @@ export const api = {
     return request<any[]>(`/records${query ? `?${query}` : ''}`);
   },
   getRecordActiveCounts: () => request<RecordActiveCounts>('/records/active-counts'),
+  getRecordFilterOptions: (category: string) => request<{ accountManagers: string[]; drivers: string[]; areas: string[] }>(`/records/filter-options?${new URLSearchParams({ category })}`),
+  getDriverOverview: (search = '') => request<{ drivers: Array<{ name: string; active: number; completed: number }>; unassigned: number; areas: string[]; dashboard: { today: number; remaining: number; completed: number; rma_active: number; rma_completed: number } }>(`/records/driver-overview${search ? `?${new URLSearchParams({ search })}` : ''}`),
+  getCalendarCounts: (dateFrom: string, dateTo: string) => request<Array<{ date: string; total: number; statuses: Record<string, number> }>>(`/records/calendar-counts?${new URLSearchParams({ dateFrom, dateTo })}`),
+  getSupplierPickupCounts: (ids: string[]) => request<Array<{ id: string; count: number }>>(`/records/supplier-pickup-counts?${new URLSearchParams({ ids: ids.join(',') })}`),
+  getStatusHistoryCounts: (params: URLSearchParams) => request<import('../utils/export').StatusHistoryCounts>(`/records/status-history-counts?${params}`),
   getPagedRecords: (filters: RecordListFilters = {}) => {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries({ ...filters, paged: true })) {
@@ -514,6 +575,7 @@ export const api = {
     rescheduled: number;
     scheduled: number;
     companies: string[];
+    company_count: number;
   }>>('/records/am-summary'),
   getCalendarSummary: (dateFrom?: string, dateTo?: string) => {
     const params = new URLSearchParams();
@@ -523,6 +585,13 @@ export const api = {
     return request<any[]>(`/records/calendar-summary${qs ? `?${qs}` : ''}`);
   },
   getRecord: (id: string) => request<any>(`/records/${id}`),
+  getRmaCapabilities: (id: string) => request<RmaCapabilities>(`/records/${id}/rma-capabilities`),
+  assignRma: (id: string, data: { driver_id: string | null; vehicle?: string; driver_assistants?: string[]; expected_version: number; remarks: string }) =>
+    request<any>(`/records/${id}/rma-assignment`, { method: 'PATCH', body: JSON.stringify(data) }),
+  progressRmaTransport: (id: string, data: { transport_status: 'IN_TRANSIT' | 'COMPLETED'; expected_version: number; remarks: string }) =>
+    request<any>(`/records/${id}/rma-transport`, { method: 'PATCH', body: JSON.stringify(data) }),
+  receiveRma: (id: string, data: { recipient: string; expected_version: number; remarks: string }) =>
+    request<any>(`/records/${id}/rma-receipt`, { method: 'POST', body: JSON.stringify(data) }),
   getRecordAudit: (id: string) => request<ApiAuditEntry[]>(`/records/${id}/audit`),
   createRecord: (data: Record<string, unknown>) =>
     request<any>('/records', { method: 'POST', body: JSON.stringify(data) }),
@@ -530,7 +599,7 @@ export const api = {
     request<any>(`/records/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   recordTimeIn: (id: string, remarks: string) =>
     request<any>(`/records/${id}/time-in`, { method: 'POST', body: JSON.stringify({ remarks }) }),
-  patchStatus: (id: string, status: string, remarks?: string, extra?: { time_out?: string; received_by?: string; priority?: string; delivery_date?: string }) =>
+  patchStatus: (id: string, status: string, remarks?: string, extra?: { time_out?: string; received_by?: string; priority?: string; delivery_date?: string; expected_version?: number; expected_edit_version?: string }) =>
     request<any>(`/records/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, remarks: remarks ?? '', ...extra }) }),
   verifyCollection: (id: string) =>
     request<any>(`/records/${id}/verify-collection`, { method: 'PATCH' }),
@@ -553,28 +622,40 @@ export const api = {
   getCustomerAudit: (id: string) => request<ApiCustomerAuditEntry[]>(`/customers/${id}/audit`),
 
   getSuppliers: () => request<ApiSupplier[]>('/suppliers'),
-  createSupplier: (data: { name: string; contact_person?: string; email?: string; phone?: string; address?: string; city?: string; category?: string }) =>
+  createSupplier: (data: CreateSupplierInput) =>
     request<ApiSupplier>('/suppliers', { method: 'POST', body: JSON.stringify(data) }),
+  getSupplierCategories: () => request<SupplierCategory[]>('/suppliers/categories'),
+  createSupplierCategory: (name: string) => request<SupplierCategory>('/suppliers/categories', { method: 'POST', body: JSON.stringify({ name }) }),
+  updateSupplierCategory: (id: string, data: { name?: string; is_active?: boolean; expected_version: number }) =>
+    request<SupplierCategory>(`/suppliers/categories/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  updateSupplierCategories: (id: string, data: { category_ids: string[]; expected_version: number }) =>
+    request<ApiSupplier>(`/suppliers/${id}/categories`, { method: 'PUT', body: JSON.stringify(data) }),
 
   getDashboardStats: () => request<ApiDashboardStats>('/dashboard/stats'),
+  getDashboardOverview: () => request<ApiDashboardOverview>('/dashboard/overview'),
 
   // Admin user management
   getUsers: () => request<ApiUserAdmin[]>('/users'),
   // DRIVER logins: driver_profile_id links an existing profile; omit it to create one.
   createUser: (data: { name: string; email: string; password: string; role: string; driver_profile_id?: string; microsoft_oid?: string }) =>
     request<ApiUserAdmin>('/users', { method: 'POST', body: JSON.stringify(data) }),
-  setUserDriverProfile: (userId: string, driverProfileId: string | null) =>
-    request<{ user_id: string; driver_profile: { id: string; name: string } | null }>(`/users/${userId}/driver-profile`, { method: 'PUT', body: JSON.stringify({ driver_profile_id: driverProfileId }) }),
-  updateUser: (id: string, data: { name?: string; email?: string; role?: string }) =>
+  setUserDriverProfile: (userId: string, driverProfileId: string | null, version: AccountPolicyVersion = {}) =>
+    request<{ user_id: string; driver_profile: { id: string; name: string } | null }>(`/users/${userId}/driver-profile`, { method: 'PUT', body: JSON.stringify({ driver_profile_id: driverProfileId, ...version }) }),
+  updateUser: (id: string, data: { name?: string; email?: string; role?: string } & AccountPolicyVersion) =>
     request<ApiUserAdmin>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  deactivateUser: (id: string) =>
-    request<ApiUserAdmin>(`/users/${id}/deactivate`, { method: 'PATCH' }),
-  activateUser: (id: string) =>
-    request<ApiUserAdmin>(`/users/${id}/activate`, { method: 'PATCH' }),
-  deleteUser: (id: string) =>
-    request<{ ok: boolean; deleted_id: string }>(`/users/${id}`, { method: 'DELETE' }),
+  deactivateUser: (id: string, version: AccountPolicyVersion = {}) =>
+    request<ApiUserAdmin>(`/users/${id}/deactivate`, { method: 'PATCH', body: JSON.stringify(version) }),
+  activateUser: (id: string, version: AccountPolicyVersion = {}) =>
+    request<ApiUserAdmin>(`/users/${id}/activate`, { method: 'PATCH', body: JSON.stringify(version) }),
+  deleteUser: (id: string, version: AccountPolicyVersion = {}) =>
+    request<{ ok: boolean; deleted_id: string }>(`/users/${id}`, { method: 'DELETE', body: JSON.stringify(version) }),
   getUserPermissions: (userId: string) =>
     request<ApiPermissionEditor>(`/users/${userId}/permissions`),
+  getRolePermissionEditor: (role: string) => request<RolePermissionEditor>(`/admin/roles/${encodeURIComponent(role)}/permissions`),
+  saveRolePermissionEditor: (role: string, body: PolicySave) => request<RolePermissionEditor>(`/admin/roles/${encodeURIComponent(role)}/permissions`, { method: 'PUT', body: JSON.stringify(body) }),
+  getUserPermissionEditor: (id: string, proposedRole?: string) => request<UserPermissionEditor>(`/users/${encodeURIComponent(id)}/permissions?contractVersion=1${proposedRole ? `&role=${encodeURIComponent(proposedRole)}` : ''}`),
+  saveUserPermissionEditor: (id: string, body: PolicySave) => request<UserPermissionEditor>(`/users/${encodeURIComponent(id)}/permissions`, { method: 'PUT', body: JSON.stringify(body) }),
+  resetUserPermissionEditor: (id: string, expectedVersion: string) => request<UserPermissionEditor>(`/users/${encodeURIComponent(id)}/permissions/reset`, { method: 'POST', body: JSON.stringify({ contractVersion: 1, catalogVersion: 1, expectedVersion }) }),
   setUserPermissions: (userId: string, permissions: { screen: string; granted: boolean }[], expectedVersion: string) =>
     request<ApiPermissionEditor>(`/users/${userId}/permissions`, {
       method: 'PUT',
@@ -696,7 +777,7 @@ export const api = {
 
   // Email notifications
   sendNotificationEmail: (data: { recordId: string; trigger: string; recipients: string[] }) =>
-    request<{ ok: boolean; sent: number; failed: number }>('/notifications/send-email', {
+    request<{ ok: boolean; sent: number; failed: number; mocked: number; skipped: number }>('/notifications/send-email', {
       method: 'POST',
       body: JSON.stringify(data),
     }),

@@ -91,6 +91,17 @@ test('canReadRecord respects category permissions and Driver profile ownership',
   assert.equal(canReadRecord(admin, collectionOwnedByB), true, 'Admin can read any collection');
 });
 
+test('RMA serialization exposes the document reference separately from any legacy SAP value', () => {
+  const result = serializeRecord({
+    id: 'rma-1', category: 'RMA', status: 'SCHEDULED', draft: false, reference: '',
+    rmaReference: 'RMA-DOC-1001', legacySapReference: 'SAP-RMA-001',
+    deliveryDate: '', timeIn: null, timeOut: null, driver: '', driverAssistants: '[]',
+  });
+  assert.equal(result.reference, 'RMA-DOC-1001');
+  assert.equal(result.rma_reference, 'RMA-DOC-1001');
+  assert.equal(result.legacy_sap_reference, 'SAP-RMA-001');
+});
+
 test('serializeRecord strips linked collection details and ID when target is unreadable by the caller', () => {
   const driverA: AuthUser = {
     id: 'user-a', name: 'Driver A', role: 'DRIVER', permissions: [],
@@ -181,7 +192,7 @@ test('serializeRecord strips linked collection details and ID when target is unr
   assert.equal(internalSerialized.linked_collection_id, 'col-other');
 });
 
-test('HTTP GET /api/records/:id redacts linked collection details for unauthorized callers', async () => {
+test('HTTP GET /api/v1/records/:id redacts linked collection details for unauthorized callers', async () => {
   const driverA: AuthUser = {
     id: 'user-a', name: 'Driver A', role: 'DRIVER', permissions: [],
     effectiveScreens: ['driver_dashboard'], resources: ['records'],
@@ -232,7 +243,7 @@ test('HTTP GET /api/records/:id redacts linked collection details for unauthoriz
   assert.equal(res.body.linked_collection_id, null);
 });
 
-test('PUT /api/records/:id rejects linking to an Accounting Collection outside the caller recordScope', async () => {
+test('PUT /api/v1/records/:id rejects linking to an Accounting Collection outside the caller recordScope', async () => {
   const logistics: AuthUser = {
     id: 'user-logistics', name: 'Logistics User', role: 'LOGISTICS',
     permissions: [{ screen: 'accounting_collection', granted: false }], // Denied Accounting Collection

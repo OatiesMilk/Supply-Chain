@@ -11,10 +11,12 @@ import { syncAuthenticatedRoute } from '@/routes/screenRouting';
 import { lazyPage } from '@/routes/lazyPage';
 import { PageDataContext } from '@/routes/PageDataGate';
 import { useServerAvailability } from '@/hooks/useServerAvailability';
+import { permissionSessionKey } from '@/utils/permissions';
 import { DashboardFilterId } from '@/utils/dashboardFilters';
+import ServerUnavailableView from '@/features/auth/ServerUnavailableView';
+import { canManageAdminSettings } from '@/layouts/accountSettingsAccess';
 
 const LoginView = lazyPage(() => import('@/features/auth/LoginView'));
-const ServerUnavailableView = lazyPage(() => import('@/features/auth/ServerUnavailableView'));
 const DriverDashboard = lazyPage(() => import('@/features/dashboard/DriverDashboard'));
 
 function AppContent() {
@@ -63,7 +65,7 @@ function AppContent() {
   if (logoutPending) return <div role="status" className="min-h-screen flex items-center justify-center">Signing out...</div>;
   if (!authUser) return <LoginView onLoggedIn={login} />;
 
-  return <SessionApp key={`${authUser.id}:${authUser.name}:${authUser.permissionVersion}`} />;
+  return <SessionApp key={`${authUser.name}:${permissionSessionKey(authUser)}`} />;
 }
 
 function SessionApp() {
@@ -109,6 +111,7 @@ function AuthenticatedApp() {
 
   const currentUser = {
     name: currentUserName,
+    email: authUser.email,
     initials: currentUserInitials,
   };
 
@@ -159,8 +162,6 @@ function AuthenticatedApp() {
   const setIsSidebarOpen = useUIStore(s => s.setIsSidebarOpen);
   const isSidebarCollapsed = useUIStore(s => s.isSidebarCollapsed);
   const setIsSidebarCollapsed = useUIStore(s => s.setIsSidebarCollapsed);
-  const zoomFactor = useUIStore(s => s.zoomFactor);
-  const setZoomFactor = useUIStore(s => s.setZoomFactor);
   const setSearchOpen = useUIStore(s => s.setSearchOpen);
   const accessRequestOpen = useUIStore(s => s.accessRequestOpen);
   const accessRequestScreen = useUIStore(s => s.accessRequestScreen);
@@ -190,13 +191,6 @@ function AuthenticatedApp() {
     window.addEventListener('popstate', syncRoute);
     return () => window.removeEventListener('popstate', syncRoute);
   }, [handleNavigate, effectiveScreens]);
-
-  useEffect(() => {
-    document.documentElement.style.fontSize = `${zoomFactor}%`;
-    return () => {
-      document.documentElement.style.fontSize = '';
-    };
-  }, [zoomFactor]);
 
   // Global Ctrl+K / Cmd+K search modal shortcut
   useEffect(() => {
@@ -241,8 +235,12 @@ function AuthenticatedApp() {
       >
         <PageDataContext.Provider value={{ loading: dataLoading, error: dataError, onRetry: retryPageData }}>
           <DriverDashboard
+            serverPaging
             records={deliveryRecords}
             currentUserName={currentUser.name}
+            currentUserEmail={currentUser.email}
+            canManageAdmin={false}
+            onNavigate={handleNavigate}
             onUpdateRecord={handleUpdateRecord}
             onLogout={logout}
             dataLoading={dataLoading}
@@ -257,8 +255,11 @@ function AuthenticatedApp() {
       searchOpen={searchOpen}
       setSearchOpen={setSearchOpen}
       deliveryRecords={deliveryRecords}
-      // Global search only offers SKU results that open in SKU Master (TSK-118).
+      customers={canAccess('customers') ? customers : []}
+      suppliers={canAccess('suppliers') ? suppliers : []}
+      drivers={canAccess('driver_manager') || canAccess('driver') || canAccess('driver_board') ? managedDrivers : []}
       products={canAccess('inventory') ? products : []}
+      accessibleScreens={effectiveScreens}
       dataError={dataError}
       accessRequestModalProps={{
         isOpen: accessRequestOpen,
@@ -286,10 +287,9 @@ function AuthenticatedApp() {
       navbarProps={{
         currentScreen,
         setIsSidebarOpen,
-        zoomFactor,
-        setZoomFactor,
         currentUser,
         currentUserRole,
+        canManageAdmin: canManageAdminSettings(authUser.role, canAccess),
         setSearchOpen,
         deliveryRecords,
         handleNavigate,

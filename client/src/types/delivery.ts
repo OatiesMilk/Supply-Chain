@@ -3,6 +3,7 @@
  */
 
 import { AuditFields } from './common';
+import type { RmaCategory } from '../utils/rma';
 
 export type DeliveryCategory =
   | 'Sales Orders'
@@ -13,9 +14,12 @@ export type DeliveryCategory =
 
 export type DeliveryStatus = 'Draft' | 'Scheduled' | 'In Transit' | 'Delivered' | 'On-Hold' | 'Rescheduled' | 'Pending';
 
+export type RmaMovement = 'LOGISTICS_TRANSPORT' | 'SUPPLIER_COLLECTION' | 'INTERNAL_NO_DRIVER';
+export type RmaTransportStatus = 'PENDING' | 'IN_TRANSIT' | 'COMPLETED';
+
 export type PriorityLevel = '1 - Low' | '2 - Moderate' | '3 - High';
 
-export type ItemType = 'Small Item' | 'Medium Item' | 'Large / Pallet';
+export type ItemType = 'Small Item' | 'Unit' | 'Medium Item' | 'Large / Pallet';
 
 export type OutputActionTrigger =
   | 'Record Created'
@@ -30,7 +34,7 @@ export interface OutputActionConfig {
   notifyLogistics: boolean;
   notifyTASS: boolean;
   exportPDF: boolean;
-  internalOnly: boolean; // when true, suppresses all of the above
+  internalOnly: boolean; // suppresses these additional outputs; server workflow notifications remain independent
 }
 
 export interface OutputActionLogEntry {
@@ -41,10 +45,14 @@ export interface OutputActionLogEntry {
 
 export interface DeliveryRecord extends AuditFields {
   id: string; // e.g., REC-4001
+  edit_version?: string; // Server-issued metadata editor precondition.
+  expected_edit_version?: string;
   company_name: string; // display name of the record's Company
   company_id: string; // Company the record belongs to (never a Customer ID)
   priority: PriorityLevel;
-  reference: string; // SAP number
+  reference: string; // SAP reference for non-RMA records; aliases the RMA document reference in the UI
+  rma_reference?: string | null;
+  legacy_sap_reference?: string | null;
   remarks: string;
   status: DeliveryStatus;
   allowed_statuses?: DeliveryStatus[]; // Authoritative transitions supplied by the server
@@ -64,6 +72,25 @@ export interface DeliveryRecord extends AuditFields {
   category: DeliveryCategory;
   item_type: ItemType;
   is_draft: 'Yes' | 'No';
+  created_by_id?: string;
+  modified_by_id?: string;
+  deleted_at?: string | null;
+  document_attachment?: string | null;
+  rma_type?: RmaCategory | null;
+  rma_movement?: RmaMovement | null;
+  rma_transport_status?: RmaTransportStatus | null;
+  rma_version?: number;
+  expected_version?: number; // Mutation precondition; never substitutes for the server version.
+  rma_transport_started_at?: string | null;
+  rma_transport_completed_at?: string | null;
+  rma_received_at?: string | null;
+  rma_received_by?: string | null;
+  rma_recipient?: string | null;
+  rma_completed_at?: string | null;
+  purchase_date?: string | null;
+  customer_contact_name?: string | null;
+  customer_contact_email?: string | null;
+  customer_contact_phone?: string | null;
   item_description: string;
   line_items?: { id?: string, sku: string, quantity: number }[];
   attachments: string[]; // mock file names only

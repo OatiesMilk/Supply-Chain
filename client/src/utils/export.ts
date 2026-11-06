@@ -100,8 +100,9 @@ export function downloadCSV(
   columns: ExportColumn[],
   filename: string,
   meta: ExportMeta,
-  statusHistoryCounts?: StatusHistoryCounts
-): void {
+  statusHistoryCounts?: StatusHistoryCounts,
+  returnBlob = false
+): void | Blob {
   const now = new Date();
   const dateStr = fmtDate(now.toISOString());
   const timeStr = fmtTime(now.toISOString());
@@ -151,8 +152,9 @@ export function downloadCSV(
     .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
     .join('\r\n');
 
-  const blob = new Blob(['﻿' + csv, { type: 'text/csv;charset=utf-8;' }] as unknown as BlobPart[]);
-  const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }));
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  if (returnBlob) return blob;
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = `${filename}-${now.toISOString().split('T')[0]}.csv`;
@@ -181,8 +183,9 @@ export async function downloadExcel(
   filename: string,
   meta: ExportMeta,
   statusHistoryCounts?: StatusHistoryCounts,
-  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
-): Promise<void> {
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE,
+  returnBlob = false
+): Promise<void | Blob> {
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
   wb.creator = meta.generatedByName;
@@ -191,6 +194,7 @@ export async function downloadExcel(
   const ws = wb.addWorksheet(sheetName, {
     pageSetup: getExcelPageSetup(documentSize)
   });
+  ws.properties.defaultRowHeight = 24;
 
   const now = new Date();
   const dateStr = fmtDate(now.toISOString());
@@ -308,14 +312,10 @@ export async function downloadExcel(
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GRAY_ROW } };
       }
       cell.font = { size: 10 };
-      cell.border = {
-        bottom: { style: 'hair', color: { argb: 'FFE2E8F0' } },
-        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-        right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
-      };
-      cell.alignment = { vertical: 'middle', wrapText: false };
+      cell.border = { bottom: { style: 'hair', color: { argb: 'FFE2E8F0' } } };
+      cell.alignment = { vertical: 'middle', wrapText: true };
     });
-    dataRow.height = 18;
+    dataRow.height = 30;
   });
 
   // ── Footer row ────────────────────────────────────────────────────────────
@@ -324,9 +324,10 @@ export async function downloadExcel(
   footerRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEF2FF' } };
 
   // ── Column widths ─────────────────────────────────────────────────────────
-  ws.columns = columns.map(c => ({
-    width: Math.max(c.width ?? 18, c.header.length + 4)
-  }));
+  ws.columns = columns.map(c => ({ width: Math.min(42, Math.max(14, c.width ?? 20, Math.min(c.header.length + 2, 28))) }));
+  ws.views = [{ state: 'frozen', ySplit: headerRow.number - 1, topLeftCell: `A${headerRow.number}`, activeCell: `A${headerRow.number}`, showGridLines: false }];
+  if (rows.length) ws.autoFilter = { from: { row: headerRow.number, column: 1 }, to: { row: headerRow.number + rows.length, column: columns.length } };
+  ws.pageSetup.printTitlesRow = `${headerRow.number}:${headerRow.number}`;
 
   // ── Merge meta rows across all columns ───────────────────────────────────
   const colCount = columns.length;
@@ -348,6 +349,7 @@ export async function downloadExcel(
   const blob = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
   });
+  if (returnBlob) return blob;
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -400,8 +402,9 @@ export async function downloadPDF(
   meta: ExportMeta,
   landscape = true,
   statusHistoryCounts?: StatusHistoryCounts,
-  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
-): Promise<void> {
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE,
+  returnBlob = false
+): Promise<void | Blob> {
   const { jsPDF } = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
 
@@ -632,6 +635,8 @@ export async function downloadPDF(
   doc.setTextColor(...NAVY_RGB);
   doc.text(`Total Records: ${rows.length}`, 10, finalY + 6);
 
+  const pdfBlob = doc.output('blob');
+  if (returnBlob) return pdfBlob;
   doc.save(`${filename}-${now.toISOString().split('T')[0]}.pdf`);
 }
 
@@ -663,6 +668,22 @@ export const AC_EXTRA_COLUMNS: ExportColumn[] = [
   { header: 'Verified At',         key: 'collection_verified_at_fmt', width: 22 },
 ];
 
+export const RMA_EXTRA_COLUMNS: ExportColumn[] = [
+  { header: 'Movement method', key: 'rma_movement_fmt', width: 26 },
+  { header: 'Transport status', key: 'rma_transport_status_fmt', width: 20 },
+  { header: 'Transport started (Manila)', key: 'rma_transport_started_at_fmt', width: 26 },
+  { header: 'Transport completed (Manila)', key: 'rma_transport_completed_at_fmt', width: 26 },
+  { header: 'Physical receipt recipient', key: 'rma_recipient', width: 26 },
+  { header: 'Physical receipt confirmed (Manila)', key: 'rma_received_at_fmt', width: 28 },
+  { header: 'RMA completed (Manila)', key: 'rma_completed_at_fmt', width: 26 },
+  { header: 'Legacy SAP Reference', key: 'legacy_sap_reference', width: 24 },
+  { header: 'RMA Category', key: 'rma_type', width: 24 },
+  { header: 'Purchase Date', key: 'purchase_date_fmt', width: 18 },
+  { header: 'Customer Contact Name', key: 'customer_contact_name', width: 26 },
+  { header: 'Customer Contact Email', key: 'customer_contact_email', width: 30 },
+  { header: 'Customer Contact Phone', key: 'customer_contact_phone', width: 22 },
+];
+
 // ─── PDF-specific column sets (tighter, screen-matched) ──────────────────────
 // These are used only for PDF. CSV/Excel still uses DELIVERY_COLUMNS for full data.
 
@@ -676,6 +697,18 @@ export const PDF_DELIVERY_COLUMNS: ExportColumn[] = [
   { header: 'Driver',          key: 'driver',            width: 24, pdfWidth: 30                       },
   { header: 'Account Manager', key: 'account_manager',   width: 20, pdfWidth: 24                       },
   { header: 'Status',          key: 'status_fmt',        width: 14, pdfWidth: 26, pdfPill: true, pdfAlign: 'center' },
+];
+
+export const PDF_RMA_COLUMNS: ExportColumn[] = [
+  { header: 'Movement', key: 'rma_movement_fmt', width: 24, pdfWidth: 28 },
+  { header: 'Transport', key: 'rma_transport_status_fmt', width: 18, pdfWidth: 22 },
+  { header: 'Record ID', key: 'id', width: 18, pdfWidth: 22 },
+  { header: 'Company', key: 'company_name', width: 28, pdfWidth: 50 },
+  { header: 'RMA Document Reference', key: 'rma_reference', width: 28, pdfWidth: 38 },
+  { header: 'Legacy SAP Reference', key: 'legacy_sap_reference', width: 24, pdfWidth: 34 },
+  { header: 'RMA Category', key: 'rma_type', width: 22, pdfWidth: 35 },
+  { header: 'Purchase Date', key: 'purchase_date_fmt', width: 18, pdfWidth: 30 },
+  { header: 'Status', key: 'status_fmt', width: 14, pdfWidth: 28, pdfPill: true, pdfAlign: 'center' },
 ];
 
 // AC widths sum to 257mm — comfortably under the 277mm landscape usable width.
@@ -741,7 +774,7 @@ export const SUPPLIER_COLUMNS: ExportColumn[] = [
   { header: 'Phone',          key: 'phone',          width: 18 },
   { header: 'City',           key: 'city',           width: 18 },
   { header: 'Address',        key: 'address',        width: 36 },
-  { header: 'Category',       key: 'category',       width: 18 },
+  { header: 'Categories',     key: 'categories',     width: 36 },
   { header: 'Pick-ups',       key: 'pickup_count',   width: 14 },
 ];
 

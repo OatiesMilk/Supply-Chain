@@ -29,7 +29,7 @@ router.get('/', requireAuth, requireResource('customers'), async (_req, res) => 
 });
 
 // Every role may create a Customer except TASS.
-router.post('/', requireAuth, requireResource('customers'), requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER'), asyncRoute(async (req, res) => {
+router.post('/', requireAuth, requireResource('customers', 'CREATE'), requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER'), asyncRoute(async (req, res) => {
   const parsed = parseCustomerCreate(req.body);
   if ('error' in parsed) return res.status(400).json(parsed);
   const b = parsed.value!;
@@ -93,7 +93,7 @@ function serializeCustomer(c: any) {
 // Edit an existing Customer. A change reason is required and saved with the
 // named actor in the audit log. expected_modified_at guards against
 // overwriting someone else's newer save (optimistic concurrency).
-router.put('/:id', requireAuth, requireResource('customers'), requireRole(...CUSTOMER_EDITORS), asyncRoute(async (req, res) => {
+router.put('/:id', requireAuth, requireResource('customers', 'UPDATE'), requireRole(...CUSTOMER_EDITORS), asyncRoute(async (req, res) => {
   const parsed = parseCustomerUpdate(req.body);
   if ('error' in parsed) return res.status(400).json(parsed);
   const { data, remarks, expectedModifiedAt } = parsed.value;
@@ -104,7 +104,8 @@ router.put('/:id', requireAuth, requireResource('customers'), requireRole(...CUS
     if (current.modifiedAt.getTime() !== new Date(expectedModifiedAt).getTime()) return { status: 409 as const };
 
     const before = customerSnapshot(current);
-    if (!customerChanges(before, { ...before, ...data }).length) return { status: 422 as const };
+    const after = customerSnapshot({ ...current, ...data });
+    if (!customerChanges(before, after).length) return { status: 422 as const };
 
     const { count } = await tx.customer.updateMany({
       where: { id: current.id, modifiedAt: current.modifiedAt },

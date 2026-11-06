@@ -22,7 +22,7 @@ export const RATE_LIMITS = {
 };
 export type RateLimitSettings = typeof RATE_LIMITS;
 
-// Headers the Cloudflare Worker sets when it proxies /api (see worker.js).
+// Headers the Cloudflare Worker sets when it proxies /api/v1 (see worker.js).
 export const PROXY_SECRET_HEADER = 'x-mg-proxy-secret';
 export const PROXY_CLIENT_IP_HEADER = 'x-mg-client-ip';
 
@@ -97,7 +97,11 @@ export function createRateLimiters(settings: RateLimitSettings = RATE_LIMITS) {
     microsoftAuth: limiter(settings.microsoftAuth, { keyGenerator: ipKey }),
     mail: limiter(settings.mail, { keyGenerator: userKey }),
     upload: limiter(settings.upload, { keyGenerator: userKey }),
-    // Render and the self-ping poll /health; throttling it would fail deploys.
-    api: limiter(settings.api, { keyGenerator: userKey, skip: req => req.path === '/health' }),
+    // Health is polled by hosts. Login has stricter, dedicated per-IP and
+    // per-account limits below, so unrelated API reads must not block sign-in.
+    api: limiter(settings.api, {
+      keyGenerator: userKey,
+      skip: req => req.path === '/health' || req.path === '/auth/login',
+    }),
   };
 }

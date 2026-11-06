@@ -45,7 +45,7 @@ export const securityHeaders = helmet({
 // Issue #167: the API's own address is public, so a caller can skip the Worker.
 // With REQUIRE_PROXY_SECRET on, only requests carrying the secret the Worker
 // adds are served. GET /health stays open: the host's health check and the
-// self-ping call it directly. Mount under /api.
+// self-ping call it directly. Mount under /api/v1.
 export function requireProxySecret(env: NodeJS.ProcessEnv = process.env) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (req.method === 'GET' && req.path === '/health') return next();
@@ -70,14 +70,19 @@ export function applySecurity(app: Express, settings: RateLimitSettings = RATE_L
   const limits = createRateLimiters(settings);
 
   app.use(securityHeaders);
+  // Retired and unsupported API versions must not reach routes or SPA fallback.
+  app.use('/api', (req, res, next) => {
+    if (/^\/v1(?:\/|$)/i.test(req.path)) return next();
+    res.status(404).json({ error: 'API endpoint not found. Use /api/v1.' });
+  });
   // Ahead of everything else: a request that bypassed the Worker is refused
   // before it can reach a CSRF check, a rate limiter or a route.
-  if (proxySecretRequired()) app.use('/api', requireProxySecret());
+  if (proxySecretRequired()) app.use('/api/v1', requireProxySecret());
   // CSRF checks come first so forged requests cannot spend the victim's limits.
-  app.use('/api', verifyRequestOrigin(), verifyCsrfToken);
-  app.use('/api', limits.api);
-  app.post('/api/auth/login', limits.loginPerIp, limits.loginPerAccount);
-  app.use('/api/auth/microsoft', limits.microsoftAuth);
-  app.post(['/api/notifications/send-email', '/api/admin/test-email'], limits.mail);
-  app.post('/api/records/:id/attachments', limits.upload);
+  app.use('/api/v1', verifyRequestOrigin(), verifyCsrfToken);
+  app.use('/api/v1', limits.api);
+  app.post('/api/v1/auth/login', limits.loginPerIp, limits.loginPerAccount);
+  app.use('/api/v1/auth/microsoft', limits.microsoftAuth);
+  app.post(['/api/v1/notifications/send-email', '/api/v1/admin/test-email'], limits.mail);
+  app.post('/api/v1/records/:id/attachments', limits.upload);
 }
