@@ -41,7 +41,7 @@ export async function dashboardOverview(db: PrismaClient, user: AuthUser) {
   if (user.role === 'LOGISTICS') {
     const ids = ['log-flags', 'log-unassigned', 'log-on-hold', 'log-rescheduled'];
     const counts = await Promise.all(ids.map(count)); ids.forEach((id, i) => { result.counts[id] = counts[i]; });
-    const requests = { category: 'RMA', draft: false, rmaMovement: 'LOGISTICS_TRANSPORT', status: { not: 'ACCOMPLISHED' }, rmaTransportStatus: { not: 'COMPLETED' } };
+    const requests = dashboardRecordFilter('log-rma-requests', today)!;
     result.counts.rma_requests = await db.deliveryRecord.count({ where: scoped(requests) });
     result.record_previews.rma_requests = await preview(requests);
     const active = scoped({ draft: false, deliveryDate: today, driver: { not: '' }, status: { not: 'ACCOMPLISHED' }, OR: [

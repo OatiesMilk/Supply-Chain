@@ -133,3 +133,9 @@ test('overview reports its generation time for every role', async () => {
     assert.match(String((await dashboardOverview(db, actor(role)) as any).generated_at), /^\d{4}-\d{2}-\d{2}T/);
   }
 });
+
+test('RMA transport requests use one shared filter for the Logistics panel total and its view-all list', () => {
+  assert.deepEqual(dashboardRecordFilter('log-rma-requests', TODAY), {
+    category: 'RMA', draft: false, rmaMovement: 'LOGISTICS_TRANSPORT', status: { not: 'ACCOMPLISHED' }, rmaTransportStatus: { not: 'COMPLETED' },
+  });
+});

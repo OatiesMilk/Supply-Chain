@@ -30,6 +30,7 @@ export function dashboardRecordFilter(id: string, today = manilaToday()): Prisma
     case 'sc-attention-pending-confirmation': return { ...delivery, ...pending };
     case 'sc-attention-all': return { ...delivery, OR: [due, held, pending] };
     case 'log-flags': return { ...delivery, OR: [unassigned, held] };
+    case 'log-rma-requests': return { category: 'RMA', draft: false, rmaMovement: 'LOGISTICS_TRANSPORT', status: { not: 'ACCOMPLISHED' }, rmaTransportStatus: { not: 'COMPLETED' } };
     case 'tass-open-rma': return { category: 'RMA', draft: false, status: { in: OPEN_RMA_STATUSES } };
     case 'tass-rma-aging': {
       // Older than 7 Manila days: submitted on or before (today - 8 days). Rows the

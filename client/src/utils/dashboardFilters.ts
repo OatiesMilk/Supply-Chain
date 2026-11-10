@@ -19,6 +19,7 @@ export const DASHBOARD_FILTERS = {
   'log-rescheduled': { label: 'Rescheduled Items', screen: 'deliveries' },
   'log-on-hold-rescheduled': { label: 'On-Hold / Rescheduled', screen: 'deliveries' },
   'log-flags': { label: 'Flags', screen: 'deliveries' },
+  'log-rma-requests': { label: 'RMA transport requests', screen: 'rma' },
   'tass-open-rma': { label: 'Open RMA', screen: 'rma' },
   'tass-rma-aging': { label: 'Open RMA over 7 days', screen: 'rma' },
   'tass-rma-on-hold': { label: 'RMA On-Hold', screen: 'rma' },
@@ -120,6 +121,9 @@ export function matchesDashboardFilter(
       return isDelivery(record) && record.status === 'Rescheduled';
     case 'log-flags':
       return isDelivery(record) && (noDriver(record) || onHoldOrRescheduled(record));
+    case 'log-rma-requests':
+      return record.category === 'RMA' && !isDraftRecord(record) && record.rma_movement === 'LOGISTICS_TRANSPORT'
+        && record.status !== 'Delivered' && !!record.rma_transport_status && record.rma_transport_status !== 'COMPLETED';
     case 'tass-open-rma':
       return isOpenRma(record);
     case 'tass-rma-aging': {
