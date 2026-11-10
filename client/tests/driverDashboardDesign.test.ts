@@ -8,7 +8,7 @@ import { installLegacySession } from './helpers/permissionSession';
 import { manilaToday } from '../src/utils/recordLifecycle';
 import type { DeliveryRecord } from '../src/types';
 
-async function mount(props: Record<string, unknown>, run: (doc: Document) => void) {
+async function mount(props: Record<string, unknown>, run: (doc: Document) => void | Promise<void>) {
   installLegacySession('DRIVER', 'driver_dashboard');
   const queryClient = new QueryClient();
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost' });
@@ -24,7 +24,7 @@ async function mount(props: Record<string, unknown>, run: (doc: Document) => voi
     await act(async () => root.render(React.createElement(QueryClientProvider, { client: queryClient },
       React.createElement(DriverDashboard, { records: [], currentUserName: 'John Doe', currentUserEmail: 'driver@example.test',
         canManageAdmin: false, onNavigate() {}, onUpdateRecord: async () => {}, onLogout() {}, dataLoading: false, ...props } as any))));
-    run(dom.window.document);
+    await run(dom.window.document);
   } finally {
     await act(async () => root.unmount()); queryClient.clear(); dom.window.close();
     for (const name of Object.keys(globals)) { if (original[name]) Object.defineProperty(globalThis, name, original[name]); else Reflect.deleteProperty(globalThis, name); }
@@ -76,5 +76,19 @@ test('first load shows skeleton tiles, never a number that later changes', async
 test('empty queue shows the shared calm empty state', async () => {
   await mount({ records: [], dashboardCounts: { today: 0, remaining: 0, completed: 0, rma_active: 0, rma_completed: 0 } }, doc => {
     assert.match(doc.body.textContent ?? '', /No records in this queue\./); assert.match(doc.body.textContent ?? '', /Contact Logistics|contact Logistics/);
+  });
+});
+
+test('Refresh is offered, waits for the refresh to finish and runs it once', async () => {
+  let calls = 0; let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await mount({ records: [run], dashboardCounts: { today: 1, remaining: 1, completed: 0, rma_active: 0, rma_completed: 0 }, onRefresh: () => { calls += 1; return pending; } }, async doc => {
+    const button = [...doc.querySelectorAll('button')].find(node => node.getAttribute('aria-label') === 'Refresh dashboard') as HTMLButtonElement;
+    assert.ok(button);
+    await act(async () => { button.click(); });
+    assert.equal(calls, 1);
+    assert.equal(button.disabled, true);
+    await act(async () => { release(); await pending; });
+    assert.equal(button.disabled, false);
   });
 });

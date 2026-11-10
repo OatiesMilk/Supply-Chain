@@ -244,6 +244,7 @@ function AuthenticatedApp() {
             onUpdateRecord={handleUpdateRecord}
             onLogout={logout}
             dataLoading={dataLoading}
+            onRefresh={refreshData}
           />
         </PageDataContext.Provider>
       </Suspense>

@@ -35,6 +35,8 @@ interface DriverDashboardProps {
   onNavigate: (screen: string) => void;
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   onLogout: () => void;
+  /** Refreshes the run queues and counters together. */
+  onRefresh?: () => Promise<void> | void;
   dataLoading: boolean;
   serverPaging?: boolean;
   queueControls?: ReactNode;
@@ -98,8 +100,11 @@ function DriverDashboardContent({
   onNavigate,
   onUpdateRecord,
   onLogout,
+  onRefresh,
   dataLoading, dashboardCounts, queueControls,
 }: DriverDashboardProps) {
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = onRefresh ? async () => { setRefreshing(true); try { await onRefresh(); } finally { setRefreshing(false); } } : undefined;
   const access = usePermissions();
   const today = manilaToday();
   const timeInMutation = useRecordTimeInMutation();
@@ -202,7 +207,7 @@ function DriverDashboardContent({
       </header>
 
       <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-        <DashboardPage title="Driver dashboard" id="driver-dashboard">
+        <DashboardPage title="Driver dashboard" id="driver-dashboard" onRefresh={refresh} refreshing={refreshing}>
         <section aria-label="Driver summary" className="grid grid-cols-3 gap-2 sm:gap-3">
           <KpiTile size="compact" label="Today's runs" value={summaryLoading ? null : dashboardCounts?.today ?? todayRecs.length} />
           <KpiTile size="compact" label="Accomplished" value={summaryLoading ? null : dashboardCounts ? dashboardCounts.completed + dashboardCounts.rma_completed : accomplishedRecords.length} />

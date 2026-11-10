@@ -1,5 +1,6 @@
 import { Product, InventoryItem, DeliveryRecord } from "@/types";
 import { api, ApiDashboardStats } from "@/api";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { operationalSyncOptions } from "@/api/queries/operationalSync";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -16,7 +17,7 @@ interface DashboardViewProps {
   dashboardStats?: ApiDashboardStats | null;
   onNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
   currentUserRole: string;
-  onRefresh?: () => void;
+  onRefresh?: () => Promise<void> | void;
 }
 
 export default function DashboardView({
@@ -28,6 +29,9 @@ export default function DashboardView({
 }: DashboardViewProps) {
   const overviewQuery = useQuery({ ...operationalSyncOptions, queryKey: ['dashboard-overview'], queryFn: api.getDashboardOverview });
   const { canAccess } = usePermissions();
+  const [refreshing, setRefreshing] = useState(false);
+  // One Refresh updates tiles, panels and the sidebar badges together, so the button waits for all of them.
+  const refresh = onRefresh ? async () => { setRefreshing(true); try { await onRefresh(); } finally { setRefreshing(false); } } : undefined;
   const overviewStatus = overviewQuery.isError ? 'error' : overviewQuery.isPending ? 'pending' : 'success';
   // Dashboards on the shared design system render their tiles from /stats even when /overview fails.
   const shared = {
@@ -35,8 +39,8 @@ export default function DashboardView({
     overviewStatus: overviewStatus as 'pending' | 'error' | 'success',
     onRetryOverview: () => void overviewQuery.refetch(),
     onNavigate,
-    onRefresh,
-    refreshing: overviewQuery.isFetching,
+    onRefresh: refresh,
+    refreshing,
     canAccess,
   };
 
@@ -49,7 +53,7 @@ export default function DashboardView({
   }
 
   if (currentUserRole === "Admin") {
-    return <AdminDashboard stats={dashboardStats?.role === "ADMIN" ? dashboardStats : null} overview={overviewQuery.data} onNavigate={onNavigate} onRefresh={onRefresh} refreshing={overviewQuery.isFetching} canAccess={canAccess} />;
+    return <AdminDashboard stats={dashboardStats?.role === "ADMIN" ? dashboardStats : null} overview={overviewQuery.data} onNavigate={onNavigate} onRefresh={refresh} refreshing={refreshing} canAccess={canAccess} />;
   }
 
   return <SalesCoordinatorDashboard stats={dashboardStats?.role === "SALES_COORDINATOR" ? dashboardStats : null} skuCount={products.length} {...shared} />;
