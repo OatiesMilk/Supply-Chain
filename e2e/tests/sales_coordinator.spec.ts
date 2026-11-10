@@ -7,6 +7,7 @@
  * Test IDs match the UAT_PLAN.md document (A-1.x, A-2.x, A-3.x, A-4.x, A-5.x).
  */
 import { test, expect, Page } from '@playwright/test';
+import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import { DEMO_LOCATION_FIXTURES } from '../../client/src/utils/demoLocations';
@@ -200,7 +201,7 @@ test.describe('A-2 Create a Delivery Record', () => {
     await newBtn.click();
 
     // Create a temporary > 10 MB file
-    const bigFilePath = path.join('/tmp', 'big_test_file.pdf');
+    const bigFilePath = path.join(os.tmpdir(), 'big_test_file.pdf');
     const TEN_MB = 11 * 1024 * 1024;
     const buf = Buffer.alloc(TEN_MB, 'x');
     fs.writeFileSync(bigFilePath, buf);
