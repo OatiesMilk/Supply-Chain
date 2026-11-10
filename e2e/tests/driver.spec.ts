@@ -11,6 +11,7 @@
  *       If no record exists, C-2.x tests will be skipped gracefully.
  */
 import { test, expect, Page } from '@playwright/test';
+import os from 'os';
 import path from 'path';
 import fs from 'fs';
 
@@ -173,7 +174,7 @@ test.describe('C-2 ePOD Flow', () => {
       return;
     }
 
-    const pngPath = path.join('/tmp', 'uat_pod.png');
+    const pngPath = path.join(os.tmpdir(), 'uat_pod.png');
     const pngBuf = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
     fs.writeFileSync(pngPath, pngBuf);
 
@@ -195,7 +196,7 @@ test.describe('C-2 ePOD Flow', () => {
       return;
     }
 
-    const pdfPath = path.join('/tmp', 'uat_supporting_document.pdf');
+    const pdfPath = path.join(os.tmpdir(), 'uat_supporting_document.pdf');
     // The server verifies PDF structure (SEC-08), so this must be a real, if empty, PDF.
     fs.writeFileSync(pdfPath, '%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\nxref\n0 2\n0000000000 65535 f \n0000000009 00000 n \ntrailer<</Size 2/Root 1 0 R>>\nstartxref\n39\n%%EOF\n');
     await page.locator('input[type="file"]').first().setInputFiles(pdfPath);
@@ -217,7 +218,7 @@ test.describe('C-2 ePOD Flow', () => {
 
   test('C-2.10 Confirm button is disabled without remarks', async ({ page }) => {
     // 1. Upload Photo
-    const pngPath = path.join('/tmp', 'uat_pod.png');
+    const pngPath = path.join(os.tmpdir(), 'uat_pod.png');
     fs.writeFileSync(pngPath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'));
     const fileInput = page.locator('input[type="file"]').first();
     await fileInput.setInputFiles(pngPath);
@@ -245,7 +246,7 @@ test.describe('C-2 ePOD Flow', () => {
 
   test('C-2.8 Full Accomplish flow with remarks', async ({ page }) => {
     // 1. Upload Photo
-    const pngPath = path.join('/tmp', 'uat_pod.png');
+    const pngPath = path.join(os.tmpdir(), 'uat_pod.png');
     fs.writeFileSync(pngPath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'));
     const fileInput = page.locator('input[type="file"]').first();
     await fileInput.setInputFiles(pngPath);

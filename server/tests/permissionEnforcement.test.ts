@@ -81,6 +81,8 @@ async function fixture(t: TestContext, role: PolicyRole = 'LOGISTICS') {
   stub(prisma, '$queryRaw', async () => []);
   stub(prisma.user, 'findUnique', async ({ where }: any) => where.id === actor?.id ? structuredClone(actor) : null);
   stub(prisma.user, 'findMany', async () => { reads.push('mail-recipients'); return []; });
+  stub(prisma.accountManager, 'findUnique', async () => null);
+  stub(prisma.accountManager, 'findMany', async ({ where }: any = {}) => where?.normalizedName === 'account manager' ? [{ name: 'Account Manager' }] : []);
   stub(prisma.rolePolicy, 'findUnique', async ({ where }: any) => structuredClone(policies.get(where.role) ?? null));
   stub(prisma.deliveryRecord, 'findFirst', async ({ where }: any) => { reads.push(where); return structuredClone(records.find(row => matches(row, where)) ?? null); });
   stub(prisma.deliveryRecord, 'findUnique', async ({ where }: any) => structuredClone(records.find(row => row.id === where.id) ?? null));
@@ -234,7 +236,7 @@ test('category Write and resource membership cannot bypass denial on every editi
 
 test('existing Logistics creation stays distinct from submission of an existing draft', async t => {
   const state = await fixture(t);
-  state.stub(prisma.company, 'findUnique', async () => ({ id: 'company-one' }));
+  state.stub(prisma.company, 'findUnique', async () => ({ id: 'company-one', isActive: true }));
   state.stub(prisma.deliveryRecord, 'create', async ({ data }: any) => {
     state.effects.push('deliveryRecord.create'); return savedRecord(data.id, data.category, data);
   });

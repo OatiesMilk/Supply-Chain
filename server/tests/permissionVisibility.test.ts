@@ -109,6 +109,8 @@ test('mail requests reject unknown triggers, ambiguous recipient selectors and e
 
 test('mail identity resolution rejects ambiguous AM names and deduplicates exact identities', async () => {
   const oldMode = process.env.PERMISSION_MODE, original = prisma.user.findMany, originalFindUnique = prisma.user.findUnique;
+  const originalDirectory = prisma.accountManager.findUnique;
+  prisma.accountManager.findUnique = mock.fn(async () => null) as any;
   process.env.PERMISSION_MODE = 'LEGACY';
   const person = { id: 'am-1', name: 'Alex User', email: 'alex@example.test' };
   prisma.user.findUnique = mock.fn(async () => ({ ...person, role: 'ADMIN', isActive: true, permissions: [], driverProfile: null })) as any;
@@ -118,7 +120,7 @@ test('mail identity resolution rejects ambiguous AM names and deduplicates exact
     assert.deepEqual(await recordMailRecipients(['AM'], { category: 'DELIVERY', accountManager: 'Alex User' }), []);
     ambiguous = false;
     assert.deepEqual(await recordMailRecipients(['AM', 'LOGISTICS'], { category: 'DELIVERY', accountManager: 'Alex User' }), [person]);
-  } finally { prisma.user.findMany = original; prisma.user.findUnique = originalFindUnique; if (oldMode === undefined) delete process.env.PERMISSION_MODE; else process.env.PERMISSION_MODE = oldMode; }
+  } finally { prisma.user.findMany = original; prisma.user.findUnique = originalFindUnique; prisma.accountManager.findUnique = originalDirectory; if (oldMode === undefined) delete process.env.PERMISSION_MODE; else process.env.PERMISSION_MODE = oldMode; }
 });
 
 test('record writes reject unknown fields while accepting known ignored create metadata', () => {

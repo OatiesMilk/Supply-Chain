@@ -50,7 +50,7 @@ test('PostgreSQL activation respects trigger revisions, customized policies, use
     assert.equal(await db.auditLog.count(), auditCount, 'repeat activation is idempotent');
 
     for (const id of ['driver-a', 'driver-b']) await db.driver.create({ data: { id: `profile-${id}`, name: id, type: 'DRIVER', userId: id, createdBy: 'admin', modifiedBy: 'admin' } });
-    await db.company.create({ data: { id: 'company', name: 'Company', sapNumber: '255', address: 'Carmona', contactPerson: 'Test contact' } });
+    await db.company.create({ data: { id: 'company', name: 'Company', normalizedName: 'company', sapNumber: '255', address: 'Carmona', contactPerson: 'Test contact' } });
     const record = await db.deliveryRecord.create({ data: { id: 'rma', companyId: 'company', priority: '2 - Moderate', reference: '', rmaReference: 'POL-255', status: 'SCHEDULED', area: 'Carmona', accountManager: 'AM', deliveryDate: '2020-01-01', category: 'RMA', itemType: 'Unit', driverId: 'profile-driver-a', driver: 'driver-a', rmaMovement: 'LOGISTICS_TRANSPORT', rmaTransportStatus: 'PENDING', createdById: 'admin', modifiedById: 'admin' } });
     await db.notification.createMany({ data: ['logistics', 'driver-a', 'driver-b'].map(userId => ({ userId, title: 'RMA assignment', message: 'POL-255', recordId: record.id, recordType: 'DeliveryRecord' })) });
     const auth = async (id: string): Promise<AuthUser> => {

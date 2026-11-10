@@ -11,7 +11,9 @@ import FilterPopover, { FilterCombobox } from '@/components/FilterPopover';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, PDF_AC_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
 import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus } from '@/types';
-import { AREAS, PRIORITIES, ITEM_TYPES, DELIVERY_STATUSES, ACCOUNT_MANAGERS, acStatusLabel } from '@/data';
+import { AREAS, PRIORITIES, ITEM_TYPES, DELIVERY_STATUSES, acStatusLabel } from '@/data';
+import { accountManagerChoices, useAccountManagersQuery } from '@/api/queries/useAccountManagersQuery';
+import { activeCompanies, defaultAccountManagerFor } from '@/utils/accountDirectory';
 import { ApiCompany, api, apiUrl } from '@/api';
 import { usePagedRecordsQuery, useSelectedRecordQuery, normalizeApiRecord } from '@/api/queries/useRecordsQuery';
 import { useRecordFilterOptionsQuery } from '@/api/queries/useOperationalViews';
@@ -180,6 +182,9 @@ export default function AccountingCollectionView({
   const canEdit = (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Logistics') && access.canRecord('Accounting Collection', 'CREATE');
 
   const filterOptions = useRecordFilterOptionsQuery(CATEGORY);
+  const accountManagers = useAccountManagersQuery();
+  const amChoices = accountManagerChoices(accountManagers.data);
+  const companyOptions = activeCompanies(companies);
   const amOptions = filterOptions.isError ? [] : filterOptions.data?.accountManagers
     ?? [...new Set(records.filter(r => r.category === CATEGORY).map(r => r.account_manager).filter(Boolean))].sort();
 
@@ -187,8 +192,8 @@ export default function AccountingCollectionView({
     setForm(prev => ({ ...prev, [key]: value }));
 
   const handleAutoFill = () => {
-    if (companies.length === 0) return;
-    const company = acAfPick(companies);
+    if (companyOptions.length === 0) return;
+    const company = acAfPick(companyOptions);
     const deliveryDate = acAfFutureDate(1, 10);
     setForm({
       company_name: company.name,
@@ -198,7 +203,7 @@ export default function AccountingCollectionView({
       remarks: acAfPick(AC_AF_REMARKS),
       status: 'Scheduled',
       area: acAfPick(AREAS),
-      account_manager: acAfPick(ACCOUNT_MANAGERS),
+      account_manager: defaultAccountManagerFor(company, accountManagers.data) || (amChoices.length ? acAfPick(amChoices) : ''),
       delivery_date: deliveryDate,
       item_type: acAfPick(ITEM_TYPES),
       is_draft: 'No',
@@ -210,8 +215,14 @@ export default function AccountingCollectionView({
   };
 
   const handleCompanySelect = (name: string) => {
-    const company = companies.find(c => c.name === name);
-    setForm(prev => ({ ...prev, company_name: name, company_id: company?.id ?? '' }));
+    const company = companyOptions.find(c => c.name === name);
+    setForm(prev => {
+      // Fill the company's default AM unless the user already picked a different one.
+      const previousDefault = defaultAccountManagerFor(companies.find(c => c.id === prev.company_id), accountManagers.data);
+      const nextDefault = defaultAccountManagerFor(company, accountManagers.data);
+      const keepAm = prev.account_manager.trim() && prev.account_manager !== previousDefault;
+      return { ...prev, company_name: name, company_id: company?.id ?? '', account_manager: keepAm || !nextDefault ? prev.account_manager : nextDefault };
+    });
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -583,7 +594,7 @@ export default function AccountingCollectionView({
                   className={`w-full px-3 py-2 border rounded-lg focus:outline-none bg-white ${formErrors.company_name ? 'border-red-500' : 'border-slate-300'}`}
                 >
                   <option value="">-- Select registered merchant / company --</option>
-                  {companies.map(c => (
+                  {companyOptions.map(c => (
                     <option key={c.id} value={c.name}>{c.name}</option>
                   ))}
                 </select>
@@ -650,7 +661,7 @@ export default function AccountingCollectionView({
                   aria-invalid={!!formErrors.account_manager}
                   className={`w-full px-3 py-2 border rounded-lg bg-white ${formErrors.account_manager ? 'border-red-500' : 'border-slate-300'}`}>
                   <option value="">-- Select account manager --</option>
-                  {ACCOUNT_MANAGERS.map(m => <option key={m} value={m}>{m}</option>)}
+                  {amChoices.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
                 {formErrors.account_manager && <p className="text-red-500 text-[10px] font-semibold">{formErrors.account_manager}</p>}
               </div>

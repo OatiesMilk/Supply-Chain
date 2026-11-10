@@ -63,9 +63,22 @@ test('unknown company is a clean validation failure and a disappearing company m
   const transaction = stub(prisma, '$transaction', async () => { throw Object.assign(new Error('FK'), { code: 'P2003' }); });
   assert.equal((await invoke(records, 'post', '/', 'SALES_COORDINATOR', createBody)).status, 400);
   assert.equal(transaction.mock.callCount(), 0);
-  company.mock.mockImplementation(async () => ({ id: 'company' }));
+  company.mock.mockImplementation(async () => ({ id: 'company', isActive: true }));
   assert.equal((await invoke(records, 'post', '/', 'SALES_COORDINATOR', createBody)).status, 400);
   assert.equal(transaction.mock.callCount(), 1);
+});
+
+test('new records need an active company and an active Account Manager before any write', async () => {
+  stub(prisma.company, 'findUnique', async () => ({ id: 'company', isActive: false }));
+  const managers = stub(prisma.accountManager, 'findMany', async () => []);
+  const transaction = stub(prisma, '$transaction', async () => { throw new Error('unexpected write'); });
+  const inactive = await invoke(records, 'post', '/', 'SALES_COORDINATOR', createBody);
+  assert.equal(inactive.status, 400); assert.match(inactive.body.error, /company is inactive/);
+  stub(prisma.company, 'findUnique', async () => ({ id: 'company', isActive: true }));
+  const unknownAm = await invoke(records, 'post', '/', 'SALES_COORDINATOR', { ...createBody, account_manager: 'Not On The List' });
+  assert.equal(unknownAm.status, 400); assert.match(unknownAm.body.error, /active Account Manager/);
+  assert.equal(managers.mock.callCount(), 1);
+  assert.equal(transaction.mock.callCount(), 0);
 });
 
 test('editing a record to an unknown company is a 400 without writes, including a P2003 race', async () => {
@@ -76,7 +89,7 @@ test('editing a record to an unknown company is a 400 without writes, including 
   stub(prisma.deliveryRecord, 'findFirst', async () => row);
   stub(prisma, '$transaction', async (fn: any) => fn({
     $queryRaw: async () => [], $executeRaw: async () => 0, $executeRawUnsafe: async () => 0,
-    deliveryRecord: { findUnique: async () => row, update }, company: { findUnique: async () => companyExists ? { id: 'missing-company' } : null },
+    deliveryRecord: { findUnique: async () => row, update }, company: { findUnique: async () => companyExists ? { id: 'missing-company', isActive: true } : null },
     auditLog: { create: audit }, remarkLog: { create: async () => ({}) }, driver: { findMany: async () => [] },
   }));
   for (const role of ['SALES_COORDINATOR', 'ADMIN']) {
@@ -94,7 +107,7 @@ test('editing a record to an unknown company is a 400 without writes, including 
 });
 
 test('valid creation preserves Scheduled defaults and an optional empty Draft date', async () => {
-  stub(prisma.company, 'findUnique', async () => ({ id: 'company' }));
+  stub(prisma.company, 'findUnique', async () => ({ id: 'company', isActive: true }));
   stub(prisma.user, 'findMany', async () => []);
   stub(prisma, '$transaction', async (fn: any) => fn({ user: { findMany: async () => [] }, deliveryRecord: { create: async ({ data }: any) => ({ ...row, ...data, lineItems: [] }) }, auditLog: { create: async () => ({}) } }));
   const scheduled = await invoke(records, 'post', '/', 'LOGISTICS', createBody);

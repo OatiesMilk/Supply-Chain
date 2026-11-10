@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import { assertPermissionBackfillTarget, convertPermissionAccount, initializePermissionFoundation } from '../src/services/permissionBackfill';
 import { getUserPermissionEditor, saveUserPermissions } from '../src/services/permissionManagement';
 import { PERMISSION_CATALOG } from '../src/services/permissionCatalog';
+import { localDirectoryKey } from '../src/services/accountDirectory';
 
 /** Synthetic live-browser fixture. Refuses non-disposable or populated targets. */
 async function main() {
@@ -30,7 +31,7 @@ async function main() {
     process.env.PERMISSION_MODE = 'LEGACY';
     await initializePermissionFoundation(db, 'gh250-live-admin');
     for (const [name] of accounts) await convertPermissionAccount(db, `gh250-live-${name}`, 'gh250-live-admin');
-    const company = await db.company.create({ data: { id: 'gh250-live-company', name: 'GH250 Synthetic Company', sapNumber: 'GH250', address: 'Synthetic local fixture', contactPerson: 'Fixture' } });
+    const company = await db.company.create({ data: { id: 'gh250-live-company', name: 'GH250 Synthetic Company', normalizedName: localDirectoryKey('GH250 Synthetic Company'), sapNumber: 'GH250', address: 'Synthetic local fixture', contactPerson: 'Fixture' } });
     await db.deliveryRecord.create({ data: { id: 'gh250-live-record', companyId: company.id, priority: '2 - Moderate', reference: 'GH250-LIVE-DELIVERY', status: 'SCHEDULED',
       area: 'Carmona', accountManager: 'GH250 sales', deliveryDate: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date()),
       category: 'DELIVERY', itemType: 'Small Item', createdById: 'gh250-live-sales', modifiedById: 'gh250-live-sales',

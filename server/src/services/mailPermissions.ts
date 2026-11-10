@@ -4,6 +4,7 @@ import { canCreateCategory, canPerformRecordAction, canReadRecord, canWriteCateg
 import { loadPermissionSession } from './sessionPermissions';
 import { permissionMode } from './permissionManagement';
 import { sessionUser } from './permissions';
+import { accountManagerMailUsers } from './accountDirectory';
 
 export const MAIL_TRIGGERS = ['Accomplished', 'Rescheduled', 'On-Hold', 'RMA Completed', 'Collection Verified', 'Record Created'] as const;
 export function mailInputError(value: unknown): string | null {
@@ -29,14 +30,12 @@ export function canDispatchRecordMail(user: AuthUser, record: any, trigger: stri
   return operation === 'CREATE' ? canCreateCategory(user, record.category) : canPerformRecordAction(user, record, operation, undefined, true);
 }
 
-/** Exact identity resolution only; a surname match cannot authorize disclosure. */
+/** Exact identity resolution only (linked login or exact unique name); a surname match cannot authorize disclosure. */
 export async function recordMailRecipients(recipients: readonly string[], record: any) {
   const candidates = new Map<string, { id: string; name: string; email: string }>();
   for (const recipient of recipients) {
-    const users = await prisma.user.findMany({ where: recipient === 'AM'
-      ? { name: { equals: record.accountManager ?? '', mode: 'insensitive' }, isActive: true }
-      : { role: recipient, isActive: true }, select: { id: true, name: true, email: true } });
-    if (recipient === 'AM' && users.length !== 1) continue;
+    const users = recipient === 'AM' ? await accountManagerMailUsers(record.accountManager)
+      : await prisma.user.findMany({ where: { role: recipient, isActive: true }, select: { id: true, name: true, email: true } });
     for (const user of users) candidates.set(user.id, user);
   }
   const allowed = [] as Array<{ id: string; name: string; email: string }>;

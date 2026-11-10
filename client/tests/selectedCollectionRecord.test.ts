@@ -110,6 +110,8 @@ test('AccountingCollectionView submits a creation payload accepted by V1 server 
   installLegacySession('SALES_COORDINATOR', 'accounting_collection');
   mock.method(api, 'getStatusHistoryCounts', async () => ({} as any));
   mock.method(api, 'getRecordFilterOptions', async () => ({ accountManagers: ['M. Reyes'], drivers: [], areas: ['Makati CBD'] }));
+  // Auto Fill picks the required Account Manager from the managed list.
+  mock.method(api, 'getAccountManagers', async () => [{ id: 'am-1', name: 'M. Reyes', is_active: true }]);
   mock.method(api, 'getPagedRecords', async () => ({ rows: [], total: 0, page: 1, limit: 25, nextCursor: null, hasMore: false }));
   mock.method(api, 'getRecord', async (id: string) => collection(id));
   let submittedPayload: Record<string, unknown> | null = null;

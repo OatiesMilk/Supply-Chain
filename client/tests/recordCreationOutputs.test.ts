@@ -2,6 +2,7 @@ import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { JSDOM } from 'jsdom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { api } from '../src/api';
 import { DEFAULT_OUTPUT_ACTIONS } from '../src/outputActions';
 import { installLegacySession } from './helpers/permissionSession';
@@ -22,14 +23,17 @@ test('creation outputs wait for persistence and report failure without creating 
   let resolveCreate!: (value: DeliveryRecord) => void;
   let submitted: any; let calls = 0; let banner: any;
   let resolveDispatch!: (value: { ok: boolean; sent: number; failed: number; mocked: number; skipped: number }) => void;
+  mock.method(api, 'getAccountManagers', async () => [{ id: 'am-1', name: 'P. Soriano', is_active: true }]);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const dispatch = mock.method(api, 'sendNotificationEmail', async () => new Promise<{ ok: boolean; sent: number; failed: number; mocked: number; skipped: number }>(resolve => { resolveDispatch = resolve; }));
   try {
-    await act(async () => root.render(React.createElement(RecordCreateForm, {
+    await act(async () => root.render(React.createElement(QueryClientProvider, { client }, React.createElement(RecordCreateForm, {
       category: 'Deliveries', categoryLocked: true,
-      companies: [{ id: 'company', name: 'Company', sap_number: 'SAP-1', address: 'Address', contact_person: 'Contact', created_at: '' }],
+      companies: [{ id: 'company', name: 'Company', sap_number: 'SAP-1', address: 'Address', contact_person: 'Contact', is_active: true, version: 1, default_account_manager: null, created_at: '', updated_at: '' }],
       onSubmit: data => { submitted = data; calls++; return new Promise(resolve => { resolveCreate = resolve; }); },
       onCancel: () => {}, outputActionConfigs: DEFAULT_OUTPUT_ACTIONS, onAfterSubmit: value => { banner = value; },
-    })));
+    }))));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
     const autoFill = [...dom.window.document.querySelectorAll('button')].find(button => button.textContent?.includes('Auto Fill'))!;
     await act(async () => autoFill.click());
     const form = dom.window.document.querySelector('form')!;

@@ -9,6 +9,7 @@
  */
 import { test, expect, Page, type Browser } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import * as XLSX from 'xlsx';
@@ -42,6 +43,11 @@ async function openNewScheduledRecord(page: Page, browser: Browser) {
     expect(companiesResponse.ok()).toBeTruthy();
     const companies = await companiesResponse.json();
     expect(companies.length).toBeGreaterThan(0);
+    // Records only accept an active Account Manager from the directory.
+    const managersResponse = await sales.request.get(`${BASE_URL}/api/v1/account-managers?active=true`);
+    expect(managersResponse.ok()).toBeTruthy();
+    const managers: Array<{ name: string }> = await managersResponse.json();
+    expect(managers.length, 'CI database must seed an active Account Manager').toBeGreaterThan(0);
     const today = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
     }).format(new Date());
@@ -51,7 +57,7 @@ async function openNewScheduledRecord(page: Page, browser: Browser) {
         company_id: companies[0].id, category: 'Deliveries',
         reference: `UAT-LOG-${randomUUID()}`, delivery_date: today,
         status: 'Scheduled', is_draft: 'No', priority: '2 - Moderate',
-        area: 'Makati', account_manager: 'UAT Account Manager',
+        area: 'Makati', account_manager: managers[0].name,
       },
     });
     expect(response.status(), 'Sales Coordinator must create the test fixture').toBe(201);
@@ -515,7 +521,7 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
   test('B-4.2 Stages a PDF until Save Files is clicked', async ({ page }) => {
     // Create a minimal valid PDF: the server verifies its structure (SEC-08).
     const pdfName = `uat-test-${Date.now()}.pdf`;
-    const pdfPath = path.join('/tmp', pdfName);
+    const pdfPath = path.join(os.tmpdir(), pdfName);
     fs.writeFileSync(pdfPath, '%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\nxref\n0 2\n0000000000 65535 f \n0000000009 00000 n \ntrailer<</Size 2/Root 1 0 R>>\nstartxref\n39\n%%EOF\n');
 
     await openFirstRecord(page);

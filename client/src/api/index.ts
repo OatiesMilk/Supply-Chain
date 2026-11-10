@@ -213,7 +213,42 @@ export interface ApiCompany {
   sap_number: string;
   address: string;
   contact_person: string;
+  /** Inactive companies stay on existing records but are hidden from new choices. */
+  is_active: boolean;
+  version: number;
+  default_account_manager: ApiAccountManagerOption | null;
   created_at: string;
+  updated_at: string;
+}
+
+export interface CompanyInput {
+  name: string;
+  sap_number: string;
+  address?: string;
+  contact_person?: string;
+  default_account_manager_id?: string | null;
+}
+
+/** What every record screen receives: no contact or login details. */
+export interface ApiAccountManagerOption {
+  id: string;
+  name: string;
+  is_active: boolean;
+}
+
+/** Admin view of an Account Manager. */
+export interface ApiAccountManager extends ApiAccountManagerOption {
+  email: string;
+  version: number;
+  linked_user: { id: string; name: string; email: string; is_active: boolean } | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AccountManagerInput {
+  name: string;
+  email?: string;
+  user_id?: string | null;
 }
 
 export interface ApiCustomer {
@@ -613,6 +648,15 @@ export const api = {
     request<void>(`/records/${id}/attachments/${attachmentId}`, { method: 'DELETE', body: JSON.stringify({ remarks }) }),
 
   getCompanies: () => request<ApiCompany[]>('/companies'),
+  createCompany: (data: CompanyInput) => request<ApiCompany>('/companies', { method: 'POST', body: JSON.stringify(data) }),
+  updateCompany: (id: string, data: Partial<CompanyInput> & { is_active?: boolean; expected_version: number }) =>
+    request<ApiCompany>(`/companies/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  /** Admins receive ApiAccountManager rows; other roles receive ApiAccountManagerOption rows. */
+  getAccountManagers: () => request<Array<ApiAccountManagerOption | ApiAccountManager>>('/account-managers'),
+  createAccountManager: (data: AccountManagerInput) =>
+    request<ApiAccountManager>('/account-managers', { method: 'POST', body: JSON.stringify(data) }),
+  updateAccountManager: (id: string, data: Partial<AccountManagerInput> & { is_active?: boolean; expected_version: number }) =>
+    request<ApiAccountManager>(`/account-managers/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   getCustomers: () => request<ApiCustomer[]>('/customers'),
   createCustomer: (data: { name: string; contact_person?: string; email?: string; phone?: string; address?: string; city?: string }) =>
