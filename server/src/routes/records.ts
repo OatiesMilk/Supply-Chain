@@ -472,7 +472,7 @@ router.get('/active-counts', requireAuth, requireResource('records'), requireRec
     where: {
       deletedAt: null,
       draft: false,
-      status: { in: ['SCHEDULED', 'IN_TRANSIT', 'PENDING', 'ON_HOLD'] },
+      status: { in: ['SCHEDULED', 'IN_TRANSIT', 'PENDING', 'ON_HOLD', 'RESCHEDULED'] },
       AND: [recordScope(req.user!)],
     },
     _count: { _all: true },

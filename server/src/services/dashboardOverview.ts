@@ -12,11 +12,15 @@ export async function dashboardOverview(db: PrismaClient, user: AuthUser) {
   const today = manilaToday();
   const scoped = (where: Prisma.DeliveryRecordWhereInput = {}): Prisma.DeliveryRecordWhereInput => ({ AND: [recordScope(user), { deletedAt: null }, where] });
   const count = (id: string) => db.deliveryRecord.count({ where: scoped(dashboardRecordFilter(id, today)!) });
-  const preview = async (where: Prisma.DeliveryRecordWhereInput) => (await db.deliveryRecord.findMany({
-    where: scoped(where), include: previewInclude, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: PREVIEW_LIMIT,
+  const preview = async (
+    where: Prisma.DeliveryRecordWhereInput,
+    orderBy: Prisma.DeliveryRecordOrderByWithRelationInput[] = [{ createdAt: 'asc' }, { id: 'asc' }],
+    take = PREVIEW_LIMIT,
+  ) => (await db.deliveryRecord.findMany({
+    where: scoped(where), include: previewInclude, orderBy, take,
   })).map(row => serializeRecord(row, user));
   const result = {
-    role: user.role, record_total: await db.deliveryRecord.count({ where: scoped() }),
+    role: user.role, generated_at: new Date().toISOString(), record_total: await db.deliveryRecord.count({ where: scoped() }),
     status_totals: {} as Record<string, number>, counts: {} as Record<string, number>,
     record_previews: { rma_requests: [] as ReturnType<typeof serializeRecord>[], rma_attention: [] as ReturnType<typeof serializeRecord>[] },
     drivers_out: [] as Array<{ driver: string; total: number; records: ReturnType<typeof serializeRecord>[] }>, drivers_out_total: 0,
@@ -53,9 +57,18 @@ export async function dashboardOverview(db: PrismaClient, user: AuthUser) {
     })));
   }
   if (user.role === 'TASS') {
-    const open: Prisma.DeliveryRecordWhereInput = { category: 'RMA', draft: false, status: { in: ['SCHEDULED', 'PENDING', 'ON_HOLD'] } };
-    result.counts.rma_attention = await db.deliveryRecord.count({ where: scoped(open) });
-    result.record_previews.rma_attention = await preview(open);
+    const open = dashboardRecordFilter('tass-open-rma', today)!;
+    const ids = ['tass-open-rma', 'tass-rma-on-hold', 'tass-rma-aging'];
+    const counts = await Promise.all(ids.map(count)); ids.forEach((id, i) => { result.counts[id] = counts[i]; });
+    result.counts.rma_attention = result.counts['tass-open-rma'];
+    // On-Hold first, then oldest submission first. Prisma cannot order by a custom
+    // status rank, so read the two groups separately; each read is bounded.
+    const oldest: Prisma.DeliveryRecordOrderByWithRelationInput[] = [{ submittedAt: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }, { id: 'asc' }];
+    const onHold = await preview(dashboardRecordFilter('tass-rma-on-hold', today)!, oldest);
+    const rest = onHold.length < PREVIEW_LIMIT
+      ? await preview({ AND: [open, { status: { not: 'ON_HOLD' } }] }, oldest, PREVIEW_LIMIT - onHold.length)
+      : [];
+    result.record_previews.rma_attention = [...onHold, ...rest];
   }
   if (user.role === 'ADMIN') {
     const sum = await db.deliveryRecord.aggregate({ where: scoped(dashboardRecordFilter('admin-unverified-collections', today)!), _sum: { amount: true } });

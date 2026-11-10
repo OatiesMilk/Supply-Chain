@@ -7,6 +7,7 @@ import { visibleAuditEntries, visibleAuditCount } from '../services/auditVisibil
 
 import { asyncRoute } from '../middleware/asyncRoute';
 import { dashboardOverview } from '../services/dashboardOverview';
+import { dashboardRecordFilter } from '../services/dashboardFilters';
 
 const router = Router();
 
@@ -20,15 +21,14 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
   const role = req.user!.role;
   const scope = recordScope(req.user!);
 
+  // Every tile counts through the same filter its drill-down list uses.
+  const count = (id: string) => prisma.deliveryRecord.count({ where: { AND: [scope], deletedAt: null, ...dashboardRecordFilter(id, dateStr)! } });
+
   // ── SALES_COORDINATOR ────────────────────────────────────────────────────────
   if (role === 'SALES_COORDINATOR') {
     const [deliveriesToday, pendingDriverAssignment, onHold, rescheduled, accomplishedToday] = await Promise.all([
-      prisma.deliveryRecord.count({ where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, deliveryDate: dateStr, status: 'SCHEDULED', timeIn: null } }),
-      prisma.deliveryRecord.count({ where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, driver: '', status: { not: 'ACCOMPLISHED' } } }),
-      prisma.deliveryRecord.count({ where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, status: 'ON_HOLD' } }),
-      prisma.deliveryRecord.count({ where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, status: 'RESCHEDULED' } }),
-      prisma.deliveryRecord.count({ where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, status: 'ACCOMPLISHED', timeOut: { gte: start.toISOString(), lt: end.toISOString() } } })
-    ]);
+      'sc-scheduled-today', 'sc-pending-assignment', 'sc-on-hold', 'sc-rescheduled', 'sc-completed-today',
+    ].map(count));
     return res.json({
       role: 'SALES_COORDINATOR',
       deliveries_scheduled_today: deliveriesToday,
@@ -42,19 +42,8 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
   // ── LOGISTICS ─────────────────────────────────────────────────────────────────
   if (role === 'LOGISTICS') {
     const [assignedToday, unassignedCount, completedToday, onHoldRescheduled] = await Promise.all([
-      prisma.deliveryRecord.count({
-        where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, deliveryDate: dateStr, NOT: { driver: '' }, status: { not: 'ACCOMPLISHED' } }
-      }),
-      prisma.deliveryRecord.count({
-        where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, driver: '', status: { not: 'ACCOMPLISHED' } }
-      }),
-      prisma.deliveryRecord.count({
-        where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, status: 'ACCOMPLISHED', timeOut: { gte: start.toISOString(), lt: end.toISOString() } }
-      }),
-      prisma.deliveryRecord.count({
-        where: { AND: [scope], deletedAt: null, category: 'DELIVERY', draft: false, status: { in: ['ON_HOLD', 'RESCHEDULED'] } }
-      })
-    ]);
+      'log-assigned-today', 'log-unassigned', 'log-completed-today', 'log-on-hold-rescheduled',
+    ].map(count));
     return res.json({
       role: 'LOGISTICS',
       assigned_today: assignedToday,
@@ -67,27 +56,8 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
   // ── TASS ─────────────────────────────────────────────────────────────────────
   if (role === 'TASS') {
     const [openRma, rmaOnHold, pendingProcurementPickup, pendingVerification, verifiedToday] = await Promise.all([
-      prisma.deliveryRecord.count({
-        where: { AND: [scope], deletedAt: null, category: 'RMA', status: { in: ['SCHEDULED', 'PENDING'] } }
-      }),
-      prisma.deliveryRecord.count({
-        where: { AND: [scope], deletedAt: null, category: 'RMA', status: 'ON_HOLD' }
-      }),
-      prisma.deliveryRecord.count({
-        where: { AND: [scope], deletedAt: null, category: 'PROCUREMENT_PICKUP', status: { in: ['SCHEDULED', 'PENDING'] } }
-      }),
-      prisma.deliveryRecord.count({
-        where: { AND: [scope], deletedAt: null, category: 'ACCOUNTING_COLLECTION', status: 'ACCOMPLISHED', collectionVerified: false }
-      }),
-      prisma.deliveryRecord.count({
-        where: {
-          AND: [scope], deletedAt: null,
-          category: 'ACCOUNTING_COLLECTION',
-          collectionVerified: true,
-          collectionVerifiedAt: { gte: start, lt: end }
-        }
-      })
-    ]);
+      'tass-open-rma', 'tass-rma-on-hold', 'tass-pending-pickups', 'tass-pending-verification', 'tass-verified-today',
+    ].map(count));
 
     return res.json({
       role: 'TASS',
@@ -115,14 +85,7 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
       prisma.user.count({ where: { isActive: true } }),
       prisma.user.groupBy({ by: ['role'], where: { isActive: true }, _count: { _all: true } }),
       prisma.deliveryRecord.count({ where: { AND: [scope], deletedAt: null, createdAt: { gte: weekStart } } }),
-      prisma.deliveryRecord.count({
-        where: {
-          AND: [scope], deletedAt: null,
-          category: 'ACCOUNTING_COLLECTION',
-          status: 'ACCOMPLISHED',
-          collectionVerified: false
-        }
-      }),
+      count('admin-unverified-collections'),
       req.user!.activeMode === 'V1' ? visibleAuditCount(prisma, req.user!, { timestamp: { gte: start, lt: end } }) : prisma.auditLog.count({ where: { timestamp: { gte: start, lt: end } } }),
       prisma.deliveryRecord.groupBy({ by: ['status'], where: { AND: [scope], deletedAt: null }, _count: { _all: true } }),
       req.user!.activeMode === 'V1' ? visibleAuditEntries(prisma, req.user!, 10) : prisma.auditLog.findMany({
