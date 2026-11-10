@@ -42,6 +42,11 @@ async function openNewScheduledRecord(page: Page, browser: Browser) {
     expect(companiesResponse.ok()).toBeTruthy();
     const companies = await companiesResponse.json();
     expect(companies.length).toBeGreaterThan(0);
+    // Records only accept an active Account Manager from the directory.
+    const managersResponse = await sales.request.get(`${BASE_URL}/api/v1/account-managers?active=true`);
+    expect(managersResponse.ok()).toBeTruthy();
+    const managers: Array<{ name: string }> = await managersResponse.json();
+    expect(managers.length, 'CI database must seed an active Account Manager').toBeGreaterThan(0);
     const today = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
     }).format(new Date());
@@ -51,7 +56,7 @@ async function openNewScheduledRecord(page: Page, browser: Browser) {
         company_id: companies[0].id, category: 'Deliveries',
         reference: `UAT-LOG-${randomUUID()}`, delivery_date: today,
         status: 'Scheduled', is_draft: 'No', priority: '2 - Moderate',
-        area: 'Makati', account_manager: 'UAT Account Manager',
+        area: 'Makati', account_manager: managers[0].name,
       },
     });
     expect(response.status(), 'Sales Coordinator must create the test fixture').toBe(201);
