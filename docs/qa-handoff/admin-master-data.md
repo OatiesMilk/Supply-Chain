@@ -205,51 +205,69 @@ Email runs in mock mode locally. Check the results in the `NotificationLog` tabl
 - Real email delivery through Graph or SMTP. Only the mock or logged outcome is checked locally.
 - Staging or production deployment.
 
-## 7. Results (Codex fills in)
+## 7. Results
 
-**Build tested:** branch `__________`, commit `__________`, date `__________`
-**Database:** `__________` (confirm it is disposable)
+**Build tested:** branch `feature/admin-account-managers-companies`, commit `e6f7138859aff8e613cf596b5767725ac7d9e362`, date `2026-11-10`.
+
+**Database:** `mg_portal_sandbox` from `server/.env` (`localhost:5433`). The connected database also reported `current_database() = mg_portal_sandbox`. Disposable target and guarded seed values matched. Account Manager RLS is enabled.
+
+**Setup:** Node `v25.2.1` and npm `11.7.0` passed the required first check. `npm install` completed and audited 758 packages; npm reported 25 vulnerabilities (9 moderate, 13 high, 3 critical). It changed the tracked lockfile, so that generated diff was restored; the final tracked diff is only this handoff file. `npx prisma migrate deploy` found 16 migrations and no pending work; `20261110030000_account_manager_directory` is already recorded as applied. `npx prisma generate` passed. The guarded `npm run seed` exited safely with “Seed skipped — database already has 5 user(s).” Frontend and backend were already listening on ports 3000 and 4000, so no new dev server was started.
+
+**Test data left in the disposable database:** Account Manager `Test Manager Updated` (active, unlinked), companies `QA Test Co Updated` (`SAP-QA-1`, default AM `P. Soriano`) and `QA No Default AM`, plus two QA Draft records. The Sales Coordinator E2E integration test also left record `REC-64bcbfcf-b211-4bb5-97ac-9f528d293fad`; its cleanup request returned 403. No code, migration, seed, or other tracked file was changed. No branch, commit, push, or stash operation was performed.
+
+**Browser limitation:** the computer-use browser host was unavailable on the initial check, retry, and reinitialization. Browser screenshots and visual interaction were therefore blocked. Local API and database checks and the existing automated component tests were still run.
 
 ### Automated checks
 
 | Command | Result (pass / fail / skipped counts) | Notes |
 | :--- | :--- | :--- |
-| `server: npx tsc --noEmit` | | |
-| `client: npx tsc --noEmit` | | |
-| `npm run test:server` | | |
-| `npm run test:client` | | |
-| `npm run e2e:sc` | | |
-| `npm run e2e:integration` | | |
+| Server `npx tsc --noEmit` | Pass (exit 0) | No diagnostics. |
+| Client `npx tsc --noEmit` | Pass (exit 0) | No diagnostics. |
+| `npm run test:server` | Pass (495 / 0 / 7) | 502 total; 7 PostgreSQL-only checks skipped without a designated test database. |
+| `npm run test:client` | Pass (325 / 0 / 1) | 326 total. |
+| Focused server tests | Pass (26 / 0 / 0) | `accountDirectory.test.ts` and `majorDefects.test.ts`. |
+| Focused client tests | Pass (8 / 0 / 0) | `adminDirectory.test.ts` and `rmaAutofill.test.ts`. |
+| `npm run e2e:sc` | Failed before test selection | On Windows PowerShell, the script passes the apostrophe in `--project='Sales Coordinator'`; Playwright reports project `'Sales` not found. |
+| Direct Sales Coordinator Playwright project | Fail (17 / 3) | `TSK-126` had no On-Hold rows for its expected count; the size test could not open `C:\tmp\big_test_file.pdf`; the Delivered-record test lacked its UAT fixture. |
+| `npm run e2e:integration` | Failed before test selection | Same quoting issue; Playwright reports project `'Cross` not found. |
+| Direct Cross Role Integration Playwright project | Pass (4 / 0) | TSK-120 cleanup returned 403 for the Draft created by that test; record is listed above. |
+
+The direct E2E commands were run from `e2e` with PowerShell-safe project quoting. They were `npx playwright test --config playwright.config.ts --project "Sales Coordinator"` and `npx playwright test --config playwright.config.ts --project "Cross Role Integration"`.
 
 ### Acceptance criteria
 
-| ID | Result (Pass / Fail / Blocked) | Evidence (screenshot, response body, log row) | Notes |
+| ID | Result (Pass / Fail / Blocked) | Evidence (response, audit row, automated check) | Notes |
 | :--- | :--- | :--- | :--- |
-| AC-01 | | | |
-| AC-02 | | | |
-| AC-03 | | | |
-| AC-04 | | | |
-| AC-05 | | | |
-| AC-06 | | | |
-| AC-07 | | | |
-| AC-08 | | | |
-| AC-09 | | | |
-| AC-10 | | | |
-| AC-11 | | | |
-| AC-12 | | | |
-| AC-13 | | | |
+| AC-01 | Blocked | `adminDirectory.test.ts` exercises both tab components; API list reads returned 200. | Top-level Admin Panel tab visibility, table counts, and rendered default filter were not visually observed. |
+| AC-02 | Pass | Admin API created `Test Manager` from `  Test   Manager ` (201); case/spacing duplicate returned 409; short name and invalid email returned 400. | Client form validation and create behavior also passed. |
+| AC-03 | Pass | Admin linked `Test Manager` to Maria Reyes (200); duplicate login link returned 409; Driver link returned 400. | Client test verified only active, non-Driver, unlinked logins are offered. Maria Reyes was unlinked from the QA AM after the check. |
+| AC-04 | Pass | AM rename, deactivate, and reactivate returned 200. Existing record retained `Test Manager` after rename/deactivation and saved a remarks edit; changing it to the inactive AM returned 400. | Client test also verified retired AM values remain available on existing records. |
+| AC-05 | Pass | Created `QA Test Co` with `SAP-QA-1` and default `P. Soriano`; missing SAP returned 400; case-insensitive SAP duplicate and normalized-name duplicate returned 409. A company without a default AM returned 201. | Default AM was present in the company response. |
+| AC-06 | Pass | Company edit/deactivate/reactivate returned 200; inactive company disappeared from `GET /companies?active=true`; new record using it returned 400. | Reactivated company appeared in the active list again. |
+| AC-07 | Blocked | Stale AM and Company updates both returned 409 with the server refresh message. | Rendered conflict message was not observed because browser access was unavailable. |
+| AC-08 | Pass | Sales, Logistics, TASS, and Driver each received 403 for AM/Company POST and PATCH; no denied rows appeared. Non-Admin AM responses contained only `id`, `name`, and `is_active`. | Sales sidebar regression E2E and the read-only Companies component test passed. Driver list-read ambiguity is recorded below. |
+| AC-09 | Blocked | Active-only API lists contained active AMs/companies; the company response exposed default `P. Soriano`. Client active-AM choice and RMA Auto Fill tests passed. | Visible form behavior, default-AM fill/manual-choice preservation, Accounting Collection, RMA picker, and Data Sampler were not manually observed. |
+| AC-10 | Pass | Unknown and inactive AM choices returned 400; `  p.  soriano ` created a record stored as `P. Soriano`; inactive company returned 400. An old record saved other fields with its inactive historical AM unchanged. | Direct requests used the Sales Coordinator session. |
+| AC-11 | Blocked | Server test “AM mail goes to the linked login first…” passed. Six existing AM NotificationLog rows were inspected; they were `SKIPPED`. | A completed Delivery notification was not triggered for this run, and the scheduled 4 PM summary was not triggered. |
+| AC-12 | Pass | Admin audit API returned 10 matching entries: AccountManager CREATE 1 / UPDATE 5; Company CREATE 1 / UPDATE 3. Before/after snapshots contained the expected directory fields. | Includes the QA login unlink update. |
+| AC-13 | Blocked | Migration is recorded as applied; all seven handoff names plus pre-existing `Demo Account` were present before QA data; no duplicate normalized AM names; RLS query returned `true`. | No fresh migration or pre-migration duplicate-company guard test was run. No original AM had an exact active non-Driver login match. The migration’s matching/duplicate-stop behavior was not re-exercised on a fresh database. |
 
 ### Defects found
 
 | # | AC | Severity (Critical / High / Medium / Low) | Steps to reproduce | Expected | Actual | `path:line` if known |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| | | | | | | |
+| 1 | QA harness | Low | On Windows PowerShell, run `npm run e2e:sc` or `npm run e2e:integration`. | Each wrapper selects its named Playwright project. | Embedded single quotes are passed through; Playwright looks for projects `'Sales` / `'Cross` and exits before running tests. Direct quoted Playwright commands work. | `e2e/package.json:9`, `e2e/package.json:12` |
+
+No Admin Account Managers or Companies functional defect was confirmed by the API and automated checks. The three Sales Coordinator E2E failures are listed above as fixture/path blockers; they did not exercise this feature.
 
 ### Open questions
 
--
+- The handoff says Driver has “No access,” while the feature overview says other roles may read the lists. In this run Driver GETs for both directories returned 200 with the minimal AM projection. Should Driver directory reads be denied, or is read-only list access intended for every role?
+- AC-13 duplicate-stop checks require a fresh pre-migration disposable database. Should a separate `*_test` database be provisioned for that optional check?
+- The visible UI checks (AC-01, AC-07 message, AC-09) should be repeated when the computer-use browser service is available. The scheduled 4 PM summary also remains untriggered.
+- `npm run seed` skipped because the sandbox already had five users; the Sales Coordinator suite consequently lacked its UAT Delivered fixture. Which guarded UAT fixture command should be used for the regression suite on this sandbox?
 
 ### Sign-off
 
-- QA verdict: **Ready to merge into `dev`** / **Needs fixes** (pick one)
+- QA verdict: **Blocked — no feature sign-off yet.** API behavior, directory audit, type checks, focused tests, and full unit/component suites passed. Visual UI checks and the fresh-migration/notification checks remain blocked, and the Sales Coordinator E2E suite has three fixture/path failures.
 - Tested by: ChatGPT Codex
