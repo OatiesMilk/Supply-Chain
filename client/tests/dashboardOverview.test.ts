@@ -33,6 +33,6 @@ test('TASS and Admin do not mistake preview length for full counts or amounts', 
   assert.doesNotMatch(tass, /No open RMA records/);
   const admin = text(React.createElement(AdminDashboard, { stats: { role: 'ADMIN', total_active_users: 1, user_breakdown: {},
     records_this_week: 0, unverified_collections: 6001, audit_events_today: 0, records_by_status: [], recent_audit: [] },
-    overview, deliveryRecords: [], onNavigate() {} }));
+    overview, onNavigate() {} }));
   assert.match(admin, /12,345\.00/); assert.match(admin, /across 6001 records/);
 });

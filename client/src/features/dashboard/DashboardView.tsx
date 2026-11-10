@@ -21,7 +21,6 @@ interface DashboardViewProps {
 
 export default function DashboardView({
   products,
-  deliveryRecords,
   dashboardStats,
   onNavigate,
   currentUserRole,
@@ -49,21 +48,9 @@ export default function DashboardView({
     return <LogisticsDashboard stats={dashboardStats?.role === "LOGISTICS" ? dashboardStats : null} {...shared} />;
   }
 
-  if (currentUserRole !== "Admin") {
-    return <SalesCoordinatorDashboard stats={dashboardStats?.role === "SALES_COORDINATOR" ? dashboardStats : null} skuCount={products.length} {...shared} />;
+  if (currentUserRole === "Admin") {
+    return <AdminDashboard stats={dashboardStats?.role === "ADMIN" ? dashboardStats : null} overview={overviewQuery.data} onNavigate={onNavigate} onRefresh={onRefresh} refreshing={overviewQuery.isFetching} canAccess={canAccess} />;
   }
 
-  if (overviewQuery.isPending) return <p role="status" className="p-5 text-sm text-slate-600">Loading dashboard totals…</p>;
-  if (overviewQuery.isError) return <div role="alert" className="p-5 text-sm text-red-700">Could not load dashboard totals. <button type="button" className="underline" onClick={() => void overviewQuery.refetch()}>Retry dashboard</button></div>;
-  const overview = overviewQuery.data;
-
-  return (
-    <AdminDashboard
-      stats={dashboardStats?.role === "ADMIN" ? dashboardStats : null}
-      overview={overview}
-      deliveryRecords={deliveryRecords}
-      onNavigate={onNavigate}
-      onRefresh={onRefresh}
-    />
-  );
+  return <SalesCoordinatorDashboard stats={dashboardStats?.role === "SALES_COORDINATOR" ? dashboardStats : null} skuCount={products.length} {...shared} />;
 }
