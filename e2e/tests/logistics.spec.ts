@@ -9,6 +9,7 @@
  */
 import { test, expect, Page, type Browser } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import * as XLSX from 'xlsx';
@@ -520,7 +521,7 @@ test.describe('B-4 Documents Tab (POD upload)', () => {
   test('B-4.2 Stages a PDF until Save Files is clicked', async ({ page }) => {
     // Create a minimal valid PDF: the server verifies its structure (SEC-08).
     const pdfName = `uat-test-${Date.now()}.pdf`;
-    const pdfPath = path.join('/tmp', pdfName);
+    const pdfPath = path.join(os.tmpdir(), pdfName);
     fs.writeFileSync(pdfPath, '%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\nxref\n0 2\n0000000000 65535 f \n0000000009 00000 n \ntrailer<</Size 2/Root 1 0 R>>\nstartxref\n39\n%%EOF\n');
 
     await openFirstRecord(page);
