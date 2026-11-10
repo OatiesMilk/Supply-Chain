@@ -19,6 +19,7 @@ import recordsRoutes from './routes/records';
 import rmaDispatchRoutes from './routes/rmaDispatch';
 import { dispatchMovementScope } from './services/rmaMovement';
 import companiesRoutes from './routes/companies';
+import accountManagersRoutes from './routes/accountManagers';
 import customersRoutes from './routes/customers';
 import suppliersRoutes from './routes/suppliers';
 import usersRoutes from './routes/users';
@@ -74,6 +75,7 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/records', rmaDispatchRoutes);
 app.use('/api/v1/records', recordsRoutes);
 app.use('/api/v1/companies', companiesRoutes);
+app.use('/api/v1/account-managers', accountManagersRoutes);
 app.use('/api/v1/customers', customersRoutes);
 app.use('/api/v1/suppliers', suppliersRoutes); // Includes supplier category catalog/assignment endpoints.
 app.use('/api/v1/users', usersRoutes);

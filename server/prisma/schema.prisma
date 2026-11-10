@@ -51,6 +51,7 @@ model User {
   remarkLogs             RemarkLog[]
   podAttachmentsUploaded PodAttachment[]
   driverProfile          Driver?          @relation("DriverLogin")
+  accountManagerProfile  AccountManager?  @relation("AccountManagerLogin")
 }
 
 model UserPermission {
@@ -168,14 +169,40 @@ model PermissionQuarantine {
 }
 
 model Company {
-  id            String   @id @default(cuid())
-  name          String
-  sapNumber     String
-  address       String
-  contactPerson String
-  createdAt     DateTime @default(now())
+  id                      String          @id @default(cuid())
+  name                    String
+  // lower(trimmed, single-spaced name); blocks case/spacing duplicates.
+  normalizedName          String          @unique
+  // Nonblank values are unique; enforced by the companies API under the directory lock.
+  sapNumber               String
+  address                 String
+  contactPerson           String
+  isActive                Boolean         @default(true)
+  version                 Int             @default(1)
+  defaultAccountManagerId String?
+  defaultAccountManager   AccountManager? @relation(fields: [defaultAccountManagerId], references: [id], onDelete: SetNull)
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @default(now()) @updatedAt
 
   records DeliveryRecord[]
+
+  @@index([defaultAccountManagerId])
+}
+
+// Admin-managed Account Manager directory. DeliveryRecord.accountManager keeps
+// the name as written at the time (historical text, no foreign key).
+model AccountManager {
+  id             String    @id @default(cuid())
+  name           String
+  normalizedName String    @unique
+  email          String? // Contact detail only; record mail goes to the linked portal user.
+  userId         String?   @unique
+  user           User?     @relation("AccountManagerLogin", fields: [userId], references: [id], onDelete: SetNull)
+  isActive       Boolean   @default(true)
+  version        Int       @default(1)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  companies      Company[]
 }
 
 // Merchant directory — separate from Company (the validated Company Name

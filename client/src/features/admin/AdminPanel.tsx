@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, ClipboardList, UserX, Plus, ChevronLeft, ChevronRight, Loader2, Check, ShieldCheck, X, Settings2, Send, Pencil, Link2, Trash2 } from 'lucide-react';
+import { Users, ClipboardList, UserX, Plus, ChevronLeft, ChevronRight, Loader2, Check, ShieldCheck, X, Settings2, Send, Pencil, Link2, Trash2, Building2, Contact } from 'lucide-react';
 import { api, ApiDriver, ApiUserAdmin, ApiAdminAuditEntry, ApiIntegrationStatus, ApiError, type AccountPolicyVersion } from '@/api';
 import AccountActionsMenu from './AccountActionsMenu';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
@@ -14,8 +14,11 @@ import PolicyAuditDiff from './PolicyAuditDiff';
 import { accountPolicyVersion, roleChangeVersion } from './accountPolicy';
 import BusinessAuditDiff from './BusinessAuditDiff';
 import type { UserPermissionEditor } from '@/types/permissionEditor';
+import AccountManagersTab from './directory/AccountManagersTab';
+import CompaniesTab from './directory/CompaniesTab';
+import { usePermissions } from '@/hooks/usePermissions';
 
-type Tab = 'users' | 'audit' | 'integrations' | 'permissions';
+type Tab = 'users' | 'account_managers' | 'companies' | 'audit' | 'integrations' | 'permissions';
 
 const ROLE_OPTIONS = ['SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'ADMIN', 'DRIVER'] as const;
 const ROLE_LABELS: Record<string, string> = {
@@ -35,6 +38,10 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
   const activePermissionMode = useAuthStore(state => state.authUser?.activeMode);
   const initialAuditDate = dashboardFilterId === 'admin-audit-today' ? manilaToday() : '';
   const [tab, setTab] = useState<Tab>('users');
+  const access = usePermissions();
+  const authRole = useAuthStore(state => state.authUser?.role);
+  // Mirrors the server guards on company and Account Manager writes.
+  const canManageDirectory = authRole === 'ADMIN' && access.canWrite('admin') && access.canResource('admin', 'WRITE') && access.canResource('companies', 'WRITE');
 
   // ── User Management ──────────────────────────────────────────────────────────
   const [users, setUsers] = useState<ApiUserAdmin[]>([]);
@@ -379,6 +386,12 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
         <button className={tabClass('users')} onClick={() => setTab('users')}>
           <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> User Management</span>
         </button>
+        <button className={tabClass('account_managers')} onClick={() => setTab('account_managers')}>
+          <span className="flex items-center gap-1.5"><Contact className="w-3.5 h-3.5" /> Account Managers</span>
+        </button>
+        <button className={tabClass('companies')} onClick={() => setTab('companies')}>
+          <span className="flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5" /> Companies</span>
+        </button>
         <button className={tabClass('audit')} onClick={() => setTab('audit')}>
           <span className="flex items-center gap-1.5"><ClipboardList className="w-3.5 h-3.5" /> System Audit Log</span>
         </button>
@@ -389,6 +402,8 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
 
       {/* ── Tab 1: User Management ── */}
       {tab === 'permissions' && <RolesPermissions key={openPermissionsUserId ?? 'overview'} initialUserId={openPermissionsUserId} users={users} usersLoading={usersLoading} usersError={usersError} onRetryUsers={loadUsers} />}
+      {tab === 'account_managers' && <AccountManagersTab canManage={canManageDirectory} />}
+      {tab === 'companies' && <CompaniesTab canManage={canManageDirectory} />}
       {tab === 'users' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">

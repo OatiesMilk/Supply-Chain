@@ -3,7 +3,9 @@ import { usePermissions } from '@/hooks/usePermissions';
 import React, { useId, useRef, useState } from 'react';
 import { Plus, X, Check, FileText, UploadCloud, Wand2 } from 'lucide-react';
 import { DeliveryRecord, DeliveryCategory, DeliveryStatus, OutputActionConfig, OutputActionTrigger } from '@/types';
-import { AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, RMA_ITEM_TYPES, ACCOUNT_MANAGERS } from '@/data';
+import { AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, RMA_ITEM_TYPES } from '@/data';
+import { accountManagerChoices, useAccountManagersQuery } from '@/api/queries/useAccountManagersQuery';
+import { activeCompanies, defaultAccountManagerFor, isListedAccountManager } from '@/utils/accountDirectory';
 import { RMA_CATEGORIES, autoFillRmaFields, type RmaCategory } from '@/utils/rma';
 import { runOutputActions } from '@/outputActions';
 import { exportRecordOutputPDF } from '@/utils/recordOutputPdf';
@@ -182,6 +184,9 @@ export default function RecordCreateForm({
 }: RecordCreateFormProps) {
   const access = usePermissions();
   const deliveryDateId = useId();
+  const accountManagers = useAccountManagersQuery();
+  const amOptions = accountManagerChoices(accountManagers.data);
+  const companyOptions = activeCompanies(companies);
   const [form, setForm] = useState<RecordFormState>(() => buildEmptyForm(category));
   const [saving, setSaving] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -202,9 +207,9 @@ export default function RecordCreateForm({
   };
 
   const handleAutoFill = () => {
-    if (companies.length === 0) return;
+    if (companyOptions.length === 0) return;
     const cat = form.category;
-    const company = afPick(companies);
+    const company = afPick(companyOptions);
     const location = selectDemoLocation();
     const deliveryDate = afFutureDate(1, 14);
     const rmaFields = cat === 'RMA' ? autoFillRmaFields(form.reference, afRandInt(0, RMA_CATEGORIES.length - 1)) : null;
@@ -218,7 +223,7 @@ export default function RecordCreateForm({
       status: 'Scheduled',
       vehicle: afPick(VEHICLES),
       area: location.area,
-      account_manager: afPick(ACCOUNT_MANAGERS),
+      account_manager: defaultAccountManagerFor(company, accountManagers.data) || (amOptions.length ? afPick(amOptions) : ''),
       delivery_date: deliveryDate,
       category: cat,
       item_type: cat === 'RMA' ? afPick(RMA_ITEM_TYPES) : afPick(ITEM_TYPES),
@@ -262,8 +267,14 @@ export default function RecordCreateForm({
 
   const handleCompanySelect = (name: string) => {
     setFormErrors(prev => { const n = { ...prev }; delete n.company_name; delete n.company_id; return n; });
-    const company = companies.find(c => c.name === name);
-    setForm(prev => ({ ...prev, company_name: name, company_id: company?.id || '' }));
+    const company = companyOptions.find(c => c.name === name);
+    setForm(prev => {
+      // Fill the company's default AM unless the user already picked a different one.
+      const previousDefault = defaultAccountManagerFor(companies.find(c => c.id === prev.company_id), accountManagers.data);
+      const nextDefault = defaultAccountManagerFor(company, accountManagers.data);
+      const keepAm = prev.account_manager.trim() && prev.account_manager !== previousDefault;
+      return { ...prev, company_name: name, company_id: company?.id || '', account_manager: keepAm || !nextDefault ? prev.account_manager : nextDefault };
+    });
   };
 
   const updateAttachmentStatus = (id: string, status: StagedRecordAttachment['status'], error?: string) => {
@@ -309,6 +320,9 @@ export default function RecordCreateForm({
     const isDraft = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "draft";
     if (!access.canRecord(form.category, 'CREATE') || !isDraft && !access.canRecord(form.category, 'SUBMIT')) return;
     const errors = submissionErrors({ ...form, rma_reference: form.category === 'RMA' ? form.reference : undefined }, isDraft);
+    if (accountManagers.isSuccess && form.account_manager.trim() && !isListedAccountManager(form.account_manager, accountManagers.data)) {
+      errors.account_manager = 'Choose an Account Manager from the list.';
+    }
 
     if (Object.keys(errors).length > 0) {
       setFormErrors(errors);
@@ -462,7 +476,7 @@ export default function RecordCreateForm({
           <ComboboxField
             label="Company Name"
             required
-            options={companies.map(c => c.name)}
+            options={companyOptions.map(c => c.name)}
             value={form.company_name}
             onChange={handleCompanySelect}
             placeholder="Type to search or scroll to browse..."
@@ -565,7 +579,7 @@ export default function RecordCreateForm({
             required={cat === 'RMA'}
             optional={cat !== 'RMA'}
             error={formErrors.account_manager}
-            options={ACCOUNT_MANAGERS as unknown as string[]}
+            options={amOptions}
             value={form.account_manager}
             onChange={v => updateField('account_manager', v)}
             placeholder="Type to search or scroll to browse..."

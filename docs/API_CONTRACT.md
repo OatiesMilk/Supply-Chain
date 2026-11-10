@@ -93,8 +93,12 @@ Clients must not send `time_in` or `time_out` on `PATCH /status`; the server rej
 
 | Method | Path | Guards / roles | Purpose |
 | :--- | :--- | :--- | :--- |
-| GET | `/companies` | Auth, Res:companies | List companies |
-| POST | `/companies` | Res:companies; SC, ADM | Create `{ name, sap_number, address, contact_person }` |
+| GET | `/companies` | Auth, Res:companies | List companies with `is_active`, `version`, `default_account_manager`; `?active=true` narrows |
+| POST | `/companies` | Res:companies Create + admin Write; ADM | Create `{ name, sap_number, address?, contact_person?, default_account_manager_id? }`. See [ADMIN_MASTER_DATA](./ADMIN_MASTER_DATA.md) |
+| PATCH | `/companies/:id` | Res:companies Write + admin Write; ADM | Edit/deactivate with `expected_version` |
+| GET | `/account-managers` | Auth, Res:companies | Account Managers (Admin: full rows; others: `{ id, name, is_active }`) |
+| POST | `/account-managers` | Res:companies Create + admin Write; ADM | Create `{ name, email?, user_id? }` |
+| PATCH | `/account-managers/:id` | Res:companies Write + admin Write; ADM | Edit/link/deactivate with `expected_version` |
 | GET | `/customers` | Auth, Res:customers | List customers |
 | POST | `/customers` | Res:customers; SC, LOG, ADM, DRV | Create |
 | PUT | `/customers/:id` | Res:customers; SC, LOG, ADM | Edit with validation and reason for change |

@@ -102,7 +102,6 @@ export function acStatusLabel(status: string): string {
   return status;
 }
 export const CATEGORIES = ['Sales Orders', 'Deliveries', 'RMA', 'Accounting Collection', 'Procurement Pick-up'] as const;
-export const ACCOUNT_MANAGERS = ['P. Soriano', 'D. Macaraeg', 'F. Valenzuela', 'R. Pagkalinawan', 'M. Reyes', 'A. Santos', 'C. Lim'];
 
 // ── Managed driver store ─────────────────────────────────────────────────────
 // These mutable arrays are populated from the /api/v1/drivers endpoint at startup

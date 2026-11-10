@@ -14,7 +14,7 @@ test('RMA Auto Fill preserves blank and manually entered references for every ca
 
 test('Admin RMA sample defaults leave Reference empty and use the current category and item choices', () => {
   for (let attempt = 0; attempt < 10; attempt++) {
-    const defaults = buildManualDefaults('rma', [{ id: 'company-1', name: 'Demo Company' }] as any);
+    const defaults = buildManualDefaults('rma', [{ id: 'company-1', name: 'Demo Company' }] as any, ['P. Soriano']);
     assert.equal(defaults.reference, '');
     assert.ok(RMA_CATEGORIES.some(value => value === defaults.rma_type));
     assert.equal(defaults.item_type, 'Small Item');

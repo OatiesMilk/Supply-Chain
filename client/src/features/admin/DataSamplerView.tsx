@@ -13,7 +13,9 @@ import {
   Trash2
 } from 'lucide-react';
 import { api, ApiCompany, ApiError } from '@/api';
-import { AREAS, VEHICLES, PRIORITIES, ITEM_TYPES, RMA_ITEM_TYPES, ACCOUNT_MANAGERS, DRIVERS } from '@/data';
+import { AREAS, VEHICLES, PRIORITIES, ITEM_TYPES, RMA_ITEM_TYPES, DRIVERS } from '@/data';
+import { accountManagerChoices, useAccountManagersQuery } from '@/api/queries/useAccountManagersQuery';
+import { activeCompanies } from '@/utils/accountDirectory';
 import { RMA_CATEGORIES } from '@/utils/rma';
 
 interface ModuleCount {
@@ -72,8 +74,9 @@ function randDate(daysBack = 30, daysForward = 14) {
   return d.toISOString().split('T')[0];
 }
 
-export function buildManualDefaults(module: string, companies: ApiCompany[]) {
+export function buildManualDefaults(module: string, allCompanies: ApiCompany[], accountManagers: readonly string[] = []) {
   const prefix = REF_PREFIXES[module] ?? 'SAP';
+  const companies = activeCompanies(allCompanies);
   const company = companies[Math.floor(Math.random() * companies.length)];
   const isAC = module === 'accounting_collection';
   return {
@@ -91,7 +94,8 @@ export function buildManualDefaults(module: string, companies: ApiCompany[]) {
     area: AREAS[Math.floor(Math.random() * AREAS.length)],
     driver: '',
     driver_assistant: '',
-    account_manager: ACCOUNT_MANAGERS[Math.floor(Math.random() * ACCOUNT_MANAGERS.length)],
+    account_manager: (company?.default_account_manager?.is_active && accountManagers.includes(company.default_account_manager.name)
+      ? company.default_account_manager.name : accountManagers[Math.floor(Math.random() * accountManagers.length)]) ?? '',
     delivery_date: randDate(),
     item_type: 'Small Item',
     item_description: '',
@@ -107,6 +111,8 @@ export function dataSamplerSubmissionError(module: string, fields: Record<string
 }
 
 export default function DataSamplerView({ companies, currentUserName, onRefresh }: Props) {
+  const accountManagers = useAccountManagersQuery();
+  const amNames = accountManagerChoices(accountManagers.data);
   const [mode, setMode] = useState<'random' | 'manual'>('random');
   const [modules, setModules] = useState<ModuleCount[]>([]);
   const [countsLoading, setCountsLoading] = useState(false);
@@ -149,7 +155,7 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
     setSelectedModule(key);
     clearMessages();
     if (mode === 'manual' && companies.length > 0) {
-      setManualFields(buildManualDefaults(key, companies));
+      setManualFields(buildManualDefaults(key, companies, amNames));
     }
   };
 
@@ -157,7 +163,7 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
     setMode(m);
     clearMessages();
     if (m === 'manual' && selectedModule && companies.length > 0) {
-      setManualFields(buildManualDefaults(selectedModule, companies));
+      setManualFields(buildManualDefaults(selectedModule, companies, amNames));
     }
   };
 
@@ -196,7 +202,7 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
       onRefresh();
 
       if (andNew && isManual && companies.length > 0) {
-        setManualFields(buildManualDefaults(selectedModule, companies));
+        setManualFields(buildManualDefaults(selectedModule, companies, amNames));
       }
     } catch (err) {
       setErrorMsg(err instanceof ApiError ? err.message : 'Generation failed. Please try again.');
@@ -208,7 +214,7 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
 
   const handleRandomizeAgain = () => {
     if (selectedModule && companies.length > 0) {
-      setManualFields(buildManualDefaults(selectedModule, companies));
+      setManualFields(buildManualDefaults(selectedModule, companies, amNames));
       clearMessages();
     }
   };
@@ -506,7 +512,7 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
                     onChange={e => patch('account_manager', e.target.value)}
                     className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
                   >
-                    {ACCOUNT_MANAGERS.map(a => <option key={a}>{a}</option>)}
+                    {amNames.map(a => <option key={a}>{a}</option>)}
                   </select>
                 </div>
 

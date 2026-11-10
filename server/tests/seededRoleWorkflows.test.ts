@@ -46,7 +46,7 @@ async function fixture(t: TestContext, mode: 'LEGACY' | 'V1') {
     }
   });
   // Unexpected data/provider operations fail rather than reaching a developer DB.
-  for (const model of [prisma.user, prisma.rolePolicy, prisma.company, prisma.deliveryRecord, prisma.driver,
+  for (const model of [prisma.user, prisma.rolePolicy, prisma.company, prisma.accountManager, prisma.deliveryRecord, prisma.driver,
     prisma.podAttachment, prisma.auditLog, prisma.remarkLog, prisma.notification, prisma.notificationLog, prisma.comment]) {
     for (const method of ['findFirst', 'findUnique', 'findUniqueOrThrow', 'findMany', 'count', 'aggregate', 'create', 'createMany', 'update', 'updateMany', 'delete', 'deleteMany', 'upsert']) {
       stub(model, method, async () => { throw new Error(`Unconfigured isolated database operation: ${method}`); });
@@ -66,7 +66,10 @@ async function fixture(t: TestContext, mode: 'LEGACY' | 'V1') {
     && (!where.name || user.name.toLowerCase() === String(where.name.equals).toLowerCase()))));
   stub(prisma.rolePolicy, 'findUnique', async ({ where }: any) => ({ role: where.role, revision: 1n, catalogVersion: 1,
     permissions: [...defaultRolePermissions(where.role)].map(([permissionKey, effect]) => ({ permissionKey, effect })) }));
-  stub(prisma.company, 'findUnique', async ({ where }: any) => where.id === 'seed-company' ? { id: 'seed-company' } : null);
+  stub(prisma.company, 'findUnique', async ({ where }: any) => where.id === 'seed-company' ? { id: 'seed-company', isActive: true } : null);
+  // 'Seed AM' is an active, unlinked directory entry; AM mail keeps the exact-name rule.
+  stub(prisma.accountManager, 'findMany', async ({ where }: any) => where?.normalizedName === 'seed am' ? [{ name: 'Seed AM' }] : []);
+  stub(prisma.accountManager, 'findUnique', async () => null);
   stub(prisma.driver, 'findUnique', async ({ where }: any) => where.id === driver.id ? structuredClone(driver) : null);
   stub(prisma.deliveryRecord, 'findFirst', async ({ where }: any) => hydrate(matching(where)[0]));
   stub(prisma.deliveryRecord, 'findUnique', async ({ where }: any) => hydrate(rows.get(where.id)));

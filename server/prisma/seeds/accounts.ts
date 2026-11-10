@@ -1,6 +1,7 @@
 
 import { prisma } from '../../src/db';
 import { normalizedCategoryName } from '../../src/services/supplierCategories';
+import { localDirectoryKey } from '../../src/services/accountDirectory';
 
 const COMPANIES = [
   { key: 'jollibee',     name: 'Jollibee Foods Corp. - Quezon City Cluster',          sapNumber: 'SAP-CO-0001', address: '12 E. Rodriguez Jr. Ave, Quezon City',              contactPerson: 'Theresa Alajar' },
@@ -80,7 +81,7 @@ export async function seedAccounts(adminUserId: string) {
   const companies: Record<string, { id: string; name: string }> = {};
   for (const c of COMPANIES) {
     const created = await prisma.company.create({
-      data: { name: c.name, sapNumber: c.sapNumber, address: c.address, contactPerson: c.contactPerson }
+      data: { name: c.name, normalizedName: localDirectoryKey(c.name), sapNumber: c.sapNumber, address: c.address, contactPerson: c.contactPerson }
     });
     companies[c.key] = { id: created.id, name: created.name };
   }

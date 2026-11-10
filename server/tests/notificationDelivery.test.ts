@@ -41,6 +41,8 @@ function fixture(t: TestContext, mode = 'V1') {
   stub(prisma.user, 'findMany', async ({ where }: any) => users.filter(user => user.isActive &&
     (where.email ? user.email.toLowerCase() === where.email.equals.toLowerCase()
       : where.name ? user.name.toLowerCase() === where.name.equals.toLowerCase() : user.role === where.role)));
+  // No directory rows: AM mail uses the exact unique-name rule these tests cover.
+  stub(prisma.accountManager, 'findUnique', async () => null);
   stub(prisma.rolePolicy, 'findUnique', async ({ where }: any) => ({ role: where.role, revision: 1n, catalogVersion: 1,
     permissions: [...defaultRolePermissions(where.role)].map(([permissionKey, effect]) => ({ permissionKey, effect })) }));
   stub(prisma.deliveryRecord, 'findFirst', async () => saved);

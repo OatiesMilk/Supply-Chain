@@ -188,6 +188,9 @@ function database(row = record(), files: any[] = []) {
   stub(prisma.notificationLog, 'create', async () => { events.push('notification'); return {} as any; });
   stub(prisma.notification, 'createMany', async () => { events.push('notification'); return { count: 0 }; });
   stub(prisma.user, 'findMany', async () => []);
+  // Account Manager directory: 'Alex AM' is listed and unlinked, so mail falls back to the exact-name rule.
+  stub(prisma.accountManager, 'findUnique', async () => null);
+  stub(prisma.accountManager, 'findMany', async ({ where }: any = {}) => where?.normalizedName === 'alex am' ? [{ name: 'Alex AM' }] : []);
   stub(podStorage, 'read', async () => photo);
   return { events, audit, remarks, tx, cleanupJobs, saved: () => saved };
 }
@@ -1048,7 +1051,7 @@ test('RMA accepts required entry fields and explicit movement without optional d
   for (const isDraft of [false, true]) {
     resetFixtures();
     const state = database();
-    stub(prisma.company, 'findUnique', async () => ({ id: 'company-1' }) as any);
+    stub(prisma.company, 'findUnique', async () => ({ id: 'company-1', isActive: true }) as any);
     const created = await request('post', '/', { role: 'TASS', body: {
       company_id: 'company-1', category: 'RMA', rma_movement: 'INTERNAL_NO_DRIVER', priority: '2 - Moderate', area: 'Carmona',
       account_manager: 'Alex AM', is_draft: isDraft ? 'Yes' : 'No',
@@ -1076,7 +1079,7 @@ test('all seven RMA categories save with the exact manually supplied reference',
   for (const category of RMA_CATEGORIES) {
     resetFixtures();
     const state = database();
-    stub(prisma.company, 'findUnique', async () => ({ id: 'company-1' }) as any);
+    stub(prisma.company, 'findUnique', async () => ({ id: 'company-1', isActive: true }) as any);
     const created = await request('post', '/', { role: 'TASS', body: {
       company_id: 'company-1', category: 'RMA', rma_movement: 'INTERNAL_NO_DRIVER', priority: '2 - Moderate', area: 'Carmona', account_manager: 'Alex AM',
       rma_type: category, rma_reference: '00042 / manual-Ref', item_type: 'Unit',
@@ -1101,7 +1104,7 @@ test('earlier RMA category labels remain readable without rewriting saved data',
 
 test('TASS creates, edits, submits and changes priority/status for an RMA record', async () => {
   const state = database();
-  stub(prisma.company, 'findUnique', async () => ({ id: 'company-1' }) as any);
+  stub(prisma.company, 'findUnique', async () => ({ id: 'company-1', isActive: true }) as any);
   const created = await request('post', '/', { role: 'TASS', body: {
     company_id: 'company-1', category: 'RMA', rma_movement: 'INTERNAL_NO_DRIVER', rma_reference: 'RMA-DOC-042', is_draft: 'Yes',
     rma_type: 'Pull-Out Slip', purchase_date: '2026-08-04', customer_contact_name: 'Casey Customer',

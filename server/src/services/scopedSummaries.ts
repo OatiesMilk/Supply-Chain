@@ -6,6 +6,7 @@ import { recordScope, readableCategories } from './recordAccess';
 import { dispatchMovementScope } from './rmaMovement';
 import { manilaToday } from './deliveryLifecycle';
 import { sendEmail, sendMailReal } from './mailer';
+import { summaryAccountManagerNames } from './accountDirectory';
 
 /** Each recipient gets only their current scope. Version-tagged stored summaries
  * disappear on revocation; historical unclassified global summaries stay hidden. */
@@ -22,8 +23,7 @@ export async function notifyScopedSummary(user: AuthUser, title: string, message
 
 export async function runScopedSummaries(kind: '4PM' | '6PM' | 'WEEKLY', now = new Date()) {
   const users = await prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true } });
-  const names = new Map<string, number>();
-  for (const user of users) names.set(user.name.trim().toLowerCase(), (names.get(user.name.trim().toLowerCase()) ?? 0) + 1);
+  const amNames = kind === '4PM' ? await summaryAccountManagerNames(users) : new Map<string, string>();
   for (const candidate of users) {
     const loaded = await loadPermissionSession(prisma, candidate.id);
     if (!loaded?.isActive || !loaded.session.snapshot.valid) continue;
@@ -35,9 +35,10 @@ export async function runScopedSummaries(kind: '4PM' | '6PM' | 'WEEKLY', now = n
         const count = await prisma.deliveryRecord.count({ where: { deletedAt: null, draft: false, status: 'SCHEDULED', driver: '', AND: [recordScope(user), dispatchMovementScope] } });
         if (count) await notifyScopedSummary(user, `${count} records still need a driver`, `4 PM: ${count} visible scheduled records have no driver assigned.`);
       }
-      if (names.get(candidate.name.trim().toLowerCase()) !== 1) continue;
+      const amName = amNames.get(candidate.id);
+      if (!amName) continue;
       const where: Prisma.DeliveryRecordWhereInput = { deletedAt: null, draft: false, status: { not: 'ACCOMPLISHED' },
-        accountManager: { equals: candidate.name, mode: 'insensitive' }, AND: [recordScope(user)] };
+        accountManager: { equals: amName, mode: 'insensitive' }, AND: [recordScope(user)] };
       const count = await prisma.deliveryRecord.count({ where });
       if (!count) continue;
       const preview = await prisma.deliveryRecord.findMany({ where, take: 3, orderBy: { id: 'asc' }, select: { reference: true, rmaReference: true, category: true } });
