@@ -11,7 +11,6 @@ import {
   Clock,
   UserCheck,
   X,
-  Loader2
 } from "lucide-react";
 import { DeliveryRecord, DeliveryStatus } from "@/types";
 import PodUploader from "@/components/PodUploader";
@@ -26,6 +25,7 @@ import { uploadStagedFiles } from '@/api/queries/usePodAttachments';
 import { useQueryClient } from '@tanstack/react-query';
 import { notify } from '@/utils/notify';
 import AccountMenu from '@/layouts/AccountMenu';
+import { DashboardPage, DashboardPanel, EmptyState, KpiTile, TileSkeleton } from './ui';
 
 interface DriverDashboardProps {
   records: DeliveryRecord[];
@@ -156,6 +156,8 @@ function DriverDashboardContent({
       ? r.delivery_date === today || !!r.completed_late || (deliveryScheduleState(r.delivery_date, today).future && hasValidRunTimeIn(r.time_in))
       : r.delivery_date === today));
   const recordsInScope = activeWorkRecords.length + accomplishedRecords.length;
+  // While the first load is in flight there is nothing trustworthy to count.
+  const summaryLoading = dataLoading && records.length === 0 && !dashboardCounts;
 
   const handleTimeIn = (rec: DeliveryRecord) => {
     if (!access.canRecord(rec.category, 'TIME_IN')) return;
@@ -189,8 +191,7 @@ function DriverDashboardContent({
       <header className="h-16 border-b border-slate-200 bg-white">
         <div className="mx-auto flex h-full max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <div className="min-w-0">
-            <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500">Microgenesis Field Mobile</p>
-            <h1 className="truncate text-sm font-semibold text-slate-900 sm:text-base">Driver dashboard</h1>
+            <p className="truncate text-sm font-semibold text-slate-900 sm:text-base">Microgenesis Field Mobile</p>
           </div>
           <div className="flex shrink-0 items-center gap-3">
             <p className="hidden text-sm text-slate-600 sm:block">{currentUserName} · {todayLabel}</p>
@@ -201,34 +202,11 @@ function DriverDashboardContent({
       </header>
 
       <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-        <section aria-label="Driver summary" className="mb-5 grid grid-cols-3 gap-2 sm:gap-3">
-          {[
-            {
-              label: "Today's Runs",
-              value: dashboardCounts?.today ?? todayRecs.length,
-              color: "text-[#1F3864]",
-            },
-            {
-              label: "Accomplished",
-              value: dashboardCounts ? dashboardCounts.completed + dashboardCounts.rma_completed : accomplishedRecords.length,
-              color: "text-emerald-700",
-            },
-            {
-              label: "Remaining",
-              value: dashboardCounts ? dashboardCounts.remaining + dashboardCounts.rma_active : activeWorkRecords.length,
-              color: "text-amber-700",
-            },
-          ].map((s) => (
-            <div
-              key={s.label}
-              className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-3 text-center shadow-sm sm:px-4"
-            >
-              <p className={`text-xl font-bold sm:text-2xl ${s.color}`}>{s.value}</p>
-              <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 sm:text-xs">
-                {s.label}
-              </p>
-            </div>
-          ))}
+        <DashboardPage title="Driver dashboard" id="driver-dashboard">
+        <section aria-label="Driver summary" className="grid grid-cols-3 gap-2 sm:gap-3">
+          <KpiTile size="compact" label="Today's runs" value={summaryLoading ? null : dashboardCounts?.today ?? todayRecs.length} />
+          <KpiTile size="compact" label="Accomplished" value={summaryLoading ? null : dashboardCounts ? dashboardCounts.completed + dashboardCounts.rma_completed : accomplishedRecords.length} />
+          <KpiTile size="compact" label="Remaining" value={summaryLoading ? null : dashboardCounts ? dashboardCounts.remaining + dashboardCounts.rma_active : activeWorkRecords.length} />
         </section>
 
         {queueControls}
@@ -243,26 +221,16 @@ function DriverDashboardContent({
 
       {/* Body */}
       <div className="space-y-4">
-        {dataLoading && (
-          <div role="status" className="flex min-h-20 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-6 text-sm text-slate-600 shadow-sm">
-            <Loader2 className="w-4 h-4 animate-spin" /> Loading runs…
-          </div>
-        )}
+        {dataLoading && <TileSkeleton lines={3} />}
 
         {!dataLoading && recordsInScope === 0 && (
-          <div className="text-center py-16 text-slate-400">
-            <CheckCircle className="w-10 h-10 mx-auto mb-3 text-emerald-400" />
-            <p className="font-bold text-slate-600">
-              {dashboardCounts ? 'No records in this queue.' : 'No runs ready for execution today.'}
-            </p>
-            <p className="text-xs mt-1">
-              Check back later or contact Logistics.
-            </p>
-          </div>
+          <EmptyState
+            title={dashboardCounts ? 'No records in this queue.' : 'No runs ready for execution today.'}
+            description="Check back later or contact Logistics."
+          />
         )}
 
-        {activeWorkRecords.length > 0 && <section aria-label="Active work" className="space-y-3">
-          <h2 className="text-sm font-semibold text-slate-700">Active work ({activeWorkRecords.length})</h2>
+        {activeWorkRecords.length > 0 && <DashboardPanel title={`Active work (${activeWorkRecords.length})`}>
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             {activeWorkRecords.map(rec => {
               const isRma = rec.category === 'RMA';
@@ -302,7 +270,7 @@ function DriverDashboardContent({
                       {!rec.time_in ? (
                         <button
                           onClick={() => handleTimeIn(rec)}
-                          aria-label="Record Time In — Start transport"
+                          aria-label="Record Time In: start transport"
                           disabled={saving || !access.canRecord(rec.category, 'TIME_IN') || !canRecordTimeIn(rec)}
                           className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#0078C1] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1F3864] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -315,8 +283,8 @@ function DriverDashboardContent({
                       <PodUploader recordId={rec.id} required disabled={saving} onReadinessChange={onPodReadinessChange} />
 
                       <div className="space-y-1">
-                        <label className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                          <UserCheck aria-hidden="true" className="h-3.5 w-3.5" />Received By *
+                        <label className="flex items-center gap-1 text-sm font-semibold text-slate-700">
+                          <UserCheck aria-hidden="true" className="h-3.5 w-3.5" />Received by *
                         </label>
                         <input
                           type="text"
@@ -332,17 +300,17 @@ function DriverDashboardContent({
                         <button
                           onClick={() => { setPendingAction({ rec, status: 'Delivered' }); setRemarksInput(''); setSaveFeedback(null); }}
                           disabled={saving || !access.canRecord(rec.category, 'COMPLETE') || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes('Delivered') || !!completionError(rec, 'Delivered', receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}
-                          className="flex min-h-11 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg bg-emerald-700 px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="flex min-h-11 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg bg-emerald-700 px-2 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
                         ><CheckCircle aria-hidden="true" className="h-4 w-4" />Accomplish</button>
                         <button
                           onClick={() => { setPendingAction({ rec, status: 'Pending' }); setRemarksInput(''); setSaveFeedback(null); }}
                           disabled={saving || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes('Pending')}
-                          className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg bg-amber-600 px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg bg-amber-600 px-2 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
                         ><Navigation aria-hidden="true" className="h-4 w-4" />Pending</button>
                         <button
                           onClick={() => { setPendingAction({ rec, status: 'Rescheduled' }); setRemarksInput(''); setSaveFeedback(null); }}
                           disabled={saving || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes('Rescheduled')}
-                          className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg bg-[#1F3864] px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-white transition-colors hover:bg-[#0078C1] disabled:cursor-not-allowed disabled:opacity-50"
+                          className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg bg-[#1F3864] px-2 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#0078C1] disabled:cursor-not-allowed disabled:opacity-50"
                         ><RefreshCw aria-hidden="true" className="h-4 w-4" />Reschedule</button>
                       </div>
                     </div>
@@ -351,12 +319,12 @@ function DriverDashboardContent({
               </article>;
             })}
           </div>
-        </section>}
+        </DashboardPanel>}
 
         {/* Completed records */}
         {accomplishedRecords.length > 0 && (
-          <section aria-label="Accomplished records" className="space-y-3">
-            <h2 className="text-sm font-semibold text-slate-700">Accomplished ({accomplishedRecords.length})</h2>
+          <DashboardPanel title={`Accomplished (${accomplishedRecords.length})`}>
+            <div className="space-y-3">
             {accomplishedRecords.map(rec => {
               const isRma = rec.category === 'RMA';
               const categoryLabel = isRma ? 'RMA transport' : rec.category === 'Deliveries' ? 'Delivery' : rec.category;
@@ -415,15 +383,16 @@ function DriverDashboardContent({
                 </span>
               </button>;
             })}
-          </section>
+            </div>
+          </DashboardPanel>
         )}
 
         {/* Upcoming and other-date records stay visible without execution controls. */}
         {records.filter(
           (r) => r.category !== 'RMA' && !isDashboardRunActionable(r, today) && r.status !== "Delivered",
         ).length > 0 && (
-          <section aria-label="Upcoming and other-date runs" className="space-y-3">
-            <h2 className="text-sm font-semibold text-slate-700">Upcoming / Other Dates</h2>
+          <DashboardPanel title="Upcoming and other dates">
+            <div className="space-y-3">
             {records
               .filter((r) => r.category !== 'RMA' && !isDashboardRunActionable(r, today) && r.status !== "Delivered")
               .map((rec) => (
@@ -452,7 +421,8 @@ function DriverDashboardContent({
                   </div>
                 </div>
               ))}
-          </section>
+            </div>
+          </DashboardPanel>
         )}
       </div>
 
@@ -462,8 +432,8 @@ function DriverDashboardContent({
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm space-y-4 p-6 mb-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-sm font-black text-slate-900">
-                  Confirm Status
+                <h3 className="text-sm font-semibold text-slate-900">
+                  Confirm status
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Mark{" "}
@@ -489,8 +459,8 @@ function DriverDashboardContent({
             </div>
 
             <div className="space-y-1.5">
-              <label htmlFor="driver-action-remarks" className="text-[10px] font-black text-slate-600 uppercase tracking-wider block">
-                Remarks — reason for change (required)
+              <label htmlFor="driver-action-remarks" className="text-sm font-semibold text-slate-700 block">
+                Remarks, reason for change (required)
               </label>
               <p id="driver-action-remarks-help" className="text-xs text-slate-600">Explain why you are making this change. The reason is saved with your name in the record history.</p>
               <textarea
@@ -564,6 +534,7 @@ function DriverDashboardContent({
           onClose={() => setSelectedDoneRecord(null)}
         />
       )}
+        </DashboardPage>
       </main>
     </div>
   );
