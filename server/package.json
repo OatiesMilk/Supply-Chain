@@ -17,6 +17,7 @@
     "seed:uat": "tsx prisma/seed-uat.ts",
     "seed:staging": "tsx prisma/seed-staging.ts",
     "seed:staging:reset": "tsx prisma/seed-staging.ts --reset",
+    "seed:staging:master-data": "tsx prisma/seed-staging-master-data.ts",
     "lint": "tsc --noEmit",
     "db:reset": "prisma migrate reset --force",
     "seed:accounts": "tsx prisma/seed-accounts-only.ts",
@@ -29,7 +30,8 @@
     "permissions:backfill": "tsx prisma/backfill-permissions.ts",
     "permissions:provision-local": "tsx prisma/provision-local-permissions.ts",
     "permissions:activate-rma-dispatch": "tsx prisma/activate-rma-dispatch.ts",
-    "permissions:rehearse": "tsx prisma/rehearse-permissions.ts"
+    "permissions:rehearse": "tsx prisma/rehearse-permissions.ts",
+    "permissions:provision-staging": "tsx prisma/provision-staging-permissions.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
