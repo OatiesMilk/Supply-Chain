@@ -13,13 +13,15 @@ export const BUSINESS_AUDIT_FIELDS: Record<string, readonly string[]> = {
   Customer: ['name', 'contactPerson', 'contact_person', 'email', 'phone', 'address', 'city', 'remarks'],
   Supplier: ['name', 'contactPerson', 'contact_person', 'email', 'phone', 'address', 'city', 'category', 'categories'],
   SupplierCategory: ['name', 'is_active', 'version'],
+  Company: ['name', 'sap_number', 'address', 'contact_person', 'default_account_manager', 'is_active', 'version'],
+  AccountManager: ['name', 'email', 'linked_user', 'is_active', 'version'],
   Driver: ['name', 'type', 'coverageAreas', 'isActive'],
   SKU: ['skuCode', 'name', 'category', 'unitCost', 'unitPrice', 'reorderPoint', 'description', 'warehouseLocation', 'onHandQty', 'allocatedQty', 'sku_code', 'unit_cost', 'unit_price', 'reorder_point', 'on_hand_qty', 'adjustment_type', 'qty_change', 'reference', 'inventory_warehouse_location', 'inventory_on_hand_qty', 'inventory_allocated_qty'],
   Product: ['skuCode', 'name', 'category', 'unitCost', 'unitPrice', 'reorderPoint', 'description'],
   InventoryTransaction: ['date', 'type', 'qtyChange', 'resultingBalance', 'reference'],
   User: ['name', 'email', 'role', 'isActive', 'microsoft_linked'],
 };
-const RESOURCES: Record<string, string> = { Customer: 'customers', Supplier: 'suppliers', SupplierCategory: 'suppliers', Driver: 'drivers', SKU: 'skus',
+const RESOURCES: Record<string, string> = { Customer: 'customers', Supplier: 'suppliers', SupplierCategory: 'suppliers', Company: 'companies', AccountManager: 'admin', Driver: 'drivers', SKU: 'skus',
   Product: 'skus', InventoryTransaction: 'skus', User: 'admin' };
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 export function safeBusinessAudit(recordType: string, value: string | null): Record<string, unknown> | null {

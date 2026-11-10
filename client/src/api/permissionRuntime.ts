@@ -99,7 +99,7 @@ export function assertPermissionRequest(path: string, options: RequestInit = {})
     }
     return;
   }
-  const resource = ({ 'data-sampler': 'dataSampler', dev: 'dataSampler', reports: 'records' } as Record<string, string>)[root] ?? root;
+  const resource = ({ 'data-sampler': 'dataSampler', dev: 'dataSampler', reports: 'records', 'account-managers': 'companies' } as Record<string, string>)[root] ?? root;
   require(p.canResource(resource));
   if (root === 'reports' || root === 'transactions') {
     require(p.canAccess(root === 'reports' ? 'statistical_reports' : user.role === 'DRIVER' ? 'driver_dashboard' : 'transactions'));
@@ -111,6 +111,11 @@ export function assertPermissionRequest(path: string, options: RequestInit = {})
   if (!write) return;
   const managementScreen = ({ customers: 'customers', suppliers: 'suppliers', drivers: 'driver_manager', skus: 'inventory', users: 'admin', admin: 'admin', dataSampler: 'data_sampler' } as Record<string, string>)[resource];
   if (managementScreen) require(p.canWrite(managementScreen));
+  // Company and Account Manager directory writes mirror the server: Admin role, Admin Panel write, companies write.
+  if (root === 'companies' || root === 'account-managers') {
+    require(user.role === 'ADMIN' && p.canWrite('admin') && p.canResource('admin', 'WRITE') && p.canResource('companies', id ? 'WRITE' : 'CREATE'));
+    return;
+  }
   if (root === 'suppliers' && (id === 'categories' || operation === 'categories')) {
     require(user.role === 'ADMIN' && p.canResource('suppliers', 'WRITE'));
     return;

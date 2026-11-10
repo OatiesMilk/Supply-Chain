@@ -3,6 +3,7 @@ import mammoth from 'mammoth';
 import sanitizeHtml from 'sanitize-html';
 import type { PodAttachment, Prisma } from '@prisma/client';
 import { prisma } from '../db';
+import { recordAccountManager } from '../services/accountDirectory';
 import { asyncRoute } from '../middleware/asyncRoute';
 import { assignmentError, resolveDriverAssignment, withDriverDirectoryLock, type DriverChange } from '../services/driverDirectory';
 import { requireAuth, requireRole, requireResource } from '../middleware/auth';
@@ -1149,8 +1150,11 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
   if (b.priority !== undefined && !['1 - Low', '2 - Moderate', '3 - High'].includes(b.priority)) return res.status(400).json({ error: 'Invalid record priority.' });
   if (b.status && !['Draft', 'Scheduled'].includes(b.status)) return res.status(400).json({ error: 'New records must be Draft or Scheduled.' });
   if (requestsDriver || (Array.isArray(b.driver_assistants) && b.driver_assistants.length)) return res.status(400).json({ error: 'Assign drivers after submitting the record.' });
-  const company = await prisma.company.findUnique({ where: { id: b.company_id }, select: { id: true } });
+  const company = await prisma.company.findUnique({ where: { id: b.company_id }, select: { id: true, isActive: true } });
   if (!company) return res.status(400).json({ error: 'Select an existing Company.' });
+  if (!company.isActive) return res.status(400).json({ error: 'This company is inactive. Choose an active company.' });
+  const accountManager = await recordAccountManager(prisma, b.account_manager ?? '');
+  if ('error' in accountManager) return res.status(400).json({ error: accountManager.error });
   let created: Prisma.DeliveryRecordGetPayload<{ include: typeof recordInclude }>;
   try {
     created = await prisma.$transaction(async tx => {
@@ -1170,7 +1174,7 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
         timeIn: null,
         timeOut: null,
         receivedBy: null,
-        accountManager: b.account_manager ?? '',
+        accountManager: accountManager.name,
         deliveryDate: b.delivery_date ?? '',
         category: dbCategory as any,
         itemType: b.item_type ?? 'Small Item',
@@ -1505,8 +1509,16 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     const invalidAssignment = await assignmentError(tx, current, data);
     if (invalidAssignment) return { error: invalidAssignment, updated: null };
     // DEF-008: an unknown Company is a client error, not a foreign-key 500.
-    if (data.companyId !== undefined && data.companyId !== current.companyId && !await tx.company.findUnique({ where: { id: data.companyId }, select: { id: true } })) {
-      return { error: 'Select an existing Company.', updated: null };
+    if (data.companyId !== undefined && data.companyId !== current.companyId) {
+      const company = await tx.company.findUnique({ where: { id: data.companyId as string }, select: { id: true, isActive: true } });
+      if (!company) return { error: 'Select an existing Company.', updated: null };
+      if (!company.isActive) return { error: 'This company is inactive. Choose an active company.', updated: null };
+    }
+    // Old records may keep a retired name; any new choice must be an active Account Manager.
+    if (data.accountManager !== undefined) {
+      const accountManager = await recordAccountManager(tx, data.accountManager, current.accountManager);
+      if ('error' in accountManager) return { error: accountManager.error, updated: null };
+      data.accountManager = accountManager.name;
     }
     if (current.category !== 'RMA') {
       const conflict = recordEditError(current, b.expected_edit_version);

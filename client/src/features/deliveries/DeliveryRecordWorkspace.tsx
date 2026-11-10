@@ -17,7 +17,7 @@ import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActio
 import { api, ApiError, ApiAuditEntry, ApiComment, ApiCompany, ApiRemarkLog } from '@/api';
 import { printSingleManifest, ManifestDocumentationData } from '@/features/deliveries/DeliveryManifest';
 import { rankDriversByCoverage } from '@/utils/driverCoverage';
-import { DRIVERS, driverIdForName,DRIVER_ASSISTANTS, DELIVERY_STATUSES, AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, RMA_ITEM_TYPES, ACCOUNT_MANAGERS, DRIVER_COVERAGE_AREAS, getSubregion, getNearbyAreas } from '@/data';
+import { DRIVERS, driverIdForName,DRIVER_ASSISTANTS, DELIVERY_STATUSES, AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, RMA_ITEM_TYPES, DRIVER_COVERAGE_AREAS, getSubregion, getNearbyAreas } from '@/data';
 import ComboboxField from '@/components/ComboboxField';
 import { Pencil, X as XIcon, Save, Plus } from 'lucide-react';
 import { getOutputTrigger, runOutputActions } from '@/outputActions';
@@ -28,6 +28,7 @@ import PodUploader from '@/components/PodUploader';
 import CommentComposer from '@/components/CommentComposer';
 import { PodAttachmentList } from '@/components/PodAttachmentPreview';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
+import { accountManagerChoices, useAccountManagersQuery } from '@/api/queries/useAccountManagersQuery';
 import type { StagedFile } from '@/utils/idbFiles';
 import { completionError } from '@/utils/podRequirement';
 import { submissionErrors } from '@/utils/recordLifecycle';
@@ -158,6 +159,7 @@ function GeneralTab({
 }) {
   // SC can edit all fields while the record is still Scheduled; Logistics can always edit Area + Address
   const access = usePermissions();
+  const accountManagers = useAccountManagersQuery();
   const tassRma = currentUserRole === 'TASS' && record.category === 'RMA';
   const canEditFull = !readOnly && access.canRecord(record.category, 'UPDATE') && (tassRma || ((currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && (record.status === 'Scheduled' || isDraftRecord(record))));
   const canManageDraft = !readOnly && access.canRecord(record.category, 'SUBMIT') && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin' || tassRma) && !record.time_in;
@@ -643,7 +645,8 @@ function GeneralTab({
                     <label className={labelCls}>Account Manager{record.category === 'RMA' ? ' *' : ''}</label>
                     <select value={draft.account_manager} onChange={e => set('account_manager', e.target.value)} className={fieldInputCls('account_manager')} aria-invalid={!!rmaErrors.account_manager}>
                       <option value="">— Select —</option>
-                      {ACCOUNT_MANAGERS.map(m => <option key={m} value={m}>{m}</option>)}
+                      {/* Active Account Managers, plus the saved name if it has since been deactivated. */}
+                      {accountManagerChoices(accountManagers.data, record.account_manager).map(m => <option key={m} value={m}>{m}</option>)}
                     </select>
                     {rmaErrors.account_manager && <p className="text-[11px] text-red-600">{rmaErrors.account_manager}</p>}
                   </div>

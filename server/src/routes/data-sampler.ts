@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../db';
+import { recordAccountManager } from '../services/accountDirectory';
 import { requireResource, requireAuth, requireRole } from '../middleware/auth';
 import { runSeed } from '../../prisma/seed';
 import { canResetLocalDemo } from '../services/localDemoReset';
@@ -75,7 +76,6 @@ const AREAS = [
 const VEHICLES = ['(None)', 'Truck-A (6-Wheeler)', 'Truck-B (10-Wheeler)', 'Van-01 (L300)', 'Motorcycle-01 (Express)'];
 const DRIVERS = ['Lando Navarro', 'Manny Santos', 'Ronald de la Cruz'];
 const DRIVER_ASSISTANTS = ['Jayson Reyes', 'Bong Alvarez', 'Ricky Mendoza'];
-const ACCOUNT_MANAGERS = ['P. Soriano', 'D. Macaraeg', 'F. Valenzuela', 'R. Pagkalinawan', 'M. Reyes', 'A. Santos', 'C. Lim'];
 const ITEM_TYPES = ['Small Item', 'Medium Item', 'Large / Pallet'];
 
 const PRIORITY_WEIGHTS: [string, number][] = [
@@ -165,9 +165,17 @@ router.post('/generate', requireAuth, requireResource('dataSampler', 'WRITE'), r
       if (error) return res.status(400).json({ error });
     }
 
-    const companies = await prisma.company.findMany({ select: { id: true, name: true } });
+    const companies = await prisma.company.findMany({ where: { isActive: true }, select: { id: true, name: true } });
     if (companies.length === 0) {
-      return res.status(400).json({ error: 'No companies found. Please seed the database first.' });
+      return res.status(400).json({ error: 'No active companies found. Add one in Admin Panel → Companies first.' });
+    }
+    // Sample records use the managed Account Manager list, like real records.
+    const accountManagerNames = (await prisma.accountManager.findMany({ where: { isActive: true }, select: { name: true } })).map(row => row.name);
+    let chosenAccountManager: string | undefined;
+    if (overrides.account_manager !== undefined) {
+      const checked = await recordAccountManager(prisma, overrides.account_manager);
+      if ('error' in checked) return res.status(400).json({ error: checked.error });
+      chosenAccountManager = checked.name;
     }
 
     // Sample runs reference Driver profiles by id, like real assignments.
@@ -194,7 +202,7 @@ router.post('/generate', requireAuth, requireResource('dataSampler', 'WRITE'), r
       const driverAssistants = driver && Math.random() > 0.5
         ? DRIVER_ASSISTANTS[Math.floor(Math.random() * DRIVER_ASSISTANTS.length)]
         : '';
-      const accountManager = ACCOUNT_MANAGERS[Math.floor(Math.random() * ACCOUNT_MANAGERS.length)];
+      const accountManager = accountManagerNames.length ? accountManagerNames[Math.floor(Math.random() * accountManagerNames.length)] : '';
       const itemTypes = isRma ? RMA_ITEM_TYPES : ITEM_TYPES;
       const itemType = itemTypes[Math.floor(Math.random() * itemTypes.length)];
       const descs = ITEM_DESC_BY_CAT[mod.dbCategory] ?? ['Sample item'];
@@ -242,7 +250,7 @@ router.post('/generate', requireAuth, requireResource('dataSampler', 'WRITE'), r
             driver:          fieldDriver ? fieldDriver.name : (overrides.driver === '' ? '' : driver),
             driverId:        fieldDriver ? fieldDriver.id : (overrides.driver === '' ? null : sampleDriver?.id ?? null),
             driverAssistants: formattedAssistants,
-            accountManager:  overrides.account_manager ?? accountManager,
+            accountManager:  chosenAccountManager ?? accountManager,
             deliveryDate:    overrides.delivery_date  ?? deliveryDate,
             category:        mod.dbCategory as any,
             itemType:        overrides.item_type      ?? itemType,

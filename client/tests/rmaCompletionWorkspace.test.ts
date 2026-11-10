@@ -201,8 +201,11 @@ test('shared RMA creation requires an explicit movement choice and preserves sub
   const { default: CreateForm } = await import('../src/features/deliveries/RecordCreateForm');
   const submit = mock.fn(async (data: any) => base({ ...data, id: 'created-rma' }));
   const company = { id: 'company', name: 'RMA Company', contact_person: 'Contact' } as any;
+  // Auto Fill picks the Account Manager (required for RMA) from the managed list.
+  mock.method(api, 'getAccountManagers', async () => [{ id: 'am-1', name: 'P. Soriano', is_active: true }]);
   try {
     await ui.renderElement(React.createElement(CreateForm, { category: 'RMA', categoryLocked: true, companies: [company], onSubmit: submit, onCancel: () => {} }));
+    await ui.flush();
     await act(async () => ui.button('Auto Fill')!.click());
     const form = ui.dom.window.document.querySelector('form')!;
     const submitForm = async (label: string) => { await act(async () => form.dispatchEvent(new ui.dom.window.SubmitEvent('submit', { bubbles: true, cancelable: true, submitter: ui.button(label) }))); await ui.flush(); };

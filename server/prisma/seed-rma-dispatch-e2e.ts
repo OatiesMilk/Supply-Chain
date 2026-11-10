@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../src/db';
 import { initializePermissionFoundation } from '../src/services/permissionBackfill';
 import { provisionRmaDispatchPermissions } from '../src/services/rmaDispatchPermissions';
+import { localDirectoryKey } from '../src/services/accountDirectory';
 
 const target = new URL(process.env.DATABASE_URL ?? 'invalid:');
 if (!['localhost', '127.0.0.1', '[::1]'].includes(target.hostname)
@@ -41,7 +42,7 @@ async function seed() {
   });
   await prisma.company.upsert({
     where: { id: 'sc255-company' },
-    create: { id: 'sc255-company', name: 'RMA Dispatch Test Company', sapNumber: 'SC255', address: 'Carmona', contactPerson: 'Test Contact' },
+    create: { id: 'sc255-company', name: 'RMA Dispatch Test Company', normalizedName: localDirectoryKey('RMA Dispatch Test Company'), sapNumber: 'SC255', address: 'Carmona', contactPerson: 'Test Contact' },
     update: {},
   });
   const activation = await provisionRmaDispatchPermissions(prisma, 'sc255-user-0');
