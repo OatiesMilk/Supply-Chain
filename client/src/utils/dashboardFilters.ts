@@ -1,5 +1,6 @@
 import type { DeliveryRecord } from '../types';
 import { isDraftRecord, manilaToday } from './recordLifecycle';
+import { AGE_CRITICAL_DAYS, manilaDaysSince } from './manilaDays';
 
 export const DASHBOARD_FILTERS = {
   'sc-scheduled-today': { label: 'Deliveries Scheduled Today', screen: 'deliveries' },
@@ -18,7 +19,8 @@ export const DASHBOARD_FILTERS = {
   'log-rescheduled': { label: 'Rescheduled Items', screen: 'deliveries' },
   'log-on-hold-rescheduled': { label: 'On-Hold / Rescheduled', screen: 'deliveries' },
   'log-flags': { label: 'Flags', screen: 'deliveries' },
-  'tass-open-rma': { label: 'Open RMA Records', screen: 'rma' },
+  'tass-open-rma': { label: 'Open RMA', screen: 'rma' },
+  'tass-rma-aging': { label: 'Open RMA over 7 days', screen: 'rma' },
   'tass-rma-on-hold': { label: 'RMA On-Hold', screen: 'rma' },
   'tass-pending-pickups': { label: 'Pick-ups Pending', screen: 'procurement_pickup' },
   'tass-pending-verification': { label: 'Collections Pending', screen: 'accounting_collection' },
@@ -54,6 +56,11 @@ function isManilaDay(value: string | null | undefined, day: string): boolean {
 
 function isDelivery(record: DeliveryRecord): boolean {
   return record.category === 'Deliveries' && !isDraftRecord(record);
+}
+
+/** Every RMA that is neither completed nor a draft. Mirrors OPEN_RMA_STATUSES on the server. */
+function isOpenRma(record: DeliveryRecord): boolean {
+  return record.category === 'RMA' && !isDraftRecord(record) && record.status !== 'Delivered';
 }
 
 function noDriver(record: DeliveryRecord): boolean {
@@ -114,7 +121,11 @@ export function matchesDashboardFilter(
     case 'log-flags':
       return isDelivery(record) && (noDriver(record) || onHoldOrRescheduled(record));
     case 'tass-open-rma':
-      return record.category === 'RMA' && (record.status === 'Scheduled' || record.status === 'Pending');
+      return isOpenRma(record);
+    case 'tass-rma-aging': {
+      const age = manilaDaysSince(record.submitted_at ?? record.created_at);
+      return isOpenRma(record) && age !== null && age > AGE_CRITICAL_DAYS;
+    }
     case 'tass-rma-on-hold':
       return record.category === 'RMA' && record.status === 'On-Hold';
     case 'tass-pending-pickups':

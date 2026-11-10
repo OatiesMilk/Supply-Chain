@@ -28,6 +28,7 @@ import LogisticsDashboard from "@/features/dashboard/LogisticsDashboard";
 import TassDashboard from "@/features/dashboard/TassDashboard";
 import AdminDashboard from "@/features/dashboard/AdminDashboard";
 import { DashboardFilterId, filterRecordsForDashboard } from '@/utils/dashboardFilters';
+import { usePermissions } from '@/hooks/usePermissions';
 
 interface DashboardViewProps {
   products: Product[];
@@ -49,6 +50,22 @@ export default function DashboardView({
   onRefresh,
 }: DashboardViewProps) {
   const overviewQuery = useQuery({ ...operationalSyncOptions, queryKey: ['dashboard-overview'], queryFn: api.getDashboardOverview });
+  const { canAccess } = usePermissions();
+  // TASS is on the shared design system: tiles render from /stats even when /overview fails.
+  if (currentUserRole === "TASS") {
+    return (
+      <TassDashboard
+        stats={dashboardStats?.role === "TASS" ? dashboardStats : null}
+        overview={overviewQuery.data}
+        overviewStatus={overviewQuery.isError ? 'error' : overviewQuery.isPending ? 'pending' : 'success'}
+        onRetryOverview={() => void overviewQuery.refetch()}
+        onNavigate={onNavigate}
+        onRefresh={onRefresh}
+        refreshing={overviewQuery.isFetching}
+        canAccess={canAccess}
+      />
+    );
+  }
   if (overviewQuery.isPending) return <p role="status" className="p-5 text-sm text-slate-600">Loading dashboard totals…</p>;
   if (overviewQuery.isError) return <div role="alert" className="p-5 text-sm text-red-700">Could not load dashboard totals. <button type="button" className="underline" onClick={() => void overviewQuery.refetch()}>Retry dashboard</button></div>;
   const overview = overviewQuery.data;
@@ -57,7 +74,6 @@ export default function DashboardView({
     dashboardStats?.role === "SALES_COORDINATOR" ? dashboardStats : null;
   const logisticsStats =
     dashboardStats?.role === "LOGISTICS" ? dashboardStats : null;
-  const tassStats = dashboardStats?.role === "TASS" ? dashboardStats : null;
   const adminStats = dashboardStats?.role === "ADMIN" ? dashboardStats : null;
 
   // ── Role-specific dashboards ──────────────────────────────────────────────────
@@ -65,18 +81,6 @@ export default function DashboardView({
     return (
       <LogisticsDashboard
         stats={logisticsStats}
-        overview={overview}
-        deliveryRecords={deliveryRecords}
-        onNavigate={onNavigate}
-        onRefresh={onRefresh}
-      />
-    );
-  }
-
-  if (currentUserRole === "TASS") {
-    return (
-      <TassDashboard
-        stats={tassStats}
         overview={overview}
         deliveryRecords={deliveryRecords}
         onNavigate={onNavigate}

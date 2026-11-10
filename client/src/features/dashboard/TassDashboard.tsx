@@ -1,257 +1,90 @@
-import RecordStatus from '@/components/RecordStatus';
-import { manilaToday } from '@/utils/recordLifecycle';
+import { AlertTriangle, ArrowRight, Clock, PackageSearch, RotateCcw } from 'lucide-react';
+import type { ApiDashboardOverview, ApiDashboardStats } from '@/api';
+import type { DeliveryRecord } from '@/types';
+import type { DashboardFilterId } from '@/utils/dashboardFilters';
 import {
-  RotateCcw,
-  Clock,
-  AlertTriangle,
-  ArrowRight,
-  CheckCircle2,
-  ShieldCheck,
-  PackageSearch,
-  RotateCw,
-} from "lucide-react";
-import { DeliveryRecord } from "@/types";
-import { ApiDashboardStats, ApiDashboardOverview } from "@/api";
-import { DashboardFilterId, filterRecordsForDashboard } from '@/utils/dashboardFilters';
+  AgeIndicator, DashboardPage, DashboardPanel, EmptyState, KpiRow, KpiTile, PanelError, RecordTable, StatusPill, TileSkeleton, formatDate,
+  type RecordColumn,
+} from './ui';
+
+type TassStats = Extract<ApiDashboardStats, { role: 'TASS' }>;
 
 interface Props {
-  stats: Extract<ApiDashboardStats, { role: "TASS" }> | null;
-  deliveryRecords: DeliveryRecord[];
-  overview: ApiDashboardOverview;
+  /** null while the server numbers load. Tiles show skeletons, never locally counted guesses. */
+  stats: TassStats | null;
+  overview?: ApiDashboardOverview;
+  overviewStatus?: 'pending' | 'error' | 'success';
+  onRetryOverview?: () => void;
   onNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
   onRefresh?: () => void;
+  refreshing?: boolean;
+  /** Tiles and links for screens the viewer cannot open render without a button. */
+  canAccess?: (screen: string) => boolean;
 }
 
-function daysSince(dateStr: string): number {
-  const then = new Date(dateStr).getTime();
-  return Math.floor((Date.now() - then) / (1000 * 60 * 60 * 24));
-}
+const columns: RecordColumn<DeliveryRecord>[] = [
+  { key: 'id', header: 'Record', render: record => (
+    <>
+      <span>{record.id}</span>
+      {record.rma_reference && <span className="block text-xs font-normal text-slate-600">{record.rma_reference}</span>}
+    </>
+  ) },
+  { key: 'company', header: 'Company', render: record => <span className="block max-w-[14rem] truncate md:max-w-[12rem]" title={record.company_name}>{record.company_name}</span> },
+  { key: 'area', header: 'Area', render: record => record.area || 'Not set' },
+  { key: 'status', header: 'Status', render: record => <StatusPill record={record} hideCategoryPrefix />, hideLabelWhenStacked: true },
+  { key: 'date', header: 'Delivery date', render: record => formatDate(record.delivery_date) },
+  { key: 'age', header: 'Age', align: 'center', render: record => <AgeIndicator since={record.submitted_at ?? record.created_at} /> },
+];
 
+export default function TassDashboard({ stats, overview, overviewStatus, onRetryOverview, onNavigate, onRefresh, refreshing, canAccess = () => true }: Props) {
+  const status = overviewStatus ?? (overview ? 'success' : 'pending');
+  const open = (screen: string, filter?: DashboardFilterId) => (canAccess(screen) ? () => onNavigate(screen, undefined, filter) : undefined);
+  const onHold = overview?.counts['tass-rma-on-hold'];
+  const aging = overview?.counts['tass-rma-aging'];
+  const openContext = onHold === undefined || aging === undefined ? undefined : `${onHold} on hold, ${aging} over 7 days`;
+  const verifiedToday = stats?.verified_today ?? 0;
 
-export default function TassDashboard({
-  stats,
-  overview,
-  deliveryRecords,
-  onNavigate,
-  onRefresh,
-}: Props) {
-  // KPI values — fall back to computing from deliveryRecords when stats haven't loaded
-  const openRma =
-    stats?.open_rma ??
-    filterRecordsForDashboard(deliveryRecords, 'tass-open-rma').length;
-
-  const rmaOnHold =
-    stats?.rma_on_hold ??
-    filterRecordsForDashboard(deliveryRecords, 'tass-rma-on-hold').length;
-
-  const pendingProcurementPickup =
-    stats?.pending_procurement_pickup ??
-    filterRecordsForDashboard(deliveryRecords, 'tass-pending-pickups').length;
-
-  const pendingVerification =
-    stats?.pending_verification ??
-    filterRecordsForDashboard(deliveryRecords, 'tass-pending-verification').length;
-
-  const verifiedToday =
-    stats?.verified_today ??
-    (() => {
-      const today = manilaToday();
-      return deliveryRecords.filter(
-        (record) => record.collection_verified && record.collection_verified_at?.slice(0, 10) === today,
-      ).length;
-    })();
-
-  const openRmaRecords = overview.record_previews.rma_attention;
-  const attentionTotal = overview.counts.rma_attention ?? 0;
+  const previews = overview?.record_previews.rma_attention ?? [];
+  const total = overview?.counts['tass-open-rma'] ?? overview?.counts.rma_attention ?? 0;
 
   return (
-    <div className="space-y-6" id="tass-dashboard">
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Open RMA Records */}
-        <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-blue-400 transition-all cursor-pointer"
-          onClick={() => onNavigate("rma", undefined, 'tass-open-rma')}
-        >
-          <div className="min-w-0">
-            <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
-              Open RMA Records
-            </p>
-            <h3 className="text-3xl font-black text-slate-900 mt-1">
-              {openRma}
-            </h3>
-            <span className="text-xs text-blue-600 font-extrabold flex items-center gap-1 mt-2">
-              View RMA <ArrowRight className="w-3.5 h-3.5 shrink-0" />
-            </span>
-          </div>
-          <div
-            className={`p-3 rounded-lg shrink-0 ${openRma > 0 ? "bg-blue-50 text-blue-600" : "bg-gray-50 text-gray-400"}`}
-          >
-            <RotateCcw className="w-6 h-6" />
-          </div>
-        </div>
+    <DashboardPage title="Command dashboard" id="tass-dashboard" updatedAt={overview?.generated_at} onRefresh={onRefresh} refreshing={refreshing}>
+      <KpiRow count={4}>
+        <KpiTile label="Open RMA" unit="records" icon={RotateCcw} value={stats?.open_rma} context={openContext}
+          tone={aging ? 'critical' : 'warning'} onOpen={open('rma', 'tass-open-rma')} />
+        <KpiTile label="On hold" unit="RMA records" icon={AlertTriangle} value={stats?.rma_on_hold} tone="critical"
+          context={stats ? (stats.rma_on_hold > 0 ? 'Blocked, needs action' : 'No blocked RMA') : undefined}
+          onOpen={open('rma', 'tass-rma-on-hold')} />
+        <KpiTile label="Pick-ups pending" unit="pick-ups" icon={PackageSearch} value={stats?.pending_procurement_pickup}
+          context={stats ? (stats.pending_procurement_pickup > 0 ? 'Waiting to be picked up' : 'Nothing pending') : undefined}
+          onOpen={open('procurement_pickup', 'tass-pending-pickups')} />
+        <KpiTile label="Collections to verify" unit="collections" icon={Clock} value={stats?.pending_verification} tone="warning"
+          context={stats ? (verifiedToday > 0 ? `${verifiedToday} verified today` : stats.pending_verification > 0 ? 'Awaiting your sign-off' : 'Nothing to verify') : undefined}
+          onOpen={open('accounting_collection', 'tass-pending-verification')} />
+      </KpiRow>
 
-        {/* RMA On-Hold */}
-        <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-red-400 transition-all cursor-pointer"
-          onClick={() => onNavigate("rma", undefined, 'tass-rma-on-hold')}
-        >
-          <div className="min-w-0">
-            <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
-              RMA On-Hold
-            </p>
-            <h3 className="text-3xl font-black text-slate-900 mt-1">
-              {rmaOnHold}
-            </h3>
-            <span className="text-xs text-red-600 font-extrabold flex items-center gap-1 mt-2">
-              Blocked — needs action
-            </span>
-          </div>
-          <div
-            className={`p-3 rounded-lg shrink-0 ${rmaOnHold > 0 ? "bg-red-50 text-red-600 animate-pulse" : "bg-gray-50 text-gray-400"}`}
-          >
-            <AlertTriangle className="w-6 h-6" />
-          </div>
-        </div>
-
-        {/* Procurement Pick-ups Pending */}
-        <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-purple-400 transition-all cursor-pointer"
-          onClick={() => onNavigate("procurement_pickup", undefined, 'tass-pending-pickups')}
-        >
-          <div className="min-w-0">
-            <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
-              Pick-ups Pending
-            </p>
-            <h3 className="text-3xl font-black text-slate-900 mt-1">
-              {pendingProcurementPickup}
-            </h3>
-            <span className="text-xs text-purple-600 font-extrabold flex items-center gap-1 mt-2">
-              View pick-ups <ArrowRight className="w-3.5 h-3.5 shrink-0" />
-            </span>
-          </div>
-          <div
-            className={`p-3 rounded-lg shrink-0 ${pendingProcurementPickup > 0 ? "bg-purple-50 text-purple-600" : "bg-gray-50 text-gray-400"}`}
-          >
-            <PackageSearch className="w-6 h-6" />
-          </div>
-        </div>
-
-        {/* Collections Pending Verification */}
-        <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-amber-300 transition-all cursor-pointer"
-          onClick={() => onNavigate("accounting_collection", undefined, 'tass-pending-verification')}
-        >
-          <div className="min-w-0">
-            <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
-              Collections Pending
-            </p>
-            <h3 className="text-3xl font-black text-slate-900 mt-1">
-              {pendingVerification}
-            </h3>
-            <span className="text-xs text-amber-600 font-extrabold flex items-center gap-1 mt-1">
-              {verifiedToday > 0
-                ? `${verifiedToday} verified today`
-                : "Awaiting TASS sign-off"}
-            </span>
-          </div>
-          <div
-            className={`p-3 rounded-lg shrink-0 ${pendingVerification > 0 ? "bg-amber-50 text-amber-500" : "bg-gray-50 text-gray-400"}`}
-          >
-            <Clock className="w-6 h-6" />
-          </div>
-        </div>
-      </div>
-
-      {attentionTotal > 0 && <button type="button" onClick={() => onNavigate('rma')} className="text-sm text-blue-800 underline">View all {attentionTotal} open RMA records (showing {openRmaRecords.length})</button>}
-      {/* Needs Attention: Open RMA Records */}
-      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
-          <h4 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-            <RotateCcw className="w-4 h-4 text-blue-500" /> Open RMA Records —
-            Needs Attention
-          </h4>
-          <span
-            className={`text-xs px-2.5 py-0.5 rounded font-extrabold uppercase tracking-wide ${
-              attentionTotal > 0
-                ? "bg-blue-100 text-blue-800"
-                : "bg-emerald-100 text-emerald-800"
-            }`}
-          >
-            {attentionTotal} open
-          </span>
-        </div>
-
-        {attentionTotal === 0 ? (
-          <div className="flex flex-col items-center justify-center py-8 text-center">
-            <ShieldCheck className="w-10 h-10 text-emerald-500 mb-2" />
-            <p className="text-base font-bold text-slate-700">
-              No open RMA records
-            </p>
-            <p className="text-xs text-slate-400">
-              All return and warranty records are resolved.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  <th className="px-4 py-3 whitespace-nowrap">Record ID</th>
-                  <th className="px-4 py-3">Company</th>
-                  <th className="px-4 py-3">Reference</th>
-                  <th className="px-4 py-3">Area</th>
-                  <th className="px-4 py-3 text-center">Status</th>
-                  <th className="px-4 py-3 text-center whitespace-nowrap">
-                    Delivery Date
-                  </th>
-                  <th className="px-4 py-3 text-center whitespace-nowrap">
-                    Days Open
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {openRmaRecords.map((r) => {
-                  const days = daysSince(r.created_at);
-                  return (
-                    <tr
-                      key={r.id}
-                      className="hover:bg-blue-50/30 cursor-pointer transition-all"
-                      onClick={() => onNavigate("rma", r.id)}
-                    >
-                      <td className="px-4 py-3 font-mono font-bold text-slate-900 whitespace-nowrap">
-                        {r.id}
-                      </td>
-                      <td className="px-4 py-3 font-semibold text-slate-800 max-w-[180px] truncate">
-                        {r.company_name}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-slate-500 text-[10px]">
-                        {r.reference || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                        {r.area || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <RecordStatus record={r} />
-                      </td>
-                      <td className="px-4 py-3 text-center text-slate-600 font-semibold whitespace-nowrap">
-                        {r.delivery_date || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span
-                          className={`font-black text-sm ${days > 7 ? "text-red-600" : days > 3 ? "text-amber-600" : "text-slate-600"}`}
-                        >
-                          {days === 0 ? "Today" : `${days}d`}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
+      <DashboardPanel
+        title="Open RMA needing attention"
+        count={status === 'success' ? `${total} open` : undefined}
+        footer={status === 'success' && total > 0 ? (
+          <>
+            <span>Showing {previews.length} of {total}</span>
+            {canAccess('rma') && (
+              <button type="button" onClick={() => onNavigate('rma', undefined, 'tass-open-rma')}
+                className="inline-flex items-center gap-1 rounded-sm font-semibold text-[#1F3864] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]">
+                View all {total} open RMA records <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              </button>
+            )}
+          </>
+        ) : undefined}
+      >
+        {status === 'pending' && <TileSkeleton lines={4} />}
+        {status === 'error' && <PanelError message="Open RMA records could not be loaded." onRetry={onRetryOverview} />}
+        {status === 'success' && (total === 0
+          ? <EmptyState title="No open RMA records" description="All return and warranty records are resolved." />
+          : <RecordTable rows={previews} columns={columns} rowKey={record => record.id} caption="Open RMA records, On-Hold first, then oldest submission"
+              onOpen={canAccess('rma') ? record => onNavigate('rma', record.id) : undefined} openLabel={record => `Open RMA record ${record.rma_reference || record.id}`} />)}
+      </DashboardPanel>
+    </DashboardPage>
   );
 }
