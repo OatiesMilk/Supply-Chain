@@ -81,6 +81,8 @@ Create example:
 }
 ```
 
+Record responses include `submitted_at` (ISO timestamp, or `null`). It is the time the record last left Draft: set when a record is created as submitted, set again on every Draft to submitted change, and cleared when a record is returned to Draft. Dashboards measure RMA age from it. Clients never send it.
+
 Status example (`Delivered` also needs Time In, a saved JPG/PNG proof photo, recipient and remarks; otherwise `400`):
 
 ```json

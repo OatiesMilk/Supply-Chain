@@ -293,6 +293,8 @@ model DeliveryRecord {
   category             String // DELIVERY | RMA | ACCOUNTING_COLLECTION | PROCUREMENT_PICKUP | SALES_ORDERS
   itemType             String
   draft                Boolean    @default(false)
+  // When the record last left Draft; null while a draft. Age on dashboards counts from here.
+  submittedAt          DateTime?
   itemDescription      String     @default("")
   lineItems            LineItem[] @relation("DeliveryRecordLineItems")
   documentAttachment   String?

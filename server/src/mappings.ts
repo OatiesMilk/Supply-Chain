@@ -128,6 +128,7 @@ export function serializeRecord(r: any, user?: AuthUser) {
     created_by: r.createdBy?.name ?? '',
     created_by_id: r.createdById,
     created_at: r.createdAt,
+    submitted_at: r.submittedAt ?? null,
     modified_by: r.modifiedBy?.name ?? '',
     modified_by_id: r.modifiedById,
     modified_at: r.updatedAt,

@@ -35,6 +35,7 @@ import { recordEditError } from '../services/recordEditVersion';
 import { generateRecordId } from '../services/recordIds';
 import { RECORD_VIEWS, runViewWhere, type RecordView } from '../services/recordViewFilters';
 import { dashboardRecordFilter } from '../services/dashboardFilters';
+import { submittedAtChange, submittedAtOnCreate } from '../services/submission';
 
 const router = Router();
 class RecordSubmissionError extends Error {}
@@ -1179,6 +1180,7 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
         category: dbCategory as any,
         itemType: b.item_type ?? 'Small Item',
         draft: isDraft,
+        submittedAt: submittedAtOnCreate(isDraft),
         rmaType: dbCategory === 'RMA' ? normalizeRmaCategory(b.rma_type) : null,
         rmaMovement: dbCategory === 'RMA' ? b.rma_movement || null : null,
         rmaTransportStatus: dbCategory === 'RMA' && b.rma_movement === 'LOGISTICS_TRANSPORT' ? 'PENDING' : null,
@@ -1524,6 +1526,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
       const conflict = recordEditError(current, b.expected_edit_version);
       if (conflict) return { error: conflict.error, updated: null, writeStatus: conflict.status };
     }
+    Object.assign(data, submittedAtChange(current.draft, data.draft ?? current.draft));
     const updated = await tx.deliveryRecord.update({ where: { id: existing.id }, data, include: recordInclude });
     await tx.auditLog.create({ data: {
       recordId: updated.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id,
@@ -1710,6 +1713,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
       if (conflict) return { error: conflict.error, saved: null, previous: null, writeStatus: conflict.status };
     }
     if (current.category === 'RMA') data.rmaVersion = { increment: 1 };
+    Object.assign(data, submittedAtChange(current.draft, data.draft ?? current.draft));
     const saved = await tx.deliveryRecord.update({ where: { id: current.id }, data, include: recordInclude });
     await tx.auditLog.create({ data: {
       recordId: saved.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id,
