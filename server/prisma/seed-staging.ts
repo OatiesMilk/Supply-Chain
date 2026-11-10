@@ -3,6 +3,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { assertStagingSeedTarget, StagingSeedError } from './staging-seed-safety';
 import { lockDriverDirectory } from '../src/services/driverDirectory';
+import { localDirectoryKey } from '../src/services/accountDirectory';
 
 const routeRow = z.object({
   sheet: z.string().min(1), row: z.number().int().positive(),
@@ -127,6 +128,8 @@ export async function runStagingSeed(db: PrismaClient, rawSource: unknown, optio
   const admin = await db.user.findUnique({ where: { email: target.adminEmail } });
   if (!admin || admin.role !== 'ADMIN' || !admin.isActive) throw new StagingSeedError('Staging seed requires an existing active Admin; provision one through the approved account process first.');
 
+  // A remote additive import needs a separate insert and audit write for each entity.
+  const transactionTimeout = apply && !reset ? 120_000 : 60_000;
   return db.$transaction(async tx => {
     if (apply) await lockDriverDirectory(tx);
     const actor = await tx.user.findUnique({ where: { id: admin.id } });
@@ -168,7 +171,7 @@ export async function runStagingSeed(db: PrismaClient, rawSource: unknown, optio
     for (const name of companies) {
       const id = stagingEntityId(source.source.sha256, 'Company', name);
       await entity('Company', name, { name }, reset ? null : await tx.company.findUnique({ where: { id } }),
-        () => tx.company.create({ data: { id, name, sapNumber: '', address: '', contactPerson: '' } }), counts.companies);
+        () => tx.company.create({ data: { id, name, normalizedName: localDirectoryKey(name), sapNumber: '', address: '', contactPerson: '' } }), counts.companies);
     }
     const profiles = new Map<string, { name: string; type: 'DRIVER' | 'ASSISTANT' }>();
     for (const row of source.rows.filter(row => row.kind === 'driver-route')) {
@@ -193,7 +196,7 @@ export async function runStagingSeed(db: PrismaClient, rawSource: unknown, optio
         preserved: resetPlan!.preserved, externalStorageDeleted: false }),
     } });
     return counts;
-  }, { maxWait: 10_000, timeout: 60_000 });
+  }, { maxWait: 10_000, timeout: transactionTimeout });
 }
 
 if (require.main === module) {
@@ -210,9 +213,11 @@ if (require.main === module) {
       console.log(JSON.stringify(await runStagingSeed(prisma, source, { apply, reset }), null, 2));
     } finally { await prisma.$disconnect(); }
   })().catch((error: unknown) => {
-    // Only our controlled diagnostics are printed; never raw DB errors or URLs.
+    // Report a Prisma code without printing raw DB errors or URLs.
+    const code = typeof error === 'object' && error !== null && 'code' in error &&
+      typeof error.code === 'string' && /^P[0-9]{4}$/.test(error.code) ? ` (${error.code})` : '';
     const message = error instanceof StagingSeedError
-      ? error.message : 'Staging seed failed: database or source validation failed; transactional changes were not committed.';
+      ? error.message : `Staging seed failed${code}: database or source validation failed. Check staging counts before retrying.`;
     console.error(message); process.exitCode = 1;
   });
 }
