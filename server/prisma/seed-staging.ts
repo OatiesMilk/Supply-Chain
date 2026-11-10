@@ -3,6 +3,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { assertStagingSeedTarget, StagingSeedError } from './staging-seed-safety';
 import { lockDriverDirectory } from '../src/services/driverDirectory';
+import { localDirectoryKey } from '../src/services/accountDirectory';
 
 const routeRow = z.object({
   sheet: z.string().min(1), row: z.number().int().positive(),
@@ -168,7 +169,7 @@ export async function runStagingSeed(db: PrismaClient, rawSource: unknown, optio
     for (const name of companies) {
       const id = stagingEntityId(source.source.sha256, 'Company', name);
       await entity('Company', name, { name }, reset ? null : await tx.company.findUnique({ where: { id } }),
-        () => tx.company.create({ data: { id, name, sapNumber: '', address: '', contactPerson: '' } }), counts.companies);
+        () => tx.company.create({ data: { id, name, normalizedName: localDirectoryKey(name), sapNumber: '', address: '', contactPerson: '' } }), counts.companies);
     }
     const profiles = new Map<string, { name: string; type: 'DRIVER' | 'ASSISTANT' }>();
     for (const row of source.rows.filter(row => row.kind === 'driver-route')) {
