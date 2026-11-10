@@ -67,7 +67,7 @@ These are the seeded accounts from `server/prisma/seeds/users.ts`. They are loca
 | Sales Coordinator | sales@microgenesis.com | password123 | No Admin Panel. Pickers show active AMs and companies. |
 | Logistics | logistics@microgenesis.com | password123 | No Admin Panel. Read-only lists through pickers. |
 | TASS | tass@microgenesis.com | password123 | No Admin Panel. RMA AM picker uses the list. |
-| Driver | driver@microgenesis.com | password123 | No access. A Driver login cannot be linked to an AM. |
+| Driver | driver@microgenesis.com | password123 | No Admin Panel and no writes (403). `GET` on the AM and company lists works and returns the same minimal data as other non-Admin roles (AMs: `id`, `name`, `is_active` only), as found in QA. A Driver login cannot be linked to an AM. |
 
 ## 4. Automated checks (run first)
 
@@ -215,7 +215,7 @@ Email runs in mock mode locally. Check the results in the `NotificationLog` tabl
 
 **Test data left in the disposable database:** Account Manager `Test Manager Updated` (active, unlinked), companies `QA Test Co Updated` (`SAP-QA-1`, default AM `P. Soriano`) and `QA No Default AM`, plus two QA Draft records. The Sales Coordinator E2E integration test also left record `REC-64bcbfcf-b211-4bb5-97ac-9f528d293fad`; its cleanup request returned 403. No code, migration, seed, or other tracked file was changed. No branch, commit, push, or stash operation was performed.
 
-**Browser limitation:** the computer-use browser host was unavailable on the initial check, retry, and reinitialization. Browser screenshots and visual interaction were therefore blocked. Local API and database checks and the existing automated component tests were still run.
+**Round 1 browser limitation:** the computer-use browser host was unavailable on the initial check, retry, and reinitialization. Browser screenshots and visual interaction were blocked in Round 1. Round 2 browser results are recorded below.
 
 ### Automated checks
 
@@ -234,19 +234,19 @@ Email runs in mock mode locally. Check the results in the `NotificationLog` tabl
 
 The direct E2E commands were run from `e2e` with PowerShell-safe project quoting. They were `npx playwright test --config playwright.config.ts --project "Sales Coordinator"` and `npx playwright test --config playwright.config.ts --project "Cross Role Integration"`.
 
-### Acceptance criteria
+### Acceptance criteria (Round 1)
 
 | ID | Result (Pass / Fail / Blocked) | Evidence (response, audit row, automated check) | Notes |
 | :--- | :--- | :--- | :--- |
-| AC-01 | Blocked | `adminDirectory.test.ts` exercises both tab components; API list reads returned 200. | Top-level Admin Panel tab visibility, table counts, and rendered default filter were not visually observed. |
+| AC-01 | Blocked (superseded: Pass in Round 2) | `adminDirectory.test.ts` exercises both tab components; API list reads returned 200. | Top-level Admin Panel tab visibility, table counts, and rendered default filter were not visually observed. |
 | AC-02 | Pass | Admin API created `Test Manager` from `  Test   Manager ` (201); case/spacing duplicate returned 409; short name and invalid email returned 400. | Client form validation and create behavior also passed. |
 | AC-03 | Pass | Admin linked `Test Manager` to Maria Reyes (200); duplicate login link returned 409; Driver link returned 400. | Client test verified only active, non-Driver, unlinked logins are offered. Maria Reyes was unlinked from the QA AM after the check. |
 | AC-04 | Pass | AM rename, deactivate, and reactivate returned 200. Existing record retained `Test Manager` after rename/deactivation and saved a remarks edit; changing it to the inactive AM returned 400. | Client test also verified retired AM values remain available on existing records. |
 | AC-05 | Pass | Created `QA Test Co` with `SAP-QA-1` and default `P. Soriano`; missing SAP returned 400; case-insensitive SAP duplicate and normalized-name duplicate returned 409. A company without a default AM returned 201. | Default AM was present in the company response. |
 | AC-06 | Pass | Company edit/deactivate/reactivate returned 200; inactive company disappeared from `GET /companies?active=true`; new record using it returned 400. | Reactivated company appeared in the active list again. |
-| AC-07 | Blocked | Stale AM and Company updates both returned 409 with the server refresh message. | Rendered conflict message was not observed because browser access was unavailable. |
+| AC-07 | Blocked (superseded: Pass in Round 2) | Stale AM and Company updates both returned 409 with the server refresh message. | Rendered conflict message was not observed because browser access was unavailable. |
 | AC-08 | Pass | Sales, Logistics, TASS, and Driver each received 403 for AM/Company POST and PATCH; no denied rows appeared. Non-Admin AM responses contained only `id`, `name`, and `is_active`. | Sales sidebar regression E2E and the read-only Companies component test passed. Driver list-read ambiguity is recorded below. |
-| AC-09 | Blocked | Active-only API lists contained active AMs/companies; the company response exposed default `P. Soriano`. Client active-AM choice and RMA Auto Fill tests passed. | Visible form behavior, default-AM fill/manual-choice preservation, Accounting Collection, RMA picker, and Data Sampler were not manually observed. |
+| AC-09 | Blocked (superseded: Pass in Round 2) | Active-only API lists contained active AMs/companies; the company response exposed default `P. Soriano`. Client active-AM choice and RMA Auto Fill tests passed. | Visible form behavior, default-AM fill/manual-choice preservation, Accounting Collection, RMA picker, and Data Sampler were not manually observed. |
 | AC-10 | Pass | Unknown and inactive AM choices returned 400; `  p.  soriano ` created a record stored as `P. Soriano`; inactive company returned 400. An old record saved other fields with its inactive historical AM unchanged. | Direct requests used the Sales Coordinator session. |
 | AC-11 | Blocked | Server test “AM mail goes to the linked login first…” passed. Six existing AM NotificationLog rows were inspected; they were `SKIPPED`. | A completed Delivery notification was not triggered for this run, and the scheduled 4 PM summary was not triggered. |
 | AC-12 | Pass | Admin audit API returned 10 matching entries: AccountManager CREATE 1 / UPDATE 5; Company CREATE 1 / UPDATE 3. Before/after snapshots contained the expected directory fields. | Includes the QA login unlink update. |
@@ -264,10 +264,43 @@ No Admin Account Managers or Companies functional defect was confirmed by the AP
 
 - The handoff says Driver has “No access,” while the feature overview says other roles may read the lists. In this run Driver GETs for both directories returned 200 with the minimal AM projection. Should Driver directory reads be denied, or is read-only list access intended for every role?
 - AC-13 duplicate-stop checks require a fresh pre-migration disposable database. Should a separate `*_test` database be provisioned for that optional check?
-- The visible UI checks (AC-01, AC-07 message, AC-09) should be repeated when the computer-use browser service is available. The scheduled 4 PM summary also remains untriggered.
+- The Round 2 browser checks for AC-01, AC-07 and AC-09 are recorded below. The scheduled 4 PM summary remains untriggered.
 - `npm run seed` skipped because the sandbox already had five users; the Sales Coordinator suite consequently lacked its UAT Delivered fixture. Which guarded UAT fixture command should be used for the regression suite on this sandbox?
 
-### Sign-off
+### Round 1 Sign-off
 
 - QA verdict: **Blocked — no feature sign-off yet.** API behavior, directory audit, type checks, focused tests, and full unit/component suites passed. Visual UI checks and the fresh-migration/notification checks remain blocked, and the Sales Coordinator E2E suite has three fixture/path failures.
 - Tested by: ChatGPT Codex
+
+### Round 2 — Browser checks (2026-11-10)
+
+**Scope:** Browser-only checks at `http://localhost:3000`; backend `4000` was already running. No setup, automated suites, database API calls, or saved QA artifacts were used in this round. Temporary responsive viewport was `390 × 844` and was reset after inspection.
+
+| Item | Result | Evidence |
+| :--- | :--- | :--- |
+| AC-01 — Admin tabs and lists | Pass | Account Managers and Companies tabs both opened. Account Managers showed `Search account managers`, `ACTIVE 9`, `INACTIVE 0`, `ALL 9`, and `ADD ACCOUNT MANAGER`; Companies showed `Search companies`, `ACTIVE 47`, `INACTIVE 0`, `ALL 47`, and `ADD COMPANY`. Active was selected by default on both initial views. After Round 2 test records were added and restored active, the counts were `ACTIVE 10 / INACTIVE 0 / ALL 10` for AMs and `ACTIVE 49 / INACTIVE 0 / ALL 49` for companies. |
+| AC-07 — Company stale edit | Pass | Two Admin tabs opened the same `QA R2 Company A 20261110` edit form before either save. After tab 1 saved Contact Person `QA R2 Tab1 Contact`, tab 2’s different save displayed `Someone else changed this company. Close this window to see the latest details, then try again.` Closing it showed `QA R2 Tab1 Contact` in the list; tab 2’s address was not applied. |
+| AC-07 — Account Manager stale edit | Pass | Two Admin tabs opened the same fresh AM before either save. After tab 1 saved `QA R2 Account Manager Tab1 20261110`, tab 2’s different save displayed `Someone else changed this Account Manager. Close this window to see the latest details, then try again.` Closing it showed tab 1’s name in the list. |
+| AC-09 — Deliveries, Sales Coordinator | Pass | Selecting `QA R2 Company A 20261110` filled `QA R2 Account Manager Tab1 20261110`. After choosing `D. Macaraeg`, selecting Company B (default `P. Soriano`) kept `D. Macaraeg`. With the QA AM temporarily inactive, typing its name showed no suggestion; typing `P. Soriano` showed that active suggestion. Auto Fill sampling produced Company A with `QA R2 Account Manager Tab1 20261110` (trial 2), matching its configured default. A no-default sample also produced Mercury Drug (Default AM `None`) with an active AM. |
+| AC-09 — Accounting Collection, Sales Coordinator | Pass | Company A filled `QA R2 Account Manager Tab1 20261110`; manually choosing `D. Macaraeg` then selecting Company B kept `D. Macaraeg`. With the QA AM inactive, its name was absent from the Account Manager menu. Auto Fill produced Company A with `QA R2 Account Manager Tab1 20261110` (trial 9), matching its configured default. A no-default Shakey’s sample used active `R. Pagkalinawan`. |
+| AC-09 — RMA create form, TASS | Pass | Company A filled `QA R2 Account Manager Tab1 20261110`; manually choosing `D. Macaraeg` then selecting Company B kept `D. Macaraeg`. With the QA AM inactive, typing its name showed no suggestion; active `P. Soriano` was offered. Auto Fill produced Company B with `P. Soriano` (trial 5), matching its configured default. A no-default Pancake House sample used active `Test Manager Updated`. |
+| AC-09 — Data Sampler manual mode, Admin | Pass | After deactivating the fresh QA AM and reloading, `Manual with Suggestions` → Deliveries showed active choices including `A. Santos`, `C. Lim`, `D. Macaraeg`, `P. Soriano`, `R. Pagkalinawan`, and `Test Manager Updated`; `QA R2 Account Manager Tab1 20261110` was absent. No sample record was saved. |
+| Deactivate/reactivate confirmation dialogs | Pass | Company deactivate text: `It will no longer be offered on new records. Existing records stay linked to it and keep showing its name.` Reactivate text: `It will be offered again on record forms.` AM deactivate text: `They will no longer appear on new or edited records. Existing records, reports and the AM Directory keep their name.` Reactivate text: `They will appear again in the Account Manager list on record forms.` The test company and AM were reactivated after the checks. |
+| Phone-width pages | Pass | At `390 × 844`, both Admin tabs showed their tab controls, search, status counts, Add button, and table rows. The Company table container exposed horizontal scrolling (`overflow-x-auto`, 364 px client width / 768 px content width). The Add Company dialog fit within the phone viewport with all fields and Cancel/Add buttons visible. |
+
+**Round 2 test data:** AM `QA R2 Account Manager Tab1 20261110` was left active. Company `QA R2 Company A 20261110` (`QA-R2-20261110-01`) was left active with default AM `QA R2 Account Manager Tab1 20261110` and Contact Person `QA R2 Tab1 Contact`. Company `QA R2 Company B 20261110` (`QA-R2-20261110-02`) was left active with default AM `P. Soriano`. Browser forms were canceled without submitting records.
+
+### Round 2 defects
+
+No feature defect was confirmed in the Round 2 browser checks. The Round 1 low-severity Playwright wrapper quoting defect remains listed above.
+
+### Round 2 verdict
+
+**Pass for the Round 2 browser scope. Overall feature QA remains Blocked** by Round 1 items that were not part of this browser-only round: AC-11’s completed-Delivery notification and scheduled 4 PM summary checks, and AC-13’s fresh-migration/duplicate-stop checks.
+
+### Overall status
+
+- **Passed:** AC-01 to AC-10 and AC-12 (API and automated checks in Round 1, browser checks in Round 2). Type checks and the full server and client unit suites pass.
+- **Not tested, accepted for this release by Dylan (2026-11-10):** AC-11 completed-Delivery email and 4 PM summary (only the unit test ran) and AC-13 fresh-database migration and duplicate-stop (staging was checked for duplicates beforehand). Re-test after release if needed.
+- **Open decision:** whether a Driver may read the AM and company lists (currently allowed, minimal data).
+- **Known unrelated:** three Sales Coordinator E2E failures from missing fixtures and a hardcoded `C:\tmp` path; the Windows single-quote script problem in `e2e/package.json`.
