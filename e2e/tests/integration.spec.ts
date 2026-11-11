@@ -249,7 +249,7 @@ test.describe('X Cross-Role Integration', () => {
       await expect(referenceLabel).toBeVisible();
       const driverCard = driverPage.getByRole('article', { name: `Active delivery ${reference}` });
       await expect(driverCard).toHaveCount(1);
-      await driverCard.getByRole('button', { name: /record time in/i }).click();
+      await driverCard.getByRole('button', { name: /^start transport$/i }).click();
       await driverPage.locator('#driver-action-remarks').fill('UAT integration test - starting assigned Delivery');
       await driverPage.getByRole('button', { name: 'Confirm', exact: true }).click();
       await expect(driverCard.getByText(/Transport started:/i)).toBeVisible();

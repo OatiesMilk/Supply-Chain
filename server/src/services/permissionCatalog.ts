@@ -3,6 +3,7 @@
  * recordAccess.ts, transactionAccess.ts and route guards at GH-243.
  * These rows are data, not a replacement for role/ownership/field/state guards.
  */
+import { policyEntryRestricted } from './moduleAccessRules';
 export const POLICY_ROLES = ['SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'ADMIN', 'DRIVER'] as const;
 export type PolicyRole = typeof POLICY_ROLES[number];
 export const POLICY_SCREENS = ['main', 'dashboard', 'deliveries', 'rma', 'accounting_collection', 'procurement_pickup', 'sales_orders', 'customers', 'suppliers', 'driver', 'driver_manager', 'calendar', 'driver_board', 'am_directory', 'transactions', 'inventory', 'statistical_reports', 'driver_dashboard', 'data_sampler', 'admin'] as const;
@@ -104,9 +105,13 @@ export function roleActionCeiling(role: PolicyRole, p: CatalogEntry): boolean {
 }
 /** Snapshot of existing route-permitted operations. Driver rows are always
  * conditional on linked profile, matching assignment, non-draft and state. */
-export function legacyCapabilities(role: PolicyRole, screens: readonly string[], grants: readonly LegacyGrant[], ceilingProbe = false): Map<string, PolicyEffect> {
+export function legacyCapabilities(role: PolicyRole, screens: readonly string[], grants: readonly LegacyGrant[], ceilingProbe = false, applyModuleRules = false): Map<string, PolicyEffect> {
   const allowed = new Set<string>();
-  const add = (scope: PolicyScope, module: string, action: PolicyAction) => allowed.add(policyKey(scope, module, action));
+  // Stored baselines stay frozen; `applyModuleRules` gives the current effective legacy behaviour.
+  const add = (scope: PolicyScope, module: string, action: PolicyAction) => {
+    if (applyModuleRules && policyEntryRestricted(role, { scope, module, action })) return;
+    allowed.add(policyKey(scope, module, action));
+  };
   const has = (...choices: string[]) => choices.some(s => screens.includes(s));
   for (const screen of screens) add('SCREEN', screen, 'READ');
   for (const [resource, deps] of Object.entries(resourceScreens)) if (has(...deps)) add('RESOURCE', resource, 'READ');

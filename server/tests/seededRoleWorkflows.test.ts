@@ -226,7 +226,9 @@ for (const mode of ['LEGACY', 'V1'] as const) {
     f.account('SALES_COORDINATOR').isActive = false;
     await f.expect(f.send('SALES_COORDINATOR', '/auth/me'), 401);
 
-    const delivery = await f.expect(f.send('LOGISTICS', '/records', 'POST', { category: 'Sales Orders', company_id: 'seed-company',
+    // Logistics may still create Accounting Collection runs; Sales Orders belong to Sales Coordinator.
+    await f.expect(f.send('LOGISTICS', '/records', 'POST', { category: 'Sales Orders', company_id: 'seed-company', reference: 'SEED-DENIED', delivery_date: manilaToday() }), 403);
+    const delivery = await f.expect(f.send('LOGISTICS', '/records', 'POST', { category: 'Accounting Collection', company_id: 'seed-company',
       reference: 'SEED-OWNERSHIP', delivery_date: manilaToday() }), 201);
     await f.expect(f.send('LOGISTICS', `/records/${delivery.id}`, 'PUT', { driver_id: 'seed-driver-profile', remarks: 'Assign original linked profile', expected_edit_version: delivery.edit_version }), 200);
     await f.expect(f.send('DRIVER', `/records/${delivery.id}`), 200);

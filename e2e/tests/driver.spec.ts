@@ -2,7 +2,7 @@
  * driver.spec.ts
  *
  * UAT Part C — Driver role E2E tests.
- * Covers: Field Mobile Dashboard, ePOD flow (Time In → POD Upload → Received By → Accomplish).
+ * Covers: Field Mobile Dashboard, ePOD flow (Start transport → POD Upload → Received By → Complete delivery).
  *
  * Test IDs match the UAT_PLAN.md document (C-1.x, C-2.x, C-3.x).
  *
@@ -21,7 +21,7 @@ const BASE_URL = 'http://localhost:3000';
 
 async function getFirstActiveCard(page: Page) {
   // Driver run cards expose the Time In action with a stable accessible name.
-  return page.getByRole('button', { name: /record time in/i }).first();
+  return page.getByRole('button', { name: /^start transport$/i }).first();
 }
 
 function manilaDateOffset(offset: number) {
@@ -106,17 +106,18 @@ test.describe('C-1 Driver Dashboard', () => {
     await expect(page.getByText('TSK99-DATE')).toBeVisible();
     await expect(page.getByText('Upcoming · read-only')).toBeVisible();
     await expect(page.getByText('Date actionability fixture')).toBeVisible();
-    await expect(page.getByRole('button', { name: /record time in/i })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^start transport$/i })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /upload photo|upload.*doc|select photo/i })).toHaveCount(0);
   });
 
   test('C-1.4 Overdue assigned Delivery shows lateness and execution controls', async ({ page }) => {
     await showAssignedRecord(page, manilaDateOffset(-2));
     await expect(page.getByText(/· 2 days late/i)).toBeVisible();
-    await expect(page.getByRole('button', { name: /record time in/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /upload photo|upload.*doc|select photo/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Pending$/i })).toBeDisabled();
-    await expect(page.getByRole('button', { name: /^Reschedule$/i })).toBeEnabled();
+    await expect(page.getByRole('button', { name: /^start transport$/i })).toBeVisible();
+    // The POD uploader and Received by appear after Start transport.
+    await expect(page.getByRole('button', { name: /upload photo|upload.*doc|select photo/i })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Pending$/i })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Reschedule$/i })).toHaveCount(0);
   });
 
   test('C-1.5 Logout works', async ({ page }) => {
@@ -232,8 +233,8 @@ test.describe('C-2 ePOD Flow', () => {
     // 2. Fill Received By
     await page.getByPlaceholder(/received.*item|name of person/i).first().fill('Juan dela Cruz (UAT)');
 
-    // 3. Click Accomplish
-    const accomplishBtn = page.getByRole('button', { name: /accomplish/i }).first();
+    // 3. Click Complete delivery
+    const accomplishBtn = page.getByRole('button', { name: /^complete delivery$/i }).first();
     try {
       await accomplishBtn.waitFor({ state: 'visible', timeout: 3000 });
     } catch (e) {
@@ -260,8 +261,8 @@ test.describe('C-2 ePOD Flow', () => {
     // 2. Fill Received By
     await page.getByPlaceholder(/received.*item|name of person/i).first().fill('Juan dela Cruz (UAT)');
 
-    // 3. Click Accomplish
-    const accomplishBtn = page.getByRole('button', { name: /accomplish/i }).first();
+    // 3. Click Complete delivery
+    const accomplishBtn = page.getByRole('button', { name: /^complete delivery$/i }).first();
     try {
       await accomplishBtn.waitFor({ state: 'visible', timeout: 3000 });
     } catch (e) {

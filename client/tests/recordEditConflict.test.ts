@@ -94,7 +94,8 @@ test('ordinary metadata editor preserves draft and original version across refre
 });
 
 for (const competingEdit of [false, true]) test(`combined dispatch and reschedule uses its own save result${competingEdit ? ' and detects a competing edit' : ''}`, async () => {
-  installLegacySession('ADMIN', 'deliveries');
+  // Admin is view-only on Deliveries; Logistics owns dispatch and rescheduling.
+  installLegacySession('LOGISTICS', 'deliveries');
   const ui = await fixture();
   let record = base({ id: 'dispatch-version', category: 'Deliveries', reference: 'REF', rma_movement: null,
     edit_version: 'record:original', delivery_date: '2099-01-01', allowed_statuses: ['Rescheduled', 'On-Hold'] });
@@ -121,7 +122,7 @@ for (const competingEdit of [false, true]) test(`combined dispatch and reschedul
     await act(async () => { Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(element, value); element.dispatchEvent(new ui.dom.window.Event('input', { bubbles: true })); });
   };
   try {
-    await ui.render(record, 'Admin', update);
+    await ui.render(record, 'Logistics', update);
     await act(async () => ui.button('Status & Actions')!.click()); await ui.flush();
     await act(async () => ui.button('Rescheduled')!.click());
     await ui.input('New delivery date', '2099-01-02');

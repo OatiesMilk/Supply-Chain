@@ -100,6 +100,12 @@ export function transitionError(record: RunRecord, target: RunState, role: Role)
   if (!allowedStatuses(record).includes(target)) return `Cannot change ${runState(record)} to ${target}.`;
   return null;
 }
+// Drivers only start transport (Time In / RMA transport) and complete runs. Pending, On-Hold and
+// Reschedule belong to Logistics, whatever the category or permission mode.
+export const DRIVER_STATUS_ERROR = 'Drivers can only start transport or complete a run. Ask Logistics to mark it Pending or Rescheduled.';
+export function driverStatusError(role: Role, target: string): string | null {
+  return role === 'DRIVER' && target !== 'Delivered' ? DRIVER_STATUS_ERROR : null;
+}
 export function timeInError(record: RunRecord): string | null {
   if (record.category === 'RMA') return 'RMA records use status updates instead of delivery Time In.';
   if (record.draft) return 'Submit the draft before recording Time In.';

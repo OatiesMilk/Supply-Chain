@@ -624,7 +624,7 @@ export const api = {
   getRmaCapabilities: (id: string) => request<RmaCapabilities>(`/records/${id}/rma-capabilities`),
   assignRma: (id: string, data: { driver_id: string | null; vehicle?: string; driver_assistants?: string[]; expected_version: number; remarks: string }) =>
     request<any>(`/records/${id}/rma-assignment`, { method: 'PATCH', body: JSON.stringify(data) }),
-  progressRmaTransport: (id: string, data: { transport_status: 'IN_TRANSIT' | 'COMPLETED'; expected_version: number; remarks: string }) =>
+  progressRmaTransport: (id: string, data: { transport_status: 'IN_TRANSIT' | 'COMPLETED'; expected_version: number; remarks: string; received_by?: string }) =>
     request<any>(`/records/${id}/rma-transport`, { method: 'PATCH', body: JSON.stringify(data) }),
   receiveRma: (id: string, data: { recipient: string; expected_version: number; remarks: string }) =>
     request<any>(`/records/${id}/rma-receipt`, { method: 'POST', body: JSON.stringify(data) }),

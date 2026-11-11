@@ -12,6 +12,7 @@ import { findVerifiedDeliveryPhoto, lockPodRecord } from '../services/podPhotos'
 import { transitionError } from '../services/deliveryLifecycle';
 import type { EffectivePermissionSnapshot } from '../services/permissionEvaluator';
 import { notifyRmaRecipients } from '../services/rmaNotifications';
+import { receivedByError } from '../services/driverActions';
 
 const router = Router();
 const include = { company: true, lineItems: true, createdBy: true, modifiedBy: true } satisfies Prisma.DeliveryRecordInclude;
@@ -104,7 +105,7 @@ router.get('/:id/rma-capabilities', requireAuth, requireResource('records'), act
   res.json(rmaCapabilities(req.user!.rmaPermissions ?? null, row));
 }));
 
-router.patch('/:id/rma-assignment', requireAuth, requireResource('records'), requireRole('LOGISTICS', 'ADMIN'), requireAction('CATEGORY', 'RMA', 'ASSIGN'), action(async (req, res) => {
+router.patch('/:id/rma-assignment', requireAuth, requireResource('records'), requireRole('LOGISTICS'), requireAction('CATEGORY', 'RMA', 'ASSIGN'), action(async (req, res) => {
   const body = req.body ?? {};
   const remarks = input(body, ['driver_id', 'vehicle', 'driver_assistants', 'expected_version', 'remarks']);
   if (body.driver_id !== null && (typeof body.driver_id !== 'string' || !body.driver_id.trim())) throw new RmaActionError(400, 'Choose a Driver profile ID or null.');
@@ -130,8 +131,11 @@ router.patch('/:id/rma-assignment', requireAuth, requireResource('records'), req
 
 router.patch('/:id/rma-transport', requireAuth, requireResource('records'), requireRole('DRIVER'), requireAction('CATEGORY', 'RMA', 'STATUS'), action(async (req, res) => {
   const body = req.body ?? {};
-  const remarks = input(body, ['transport_status', 'expected_version', 'remarks']);
+  const remarks = input(body, ['transport_status', 'expected_version', 'remarks', 'received_by']);
   if (!['IN_TRANSIT', 'COMPLETED'].includes(body.transport_status)) throw new RmaActionError(400, 'Choose a valid transport status.');
+  if (body.transport_status === 'IN_TRANSIT' && body.received_by !== undefined) throw new RmaActionError(400, 'Received By is recorded when completing transport.');
+  const receivedBy = body.transport_status === 'COMPLETED' ? receivedByError(body.received_by) : null;
+  if (receivedBy) throw new RmaActionError(400, receivedBy);
   const visible = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] }, include });
   if (!visible || !rmaCapabilities(req.user!.rmaPermissions ?? null, visible).transport) throw new RmaActionError(403, 'RMA transport is not permitted for this record.');
   const proof = body.transport_status === 'COMPLETED' ? await findVerifiedDeliveryPhoto(prisma, req.params.id) : null;
@@ -144,7 +148,7 @@ router.patch('/:id/rma-transport', requireAuth, requireResource('records'), requ
     if (target === 'IN_TRANSIT' && row.rmaTransportStatus !== 'PENDING' || target === 'COMPLETED' && row.rmaTransportStatus !== 'IN_TRANSIT') throw new RmaActionError(400, 'This transport transition is not allowed.');
     if (target === 'COMPLETED' && (!proof || !await tx.podAttachment.findFirst({ where: { id: proof.id, recordId: row.id, storageKey: proof.storageKey, mimeType: proof.mimeType, size: proof.size } }))) throw new RmaActionError(400, 'Upload a saved JPG or PNG transport proof photo before completing transport.');
     const updated = await savedAction(tx, row, { rmaTransportStatus: target,
-      ...(target === 'IN_TRANSIT' ? { rmaTransportStartedAt: new Date() } : { rmaTransportCompletedAt: new Date() }),
+      ...(target === 'IN_TRANSIT' ? { rmaTransportStartedAt: new Date() } : { rmaTransportCompletedAt: new Date(), rmaTransportReceivedBy: (body.received_by as string).trim() }),
     }, req.user!, remarks, 'RMA_TRANSPORT');
     await notifyRmaRecipients(tx, updated, ['TASS', 'LOGISTICS'], 'RMA transport updated', `${updated.rmaReference || updated.id} · ${target === 'COMPLETED' ? 'Transport complete; physical receipt is still unconfirmed.' : 'In transit.'}`, req.user!.id);
     return updated;

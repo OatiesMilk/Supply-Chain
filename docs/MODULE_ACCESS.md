@@ -22,7 +22,7 @@ account (see "Privileged modules" below).
 | `deliveries` (Deliveries) | Y | Y | | Y | |
 | `rma` (RMA) | Y | Y | Y | Y | |
 | `accounting_collection` (Accounting Collection) | Y | Y | Y | Y | |
-| `procurement_pickup` (Procurement Pick-up) | Y | Y | Y | Y | |
+| `procurement_pickup` (Procurement Pick-up) | Y | Y | | Y | |
 | `sales_orders` (Sales Orders) | Y | Y | | Y | |
 | `customers` (Customers) | Y | Y | | Y | |
 | `suppliers` (Suppliers) | Y | Y | Y | Y | |
@@ -41,11 +41,39 @@ account (see "Privileged modules" below).
 Notes:
 
 - SKU Master is an Admin-only default since TSK-118. Admin can grant it to another account.
-- Record visibility is narrower than the screen list: TASS reads only RMA and
-  Accounting Collection records even though it has the Procurement Pick-up screen
-  (`readableCategories` in `services/recordAccess.ts`; tracked in the project issues report).
+- Record visibility: TASS reads only RMA and Accounting Collection records
+  (`readableCategories` in `services/recordAccess.ts`). The Procurement Pick-up
+  screen was removed from TASS on 2026-11-11 and cannot be granted back.
 - Logistics cannot create or edit RMA records regardless of module grants.
 - There is no Status History screen (removed in TSK-103).
+
+## Operational module rules (driver job cards, 2026-11-11)
+
+Source: `server/src/services/moduleAccessRules.ts` (mirrored for the UI in
+`client/src/utils/moduleAccessRules.ts`). These rules narrow whatever the
+permission mode (LEGACY or V1) and stored role policies allow; a stored Allow
+cannot bypass them, and stored `RolePolicy` rows are not changed.
+
+| Module | Sales Coordinator | Logistics | TASS | Admin | Driver |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| Deliveries | Create, edit, submit | Assign driver, run, Pending/Reschedule | No access | View only | Assigned runs: Start, Complete |
+| RMA | No access | View, assign driver (Logistics transport only) | Create, edit, receipt, final completion | View only | Assigned Logistics-transport RMAs: Start, Complete transport |
+| Procurement Pick-up | Create, edit, submit | Assign driver, run, Pending/Reschedule | No access (screen removed) | View only | Assigned runs: Start, Complete |
+| Sales Orders | Create, edit, submit | Assign driver, run, Pending/Reschedule | No access | View only | Assigned runs: Start, Complete |
+
+- Admin "view only" blocks every write on these four modules: create, edit,
+  submit, assign, RMA assignment, Time In, status, attachments, comments,
+  timestamp corrections and record emails. Accounting Collection is unchanged.
+- RMA with `INTERNAL_NO_DRIVER` or `SUPPLIER_COLLECTION` movement never gets a
+  driver and never reaches a driver dashboard.
+- Drivers can only start transport and complete. `PATCH /records/:id/status`
+  from a Driver accepts only `Delivered`; anything else is a 403. Completing
+  any job needs a saved JPG/PNG proof photo (10 MB per file, JPG/PNG/PDF/DOCX/XLSX,
+  at most 10 files and 50 MB per record) and Received By (1 to 120 characters).
+  For RMA the name is stored in `rmaTransportReceivedBy`, separate from the
+  TASS receipt recipient.
+- Driver record responses include `driver_actions: { start, complete,
+  start_blocked_reason }`.
 
 ## Privileged modules and shared resources
 

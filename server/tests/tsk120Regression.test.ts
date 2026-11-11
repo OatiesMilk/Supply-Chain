@@ -219,7 +219,7 @@ test('Logistics cannot create a Delivery; Sales Coordinator owns creation', asyn
     });
 
     assert.equal(response.status, 403);
-    assert.match((await response.json() as any).error, /Only Sales Coordinator or Admin may create Deliveries/);
+    assert.match((await response.json() as any).error, /Only Sales Coordinator can create Deliveries records/);
     assert.equal(create.mock.callCount(), 0, 'the denied role must not create a record');
     assert.equal(notificationCreateMany.mock.callCount(), 0, 'denied creation must not notify');
   } finally {

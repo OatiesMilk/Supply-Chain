@@ -17,7 +17,9 @@ function record(extra: Record<string, unknown> = {}) {
 }
 
 /** Actual HTTP/router checks with a transaction double, never a business database. */
-async function fixture(t: TestContext, role: Role = 'ADMIN') {
+// Admin is view-only on Deliveries, RMA, Procurement Pick-up and Sales Orders, so the
+// default actor is the module owner.
+async function fixture(t: TestContext, role: Role = 'SALES_COORDINATOR') {
   const originalMode = process.env.PERMISSION_MODE;
   process.env.PERMISSION_MODE = 'LEGACY';
   const restorers: Array<() => void> = [];
@@ -269,7 +271,7 @@ test('submission and audit roll back if Logistics alert persistence fails',async
 
 
 test('status priority extras cannot bypass metadata version checks', async t=>{
- const state=await fixture(t);state.setRow({draft:false,deliveryDate:'2026-10-30',priority:'2 - Moderate'});
+ const state=await fixture(t,'LOGISTICS');state.setRow({draft:false,deliveryDate:'2026-10-30',priority:'2 - Moderate'});
  const version=recordEditVersion(state.row());
  const body={status:'Scheduled',priority:'3 - High',remarks:'Priority correction'};
  assert.equal((await state.request('/records/REC-legacy/status','PATCH',body)).status,428);
@@ -278,11 +280,12 @@ test('status priority extras cannot bypass metadata version checks', async t=>{
  assert.equal(state.row().priority,'3 - High');assert.equal(state.audits.length,1);
 });
 
-test('Admin retains audited metadata correction authority on completed records', async t => {
+test('Admin is view-only on completed Delivery records and cannot correct metadata', async t => {
   const state = await fixture(t, 'ADMIN');
   state.setRow({ draft: false, status: 'ACCOMPLISHED', deliveryDate: '2026-10-30' });
-  const response = await state.request('/records/REC-legacy', 'PUT', { reference: 'Corrected reference', remarks: 'Approved administrative correction' });
-  assert.equal(response.status, 200, await response.text());
-  assert.equal(state.row().reference, 'Corrected reference');
-  assert.equal(state.audits.length, 1);
+  const response = await state.request('/records/REC-legacy', 'PUT', { reference: 'Corrected reference', remarks: 'Administrative correction' });
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).error, 'Admin has view-only access to Deliveries records.');
+  assert.notEqual(state.row().reference, 'Corrected reference');
+  assert.equal(state.audits.length, 0);
 });

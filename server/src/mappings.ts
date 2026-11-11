@@ -9,6 +9,7 @@ import { canReadRecord, readableCategories } from './services/recordAccess';
 import type { AuthUser } from './middleware/auth';
 import { recordEditVersion } from './services/recordEditVersion';
 import { normalizeRmaCategory } from './services/rmaRules';
+import { driverActions } from './services/driverActions';
 
 export const CATEGORY_TO_DB: Record<string, string> = {
   'Sales Orders': 'SALES_ORDERS',
@@ -76,6 +77,7 @@ export function serializeRecord(r: any, user?: AuthUser) {
     remarks: r.remarks,
     status: runState(r),
     allowed_statuses: allowedStatuses(r),
+    ...(user?.role === 'DRIVER' ? { driver_actions: driverActions(r) } : {}),
     vehicle: r.vehicle,
     area: r.area,
     driver: r.driver,
@@ -103,6 +105,7 @@ export function serializeRecord(r: any, user?: AuthUser) {
     rma_transport_status: r.rmaTransportStatus ?? null,
     rma_transport_started_at: r.rmaTransportStartedAt ?? null,
     rma_transport_completed_at: r.rmaTransportCompletedAt ?? null,
+    rma_transport_received_by: r.rmaTransportReceivedBy ?? null,
     rma_received_at: r.rmaReceivedAt ?? null,
     rma_received_by: r.rmaReceivedBy ?? null,
     rma_recipient: r.rmaRecipient ?? null,

@@ -1,5 +1,7 @@
 import RecordStatus from '@/components/RecordStatus';
 import { usePermissions } from '@/hooks/usePermissions';
+import { isViewOnlyCategory } from '@/utils/moduleAccessRules';
+import { permissionCategory } from '@/utils/permissions';
 import { rmaWorkflowExportFields } from '@/utils/rmaTransport';
 import { selectableStatuses, manilaToday, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -796,6 +798,9 @@ export default function DeliveryRecordsView({
                 </div>
               )}
             </div>
+          )}
+          {currentUserRole === 'Admin' && isViewOnlyCategory('ADMIN', permissionCategory(category) ?? 'ACCOUNTING_COLLECTION') && (
+            <span className="self-start rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600" data-view-only>View only</span>
           )}
           {canCreateRecord && (
             <button

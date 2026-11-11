@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { mutateAdminAccount, permissionMode, PolicyManagementError } from './permissionManagement';
+import { screenRestricted } from './moduleAccessRules';
 
 export const SCREEN_LABELS = {
   main: 'Main', dashboard: 'Dashboard', deliveries: 'Deliveries', rma: 'RMA',
@@ -29,7 +30,7 @@ export const ROLE_DEFAULTS: Record<string, readonly Screen[]> = {
 export function editableScreens(role: string): Screen[] {
   if (role === 'DRIVER') return ['driver_dashboard'];
   return (Object.keys(SCREEN_LABELS) as Screen[]).filter(s =>
-    s !== 'driver_dashboard' && s !== 'admin' && (s !== 'data_sampler' || role === 'ADMIN') &&
+    s !== 'driver_dashboard' && s !== 'admin' && (s !== 'data_sampler' || role === 'ADMIN') && !screenRestricted(role, s) &&
     (s !== 'rma' || ['TASS', 'LOGISTICS', 'ADMIN'].includes(role)));
 }
 
@@ -42,7 +43,7 @@ export function effectiveScreens(role: string, overrides: readonly Permission[])
     if (p.granted === true) screens.add(p.screen as Screen);
     else if (p.granted === false) screens.delete(p.screen as Screen);
   }
-  return (Object.keys(SCREEN_LABELS) as Screen[]).filter(s => screens.has(s) &&
+  return (Object.keys(SCREEN_LABELS) as Screen[]).filter(s => screens.has(s) && !screenRestricted(role, s) &&
     (s !== 'rma' || ['TASS', 'LOGISTICS', 'ADMIN'].includes(role)));
 }
 
@@ -76,7 +77,7 @@ export function sessionUser(user: { id: string; name: string; email: string; rol
 export function permissionEditor(user: { id: string; role: string; permissions: Permission[]; authorizationRevision?: bigint | string }) {
   return {
     userId: user.id, ...permissionSnapshot(user.role, user.permissions, user.authorizationRevision),
-    roleDefaults: ROLE_DEFAULTS[user.role] ?? [],
+    roleDefaults: (ROLE_DEFAULTS[user.role] ?? []).filter(screen => !screenRestricted(user.role, screen)),
     catalog: Object.entries(SCREEN_LABELS).map(([screen, label]) => ({ screen, label })),
     editableScreens: editableScreens(user.role),
   };

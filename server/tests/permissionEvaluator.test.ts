@@ -181,7 +181,7 @@ test('ADMIN management stays protected without providing a business-operation by
 });
 
 test('navigation and category access remain independent without synthesizing new screens', () => {
-  const source = withEffects(input('ADMIN'), { 'SCREEN:deliveries:READ': 'DENY', 'SCREEN:deliveries:WRITE': 'DENY' });
+  const source = withEffects(input('LOGISTICS'), { 'SCREEN:deliveries:READ': 'DENY', 'SCREEN:deliveries:WRITE': 'DENY' });
   const snapshot = evaluatePermissions(source);
   assert.equal(snapshot.effectiveScreens.includes('deliveries'), false);
   assert.equal(canReadPolicyRecord(snapshot, delivery(), { path: 'calendar' }), true);
