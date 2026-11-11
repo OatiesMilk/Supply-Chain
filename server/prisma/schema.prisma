@@ -309,6 +309,7 @@ model DeliveryRecord {
   rmaTransportStatus   String?
   rmaTransportStartedAt DateTime?
   rmaTransportCompletedAt DateTime?
+  rmaTransportReceivedBy String? // Name the driver records at RMA transport completion; separate from rmaRecipient.
   rmaReceivedAt        DateTime?
   rmaReceivedBy        String?
   rmaRecipient         String?

@@ -149,14 +149,25 @@ test('transport proof, physical receipt and final completion remain separate wit
   assert.equal((await state.request('TASS', 'post', '/:id/rma-receipt', { recipient: 'Recipient', expected_version: 0, remarks: 'Receive too soon' })).status, 403);
   const started = await state.request('DRIVER', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 0, remarks: 'Start' });
   assert.equal(started.status, 200);
-  const finish = { transport_status: 'COMPLETED', expected_version: 1, remarks: 'Transport delivered' };
+  assert.deepEqual(started.body.driver_actions, { start: false, complete: true, start_blocked_reason: null });
+  const finish = { transport_status: 'COMPLETED', expected_version: 1, remarks: 'Transport delivered', received_by: ' Warehouse guard ' };
   assert.equal((await state.request('DRIVER', 'patch', '/:id/rma-transport', finish)).status, 400);
   state.proof();
+  // Received By is required on every driver completion, RMA included.
+  for (const received_by of [undefined, '', '   ', 'x'.repeat(121)]) {
+    const missing = await state.request('DRIVER', 'patch', '/:id/rma-transport', { ...finish, received_by });
+    assert.equal(missing.status, 400); assert.match(missing.body.error, /Received By/);
+  }
+  assert.equal((await state.request('DRIVER', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 1, remarks: 'Again', received_by: 'Early' })).status, 400);
   const done = await state.request('DRIVER', 'patch', '/:id/rma-transport', finish);
   assert.equal(done.status, 200); assert.equal(done.body.status, 'Scheduled'); assert.equal(done.body.rma_received_at, null);
+  assert.equal(done.body.rma_transport_received_by, 'Warehouse guard');
+  assert.deepEqual(done.body.driver_actions, { start: false, complete: false, start_blocked_reason: null });
   assert.equal(done.body.time_in, null); assert.equal(done.body.time_out, null);
   const receipt = await state.request('TASS', 'post', '/:id/rma-receipt', { recipient: ' Recipient ', expected_version: 2, remarks: 'Units received' });
   assert.equal(receipt.status, 200); assert.equal(receipt.body.rma_received_by, 'tass'); assert.equal(receipt.body.rma_recipient, 'Recipient');
+  assert.equal(receipt.body.rma_transport_received_by, 'Warehouse guard', 'TASS receipt does not overwrite the transport handover name');
+  assert.equal(receipt.body.driver_actions, undefined, 'only Drivers receive driver_actions');
   assert.equal(receipt.body.status, 'Scheduled');
   assert.equal((await state.request('ADMIN', 'patch', '/:id/status', { status: 'Delivered', expected_version: 3, remarks: 'Complete' })).status, 403);
   const completed = await state.request('TASS', 'patch', '/:id/status', { status: 'Delivered', expected_version: 3, remarks: 'Checked and complete' });
