@@ -237,8 +237,11 @@ test('the navigation hook uses only server-computed screens', () => {
 
 
 test('a category screen grant cannot expose a list whose category Read is denied', () => {
+  // TASS has no Procurement Pick-up screen at all, even with an explicit screen grant.
+  const tass = account('TASS', [], ['SCREEN:procurement_pickup:READ']);
+  assert.equal(tass.effectiveScreens.includes('procurement_pickup'), false);
+  assert.equal(permissionsFor(tass).canAccess('procurement_pickup'), false);
   for (const [role, denies, allows] of [
-    ['TASS', [], ['SCREEN:procurement_pickup:READ']],
     ['SALES_COORDINATOR', ['CATEGORY:PROCUREMENT_PICKUP:READ'], []],
   ] as Array<[PolicyRole, string[], string[]]>) {
     const user = account(role, denies, allows);

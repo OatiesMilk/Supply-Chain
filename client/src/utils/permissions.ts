@@ -1,4 +1,5 @@
 import { CATEGORY_SCREENS } from '../routes/screenRouting';
+import { categoryActionRestricted } from './moduleAccessRules';
 import { CATEGORY_ACTIONS, PERMISSION_CATEGORIES, PERMISSION_SCREENS, RESOURCE_ACTIONS, type PermissionAction, type PermissionCategory, type PermissionScope, type PermissionSession } from '../types/permissions';
 
 const object = (value: unknown): value is Record<string, any> => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -78,7 +79,7 @@ export function permissionsFor(user: PermissionSession | null | undefined) {
   const canResource = (resource: string, action: PermissionAction = 'READ') => can('RESOURCE', resource, action);
   const canCategory = (category: string, action: PermissionAction = 'READ') => {
     const module = permissionCategory(category);
-    return !!module && canResource('records') && can('CATEGORY', module, action);
+    return !!module && canResource('records') && can('CATEGORY', module, action) && !categoryActionRestricted(user!.role, module, action);
   };
   const canRecord = (category: string, action: PermissionAction = 'READ', screen?: string) => canCategory(category, action)
     && (!screen || can('SCREEN', screen, action === 'READ' ? 'READ' : 'WRITE'));
