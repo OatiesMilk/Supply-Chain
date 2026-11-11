@@ -243,11 +243,31 @@ function DriverDashboardContent({
   // While the first load is in flight there is nothing trustworthy to count.
   const summaryLoading = dataLoading && records.length === 0 && !dashboardCounts;
 
-  const handleTimeIn = (rec: DeliveryRecord) => {
-    if (!access.canRecord(rec.category, 'TIME_IN')) return;
-    setPendingAction({ rec, status: "In Transit" });
+  // The button that opened the confirm sheet gets focus back when it closes.
+  const sheetOpener = useRef<HTMLElement | null>(null);
+  const openSheet = (rec: DeliveryRecord, status: DeliveryStatus) => {
+    sheetOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setPendingAction({ rec, status });
     setRemarksInput("");
     setSaveFeedback(null);
+  };
+  const closeSheet = useCallback(() => {
+    setPendingAction(null);
+    setRemarksInput("");
+    const opener = sheetOpener.current;
+    sheetOpener.current = null;
+    if (opener?.isConnected) requestAnimationFrame(() => opener.focus());
+  }, []);
+  useEffect(() => {
+    if (!pendingAction) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape' && !saving) closeSheet(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [pendingAction, saving, closeSheet]);
+
+  const handleTimeIn = (rec: DeliveryRecord) => {
+    if (!access.canRecord(rec.category, 'TIME_IN')) return;
+    openSheet(rec, "In Transit");
   };
 
   const applyStatus = async (
@@ -380,17 +400,17 @@ function DriverDashboardContent({
                       {completionError(rec, 'Delivered', receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id]) && <p className="text-xs text-slate-600">{completionError(rec, 'Delivered', receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}</p>}
                       <div className="grid grid-cols-3 gap-2">
                         <button
-                          onClick={() => { setPendingAction({ rec, status: 'Delivered' }); setRemarksInput(''); setSaveFeedback(null); }}
+                          onClick={() => openSheet(rec, 'Delivered')}
                           disabled={saving || !access.canRecord(rec.category, 'COMPLETE') || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes('Delivered') || !!completionError(rec, 'Delivered', receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}
                           className="flex min-h-11 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg bg-emerald-700 px-2 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
                         ><CheckCircle aria-hidden="true" className="h-4 w-4" />Accomplish</button>
                         <button
-                          onClick={() => { setPendingAction({ rec, status: 'Pending' }); setRemarksInput(''); setSaveFeedback(null); }}
+                          onClick={() => openSheet(rec, 'Pending')}
                           disabled={saving || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes('Pending')}
                           className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg bg-amber-600 px-2 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
                         ><Navigation aria-hidden="true" className="h-4 w-4" />Pending</button>
                         <button
-                          onClick={() => { setPendingAction({ rec, status: 'Rescheduled' }); setRemarksInput(''); setSaveFeedback(null); }}
+                          onClick={() => openSheet(rec, 'Rescheduled')}
                           disabled={saving || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes('Rescheduled')}
                           className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg bg-[#1F3864] px-2 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#0078C1] disabled:cursor-not-allowed disabled:opacity-50"
                         ><RefreshCw aria-hidden="true" className="h-4 w-4" />Reschedule</button>
@@ -502,35 +522,36 @@ function DriverDashboardContent({
         {listFooter && <div data-run-list-footer>{listFooter}</div>}
       </div>
 
-      {/* Status confirmation modal */}
+      {/* Status confirmation sheet: bottom sheet on phones, centered card from sm up */}
       {pendingAction && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm space-y-4 p-6 mb-4">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="driver-confirm-title" aria-describedby="driver-confirm-summary"
+            className="max-h-[90dvh] w-full space-y-4 overflow-y-auto rounded-t-2xl bg-white p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl sm:max-w-sm sm:rounded-2xl sm:p-6">
             <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900">
+              <div className="min-w-0">
+                <h2 id="driver-confirm-title" className="text-base font-semibold text-slate-900">
                   Confirm status
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
+                </h2>
+                <p id="driver-confirm-summary" className="mt-1 text-sm text-slate-600">
                   Mark{" "}
-                  <span className="font-bold text-slate-800">
-                    {pendingAction.rec.reference}
-                  </span>{" "}
+                  <span className="font-semibold text-slate-900">{pendingAction.rec.company_name}</span>{" "}
                   as{" "}
-                  <span className="font-bold text-slate-800">
+                  <span className="font-semibold text-slate-900">
                     {STATUS_VERB[pendingAction.status] ?? pendingAction.status}
                   </span>
                 </p>
+                <p className="mt-0.5 truncate text-xs text-slate-500" title={referenceFor(pendingAction.rec) ?? undefined}>
+                  {referenceFor(pendingAction.rec) ? `Ref ${referenceFor(pendingAction.rec)}` : NO_REFERENCE}
+                </p>
               </div>
               <button
+                type="button"
+                aria-label="Close"
                 disabled={saving}
-                onClick={() => {
-                  setPendingAction(null);
-                  setRemarksInput("");
-                }}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                onClick={closeSheet}
+                className="-mr-2 -mt-2 inline-flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] disabled:opacity-50"
               >
-                <X className="w-4 h-4" />
+                <X aria-hidden="true" className="h-5 w-5" />
               </button>
             </div>
 
@@ -548,24 +569,23 @@ function DriverDashboardContent({
                 rows={3}
                 placeholder="Enter remarks…"
                 autoFocus
-                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] resize-none"
+                className="w-full resize-none rounded-xl border border-slate-300 px-3 py-2 text-base focus:border-[#0078C1] focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 sm:text-sm"
               />
             </div>
 
-            {photoError && <p role="alert" className="text-xs text-red-700">{photoError}</p>}
-            {saveFeedback && <p role="alert" className={`text-xs ${saveFeedback.type === 'success' ? 'text-emerald-700' : saveFeedback.type === 'info' ? 'text-amber-700' : 'text-red-700'}`}>{saveFeedback.message}</p>}
-            <div className="flex gap-2 justify-end">
+            {photoError && <p role="alert" className="text-sm text-red-700">{photoError}</p>}
+            {saveFeedback && <p role="alert" className={`text-sm ${saveFeedback.type === 'success' ? 'text-emerald-700' : saveFeedback.type === 'info' ? 'text-amber-700' : 'text-red-700'}`}>{saveFeedback.message}</p>}
+            <div className="grid grid-cols-2 gap-2">
               <button
+                type="button"
                 disabled={saving}
-                onClick={() => {
-                  setPendingAction(null);
-                  setRemarksInput("");
-                }}
-                className="px-4 py-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                onClick={closeSheet}
+                className="min-h-11 cursor-pointer rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 disabled={saving || !remarksInput.trim() || !!photoError}
                 onClick={async () => {
                   if (saving || !remarksInput.trim() || photoError) return;
@@ -584,8 +604,7 @@ function DriverDashboardContent({
                     } else {
                       await applyStatus(pendingAction.rec, pendingAction.status, remarksInput.trim());
                     }
-                    setPendingAction(null);
-                    setRemarksInput("");
+                    closeSheet();
                     notify.success(pendingAction.status === 'In Transit' ? 'Transport started successfully' : 'Status updated successfully');
                   } catch (error) {
                     const message = error instanceof Error ? error.message : 'Could not update the delivery. Please try again.';
@@ -595,7 +614,7 @@ function DriverDashboardContent({
                     setSaving(false);
                   }
                 }}
-                className="px-4 py-2 bg-[#1F3864] hover:bg-[#0078C1] text-white text-xs font-bold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                className="min-h-11 cursor-pointer rounded-xl bg-[#1F3864] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#0078C1] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {saving ? "Saving…" : "Confirm"}
               </button>

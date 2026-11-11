@@ -203,3 +203,24 @@ test('counters share one compact strip with short phone labels and full accessib
     }
   });
 });
+
+test('confirm sheet is a labelled modal dialog with 44px controls that closes on Escape', async () => {
+  await mount({ records: [run], dashboardCounts: counts }, async doc => {
+    const opener = doc.querySelector('button[aria-label="Record Time In: start transport"]') as HTMLButtonElement;
+    await act(async () => { opener.focus(); opener.click(); });
+    const dialog = doc.querySelector('[role="dialog"]')!;
+    assert.ok(dialog, 'sheet opened');
+    assert.equal(dialog.getAttribute('aria-modal'), 'true');
+    assert.equal(doc.getElementById(dialog.getAttribute('aria-labelledby')!)?.textContent?.trim(), 'Confirm status');
+    assert.match(dialog.textContent ?? '', /Acme/);
+    const close = dialog.querySelector('button[aria-label="Close"]')!;
+    assert.match(close.className, /min-h-11/); assert.match(close.className, /min-w-11/);
+    for (const name of ['Cancel', 'Confirm']) {
+      const button = [...dialog.querySelectorAll('button')].find(node => node.textContent?.trim() === name)!;
+      assert.match(button.className, /min-h-11/, name);
+    }
+    assert.match(doc.getElementById('driver-action-remarks')!.className, /\btext-base\b/);
+    await act(async () => { doc.dispatchEvent(new doc.defaultView!.KeyboardEvent('keydown', { key: 'Escape' })); });
+    assert.equal(doc.querySelector('[role="dialog"]'), null);
+  });
+});
