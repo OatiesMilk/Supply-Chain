@@ -1562,13 +1562,17 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     updated.driverId &&
     !existing.driver
   ) {
-    await notifyUser(
-      existing.createdById,
-      'Driver assigned',
-      `${updated.driver} has been assigned to ${existing.company.name} · ${existing.reference}.`,
-      existing.id,
-      'DeliveryRecord'
-    );
+    try {
+      await notifyUser(
+        existing.createdById,
+        'Driver assigned',
+        `${updated.driver} has been assigned to ${existing.company.name} · ${existing.reference}.`,
+        existing.id,
+        'DeliveryRecord'
+      );
+    } catch (notifyErr) {
+      console.error('[notify driver assignment failed]', notifyErr);
+    }
   }
 
   res.json(serializeRecord(updated, req.user!));
@@ -1738,12 +1742,16 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   if (result.error) return res.status('writeStatus' in result ? Number(result.writeStatus) : 'rmaStatus' in result ? Number(result.rmaStatus) : result.error === RMA_COMPLETION_ROLE_ERROR || result.error === DRIVER_STATUS_ERROR || result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' || result.error.startsWith('Only Sales Coordinator') ? 403 : 400).json({ error: result.error });
   const updated = result.saved!;
   if (status === 'Delivered' && updated.category !== 'RMA' && result.previous!.status !== 'ACCOMPLISHED') {
-    await notifyAccomplished({
-      id: updated.id, companyName: updated.company.name, deliveryDate: updated.deliveryDate,
-      reference: updated.reference, accountManager: updated.accountManager, accomplishedByName: req.user!.name,
-      recipientOverride: updated.category === 'ACCOUNTING_COLLECTION' ? 'Billing Department' : undefined,
-    });
-    if (updated.category === 'ACCOUNTING_COLLECTION') await notifyRole('TASS', 'Collection ready for verification', `${updated.company.name} · ${updated.reference} is now accomplished and requires collection verification.`, updated.id, 'DeliveryRecord');
+    try {
+      await notifyAccomplished({
+        id: updated.id, companyName: updated.company.name, deliveryDate: updated.deliveryDate,
+        reference: updated.reference, accountManager: updated.accountManager, accomplishedByName: req.user!.name,
+        recipientOverride: updated.category === 'ACCOUNTING_COLLECTION' ? 'Billing Department' : undefined,
+      });
+      if (updated.category === 'ACCOUNTING_COLLECTION') await notifyRole('TASS', 'Collection ready for verification', `${updated.company.name} · ${updated.reference} is now accomplished and requires collection verification.`, updated.id, 'DeliveryRecord');
+    } catch (notifyErr) {
+      console.error('[notify accomplished failed]', notifyErr);
+    }
   }
   res.json(serializeRecord(updated, req.user!));
 }));

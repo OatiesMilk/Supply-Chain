@@ -1,9 +1,9 @@
 # Business System Requirements: Microgenesis Supply Chain Portal
 
-> Last full-document verification: 2026-10-09 against commit `ccbf192` (`dev`).
+> Last full-document verification: 2026-11-11 against commit `1e2b900` (`dev`).
 > Status tags: **Implemented** (verified in code), **Partial** (works with a stated gap), **Planned** (not built), **Open question** (needs a stakeholder decision).
-> This document describes what the system does today. It is not a signed-off specification; items marked *Open question* have not been confirmed with the owning department.
-> Targeted update (2026-11-05): Supplier creation now records the initial details and actor in a central `Supplier` CREATE audit event in the same transaction. This update does not replace the full-document verification above.
+> Companion documents: [User Operating Manuals](./USER_MANUALS.md), [Features Inventory](./FEATURES_INVENTORY.md), [Admin Master Data](./ADMIN_MASTER_DATA.md), [Performance Audit](./PERFORMANCE_IMPROVEMENT_AUDIT_2026-11-11.md).
+> Updated (2026-11-11): Master Data directories (Companies and Account Managers) are fully Admin-managed with unique normalization; Supplier multi-category catalog and atomic audit events are implemented.
 
 ## 1. Purpose and scope
 
@@ -77,13 +77,13 @@ Out of scope today: automatic stock movement from deliveries, customer signature
 
 | ID | Requirement | Status | Roles |
 | :--- | :--- | :--- | :--- |
-| BR-DIR-01 | Companies (SAP number, address, contact) used on records | Implemented | Read: any permitted record screen. Create: Sales Coordinator, Admin |
+| BR-DIR-01 | Companies (SAP number, address, contact, default AM) used on records | Implemented | Read: any permitted record screen. Create/Edit: Admin only (normalized name, unique SAP) |
 | BR-DIR-02 | Customers directory with edit, validation, reason-for-change and audit trail | Implemented | Edit: Sales Coordinator, Logistics, Admin. Create also open to Driver |
 | BR-DIR-03 | Suppliers directory | Implemented | Create: SC, Logistics, Admin, Driver under applicable supplier permissions. Creation records a central `Supplier` CREATE audit event atomically. Existing category assignments may be edited by Admin only; general contact editing/deletion remains unavailable. See BR-DIR-07 |
 | BR-DIR-04 | Driver and assistant directory with coverage areas, active flag and Admin-linked login | Implemented | Admin adds Drivers; Logistics adds Assistants and edits coverage/status; type changes and Driver renames are Admin only (TSK-119) |
-| BR-DIR-05 | Account Manager directory | Implemented | Sales Coordinator, Admin (screen) |
+| BR-DIR-05 | Account Manager directory | Implemented | Admin-managed directory tab with case-normalized unique names and optional linked User logins |
 | BR-DIR-06 | Single unified Company/Customer directory | Planned | Two directories remain |
-| BR-DIR-07 | Admin-managed supplier category catalog with multiple categories per supplier | Implemented locally — awaiting PR/deployment | Admin creates/renames/deactivates/reactivates categories and edits existing assignments; supplier creators select active categories under their existing authority. Relations, API/UI/filter/export/audit, conflict handling and additive legacy mapping are implemented. See [contract and verification](SUPPLIER_CATEGORIES.md). Supersedes the fixed-five-only proposal |
+| BR-DIR-07 | Admin-managed supplier category catalog with multiple categories per supplier | Implemented | Admin creates/renames/deactivates/reactivates categories and edits existing assignments; supplier creators select active categories under their existing authority. Relations, API/UI/filter/export/audit, conflict handling and additive legacy mapping are implemented. See [contract and verification](SUPPLIER_CATEGORIES.md) |
 
 ### 3.6 SKU Master and stock
 

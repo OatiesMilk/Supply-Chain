@@ -11,6 +11,8 @@ import { runScopedSummaries } from './services/scopedSummaries';
 import { notifyRole, notifyUser } from './services/inAppNotify';
 import { sendMailReal, sendEmail } from './services/mailer';
 import { manilaToday } from './services/deliveryLifecycle';
+import { CATEGORY_SCREEN } from './services/recordAccess';
+import { effectiveScreens } from './services/permissions';
 import { saveDailyStatusSnapshot as writeDailyStatusSnapshot } from './services/dailyStatusSnapshot';
 import healthRoutes, { HEALTH_PATH } from './routes/health';
 
@@ -188,21 +190,47 @@ async function notify4PM() {
       });
       if (alreadySent) continue;
 
-      // Look up the AM as an active user by name match
-      const amUser = await prisma.user.findFirst({
-        where: { isActive: true, name: { contains: amName } }
+      // Look up the AM through AccountManager directory or active user by exact name match
+      const amDirectoryEntry = await prisma.accountManager.findFirst({
+        where: { name: { equals: amName, mode: 'insensitive' }, isActive: true },
+        include: { user: { include: { permissions: true } } }
       });
+      const amUser = amDirectoryEntry?.user && amDirectoryEntry.user.isActive
+        ? amDirectoryEntry.user
+        : await prisma.user.findFirst({
+            where: { isActive: true, name: { equals: amName, mode: 'insensitive' } },
+            include: { permissions: true }
+          });
 
-      const preview = recs.slice(0, 3)
+      // R1: Restrict records to the recipient's authorized scope
+      const userPermissions = (amUser && 'permissions' in amUser && Array.isArray(amUser.permissions))
+        ? amUser.permissions
+        : [];
+      const userScreens = amUser ? effectiveScreens(amUser.role, userPermissions) : [];
+      const allowedCategories = new Set(
+        Object.entries(CATEGORY_SCREEN)
+          .filter(([cat, scr]) => {
+            if (cat === 'RMA' && !['TASS', 'LOGISTICS', 'ADMIN', 'DRIVER'].includes(amUser?.role ?? '')) return false;
+            if (amUser?.role === 'TASS' && !['ACCOUNTING_COLLECTION', 'RMA'].includes(cat)) return false;
+            return userScreens.includes(scr);
+          })
+          .map(([cat]) => cat)
+      );
+      const scopedRecs = recs.filter(r => allowedCategories.has(r.category));
+      if (scopedRecs.length === 0) continue;
+
+      const preview = scopedRecs.slice(0, 3)
         .map(r => `${r.reference} (${categoryLabel[r.category] ?? r.category}) — ${r.company?.name ?? ''}`)
-        .join('; ') + (recs.length > 3 ? ` +${recs.length - 3} more` : '');
+        .join('; ') + (scopedRecs.length > 3 ? ` +${scopedRecs.length - 3} more` : '');
 
-      const title = `4 PM: ${recs.length} open record${recs.length !== 1 ? 's' : ''} assigned to you`;
+      const title = `4 PM: ${scopedRecs.length} open record${scopedRecs.length !== 1 ? 's' : ''} assigned to you`;
       const message = `Still open as of 4 PM: ${preview}`;
 
+      let mailStatus: 'SENT' | 'MOCKED' | 'FAILED' = 'MOCKED';
       if (amUser) {
-        await notifyUser(amUser.id, title, message);
-        await sendEmail({ to: amUser.email, subject: title, text: message });
+        await notifyUser(amUser.id, title, message, amUser.id, 'DeliveryRecord');
+        const sendResult = await sendEmail({ to: amUser.email, subject: title, text: message });
+        mailStatus = !sendResult.ok ? 'FAILED' : sendResult.method === 'mock' ? 'MOCKED' : 'SENT';
       }
 
       await prisma.notificationLog.create({
@@ -210,8 +238,8 @@ async function notify4PM() {
           triggerEvent: '4PM_AM_DAILY',
           recipientRole: amUser?.role ?? 'SALES_COORDINATOR',
           recipientName: amName,
-          message: `${recs.length} open records`,
-          status: amUser ? 'SENT' : 'MOCKED'
+          message: `${scopedRecs.length} open records`,
+          status: mailStatus
         }
       });
     }
@@ -300,6 +328,19 @@ async function notifyWeeklyReport() {
       await notifyUser(u.id, title, message);
     }
 
+    // Send real email if SMTP_HOST is configured; skip silently otherwise
+    let anySent = false;
+    let anyFailed = false;
+    let anyMocked = false;
+    for (const u of targetUsers) {
+      const res = await sendMailReal({ to: u.email, subject: title, text: message });
+      if (res?.ok && res.method !== 'mock') anySent = true;
+      else if (res?.method === 'mock') anyMocked = true;
+      else anyFailed = true;
+    }
+
+    const reportStatus = anySent ? 'SENT' : anyFailed ? 'FAILED' : 'MOCKED';
+
     // Write NotificationLog
     await prisma.notificationLog.create({
       data: {
@@ -307,14 +348,9 @@ async function notifyWeeklyReport() {
         recipientRole: 'LOGISTICS|ADMIN',
         recipientName: `${targetUsers.length} user${targetUsers.length !== 1 ? 's' : ''}`,
         message,
-        status: 'SENT'
+        status: reportStatus
       }
     });
-
-    // Send real email if SMTP_HOST is configured; skip silently otherwise
-    for (const u of targetUsers) {
-      await sendMailReal({ to: u.email, subject: title, text: message });
-    }
 
     console.log(`[Weekly Report] Sent for ${weekLabel} to ${targetUsers.length} users`);
   } catch (err) {
