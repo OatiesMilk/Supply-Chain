@@ -14,6 +14,7 @@ import path from 'path';
 import fs from 'fs';
 import * as XLSX from 'xlsx';
 import { recordRows } from '../support/recordRows';
+import { kpiTile } from '../support/kpiTile';
 
 const BASE_URL = 'http://localhost:3000';
 
@@ -193,9 +194,7 @@ test.describe('TSK-126 dashboard card filters', () => {
   test('Logistics unassigned card opens the matching Delivery list', async ({ page }) => {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
-    const card = page.locator('#kpi-log-unassigned');
-    await expect(card).toBeVisible();
-    const cardCount = Number((await card.locator('h3').innerText()).trim());
+    const { tile: card, count: cardCount } = await kpiTile(page, 'No driver assigned');
     await card.click();
 
     await expect(page.getByText('Showing: No Driver Assigned (from Dashboard)', { exact: true })).toBeVisible();

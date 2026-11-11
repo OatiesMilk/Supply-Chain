@@ -11,6 +11,7 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import { DEMO_LOCATION_FIXTURES } from '../../client/src/utils/demoLocations';
+import { kpiTile } from '../support/kpiTile';
 
 const BASE_URL = 'http://localhost:3000';
 
@@ -56,9 +57,7 @@ test.describe('TSK-126 dashboard card filters', () => {
   test('SC On-Hold card opens the matching list, wraps at supported widths, and clears', async ({ page }) => {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
-    const card = page.locator('#kpi-on-hold');
-    await expect(card).toBeVisible();
-    const cardCount = Number((await card.locator('h3').innerText()).trim());
+    const { tile: card, count: cardCount } = await kpiTile(page, 'On hold');
     await card.click();
 
     const chip = page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true });
@@ -86,7 +85,7 @@ test.describe('TSK-126 dashboard card filters', () => {
     expect(unfilteredCount).toBeGreaterThanOrEqual(cardCount);
 
     await page.getByRole('navigation').getByRole('button', { name: /^Dashboard/ }).click();
-    await page.locator('#kpi-on-hold').click();
+    await (await kpiTile(page, 'On hold')).tile.click();
     await expect(page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true })).toBeVisible();
     await page.getByRole('navigation').getByRole('button', { name: /^Deliveries/ }).click();
     await expect(page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true })).not.toBeVisible();
