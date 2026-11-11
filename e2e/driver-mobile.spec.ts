@@ -47,9 +47,9 @@ async function openAndCancelAction(page: Page, pattern: RegExp, expectedAction: 
   const action = await firstEnabled(page, pattern);
   if (!action) test.skip(true, `No enabled ${label} action exists in the current seeded driver queue.`);
   await action!.click();
-  const dialog = page.getByRole('dialog', { name: 'Confirm status' });
+  const dialog = page.getByRole('dialog', { name: label });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole('heading', { name: 'Confirm status' })).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: label })).toBeVisible();
   await expect(dialog).toContainText(expectedAction);
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).toBeHidden();
@@ -235,13 +235,13 @@ test.describe('Driver dashboard mobile redesign', () => {
     const refresh = page.getByRole('button', { name: 'Refresh dashboard' });
     await assertTouchTarget(refresh, 'Refresh');
 
-    const opener = await firstEnabled(page, /record time in: start transport/i);
+    const opener = await firstEnabled(page, /^start transport$/i);
     if (!opener) test.skip(true, 'No active run exposes an enabled Start transport action.');
     await opener!.click();
-    const dialog = page.getByRole('dialog', { name: 'Confirm status' });
+    const dialog = page.getByRole('dialog', { name: 'Start transport' });
     await expect(dialog).toBeVisible();
     await expect(dialog).toHaveAttribute('aria-modal', 'true');
-    await expect(dialog.getByRole('heading', { name: 'Confirm status' })).toBeVisible();
+    await expect(dialog.getByRole('heading', { name: 'Start transport' })).toBeVisible();
     await saveScreenshot(page, 'confirm-sheet-393.png');
 
     const close = dialog.getByRole('button', { name: 'Close' });
@@ -258,17 +258,22 @@ test.describe('Driver dashboard mobile redesign', () => {
     await expect(dialog).toBeHidden();
     await expect(opener!).toBeFocused();
     await opener!.click();
-    const cancelDialog = page.getByRole('dialog', { name: 'Confirm status' });
+    const cancelDialog = page.getByRole('dialog', { name: 'Start transport' });
     await expect(cancelDialog).toBeVisible();
     await cancelDialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(cancelDialog).toBeHidden();
   });
 
+  // Drivers can only start transport and complete; Pending and Reschedule belong to Logistics.
+  test('driver cards never offer Pending, Reschedule or On-Hold', async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    await openDriver(page);
+    const list = page.locator('#driver-run-list');
+    for (const name of [/^Pending$/i, /^Reschedule$/i, /^On-Hold$/i, /^Accomplish$/i]) await expect(list.getByRole('button', { name })).toHaveCount(0);
+  });
+
   for (const action of [
-    { label: 'Start transport', button: /record time in: start transport/i, summary: /as In Transit/i },
-    { label: 'Accomplish', button: /^Accomplish$/i, summary: /as Accomplished/i },
-    { label: 'Pending', button: /^Pending$/i, summary: /as Pending/i },
-    { label: 'Reschedule', button: /^Reschedule$/i, summary: /as Rescheduled/i },
+    { label: 'Start transport', button: /^start transport$/i, summary: /Start transport for/i },
   ]) {
     test(`AC17 ${action.label} confirm sheet opens and Cancel closes it`, async ({ page }) => {
       await page.setViewportSize({ width: 393, height: 852 });
@@ -283,10 +288,10 @@ test.describe('Driver dashboard mobile redesign', () => {
     const card = page.locator('#driver-run-list article[aria-label*="SAP-71376"]').first();
     if (!(await card.count())) test.skip(true, 'SAP-71376 is not present in this driver account’s active queue.');
     if (await card.getByText(/Transport started:/i).count()) test.skip(true, 'SAP-71376 already has a transport start; avoiding a second status write.');
-    const start = card.getByRole('button', { name: /record time in: start transport/i });
+    const start = card.getByRole('button', { name: /^start transport$/i });
     if (!(await start.isEnabled().catch(() => false))) test.skip(true, 'SAP-71376 does not expose an enabled Start transport action.');
     await start.click();
-    const dialog = page.getByRole('dialog', { name: 'Confirm status' });
+    const dialog = page.getByRole('dialog', { name: 'Start transport' });
     await expect(dialog).toBeVisible();
     await dialog.locator('textarea').fill('Round 2 mobile dashboard QA 2026-11-11');
     await dialog.getByRole('button', { name: 'Confirm' }).click();
