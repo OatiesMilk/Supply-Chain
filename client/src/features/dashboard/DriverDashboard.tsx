@@ -1,7 +1,7 @@
 import RecordStatus from '@/components/RecordStatus';
 import { usePermissions } from '@/hooks/usePermissions';
 import RmaWorkflowPanel from '@/features/deliveries/RmaWorkflowPanel';
-import { useState, useCallback, type ReactNode } from "react";
+import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 import {
   CheckCircle,
   MapPin,
@@ -39,9 +39,14 @@ interface DriverDashboardProps {
   onRefresh?: () => Promise<void> | void;
   dataLoading: boolean;
   serverPaging?: boolean;
-  queueControls?: ReactNode;
+  /** Queue switch shown above the run list. */
+  queueSwitch?: ReactNode;
+  /** Pagination shown under the run list. */
+  listFooter?: ReactNode;
   dashboardCounts?: { today: number; remaining: number; completed: number; rma_active: number; rma_completed: number };
 }
+
+const RUN_LIST_ID = 'driver-run-list';
 
 const STATUS_VERB: Record<string, string> = {
   Delivered: "Accomplished",
@@ -77,7 +82,17 @@ function PagedDriverDashboard(props: DriverDashboardProps) {
   const query = usePagedRecordsQuery({ view: 'driver_dashboard', queue, page, limit: 25 });
   const overview = useDriverOverviewQuery();
   useClampRecordPage(page, query.data?.total, setPage);
-  const queueControls = <section aria-label="Run queues" className="mb-5 space-y-3">
+  const pageChanged = useRef(false);
+  // After a page change, bring the driver back to the top of the list.
+  useEffect(() => {
+    if (!pageChanged.current) return;
+    pageChanged.current = false;
+    const list = document.getElementById(RUN_LIST_ID);
+    list?.scrollIntoView?.({ block: 'start' });
+    list?.focus({ preventScroll: true });
+  }, [page]);
+  const changePage = (next: number) => { pageChanged.current = true; setPage(next); };
+  const queueSwitch = <section aria-label="Run queues" className="space-y-3">
     <nav className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-sm sm:grid-cols-2" aria-label="Run queues">
       {(['active', 'completed'] as const).map(value => <button key={value} type="button" aria-pressed={queue === value}
         onClick={() => { setQueue(value); setPage(1); }}
@@ -85,12 +100,15 @@ function PagedDriverDashboard(props: DriverDashboardProps) {
         {value === 'active' ? 'Active work' : 'Completed today / RMA awaiting receipt'}
       </button>)}
     </nav>
-    <RecordPageControls page={page} total={query.data?.total ?? 0} onPageChange={setPage} loading={query.isPending}
-      error={query.error} retry={() => { void query.refetch(); void overview.refetch(); }} />
+    {query.error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      Could not load records. <button type="button" onClick={() => { void query.refetch(); void overview.refetch(); }} className="min-h-11 font-semibold underline">Retry</button>
+    </p>}
   </section>;
+  const listFooter = query.isPending || query.error ? null
+    : <RecordPageControls page={page} total={query.data?.total ?? 0} onPageChange={changePage} collapseSinglePage />;
 
   return <DriverDashboardContent {...props} records={query.data?.rows ?? []} dashboardCounts={overview.data?.dashboard}
-    dataLoading={query.isPending} queueControls={queueControls} />;
+    dataLoading={query.isPending} queueSwitch={queueSwitch} listFooter={listFooter} />;
 }
 function DriverDashboardContent({
   records,
@@ -101,7 +119,7 @@ function DriverDashboardContent({
   onUpdateRecord,
   onLogout,
   onRefresh,
-  dataLoading, dashboardCounts, queueControls,
+  dataLoading, dashboardCounts, queueSwitch, listFooter,
 }: DriverDashboardProps) {
   const [refreshing, setRefreshing] = useState(false);
   const refresh = onRefresh ? async () => { setRefreshing(true); try { await onRefresh(); } finally { setRefreshing(false); } } : undefined;
@@ -199,7 +217,7 @@ function DriverDashboardContent({
             <p className="truncate text-sm font-semibold text-slate-900 sm:text-base">Microgenesis Field Mobile</p>
           </div>
           <div className="flex shrink-0 items-center gap-3">
-            <p className="hidden text-sm text-slate-600 sm:block">{currentUserName} · {todayLabel}</p>
+            <p className="hidden text-sm text-slate-600 sm:block">{currentUserName}</p>
             <AccountMenu name={currentUserName} email={currentUserEmail} role="Driver"
               canManageAdmin={canManageAdmin} onNavigate={onNavigate} onLogout={onLogout} />
           </div>
@@ -207,25 +225,25 @@ function DriverDashboardContent({
       </header>
 
       <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-        <DashboardPage title="Driver dashboard" id="driver-dashboard" onRefresh={refresh} refreshing={refreshing}>
+        <DashboardPage title="Driver dashboard" subtitle={todayLabel} id="driver-dashboard" onRefresh={refresh} refreshing={refreshing} touchFriendly>
         <section aria-label="Driver summary" className="grid grid-cols-3 gap-2 sm:gap-3">
           <KpiTile size="compact" label="Today's runs" value={summaryLoading ? null : dashboardCounts?.today ?? todayRecs.length} />
           <KpiTile size="compact" label="Accomplished" value={summaryLoading ? null : dashboardCounts ? dashboardCounts.completed + dashboardCounts.rma_completed : accomplishedRecords.length} />
           <KpiTile size="compact" label="Remaining" value={summaryLoading ? null : dashboardCounts ? dashboardCounts.remaining + dashboardCounts.rma_active : activeWorkRecords.length} />
         </section>
 
-        {queueControls}
+        {queueSwitch}
 
       {saveFeedback && !pendingAction && (
-        <div className="mb-4">
+        <div>
           <div role="alert" className={`rounded-xl border p-3 text-sm font-semibold shadow-sm ${saveFeedback.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : saveFeedback.type === 'info' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
             {saveFeedback.message}
           </div>
         </div>
       )}
 
-      {/* Body */}
-      <div className="space-y-4">
+      {/* Body: the run list, then its pagination */}
+      <div id={RUN_LIST_ID} tabIndex={-1} aria-label="Run list" className="space-y-4 focus:outline-none">
         {dataLoading && <TileSkeleton lines={3} />}
 
         {!dataLoading && recordsInScope === 0 && (
@@ -429,6 +447,8 @@ function DriverDashboardContent({
             </div>
           </DashboardPanel>
         )}
+
+        {listFooter && <div data-run-list-footer>{listFooter}</div>}
       </div>
 
       {/* Status confirmation modal */}

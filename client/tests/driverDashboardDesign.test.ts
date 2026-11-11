@@ -8,6 +8,8 @@ import { installLegacySession } from './helpers/permissionSession';
 import { manilaToday } from '../src/utils/recordLifecycle';
 import type { DeliveryRecord } from '../src/types';
 
+const dom_FOLLOWING = 4; // Node.DOCUMENT_POSITION_FOLLOWING
+
 async function mount(props: Record<string, unknown>, run: (doc: Document) => void | Promise<void>) {
   installLegacySession('DRIVER', 'driver_dashboard');
   const queryClient = new QueryClient();
@@ -90,5 +92,37 @@ test('Refresh is offered, waits for the refresh to finish and runs it once', asy
     assert.equal(button.disabled, true);
     await act(async () => { release(); await pending; });
     assert.equal(button.disabled, false);
+  });
+});
+
+const counts = { today: 1, remaining: 1, completed: 0, rma_active: 0, rma_completed: 0 };
+
+test('pagination sits under the run list, never above it', async () => {
+  const footer = React.createElement('div', { 'data-testid': 'pagination-container' }, 'pages');
+  const queueSwitch = React.createElement('div', { 'data-testid': 'queue-switch' }, 'switch');
+  await mount({ records: [run], dashboardCounts: counts, queueSwitch, listFooter: footer }, doc => {
+    const pager = doc.querySelector('[data-testid="pagination-container"]')!;
+    const card = doc.querySelector('article')!;
+    const sw = doc.querySelector('[data-testid="queue-switch"]')!;
+    assert.ok(pager && card && sw);
+    assert.ok(card.compareDocumentPosition(pager) & dom_FOLLOWING, 'pagination comes after the job card');
+    assert.ok(sw.compareDocumentPosition(card) & dom_FOLLOWING, 'queue switch comes before the job card');
+    assert.ok(doc.getElementById('driver-run-list')?.contains(pager));
+  });
+});
+
+test('today\'s date is shown under the title on every screen size', async () => {
+  await mount({ records: [run], dashboardCounts: counts }, doc => {
+    const subtitle = doc.querySelector('[data-page-subtitle]');
+    assert.ok(subtitle);
+    assert.match(subtitle!.textContent ?? '', /\d{4}/);
+    assert.doesNotMatch(subtitle!.className, /hidden/);
+  });
+});
+
+test('Refresh is a 44px touch target on the driver screen', async () => {
+  await mount({ records: [run], dashboardCounts: counts, onRefresh: () => {} }, doc => {
+    const button = doc.querySelector('button[aria-label="Refresh dashboard"]')!;
+    assert.match(button.className, /min-h-11/); assert.match(button.className, /min-w-11/);
   });
 });
