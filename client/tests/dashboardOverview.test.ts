@@ -19,7 +19,7 @@ const overview: ApiDashboardOverview = {
 const text = (node: React.ReactElement) => renderToStaticMarkup(node).replace(/<[^>]*>/g, '');
 
 test('Logistics shows complete totals and view-all paths alongside bounded previews', () => {
-  const html = text(React.createElement(LogisticsDashboard, { stats: null, overview, deliveryRecords: [], onNavigate() {} }));
+  const html = text(React.createElement(LogisticsDashboard, { stats: null, overview, onNavigate() {} }));
   assert.match(html, /RMA transport requests.*6001 requests/);
   assert.match(html, /Showing 1 of 6001 requests/);
   assert.match(html, /6001 drivers/); assert.match(html, /7001 active deliveries/);
@@ -28,11 +28,11 @@ test('Logistics shows complete totals and view-all paths alongside bounded previ
 });
 
 test('TASS and Admin do not mistake preview length for full counts or amounts', () => {
-  const tass = text(React.createElement(TassDashboard, { stats: null, overview, deliveryRecords: [], onNavigate() {} }));
-  assert.match(tass, /6001 open/); assert.match(tass, /showing 1/);
+  const tass = text(React.createElement(TassDashboard, { stats: null, overview, onNavigate() {} }));
+  assert.match(tass, /6001 open/); assert.match(tass, /Showing 1 of 6001/);
   assert.doesNotMatch(tass, /No open RMA records/);
   const admin = text(React.createElement(AdminDashboard, { stats: { role: 'ADMIN', total_active_users: 1, user_breakdown: {},
     records_this_week: 0, unverified_collections: 6001, audit_events_today: 0, records_by_status: [], recent_audit: [] },
-    overview, deliveryRecords: [], onNavigate() {} }));
+    overview, onNavigate() {} }));
   assert.match(admin, /12,345\.00/); assert.match(admin, /across 6001 records/);
 });

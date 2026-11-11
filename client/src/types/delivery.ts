@@ -72,6 +72,7 @@ export interface DeliveryRecord extends AuditFields {
   category: DeliveryCategory;
   item_type: ItemType;
   is_draft: 'Yes' | 'No';
+  submitted_at?: string | null; // ISO; when the record last left Draft
   created_by_id?: string;
   modified_by_id?: string;
   deleted_at?: string | null;

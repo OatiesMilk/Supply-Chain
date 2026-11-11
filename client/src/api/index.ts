@@ -315,6 +315,7 @@ export interface ApiDriver {
 
 export interface ApiDashboardOverview {
   role: string;
+  generated_at?: string; // server time of this snapshot, ISO
   record_total: number;
   status_totals: Record<string, number>;
   counts: Record<string, number>;

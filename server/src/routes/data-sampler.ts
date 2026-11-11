@@ -255,6 +255,7 @@ router.post('/generate', requireAuth, requireResource('dataSampler', 'WRITE'), r
             category:        mod.dbCategory as any,
             itemType:        overrides.item_type      ?? itemType,
             draft:           false,
+            submittedAt:     new Date(),
             
             itemDescription: overrides.item_description ?? itemDescription,
             amount: overrides.amount != null
