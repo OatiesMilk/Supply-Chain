@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lock, X, Info, Send } from 'lucide-react';
+import { Lock, X, Info, Copy, Check } from 'lucide-react';
 
 export interface AccessRequestModalProps {
   isOpen: boolean;
@@ -16,33 +16,46 @@ export const AccessRequestModal: React.FC<AccessRequestModalProps> = ({
 }) => {
   const [screen, setScreen] = useState(screenName);
   const [note, setNote] = useState('');
-  const [sent, setSent] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   React.useEffect(() => {
     setScreen(screenName);
-  }, [screenName]);
+    setCopied(false);
+  }, [screenName, isOpen]);
 
   if (!isOpen) return null;
 
-  const handleSubmit = () => {
-    setSent(true);
-    setTimeout(() => {
-      onClose();
-      setSent(false);
-      setNote('');
-    }, 2000);
+  const handleCopy = async () => {
+    const text = `Access Request:\n- Role: ${currentUserRole}\n- Module/Screen: ${screen.trim()}\n- Justification: ${note.trim()}`;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      }
+    } catch {
+      // Fallback
+    }
+    setCopied(true);
   };
 
   return (
     <div className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center px-4">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md p-6 space-y-4">
-        {sent ? (
+        {copied ? (
           <div className="flex flex-col items-center justify-center py-6 gap-3 text-center">
             <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center">
-              <Send className="w-5 h-5 text-emerald-600" />
+              <Check className="w-6 h-6 text-emerald-600" />
             </div>
-            <p className="text-sm font-bold text-slate-800">Request Sent</p>
-            <p className="text-xs text-slate-500">Your admin has been notified.</p>
+            <p className="text-sm font-bold text-slate-800">Request Details Copied</p>
+            <p className="text-xs text-slate-600">
+              The request details have been copied to your clipboard. Please forward this message to your System Administrator or IT helpdesk to request role policy adjustments.
+            </p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="mt-2 px-5 py-2 text-xs font-bold text-white bg-[#1F3864] hover:bg-[#0078C1] rounded-lg transition-colors cursor-pointer"
+            >
+              Done
+            </button>
           </div>
         ) : (
           <>
@@ -54,7 +67,7 @@ export const AccessRequestModal: React.FC<AccessRequestModalProps> = ({
                 <div>
                   <h3 className="text-sm font-black text-slate-800">Request Temporary Access</h3>
                   <p className="text-[11px] text-slate-500">
-                    {screen ? `For: ${screen}` : 'Submit to your system administrator'}
+                    {screen ? `For: ${screen}` : 'Prepare access request for administrator'}
                   </p>
                 </div>
               </div>
@@ -69,8 +82,8 @@ export const AccessRequestModal: React.FC<AccessRequestModalProps> = ({
 
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-2">
               <Info className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-              <p className="text-[11px] text-amber-700">
-                Your current role is <strong>{currentUserRole}</strong>. Access changes are subject to admin approval and may be time-limited.
+              <p className="text-[11px] text-amber-800">
+                Your current role is <strong>{currentUserRole}</strong>. Access is granted manually by an Administrator in the Admin Panel. Prepare your request details below to send to your administrator.
               </p>
             </div>
 
@@ -104,11 +117,12 @@ export const AccessRequestModal: React.FC<AccessRequestModalProps> = ({
                 Cancel
               </button>
               <button
-                onClick={handleSubmit}
+                onClick={handleCopy}
                 disabled={!screen.trim() || !note.trim()}
-                className="px-4 py-2 text-xs font-bold text-white bg-[#1F3864] hover:bg-[#0078C1] rounded-lg transition-colors cursor-pointer disabled:opacity-40"
+                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-[#1F3864] hover:bg-[#0078C1] rounded-lg transition-colors cursor-pointer disabled:opacity-40"
               >
-                Submit Request
+                <Copy className="w-3.5 h-3.5" />
+                Copy Request Details
               </button>
             </div>
           </>

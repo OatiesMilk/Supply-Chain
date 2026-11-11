@@ -11,7 +11,7 @@ import { asyncRoute } from '../middleware/asyncRoute';
 
 const router = Router();
 
-router.get('/', requireAuth, async (req, res) => {
+router.get('/', requireAuth, asyncRoute(async (req, res) => {
   const notifications = await prisma.$queryRaw<Notification[]>`
     SELECT n.* FROM "Notification" n
     LEFT JOIN "DeliveryRecord" r ON n."recordType" = 'DeliveryRecord' AND r."id" = n."recordId"
@@ -29,26 +29,26 @@ router.get('/', requireAuth, async (req, res) => {
       created_at: n.createdAt
     }))
   );
-});
+}));
 
-router.get('/unread-count', requireAuth, async (req, res) => {
+router.get('/unread-count', requireAuth, asyncRoute(async (req, res) => {
   const [result] = await prisma.$queryRaw<Array<{ count: number }>>`
     SELECT COUNT(*)::integer AS count FROM "Notification" n
     LEFT JOIN "DeliveryRecord" r ON n."recordType" = 'DeliveryRecord' AND r."id" = n."recordId"
     WHERE n."userId" = ${req.user!.id} AND n."isRead" = false AND ${notificationVisibility(req.user!)}
   `;
   res.json({ count: result?.count ?? 0 });
-});
+}));
 
-router.patch('/read-all', requireAuth, requireRole('ADMIN', 'SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'DRIVER'), async (req, res) => {
+router.patch('/read-all', requireAuth, requireRole('ADMIN', 'SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'DRIVER'), asyncRoute(async (req, res) => {
   await prisma.notification.updateMany({
     where: { userId: req.user!.id, isRead: false },
     data: { isRead: true }
   });
   res.json({ ok: true });
-});
+}));
 
-router.patch('/:id/read', requireAuth, requireRole('ADMIN', 'SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'DRIVER'), async (req, res) => {
+router.patch('/:id/read', requireAuth, requireRole('ADMIN', 'SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'DRIVER'), asyncRoute(async (req, res) => {
   const notif = await prisma.notification.findFirst({
     where: { id: req.params.id, userId: req.user!.id }
   });
@@ -59,7 +59,7 @@ router.patch('/:id/read', requireAuth, requireRole('ADMIN', 'SALES_COORDINATOR',
     data: { isRead: true }
   });
   res.json({ ok: true });
-});
+}));
 
 // ─── Email dispatch endpoint ────────────────────────────────────────────────
 
