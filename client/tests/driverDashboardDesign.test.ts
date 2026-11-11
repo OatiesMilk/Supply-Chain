@@ -167,9 +167,9 @@ test('a record without a reference never shows the internal id', async () => {
 });
 
 test('due date is formatted and an overdue run says how late on the date line', async () => {
-  await mount({ records: [{ ...run, delivery_date: '2026-10-30', time_in: '2026-10-30T01:00:00.000Z' }], dashboardCounts: counts }, doc => {
+  await mount({ records: [{ ...run, delivery_date: '2026-10-30' }], dashboardCounts: counts }, doc => {
     const due = doc.querySelector('[data-due-date]');
-    if (!due) return; // not actionable on this date in some timezones
+    assert.ok(due, 'overdue run is listed as active work');
     assert.match(due.textContent ?? '', /Due Oct 30, 2026/);
     assert.match(due.textContent ?? '', /days? late/);
     assert.match(due.className, /text-rose-700/);
@@ -186,5 +186,20 @@ test('long descriptions are clamped with Show more instead of cut at 40 characte
     await act(async () => { toggle.click(); });
     assert.equal(doc.querySelector('[data-clamped="true"]'), null);
     assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+  });
+});
+
+test('counters share one compact strip with short phone labels and full accessible names', async () => {
+  await mount({ records: [run], dashboardCounts: counts }, doc => {
+    const strip = doc.querySelector('section[aria-label="Driver summary"]')!;
+    assert.match(strip.className, /divide-x/);
+    const cells = strip.querySelectorAll('[data-kpi-tile]');
+    assert.equal(cells.length, 3);
+    for (const [short, full] of [['Today', "Today's runs"], ['Done', 'Accomplished'], ['Left', 'Remaining']]) {
+      const cell = [...cells].find(node => node.textContent?.includes(full))!;
+      assert.ok(cell, full);
+      assert.equal(cell.querySelector('[aria-hidden="true"]')?.textContent, short);
+      assert.match(cell.querySelector('.sr-only')?.textContent ?? '', new RegExp(full));
+    }
   });
 });

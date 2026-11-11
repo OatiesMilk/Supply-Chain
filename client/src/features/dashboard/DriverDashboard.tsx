@@ -27,7 +27,7 @@ import { uploadStagedFiles } from '@/api/queries/usePodAttachments';
 import { useQueryClient } from '@tanstack/react-query';
 import { notify } from '@/utils/notify';
 import AccountMenu from '@/layouts/AccountMenu';
-import { DashboardPage, DashboardPanel, EmptyState, KpiTile, TileSkeleton, formatDate } from './ui';
+import { DashboardPage, DashboardPanel, EmptyState, KpiStrip, TileSkeleton, formatDate } from './ui';
 
 interface DriverDashboardProps {
   records: DeliveryRecord[];
@@ -287,11 +287,11 @@ function DriverDashboardContent({
 
       <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
         <DashboardPage title="Driver dashboard" subtitle={todayLabel} id="driver-dashboard" onRefresh={refresh} refreshing={refreshing} touchFriendly>
-        <section aria-label="Driver summary" className="grid grid-cols-3 gap-2 sm:gap-3">
-          <KpiTile size="compact" label="Today's runs" value={summaryLoading ? null : dashboardCounts?.today ?? todayRecs.length} />
-          <KpiTile size="compact" label="Accomplished" value={summaryLoading ? null : dashboardCounts ? dashboardCounts.completed + dashboardCounts.rma_completed : accomplishedRecords.length} />
-          <KpiTile size="compact" label="Remaining" value={summaryLoading ? null : dashboardCounts ? dashboardCounts.remaining + dashboardCounts.rma_active : activeWorkRecords.length} />
-        </section>
+        <KpiStrip label="Driver summary" items={[
+          { label: "Today's runs", shortLabel: 'Today', value: summaryLoading ? null : dashboardCounts?.today ?? todayRecs.length },
+          { label: 'Accomplished', shortLabel: 'Done', value: summaryLoading ? null : dashboardCounts ? dashboardCounts.completed + dashboardCounts.rma_completed : accomplishedRecords.length },
+          { label: 'Remaining', shortLabel: 'Left', value: summaryLoading ? null : dashboardCounts ? dashboardCounts.remaining + dashboardCounts.rma_active : activeWorkRecords.length },
+        ]} />
 
         {queueSwitch}
 
