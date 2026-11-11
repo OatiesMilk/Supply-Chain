@@ -28,6 +28,7 @@ import { dispatchMovementScope, eligibleRmaTransport, isLogisticsRma, needsLogis
 import { canPerformPolicyRecordAction } from '../services/recordAccess';
 import { notifyRmaRecipients } from '../services/rmaNotifications';
 import { RMA_COMPLETION_ROLE_ERROR } from '../services/deliveryLifecycle';
+import { categoryActionRestriction } from '../services/moduleAccessRules';
 import { readRmaPermissions } from '../services/rmaDispatchPermissions';
 import { recordOperationError, recordMutationInputError } from '../services/recordOperations';
 import { recordSubmissionError } from '../services/recordSubmission';
@@ -59,6 +60,8 @@ const recordAccess = (allowDriverRmaPod = false) => Object.assign(asyncRoute(asy
     if (!record) return res.status(403).json({ error: 'Record access denied' });
     const operationError = recordOperationError(req.user!, record, req.body ?? {}, String(req.route?.path ?? ''), req.method);
     if (operationError) return res.status(operationError === 'Category relocation is not supported' ? 400 : 403).json({ error: operationError });
+    const restriction = req.method !== 'GET' ? categoryActionRestriction(req.user!.role, record.category, 'WRITE') : null;
+    if (restriction) return res.status(403).json({ error: restriction });
     if (req.method !== 'GET' && req.user!.role === 'LOGISTICS' && record.category === 'RMA') {
       return res.status(403).json({ error: 'Logistics has view-only access to RMA records' });
     }
@@ -67,7 +70,9 @@ const recordAccess = (allowDriverRmaPod = false) => Object.assign(asyncRoute(asy
     }
   } else if (req.method === 'POST' && req.body?.category) {
     const category = CATEGORY_TO_DB[req.body.category] ?? req.body.category;
-    if (!canCreateCategory(req.user!, category)) return res.status(403).json({ error: category === 'DELIVERY' && req.user!.role === 'LOGISTICS' ? 'Only Sales Coordinator or Admin may create Deliveries.' : 'Module access denied' });
+    const restriction = categoryActionRestriction(req.user!.role, category, 'CREATE');
+    if (restriction) return res.status(403).json({ error: restriction });
+    if (!canCreateCategory(req.user!, category)) return res.status(403).json({ error: 'Module access denied' });
   }
   next();
 }), { recordOperations: true });

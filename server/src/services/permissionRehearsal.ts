@@ -43,7 +43,7 @@ export function comparePermissionRehearsal(account: RehearsalAccount, snapshot: 
   compare('SNAPSHOT:VALID', account.isActive, snapshot.valid);
   compare('SNAPSHOT:DRIVER_ID', true, snapshot.driverProfileId === (account.role === 'DRIVER' && account.isActive ? linkedProfile : null));
   for (const screen of POLICY_SCREENS) compare(`NAVIGATION:${screen}`, legacy.effectiveScreens.includes(screen), snapshot.effectiveScreens.includes(screen));
-  for (const [key, before] of legacyCapabilities(account.role, legacy.effectiveScreens, account.permissions)) {
+  for (const [key, before] of legacyCapabilities(account.role, legacy.effectiveScreens, account.permissions, false, true)) {
     compare(key, before === 'ALLOW', snapshot.decisions[key]?.allowed === true, key.startsWith('CATEGORY:') || key.startsWith('RESOURCE:'));
   }
   for (const resource of Object.keys(snapshot.capabilities.resources)) {

@@ -387,7 +387,7 @@ test('delivery completion and attachment deletion configure a 30s timeout on pri
   assert.deepEqual(transactionOptions[0], { timeout: 30_000, maxWait: 10_000 });
 
   stub(podStorage, 'remove', async () => {});
-  const resDel = await request('delete', '/:id/attachments/:attachmentId', { role: 'ADMIN' });
+  const resDel = await request('delete', '/:id/attachments/:attachmentId', { role: 'LOGISTICS' });
   assert.equal(resDel.status, 204);
   assert.deepEqual(transactionOptions[1], { timeout: 30_000, maxWait: 10_000 });
 });
@@ -415,7 +415,7 @@ test('Pending requires a started run and non-RMA categories require photo for co
   for (const category of ['PROCUREMENT_PICKUP', 'ACCOUNTING_COLLECTION', 'SALES_ORDERS']) {
     resetFixtures();
     const state = database(record({ category }));
-    const result = await request('patch', '/:id/status', { role: 'ADMIN', body: { status: 'Delivered', remarks: 'Updated' } });
+    const result = await request('patch', '/:id/status', { role: 'LOGISTICS', body: { status: 'Delivered', remarks: 'Updated' } });
     assert.equal(result.status, 400, category);
     assert.equal(state.events.includes('update'), false);
   }
@@ -432,7 +432,7 @@ test('delivery creation cannot bypass proof by specifying Delivered or a filenam
 test('last photo deletion on accomplished delivery is blocked under the same record lock', async () => {
   const state = database(record({ status: 'ACCOMPLISHED' }), [attachment()]);
   const remove = stub(podStorage, 'remove', async () => {});
-  const result = await request('delete', '/:id/attachments/:attachmentId', { role: 'ADMIN' });
+  const result = await request('delete', '/:id/attachments/:attachmentId', { role: 'LOGISTICS' });
   assert.equal(result.status, 409);
   assert.deepEqual(state.events, ['lock', 'photos']);
   assert.equal(remove.mock.callCount(), 0);
@@ -441,7 +441,7 @@ test('last photo deletion on accomplished delivery is blocked under the same rec
 test('a replacement photo allows removal while preserving delivery proof', async () => {
   const state = database(record({ status: 'ACCOMPLISHED' }), [attachment(), attachment({ id: 'replacement' })]);
   stub(podStorage, 'remove', async () => {});
-  const result = await request('delete', '/:id/attachments/:attachmentId', { role: 'ADMIN' });
+  const result = await request('delete', '/:id/attachments/:attachmentId', { role: 'LOGISTICS' });
   assert.equal(result.status, 204);
   assert.deepEqual(state.events, ['lock', 'photos', 'delete', 'audit']);
 });
@@ -456,7 +456,7 @@ test('RMA supporting photos remain optional after completion', async () => {
 
 
 test('completion enforces receiver and remarks for every role and Time In for internal runs without partial writes', async () => {
-  for (const role of ['DRIVER', 'LOGISTICS', 'ADMIN', 'TASS']) {
+  for (const role of ['DRIVER', 'LOGISTICS', 'TASS']) {
     for (const invalid of ['receiver', 'remarks', 'timeIn']) {
       if (role === 'TASS' && invalid === 'timeIn') continue;
       resetFixtures();
@@ -470,7 +470,7 @@ test('completion enforces receiver and remarks for every role and Time In for in
 });
 
 test('ordinary Delivery completion roles persist Delivered with automatic server Time Out', async () => {
-  for (const role of ['DRIVER', 'LOGISTICS', 'ADMIN']) {
+  for (const role of ['DRIVER', 'LOGISTICS']) {
     resetFixtures();
     const state = database(record(role === 'TASS' ? { category: 'RMA' } : {}), [attachment()]);
     const before = Date.now();
@@ -575,7 +575,7 @@ test('RMA Pending needs no Time In, legacy rescheduling preserves clocks, and ne
   assert.deepEqual(allowedStatuses(state.saved()), ['Pending', 'On-Hold', 'Rescheduled', 'Delivered']);
   resetFixtures();
   state = database(record({ category: 'RMA', status: 'SCHEDULED', timeIn: null }));
-  assert.equal((await request('post', '/:id/time-in', { role: 'ADMIN', body: { remarks: 'Start internal run' } })).status, 400);
+  assert.equal((await request('post', '/:id/time-in', { role: 'ADMIN', body: { remarks: 'Start internal run' } })).status, 403, 'Admin is view-only on RMA');
   assert.equal(state.events.includes('update'), false);
 });
 
@@ -585,7 +585,7 @@ test('Admin, Logistics, Sales Coordinator and Driver cannot complete RMA via dir
     const state = database(record({ category: 'RMA', status: 'SCHEDULED', timeIn: null }));
     const response = await request('patch', '/:id/status', { role, body: { status: 'Delivered', remarks: 'Complete', received_by: 'Collector' } });
     assert.equal(response.status, 403, role);
-    assert.deepEqual(state.events, role === 'ADMIN' ? ['lock'] : []);
+    assert.deepEqual(state.events, []);
   }
 });
 
@@ -602,7 +602,7 @@ test('manual In Transit, early completion, early Pending and reopening Delivered
   for (const [row, target] of [[{ status: 'SCHEDULED', timeIn: null }, 'In Transit'], [{ status: 'SCHEDULED', timeIn: null }, 'Delivered'], [{ status: 'SCHEDULED', timeIn: null }, 'Pending'], [{ status: 'ACCOMPLISHED' }, 'Rescheduled']] as const) {
     resetFixtures();
     const state = database(record(row), [attachment()]);
-    const result = await request('patch', '/:id/status', { role: 'ADMIN', body: { status: target, remarks: 'Update' } });
+    const result = await request('patch', '/:id/status', { role: 'LOGISTICS', body: { status: target, remarks: 'Update' } });
     assert.equal(result.status, 400);
     assert.equal(state.events.includes('update'), false);
   }
@@ -626,8 +626,8 @@ test('assigned Driver cannot mark Pending before Time In and the rejected reques
   assert.equal(state.events.includes('notification'), false);
 });
 
-test('SC/Admin return pre-start run to Draft, retain assignment and audit; started run cannot revert', async () => {
-  for (const role of ['SALES_COORDINATOR', 'ADMIN']) {
+test('SC returns pre-start run to Draft, retain assignment and audit; started run cannot revert', async () => {
+  for (const role of ['SALES_COORDINATOR']) {
     resetFixtures();
     const state = database(record({ status: 'SCHEDULED', timeIn: null }));
     const result = await request('patch', '/:id/status', { role, body: { status: 'Draft', remarks: 'Fix details' } });
@@ -658,7 +658,7 @@ test('draft assignment blocked; ISO corrections are restricted, audited and cann
   assert.equal(state.audit.length, 1);
   resetFixtures();
   database(record({ timeIn: null, status: 'SCHEDULED' }));
-  assert.equal((await request('put', '/:id', { role: 'ADMIN', body: { time_in: '2026-10-06T09:00:00+08:00', remarks: 'Start bypass' } })).status, 400);
+  assert.equal((await request('put', '/:id', { role: 'LOGISTICS', body: { time_in: '2026-10-06T09:00:00+08:00', remarks: 'Start bypass' } })).status, 400);
 });
 
 test('rescheduling clears timestamps and preserves them and actor in audit for next attempt', async () => {
@@ -681,8 +681,8 @@ test('TSK-123: Logistics/Admin must send a valid new date when rescheduling a De
     ['LOGISTICS', {}, /new delivery date is required/i],
     ['LOGISTICS', { delivery_date: shiftDate(today, -1) }, /past/i],
     ['LOGISTICS', { delivery_date: today }, /different/i],
-    ['ADMIN', { delivery_date: 'tomorrow' }, /valid/i],
-    ['ADMIN', { delivery_date: '2026-02-30' }, /valid/i],
+    ['LOGISTICS', { delivery_date: 'tomorrow' }, /valid/i],
+    ['LOGISTICS', { delivery_date: '2026-02-30' }, /valid/i],
   ];
   for (const [role, extra, message] of rejected) {
     resetFixtures();
@@ -696,7 +696,7 @@ test('TSK-123: Logistics/Admin must send a valid new date when rescheduling a De
     assert.equal(state.remarks.length, 0);
   }
 
-  for (const role of ['LOGISTICS', 'ADMIN']) {
+  for (const role of ['LOGISTICS']) {
     resetFixtures();
     const state = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: today }));
     const result = await request('patch', '/:id/status', { role, body: { status: 'Rescheduled', remarks: 'Customer asked for tomorrow', delivery_date: tomorrow } });
@@ -717,7 +717,6 @@ test('TSK-123: delivery_date is rejected on any status change other than a Deliv
   const tomorrow = shiftDate(manilaToday(), 1);
   for (const [role, status, row] of [
     ['LOGISTICS', 'On-Hold', { status: 'SCHEDULED', timeIn: null }],
-    ['ADMIN', 'On-Hold', { status: 'SCHEDULED', timeIn: null }],
     ['LOGISTICS', 'Rescheduled', { status: 'SCHEDULED', category: 'ACCOUNTING_COLLECTION' }],
   ] as const) {
     resetFixtures();
@@ -783,7 +782,7 @@ test('record scope hides drafts in driver list/detail and related transactions; 
 test('same-status priority changes remain audited without resetting timestamps', async () => {
   // Delivered records are locked (TSK-124), so the same-status priority path is exercised on a Pending record.
   const state = database(record({ status: 'PENDING', timeOut: '2026-10-06T02:00:00.000Z' }));
-  const result = await request('patch', '/:id/status', { role: 'ADMIN', body: { status: 'Pending', priority: '3 - High', remarks: 'Adjust priority' } });
+  const result = await request('patch', '/:id/status', { role: 'LOGISTICS', body: { status: 'Pending', priority: '3 - High', remarks: 'Adjust priority' } });
   assert.equal(result.status, 200);
   assert.equal(result.body.priority, '3 - High');
   assert.equal(result.body.time_out, '2026-10-06T02:00:00.000Z');
@@ -799,7 +798,7 @@ test('legacy Scheduled ISO Time In is normalized; invalid legacy clocks cannot c
   assert.equal(state.saved().timeIn, '2026-10-06T01:00:00.000Z');
   resetFixtures();
   state = database(record({ status: 'SCHEDULED', timeIn: '09:00' }), [attachment()]);
-  assert.equal((await request('patch', '/:id/status', { role: 'ADMIN', body: { status: 'Delivered', remarks: 'Complete' } })).status, 400);
+  assert.equal((await request('patch', '/:id/status', { role: 'LOGISTICS', body: { status: 'Delivered', remarks: 'Complete' } })).status, 400);
   assert.equal(state.events.includes('update'), false);
   const corrected = await request('put', '/:id', { role: 'LOGISTICS', body: { time_in: '2026-10-06T09:00:00+08:00', remarks: 'Correct legacy clock' } });
   assert.equal(corrected.status, 200);
@@ -887,19 +886,19 @@ test('RMA sampler rejects unsupported categories and item types before database 
   assert.equal(companyRead.mock.callCount(), 0);
 });
 
-test('Admin can fill a draft reference with remarks and submit, preserving assignment', async () => {
+test('Sales Coordinator can fill a draft reference with remarks and submit, preserving assignment', async () => {
   const state = database(record({ draft: true, status: 'SCHEDULED', timeIn: null, reference: '' }));
-  assert.equal((await request('patch', '/:id/status', { role: 'ADMIN', body: { status: 'Scheduled', remarks: 'Submit' } })).status, 400);
-  assert.equal((await request('put', '/:id', { role: 'ADMIN', body: { reference: 'REF' } })).status, 400);
-  assert.equal((await request('put', '/:id', { role: 'ADMIN', body: { reference: 'REF', remarks: 'Fill reference' } })).status, 200);
-  const submit = await request('patch', '/:id/status', { role: 'ADMIN', body: { status: 'Scheduled', remarks: 'Submit' } });
+  assert.equal((await request('patch', '/:id/status', { role: 'SALES_COORDINATOR', body: { status: 'Scheduled', remarks: 'Submit' } })).status, 400);
+  assert.equal((await request('put', '/:id', { role: 'SALES_COORDINATOR', body: { reference: 'REF' } })).status, 400);
+  assert.equal((await request('put', '/:id', { role: 'SALES_COORDINATOR', body: { reference: 'REF', remarks: 'Fill reference' } })).status, 200);
+  const submit = await request('patch', '/:id/status', { role: 'SALES_COORDINATOR', body: { status: 'Scheduled', remarks: 'Submit' } });
   assert.equal(submit.status, 200);
   assert.equal(state.saved().draft, false);
   assert.equal(state.saved().driver, 'Assigned Driver');
 });
 
 test('C-2.12 isolates missing photo with valid recipient, Time In and remarks for every completion role', async () => {
-  for (const role of ['DRIVER', 'LOGISTICS', 'ADMIN']) {
+  for (const role of ['DRIVER', 'LOGISTICS']) {
     resetFixtures();
     const state = database();
     const before = { ...state.saved() };
@@ -931,7 +930,7 @@ test('C-2.13 status, edit and upload reject another driver with no mutations or 
 });
 
 test('completion prerequisites are enforced independently for Driver, Logistics and Admin', async () => {
-  for (const role of ['DRIVER', 'LOGISTICS', 'ADMIN']) {
+  for (const role of ['DRIVER', 'LOGISTICS']) {
     for (const missing of ['timeIn', 'receivedBy', 'remarks']) {
       resetFixtures();
       const state = database(record(missing === 'remarks' ? {} : { [missing]: '  ' }), [attachment()]);
@@ -945,7 +944,7 @@ test('completion prerequisites are enforced independently for Driver, Logistics 
 });
 
 test('owner positive controls stamp server Time Out and authenticated audit actor for all roles', async () => {
-  for (const role of ['DRIVER', 'LOGISTICS', 'ADMIN']) {
+  for (const role of ['DRIVER', 'LOGISTICS']) {
     resetFixtures();
     const state = database(record(), [attachment()]);
     const start = Date.now();
@@ -986,7 +985,7 @@ test('client Time Out cannot be spoofed through driver PUT or status actions', a
 test('a priority-only save on an accomplished record is rejected and preserves its original Time Out', async () => {
   const timeOut = '2026-10-07T02:00:00.000Z';
   const state = database(record({ status: 'ACCOMPLISHED', timeOut }), [attachment()]);
-  const response = await request('patch', '/:id/status', { role: 'ADMIN', body: { status: 'Delivered', priority: '3 - High', remarks: 'Priority corrected' } });
+  const response = await request('patch', '/:id/status', { role: 'LOGISTICS', body: { status: 'Delivered', priority: '3 - High', remarks: 'Priority corrected' } });
   assert.equal(response.status, 400);
   assert.equal(response.body.error, "Priority can't be changed after a record is Delivered.");
   assert.equal(state.saved().timeOut, timeOut);
@@ -998,9 +997,9 @@ test('TSK-124: a changed Priority on a Delivered record is rejected for every ro
   for (const [method, path, role, body] of [
     ['put', '/:id', 'SALES_COORDINATOR', { priority: '3 - High', remarks: 'Escalate' }],
     ['put', '/:id', 'LOGISTICS', { priority: '3 - High', remarks: 'Escalate' }],
-    ['put', '/:id', 'ADMIN', { priority: '3 - High', remarks: 'Escalate' }],
+    ['put', '/:id', 'LOGISTICS', { priority: '3 - High', remarks: 'Escalate' }],
     ['patch', '/:id/status', 'LOGISTICS', { status: 'Delivered', priority: '3 - High', remarks: 'Escalate' }],
-    ['patch', '/:id/status', 'ADMIN', { status: 'Delivered', priority: '1 - Low', remarks: 'Lower' }],
+    ['patch', '/:id/status', 'LOGISTICS', { status: 'Delivered', priority: '1 - Low', remarks: 'Lower' }],
   ] as const) {
     resetFixtures();
     const state = database(record({ status: 'ACCOMPLISHED', timeOut: '2026-10-07T02:00:00.000Z' }), [attachment()]);
@@ -1045,7 +1044,7 @@ test('TSK-124: Priority on non-Delivered records is still editable', async () =>
 });
 
 test('Logistics and Admin retain audited ISO Time Out corrections', async () => {
-  for (const role of ['LOGISTICS', 'ADMIN']) {
+  for (const role of ['LOGISTICS']) {
     resetFixtures();
     const state = database(record({ status: 'ACCOMPLISHED', timeOut: '2026-10-07T02:00:00.000Z' }), [attachment()]);
     stub(prisma.remarkLog, 'create', async ({ data }: any) => { state.remarks.push(data); return {} as any; });
@@ -1302,7 +1301,7 @@ test('attachment storage is untouched on enqueue, metadata, audit, remark or com
     if (failure === 'audit') state.tx.auditLog.create = fail;
     if (failure === 'remark') state.tx.remarkLog.create = fail;
     if (failure === 'commit') stub(prisma, '$transaction', async (fn: any) => { await fn(state.tx); throw new Error('commit failed'); });
-    await assert.rejects(request('delete', '/:id/attachments/:attachmentId', { role: 'ADMIN', body: { remarks: 'Remove extra file' } }), new RegExp(`${failure} failed`));
+    await assert.rejects(request('delete', '/:id/attachments/:attachmentId', { role: 'LOGISTICS', body: { remarks: 'Remove extra file' } }), new RegExp(`${failure} failed`));
     assert.equal(remove.mock.callCount(), 0, failure);
   }
 });
@@ -1316,13 +1315,13 @@ test('storage removal starts only after the metadata transaction has committed',
     assert.equal(state.audit.length, 1);
     assert.ok(state.events.includes('delete'));
   });
-  assert.equal((await request('delete', '/:id/attachments/:attachmentId', { role: 'ADMIN' })).status, 204);
+  assert.equal((await request('delete', '/:id/attachments/:attachmentId', { role: 'LOGISTICS' })).status, 204);
 });
 
 test('a storage outage keeps a durable cleanup job and a later drain recovers it', async () => {
   const state = database(record(), [attachment()]);
   stub(podStorage, 'remove', async () => { throw new Error('Provider unavailable'); });
-  assert.equal((await request('delete', '/:id/attachments/:attachmentId', { role: 'ADMIN' })).status, 204);
+  assert.equal((await request('delete', '/:id/attachments/:attachmentId', { role: 'LOGISTICS' })).status, 204);
   assert.equal(state.cleanupJobs.length, 1);
   assert.equal(state.cleanupJobs[0].storageKey, 'photo.png');
   assert.equal(state.cleanupJobs[0].storageNamespace, podStorageNamespace);
@@ -1359,7 +1358,7 @@ test('locked PUT retains draft role restrictions and timestamp chronology after 
   resetFixtures();
   state = database(record({ status: 'ACCOMPLISHED', timeOut: '2026-10-07T03:00:00.000Z' }));
   state.tx.deliveryRecord.findUnique = async () => record({ status: 'ACCOMPLISHED', timeIn: '2026-10-07T02:00:00.000Z', timeOut: '2026-10-07T03:00:00.000Z' });
-  assert.equal((await request('put', '/:id', { role: 'ADMIN', body: { time_out: '2026-10-07T01:00:00.000Z', remarks: 'Correct clock' } })).status, 400);
+  assert.equal((await request('put', '/:id', { role: 'LOGISTICS', body: { time_out: '2026-10-07T01:00:00.000Z', remarks: 'Correct clock' } })).status, 400);
   assert.deepEqual(state.events, ['lock']);
 });
 
@@ -1373,13 +1372,13 @@ test('Logistics RMA discussion is readable but comment writes are denied without
   assert.deepEqual(state.events, []);
 });
 
-test('RMA comments are limited to TASS and Admin and reject blank discussion', async () => {
-  for (const role of ['SALES_COORDINATOR', 'DRIVER']) {
+test('RMA comments are limited to TASS and reject blank discussion', async () => {
+  for (const role of ['SALES_COORDINATOR', 'DRIVER', 'ADMIN']) {
     resetFixtures();
     database(record({ category: 'RMA' }));
     assert.equal((await request('post', '/:id/comments', { role, body: { body: ' Optional discussion ' } })).status, 403);
   }
-  for (const role of ['ADMIN', 'TASS']) {
+  for (const role of ['TASS']) {
     resetFixtures();
     const state = database(record({ category: 'RMA' }));
     const create = stub(prisma.comment, 'create', async ({ data }: any) => ({ ...data, id: 'comment-1', author: { name: 'Assigned Driver' }, createdAt: new Date(), updatedAt: new Date() }) as any);

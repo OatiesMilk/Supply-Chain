@@ -104,7 +104,7 @@ router.get('/:id/rma-capabilities', requireAuth, requireResource('records'), act
   res.json(rmaCapabilities(req.user!.rmaPermissions ?? null, row));
 }));
 
-router.patch('/:id/rma-assignment', requireAuth, requireResource('records'), requireRole('LOGISTICS', 'ADMIN'), requireAction('CATEGORY', 'RMA', 'ASSIGN'), action(async (req, res) => {
+router.patch('/:id/rma-assignment', requireAuth, requireResource('records'), requireRole('LOGISTICS'), requireAction('CATEGORY', 'RMA', 'ASSIGN'), action(async (req, res) => {
   const body = req.body ?? {};
   const remarks = input(body, ['driver_id', 'vehicle', 'driver_assistants', 'expected_version', 'remarks']);
   if (body.driver_id !== null && (typeof body.driver_id !== 'string' || !body.driver_id.trim())) throw new RmaActionError(400, 'Choose a Driver profile ID or null.');

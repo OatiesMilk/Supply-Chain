@@ -241,8 +241,13 @@ test('existing Logistics creation stays distinct from submission of an existing 
     state.effects.push('deliveryRecord.create'); return savedRecord(data.id, data.category, data);
   });
   state.stub(prisma.auditLog, 'create', async ({ data }: any) => { state.effects.push('auditLog.create'); return data; });
-  const created = await state.request('/api/v1/records', 'POST', { company_id: 'company-one', category: 'Procurement Pick-up', reference: 'PICKUP-247', delivery_date: '2026-10-29' });
-  assert.equal(created.status, 201, 'the frozen Logistics baseline permits new non-Delivery creation without draft SUBMIT');
+  const created = await state.request('/api/v1/records', 'POST', { company_id: 'company-one', category: 'Accounting Collection', reference: 'COLLECT-247', delivery_date: '2026-10-29' });
+  assert.equal(created.status, 201, 'Logistics may still create Accounting Collection records without draft SUBMIT');
+  assert.deepEqual(state.effects, ['deliveryRecord.create', 'auditLog.create']);
+  for (const category of ['Deliveries', 'Procurement Pick-up', 'Sales Orders']) {
+    const denied = await state.request('/api/v1/records', 'POST', { company_id: 'company-one', category, reference: 'NOPE-247', delivery_date: '2026-10-29' });
+    assert.equal(denied.status, 403, `${category}: only Sales Coordinator creates`);
+  }
   assert.deepEqual(state.effects, ['deliveryRecord.create', 'auditLog.create']);
   state.actor().role = 'SALES_COORDINATOR'; state.actor().authorizationRevision++;
   state.setRecords([savedRecord('record-one', 'DELIVERY', { draft: true, driverId: null })]);

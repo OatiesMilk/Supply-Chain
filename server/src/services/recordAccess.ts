@@ -5,6 +5,7 @@ import { hasActionPermission, type EffectivePermissionSnapshot } from './permiss
 import { POLICY_CATEGORIES, type PolicyAction, type PolicyCategory } from './permissionCatalog';
 import { driverDeliveryDateError, isoTimestamp, runState, timeInError, transitionError, type RunRecord, type RunState } from './deliveryLifecycle';
 import { eligibleRmaTransport as isEligibleRmaMovement, rmaTransportContext } from './rmaMovement';
+import { categoryActionRestriction } from './moduleAccessRules';
 export { runState as runStateForPermission } from './deliveryLifecycle';
 
 export const CATEGORY_SCREEN: Record<string, Screen> = {
@@ -68,6 +69,7 @@ export function canReadRecord(
 }
 
 export function canWriteCategory(user: AuthUser, category: string): boolean {
+  if (categoryActionRestriction(user.role, category, 'WRITE')) return false;
   if (user.activeMode === 'V1') return !!user.snapshot && !!writePathForCategory(user.snapshot, category)
     && hasActionPermission(user.snapshot, 'CATEGORY', category, 'WRITE');
   const screen = CATEGORY_SCREEN[category];
@@ -83,6 +85,7 @@ export function canWriteCategory(user: AuthUser, category: string): boolean {
 
 /** Creating a record can be narrower than managing an existing operational record. */
 export function canCreateCategory(user: AuthUser, category: string): boolean {
+  if (categoryActionRestriction(user.role, category, 'CREATE')) return false;
   if (user.activeMode === 'V1') {
     const path = user.snapshot && writePathForCategory(user.snapshot, category);
     return !!user.snapshot && !!path && canCreatePolicyCategory(user.snapshot, category, path);
@@ -180,9 +183,11 @@ export function canReadPolicyRecord(snapshot: EffectivePermissionSnapshot, recor
   return true;
 }
 export function canWritePolicyCategory(snapshot: EffectivePermissionSnapshot, category: string, path: PolicyRecordPath = 'records'): boolean {
+  if (categoryActionRestriction(snapshot.role ?? '', category, 'WRITE')) return false;
   return policyPathAllowed(snapshot, path, true) && hasActionPermission(snapshot, 'CATEGORY', category, 'WRITE');
 }
 export function canCreatePolicyCategory(snapshot: EffectivePermissionSnapshot, category: string, path: PolicyRecordPath = 'records'): boolean {
+  if (categoryActionRestriction(snapshot.role ?? '', category, 'CREATE')) return false;
   return canWritePolicyCategory(snapshot, category, path) && hasActionPermission(snapshot, 'CATEGORY', category, 'CREATE');
 }
 export type PolicyRecordOperation = Exclude<PolicyAction, 'READ' | 'WRITE' | 'CREATE' | 'ADJUST'>;
