@@ -12,6 +12,12 @@ export type DeliveryCategory =
   | 'Accounting Collection'
   | 'Procurement Pick-up';
 
+export interface DriverActions {
+  start: boolean;
+  complete: boolean;
+  start_blocked_reason: string | null;
+}
+
 export type DeliveryStatus = 'Draft' | 'Scheduled' | 'In Transit' | 'Delivered' | 'On-Hold' | 'Rescheduled' | 'Pending';
 
 export type RmaMovement = 'LOGISTICS_TRANSPORT' | 'SUPPLIER_COLLECTION' | 'INTERNAL_NO_DRIVER';
@@ -83,6 +89,10 @@ export interface DeliveryRecord extends AuditFields {
   rma_version?: number;
   expected_version?: number; // Mutation precondition; never substitutes for the server version.
   rma_transport_started_at?: string | null;
+  /** Who took the items from the driver when the RMA transport was completed. */
+  rma_transport_received_by?: string | null;
+  /** Server-computed actions for the assigned Driver (only sent to Drivers). */
+  driver_actions?: DriverActions;
   rma_transport_completed_at?: string | null;
   rma_received_at?: string | null;
   rma_received_by?: string | null;

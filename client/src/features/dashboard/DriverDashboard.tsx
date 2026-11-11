@@ -1,33 +1,25 @@
 import RecordStatus from '@/components/RecordStatus';
 import { usePermissions } from '@/hooks/usePermissions';
-import RmaWorkflowPanel from '@/features/deliveries/RmaWorkflowPanel';
 import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
-import {
-  CheckCircle,
-  Copy,
-  MapPin,
-  Package,
-  RefreshCw,
-  Navigation,
-  Clock,
-  UserCheck,
-  X,
-} from "lucide-react";
-import { DeliveryRecord, DeliveryStatus } from "@/types";
-import PodUploader from "@/components/PodUploader";
-import { completionError, type PodReadiness } from "@/utils/podRequirement";
+import { MapPin, Clock, UserCheck, X } from "lucide-react";
+import { DeliveryRecord } from "@/types";
+import type { PodReadiness } from "@/utils/podRequirement";
+import { driverCompletionError, jobTypeLabel } from '@/utils/driverJobs';
+import DriverJobCard, { CustomerName, JobTypeBadge, NO_REFERENCE, RecordReference, dueLabel, fmtTime, referenceFor } from './DriverJobCard';
+import { api } from '@/api';
+import { invalidateOperationalQueries, normalizeApiRecord, saveRecordToCache } from '@/api/queries/useRecordsQuery';
 
 import { useRecordTimeInMutation, usePagedRecordsQuery } from '@/api/queries/useRecordsQuery';
 import { useDriverOverviewQuery, useClampRecordPage } from '@/api/queries/useOperationalViews';
 import RecordPageControls from '@/components/RecordPageControls';
-import { canRecordTimeIn, dashboardRunDaysLate, deliveryScheduleState, hasValidRunTimeIn, isDashboardRunActionable, isDraftRecord, manilaToday } from '@/utils/recordLifecycle';
+import { deliveryScheduleState, hasValidRunTimeIn, isDashboardRunActionable, isDraftRecord, manilaToday } from '@/utils/recordLifecycle';
 import DoneRecordModal from "./DoneRecordModal";
 import DriverQueueSwitch, { type DriverQueue } from './DriverQueueSwitch';
 import { uploadStagedFiles } from '@/api/queries/usePodAttachments';
 import { useQueryClient } from '@tanstack/react-query';
 import { notify } from '@/utils/notify';
 import AccountMenu from '@/layouts/AccountMenu';
-import { DashboardPage, DashboardPanel, EmptyState, KpiStrip, TileSkeleton, formatDate } from './ui';
+import { DashboardPage, DashboardPanel, EmptyState, KpiStrip, TileSkeleton } from './ui';
 
 interface DriverDashboardProps {
   records: DeliveryRecord[];
@@ -50,19 +42,8 @@ interface DriverDashboardProps {
 
 const RUN_LIST_ID = 'driver-run-list';
 
-const STATUS_VERB: Record<string, string> = {
-  Delivered: "Accomplished",
-  Pending: "Pending",
-  Rescheduled: "Rescheduled",
-};
-
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString([], {
-    timeZone: "Asia/Manila",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+type DriverAction = 'start' | 'complete';
+const ACTION_TITLE: Record<DriverAction, string> = { start: 'Start transport', complete: 'Complete delivery' };
 
 function isManilaDate(iso: string | null | undefined, targetDate: string): boolean {
   if (!iso) return false;
@@ -73,69 +54,6 @@ function isManilaDate(iso: string | null | undefined, targetDate: string): boole
   }).formatToParts(timestamp);
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value ?? '';
   return `${part('year')}-${part('month')}-${part('day')}` === targetDate;
-}
-
-const NO_REFERENCE = 'No reference yet';
-
-function categoryLabelFor(rec: DeliveryRecord): string {
-  return rec.category === 'RMA' ? 'RMA transport' : rec.category === 'Deliveries' ? 'Delivery' : rec.category;
-}
-
-/** The reference a driver can quote to the office. Never the internal record id. */
-function referenceFor(rec: Pick<DeliveryRecord, 'category' | 'reference' | 'rma_reference'>): string | null {
-  const value = rec.category === 'RMA' ? rec.rma_reference || rec.reference : rec.reference;
-  return value?.trim() || null;
-}
-
-function dueLabel(date: string | null | undefined): string {
-  return date ? `Due ${formatDate(date)}` : 'Due date not set';
-}
-
-function CategoryBadge({ label, rma }: { label: string; rma: boolean }) {
-  return <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${rma ? 'border-violet-200 bg-violet-50 text-violet-700' : 'border-blue-200 bg-blue-50 text-blue-700'}`}>{label}</span>;
-}
-
-function CustomerName({ name }: { name: string }) {
-  return <p className="line-clamp-2 break-words text-base font-semibold leading-snug text-slate-900" title={name} data-customer-name>{name}</p>;
-}
-
-/** One-line reference. Tapping it copies the full value when `copyable`. */
-function RecordReference({ value, copyable = false }: { value: string | null; copyable?: boolean }) {
-  if (!value) return <p className="text-xs text-slate-500" data-record-reference>{NO_REFERENCE}</p>;
-  const text = <>
-    <span className="shrink-0 text-slate-400">Ref</span>
-    <span className="min-w-0 truncate tabular-nums text-slate-600">{value}</span>
-  </>;
-  if (!copyable) return <p className="flex min-w-0 items-center gap-1.5 text-xs" title={value} data-record-reference>{text}</p>;
-  const copy = async () => {
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
-      await navigator.clipboard.writeText(value);
-      notify.success('Reference copied');
-    } catch {
-      notify.error('Could not copy the reference');
-    }
-  };
-  return <button type="button" onClick={() => { void copy(); }} title={value} aria-label={`Copy reference ${value}`} data-record-reference
-    className="-my-2 flex min-h-11 w-full min-w-0 items-center gap-1.5 rounded-md text-left text-xs hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]">
-    {text}
-    <Copy aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-  </button>;
-}
-
-const CLAMP_AT = 80;
-
-/** Two lines at most, with a toggle to read the rest. */
-function ClampedText({ text }: { text: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const long = text.length > CLAMP_AT;
-  return <span className="min-w-0 break-words">
-    <span className={long && !expanded ? 'line-clamp-2' : undefined} data-clamped={long && !expanded ? 'true' : undefined}>{text}</span>
-    {long && <button type="button" onClick={() => setExpanded(value => !value)} aria-expanded={expanded}
-      className="inline-flex min-h-11 items-center text-sm font-semibold text-[#0078C1] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]">
-      {expanded ? 'Show less' : 'Show more'}
-    </button>}
-  </span>;
 }
 
 export default function DriverDashboard(props: DriverDashboardProps) {
@@ -210,7 +128,7 @@ function DriverDashboardContent({
 
   const [pendingAction, setPendingAction] = useState<{
     rec: DeliveryRecord;
-    status: DeliveryStatus;
+    action: DriverAction;
   } | null>(null);
   const [remarksInput, setRemarksInput] = useState("");
   const [receivedByInputs, setReceivedByInputs] = useState<
@@ -223,8 +141,9 @@ function DriverDashboardContent({
   const onPodReadinessChange = useCallback((id: string, state: PodReadiness) => {
     setPodStates(previous => ({ ...previous, [id]: state }));
   }, []);
-  const photoError = pendingAction
-    ? completionError(pendingAction.rec, pendingAction.status, receivedByInputs[pendingAction.rec.id] ?? pendingAction.rec.received_by, podStates[pendingAction.rec.id])
+  const receivedByFor = (rec: DeliveryRecord) => receivedByInputs[rec.id] ?? (rec.category === 'RMA' ? rec.rma_transport_received_by : rec.received_by) ?? '';
+  const photoError = pendingAction?.action === 'complete'
+    ? driverCompletionError(receivedByFor(pendingAction.rec), podStates[pendingAction.rec.id])
     : null;
 
   // The server returns the linked Driver's assigned non-draft records. Every
@@ -245,9 +164,9 @@ function DriverDashboardContent({
 
   // The button that opened the confirm sheet gets focus back when it closes.
   const sheetOpener = useRef<HTMLElement | null>(null);
-  const openSheet = (rec: DeliveryRecord, status: DeliveryStatus) => {
+  const openSheet = (rec: DeliveryRecord, action: DriverAction) => {
     sheetOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    setPendingAction({ rec, status });
+    setPendingAction({ rec, action });
     setRemarksInput("");
     setSaveFeedback(null);
   };
@@ -265,30 +184,27 @@ function DriverDashboardContent({
     return () => document.removeEventListener('keydown', onKey);
   }, [pendingAction, saving, closeSheet]);
 
-  const handleTimeIn = (rec: DeliveryRecord) => {
-    if (!access.canRecord(rec.category, 'TIME_IN')) return;
-    openSheet(rec, "In Transit");
+  const saveRma = async (rec: DeliveryRecord, data: { transport_status: 'IN_TRANSIT' | 'COMPLETED'; remarks: string; received_by?: string }) => {
+    const saved = await api.progressRmaTransport(rec.id, { ...data, expected_version: rec.rma_version ?? 0 });
+    await saveRecordToCache(queryClient, normalizeApiRecord(saved));
+    await invalidateOperationalQueries(queryClient);
   };
 
-  const applyStatus = async (
-    rec: DeliveryRecord,
-    status: DeliveryStatus,
-    remarks: string,
-  ) => {
-    if (!access.canRecord(rec.category, 'STATUS') || status === 'Delivered' && !access.canRecord(rec.category, 'COMPLETE')) throw new Error('This action is no longer available for your account.');
-    const extra =
-      status === "Delivered"
-        ? {
-            received_by: (receivedByInputs[rec.id] ?? rec.received_by ?? "").trim(),
-          }
-        : undefined;
-    await onUpdateRecord(rec.id, {
-      status,
-      status_remarks: remarks,
-      ...(extra ?? {}),
-    } as any);
+  /** Start transport: Time In for runs, transport start for RMA. */
+  const startTransport = async (rec: DeliveryRecord, remarks: string) => {
+    if (rec.category === 'RMA') return saveRma(rec, { transport_status: 'IN_TRANSIT', remarks });
+    if (!access.canRecord(rec.category, 'TIME_IN')) throw new Error('This action is no longer available for your account.');
+    await timeInMutation.mutateAsync({ id: rec.id, remarks });
   };
 
+  /** Complete delivery: uploads the staged POD first, then completes with Received By. */
+  const completeJob = async (rec: DeliveryRecord, remarks: string) => {
+    const receivedBy = receivedByFor(rec).trim();
+    await uploadStagedFiles(rec.id, queryClient);
+    if (rec.category === 'RMA') return saveRma(rec, { transport_status: 'COMPLETED', remarks, received_by: receivedBy });
+    if (!access.canRecord(rec.category, 'STATUS') || !access.canRecord(rec.category, 'COMPLETE')) throw new Error('This action is no longer available for your account.');
+    await onUpdateRecord(rec.id, { status: 'Delivered', status_remarks: remarks, received_by: receivedBy } as any);
+  };
 
   return (
     <div className="min-h-screen bg-[#F8F9FB] font-sans text-slate-800">
@@ -336,90 +252,18 @@ function DriverDashboardContent({
 
         {activeWorkRecords.length > 0 && <DashboardPanel title={`Active work (${activeWorkRecords.length})`}>
           <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2">
-            {activeWorkRecords.map(rec => {
-              const isRma = rec.category === 'RMA';
-              const categoryLabel = categoryLabelFor(rec);
-              const recordLabel = referenceFor(rec);
-              const daysLate = isRma ? 0 : dashboardRunDaysLate(rec, today);
-              const futureStarted = !isRma && deliveryScheduleState(rec.delivery_date, today).future && hasValidRunTimeIn(rec.time_in);
-              return <article
-                aria-label={`Active ${categoryLabel.toLowerCase()} ${recordLabel ?? NO_REFERENCE.toLowerCase()}, ${rec.company_name}`}
-                key={rec.id}
-                className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
-              >
-                <div className="space-y-1.5 border-b border-slate-100 bg-white px-4 py-3" data-card-header>
-                  <div className="flex flex-wrap items-center gap-1.5" data-card-badges>
-                    <CategoryBadge label={categoryLabel} rma={isRma} />
-                    {futureStarted && <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">Started</span>}
-                    <RecordStatus record={rec} compact={isRma} />
-                  </div>
-                  <CustomerName name={rec.company_name} />
-                  <RecordReference value={recordLabel} copyable />
-                </div>
-
-                <div className="space-y-3 px-4 py-3">
-                  <ul className="space-y-1.5 text-sm text-slate-600" aria-label="Run details">
-                    <li className="flex min-w-0 items-start gap-2"><MapPin aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-red-400" /><span className="min-w-0 break-words">{rec.area || 'Area not set'}</span></li>
-                    <li className={`flex min-w-0 items-start gap-2 ${daysLate > 0 ? 'font-semibold text-rose-700' : ''}`} data-due-date>
-                      <Clock aria-hidden="true" className={`mt-0.5 h-4 w-4 shrink-0 ${daysLate > 0 ? 'text-rose-600' : 'text-slate-400'}`} />
-                      <span>{dueLabel(rec.delivery_date)}{daysLate > 0 && ` · ${daysLate} day${daysLate === 1 ? '' : 's'} late`}</span>
-                    </li>
-                    {rec.item_description && <li className="flex min-w-0 items-start gap-2"><Package aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" /><ClampedText text={rec.item_description} /></li>}
-                  </ul>
-
-                  {isRma ? <RmaWorkflowPanel record={rec} currentUserRole="Driver" embedded /> : (
-                    <div className="space-y-2.5 border-t border-slate-100 pt-3">
-                      {!rec.time_in ? (
-                        <button
-                          onClick={() => handleTimeIn(rec)}
-                          aria-label="Record Time In: start transport"
-                          disabled={saving || !access.canRecord(rec.category, 'TIME_IN') || !canRecordTimeIn(rec)}
-                          className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#0078C1] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1F3864] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <Clock aria-hidden="true" className="h-4 w-4" /> Start transport
-                        </button>
-                      ) : <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700">
-                        <Clock aria-hidden="true" className="h-4 w-4 shrink-0 text-blue-500" />Transport started: {fmtTime(rec.time_in)}
-                      </div>}
-
-                      <PodUploader recordId={rec.id} required disabled={saving} onReadinessChange={onPodReadinessChange} />
-
-                      <div className="space-y-1">
-                        <label className="flex items-center gap-1 text-sm font-semibold text-slate-700">
-                          <UserCheck aria-hidden="true" className="h-3.5 w-3.5" />Received by *
-                        </label>
-                        <input
-                          type="text"
-                          value={receivedByInputs[rec.id] ?? rec.received_by ?? ''}
-                          onChange={event => setReceivedByInputs(previous => ({ ...previous, [rec.id]: event.target.value }))}
-                          placeholder="Name of person who received the item…"
-                          className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#0078C1] focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30"
-                        />
-                      </div>
-
-                      {completionError(rec, 'Delivered', receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id]) && <p className="text-xs text-slate-600">{completionError(rec, 'Delivered', receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}</p>}
-                      <div className="grid grid-cols-3 gap-2">
-                        <button
-                          onClick={() => openSheet(rec, 'Delivered')}
-                          disabled={saving || !access.canRecord(rec.category, 'COMPLETE') || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes('Delivered') || !!completionError(rec, 'Delivered', receivedByInputs[rec.id] ?? rec.received_by, podStates[rec.id])}
-                          className="flex min-h-11 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg bg-emerald-700 px-2 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
-                        ><CheckCircle aria-hidden="true" className="h-4 w-4" />Accomplish</button>
-                        <button
-                          onClick={() => openSheet(rec, 'Pending')}
-                          disabled={saving || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes('Pending')}
-                          className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg bg-amber-600 px-2 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
-                        ><Navigation aria-hidden="true" className="h-4 w-4" />Pending</button>
-                        <button
-                          onClick={() => openSheet(rec, 'Rescheduled')}
-                          disabled={saving || !access.canRecord(rec.category, 'STATUS') || !(rec.allowed_statuses ?? []).includes('Rescheduled')}
-                          className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg bg-[#1F3864] px-2 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#0078C1] disabled:cursor-not-allowed disabled:opacity-50"
-                        ><RefreshCw aria-hidden="true" className="h-4 w-4" />Reschedule</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </article>;
-            })}
+            {activeWorkRecords.map(rec => <DriverJobCard
+              key={rec.id}
+              record={rec}
+              today={today}
+              saving={saving}
+              receivedBy={receivedByFor(rec)}
+              pod={podStates[rec.id]}
+              onReceivedByChange={value => setReceivedByInputs(previous => ({ ...previous, [rec.id]: value }))}
+              onPodReadinessChange={onPodReadinessChange}
+              onStart={record => openSheet(record, 'start')}
+              onComplete={record => openSheet(record, 'complete')}
+            />)}
           </div>
         </DashboardPanel>}
 
@@ -429,7 +273,6 @@ function DriverDashboardContent({
             <div className="space-y-3">
             {accomplishedRecords.map(rec => {
               const isRma = rec.category === 'RMA';
-              const categoryLabel = categoryLabelFor(rec);
               const recordLabel = referenceFor(rec);
               const startedAt = isRma ? rec.rma_transport_started_at : rec.time_in;
               const finishedAt = isRma ? rec.rma_transport_completed_at ?? rec.rma_completed_at : rec.time_out;
@@ -444,7 +287,7 @@ function DriverDashboardContent({
                 className="block w-full space-y-1.5 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] cursor-pointer"
               >
                 <span className="flex flex-wrap items-center gap-1.5" data-card-badges>
-                  <CategoryBadge label={categoryLabel} rma={isRma} />
+                  <JobTypeBadge category={rec.category} />
                   <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">{completionBadge}</span>
                 </span>
                 <CustomerName name={rec.company_name} />
@@ -472,9 +315,9 @@ function DriverDashboardContent({
                     )}
                   </div>
                 )}
-                {(rec.received_by || rec.rma_recipient) && (
+                {(isRma ? rec.rma_transport_received_by || rec.rma_recipient : rec.received_by) && (
                   <p className="flex items-center gap-1 text-xs font-semibold text-emerald-700">
-                    <UserCheck aria-hidden="true" className="h-3 w-3" /> {isRma ? rec.rma_recipient : rec.received_by}
+                    <UserCheck aria-hidden="true" className="h-3 w-3" /> {isRma ? rec.rma_transport_received_by || rec.rma_recipient : rec.received_by}
                   </p>
                 )}
               </button>;
@@ -530,15 +373,12 @@ function DriverDashboardContent({
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <h2 id="driver-confirm-title" className="text-base font-semibold text-slate-900">
-                  Confirm status
+                  {ACTION_TITLE[pendingAction.action]}
                 </h2>
                 <p id="driver-confirm-summary" className="mt-1 text-sm text-slate-600">
-                  Mark{" "}
-                  <span className="font-semibold text-slate-900">{pendingAction.rec.company_name}</span>{" "}
-                  as{" "}
-                  <span className="font-semibold text-slate-900">
-                    {STATUS_VERB[pendingAction.status] ?? pendingAction.status}
-                  </span>
+                  {pendingAction.action === 'start' ? 'Start transport for ' : 'Complete '}
+                  <span className="font-semibold text-slate-900">{pendingAction.rec.company_name}</span>
+                  {' '}({jobTypeLabel(pendingAction.rec.category)})
                 </p>
                 <p className="mt-0.5 truncate text-xs text-slate-500" title={referenceFor(pendingAction.rec) ?? undefined}>
                   {referenceFor(pendingAction.rec) ? `Ref ${referenceFor(pendingAction.rec)}` : NO_REFERENCE}
@@ -589,25 +429,16 @@ function DriverDashboardContent({
                 disabled={saving || !remarksInput.trim() || !!photoError}
                 onClick={async () => {
                   if (saving || !remarksInput.trim() || photoError) return;
-                  if (pendingAction.status === pendingAction.rec.status) {
-                    setSaveFeedback({ message: 'Choose a different status before saving.', type: 'info' });
-                    return;
-                  }
                   setSaving(true);
                   setSaveFeedback(null);
                   try {
-                    const recordId = pendingAction.rec.id;
-                    await uploadStagedFiles(recordId, queryClient);
-
-                    if (pendingAction.status === "In Transit") {
-                      await timeInMutation.mutateAsync({ id: recordId, remarks: remarksInput.trim() });
-                    } else {
-                      await applyStatus(pendingAction.rec, pendingAction.status, remarksInput.trim());
-                    }
+                    const { rec, action } = pendingAction;
+                    if (action === 'start') await startTransport(rec, remarksInput.trim());
+                    else await completeJob(rec, remarksInput.trim());
                     closeSheet();
-                    notify.success(pendingAction.status === 'In Transit' ? 'Transport started successfully' : 'Status updated successfully');
+                    notify.success(action === 'start' ? 'Transport started' : rec.category === 'RMA' ? 'Transport complete. Waiting for TASS receipt.' : 'Delivery completed');
                   } catch (error) {
-                    const message = error instanceof Error ? error.message : 'Could not update the delivery. Please try again.';
+                    const message = error instanceof Error ? error.message : 'Could not save. Please try again.';
                     setSaveFeedback({ message, type: 'error' });
                     notify.error(message);
                   } finally {

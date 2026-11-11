@@ -49,13 +49,13 @@ test('summary counters use the shared tile and the page the shared heading', asy
   });
 });
 
-test('run sections are shared panels and the workflow controls are unchanged', async () => {
+test('run sections are shared panels and a driver can only start transport', async () => {
   await mount({ records: [run], dashboardCounts: { today: 1, remaining: 1, completed: 0, rma_active: 0, rma_completed: 0 } }, doc => {
     const headings = [...doc.querySelectorAll('h2')].map(node => node.textContent);
     assert.ok(headings.includes('Active work (1)'));
     const buttons = [...doc.querySelectorAll('button')].map(node => node.getAttribute('aria-label') || node.textContent?.trim());
-    assert.ok(buttons.includes('Record Time In: start transport'));
-    for (const name of ['Accomplish', 'Pending', 'Reschedule']) assert.ok(buttons.includes(name), name);
+    assert.ok(buttons.includes('Start transport'));
+    for (const name of ['Accomplish', 'Pending', 'Reschedule', 'On-Hold']) assert.ok(!buttons.includes(name), name);
   });
 });
 
@@ -206,12 +206,12 @@ test('counters share one compact strip with short phone labels and full accessib
 
 test('confirm sheet is a labelled modal dialog with 44px controls that closes on Escape', async () => {
   await mount({ records: [run], dashboardCounts: counts }, async doc => {
-    const opener = doc.querySelector('button[aria-label="Record Time In: start transport"]') as HTMLButtonElement;
+    const opener = doc.querySelector('button[aria-label="Start transport"]') as HTMLButtonElement;
     await act(async () => { opener.focus(); opener.click(); });
     const dialog = doc.querySelector('[role="dialog"]')!;
     assert.ok(dialog, 'sheet opened');
     assert.equal(dialog.getAttribute('aria-modal'), 'true');
-    assert.equal(doc.getElementById(dialog.getAttribute('aria-labelledby')!)?.textContent?.trim(), 'Confirm status');
+    assert.equal(doc.getElementById(dialog.getAttribute('aria-labelledby')!)?.textContent?.trim(), 'Start transport');
     assert.match(dialog.textContent ?? '', /Acme/);
     const close = dialog.querySelector('button[aria-label="Close"]')!;
     assert.match(close.className, /min-h-11/); assert.match(close.className, /min-w-11/);
