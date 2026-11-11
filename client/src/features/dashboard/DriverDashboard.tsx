@@ -22,6 +22,7 @@ import { useDriverOverviewQuery, useClampRecordPage } from '@/api/queries/useOpe
 import RecordPageControls from '@/components/RecordPageControls';
 import { canRecordTimeIn, dashboardRunDaysLate, deliveryScheduleState, hasValidRunTimeIn, isDashboardRunActionable, isDraftRecord, manilaToday } from '@/utils/recordLifecycle';
 import DoneRecordModal from "./DoneRecordModal";
+import DriverQueueSwitch, { type DriverQueue } from './DriverQueueSwitch';
 import { uploadStagedFiles } from '@/api/queries/usePodAttachments';
 import { useQueryClient } from '@tanstack/react-query';
 import { notify } from '@/utils/notify';
@@ -142,7 +143,7 @@ export default function DriverDashboard(props: DriverDashboardProps) {
 }
 function PagedDriverDashboard(props: DriverDashboardProps) {
   const [page, setPage] = useState(1);
-  const [queue, setQueue] = useState<'active' | 'completed'>('active');
+  const [queue, setQueue] = useState<DriverQueue>('active');
   const query = usePagedRecordsQuery({ view: 'driver_dashboard', queue, page, limit: 25 });
   const overview = useDriverOverviewQuery();
   useClampRecordPage(page, query.data?.total, setPage);
@@ -156,14 +157,10 @@ function PagedDriverDashboard(props: DriverDashboardProps) {
     list?.focus({ preventScroll: true });
   }, [page]);
   const changePage = (next: number) => { pageChanged.current = true; setPage(next); };
+  const totals = overview.data?.dashboard;
   const queueSwitch = <section aria-label="Run queues" className="space-y-3">
-    <nav className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-sm sm:grid-cols-2" aria-label="Run queues">
-      {(['active', 'completed'] as const).map(value => <button key={value} type="button" aria-pressed={queue === value}
-        onClick={() => { setQueue(value); setPage(1); }}
-        className={`min-h-11 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] ${queue === value ? 'bg-[#1F3864] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
-        {value === 'active' ? 'Active work' : 'Completed today / RMA awaiting receipt'}
-      </button>)}
-    </nav>
+    <DriverQueueSwitch queue={queue} controls={RUN_LIST_ID} onChange={value => { setQueue(value); setPage(1); }}
+      counts={totals ? { active: totals.remaining + totals.rma_active, done: totals.completed + totals.rma_completed } : undefined} />
     {query.error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
       Could not load records. <button type="button" onClick={() => { void query.refetch(); void overview.refetch(); }} className="min-h-11 font-semibold underline">Retry</button>
     </p>}
