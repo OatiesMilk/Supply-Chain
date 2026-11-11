@@ -126,3 +126,65 @@ test('Refresh is a 44px touch target on the driver screen', async () => {
     assert.match(button.className, /min-h-11/); assert.match(button.className, /min-w-11/);
   });
 });
+
+const longRun = { ...run, id: 'internal-uuid-123', reference: 'SAP-DEMO-94890005-PROCUREMENT_PICKUP', company_name: 'Jollibee Foods Corp. - Quezon City Cluster',
+  item_description: 'Demo item for PROCUREMENT_PICKUP with a long description that keeps going past the old forty character cut' } as DeliveryRecord;
+
+test('job card header stacks badges, then the customer name, then a one-line reference', async () => {
+  await mount({ records: [longRun], dashboardCounts: counts }, doc => {
+    const header = doc.querySelector('article [data-card-header]')!;
+    const parts = [...header.children].map(node => node.hasAttribute('data-card-badges') ? 'badges' : node.hasAttribute('data-customer-name') ? 'name' : node.hasAttribute('data-record-reference') ? 'ref' : '?');
+    assert.deepEqual(parts, ['badges', 'name', 'ref']);
+    const name = header.querySelector('[data-customer-name]')!;
+    assert.match(name.className, /line-clamp-2/);
+    const ref = header.querySelector('[data-record-reference]')!;
+    assert.equal(ref.getAttribute('title'), longRun.reference);
+    assert.match(ref.innerHTML, /truncate/);
+    assert.doesNotMatch(doc.querySelector('article')!.innerHTML, /break-all/);
+  });
+});
+
+test('tapping the reference copies it and confirms', async () => {
+  const copied: string[] = [];
+  await mount({ records: [longRun], dashboardCounts: counts }, async doc => {
+    Object.defineProperty(doc.defaultView!.navigator, 'clipboard', { value: { writeText: async (text: string) => { copied.push(text); } }, configurable: true });
+    Object.defineProperty(globalThis, 'navigator', { value: doc.defaultView!.navigator, configurable: true });
+    const button = doc.querySelector(`button[aria-label="Copy reference ${longRun.reference}"]`) as HTMLButtonElement;
+    assert.ok(button, 'copy button exists');
+    assert.match(button.className, /min-h-11/);
+    await act(async () => { button.click(); });
+    assert.deepEqual(copied, [longRun.reference]);
+  });
+});
+
+test('a record without a reference never shows the internal id', async () => {
+  await mount({ records: [{ ...longRun, reference: '' }], dashboardCounts: counts }, doc => {
+    const text = doc.body.textContent ?? '';
+    assert.match(text, /No reference yet/);
+    assert.doesNotMatch(doc.body.innerHTML, /internal-uuid-123/);
+    assert.equal(doc.querySelector('button[aria-label^="Copy reference"]'), null);
+  });
+});
+
+test('due date is formatted and an overdue run says how late on the date line', async () => {
+  await mount({ records: [{ ...run, delivery_date: '2026-10-30', time_in: '2026-10-30T01:00:00.000Z' }], dashboardCounts: counts }, doc => {
+    const due = doc.querySelector('[data-due-date]');
+    if (!due) return; // not actionable on this date in some timezones
+    assert.match(due.textContent ?? '', /Due Oct 30, 2026/);
+    assert.match(due.textContent ?? '', /days? late/);
+    assert.match(due.className, /text-rose-700/);
+    assert.doesNotMatch(doc.body.textContent ?? '', /Overdue ·/);
+  });
+});
+
+test('long descriptions are clamped with Show more instead of cut at 40 characters', async () => {
+  await mount({ records: [longRun], dashboardCounts: counts }, async doc => {
+    assert.match(doc.body.textContent ?? '', /past the old forty character cut/);
+    const toggle = [...doc.querySelectorAll('button')].find(node => node.textContent === 'Show more') as HTMLButtonElement;
+    assert.ok(toggle);
+    assert.ok(doc.querySelector('[data-clamped="true"]'));
+    await act(async () => { toggle.click(); });
+    assert.equal(doc.querySelector('[data-clamped="true"]'), null);
+    assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+  });
+});

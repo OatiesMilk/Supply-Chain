@@ -4,6 +4,7 @@ import RmaWorkflowPanel from '@/features/deliveries/RmaWorkflowPanel';
 import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 import {
   CheckCircle,
+  Copy,
   MapPin,
   Package,
   RefreshCw,
@@ -25,7 +26,7 @@ import { uploadStagedFiles } from '@/api/queries/usePodAttachments';
 import { useQueryClient } from '@tanstack/react-query';
 import { notify } from '@/utils/notify';
 import AccountMenu from '@/layouts/AccountMenu';
-import { DashboardPage, DashboardPanel, EmptyState, KpiTile, TileSkeleton } from './ui';
+import { DashboardPage, DashboardPanel, EmptyState, KpiTile, TileSkeleton, formatDate } from './ui';
 
 interface DriverDashboardProps {
   records: DeliveryRecord[];
@@ -71,6 +72,69 @@ function isManilaDate(iso: string | null | undefined, targetDate: string): boole
   }).formatToParts(timestamp);
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value ?? '';
   return `${part('year')}-${part('month')}-${part('day')}` === targetDate;
+}
+
+const NO_REFERENCE = 'No reference yet';
+
+function categoryLabelFor(rec: DeliveryRecord): string {
+  return rec.category === 'RMA' ? 'RMA transport' : rec.category === 'Deliveries' ? 'Delivery' : rec.category;
+}
+
+/** The reference a driver can quote to the office. Never the internal record id. */
+function referenceFor(rec: Pick<DeliveryRecord, 'category' | 'reference' | 'rma_reference'>): string | null {
+  const value = rec.category === 'RMA' ? rec.rma_reference || rec.reference : rec.reference;
+  return value?.trim() || null;
+}
+
+function dueLabel(date: string | null | undefined): string {
+  return date ? `Due ${formatDate(date)}` : 'Due date not set';
+}
+
+function CategoryBadge({ label, rma }: { label: string; rma: boolean }) {
+  return <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${rma ? 'border-violet-200 bg-violet-50 text-violet-700' : 'border-blue-200 bg-blue-50 text-blue-700'}`}>{label}</span>;
+}
+
+function CustomerName({ name }: { name: string }) {
+  return <p className="line-clamp-2 break-words text-base font-semibold leading-snug text-slate-900" title={name} data-customer-name>{name}</p>;
+}
+
+/** One-line reference. Tapping it copies the full value when `copyable`. */
+function RecordReference({ value, copyable = false }: { value: string | null; copyable?: boolean }) {
+  if (!value) return <p className="text-xs text-slate-500" data-record-reference>{NO_REFERENCE}</p>;
+  const text = <>
+    <span className="shrink-0 text-slate-400">Ref</span>
+    <span className="min-w-0 truncate tabular-nums text-slate-600">{value}</span>
+  </>;
+  if (!copyable) return <p className="flex min-w-0 items-center gap-1.5 text-xs" title={value} data-record-reference>{text}</p>;
+  const copy = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(value);
+      notify.success('Reference copied');
+    } catch {
+      notify.error('Could not copy the reference');
+    }
+  };
+  return <button type="button" onClick={() => { void copy(); }} title={value} aria-label={`Copy reference ${value}`} data-record-reference
+    className="-my-2 flex min-h-11 w-full min-w-0 items-center gap-1.5 rounded-md text-left text-xs hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]">
+    {text}
+    <Copy aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+  </button>;
+}
+
+const CLAMP_AT = 80;
+
+/** Two lines at most, with a toggle to read the rest. */
+function ClampedText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const long = text.length > CLAMP_AT;
+  return <span className="min-w-0 break-words">
+    <span className={long && !expanded ? 'line-clamp-2' : undefined} data-clamped={long && !expanded ? 'true' : undefined}>{text}</span>
+    {long && <button type="button" onClick={() => setExpanded(value => !value)} aria-expanded={expanded}
+      className="inline-flex min-h-11 items-center text-sm font-semibold text-[#0078C1] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]">
+      {expanded ? 'Show less' : 'Show more'}
+    </button>}
+  </span>;
 }
 
 export default function DriverDashboard(props: DriverDashboardProps) {
@@ -254,39 +318,37 @@ function DriverDashboardContent({
         )}
 
         {activeWorkRecords.length > 0 && <DashboardPanel title={`Active work (${activeWorkRecords.length})`}>
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2">
             {activeWorkRecords.map(rec => {
               const isRma = rec.category === 'RMA';
-              const categoryLabel = isRma ? 'RMA transport' : rec.category === 'Deliveries' ? 'Delivery' : rec.category;
-              const recordLabel = isRma ? rec.rma_reference || rec.reference || rec.id : rec.reference || rec.id;
-              const daysLate = dashboardRunDaysLate(rec, today);
+              const categoryLabel = categoryLabelFor(rec);
+              const recordLabel = referenceFor(rec);
+              const daysLate = isRma ? 0 : dashboardRunDaysLate(rec, today);
               const futureStarted = !isRma && deliveryScheduleState(rec.delivery_date, today).future && hasValidRunTimeIn(rec.time_in);
               return <article
-                aria-label={`Active ${categoryLabel.toLowerCase()} ${recordLabel}`}
+                aria-label={`Active ${categoryLabel.toLowerCase()} ${recordLabel ?? NO_REFERENCE.toLowerCase()}, ${rec.company_name}`}
                 key={rec.id}
                 className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
               >
-                <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3 sm:items-center">
-                  <div className="min-w-0">
-                    <p className="break-all font-mono text-[11px] text-slate-500">{recordLabel}</p>
-                    <p className="mt-0.5 break-words text-sm font-semibold leading-snug text-slate-900">{rec.company_name}</p>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-                    <span className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${isRma ? 'border-violet-200 bg-violet-50 text-violet-700' : 'border-blue-200 bg-blue-50 text-blue-700'}`}>
-                      {categoryLabel}
-                    </span>
-                    {daysLate > 0 && !isRma && <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700">Overdue · {daysLate} day{daysLate === 1 ? '' : 's'} late</span>}
-                    {futureStarted && <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700">Started</span>}
+                <div className="space-y-1.5 border-b border-slate-100 bg-white px-4 py-3" data-card-header>
+                  <div className="flex flex-wrap items-center gap-1.5" data-card-badges>
+                    <CategoryBadge label={categoryLabel} rma={isRma} />
+                    {futureStarted && <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">Started</span>}
                     <RecordStatus record={rec} compact={isRma} />
                   </div>
+                  <CustomerName name={rec.company_name} />
+                  <RecordReference value={recordLabel} copyable />
                 </div>
 
                 <div className="space-y-3 px-4 py-3">
-                  <div className="flex min-w-0 flex-wrap items-start gap-x-4 gap-y-2 text-sm text-slate-600">
-                    <p className="flex min-w-0 items-center gap-1.5 break-words"><MapPin aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-red-400" />{rec.area || 'Area not set'}</p>
-                    <p className="flex items-center gap-1.5 text-xs text-slate-500"><Clock aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />Due {rec.delivery_date || 'date not set'}</p>
-                    {rec.item_description && <p className="flex min-w-0 items-center gap-1.5 break-words"><Package aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-slate-400" />{rec.item_description.slice(0, 40)}{rec.item_description.length > 40 ? '…' : ''}</p>}
-                  </div>
+                  <ul className="space-y-1.5 text-sm text-slate-600" aria-label="Run details">
+                    <li className="flex min-w-0 items-start gap-2"><MapPin aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-red-400" /><span className="min-w-0 break-words">{rec.area || 'Area not set'}</span></li>
+                    <li className={`flex min-w-0 items-start gap-2 ${daysLate > 0 ? 'font-semibold text-rose-700' : ''}`} data-due-date>
+                      <Clock aria-hidden="true" className={`mt-0.5 h-4 w-4 shrink-0 ${daysLate > 0 ? 'text-rose-600' : 'text-slate-400'}`} />
+                      <span>{dueLabel(rec.delivery_date)}{daysLate > 0 && ` · ${daysLate} day${daysLate === 1 ? '' : 's'} late`}</span>
+                    </li>
+                    {rec.item_description && <li className="flex min-w-0 items-start gap-2"><Package aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" /><ClampedText text={rec.item_description} /></li>}
+                  </ul>
 
                   {isRma ? <RmaWorkflowPanel record={rec} currentUserRole="Driver" embedded /> : (
                     <div className="space-y-2.5 border-t border-slate-100 pt-3">
@@ -350,8 +412,8 @@ function DriverDashboardContent({
             <div className="space-y-3">
             {accomplishedRecords.map(rec => {
               const isRma = rec.category === 'RMA';
-              const categoryLabel = isRma ? 'RMA transport' : rec.category === 'Deliveries' ? 'Delivery' : rec.category;
-              const recordLabel = isRma ? rec.rma_reference || rec.reference || rec.id : rec.reference || rec.id;
+              const categoryLabel = categoryLabelFor(rec);
+              const recordLabel = referenceFor(rec);
               const startedAt = isRma ? rec.rma_transport_started_at : rec.time_in;
               const finishedAt = isRma ? rec.rma_transport_completed_at ?? rec.rma_completed_at : rec.time_out;
               const waitingTass = isRma && rec.status !== 'Delivered';
@@ -362,48 +424,42 @@ function DriverDashboardContent({
                 type="button"
                 key={rec.id}
                 onClick={() => setSelectedDoneRecord(rec)}
-                className="flex w-full items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] cursor-pointer"
+                className="block w-full space-y-1.5 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] cursor-pointer"
               >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-mono text-[11px] text-slate-500">{recordLabel}</p>
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${isRma ? 'border-violet-200 bg-violet-50 text-violet-700' : 'border-blue-200 bg-blue-50 text-blue-700'}`}>{categoryLabel}</span>
-                  </div>
-                  <p className="break-words text-sm font-semibold text-slate-900">
-                    {rec.company_name}
-                  </p>
-                  {rec.completed_late && (
-                    <p className="mt-1 text-xs font-semibold text-rose-700">
-                      Completed {rec.days_late ?? 0} day{rec.days_late === 1 ? '' : 's'} late
-                    </p>
-                  )}
-                  <p className="mt-1 flex items-center gap-1 text-xs text-slate-600">
-                    <MapPin className="w-3 h-3 text-red-400 shrink-0" />
-                    {rec.area}
-                  </p>
-                  {(startedAt || finishedAt) && (
-                    <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs font-medium text-slate-600">
-                      {startedAt && (
-                        <span className="flex items-center gap-1">
-                          <Clock aria-hidden="true" className="h-3 w-3 text-blue-400" />Started: {fmtTime(startedAt)}
-                        </span>
-                      )}
-                      {finishedAt && (
-                        <span className="flex items-center gap-1">
-                          <Clock aria-hidden="true" className="h-3 w-3 text-emerald-400" />{isRma && rec.rma_transport_completed_at ? 'Transport complete:' : isRma ? 'RMA complete:' : 'Completed:'} {fmtTime(finishedAt)}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  {(rec.received_by || rec.rma_recipient) && (
-                    <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-emerald-700">
-                      <UserCheck aria-hidden="true" className="h-3 w-3" /> {isRma ? rec.rma_recipient : rec.received_by}
-                    </p>
-                  )}
-                </div>
-                <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">
-                  {completionBadge}
+                <span className="flex flex-wrap items-center gap-1.5" data-card-badges>
+                  <CategoryBadge label={categoryLabel} rma={isRma} />
+                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">{completionBadge}</span>
                 </span>
+                <CustomerName name={rec.company_name} />
+                <RecordReference value={recordLabel} />
+                {rec.completed_late && (
+                  <p className="text-xs font-semibold text-rose-700">
+                    Completed {rec.days_late ?? 0} day{rec.days_late === 1 ? '' : 's'} late
+                  </p>
+                )}
+                <p className="flex items-start gap-1.5 text-xs text-slate-600">
+                  <MapPin aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
+                  <span className="min-w-0 break-words">{rec.area || 'Area not set'}</span>
+                </p>
+                {(startedAt || finishedAt) && (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-slate-600">
+                    {startedAt && (
+                      <span className="flex items-center gap-1">
+                        <Clock aria-hidden="true" className="h-3 w-3 text-blue-400" />Started: {fmtTime(startedAt)}
+                      </span>
+                    )}
+                    {finishedAt && (
+                      <span className="flex items-center gap-1">
+                        <Clock aria-hidden="true" className="h-3 w-3 text-emerald-400" />{isRma && rec.rma_transport_completed_at ? 'Transport complete:' : isRma ? 'RMA complete:' : 'Completed:'} {fmtTime(finishedAt)}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {(rec.received_by || rec.rma_recipient) && (
+                  <p className="flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                    <UserCheck aria-hidden="true" className="h-3 w-3" /> {isRma ? rec.rma_recipient : rec.received_by}
+                  </p>
+                )}
               </button>;
             })}
             </div>
@@ -421,27 +477,25 @@ function DriverDashboardContent({
               .map((rec) => (
                 <div
                   key={rec.id}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm"
+                  className="space-y-1.5 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm"
                 >
-                  <div>
-                    <p className="font-mono text-[11px] text-slate-500">
-                      {rec.reference} · {rec.delivery_date}
-                    </p>
-                    <p className="text-sm font-semibold text-slate-900">
-                      {rec.company_name}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-600">
-                      {rec.area}{rec.item_description ? ` · ${rec.item_description}` : ''}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600">
+                  <div className="flex flex-wrap items-center gap-1.5" data-card-badges>
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
                       {rec.category === 'Deliveries'
                         ? deliveryScheduleState(rec.delivery_date, today).valid ? 'Upcoming · read-only' : 'Delivery Date needed · read-only'
                         : 'Other date · read-only'}
                     </span>
                     <RecordStatus record={rec} />
                   </div>
+                  <CustomerName name={rec.company_name} />
+                  <RecordReference value={referenceFor(rec)} copyable />
+                  <p className="flex items-start gap-1.5 text-xs text-slate-600">
+                    <Clock aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />{dueLabel(rec.delivery_date)}
+                  </p>
+                  <p className="flex items-start gap-1.5 text-xs text-slate-600">
+                    <MapPin aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
+                    <span className="min-w-0 break-words">{rec.area || 'Area not set'}{rec.item_description ? ` · ${rec.item_description}` : ''}</span>
+                  </p>
                 </div>
               ))}
             </div>
