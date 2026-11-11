@@ -19,7 +19,7 @@ import { DELIVERY_PHOTO_REQUIRED, findVerifiedDeliveryPhoto, hasStoredDeliveryPh
 import { ATTACHMENT_QUOTA_EXCEEDED, attachmentQuotaError, DOCX_PREVIEW_MAX_OUTPUT_BYTES, inspectDocxPreviewArchive } from '../services/attachmentRules';
 
 import { canCreateCategory, canWriteCategory, canPerformRecordAction, isAssignedDriver, recordScope } from '../services/recordAccess';
-import { deliveryScheduleState, driverDeliveryDateError, isValidDateOnly, isoTimestamp, manilaToday, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
+import { deliveryScheduleState, driverDeliveryDateError, driverStatusError, DRIVER_STATUS_ERROR, isValidDateOnly, isoTimestamp, manilaToday, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
 import { manilaDateRange } from '../services/dateSemantics';
 import { RMA_CONTACT_FIELDS, normalizeRmaCategory, rmaInputError } from '../services/rmaRules';
 import { areasForLocation } from '../areaHierarchy';
@@ -1601,6 +1601,8 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   if (!status || !STATUS_TO_DB[status]) return res.status(400).json({ error: 'Valid status is required' });
   if (typeof remarks !== 'string' || !remarks.trim()) return res.status(400).json({ error: 'Remarks are required when changing status.' });
   if (req.body.time_in !== undefined || req.body.time_out !== undefined) return res.status(400).json({ error: 'Use Record Time In or timestamp corrections; Time Out is recorded automatically on completion.' });
+  const driverError = driverStatusError(req.user!.role, status);
+  if (driverError) return res.status(403).json({ error: driverError });
   if (received_by !== undefined && typeof received_by !== 'string') return res.status(400).json({ error: 'Received By must be a name.' });
   const hasPriority = priority !== undefined && priority !== '';
   if (hasPriority && !['LOGISTICS', 'ADMIN', 'TASS'].includes(req.user!.role)) return res.status(403).json({ error: 'Your role cannot change record priority.' });
@@ -1728,7 +1730,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     if (error instanceof RmaActionError) return { error: error.message, saved: null, previous: null, rmaStatus: error.status };
     throw error;
   });
-  if (result.error) return res.status('writeStatus' in result ? Number(result.writeStatus) : 'rmaStatus' in result ? Number(result.rmaStatus) : result.error === RMA_COMPLETION_ROLE_ERROR || result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' || result.error.startsWith('Only Sales Coordinator') ? 403 : 400).json({ error: result.error });
+  if (result.error) return res.status('writeStatus' in result ? Number(result.writeStatus) : 'rmaStatus' in result ? Number(result.rmaStatus) : result.error === RMA_COMPLETION_ROLE_ERROR || result.error === DRIVER_STATUS_ERROR || result.error === 'Record access denied' || result.error === 'TASS status updates are limited to RMA records' || result.error === 'Sales Coordinator may only submit or return drafts.' || result.error.startsWith('Only Sales Coordinator') ? 403 : 400).json({ error: result.error });
   const updated = result.saved!;
   if (status === 'Delivered' && updated.category !== 'RMA' && result.previous!.status !== 'ACCOMPLISHED') {
     await notifyAccomplished({

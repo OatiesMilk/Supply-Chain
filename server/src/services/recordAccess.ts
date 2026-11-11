@@ -222,13 +222,15 @@ export function canPerformPolicyRecordAction(
     // non-Logistics movements. Physical receipt/final completion belong to TASS.
     if (action === 'ASSIGN' && !eligibleRmaTransport(options.rmaTransport)) return false;
     if (role === 'DRIVER') return eligibleRmaTransport(options.rmaTransport) && options.rmaTransport?.actionAllowed === true
-      && options.targetStatus !== 'Delivered';
+      && (action !== 'STATUS' || options.targetStatus === undefined);
   }
   if (role === 'DRIVER' && driverDeliveryDateError(record, role, options.now)) return false;
   if (action === 'TIME_IN') return timeInError(record) === null;
   if (action === 'STATUS' || action === 'SUBMIT' || action === 'COMPLETE') {
     const target = action === 'COMPLETE' ? 'Delivered' : action === 'SUBMIT' ? 'Scheduled' : options.targetStatus;
     if (!target) return false;
+    // Drivers only complete; Pending/On-Hold/Reschedule belong to Logistics.
+    if (role === 'DRIVER' && target !== 'Delivered') return false;
     if (target === 'Delivered' && !hasActionPermission(snapshot, 'CATEGORY', record.category!, 'COMPLETE')) return false;
     if (role === 'SALES_COORDINATOR' && !(target === 'Draft' || record.draft && target === 'Scheduled')) return false;
     if (action === 'SUBMIT' && record.draft !== true) return false;

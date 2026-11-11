@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { hasStoredDeliveryPhoto, isPodPhoto, isVerifiedPodPhoto } from '../src/services/podPhotos';
-import { allowedStatuses, deliveryScheduleState, driverDeliveryDateError, isoTimestamp, manilaToday, timeInError, transitionError } from '../src/services/deliveryLifecycle';
+import { allowedStatuses, deliveryScheduleState, DRIVER_STATUS_ERROR, driverDeliveryDateError, driverStatusError, isoTimestamp, manilaToday, timeInError, transitionError } from '../src/services/deliveryLifecycle';
 import { recordScope } from '../src/services/recordAccess';
 import { recordEditVersion } from '../src/services/recordEditVersion';
 import { RMA_CATEGORIES } from '../src/services/rmaRules';
@@ -222,7 +222,7 @@ test('server rejects future unstarted Driver writes across execution, POD, recor
   const photoFile = uploaded();
   for (const [method, path, options] of [
     ['post', '/:id/time-in', { body: { remarks: 'Start early' } }],
-    ['patch', '/:id/status', { body: { status: 'On-Hold', remarks: 'Future run' } }],
+    ['patch', '/:id/status', { body: { status: 'Delivered', received_by: 'Recipient', remarks: 'Future run' } }],
     ['put', '/:id', { body: { received_by: 'Recipient', remarks: 'Edit future run' } }],
     ['post', '/:id/attachments', { file: photoFile }],
     ['post', '/:id/comments', { body: { body: 'Future run comment' } }],
@@ -410,7 +410,7 @@ test('hasStoredDeliveryPhoto queries attachments ordered by createdAt desc to ch
 
 test('Pending requires a started run and non-RMA categories require photo for completion', async () => {
   const pending = database();
-  assert.equal((await request('patch', '/:id/status', { body: { status: 'Pending', remarks: 'Customer unavailable' } })).status, 200);
+  assert.equal((await request('patch', '/:id/status', { role: 'LOGISTICS', body: { status: 'Pending', remarks: 'Customer unavailable' } })).status, 200);
   assert.equal(pending.events.includes('photos'), false);
   for (const category of ['PROCUREMENT_PICKUP', 'ACCOUNTING_COLLECTION', 'SALES_ORDERS']) {
     resetFixtures();
@@ -617,8 +617,8 @@ test('assigned Driver cannot mark Pending before Time In and the rejected reques
     body: { status: 'Pending', remarks: 'Customer unavailable before starting the run' },
   });
 
-  assert.equal(result.status, 400);
-  assert.match(result.body.error, /time in/i);
+  assert.equal(result.status, 403);
+  assert.equal(result.body.error, DRIVER_STATUS_ERROR);
   assert.deepEqual(state.saved(), before);
   assert.equal(state.events.includes('update'), false);
   assert.equal(state.events.includes('audit'), false);
@@ -718,7 +718,6 @@ test('TSK-123: delivery_date is rejected on any status change other than a Deliv
   for (const [role, status, row] of [
     ['LOGISTICS', 'On-Hold', { status: 'SCHEDULED', timeIn: null }],
     ['ADMIN', 'On-Hold', { status: 'SCHEDULED', timeIn: null }],
-    ['DRIVER', 'Rescheduled', { status: 'SCHEDULED' }],
     ['LOGISTICS', 'Rescheduled', { status: 'SCHEDULED', category: 'ACCOUNTING_COLLECTION' }],
   ] as const) {
     resetFixtures();
@@ -731,12 +730,33 @@ test('TSK-123: delivery_date is rejected on any status change other than a Deliv
   }
 });
 
-test('TSK-123: Driver and non-Delivery reschedules still work without a date; Sales Coordinator cannot reschedule', async () => {
+test('Drivers can only complete through the status action: every other target is 403 with no writes', async () => {
+  for (const category of ['DELIVERY', 'PROCUREMENT_PICKUP', 'SALES_ORDERS', 'ACCOUNTING_COLLECTION', 'RMA']) {
+    for (const status of ['Pending', 'On-Hold', 'Rescheduled', 'Scheduled', 'Draft']) {
+      resetFixtures();
+      const state = database(record(category === 'RMA'
+        ? { category, status: 'SCHEDULED', rmaMovement: 'LOGISTICS_TRANSPORT', rmaTransportStatus: 'IN_TRANSIT', rmaReceivedAt: null, timeIn: null }
+        : { category }));
+      const before = { ...state.saved() };
+      const result = await request('patch', '/:id/status', { role: 'DRIVER', body: { status, remarks: 'Customer unavailable' } });
+      assert.equal(result.status, 403, `${category} ${status}`);
+      // Legacy module access already rejects Driver RMA status writes before the handler runs.
+      if (category !== 'RMA') assert.equal(result.body.error, DRIVER_STATUS_ERROR);
+      assert.deepEqual(state.saved(), before);
+      assert.equal(state.events.includes('update'), false);
+    }
+  }
+  assert.equal(driverStatusError('DRIVER', 'Delivered'), null);
+  for (const role of ['LOGISTICS', 'ADMIN', 'TASS', 'SALES_COORDINATOR'] as const) assert.equal(driverStatusError(role, 'Pending'), null);
+});
+
+test('TSK-123: Drivers cannot reschedule; non-Delivery reschedules still work without a date; Sales Coordinator cannot reschedule', async () => {
   resetFixtures();
   const driverRun = database(record({ status: 'SCHEDULED' }));
   const today = driverRun.saved().deliveryDate;
   const driver = await request('patch', '/:id/status', { role: 'DRIVER', body: { status: 'Rescheduled', remarks: 'Customer away' } });
-  assert.equal(driver.status, 200);
+  assert.equal(driver.status, 403);
+  assert.equal(driver.body.error, DRIVER_STATUS_ERROR);
   assert.equal(driverRun.saved().deliveryDate, today);
 
   resetFixtures();
