@@ -65,7 +65,11 @@ test('Logistics Transport requests panel matches the per-type drill-downs (AC6)'
   }
   await expect(panel.getByText(`${total} ${total === 1 ? 'request' : 'requests'}`, { exact: true })).toBeVisible();
   await expect(panel.getByRole('columnheader', { name: 'Type', exact: true })).toBeVisible();
-  await expect(panel.getByText('Needs driver').first()).toBeVisible();
+  await expect(panel.getByRole('columnheader', { name: 'Driver', exact: true })).toHaveCount(0);
+  // The No driver assigned tile counts the same jobs as the panel and brings the panel into view.
+  const tile = page.getByRole('button', { name: `No driver assigned, ${total.toLocaleString('en-US')} jobs. Show transport requests`, exact: true });
+  await tile.click();
+  await expect(page.locator('#transport-requests-panel')).toBeFocused();
   const [key] = Object.entries(byType).find(([, count]) => count > 0)!;
   const target = CATEGORY_SCREENS[key as keyof typeof CATEGORY_SCREENS];
   await openDrillDown(page, panel, new RegExp(`^View \\d+ ${target.link}`), target.screen, 'log-transport-requests');

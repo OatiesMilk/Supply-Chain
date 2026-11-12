@@ -30,7 +30,9 @@ const text = (markup: string) => markup.replace(/<[^>]*>/g, ' ').replace(/\s+/g,
 test('tiles use the shared contract with calm zero states', () => {
   const markup = html();
   assert.equal(markup.split('data-kpi-tile').length - 1, 4 + 3);
-  assert.match(markup, /aria-label="No driver assigned, 2 deliveries\. View list"/);
+  assert.match(markup, /aria-label="No driver assigned, 2 jobs\. Show transport requests"/);
+  assert.match(markup, /aria-label="Unassigned records, 6,001 jobs\. Show transport requests"/, 'the Needs attention tile equals the Transport requests count');
+  assert.match(text(markup), /Jobs of every type with no driver yet/);
   assert.match(text(markup), /Needs a driver/); assert.match(text(markup), /None yet today/);
   assert.match(html({ stats: { ...stats, unassigned_count: 0 } }), /All assigned/);
 });
@@ -45,10 +47,10 @@ test('transport requests panel lists every job type with full totals and per-typ
   const markup = html(); const t = text(markup);
   assert.match(t, /Transport requests 6001 requests/); assert.match(t, /Showing 3 of 6001 requests/);
   assert.match(t, /View 4000 Deliveries/); assert.match(t, /View 2000 RMA/); assert.match(t, /View 1 Sales Order/);
-  assert.doesNotMatch(t, /View d+ Procurement Pickups?/, 'types with no requests get no link');
+  assert.doesNotMatch(t, /View \d+ Procurement Pickups?/, 'types with no requests get no link');
   assert.match(t, /RMA-r1 RMA Client Co/); assert.match(t, /D-9 Delivery Acme/); assert.match(t, /S-9 Sales Order Gamma/);
-  assert.equal((t.match(/Needs driver/g) ?? []).length, 2 * 3, 'every row needs a driver, in table and stacked list');
-  assert.doesNotMatch(t, /Old Name/, 'a stale name without a Driver profile is not shown as assigned');
+  assert.doesNotMatch(markup, /<th[^>]*>Driver<\/th>/, 'every row has no driver, so there is no Driver column');
+  assert.doesNotMatch(t, /Needs driver|Old Name/);
   assert.match(markup, /aria-label="Open RMA RMA-r1 for Client Co"/); assert.match(markup, /aria-label="Open Delivery D-9 for Acme"/);
   assert.doesNotMatch(t, /RMA transport requests/);
 });
@@ -105,6 +107,7 @@ test('without access to a screen its tiles and links have no button', () => {
   assert.doesNotMatch(markup, /aria-label="Open RMA RMA-r1/); assert.match(markup, /aria-label="Open Delivery D-9 for Acme"/);
   const none = html({ canAccess: () => false });
   assert.doesNotMatch(none, /<button[^>]*aria-label="[^"]*View list/);
+  assert.match(none, /<button[^>]*aria-label="No driver assigned, 2 jobs\. Show transport requests"/, 'scrolling to the panel needs no screen access');
 });
 
 test('copy has no em dash, uppercase labels or pulse', () => {
@@ -142,4 +145,28 @@ test('RMA transport request matcher mirrors the server filter', () => {
   assert.equal(matchesDashboardFilter(request('c', { status: 'Delivered' }), 'log-rma-requests'), false);
   assert.equal(matchesDashboardFilter(request('d', { rma_movement: 'DIRECT' as any }), 'log-rma-requests'), false);
   assert.equal(matchesDashboardFilter(request('e', { is_draft: 'Yes' }), 'log-rma-requests'), false);
+});
+
+test('no-driver tiles bring the Transport requests panel into view instead of opening one list', async () => {
+  const { act } = await import('react');
+  const { createRoot } = await import('react-dom/client');
+  const dom = new JSDOM('<div id="root"></div>');
+  Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, configurable: true });
+  Object.defineProperty(globalThis, 'window', { value: dom.window, configurable: true });
+  Object.defineProperty(globalThis, 'document', { value: dom.window.document, configurable: true });
+  const scrolled: unknown[] = [];
+  dom.window.HTMLElement.prototype.scrollIntoView = function (this: HTMLElement, options?: unknown) { scrolled.push([this.id, options]); };
+  const calls: unknown[][] = [];
+  const root = createRoot(dom.window.document.getElementById('root')!);
+  await act(async () => { root.render(h(LogisticsDashboard, { stats, overview, onNavigate: (...args: unknown[]) => { calls.push(args); } })); });
+  const click = (el: Element) => act(async () => { el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+  const panel = dom.window.document.getElementById('transport-requests-panel')!;
+  assert.equal(panel.getAttribute('tabindex'), '-1');
+  for (const name of ['No driver assigned, 2 jobs. Show transport requests', 'Unassigned records, 6,001 jobs. Show transport requests']) {
+    await click([...dom.window.document.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === name)!);
+    assert.equal(dom.window.document.activeElement, panel, name);
+  }
+  assert.deepEqual(scrolled.map(([id]) => id), ['transport-requests-panel', 'transport-requests-panel']);
+  assert.deepEqual(calls, [], 'no list screen is opened');
+  await act(async () => { root.unmount(); });
 });

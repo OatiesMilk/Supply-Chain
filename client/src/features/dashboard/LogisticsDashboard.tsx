@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowRight, CheckCircle2, Navigation, PauseCircle, RefreshCw, Truck, UserX } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Navigation, PauseCircle, RefreshCw, Truck, UserX } from 'lucide-react';
 import type { ApiDashboardOverview, ApiDashboardStats } from '@/api';
 import type { DeliveryCategory, DeliveryRecord } from '@/types';
 import { screenKeyForCategory } from '@/routes/screenRouting';
@@ -34,6 +34,16 @@ const REQUEST_TYPES: Array<{ key: 'DELIVERY' | 'RMA' | 'PROCUREMENT_PICKUP' | 'S
   { key: 'SALES_ORDERS', category: 'Sales Orders', one: 'Sales Order', many: 'Sales Orders' },
 ];
 
+const REQUESTS_PANEL_ID = 'transport-requests-panel';
+/** Brings the Transport requests panel into view and moves focus to it; it holds the per-type links. */
+function showTransportRequests() {
+  const panel = document.getElementById(REQUESTS_PANEL_ID);
+  if (!panel) return;
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  panel.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  panel.focus({ preventScroll: true });
+}
+
 const recordRef = (record: DeliveryRecord) => (record.category === 'RMA' && record.rma_reference) || record.id;
 
 const requestColumns: RecordColumn<DeliveryRecord>[] = [
@@ -42,9 +52,6 @@ const requestColumns: RecordColumn<DeliveryRecord>[] = [
   { key: 'company', header: 'Company', render: record => <span className="block max-w-[14rem] truncate md:max-w-[12rem]" title={record.company_name}>{record.company_name}</span> },
   { key: 'area', header: 'Area', render: record => record.area || 'Not set' },
   { key: 'date', header: 'Date', render: record => formatDate(record.delivery_date) },
-  { key: 'driver', header: 'Driver', render: record => record.driver_id && record.driver
-    ? record.driver
-    : <span className="inline-flex items-center gap-1 font-semibold text-amber-800"><AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />Needs driver</span> },
   { key: 'status', header: 'Status', render: record => <StatusPill record={record} />, hideLabelWhenStacked: true },
 ];
 
@@ -68,14 +75,15 @@ export default function LogisticsDashboard({ stats, overview, overviewStatus, on
       <KpiRow count={4}>
         <KpiTile label="Assigned to drivers today" unit="deliveries" icon={Truck} value={stats?.assigned_today}
           context={stats ? 'Active today' : undefined} onOpen={open('log-assigned-today')} />
-        <KpiTile label="No driver assigned" unit="deliveries" icon={UserX} tone="warning" value={unassigned}
-          context={stats ? (unassigned ? 'Needs a driver' : 'All assigned') : undefined} onOpen={open('log-unassigned')} />
+        <KpiTile label="No driver assigned" unit="jobs" icon={UserX} tone="warning" value={unassigned}
+          context={stats ? (unassigned ? 'Needs a driver' : 'All assigned') : undefined} onOpen={showTransportRequests} actionLabel="Show transport requests" />
         <KpiTile label="Completed today" unit="deliveries" icon={CheckCircle2} value={completed}
           context={stats ? (completed ? 'Accomplished today' : 'None yet today') : undefined} onOpen={open('log-completed-today')} />
         <KpiTile label="On hold or rescheduled" unit="deliveries" icon={RefreshCw} tone="warning" value={heldMoved}
           context={stats ? (heldMoved ? 'Needs reassignment' : 'Nothing to reassign') : undefined} onOpen={open('log-on-hold-rescheduled')} />
       </KpiRow>
 
+      <div id={REQUESTS_PANEL_ID} tabIndex={-1} className="scroll-mt-4 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]">
       <DashboardPanel title="Transport requests" count={status === 'success' ? plural(requestTotal, 'request', 'requests') : undefined}
         footer={status === 'success' && requestTotal > 0 ? (
           <>
@@ -101,6 +109,7 @@ export default function LogisticsDashboard({ stats, overview, overviewStatus, on
               canOpen={record => canAccess(screenKeyForCategory(record.category))}
               openLabel={record => `Open ${jobTypeLabel(record.category)} ${recordRef(record)} for ${record.company_name}`} />)}
       </DashboardPanel>
+      </div>
 
       <DashboardPanel title="Drivers out for delivery" count={status === 'success' ? `${driversTotal} driver${driversTotal === 1 ? '' : 's'}` : undefined}
         footer={status === 'success' && driversTotal > driversOut.length ? (
@@ -153,8 +162,8 @@ export default function LogisticsDashboard({ stats, overview, overviewStatus, on
         {status === 'error' && <PanelError message="Attention counts could not be loaded." onRetry={onRetryOverview} />}
         {status === 'success' && (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <KpiTile size="compact" label="Unassigned records" unit="deliveries" icon={UserX} tone="warning" value={counts['log-unassigned'] ?? 0}
-              context="Records with no driver yet" onOpen={open('log-unassigned')} />
+            <KpiTile size="compact" label="Unassigned records" unit="jobs" icon={UserX} tone="warning" value={requestTotal}
+              context="Jobs of every type with no driver yet" onOpen={showTransportRequests} actionLabel="Show transport requests" />
             <KpiTile size="compact" label="On hold" unit="deliveries" icon={PauseCircle} tone="critical" value={counts['log-on-hold'] ?? 0}
               context="Deliveries currently blocked" onOpen={open('log-on-hold')} />
             <KpiTile size="compact" label="Rescheduled" unit="deliveries" icon={RefreshCw} tone="warning" value={counts['log-rescheduled'] ?? 0}
