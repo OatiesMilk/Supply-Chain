@@ -34,7 +34,7 @@ async function openFirstRecord(page: Page, status?: string) {
 // These records live in the disposable CI database (record deletion is disabled).
 async function openNewScheduledRecord(page: Page, browser: Browser) {
   const sales = await browser.newContext({ storageState: './helpers/auth-sc.json' });
-  let recordId: string;
+  let recordNo: string;
   try {
     const session = await sales.request.get(`${BASE_URL}/api/v1/auth/me`);
     expect(session.ok()).toBeTruthy();
@@ -64,15 +64,15 @@ async function openNewScheduledRecord(page: Page, browser: Browser) {
     expect(response.status(), 'Sales Coordinator must create the test fixture').toBe(201);
     const saved = await response.json();
     expect(saved.status).toBe('Scheduled');
-    expect(saved.id).toBeTruthy();
-    recordId = saved.id;
+    expect(saved.record_no).toMatch(RECORD_NO_PATTERN);
+    recordNo = saved.record_no;
   } finally {
     await sales.close();
   }
   await page.goto(`${BASE_URL}/deliveries`);
-  await page.getByRole('textbox', { name: 'Search delivery records' }).fill(recordId);
+  await page.getByRole('textbox', { name: 'Search delivery records' }).fill(recordNo);
   await page.getByRole('row').filter({
-    has: page.getByRole('cell', { name: recordId, exact: true }),
+    has: page.getByRole('cell', { name: recordNo, exact: true }),
   }).click();
 }
 

@@ -45,7 +45,7 @@ function showTransportRequests() {
   panel.focus({ preventScroll: true });
 }
 
-const recordRef = (record: DeliveryRecord) => (record.category === 'RMA' && record.rma_reference) || record.id;
+const recordRef = (record: DeliveryRecord) => (record.category === 'RMA' && record.rma_reference) || recordLabel(record);
 
 const requestColumns: RecordColumn<DeliveryRecord>[] = [
   { key: 'id', header: 'Record', render: recordRef },

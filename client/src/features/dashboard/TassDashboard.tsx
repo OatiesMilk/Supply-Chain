@@ -102,7 +102,7 @@ export default function TassDashboard({ stats, overview, overviewStatus, onRetry
         {status === 'success' && (total === 0
           ? <EmptyState title="No open RMA records" description="All return and warranty records are resolved." />
           : <RecordTable rows={previews} columns={columns} rowKey={record => record.id} caption="Open RMA records, On-Hold first, then oldest submission"
-              onOpen={canAccess('rma') ? record => onNavigate('rma', record.id) : undefined} openLabel={record => `Open RMA record ${record.rma_reference || record.id}`} />)}
+              onOpen={canAccess('rma') ? record => onNavigate('rma', record.id) : undefined} openLabel={record => `Open RMA record ${record.rma_reference || recordLabel(record)}`} />)}
       </DashboardPanel>
 
       <DashboardPanel
@@ -125,7 +125,7 @@ export default function TassDashboard({ stats, overview, overviewStatus, onRetry
           ? <EmptyState icon={<Navigation className="h-9 w-9 text-slate-500" />} title="No RMA are in transit" description="RMA appear here once the driver starts the Logistics transport." />
           : <RecordTable rows={moving} columns={inTransitColumns} rowKey={record => record.id} caption="RMA in transit, oldest transport start first"
               onOpen={canAccess('rma') ? record => onNavigate('rma', record.id) : undefined}
-              openLabel={record => `Open RMA in transit ${record.rma_reference || record.id}`} />)}
+              openLabel={record => `Open RMA in transit ${record.rma_reference || recordLabel(record)}`} />)}
       </DashboardPanel>
     </DashboardPage>
   );
