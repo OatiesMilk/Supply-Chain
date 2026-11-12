@@ -175,55 +175,96 @@ AC numbers match the plan. AC5 is reworded per approved decision 3.
 
 ## 7. Results
 
-**Build tested:** branch `________`, commit `________`, date `________`.
+**Build tested:** branch `feature/role-dashboard-in-transit`, commit `e06ee0ce2e2c222ce7eebdcb3ed1a1538bd142de`, date `2026-11-12`.
 
-**Database:** host / port / database name: `________`. Confirmed disposable: yes / no.
+**Database:** host / port / database name: `localhost / 5433 / mg_portal_sandbox`. Confirmed disposable: yes.
 
-**Setup notes:** `________`
+**Setup notes:** `npm install` completed; its package-lock metadata-only change was restored. Prisma found 18 migrations, `migrate deploy` reported no pending migrations, and `prisma generate` succeeded. The database was already seeded (5 users, 94 records, 7 driver profiles), so no seed/reset was run. Existing services on ports 3000 and 4000 were reused. The DB is a local Docker Desktop container and the app connected via `localhost`; Docker currently publishes port 5433 on `0.0.0.0` and `::` as well. No staging or live database was used.
 
-**Test data left in the disposable database:** `________`
+**Test data left in the disposable database:** one AC7 fixture, Delivery `REC-7e30d207-92b2-48a0-a746-4fcca06b4928`, reference `QA-RDIT-20261112-001`, Alfamart Philippines Inc., planned for 2026-11-12. It was created by the Sales Coordinator, assigned to John Doe by Logistics, and started by the Driver account; it remains In Transit with Time In recorded at 1:33 PM Manila time. No other records were created.
 
 ### Automated checks
 
 | Command | Result (pass / fail / skipped counts) | Notes |
 | :--- | :--- | :--- |
-| Server `npx tsc --noEmit` | | |
-| Client `npx tsc --noEmit` | | |
-| `npm run test:server` | | |
-| `npm run test:client` | | |
-| Focused server tests | | |
-| Focused client tests | | |
-| `npm run typecheck:seeded` | | |
-| Seeded spec `role-dashboard-in-transit.spec.ts` | | Did each test run its drill-down or only the empty state? |
-| Full seeded suite | | |
+| Server `npx tsc --noEmit` | Pass (exit 0) | No errors. |
+| Client `npx tsc --noEmit` | Pass (exit 0) | No errors. |
+| `npm run test:server` | 544 pass / 1 fail / 8 skipped (exit 1) | The sole failure was the documented Windows CRLF failure in `tests/submittedAt.test.ts`; excluded from the feature verdict as instructed. |
+| `npm run test:client` | 431 pass / 0 fail / 1 skipped (exit 0) | |
+| Focused server tests | 22 pass / 0 fail / 0 skipped (exit 0) | Includes transport filter, overview and driver in-transit criteria. |
+| Focused client tests | 50 pass / 0 fail / 0 skipped (exit 0) | Includes parity for all three new filter IDs and dashboard panels. |
+| `npm run typecheck:seeded` | Pass (exit 0) | |
+| Seeded spec `role-dashboard-in-transit.spec.ts` | 3 pass / 0 fail / 0 skipped (exit 0) | Initial run: Logistics drilled into Delivery; TASS drilled into its RMA; SC had 0 and checked only the empty state. After creating the AC7 fixture, rerun: all three roles had rows and ran their drill-down checks. |
+| Full seeded suite | 16 pass / 7 fail / 0 skipped (exit 1) | Ran once with `SEEDED_E2E_FIXTURES=current`. The feature spec's three tests passed. Seven other Admin, Driver and TASS checks failed; see AC16 and defects below. |
 
 ### Acceptance criteria
 
 | ID | Result (Pass / Fail / Blocked) | Evidence (response, screenshot, automated check) | Notes |
 | :--- | :--- | :--- | :--- |
-| AC1 | | | |
-| AC2 | | | |
-| AC3 | | | |
-| AC4 | | | |
-| AC5 | | | |
-| AC6 | | | |
-| AC7 | | | |
-| AC8 | | | |
-| AC9 | | | |
-| AC10 | | | |
-| AC11 | | | |
-| AC12 | | | |
-| AC13 | | | |
-| AC14 | | | |
-| AC15 | | | |
-| AC16 | | | |
+| AC1 | Pass | Logistics overview showed 26 requests: 19 Deliveries, 3 Procurement Pick-ups and 4 Sales Orders; those totals sum to 26. The current seed had no unassigned RMA transport request. The post-fixture E2E compared current per-type totals with filtered list totals; focused server tests cover the RMA rule. | The 4-type rule is exercised by `transportRequestFilters.test.ts`; RMA had no live request row/link in this seed. |
+| AC2 | Pass | `transportRequestFilters.test.ts` passed exclusions for drafts, assigned/finished jobs, completed or other-movement RMA, and non-driver records including Accounting Collection. | Live seed lacked every exclusion case; unit test supplied coverage. |
+| AC3 | Pass | Logistics preview included unassigned Rescheduled and On-Hold Deliveries; focused server test confirms On-Hold and Rescheduled jobs of every type stay in the count/list. | |
+| AC4 | Pass | Logistics panel displayed 10 of 26, first dates Jul 8, Jul 9, Jul 10, etc., oldest first. Focused overview test passed bounded preview/full-total assertion. | |
+| AC5 | Pass | Focused server test `log-rma-requests is unchanged and holds every RMA transport request` passed. | Confirms the legacy filter retains assigned RMA behavior. |
+| AC6 | Pass | Panel title was `Transport requests`; old title absent; 10 rows showed `Needs driver`; footer had `View 19 Deliveries`, `View 3 Procurement Pickups`, `View 4 Sales Orders`. Seeded spec checked totals and opened the Delivery drill-down; client tests cover row and per-type navigation/filter mapping. | No RMA request/link existed in this seed. |
+| AC7 | Pass | After the authorized fixture start, SC overview/panel showed 1 in transit: `QA-RDIT-20261112-001`, John Doe, Started Nov 12 at 1:33 PM. The post-fixture E2E checked the live row and drill-down. | Focused server test also covers started runs and any planned date. |
+| AC8 | Pass | `transportRequestFilters.test.ts` passed the unstarted, held, finished, draft, unassigned and RMA exclusions. | |
+| AC9 | Pass | Focused server overview test confirmed SC reads remain inside `recordScope`; the live SC dashboard reported 90 available records (70 operational records and 20 SKUs) from the 95-record database. | |
+| AC10 | Pass | SC panel showed the expected eight columns, three type links and `Showing 1 of 1`. `View Deliveries in transit` opened `/deliveries`; the list showed the fixture row with the dashboard filter active. Post-fixture E2E confirmed the API filter and total. | Non-empty path exercised after fixture creation. |
+| AC11 | Pass | TASS showed 1 RMA in transit, John Doe, transport started Nov 11 at 5:03 PM, status In Transit. The seeded drill-down returned the same single row. | |
+| AC12 | Pass | Focused server filter test passed for Pending/Completed transport, held/rescheduled/accomplished RMA and other/non-RMA records. | |
+| AC13 | Blocked | TASS showed 1 row, driver, transport start, RMA status, oldest-first ordering (one row), and `View all 1 in transit`; `/rma` opened with the filter active and returned that row. | The only seeded in-transit RMA has no `rma_reference`; the panel therefore displayed its record ID alone, not a reference with the ID below. Component test passes with a populated reference. See Open questions. |
+| AC14 | Pass | After fixture start, Logistics `Drivers out for delivery` showed 2 in transit (1 Delivery + 1 RMA); SC and TASS each showed their matching 1-row set. The focused set-split test passed. | |
+| AC15 | Pass | Focused client parity suite passed all three IDs: `log-transport-requests`, `sc-in-transit`, `tass-rma-in-transit`. | |
+| AC16 | Fail | Typechecks, client suite, focused server/client suites and feature seeded spec passed; full server suite had only the excluded known CRLF failure. However, full seeded regression had 7 additional failures (16 passed), detailed below. | These seven failures were observed on this branch; no baseline-branch run was made to determine whether they predate it. |
 
 ### Defects found
 
 | # | AC | Severity (Critical / High / Medium / Low) | Steps to reproduce | Expected | Actual | `path:line` if known |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| | | | | | | |
+| 1 | AC16 | Low | Run `npm run test:seeded` with `SEEDED_E2E_FIXTURES=current`; in Admin, open User accounts and target `sales@microgenesis.com`, then click Edit. | Inline edit starts for the Sales Coordinator row. | Playwright timed out waiting for that row's Edit button. | `e2e/seeded/admin.spec.ts:12` |
+| 2 | AC16 | Low | Same suite; Admin → Roles & Permissions → View Admin permissions. | `RESOURCE:users:WRITE` checkbox is present and disabled. | Checkbox locator found no element. | `e2e/seeded/admin.spec.ts:61` |
+| 3 | AC16 | Low | Same suite; Admin account page at 1280px, inspect first row. | Access button is visible and opens the permission editor. | Access button locator found no element; test timed out before opening editor. | `e2e/seeded/admin.spec.ts:93` |
+| 4 | AC16 | Low | Same suite; Admin account page at 390px, inspect first row. | Access button is visible and opens the permission editor. | Access button locator found no element; test timed out before opening editor. | `e2e/seeded/admin.spec.ts:93` |
+| 5 | AC16 | Low | Same suite; log in as Driver and open `driver_dashboard`. | A heading named John Doe is visible. | No such heading; the live Driver UI showed John Doe as a banner paragraph instead. | `e2e/seeded/roles.spec.ts:66` |
+| 6 | AC16 | Low | Same suite; Admin logout → Driver email login. | A heading named John Doe is visible after login. | No such heading; Playwright timed out on the same heading locator. | `e2e/seeded/roles.spec.ts:66` |
+| 7 | AC16 | Low | Same suite; log in as TASS, open dashboard and click the existing Open RMA panel link. | The `View RMA` link opens `/rma`. | Locator `View RMA` timed out; current dashboard button reads `View all 15 open RMA records`. | `e2e/seeded/tass.spec.ts:6` |
 
 ### Open questions
 
--
+- AC13: The current in-transit seed RMA has no `rma_reference`, so the required reference-plus-record-ID display could not be verified with live data. Should this be treated as blocked until a populated reference fixture exists, or is the record-ID fallback acceptable?
+- The seven full seeded-suite failures were not compared against the base branch, so their introduction point is unknown.
+
+**Overall verdict: FAIL**
+
+
+## 8. Addendum (round 2): No-driver tiles and Driver column
+
+Changed after round 1, at Dylan's request (option A). Re-check only these items; round 1 results above stay as recorded.
+
+**What changed**
+
+- Logistics KPI **"No driver assigned"** now counts every driver job type with no Driver profile, using `log-transport-requests` (the same rule as the Transport requests panel). Its unit is "jobs". Clicking it scrolls to and focuses the Transport requests panel instead of opening the Deliveries list. Accessible name: `No driver assigned, N jobs. Show transport requests`.
+- Logistics **"Unassigned records"** tile under "Needs attention" counts the same set (`counts['log-transport-requests']`), reads "Jobs of every type with no driver yet", and does the same scroll.
+- The **Driver column** is removed from the Transport requests table (every row has no driver). Columns are now Record, Type, Company, Area, Date, Status.
+- Unchanged: the `log-unassigned` filter still exists and the Sales Coordinator "Pending driver assignment" tile and saved links still use it (Deliveries only). The Logistics "Needs attention" flag count (`log-flags`) is also unchanged.
+
+**Re-checks**
+
+| ID | Check | Expected |
+| :--- | :--- | :--- |
+| R2-1 | As Logistics, compare the "No driver assigned" tile, the "Unassigned records" tile and the Transport requests panel badge. Also `GET /api/v1/dashboard/stats` `unassigned_count` and overview `counts['log-transport-requests']`. | All four numbers are equal (26 on the round 1 seed, if unchanged). |
+| R2-2 | Click each of the two tiles (mouse, and Enter with keyboard focus). | The page scrolls to the Transport requests panel and focus moves to it. No list screen opens and the URL stays on the dashboard. With reduced motion turned on, the scroll is instant. |
+| R2-3 | Transport requests table at desktop width and on a phone width (390px). | No Driver column or "Needs driver" text. The remaining columns and the per-type links work as in AC6. |
+| R2-4 | As Sales Coordinator, the "Pending driver assignment" tile and its list. | Unchanged from before: Deliveries only, opens Deliveries filtered by `sc-pending-assignment`. |
+| R2-5 | `npm run test:server`, `npm run test:client`, both typechecks, and the seeded spec `role-dashboard-in-transit.spec.ts` (it now also checks the tile count and focus). | Developer run: server 553 tests, 544 pass, 8 skipped, 1 known CRLF failure (`submittedAt.test.ts`); client 433 tests, 432 pass, 1 skipped; typechecks clean; seeded spec 3/3 pass. |
+
+**Round 2 results**
+
+| ID | Result (Pass / Fail / Blocked) | Evidence | Notes |
+| :--- | :--- | :--- | :--- |
+| R2-1 | Pass | Logistics UI showed 26 on both tiles and the Transport requests badge. Read-only API checks returned `unassigned_count=26`, `counts['log-transport-requests']=26`, and a per-type sum of 26. | All displayed and API counts matched the unchanged seed. |
+| R2-2 | Pass | Mouse clicks and Enter activation on both tiles focused `#transport-requests-panel`; the URL stayed `/dashboard` and no list opened. `prefers-reduced-motion: reduce` was active; the panel was already positioned in the viewport after each activation. | Verified both tiles with both input methods. |
+| R2-3 | Pass | At desktop 1355×884 and phone 390×844, headers were Record, Type, Company, Area, Date and Status, with no Driver column or “Needs driver” text in the panel. All three links opened their matching filtered lists: Deliveries (19), Procurement Pickups (3) and Sales Orders (4). | The “Transport requests” filter chip remained active in each list. No RMA link was present because its count was zero. |
+| R2-4 | Pass | Sales Coordinator tile showed 19 deliveries and opened `/deliveries`; the list showed `Showing: Pending Driver Assignment (from Dashboard)` and only the Deliveries category. | Current seed returned 19 matching deliveries. |
+| R2-5 | Pass | Server: 553 tests, 544 pass, 8 skipped, 1 known failure in `server/tests/submittedAt.test.ts`. Client: 433 tests, 432 pass, 1 skipped. Both typechecks passed. Seeded feature spec passed 3/3. | The Windows CRLF failure is recorded but excluded from the verdict per instruction. |
