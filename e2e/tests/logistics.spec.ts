@@ -13,7 +13,7 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import * as XLSX from 'xlsx';
-import { recordRows } from '../support/recordRows';
+import { RECORD_NO_PATTERN, deliveredFixtureRow, recordRows } from '../support/recordRows';
 import { kpiTile } from '../support/kpiTile';
 
 const BASE_URL = 'http://localhost:3000';
@@ -337,7 +337,7 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
   test('B-2.5b TSK-124 Priority is locked on Delivered records, including in bulk edit', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
-    const delivered = page.getByRole('row').filter({ hasText: 'REC-UAT-DELIVERED-' }).first();
+    const delivered = await deliveredFixtureRow(page);
     await expect(delivered, 'The UAT seed must provide its completed delivery fixture').toBeVisible();
 
     // Bulk: a Delivered-only selection disables the Priority select with the explanation.
@@ -416,7 +416,7 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     const firstRow = recordRows(page).first();
     await expect(firstRow).toBeVisible();
     const recordId = (await firstRow.getByRole('cell').first().innerText()).trim();
-    expect(recordId).toMatch(/^REC-[\w-]+$/);
+    expect(recordId).toMatch(RECORD_NO_PATTERN);
     const search = page.getByRole('textbox', { name: 'Search accounting collection records' });
     await search.fill(recordId);
     const filteredRow = recordRows(page).filter({ hasText: recordId }).first();

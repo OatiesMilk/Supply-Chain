@@ -25,6 +25,7 @@ import { notify } from '@/utils/notify';
 import { DashboardFilterId, matchesDashboardFilter } from '@/utils/dashboardFilters';
 import DashboardFilterChip from '@/components/DashboardFilterChip';
 import { uploadPendingRecordAttachments, type StagedRecordAttachment } from '@/utils/recordAttachments';
+import { recordLabel } from '../../utils/recordLabel';
 
 interface AccountingCollectionViewProps {
   records: DeliveryRecord[];
@@ -144,7 +145,7 @@ export default function AccountingCollectionView({
   const [saving, setSaving] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [stagedAttachments, setStagedAttachments] = useState<StagedRecordAttachment[]>([]);
-  const [createdRecordInfo, setCreatedRecordInfo] = useState<{ id: string; referenceLabel: string } | null>(null);
+  const [createdRecordInfo, setCreatedRecordInfo] = useState<{ id: string; recordNo: string; referenceLabel: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -275,7 +276,7 @@ export default function AccountingCollectionView({
     try {
       const complete = await uploadAttachments(createdRecordInfo.id);
       if (!complete) {
-        notify.error(`Record ${createdRecordInfo.id} is saved. Some attachments still need to be uploaded; retry them here.`);
+        notify.error(`Record ${createdRecordInfo.recordNo} is saved. Some attachments still need to be uploaded; retry them here.`);
         return;
       }
       notify.success('All collection attachments uploaded');
@@ -328,11 +329,12 @@ export default function AccountingCollectionView({
       });
       setCreatedRecordInfo({
         id: createdRecord.id,
+        recordNo: recordLabel(createdRecord),
         referenceLabel: form.reference || form.company_name,
       });
       const allUploaded = await uploadAttachments(createdRecord.id);
       if (!allUploaded) {
-        notify.error(`Collection ${createdRecord.id} was created. Some attachments still need to be uploaded; retry them below.`);
+        notify.error(`Collection ${recordLabel(createdRecord)} was created. Some attachments still need to be uploaded; retry them below.`);
         return;
       }
       notify.success(isDraft ? 'Collection draft saved' : 'Collection submitted');
@@ -438,7 +440,7 @@ export default function AccountingCollectionView({
 
   // ── Export rows ──────────────────────────────────────────────────────────────
   const exportRows = sortedFiltered.map(r => ({
-    id: r.id,
+    id: recordLabel(r),
     company_name: r.company_name,
     reference: r.reference,
     category: r.category,
@@ -477,7 +479,7 @@ export default function AccountingCollectionView({
     const sortedAll = sortRows(allRecords);
 
     const rows = sortedAll.map(r => ({
-      id: r.id,
+      id: recordLabel(r),
       company_name: r.company_name,
       reference: r.reference,
       category: r.category,
@@ -539,7 +541,7 @@ export default function AccountingCollectionView({
         <div className="bg-white border border-amber-200 shadow-sm rounded-xl p-5 space-y-4" role="status">
           <div>
             <h3 className="text-base font-bold text-slate-900">Collection created: {createdRecordInfo.referenceLabel}</h3>
-            <p className="text-xs text-slate-600 mt-1">Record ID: <span className="font-mono font-bold">{createdRecordInfo.id}</span></p>
+            <p className="text-xs text-slate-600 mt-1">Record No.: <span className="font-mono font-bold">{createdRecordInfo.recordNo}</span></p>
             <p className="text-xs text-amber-800 mt-2">The record is saved. Retry the remaining file uploads here; this will not create another record.</p>
           </div>
           <div className="space-y-2">
@@ -835,7 +837,7 @@ export default function AccountingCollectionView({
               </colgroup>
               <thead>
                 <tr className="bg-slate-100 border-b border-slate-200 text-xs font-black text-slate-500 uppercase tracking-wider">
-                  <th className="px-4 py-3">Record ID</th>
+                  <th className="px-4 py-3">Record No.</th>
                   <th className="px-4 py-3">Company</th>
                   <th className="px-4 py-3">Reference</th>
                   <th className="px-4 py-3">Priority</th>
@@ -857,7 +859,7 @@ export default function AccountingCollectionView({
                     onClick={() => setSelectedRecordId(rec.id)}
                     className="hover:bg-blue-50/40 cursor-pointer transition-all"
                   >
-                    <td className="px-4 py-3.5 font-bold text-slate-400 truncate">{rec.id}</td>
+                    <td className="px-4 py-3.5 font-bold text-slate-400 truncate">{recordLabel(rec)}</td>
                     <td className="px-4 py-3.5">
                       <div className="font-semibold text-sm text-slate-900 truncate" title={rec.company_name}>{rec.company_name}</div>
                       <div className="text-xs text-gray-400 mt-0.5 truncate" title={rec.reference}>{rec.reference}</div>

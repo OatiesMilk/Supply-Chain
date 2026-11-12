@@ -16,6 +16,7 @@ import { POD_ATTACHMENT_ACCEPT, getPodAttachmentRejection } from '@/utils/attach
 import { selectDemoLocation } from '@/utils/demoLocations';
 import { notify } from '@/utils/notify';
 import { uploadPendingRecordAttachments, type StagedRecordAttachment } from '@/utils/recordAttachments';
+import { recordLabel } from '../../utils/recordLabel';
 
 // ── Sample-data tables (moved here from DeliveryRecordsView) ──────────────────
 
@@ -165,7 +166,7 @@ export interface RecordCreateFormProps {
   // Optional: output action integration — only provided by DeliveryRecordsView
   outputActionConfigs?: Record<OutputActionTrigger, OutputActionConfig>;
   onUpdateOutputActionConfig?: (trigger: OutputActionTrigger, patch: Partial<OutputActionConfig>) => void;
-  onAfterSubmit?: (bannerData: { recordId: string; referenceLabel: string; lines: string[] }) => void;
+  onAfterSubmit?: (bannerData: { recordId: string; recordNo: string; referenceLabel: string; lines: string[] }) => void;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -191,7 +192,7 @@ export default function RecordCreateForm({
   const [saving, setSaving] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [stagedAttachments, setStagedAttachments] = useState<StagedRecordAttachment[]>([]);
-  const [createdRecordInfo, setCreatedRecordInfo] = useState<{ id: string; referenceLabel: string; lines: string[]; isDraft: boolean } | null>(null);
+  const [createdRecordInfo, setCreatedRecordInfo] = useState<{ id: string; recordNo: string; referenceLabel: string; lines: string[]; isDraft: boolean } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -291,7 +292,7 @@ export default function RecordCreateForm({
     uploadPendingRecordAttachments(recordId, attachments, api, updateAttachmentStatus);
 
   const finishCreatedRecord = (info: NonNullable<typeof createdRecordInfo>) => {
-    onAfterSubmit?.({ recordId: info.id, referenceLabel: info.referenceLabel, lines: info.lines });
+    onAfterSubmit?.({ recordId: info.id, recordNo: info.recordNo, referenceLabel: info.referenceLabel, lines: info.lines });
     setForm(buildEmptyForm(form.category));
     setStagedAttachments([]);
     setCreatedRecordInfo(null);
@@ -304,7 +305,7 @@ export default function RecordCreateForm({
     try {
       const complete = await uploadAttachments(createdRecordInfo.id);
       if (!complete) {
-        notify.error(`Record ${createdRecordInfo.id} is saved. Some attachments still need to be uploaded; retry them here.`);
+        notify.error(`Record ${createdRecordInfo.recordNo} is saved. Some attachments still need to be uploaded; retry them here.`);
         return;
       }
       notify.success('All record attachments uploaded');
@@ -339,7 +340,7 @@ export default function RecordCreateForm({
 
     setSaving(true);
     let createdRecord: DeliveryRecord;
-    let createdInfo: { id: string; referenceLabel: string; lines: string[]; isDraft: boolean };
+    let createdInfo: { id: string; recordNo: string; referenceLabel: string; lines: string[]; isDraft: boolean };
     try {
       createdRecord = await onSubmit({
         ...form,
@@ -360,6 +361,7 @@ export default function RecordCreateForm({
       // Retain the saved identity before any optional output can fail.
       createdInfo = {
         id: createdRecord.id,
+        recordNo: recordLabel(createdRecord),
         referenceLabel: form.reference || form.company_name,
         lines: bannerLines,
         isDraft,
@@ -372,10 +374,10 @@ export default function RecordCreateForm({
             exportPDF: () => exportRecordOutputPDF(createdRecord),
           });
           bannerLines = output.banners;
-          if (output.email.failed || output.pdf === 'failed') notify.error(`Record ${createdRecord.id} is saved. ${output.banners.join(' ')}`);
+          if (output.email.failed || output.pdf === 'failed') notify.error(`Record ${recordLabel(createdRecord)} is saved. ${output.banners.join(' ')}`);
         } catch (error) {
           bannerLines = [`Additional outputs could not finish: ${error instanceof Error ? error.message : 'Please check notification status.'}`];
-          notify.error(`Record ${createdRecord.id} is saved. ${bannerLines[0]}`);
+          notify.error(`Record ${recordLabel(createdRecord)} is saved. ${bannerLines[0]}`);
         }
         createdInfo = { ...createdInfo, lines: bannerLines };
         setCreatedRecordInfo(createdInfo);
@@ -383,7 +385,7 @@ export default function RecordCreateForm({
 
       const allUploaded = await uploadAttachments(createdRecord.id);
       if (!allUploaded) {
-        notify.error(`Record ${createdRecord.id} was created. Some attachments still need to be uploaded; retry them below.`);
+        notify.error(`Record ${recordLabel(createdRecord)} was created. Some attachments still need to be uploaded; retry them below.`);
         return;
       }
       notify.success(isDraft ? 'Draft saved' : 'Record submitted');
@@ -404,7 +406,7 @@ export default function RecordCreateForm({
       <div className="bg-white border border-amber-200 shadow-sm rounded-xl p-5 sm:p-7 space-y-4 print:hidden" role="status">
         <div>
           <h3 className="text-base font-bold text-slate-900">Record created: {createdRecordInfo.referenceLabel}</h3>
-          <p className="text-xs text-slate-600 mt-1">Record ID: <span className="font-mono font-bold">{createdRecordInfo.id}</span></p>
+          <p className="text-xs text-slate-600 mt-1">Record No.: <span className="font-mono font-bold">{createdRecordInfo.recordNo}</span></p>
           <p className="text-xs text-amber-800 mt-2">The record is saved. Retry the remaining file uploads here; this will not create another record.</p>
         </div>
         <div className="space-y-2">

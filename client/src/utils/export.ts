@@ -643,7 +643,7 @@ export async function downloadPDF(
 // ─── Column definitions per module ───────────────────────────────────────────
 
 export const DELIVERY_COLUMNS: ExportColumn[] = [
-  { header: 'Record ID',         key: 'id',               width: 18 },
+  { header: 'Record No.',        key: 'id',               width: 14 },
   { header: 'Company Name',      key: 'company_name',      width: 28 },
   { header: 'Reference Number',  key: 'reference',         width: 22 },
   { header: 'Category',          key: 'category',          width: 24 },
@@ -688,7 +688,7 @@ export const RMA_EXTRA_COLUMNS: ExportColumn[] = [
 // These are used only for PDF. CSV/Excel still uses DELIVERY_COLUMNS for full data.
 
 export const PDF_DELIVERY_COLUMNS: ExportColumn[] = [
-  { header: 'Record ID',       key: 'id',                width: 18, pdfWidth: 20                       },
+  { header: 'Record No.',      key: 'id',                width: 14, pdfWidth: 20                       },
   { header: 'Company',         key: 'company_name',      width: 28, pdfWidth: 58                       },
   { header: 'Reference No.',   key: 'reference',         width: 22, pdfWidth: 26                       },
   { header: 'Priority',        key: 'priority',          width: 16, pdfWidth: 22                       },
@@ -702,7 +702,7 @@ export const PDF_DELIVERY_COLUMNS: ExportColumn[] = [
 export const PDF_RMA_COLUMNS: ExportColumn[] = [
   { header: 'Movement', key: 'rma_movement_fmt', width: 24, pdfWidth: 28 },
   { header: 'Transport', key: 'rma_transport_status_fmt', width: 18, pdfWidth: 22 },
-  { header: 'Record ID', key: 'id', width: 18, pdfWidth: 22 },
+  { header: 'Record No.', key: 'id', width: 14, pdfWidth: 22 },
   { header: 'Company', key: 'company_name', width: 28, pdfWidth: 50 },
   { header: 'RMA Document Reference', key: 'rma_reference', width: 28, pdfWidth: 38 },
   { header: 'Legacy SAP Reference', key: 'legacy_sap_reference', width: 24, pdfWidth: 34 },
@@ -715,7 +715,7 @@ export const PDF_RMA_COLUMNS: ExportColumn[] = [
 // Amount is 32mm: ₱1,000,000.00 (worst case) needs ~20mm text + 7mm padding = 27mm;
 // 32mm gives 5mm breathing room and prevents jspdf clipping on unbreakable currency strings.
 export const PDF_AC_COLUMNS: ExportColumn[] = [
-  { header: 'Record ID',       key: 'id',                       width: 18, pdfWidth: 20                       },
+  { header: 'Record No.',      key: 'id',                       width: 14, pdfWidth: 20                       },
   { header: 'Company',         key: 'company_name',              width: 28, pdfWidth: 53                       },
   { header: 'Reference No.',   key: 'reference',                 width: 22, pdfWidth: 24                       },
   { header: 'Priority',        key: 'priority',                  width: 16, pdfWidth: 20                       },

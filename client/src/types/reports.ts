@@ -17,6 +17,7 @@ export interface ApiReportSummary {
 }
 
 export interface ApiAdminAuditEntry {
+  record_no?: string | null;
   id: string;
   record_id: string;
   record_type: string;

@@ -6,14 +6,15 @@ import {
   AgeIndicator, DashboardPage, DashboardPanel, EmptyState, KpiRow, KpiTile, PanelError, RecordTable, StatusPill, TileSkeleton, formatDate, formatDateTime,
   type RecordColumn,
 } from './ui';
+import { recordLabel } from '../../utils/recordLabel';
 
 const linkClass = 'inline-flex items-center gap-1 rounded-sm font-semibold text-[#1F3864] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]';
 
 const inTransitColumns: RecordColumn<DeliveryRecord>[] = [
   { key: 'id', header: 'RMA', render: record => (
     <>
-      <span>{record.rma_reference || record.id}</span>
-      {record.rma_reference && <span className="block text-xs font-normal text-slate-600">{record.id}</span>}
+      <span>{record.rma_reference || recordLabel(record)}</span>
+      {record.rma_reference && <span className="block text-xs font-normal text-slate-600">{recordLabel(record)}</span>}
     </>
   ) },
   { key: 'company', header: 'Company', render: record => <span className="block max-w-[14rem] truncate md:max-w-[12rem]" title={record.company_name}>{record.company_name}</span> },
@@ -41,7 +42,7 @@ interface Props {
 const columns: RecordColumn<DeliveryRecord>[] = [
   { key: 'id', header: 'Record', render: record => (
     <>
-      <span>{record.id}</span>
+      <span>{recordLabel(record)}</span>
       {record.rma_reference && <span className="block text-xs font-normal text-slate-600">{record.rma_reference}</span>}
     </>
   ) },

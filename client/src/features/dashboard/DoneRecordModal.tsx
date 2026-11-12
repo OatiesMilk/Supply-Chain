@@ -3,6 +3,7 @@ import { DeliveryRecord } from '@/types';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
 import { PodAttachmentList } from '@/components/PodAttachmentPreview';
 import { formatManilaTime, formatManilaTimestamp } from '@/utils/manilaTimestamp';
+import { recordLabel as recordNumber } from '../../utils/recordLabel';
 
 export default function DoneRecordModal({
   record,
@@ -19,7 +20,7 @@ export default function DoneRecordModal({
     ? record.rma_transport_completed_at ?? record.rma_completed_at
     : isRma ? record.rma_completed_at : record.time_out);
   const completedLabel = isRmaTransportHandoff ? 'Transport completed on' : isRma ? 'RMA completed on' : 'Accomplished on';
-  const recordLabel = isRma ? record.rma_reference || record.reference || record.id : record.reference;
+  const recordLabel = isRma ? record.rma_reference || record.reference || recordNumber(record) : record.reference;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

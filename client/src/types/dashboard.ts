@@ -39,6 +39,7 @@ export type ApiDashboardStats =
         action: string;
         changed_by: string;
         record_id: string;
+        record_no?: string | null;
         record_type: string;
         timestamp: string;
       }[];

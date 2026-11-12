@@ -12,6 +12,7 @@ import { fmtDate } from '@/utils/export';
 import { DeliveryRecord } from '@/types';
 import { ApiCompany, ApiAuditEntry, ApiComment, ApiRemarkLog, ApiPodAttachment } from '@/api';
 import { DocumentSize, getPdfFormat, fitColumnWidths, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
+import { recordLabel } from '../../utils/recordLabel';
 
 export interface ManifestDocumentationData {
   auditEntries: ApiAuditEntry[];
@@ -105,7 +106,7 @@ export async function printSingleManifest(
   drawManifestHeader(
     doc, logo,
     record.category === 'RMA' ? 'RMA Document Record' : 'Delivery Manifest',
-    record.category === 'RMA' ? `RMA Document Reference ${record.rma_reference ?? record.reference} · Record ${record.id}` : `Record ${record.id} · ${fmtDate(record.delivery_date)}`,
+    record.category === 'RMA' ? `RMA Document Reference ${record.rma_reference ?? record.reference} · Record ${recordLabel(record)}` : `Record ${recordLabel(record)} · ${fmtDate(record.delivery_date)}`,
     pageW
   );
 
@@ -117,7 +118,7 @@ export async function printSingleManifest(
     ];
     const workflow = rmaWorkflowExportFields(record);
     const fields: [string, string][] = [
-      ['Record ID', record.id],
+      ['Record No.', recordLabel(record)],
       ['RMA Document Reference', record.rma_reference ?? record.reference],
       ['Legacy SAP Reference', record.legacy_sap_reference ?? '—'],
       ['RMA Category', record.rma_type ?? '—'],
@@ -164,7 +165,7 @@ export async function printSingleManifest(
       ['Collection Verified', record.collection_verified ? 'Yes' : 'No'],
       ['Collection Verified By', record.collection_verified_by ?? '—'],
       ['Collection Verified At', formatManilaTimestamp(record.collection_verified_at)],
-      ['Linked Collection', record.linked_collection ? `${record.linked_collection.id} · ${record.linked_collection.reference}` : record.linked_collection_id ?? '—'],
+      ['Linked Collection', record.linked_collection ? `${recordLabel(record.linked_collection)} · ${record.linked_collection.reference}` : record.linked_collection_id ?? '—'],
     ];
     autoTable(doc, {
       head: [['RMA Record Field', 'Saved Value']],
@@ -175,7 +176,7 @@ export async function printSingleManifest(
       columnStyles: { 0: { cellWidth: 52, fontStyle: 'bold' }, 1: { cellWidth: 'auto' } },
       headStyles: { fillColor: [...NAVY], textColor: [255, 255, 255], fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [248, 249, 250] },
-      didDrawPage: () => drawManifestHeader(doc, logo, 'RMA Document Record', `RMA Document Reference ${record.rma_reference ?? record.reference} · Record ${record.id}`, pageW),
+      didDrawPage: () => drawManifestHeader(doc, logo, 'RMA Document Record', `RMA Document Reference ${record.rma_reference ?? record.reference} · Record ${recordLabel(record)}`, pageW),
     });
     if (record.line_items?.length) {
       const tableEnd = (doc as any).lastAutoTable?.finalY ?? 31;
@@ -187,7 +188,7 @@ export async function printSingleManifest(
         styles: { fontSize: 7.5, cellPadding: 1.5 },
         headStyles: { fillColor: [...NAVY], textColor: [255, 255, 255], fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [248, 249, 250] },
-        didDrawPage: () => drawManifestHeader(doc, logo, 'RMA Document Record', `RMA Document Reference ${record.rma_reference ?? record.reference} · Record ${record.id}`, pageW),
+        didDrawPage: () => drawManifestHeader(doc, logo, 'RMA Document Record', `RMA Document Reference ${record.rma_reference ?? record.reference} · Record ${recordLabel(record)}`, pageW),
       });
     }
     for (let page = 1; page <= doc.getNumberOfPages(); page++) {
@@ -302,7 +303,7 @@ export async function printSingleManifest(
     drawManifestHeader(
       doc, logo,
       'Documentation Trail',
-      `Record ${record.id} · Generated ${fmtDate(new Date().toISOString())}`,
+      `Record ${recordLabel(record)} · Generated ${fmtDate(new Date().toISOString())}`,
       pageW2
     );
 
@@ -490,7 +491,7 @@ export async function printDriverDayManifest(
   });
 
   autoTable(doc, {
-    head: [['#', 'Record ID', 'Company', 'Area', 'Address', 'SAP Ref', 'Item Type', 'Status']],
+    head: [['#', 'Record No.', 'Company', 'Area', 'Address', 'SAP Ref', 'Item Type', 'Status']],
     body,
     startY: 44,
     margin: { left: 10, right: 10 },

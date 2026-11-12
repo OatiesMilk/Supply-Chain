@@ -25,6 +25,7 @@ import ExportMenu from '@/components/ExportMenu';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, fmtDate, fmtDatetime, fmtStatus } from '@/utils/export';
 import { useWorkspaceDraft, useWorkspaceNavigation } from '@/features/deliveries/WorkspaceDrafts';
 import { notify } from '@/utils/notify';
+import { recordLabel } from '../../utils/recordLabel';
 
 interface AccountingCollectionWorkspaceProps {
   record: DeliveryRecord;
@@ -641,7 +642,7 @@ function OverviewTab({
       {/* Header card */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
         <div className="flex flex-wrap items-center gap-3 mb-3">
-          <span className="font-mono font-black text-lg text-slate-900">{record.id}</span>
+          <span className="font-mono font-black text-lg text-slate-900">{recordLabel(record)}</span>
           <span className="px-2.5 py-1 rounded-md font-black text-[10px] uppercase tracking-wider border bg-blue-100 text-blue-800 border-blue-200">
             Accounting Collection
           </span>
@@ -829,7 +830,7 @@ export default function AccountingCollectionWorkspace({
             Accounting Collection
           </button>
           <span className="text-slate-300">/</span>
-          <span className="font-mono font-black text-slate-700 text-sm truncate">{record.id}</span>
+          <span className="font-mono font-black text-slate-700 text-sm truncate">{recordLabel(record)}</span>
           <span className="text-slate-400 text-xs truncate hidden sm:inline">— {record.company_name}</span>
         </div>
 
@@ -858,7 +859,7 @@ export default function AccountingCollectionWorkspace({
           {(currentUserRole === 'TASS' || currentUserRole === 'Admin') && (
             <ExportMenu
               rows={[{
-                id: record.id,
+                id: recordLabel(record),
                 company_name: record.company_name,
                 reference: record.reference,
                 category: record.category,
@@ -880,7 +881,7 @@ export default function AccountingCollectionWorkspace({
               }]}
               columns={[...DELIVERY_COLUMNS, ...AC_EXTRA_COLUMNS]}
               sheetName="Accounting Collection"
-              filename={`ac-record-${record.id}`}
+              filename={`ac-record-${recordLabel(record)}`}
               pdfTitle="Accounting Collection Record"
               showPdf={true}
               pdfPortrait={true}

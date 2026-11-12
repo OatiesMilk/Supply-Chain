@@ -9,6 +9,7 @@ import { normalizeApiRecord, usePagedRecordsQuery } from '@/api/queries/useRecor
 import ExportPreviewDialog from '@/components/ExportPreviewDialog';
 import { downloadBlob } from '@/utils/downloadBlob';
 import type { ExportColumn, ExportMeta } from '@/utils/export';
+import { recordLabel } from '../../utils/recordLabel';
 
 interface Props {
   records: DeliveryRecord[];
@@ -127,7 +128,7 @@ export default function DriverReportModal({ records, serverPaging = false, onClo
     if (previewArtifact) downloadBlob(previewArtifact.blob, previewArtifact.fileName);
   }, [previewArtifact]);
   const previewColumns: ExportColumn[] = [
-    { header: 'Record ID', key: 'id' },
+    { header: 'Record No.', key: 'id' },
     { header: 'Company', key: 'company_name' },
     { header: 'Delivery Date', key: 'delivery_date' },
     { header: 'Driver', key: 'driver' },
@@ -135,7 +136,7 @@ export default function DriverReportModal({ records, serverPaging = false, onClo
     { header: 'Area', key: 'area' },
   ];
   const previewRows = previewArtifact?.records.map(record => ({
-    id: record.id,
+    id: recordLabel(record),
     company_name: record.company_name,
     delivery_date: record.delivery_date,
     driver: record.driver,
