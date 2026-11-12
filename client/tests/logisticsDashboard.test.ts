@@ -13,8 +13,12 @@ const stats = { role: 'LOGISTICS', assigned_today: 5, unassigned_count: 2, compl
 const request = (id: string, extra: Partial<DeliveryRecord> = {}) => ({ id, category: 'RMA', status: 'Scheduled', is_draft: 'No', company_name: 'Client Co', area: 'Makati',
   delivery_date: '2026-10-30', rma_reference: `RMA-${id}`, driver: '', rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'PENDING', ...extra }) as DeliveryRecord;
 const overview: ApiDashboardOverview = { role: 'LOGISTICS', generated_at: '2026-11-10T00:27:00Z', record_total: 50, status_totals: {},
-  counts: { rma_requests: 6001, 'log-flags': 5, 'log-unassigned': 2, 'log-on-hold': 1, 'log-rescheduled': 2 },
-  record_previews: { rma_requests: [request('r1'), request('r2', { driver: 'Ana Cruz' })], rma_attention: [] },
+  counts: { rma_requests: 6001, 'log-transport-requests': 6001, 'log-flags': 5, 'log-unassigned': 2, 'log-on-hold': 1, 'log-rescheduled': 2 },
+  transport_requests_by_type: { DELIVERY: 4000, RMA: 2000, SALES_ORDERS: 1 },
+  record_previews: { rma_requests: [request('r1'), request('r2', { driver: 'Ana Cruz' })], rma_attention: [], transport_requests: [
+    request('r1'), { id: 'D-9', category: 'Deliveries', status: 'On-Hold', company_name: 'Acme', area: 'Pasig', delivery_date: '2026-10-29', driver: 'Old Name', driver_id: null } as DeliveryRecord,
+    { id: 'S-9', category: 'Sales Orders', status: 'Scheduled', company_name: 'Gamma', area: '', delivery_date: '2026-10-31', driver: '' } as DeliveryRecord,
+  ] },
   drivers_out: [{ driver_id: 'drv-ana', driver: 'Ana Cruz', total: 7001, in_transit: 2, records: [
     { id: 'D-1', category: 'Deliveries', status: 'In Transit', time_in: '2026-11-12T01:00:00.000Z', company_name: 'Acme' } as DeliveryRecord,
     { id: 'R-1', category: 'RMA', status: 'Scheduled', rma_transport_status: 'IN_TRANSIT', company_name: 'Beta' } as DeliveryRecord,
@@ -37,11 +41,16 @@ test('tiles show skeletons while stats load and never fall back to guessed count
   assert.ok((markup.match(/aria-busy="true"/g) ?? []).length >= 4);
 });
 
-test('RMA requests panel shows full totals with a bounded preview, a footer and a filtered view-all link', () => {
-  const t = text(html());
-  assert.match(t, /RMA transport requests 6001 requests/); assert.match(t, /Showing 2 of 6001 requests/); assert.match(t, /View all requests/);
-  assert.match(html(), /Needs driver/);
-  assert.match(html(), /aria-label="Open RMA RMA-r1 for Client Co"/);
+test('transport requests panel lists every job type with full totals and per-type links (AC6)', () => {
+  const markup = html(); const t = text(markup);
+  assert.match(t, /Transport requests 6001 requests/); assert.match(t, /Showing 3 of 6001 requests/);
+  assert.match(t, /View 4000 Deliveries/); assert.match(t, /View 2000 RMA/); assert.match(t, /View 1 Sales Order/);
+  assert.doesNotMatch(t, /View d+ Procurement Pickups?/, 'types with no requests get no link');
+  assert.match(t, /RMA-r1 RMA Client Co/); assert.match(t, /D-9 Delivery Acme/); assert.match(t, /S-9 Sales Order Gamma/);
+  assert.equal((t.match(/Needs driver/g) ?? []).length, 2 * 3, 'every row needs a driver, in table and stacked list');
+  assert.doesNotMatch(t, /Old Name/, 'a stale name without a Driver profile is not shown as assigned');
+  assert.match(markup, /aria-label="Open RMA RMA-r1 for Client Co"/); assert.match(markup, /aria-label="Open Delivery D-9 for Acme"/);
+  assert.doesNotMatch(t, /RMA transport requests/);
 });
 
 test('drivers panel keeps complete totals and a view-all link', () => {
@@ -71,11 +80,15 @@ test('record links without screen access render as text', () => {
   const markup = html({ canAccess: (screen: string) => screen !== 'procurement_pickup' });
   assert.doesNotMatch(markup, /aria-label="Open Procurement Pickup P-1/); assert.match(text(markup), /P-1 · Supplier Co/);
   assert.match(markup, /aria-label="Open Delivery D-1 for Acme, in transit"/);
+  const noSales = html({ canAccess: (screen: string) => screen !== 'sales_orders' });
+  assert.doesNotMatch(noSales, /aria-label="Open Sales Order S-9/); assert.match(text(noSales), /S-9 Sales Order Gamma/);
+  assert.doesNotMatch(text(noSales), /View 1 Sales Order/); assert.match(text(noSales), /1 Sales Order/);
+  assert.match(noSales, /aria-label="Open Delivery D-9 for Acme"/);
 });
 
 test('empty states are calm', () => {
-  const empty = html({ overview: { ...overview, counts: { ...overview.counts, rma_requests: 0 }, record_previews: { rma_requests: [], rma_attention: [] }, drivers_out: [], drivers_out_total: 0 } });
-  assert.match(text(empty), /No RMA transport requests need dispatch/); assert.match(text(empty), /No drivers are out for delivery today/);
+  const empty = html({ overview: { ...overview, counts: { ...overview.counts, rma_requests: 0, 'log-transport-requests': 0 }, transport_requests_by_type: {}, record_previews: { rma_requests: [], rma_attention: [], transport_requests: [] }, drivers_out: [], drivers_out_total: 0 } });
+  assert.match(text(empty), /No transport requests need dispatch/); assert.match(text(empty), /No drivers are out for delivery today/);
   assert.doesNotMatch(empty, /<table/);
 });
 
@@ -88,8 +101,8 @@ test('overview failure keeps tiles and shows retry in each panel', () => {
 test('without access to a screen its tiles and links have no button', () => {
   const markup = html({ canAccess: (screen: string) => screen === 'deliveries' });
   assert.match(markup, /aria-label="No driver assigned, 2/);
-  assert.doesNotMatch(markup, /View all requests/); assert.doesNotMatch(markup, /View all 6001 assigned Drivers/);
-  assert.doesNotMatch(markup, /aria-label="Open RMA RMA-r1/);
+  assert.doesNotMatch(markup, /View 2000 RMA/); assert.match(markup, /View 4000 Deliveries/); assert.doesNotMatch(markup, /View all 6001 assigned Drivers/);
+  assert.doesNotMatch(markup, /aria-label="Open RMA RMA-r1/); assert.match(markup, /aria-label="Open Delivery D-9 for Acme"/);
   const none = html({ canAccess: () => false });
   assert.doesNotMatch(none, /<button[^>]*aria-label="[^"]*View list/);
 });
@@ -113,11 +126,13 @@ test('view-all and row actions pass the right filters', async () => {
   await act(async () => { root.render(h(LogisticsDashboard, { stats, overview, onNavigate: (...args: unknown[]) => { calls.push(args); } })); });
   const click = (el: Element) => act(async () => { el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
   const buttons = [...dom.window.document.querySelectorAll('button')];
-  await click(buttons.find(b => b.textContent?.includes('View all requests'))!);
+  await click(buttons.find(b => b.textContent?.includes('View 2000 RMA'))!);
+  await click(buttons.find(b => b.textContent?.includes('View 1 Sales Order'))!);
   await click(buttons.find(b => b.getAttribute('aria-label')?.startsWith('Completed today'))!);
   await click(buttons.find(b => b.textContent?.includes('View all 5 flags'))!);
   await click(buttons.find(b => b.getAttribute('aria-label') === 'Open RMA RMA-r1 for Client Co')!);
-  assert.deepEqual(calls, [['rma', undefined, 'log-rma-requests'], ['deliveries', undefined, 'log-completed-today'], ['deliveries', undefined, 'log-flags'], ['rma', 'r1']]);
+  await click(buttons.find(b => b.getAttribute('aria-label') === 'Open Delivery D-9 for Acme')!);
+  assert.deepEqual(calls, [['rma', undefined, 'log-transport-requests'], ['sales_orders', undefined, 'log-transport-requests'], ['deliveries', undefined, 'log-completed-today'], ['deliveries', undefined, 'log-flags'], ['rma', 'r1'], ['deliveries', 'D-9']]);
   await act(async () => { root.unmount(); });
 });
 
