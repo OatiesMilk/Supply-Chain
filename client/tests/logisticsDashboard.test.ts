@@ -15,7 +15,11 @@ const request = (id: string, extra: Partial<DeliveryRecord> = {}) => ({ id, cate
 const overview: ApiDashboardOverview = { role: 'LOGISTICS', generated_at: '2026-11-10T00:27:00Z', record_total: 50, status_totals: {},
   counts: { rma_requests: 6001, 'log-flags': 5, 'log-unassigned': 2, 'log-on-hold': 1, 'log-rescheduled': 2 },
   record_previews: { rma_requests: [request('r1'), request('r2', { driver: 'Ana Cruz' })], rma_attention: [] },
-  drivers_out: [{ driver: 'Ana Cruz', total: 7001, records: [{ id: 'D-1', category: 'Deliveries', company_name: 'Acme' } as DeliveryRecord] }], drivers_out_total: 6001, unverified_collections_amount: 0 };
+  drivers_out: [{ driver_id: 'drv-ana', driver: 'Ana Cruz', total: 7001, in_transit: 2, records: [
+    { id: 'D-1', category: 'Deliveries', status: 'In Transit', time_in: '2026-11-12T01:00:00.000Z', company_name: 'Acme' } as DeliveryRecord,
+    { id: 'R-1', category: 'RMA', status: 'Scheduled', rma_transport_status: 'IN_TRANSIT', company_name: 'Beta' } as DeliveryRecord,
+    { id: 'P-1', category: 'Procurement Pick-up', status: 'Scheduled', company_name: 'Supplier Co' } as DeliveryRecord,
+  ] }], drivers_out_total: 6001, drivers_out_jobs_total: 9000, unverified_collections_amount: 0 };
 const html = (props: Record<string, unknown> = {}) => renderToStaticMarkup(h(LogisticsDashboard, { stats, overview, onNavigate() {}, ...props } as any));
 const text = (markup: string) => markup.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
 
@@ -42,12 +46,36 @@ test('RMA requests panel shows full totals with a bounded preview, a footer and 
 
 test('drivers panel keeps complete totals and a view-all link', () => {
   const t = text(html());
-  assert.match(t, /6001 drivers/); assert.match(t, /7001 active deliveries/); assert.match(t, /\+7000 more records/); assert.match(t, /View all 6001 assigned Drivers/);
+  assert.match(t, /6001 drivers/); assert.match(t, /7001 active jobs · 2 in transit/); assert.match(t, /\+6998 more jobs/); assert.match(t, /View all 6001 assigned Drivers/);
+});
+
+test('driver cards label every job type, mark jobs in transit and key by driver id', () => {
+  const markup = html();
+  const t = text(markup);
+  assert.match(t, /Delivery D-1 · Acme In transit/); assert.match(t, /RMA R-1 · Beta In transit/); assert.match(t, /Procurement Pickup P-1 · Supplier Co/);
+  assert.doesNotMatch(t, /Supplier Co In transit/);
+  assert.match(markup, /aria-label="Open Delivery D-1 for Acme, in transit"/);
+  assert.match(markup, /aria-label="Open Procurement Pickup P-1 for Supplier Co"/);
+  const one = { ...overview, drivers_out: [{ ...overview.drivers_out[0], total: 1, in_transit: 0, records: [overview.drivers_out[0].records[2]] }], drivers_out_total: 1 };
+  const single = text(html({ overview: one }));
+  assert.match(single, /1 driver /); assert.match(single, /1 active job/); assert.doesNotMatch(single, /in transit|more job/);
+});
+
+test('two drivers with the same name stay two cards', () => {
+  const twin = { ...overview.drivers_out[0], driver_id: 'drv-ana-2' };
+  const markup = html({ overview: { ...overview, drivers_out: [overview.drivers_out[0], twin], drivers_out_total: 2 } });
+  assert.equal((markup.match(/title="Ana Cruz"/g) ?? []).length, 2);
+});
+
+test('record links without screen access render as text', () => {
+  const markup = html({ canAccess: (screen: string) => screen !== 'procurement_pickup' });
+  assert.doesNotMatch(markup, /aria-label="Open Procurement Pickup P-1/); assert.match(text(markup), /P-1 · Supplier Co/);
+  assert.match(markup, /aria-label="Open Delivery D-1 for Acme, in transit"/);
 });
 
 test('empty states are calm', () => {
   const empty = html({ overview: { ...overview, counts: { ...overview.counts, rma_requests: 0 }, record_previews: { rma_requests: [], rma_attention: [] }, drivers_out: [], drivers_out_total: 0 } });
-  assert.match(text(empty), /No RMA transport requests need dispatch/); assert.match(text(empty), /No drivers currently assigned/);
+  assert.match(text(empty), /No RMA transport requests need dispatch/); assert.match(text(empty), /No drivers are out for delivery today/);
   assert.doesNotMatch(empty, /<table/);
 });
 

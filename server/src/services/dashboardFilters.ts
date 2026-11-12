@@ -7,6 +7,43 @@ export const OPEN_RMA_STATUSES = ['SCHEDULED', 'PENDING', 'IN_TRANSIT', 'ON_HOLD
 /** RMA open longer than this many Manila days are "aging" (red on the dashboard). */
 export const RMA_AGING_DAYS = 7;
 
+/** Non-RMA job types a Driver runs. Accounting Collection is not a driver job. */
+export const DRIVER_RUN_CATEGORIES = ['DELIVERY', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'];
+/** Run statuses that keep a driver on the road. On-Hold, Rescheduled and Accomplished do not. */
+export const DRIVER_OUT_STATUSES = ['SCHEDULED', 'IN_TRANSIT', 'PENDING'];
+const RMA_NOT_OUT_STATUSES = ['ACCOMPLISHED', 'ON_HOLD', 'RESCHEDULED'];
+
+/** Started and not finished. Legacy runs recorded Time In without leaving Scheduled. */
+const runStarted: Prisma.DeliveryRecordWhereInput = { OR: [{ status: 'IN_TRANSIT' }, { NOT: { timeIn: null } }] };
+
+/** A job that makes its assigned Driver "out for delivery": one of the four driver
+ * job types, assigned to a Driver profile, not on hold, rescheduled or done, and
+ * either planned for today or already started (a run started on an earlier date
+ * is still on the road). Authorization scope is intersected by the caller. */
+export function driversOutFilter(today = manilaToday()): Prisma.DeliveryRecordWhereInput {
+  return { draft: false, NOT: { driverId: null }, OR: [
+    { category: { in: DRIVER_RUN_CATEGORIES }, status: { in: DRIVER_OUT_STATUSES }, OR: [{ deliveryDate: today }, runStarted] },
+    { category: 'RMA', rmaMovement: 'LOGISTICS_TRANSPORT', status: { notIn: RMA_NOT_OUT_STATUSES },
+      OR: [{ rmaTransportStatus: 'IN_TRANSIT' }, { rmaTransportStatus: 'PENDING', deliveryDate: today }] },
+  ] };
+}
+
+/** The started subset of driversOutFilter. */
+export function driversInTransitFilter(today = manilaToday()): Prisma.DeliveryRecordWhereInput {
+  return { AND: [driversOutFilter(today), { OR: [
+    { category: { in: DRIVER_RUN_CATEGORIES }, ...runStarted },
+    { category: 'RMA', rmaTransportStatus: 'IN_TRANSIT' },
+  ] }] };
+}
+
+/** The not-yet-started subset of driversOutFilter; with driversInTransitFilter it splits it exactly. */
+export function driversWaitingFilter(today = manilaToday()): Prisma.DeliveryRecordWhereInput {
+  return { AND: [driversOutFilter(today), { OR: [
+    { category: { in: DRIVER_RUN_CATEGORIES }, status: { not: 'IN_TRANSIT' }, timeIn: null },
+    { category: 'RMA', rmaTransportStatus: 'PENDING' },
+  ] }] };
+}
+
 /** Shared by paginated drill-downs and aggregate counters; authorization scope
  * is intersected separately by every caller. */
 export function dashboardRecordFilter(id: string, today = manilaToday()): Prisma.DeliveryRecordWhereInput | null {

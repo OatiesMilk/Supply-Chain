@@ -14,7 +14,7 @@ const record = { id: 'one-preview', category: 'RMA', rma_movement: 'LOGISTICS_TR
 const overview: ApiDashboardOverview = {
   role: 'LOGISTICS', record_total: 6001, status_totals: {}, counts: { rma_requests: 6001, rma_attention: 6001, 'log-flags': 6001 },
   record_previews: { rma_requests: [record], rma_attention: [record] },
-  drivers_out: [{ driver: 'Assigned Driver', total: 7001, records: [] }], drivers_out_total: 6001, unverified_collections_amount: 12345,
+  drivers_out: [{ driver_id: 'drv-1', driver: 'Assigned Driver', total: 7001, in_transit: 0, records: [] }], drivers_out_total: 6001, unverified_collections_amount: 12345,
 };
 const text = (node: React.ReactElement) => renderToStaticMarkup(node).replace(/<[^>]*>/g, '');
 
@@ -22,9 +22,9 @@ test('Logistics shows complete totals and view-all paths alongside bounded previ
   const html = text(React.createElement(LogisticsDashboard, { stats: null, overview, onNavigate() {} }));
   assert.match(html, /RMA transport requests.*6001 requests/);
   assert.match(html, /Showing 1 of 6001 requests/);
-  assert.match(html, /6001 drivers/); assert.match(html, /7001 active deliveries/);
+  assert.match(html, /6001 drivers/); assert.match(html, /7001 active jobs/);
   assert.match(html, /View all 6001 assigned Drivers/);
-  assert.doesNotMatch(html, /No RMA transport requests|No drivers currently assigned/);
+  assert.doesNotMatch(html, /No RMA transport requests|No drivers are out for delivery/);
 });
 
 test('TASS and Admin do not mistake preview length for full counts or amounts', () => {
