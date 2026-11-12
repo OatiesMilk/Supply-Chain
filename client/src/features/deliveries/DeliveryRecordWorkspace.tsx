@@ -1,37 +1,55 @@
+import { usePermissions } from '@/hooks/usePermissions';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { operationalSyncOptions } from '@/api/queries/operationalSync';
+import RmaWorkflowPanel from './RmaWorkflowPanel';
+import { WorkflowSection, workflowFieldHintClass, workflowFieldLabelClass, workflowInputClass, workflowPrimaryButtonClass, workflowSecondaryButtonClass, workflowSelectClass } from './WorkflowSection';
+import { useRecordDetailQuery, useUpdateRecordMutation } from '@/api/queries/useRecordsQuery';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  ArrowLeft, ChevronLeft, ChevronRight,
+  ArrowLeft, ChevronLeft, ChevronRight, ChevronDown,
   ClipboardList, History, UserPlus, MessagesSquare, FolderOpen,
   FileText, Shield, Settings, MessageSquare, Paperclip,
-  Loader2, AlertTriangle, Send, Check, Truck,
+  Loader2, AlertTriangle, Check, Truck,
   RotateCcw, PackageSearch, ShoppingCart, ListChecks, Download,
   ScrollText, Link2, X as XCircle
 } from 'lucide-react';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel, ItemType } from '@/types';
-import { api, ApiAuditEntry, ApiComment, ApiCompany, ApiRemarkLog } from '@/api';
+import { api, ApiError, ApiAuditEntry, ApiComment, ApiCompany, ApiRemarkLog } from '@/api';
 import { printSingleManifest, ManifestDocumentationData } from '@/features/deliveries/DeliveryManifest';
-import { DRIVERS, DRIVER_ASSISTANTS, DELIVERY_STATUSES, AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, ACCOUNT_MANAGERS, DRIVER_COVERAGE_AREAS, getSubregion, getNearbyAreas } from '@/data';
+import { rankDriversByCoverage } from '@/utils/driverCoverage';
+import { DRIVERS, driverIdForName,DRIVER_ASSISTANTS, DELIVERY_STATUSES, AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, RMA_ITEM_TYPES, DRIVER_COVERAGE_AREAS, getSubregion, getNearbyAreas } from '@/data';
 import ComboboxField from '@/components/ComboboxField';
-import { Pencil, X as XIcon, Save } from 'lucide-react';
+import { Pencil, X as XIcon, Save, Plus } from 'lucide-react';
 import { getOutputTrigger, runOutputActions } from '@/outputActions';
-import StatusStepper from '@/components/StatusStepper';
+import { exportRecordOutputPDF } from '@/utils/recordOutputPdf';
+import RecordStatus, { RecordStatusProgress } from '@/components/RecordStatus';
+import { POD_ATTACHMENT_ACCEPT, getPodAttachmentRejection } from '@/utils/attachmentValidation';
+import PodUploader from '@/components/PodUploader';
+import CommentComposer from '@/components/CommentComposer';
+import { PodAttachmentList } from '@/components/PodAttachmentPreview';
+import { usePodAttachments } from '@/api/queries/usePodAttachments';
+import { accountManagerChoices, useAccountManagersQuery } from '@/api/queries/useAccountManagersQuery';
+import type { StagedFile } from '@/utils/idbFiles';
+import { completionError } from '@/utils/podRequirement';
+import { submissionErrors } from '@/utils/recordLifecycle';
+import { RMA_CATEGORIES, type RmaCategory } from '@/utils/rma';
+import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
+import DocumentSizeSelect from '@/components/DocumentSizeSelect';
+import { ActionDialog } from '@/components/ActionDialog';
+import { CompanyHistoryButton } from '@/components/CompanyHistoryPanel';
+import { useUIStore } from '@/store/uiStore';
+import WorkspaceTabs from './WorkspaceTabs';
+import { WorkspaceDraftProvider, useWorkspaceDraft, useWorkspaceNavigation } from './WorkspaceDrafts';
+import { screenKeyForCategory } from '@/routes/screenRouting';
+import { notify } from '@/utils/notify';
+
+import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
+import { ReturnToDraftDialog } from './ReturnToDraftDialog';
+import { selectableStatuses, canRecordTimeIn, isDraftRecord, manilaToday, manilaDateTimeInput, manilaInputToIso, rescheduleDateError, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
+import { formatManilaTime, formatManilaTimestamp as formatTs } from '@/utils/manilaTimestamp';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatTs(ts: string): string {
-  return new Date(ts).toLocaleString('en-PH', {
-    year: 'numeric', month: 'short', day: '2-digit',
-    hour: '2-digit', minute: '2-digit'
-  });
-}
-
-const STATUS_COLOR: Record<string, string> = {
-  'Delivered':   'bg-emerald-50 text-emerald-700 border-emerald-200',
-  'On-Hold':     'bg-red-50 text-red-700 border-red-200',
-  'Rescheduled': 'bg-purple-50 text-purple-700 border-purple-200',
-  'Pending':     'bg-amber-50 text-amber-700 border-amber-200',
-  'Scheduled':   'bg-blue-50 text-blue-700 border-blue-200',
-};
 
 const PRIORITY_COLOR: Record<string, string> = {
   '1 - Low':      'bg-slate-100 text-slate-700 border-slate-200',
@@ -47,6 +65,16 @@ const CATEGORY_ICON: Record<DeliveryCategory, typeof Truck> = {
   'Accounting Collection': ListChecks,
 };
 
+function getStartTimeDisplay(
+  record: DeliveryRecord,
+  formatTimestamp: (value: string | null | undefined) => string = formatTs,
+) {
+  if (record.category !== 'RMA') return { label: 'Time In', value: formatTimestamp(record.time_in) };
+  if (!record.rma_movement) return { label: 'Transport started', value: 'Not selected' };
+  if (record.rma_movement !== 'LOGISTICS_TRANSPORT') return { label: 'Transport started', value: 'Not applicable' };
+  return { label: 'Transport started', value: formatTimestamp(record.rma_transport_started_at) };
+}
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface DeliveryRecordWorkspaceProps {
@@ -58,7 +86,7 @@ interface DeliveryRecordWorkspaceProps {
   companies: ApiCompany[];
   onBack: () => void;
   onNavigateToRecord: (id: string) => void;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;
   forceReadOnly?: boolean;
 }
@@ -75,12 +103,12 @@ interface TabDef {
 }
 
 const ALL_TABS: TabDef[] = [
-  { id: 'general',   label: 'General',        icon: ClipboardList,  roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
-  { id: 'actions',   label: 'Assign',          icon: UserPlus,       roles: ['Logistics', 'Admin'] },
-  { id: 'comments',  label: 'Comments',        icon: MessagesSquare, roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
-  { id: 'remarks',   label: 'Remarks',         icon: ScrollText,     roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
-  { id: 'audit',     label: 'Audit Trail',     icon: History,        roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
-  { id: 'documents', label: 'Documents',       icon: FolderOpen,     roles: ['Sales Coordinator', 'Logistics', 'Admin'] },
+  { id: 'general',   label: 'Overview',        icon: ClipboardList,  roles: ['Sales Coordinator', 'Logistics', 'TASS', 'Admin'] },
+  { id: 'actions',   label: 'Status & Actions', icon: UserPlus, roles: ['Logistics', 'TASS', 'Admin'] },
+  { id: 'comments',  label: 'Comments',        icon: MessagesSquare, roles: ['Sales Coordinator', 'Logistics', 'TASS', 'Admin'] },
+  { id: 'remarks',   label: 'Remarks History', icon: ScrollText,     roles: ['Sales Coordinator', 'Logistics', 'TASS', 'Admin'] },
+  { id: 'audit',     label: 'Audit Trail',     icon: History,        roles: ['Sales Coordinator', 'Logistics', 'TASS', 'Admin'] },
+  { id: 'documents', label: 'Documents',       icon: FolderOpen,     roles: ['Sales Coordinator', 'Logistics', 'TASS', 'Admin'] },
 ];
 
 // ─── Scaffold empty-state tab ─────────────────────────────────────────────────
@@ -105,9 +133,15 @@ function ScaffoldTab({ icon: Icon, label, detail }: { icon: typeof FileText; lab
 
 type EditDraft = {
   priority: PriorityLevel; reference: string; area: string; vehicle: string;
-  account_manager: string; delivery_date: string; date_time: string;
-  item_type: ItemType; is_draft: 'Yes' | 'No'; remarks: string; item_description: string;
+  account_manager: string; delivery_date: string;
+  item_type: ItemType; is_draft: 'Yes' | 'No'; remarks: string; item_description: string; line_items: { sku: string, quantity: number }[];
   address: string;
+  rma_type: RmaCategory | '';
+  rma_movement: DeliveryRecord['rma_movement'] | '';
+  purchase_date: string;
+  customer_contact_name: string;
+  customer_contact_email: string;
+  customer_contact_phone: string;
 };
 
 function GeneralTab({
@@ -115,22 +149,38 @@ function GeneralTab({
   currentUserRole,
   currentUserName,
   onUpdateRecord,
+  readOnly = false,
 }: {
   record: DeliveryRecord;
   currentUserRole: UserRole;
   currentUserName: string;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
+  readOnly?: boolean;
 }) {
-  const CategoryIcon = CATEGORY_ICON[record.category] ?? FileText;
-
   // SC can edit all fields while the record is still Scheduled; Logistics can always edit Area + Address
-  const canEditFull = currentUserRole === 'Sales Coordinator' && record.status === 'Scheduled';
-  const canEditAreaAddress = currentUserRole === 'Logistics';
-  const canEdit = canEditFull || canEditAreaAddress;
+  const access = usePermissions();
+  const accountManagers = useAccountManagersQuery();
+  const tassRma = currentUserRole === 'TASS' && record.category === 'RMA';
+  const canEditFull = !readOnly && access.canRecord(record.category, 'UPDATE') && (tassRma || ((currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && (record.status === 'Scheduled' || isDraftRecord(record))));
+  const canManageDraft = !readOnly && access.canRecord(record.category, 'SUBMIT') && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin' || tassRma) && !record.time_in;
+  const [lifecycleRemarks, setLifecycleRemarks] = useState('');
+  const [editVersion, setEditVersion] = useState(record.rma_version ?? 0);
+  const [metadataEditVersion, setMetadataEditVersion] = useState(record.edit_version);
+  const [saveConflict, setSaveConflict] = useState<string | null>(null);
+  const [latestSaved, setLatestSaved] = useState<DeliveryRecord | null>(null);
+  const [reviewingLatest, setReviewingLatest] = useState(false);
+  const [returnToDraftOpen, setReturnToDraftOpen] = useState(false);
+  const canEditAreaAddress = !readOnly && access.canRecord(record.category, 'UPDATE') && currentUserRole === 'Logistics' && record.category !== 'RMA';
+  const canEditDeliveryDate = !readOnly && access.canRecord(record.category, 'UPDATE') && currentUserRole === 'Logistics' && record.category === 'Deliveries';
+  const priorityLocked = isPriorityLocked(record);
+  const startTimeDisplay = getStartTimeDisplay(record);
+  const canEditPriority = !readOnly && access.canRecord(record.category, 'UPDATE') && !priorityLocked && ((currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') || (currentUserRole === 'Logistics' && record.category !== 'RMA') || tassRma);
+  const canEdit = canEditFull || canEditAreaAddress || canEditDeliveryDate || canEditPriority;
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [remarksError, setRemarksError] = useState(false);
+  const [rmaErrors, setRmaErrors] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState<EditDraft>({
     priority: record.priority,
     reference: record.reference,
@@ -138,13 +188,21 @@ function GeneralTab({
     vehicle: record.vehicle || '(None)',
     account_manager: record.account_manager,
     delivery_date: record.delivery_date,
-    date_time: record.date_time ?? '',
+    
     item_type: record.item_type,
     is_draft: record.is_draft,
     remarks: record.remarks || '',
     item_description: record.item_description || '',
     address: record.address ?? '',
+    line_items: record.line_items || [],
+    rma_type: record.rma_type ?? '',
+    rma_movement: record.rma_movement ?? '',
+    purchase_date: record.purchase_date ?? '',
+    customer_contact_name: record.customer_contact_name ?? '',
+    customer_contact_email: record.customer_contact_email ?? '',
+    customer_contact_phone: record.customer_contact_phone ?? '',
   });
+  useWorkspaceDraft('general', editing || !!lifecycleRemarks, saving);
 
   // Re-sync draft when a different record is opened
   useEffect(() => {
@@ -156,42 +214,137 @@ function GeneralTab({
       vehicle: record.vehicle || '(None)',
       account_manager: record.account_manager,
       delivery_date: record.delivery_date,
-      date_time: record.date_time ?? '',
+      
       item_type: record.item_type,
       is_draft: record.is_draft,
       remarks: record.remarks || '',
       item_description: record.item_description || '',
       address: record.address ?? '',
+      line_items: record.line_items || [],
+      rma_type: record.rma_type ?? '',
+      rma_movement: record.rma_movement ?? '',
+      purchase_date: record.purchase_date ?? '',
+      customer_contact_name: record.customer_contact_name ?? '',
+      customer_contact_email: record.customer_contact_email ?? '',
+      customer_contact_phone: record.customer_contact_phone ?? '',
     });
   }, [record.id]);
 
   const set = <K extends keyof EditDraft>(k: K, v: EditDraft[K]) => setDraft(p => ({ ...p, [k]: v }));
 
   const handleStartEdit = () => {
-    // Logistics enters a fresh change note rather than seeing/overwriting existing remarks
-    if (canEditAreaAddress && !canEditFull) {
-      setDraft(d => ({ ...d, remarks: '' }));
-    }
+    setSaveConflict(null);
+    setLatestSaved(null);
+    setRemarksError(false);
+    setRmaErrors({});
+    // A bulk priority change can update this record while the workspace stays open.
+    setEditVersion(record.rma_version ?? 0);
+    setMetadataEditVersion(record.edit_version);
+    setDraft(d => ({ ...d, priority: record.priority, reference: record.reference, area: record.area, address: record.address ?? '', vehicle: record.vehicle || '(None)', account_manager: record.account_manager, delivery_date: record.delivery_date, item_type: record.item_type, item_description: record.item_description, line_items: record.line_items ?? [], rma_type: record.rma_type ?? '', rma_movement: record.rma_movement ?? '', purchase_date: record.purchase_date ?? '', customer_contact_name: record.customer_contact_name ?? '', customer_contact_email: record.customer_contact_email ?? '', customer_contact_phone: record.customer_contact_phone ?? '' }));
+    // Keep the saved note in read mode; every edit starts with a fresh reason.
+    setDraft(d => ({ ...d, remarks: '' }));
     setEditing(true);
   };
 
   const handleSave = async () => {
+    setRmaErrors({});
+    if (canEditFull && record.category === 'RMA') {
+      const validation = submissionErrors({
+        company_name: record.company_name ?? '',
+        company_id: record.company_id ?? '',
+        reference: '',
+        rma_reference: draft.reference,
+        delivery_date: draft.delivery_date,
+        category: 'RMA',
+        rma_movement: draft.rma_movement,
+        priority: draft.priority,
+        area: draft.area,
+        account_manager: draft.account_manager,
+        rma_type: draft.rma_type,
+        purchase_date: draft.purchase_date,
+        customer_contact_name: draft.customer_contact_name,
+        customer_contact_email: draft.customer_contact_email,
+        customer_contact_phone: draft.customer_contact_phone,
+      }, isDraftRecord(record));
+      const fieldErrors: Record<string, string> = {};
+      if (validation.reference) fieldErrors.rma_reference = validation.reference;
+      for (const field of ['priority', 'area', 'account_manager', 'customer_contact_email', 'rma_movement', 'delivery_date']) {
+        if (validation[field]) fieldErrors[field] = validation[field];
+      }
+      if (Object.keys(fieldErrors).length) {
+        setRmaErrors(fieldErrors);
+        return;
+      }
+    }
     if (!draft.remarks.trim()) {
       setRemarksError(true);
       return;
     }
     setRemarksError(false);
     setSaving(true);
-    const updates = canEditFull
-      ? { ...draft }
-      : { area: draft.area, address: draft.address, remarks: draft.remarks };
-    await onUpdateRecord(record.id, {
-      ...updates,
-      modified_by: `${currentUserName} (${currentUserRole})`,
-      modified_at: new Date().toISOString(),
-    });
-    setSaving(false);
-    setEditing(false);
+    const updates: any = { remarks: draft.remarks, ...(record.category === 'RMA' ? { expected_version: editVersion } : { expected_edit_version: metadataEditVersion }) };
+    if (canEditFull) {
+      updates.priority = draft.priority;
+      if (record.category === 'RMA') updates.rma_reference = draft.reference.trim() || null;
+      else updates.reference = draft.reference;
+      updates.area = draft.area;
+      if (record.category !== 'RMA' && access.canRecord(record.category, 'ASSIGN') && draft.vehicle !== record.vehicle) updates.vehicle = draft.vehicle;
+      updates.account_manager = draft.account_manager;
+      updates.delivery_date = draft.delivery_date;
+      updates.item_type = draft.item_type;
+      updates.item_description = draft.item_description;
+      updates.line_items = draft.line_items;
+      updates.address = draft.address;
+      if (record.category === 'RMA') {
+        updates.rma_type = draft.rma_type || null;
+        if (tassRma) updates.rma_movement = draft.rma_movement || null;
+        updates.purchase_date = draft.purchase_date || null;
+        updates.customer_contact_name = draft.customer_contact_name || null;
+        updates.customer_contact_email = draft.customer_contact_email || null;
+        updates.customer_contact_phone = draft.customer_contact_phone || null;
+      }
+    } else {
+      if (canEditAreaAddress) {
+        updates.area = draft.area;
+        updates.address = draft.address;
+      }
+      if (canEditDeliveryDate) updates.delivery_date = draft.delivery_date;
+      if (canEditPriority) {
+        updates.priority = draft.priority;
+      }
+    }
+    try {
+      await onUpdateRecord(record.id, {
+        ...updates,
+        modified_by: `${currentUserName} (${currentUserRole})`,
+
+      });
+      setEditing(false);
+      notify.success('Record changes saved');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not save the record. Please try again.';
+      if ((error as { status?: number }).status === 409 || (error as { status?: number }).status === 428) setSaveConflict(message);
+      notify.error(message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const reviewLatest = async () => {
+    setReviewingLatest(true);
+    try { setLatestSaved(await api.getRecord(record.id)); }
+    catch (error) { notify.error(error instanceof Error ? error.message : 'Could not load the latest record. Your draft is preserved.'); }
+    finally { setReviewingLatest(false); }
+  };
+  const useLatestSaved = () => {
+    if (!latestSaved) return;
+    const latest = latestSaved;
+    setDraft({ priority: latest.priority, reference: latest.reference, area: latest.area, address: latest.address ?? '', vehicle: latest.vehicle || '(None)',
+      account_manager: latest.account_manager, delivery_date: latest.delivery_date, item_type: latest.item_type, is_draft: latest.is_draft,
+      remarks: '', item_description: latest.item_description ?? '', line_items: latest.line_items ?? [], rma_type: latest.rma_type ?? '',
+      rma_movement: latest.rma_movement ?? '', purchase_date: latest.purchase_date ?? '', customer_contact_name: latest.customer_contact_name ?? '',
+      customer_contact_email: latest.customer_contact_email ?? '', customer_contact_phone: latest.customer_contact_phone ?? '' });
+    setMetadataEditVersion(latest.edit_version); setEditVersion(latest.rma_version ?? 0); setSaveConflict(null); setLatestSaved(null);
   };
 
   const handleCancel = () => {
@@ -202,46 +355,77 @@ function GeneralTab({
       vehicle: record.vehicle || '(None)',
       account_manager: record.account_manager,
       delivery_date: record.delivery_date,
-      date_time: record.date_time ?? '',
+      
       item_type: record.item_type,
       is_draft: record.is_draft,
       remarks: record.remarks || '',
       item_description: record.item_description || '',
       address: record.address ?? '',
+      line_items: record.line_items || [],
+      rma_type: record.rma_type ?? '',
+      rma_movement: record.rma_movement ?? '',
+      purchase_date: record.purchase_date ?? '',
+      customer_contact_name: record.customer_contact_name ?? '',
+      customer_contact_email: record.customer_contact_email ?? '',
+      customer_contact_phone: record.customer_contact_phone ?? '',
     });
     setRemarksError(false);
+    setRmaErrors({});
     setEditing(false);
   };
 
   const inputCls = 'w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]';
+  const fieldInputCls = (field: string) => `${inputCls}${rmaErrors[field] ? ' border-red-500 bg-red-50' : ''}`;
   const labelCls = 'text-[10px] text-slate-400 uppercase tracking-widest font-bold';
 
   return (
     <div className="space-y-5">
-      {/* Header card */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-        <div className="flex flex-wrap items-center gap-3 mb-3">
-          <span className="font-mono font-black text-lg text-slate-900">{record.id}</span>
-          <span className="px-2.5 py-1 rounded-md font-black text-[10px] uppercase tracking-wider border bg-blue-100 text-blue-800 border-blue-200 flex items-center gap-1">
-            <CategoryIcon className="w-3 h-3" /> {record.category}
-          </span>
-          <span className={`px-2.5 py-1 rounded-full border text-[10px] font-semibold tracking-wide ${STATUS_COLOR[record.status] ?? 'bg-slate-50 text-slate-700 border-slate-200'}`}>
-            {record.status}
-          </span>
-          {!editing && (
-            <span className={`px-2.5 py-1 rounded-full border text-[10px] font-semibold ${PRIORITY_COLOR[record.priority] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}>
-              Priority: {record.priority}
-            </span>
-          )}
-        </div>
-        <p className="text-sm font-bold text-slate-700">{record.company_name}</p>
-      </div>
-
+      {editing && saveConflict && <section role="alert" className="space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+        <p>{saveConflict} Your draft is still in the editor.</p>
+        <button type="button" disabled={reviewingLatest} onClick={() => void reviewLatest()} className="rounded border border-amber-700 px-3 py-2 font-semibold disabled:opacity-50">{reviewingLatest ? 'Loading latest values…' : 'Review latest saved values'}</button>
+        {latestSaved && <div className="space-y-2">
+          <p className="font-bold">Latest saved values</p>
+          <dl><dt>Reference</dt><dd>{latestSaved.reference}</dd><dt>Address</dt><dd>{latestSaved.address || 'Not set'}</dd><dt>Account Manager</dt><dd>{latestSaved.account_manager}</dd><dt>Delivery Date</dt><dd>{latestSaved.delivery_date}</dd></dl>
+          <p>Replacing your draft loads the latest values and requires you to enter your change again.</p>
+          <button type="button" onClick={useLatestSaved} className="rounded border border-amber-700 px-3 py-2 font-semibold">Replace draft with latest saved values</button>
+        </div>}
+      </section>}
       {/* Status stepper */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Status Progression</p>
-        <StatusStepper status={record.status} />
+        <RecordStatusProgress record={record} />
       </div>
+
+      {canManageDraft && !isDraftRecord(record) && selectableStatuses(record, currentUserRole).includes('Draft') && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+          <button type="button" onClick={() => setReturnToDraftOpen(true)}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1]">
+            Return to Draft
+          </button>
+          <p className="text-xs text-slate-500">Takes this record back out of dispatch so you can edit it and submit it again.</p>
+        </div>
+      )}
+      <ReturnToDraftDialog
+        record={record}
+        open={returnToDraftOpen}
+        onDismiss={() => setReturnToDraftOpen(false)}
+        onSubmit={async reason => { await onUpdateRecord(record.id, { status: 'Draft', remarks: reason, ...(record.category === 'RMA' ? { expected_version: record.rma_version ?? 0 } : {}) }); notify.success('Record returned to Draft'); }}
+      />
+
+      {canManageDraft && isDraftRecord(record) && selectableStatuses(record, currentUserRole).some(status => status === 'Draft' || status === 'Scheduled') && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+          <label htmlFor="submission-change-remarks" className="block text-xs font-bold text-slate-700">Remarks — reason for change (required)</label>
+          <p id="submission-change-remarks-help" className="text-xs text-slate-600">Explain why you are submitting or returning this record to Draft. The reason is saved with your name in Remarks History.</p>
+          <textarea id="submission-change-remarks" aria-describedby="submission-change-remarks-help" required value={lifecycleRemarks} onChange={e => setLifecycleRemarks(e.target.value)} rows={2} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" placeholder="Reason for submitting or returning to draft" />
+          {selectableStatuses(record, currentUserRole).filter(status => isDraftRecord(record) ? status === 'Scheduled' : status === 'Draft').map(status => (
+            <button key={status} type="button" disabled={saving || !lifecycleRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+              onClick={async () => { setSaving(true); try { await onUpdateRecord(record.id, { status, remarks: lifecycleRemarks.trim(), ...(record.category === 'RMA' ? { expected_version: record.rma_version ?? 0 } : {}) }); setLifecycleRemarks(''); notify.success(isDraftRecord(record) ? 'Record submitted' : 'Record returned to Draft'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not change submission status.'); } finally { setSaving(false); } }}>
+              {isDraftRecord(record) ? 'Submit' : 'Return to Draft'}
+            </button>
+          ))}
+          <p className="text-xs text-slate-500">Drafts retain existing assignments and stay hidden from drivers until submitted.</p>
+        </div>
+      )}
 
       {/* Fields grid / edit form */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
@@ -252,54 +436,46 @@ function GeneralTab({
               onClick={handleStartEdit}
               className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-[#0078C1] hover:bg-blue-50 border border-blue-200 rounded-lg transition-colors cursor-pointer"
             >
-              <Pencil className="w-3 h-3" /> {canEditAreaAddress && !canEditFull ? 'Edit Area / Address' : 'Edit'}
+              <Pencil className="w-3 h-3" /> Edit
             </button>
           )}
-          {editing && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleCancel}
-                disabled={saving}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-              >
-                <XIcon className="w-3 h-3" /> Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-white bg-[#0078C1] hover:bg-[#1F3864] rounded-lg transition-colors cursor-pointer disabled:opacity-60"
-              >
-                {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                {saving ? 'Saving…' : 'Save Changes'}
-              </button>
-            </div>
-          )}
+
         </div>
 
         {!editing ? (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-xs">
               {[
-                { label: 'Reference (SAP)', value: record.reference },
+                { label: record.category === 'RMA' ? 'RMA Document Reference' : 'Reference (SAP)', value: record.category === 'RMA' ? (record.rma_reference ?? record.reference) : record.reference },
+                ...(record.category === 'RMA' && record.legacy_sap_reference ? [{ label: 'Legacy SAP Reference', value: record.legacy_sap_reference }] : []),
                 { label: 'Area',            value: record.area },
                 { label: 'Address',         value: record.address || '—' },
                 { label: 'Vehicle',         value: record.vehicle || '—' },
                 { label: 'Driver',            value: record.driver || 'Unassigned' },
                 { label: 'Driver Assistants', value: (record.driver_assistants ?? []).join(', ') || '—' },
-                { label: 'Time In',           value: record.time_in || '—' },
-                { label: 'Time Out',          value: record.time_out || '—' },
-                { label: 'Received By',       value: record.received_by || '—' },
+                startTimeDisplay,
+                { label: record.category === 'RMA' ? 'Completed at' : 'Time Out', value: formatTs(record.category === 'RMA' ? record.rma_completed_at ?? record.time_out : record.time_out) },
+                { label: record.category === 'RMA' ? 'Recipient / Collector' : 'Received By', value: record.received_by || '—' },
                 { label: 'Account Manager',   value: record.account_manager },
                 { label: 'Delivery Date',   value: record.delivery_date },
-                { label: 'Date & Time',     value: record.date_time ? formatTs(record.date_time) : '—' },
+                { label: 'Created At',      value: record.created_at ? formatTs(record.created_at) : '—' },
                 { label: 'Item Type',       value: record.item_type },
                 { label: 'Draft',           value: record.is_draft },
+                ...(record.category === 'RMA' ? [
+                  { label: 'Category', value: record.rma_type || '—' },
+                  { label: 'Purchase Date', value: record.purchase_date || '—' },
+                  { label: 'Customer Contact Name', value: record.customer_contact_name || '—' },
+                  { label: 'Customer Contact Email', value: record.customer_contact_email || '—' },
+                  { label: 'Customer Contact Phone', value: record.customer_contact_phone || '—' },
+                ] : []),
+                { label: 'Priority', value: record.priority },
               ].map(row => (
                 <div key={row.label} className="flex flex-col gap-0.5">
                   <span className={labelCls}>{row.label}</span>
                   <span className="font-semibold text-slate-800">{row.value}</span>
                 </div>
               ))}
+              {priorityLocked && <p className="text-[11px] text-slate-500">{PRIORITY_LOCKED_NOTE}</p>}
             </div>
             {record.remarks && (
               <div className="mt-4 pt-4 border-t border-slate-100">
@@ -313,28 +489,136 @@ function GeneralTab({
                 <p className="text-sm text-slate-700 leading-relaxed">{record.item_description}</p>
               </div>
             )}
+            {record.line_items && record.line_items.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <p className={`${labelCls} mb-1.5`}>Line Items</p>
+                <ul className="list-disc list-inside text-sm text-slate-700 leading-relaxed">
+                  {record.line_items.map((li, idx) => (
+                    <li key={idx}>
+                      <span className="font-mono text-xs bg-slate-100 px-1 py-0.5 rounded mr-1">x{li.quantity}</span>
+                      {li.sku}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </>
         ) : (
           <div className="space-y-4 text-xs">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {canEditFull && (
-                <>
-                  <div className="space-y-1">
-                    <label className={labelCls}>Priority</label>
-                    <select value={draft.priority} onChange={e => set('priority', e.target.value as PriorityLevel)} className={inputCls}>
-                      {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className={labelCls}>Reference (SAP)</label>
-                    <input type="text" value={draft.reference} onChange={e => set('reference', e.target.value)} className={inputCls} />
-                  </div>
-                </>
+              {canEditPriority && (
+                <div className="space-y-1">
+                  <label className={labelCls}>Priority{record.category === 'RMA' ? ' *' : ''}</label>
+                  <select value={draft.priority} onChange={e => set('priority', e.target.value as PriorityLevel)} className={fieldInputCls('priority')} aria-invalid={!!rmaErrors.priority}>
+                    {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                  {rmaErrors.priority && <p className="text-[11px] text-red-600">{rmaErrors.priority}</p>}
+                </div>
               )}
+              {priorityLocked && (
+                <div className="space-y-1">
+                  <span className={labelCls}>Priority</span>
+                  <p className="font-semibold text-slate-800">{record.priority}</p>
+                  <p className="text-[11px] text-slate-500">{PRIORITY_LOCKED_NOTE}</p>
+                </div>
+              )}
+              {canEditFull && (
+                <div className="space-y-1">
+                  <label className={labelCls}>
+                    {record.category === 'RMA' ? 'RMA Document Reference' : 'Reference (SAP)'}
+                    {record.category === 'RMA' && ' (optional)'}
+                  </label>
+                  <input
+                    type="text"
+                    value={draft.reference}
+                    onChange={e => { set('reference', e.target.value); setRmaErrors(errors => ({ ...errors, rma_reference: '' })); }}
+                    className={record.category === 'RMA' ? fieldInputCls('rma_reference') : inputCls}
+                    aria-invalid={record.category === 'RMA' ? !!rmaErrors.rma_reference : undefined}
+                    aria-describedby={rmaErrors.rma_reference ? 'rma-reference-error' : undefined}
+                  />
+                  {rmaErrors.rma_reference && <p id="rma-reference-error" className="text-[11px] text-red-600">{rmaErrors.rma_reference}</p>}
+                </div>
+              )}
+              {canEditFull && record.category === 'RMA' && <>
+                {tassRma && <div className="space-y-1">
+                  <label htmlFor="edit-rma-movement" className={labelCls}>Movement method</label>
+                  <select id="edit-rma-movement" value={draft.rma_movement ?? ''} onChange={event => set('rma_movement', event.target.value as EditDraft['rma_movement'])} className={fieldInputCls('rma_movement')} aria-invalid={!!rmaErrors.rma_movement}>
+                    <option value="">— Select before submitting —</option>
+                    <option value="LOGISTICS_TRANSPORT">Logistics transport</option>
+                    <option value="SUPPLIER_COLLECTION">Supplier collection</option>
+                    <option value="INTERNAL_NO_DRIVER">Internal / no driver</option>
+                  </select>
+                  {rmaErrors.rma_movement && <p role="alert" className="text-xs text-red-600">{rmaErrors.rma_movement}</p>}
+                </div>}
+                <div className="space-y-1">
+                  <label className={labelCls}>Category <span className="normal-case tracking-normal font-normal">(optional)</span></label>
+                  <select
+                    value={draft.rma_type}
+                    onChange={e => { set('rma_type', e.target.value as EditDraft['rma_type']); setRmaErrors(errors => ({ ...errors, rma_type: '' })); }}
+                    className={fieldInputCls('rma_type')}
+                    aria-invalid={!!rmaErrors.rma_type}
+                    aria-describedby={rmaErrors.rma_type ? 'rma-category-error' : undefined}
+                  >
+                    <option value="">— Select —</option>
+                    {RMA_CATEGORIES.map(value => <option key={value} value={value}>{value}</option>)}
+                  </select>
+                  {rmaErrors.rma_type && <p id="rma-category-error" className="text-[11px] text-red-600">{rmaErrors.rma_type}</p>}
+                </div>
+                <div className="space-y-1">
+                  <label className={labelCls}>Purchase Date <span className="normal-case tracking-normal font-normal">(optional)</span></label>
+                  <input
+                    type="date"
+                    value={draft.purchase_date}
+                    onChange={e => { set('purchase_date', e.target.value); setRmaErrors(errors => ({ ...errors, purchase_date: '' })); }}
+                    className={fieldInputCls('purchase_date')}
+                    aria-invalid={!!rmaErrors.purchase_date}
+                    aria-describedby={rmaErrors.purchase_date ? 'rma-purchase-date-error' : undefined}
+                  />
+                  {rmaErrors.purchase_date && <p id="rma-purchase-date-error" className="text-[11px] text-red-600">{rmaErrors.purchase_date}</p>}
+                </div>
+                <div className="space-y-1">
+                  <label className={labelCls}>Customer Contact Name <span className="normal-case tracking-normal font-normal">(optional)</span></label>
+                  <input
+                    type="text"
+                    value={draft.customer_contact_name}
+                    onChange={e => { set('customer_contact_name', e.target.value); setRmaErrors(errors => ({ ...errors, customer_contact_name: '' })); }}
+                    className={fieldInputCls('customer_contact_name')}
+                    aria-invalid={!!rmaErrors.customer_contact_name}
+                    aria-describedby={rmaErrors.customer_contact_name ? 'rma-contact-name-error' : undefined}
+                  />
+                  {rmaErrors.customer_contact_name && <p id="rma-contact-name-error" className="text-[11px] text-red-600">{rmaErrors.customer_contact_name}</p>}
+                </div>
+                <div className="space-y-1">
+                  <label className={labelCls}>Customer Contact Email <span className="normal-case tracking-normal font-normal">(optional)</span></label>
+                  <input
+                    type="email"
+                    value={draft.customer_contact_email}
+                    onChange={e => { set('customer_contact_email', e.target.value); setRmaErrors(errors => ({ ...errors, customer_contact_email: '' })); }}
+                    className={fieldInputCls('customer_contact_email')}
+                    aria-invalid={!!rmaErrors.customer_contact_email}
+                    aria-describedby={rmaErrors.customer_contact_email ? 'rma-contact-email-error' : undefined}
+                  />
+                  {rmaErrors.customer_contact_email && <p id="rma-contact-email-error" className="text-[11px] text-red-600">{rmaErrors.customer_contact_email}</p>}
+                </div>
+                <div className="space-y-1">
+                  <label className={labelCls}>Customer Contact Phone <span className="normal-case tracking-normal font-normal">(optional)</span></label>
+                  <input
+                    type="tel"
+                    value={draft.customer_contact_phone}
+                    onChange={e => { set('customer_contact_phone', e.target.value); setRmaErrors(errors => ({ ...errors, customer_contact_email: '' })); }}
+                    className={inputCls}
+                    aria-invalid={!!rmaErrors.customer_contact_email}
+                    aria-describedby={rmaErrors.customer_contact_email ? 'rma-contact-email-error' : undefined}
+                  />
+                </div>
+              </>}
+              {(canEditFull || canEditAreaAddress) && (<>
               <div className="space-y-1">
                 <ComboboxField
                   label="Area"
-                  optional
+                  required={record.category === 'RMA'}
+                  optional={record.category !== 'RMA'}
+                  error={rmaErrors.area}
                   options={AREAS}
                   optionGroups={AREA_HIERARCHY.flatMap(r =>
                     r.subregions.map(s => ({ label: `${r.region} · ${s.name}`, options: s.areas }))
@@ -348,76 +632,143 @@ function GeneralTab({
                 <label className={labelCls}>Address <span className="text-[10px] font-normal text-slate-400 normal-case tracking-normal">(optional)</span></label>
                 <input type="text" value={draft.address} onChange={e => set('address', e.target.value)} className={inputCls} placeholder="Street, building, floor, or additional location detail" />
               </div>
+              </>)}
               {canEditFull && (
                 <>
-                  <div className="space-y-1">
+                  {record.category !== 'RMA' && <div className="space-y-1">
                     <label className={labelCls}>Vehicle</label>
-                    <select value={draft.vehicle} onChange={e => set('vehicle', e.target.value)} className={inputCls}>
+                    <select value={draft.vehicle} disabled={!access.canRecord(record.category, 'ASSIGN')} onChange={e => set('vehicle', e.target.value)} className={inputCls}>
                       {VEHICLES.map(v => <option key={v} value={v}>{v}</option>)}
                     </select>
-                  </div>
+                  </div>}
                   <div className="space-y-1">
-                    <label className={labelCls}>Account Manager</label>
-                    <select value={draft.account_manager} onChange={e => set('account_manager', e.target.value)} className={inputCls}>
+                    <label className={labelCls}>Account Manager{record.category === 'RMA' ? ' *' : ''}</label>
+                    <select value={draft.account_manager} onChange={e => set('account_manager', e.target.value)} className={fieldInputCls('account_manager')} aria-invalid={!!rmaErrors.account_manager}>
                       <option value="">— Select —</option>
-                      {ACCOUNT_MANAGERS.map(m => <option key={m} value={m}>{m}</option>)}
+                      {/* Active Account Managers, plus the saved name if it has since been deactivated. */}
+                      {accountManagerChoices(accountManagers.data, record.account_manager).map(m => <option key={m} value={m}>{m}</option>)}
                     </select>
+                    {rmaErrors.account_manager && <p className="text-[11px] text-red-600">{rmaErrors.account_manager}</p>}
                   </div>
                   <div className="space-y-1">
                     <label className={labelCls}>Item Type</label>
                     <select value={draft.item_type} onChange={e => set('item_type', e.target.value as ItemType)} className={inputCls}>
-                      {ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                      {record.category === 'RMA' && !RMA_ITEM_TYPES.some(type => type === draft.item_type) && <option value={draft.item_type} disabled>{draft.item_type} (legacy value)</option>}
+                      {(record.category === 'RMA' ? RMA_ITEM_TYPES : ITEM_TYPES).map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className={labelCls}>Delivery Date</label>
-                    <input type="date" value={draft.delivery_date} onChange={e => set('delivery_date', e.target.value)} className={inputCls} />
+                    <label className={labelCls}>Delivery Date{record.category === 'RMA' && (draft.rma_movement === 'LOGISTICS_TRANSPORT' ? ' *' : ' (optional)')}</label>
+                    <input
+                      type="date"
+                      value={draft.delivery_date}
+                      onChange={e => { set('delivery_date', e.target.value); setRmaErrors(errors => ({ ...errors, delivery_date: '' })); }}
+                      className={record.category === 'RMA' ? fieldInputCls('delivery_date') : inputCls}
+                      aria-invalid={record.category === 'RMA' ? !!rmaErrors.delivery_date : undefined}
+                      aria-describedby={rmaErrors.delivery_date ? 'rma-delivery-date-error' : undefined}
+                    />
+                    {rmaErrors.delivery_date && <p id="rma-delivery-date-error" className="text-[11px] text-red-600">{rmaErrors.delivery_date}</p>}
                   </div>
                   <div className="space-y-1">
                     <label className={labelCls}>Date &amp; Time</label>
-                    <input type="datetime-local" value={draft.date_time} onChange={e => set('date_time', e.target.value)} className={inputCls} />
+                    
                   </div>
-                  <div className="space-y-1">
-                    <label className={labelCls}>Draft</label>
-                    <select value={draft.is_draft} onChange={e => set('is_draft', e.target.value as 'Yes' | 'No')} className={inputCls}>
-                      <option value="No">No</option>
-                      <option value="Yes">Yes</option>
-                    </select>
-                  </div>
+
                 </>
+              )}
+              {canEditDeliveryDate && (
+                <div className="space-y-1">
+                  <label className={labelCls}>Delivery Date</label>
+                  <input type="date" value={draft.delivery_date} onChange={e => set('delivery_date', e.target.value)} className={inputCls} />
+                </div>
               )}
             </div>
             <div className="space-y-1">
-              <label className={labelCls}>
-                {canEditFull ? 'Remarks' : 'Change Note'} <span className="text-red-500">*</span>
+              <label htmlFor="overview-change-remarks" className={labelCls}>
+                Remarks — reason for change <span className="text-red-500">*</span>
               </label>
+              <p id="overview-change-remarks-help" className="text-xs text-slate-600">Explain why you are making this change. The reason is saved with your name in Remarks History.</p>
               <textarea
+                id="overview-change-remarks"
+                aria-describedby="overview-change-remarks-help"
+                required
                 value={draft.remarks}
                 onChange={e => { set('remarks', e.target.value); if (remarksError && e.target.value.trim()) setRemarksError(false); }}
                 rows={3}
-                placeholder={canEditFull ? '' : 'Explain why you are updating the area or address…'}
+                placeholder={canEditFull ? '' : 'Explain why you are making this update...'}
                 className={`w-full px-2.5 py-1.5 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${remarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
               />
               {remarksError && <p className="text-[11px] text-red-600 font-semibold">Remarks are required to save changes.</p>}
             </div>
             {canEditFull && (
-              <div className="space-y-1">
-                <label className={labelCls}>Item Description</label>
-                <textarea value={draft.item_description} onChange={e => set('item_description', e.target.value)} rows={3} className={inputCls} />
+              <div className="space-y-1 mt-4 pt-4 border-t border-slate-100">
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className={labelCls}>Line Items</label>
+                  <button
+                    type="button"
+                    onClick={() => set('line_items', [...(draft.line_items || []), { sku: '', quantity: 1 }])}
+                    className="flex items-center gap-1 text-[11px] font-bold text-[#0078C1] hover:text-[#1F3864] cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add Item
+                  </button>
+                </div>
+                {(draft.line_items || []).map((item, index) => (
+                  <div key={index} className="flex items-center gap-2 mb-2">
+                    <input
+                      type="text"
+                      placeholder="SKU or Description"
+                      value={item.sku}
+                      onChange={(e) => {
+                        const newItems = [...(draft.line_items || [])];
+                        newItems[index].sku = e.target.value;
+                        set('line_items', newItems);
+                      }}
+                      className={inputCls}
+                    />
+                    <input
+                      type="number"
+                      min="1"
+                      value={item.quantity}
+                      onChange={(e) => {
+                        const newItems = [...(draft.line_items || [])];
+                        newItems[index].quantity = parseInt(e.target.value) || 1;
+                        set('line_items', newItems);
+                      }}
+                      className={`${inputCls} w-20`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newItems = (draft.line_items || []).filter((_, i) => i !== index);
+                        set('line_items', newItems);
+                      }}
+                      className="p-1 text-slate-400 hover:text-red-500 cursor-pointer shrink-0"
+                    >
+                      <XIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                {(!draft.line_items || draft.line_items.length === 0) && (
+                  <p className="text-[11px] text-slate-400 italic">No line items added.</p>
+                )}
               </div>
             )}
 
             {/* Always-locked fields */}
             <div className="pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
+              {tassRma && <div className="flex flex-col gap-0.5">
+                <span className={labelCls}>Vehicle <span className="text-slate-300 normal-case tracking-normal font-normal">(Logistics)</span></span>
+                <span className="font-semibold text-slate-400 italic">{record.vehicle || '—'}</span>
+              </div>}
               {[
                 { label: 'Driver',            value: record.driver || 'Unassigned' },
                 { label: 'Driver Assistants', value: (record.driver_assistants ?? []).join(', ') || '—' },
-                { label: 'Time In',           value: record.time_in || '—' },
-                { label: 'Time Out',          value: record.time_out || '—' },
-                { label: 'Received By',       value: record.received_by || '—' },
+                startTimeDisplay,
+                { label: record.category === 'RMA' ? 'Completed at' : 'Time Out', value: formatTs(record.category === 'RMA' ? record.rma_completed_at ?? record.time_out : record.time_out) },
+                { label: record.category === 'RMA' ? 'Recipient / Collector' : 'Received By', value: record.received_by || '—' },
               ].map(row => (
                 <div key={row.label} className="flex flex-col gap-0.5">
-                  <span className={labelCls}>{row.label} <span className="text-slate-300 normal-case tracking-normal font-normal">(Logistics only)</span></span>
+                  <span className={labelCls}>{row.label} {record.category !== 'RMA' && <span className="text-slate-300 normal-case tracking-normal font-normal">(Logistics only)</span>}</span>
                   <span className="font-semibold text-slate-400 italic">{row.value}</span>
                 </div>
               ))}
@@ -444,6 +795,26 @@ function GeneralTab({
             This record can be edited while its status is <span className="font-bold text-blue-600">Scheduled</span>. Once Logistics advances the status, it locks.
           </p>
         )}
+
+        {editing && (
+          <div className="flex gap-2 justify-end pt-4 border-t border-slate-100 mt-6">
+            <button
+              onClick={handleCancel}
+              disabled={saving}
+              className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors text-[11px] uppercase cursor-pointer disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {saving ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Linked Collection */}
@@ -451,6 +822,7 @@ function GeneralTab({
         record={record}
         currentUserRole={currentUserRole}
         onUpdateRecord={onUpdateRecord}
+        readOnly={readOnly}
       />
 
       {/* Audit footer */}
@@ -477,16 +849,22 @@ function LinkedCollectionCard({
   record,
   currentUserRole,
   onUpdateRecord,
+  readOnly = false,
 }: {
   record: DeliveryRecord;
   currentUserRole: UserRole;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
+  readOnly?: boolean;
 }) {
-  const canLink = (currentUserRole === 'Logistics' || currentUserRole === 'Admin');
+  const access = usePermissions();
+  const canLink = !readOnly && access.canRecord(record.category, 'UPDATE') && (currentUserRole === 'Logistics' || currentUserRole === 'Admin');
   const [linkInput, setLinkInput]   = useState('');
   const [linkRemarks, setLinkRemarks] = useState('');
   const [linking, setLinking]       = useState(false);
   const [linkError, setLinkError]   = useState<string | null>(null);
+  const [linkEditVersion, setLinkEditVersion] = useState(record.edit_version);
+  useEffect(() => { if (!linkInput && !linkRemarks && !linking) setLinkEditVersion(record.edit_version); }, [record.id, record.edit_version, linkInput, linkRemarks, linking]);
+  useWorkspaceDraft('linked-collection', !!(linkInput || linkRemarks), linking);
 
   const handleLink = async (collectionId: string | null) => {
     if (!linkRemarks.trim() && collectionId !== null) {
@@ -498,6 +876,7 @@ function LinkedCollectionCard({
     try {
       await onUpdateRecord(record.id, {
         linked_collection_id: collectionId,
+        expected_edit_version: linkEditVersion,
         remarks: linkRemarks.trim() || 'Unlinked collection',
       } as any);
       setLinkInput('');
@@ -570,8 +949,12 @@ function LinkedCollectionCard({
                 />
               </div>
               <div className="space-y-1.5 text-xs">
-                <label className={labelCls}>Reason <span className="text-red-500">*</span></label>
+                <label htmlFor="collection-link-remarks" className={labelCls}>Remarks — reason for change <span className="text-red-500">*</span></label>
+                <p id="collection-link-remarks-help" className="text-xs text-slate-600">Explain why you are linking this collection. This is the change reason, not a discussion comment.</p>
                 <input
+                  id="collection-link-remarks"
+                  aria-describedby="collection-link-remarks-help"
+                  required
                   type="text"
                   value={linkRemarks}
                   onChange={e => { setLinkRemarks(e.target.value); setLinkError(null); }}
@@ -615,18 +998,10 @@ const CONTEXT_LABEL: Record<string, string> = {
 };
 
 function RemarksTab({ recordId }: { recordId: string }) {
-  const [remarks, setRemarks]   = useState<ApiRemarkLog[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState<string | null>(null);
-
-  useEffect(() => {
-    setLoading(true);
-    setError(null);
-    api.getRecordRemarks(recordId)
-      .then(setRemarks)
-      .catch(e => setError(e.message ?? 'Failed to load remarks.'))
-      .finally(() => setLoading(false));
-  }, [recordId]);
+  const query = useQuery({ ...operationalSyncOptions, queryKey: ['record-remarks', recordId], queryFn: () => api.getRecordRemarks(recordId) });
+  const remarks = query.data ?? [];
+  const loading = query.isPending;
+  const error = query.isError ? (query.error.message || 'Failed to load remarks.') : null;
 
   if (loading) {
     return (
@@ -706,164 +1081,271 @@ function ActionsTab({
   allRecords: DeliveryRecord[];
   currentUserRole: UserRole;
   currentUserName: string;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;
 }) {
-  const [applying, setApplying] = useState(false);
-  const [statusRemarks, setStatusRemarks] = useState('');
-  const [remarksError, setRemarksError] = useState(false);
+  const access = usePermissions();
+  const canAssign = access.canRecord(record.category, 'ASSIGN');
+  const [saving, setSaving] = useState(false);
+  const [selectedStatus, setSelectedStatus] = useState<DeliveryStatus>(record.status);
+
+  const [actionRemarks, setActionRemarks] = useState('');
+  const [actionRemarksError, setActionRemarksError] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
+  const actionRemarksRef = useRef<HTMLTextAreaElement>(null);
+
+  const { readiness: podReadiness, uploadStaged } = usePodAttachments(record.id);
+  const timeInMutation = useRecordTimeInMutation();
+  const dispatchMutation = useUpdateRecordMutation();
 
   const [selectedDriver, setSelectedDriver] = useState(record.driver);
   const [assistants, setAssistants] = useState<string[]>(record.driver_assistants ?? []);
-  const [timeIn, setTimeIn] = useState(record.time_in ?? '');
-  const [timeOut, setTimeOut] = useState(record.time_out ?? '');
+  const [timeIn, setTimeIn] = useState(manilaDateTimeInput(record.time_in));
+  const [timeOut, setTimeOut] = useState(manilaDateTimeInput(record.time_out));
   const [receivedBy, setReceivedBy] = useState(record.received_by ?? '');
-  const [savingFields, setSavingFields] = useState(false);
-  const [driverFieldsRemarks, setDriverFieldsRemarks] = useState('');
-  const [driverFieldsRemarksError, setDriverFieldsRemarksError] = useState(false);
+  const [newDeliveryDate, setNewDeliveryDate] = useState('');
+  const [returnToDraftOpen, setReturnToDraftOpen] = useState(false);
 
-  // Sync assistants / completion fields when navigating to a different record
-  useEffect(() => {
-    setSelectedDriver(record.driver);
-    setAssistants(record.driver_assistants ?? []);
-    setTimeIn(record.time_in ?? '');
-    setTimeOut(record.time_out ?? '');
-    setReceivedBy(record.received_by ?? '');
-    setDriverFieldsRemarks('');
-    setDriverFieldsRemarksError(false);
-  }, [record.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const draftRecord = isDraftRecord(record);
+  const isRma = record.category === 'RMA';
+  const statusOptions = selectableStatuses(record, currentUserRole).filter(status => access.canRecord(record.category, 'STATUS') && (status !== 'Delivered' || access.canRecord(record.category, 'COMPLETE')) && (status !== 'Draft' || access.canRecord(record.category, 'SUBMIT')));
 
-  const handleStatusChange = async (newStatus: DeliveryStatus) => {
-    if (!statusRemarks.trim()) {
-      setRemarksError(true);
-      return;
-    }
-    setRemarksError(false);
-    setApplying(true);
-    const now = new Date().toISOString();
-    const updates: Partial<DeliveryRecord> & { status_remarks?: string } = {
-      status: newStatus,
-      status_remarks: statusRemarks.trim(),
-      modified_by: `${currentUserName} (${currentUserRole})`,
-      modified_at: now,
-    };
-
-    const trigger = getOutputTrigger(record.category, newStatus);
-    if (trigger) {
-      const result = await runOutputActions(trigger, outputActionConfigs[trigger], {
-        amName: record.account_manager, at: now, recordId: record.id, api,
-      });
-      updates.output_actions_log = [...result.newEntries, ...(record.output_actions_log ?? [])];
-      updates.email_notification_sent = result.emailSent;
-    }
-
-    onUpdateRecord(record.id, updates);
-    setStatusRemarks('');
-    setApplying(false);
-  };
-
-  const addAssistant = () => setAssistants(prev => [...prev, '']);
-  const updateAssistant = (i: number, val: string) =>
-    setAssistants(prev => prev.map((a, idx) => (idx === i ? val : a)));
-  const removeAssistant = (i: number) =>
-    setAssistants(prev => prev.filter((_, idx) => idx !== i));
-
+  const statusChanged = selectedStatus !== record.status;
+  const photoError = statusChanged ? completionError(record, selectedStatus, receivedBy, podReadiness) : null;
+  const needsNewDate = statusChanged && selectedStatus === 'Rescheduled' && record.category === 'Deliveries'
+    && (currentUserRole === 'Logistics' || currentUserRole === 'Admin');
+  const newDateError = needsNewDate ? rescheduleDateError(newDeliveryDate, record.delivery_date) : null;
   const driverFieldsChanged =
     selectedDriver !== (record.driver ?? '') ||
     JSON.stringify(assistants.filter(a => a.trim())) !== JSON.stringify(record.driver_assistants ?? []) ||
-    (timeIn || '') !== (record.time_in ?? '') ||
-    (timeOut || '') !== (record.time_out ?? '') ||
-    (receivedBy || '') !== (record.received_by ?? '');
+    timeIn !== manilaDateTimeInput(record.time_in) ||
+    timeOut !== manilaDateTimeInput(record.time_out) ||
+    (!isRma && (receivedBy || '') !== (record.received_by ?? ''));
+  const assignmentFieldsChanged = selectedDriver !== (record.driver ?? '') ||
+    JSON.stringify(assistants.filter(a => a.trim())) !== JSON.stringify(record.driver_assistants ?? []);
 
-  const handleSaveDriverFields = async () => {
-    if (driverFieldsChanged && !driverFieldsRemarks.trim()) {
-      setDriverFieldsRemarksError(true);
+  const hasChanges = statusChanged || driverFieldsChanged;
+  const [dispatchEditVersion, setDispatchEditVersion] = useState(record.edit_version);
+  useEffect(() => { if (!hasChanges && !actionRemarks.trim()) setDispatchEditVersion(record.edit_version); }, [record.id, record.edit_version, hasChanges, actionRemarks]);
+
+  // Sync state when navigating to a different record
+  useEffect(() => {
+    setSelectedDriver(record.driver);
+    setAssistants(record.driver_assistants ?? []);
+    setTimeIn(manilaDateTimeInput(record.time_in));
+    setTimeOut(manilaDateTimeInput(record.time_out));
+    setReceivedBy(record.received_by ?? '');
+    setSelectedStatus(record.status);
+    setNewDeliveryDate('');
+    setActionRemarks('');
+    setActionRemarksError(false);
+    setSaveFeedback(null);
+  }, [record.id, record.time_in, record.time_out, record.status, record.delivery_date]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useWorkspaceDraft('dispatch', hasChanges || !!actionRemarks || podReadiness.hasStagedFiles, saving || podReadiness.uploading);
+
+  const handleSave = async () => {
+    if (saving || photoError || newDateError || !access.canRecord(record.category, 'WRITE')) return;
+    if (statusChanged && (!access.canRecord(record.category, 'STATUS') || selectedStatus === 'Delivered' && !access.canRecord(record.category, 'COMPLETE'))) return;
+    if (assignmentFieldsChanged && !canAssign) return;
+    if (timeIn !== manilaDateTimeInput(record.time_in) && !access.canRecord(record.category, 'TIME_IN')) return;
+    if ((timeOut !== manilaDateTimeInput(record.time_out) || receivedBy !== (record.received_by ?? '')) && !access.canRecord(record.category, 'COMPLETE')) return;
+
+    if (!hasChanges && !actionRemarks.trim() && !podReadiness.hasStagedFiles) {
+      setSaveFeedback('No changes detected to save.');
       return;
     }
-    setSavingFields(true);
-    await onUpdateRecord(record.id, {
-      driver: selectedDriver,
-      driver_assistants: assistants.filter(a => a.trim()),
-      time_in: timeIn || null,
-      time_out: timeOut || null,
-      received_by: receivedBy || null,
-      ...(driverFieldsRemarks.trim() ? { remarks: driverFieldsRemarks.trim() } : {}),
-      modified_by: `${currentUserName} (${currentUserRole})`,
-      modified_at: new Date().toISOString(),
-    } as any);
-    setSavingFields(false);
-    setDriverFieldsRemarks('');
+
+    if (hasChanges && !actionRemarks.trim()) {
+      setActionRemarksError(true);
+      requestAnimationFrame(() => {
+        actionRemarksRef.current?.focus();
+        actionRemarksRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      });
+      return;
+    }
+
+    setActionRemarksError(false);
+    setSaveFeedback(null);
+    setSaving(true);
+
+    const now = new Date().toISOString();
+    let detailsSaved = false;
+    let nextEditVersion = dispatchEditVersion;
+
+    try {
+      if (!isRma) await uploadStaged();
+
+      // The update hook routes status changes to PATCH /status and ordinary
+      // dispatch fields to PUT /records/:id. Keep them as two ordered writes
+      // behind this single button so neither set of changes is silently lost.
+      if (driverFieldsChanged || (!statusChanged && actionRemarks.trim())) {
+        const fieldUpdates: Partial<DeliveryRecord> = {
+          expected_edit_version: dispatchEditVersion,
+          remarks: actionRemarks.trim(),
+          modified_by: `${currentUserName} (${currentUserRole})`,
+          modified_at: now,
+        };
+        if (selectedDriver !== (record.driver ?? '')) {
+          // Save the stable Driver profile id; the server copies the display name.
+          const driverId = selectedDriver ? driverIdForName(selectedDriver) : null;
+          if (selectedDriver && !driverId) fieldUpdates.driver = selectedDriver;
+          else fieldUpdates.driver_id = driverId;
+        }
+        if (JSON.stringify(assistants.filter(a => a.trim())) !== JSON.stringify(record.driver_assistants ?? [])) {
+          fieldUpdates.driver_assistants = assistants.filter(a => a.trim());
+        }
+        if (timeIn !== manilaDateTimeInput(record.time_in)) fieldUpdates.time_in = timeIn ? manilaInputToIso(timeIn) : null;
+        if (timeOut !== manilaDateTimeInput(record.time_out)) fieldUpdates.time_out = timeOut ? manilaInputToIso(timeOut) : null;
+        if ((receivedBy || '') !== (record.received_by ?? '')) fieldUpdates.received_by = receivedBy;
+        // Keep the exact result of this save as the baseline for a following
+        // reschedule; a fresh read could silently accept another writer's edit.
+        const saved = await dispatchMutation.mutateAsync({ id: record.id, updates: fieldUpdates });
+        nextEditVersion = saved.edit_version;
+        setDispatchEditVersion(saved.edit_version);
+        detailsSaved = true;
+      }
+
+      if (statusChanged) {
+        const statusUpdates: Partial<DeliveryRecord> & { status_remarks?: string } = {
+          status: selectedStatus,
+          status_remarks: actionRemarks.trim(),
+          modified_by: `${currentUserName} (${currentUserRole})`,
+          modified_at: now,
+          ...(selectedStatus === 'Delivered' ? { received_by: receivedBy.trim() } : {}),
+          ...(needsNewDate ? { delivery_date: newDeliveryDate, expected_edit_version: nextEditVersion } : {}),
+        };
+        await onUpdateRecord(record.id, statusUpdates);
+      }
+
+      setActionRemarks('');
+      notify.success(isRma ? 'RMA changes saved' : 'Dispatch & Logistics changes saved');
+
+      if (statusChanged) {
+        const trigger = getOutputTrigger(record.category, selectedStatus);
+        if (trigger) {
+          const output = await runOutputActions(trigger, outputActionConfigs[trigger], {
+            amName: record.account_manager, at: now, recordId: record.id, category: record.category, api,
+            exportPDF: async () => exportRecordOutputPDF(await api.getRecord(record.id)),
+          });
+          if (output.email.failed || output.pdf === 'failed') notify.error(`Changes saved. ${output.banners.join(' ')}`);
+          else output.banners.forEach(message => notify.info(message));
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not save the changes. Please try again.';
+      notify.error(
+        detailsSaved && statusChanged
+          ? `Dispatch details were saved, but the status was not changed: ${message}`
+          : message
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const inputCls = 'w-full px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]';
+  const inputCls = workflowInputClass;
+  const selectedAssistantNames = [...new Set(assistants.filter(name => name.trim()))];
+  const availableAssistantNames = [...new Set([...selectedAssistantNames, ...DRIVER_ASSISTANTS])];
 
   return (
     <div className="space-y-6">
+      {!isRma && record.status !== 'Delivered' && <PodUploader key={record.id} recordId={record.id} required disabled={saving} />}
+      {access.canRecord(record.category, 'TIME_IN') && canRecordTimeIn(record) && (currentUserRole === 'Logistics' || currentUserRole === 'Admin') && <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-2">
+        <p className="text-xs text-blue-900">Record Time In to start this run. Enter remarks below before starting.</p>
+        <button type="button" disabled={saving || !actionRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+          onClick={async () => { setSaving(true); setSaveFeedback(null); try { await timeInMutation.mutateAsync({ id: record.id, remarks: actionRemarks.trim() }); setActionRemarks(''); notify.success('Time In recorded'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not record Time In.'); } finally { setSaving(false); } }}>
+          Record Time In
+        </button>
+      </div>}
       {/* Status update */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status Update</h4>
-        <div className="space-y-2">
-          <label className="text-xs font-bold text-slate-700">
-            Status Change Remarks <span className="text-red-500">*</span>
-          </label>
-          <textarea
-            value={statusRemarks}
-            onChange={e => { setStatusRemarks(e.target.value); if (remarksError && e.target.value.trim()) setRemarksError(false); }}
-            rows={2}
-            placeholder="Reason for this status change (required)…"
-            className={`w-full px-3 py-2 border rounded-lg text-xs resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${remarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
-          />
-          {remarksError && <p className="text-[11px] text-red-600 font-semibold">Status change remarks are required before applying a new status.</p>}
-        </div>
+      <WorkflowSection
+        title={isRma ? 'RMA status' : 'Delivery status'}
+        description={isRma ? 'Choose the status for this return and review the completion requirements.' : 'Choose the status for this delivery. Changes apply when saved.'}
+      >
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {([...DELIVERY_STATUSES] as DeliveryStatus[]).map(s => (
+          {statusOptions.map(s => (
             <button
+              type="button"
               key={s}
-              onClick={() => handleStatusChange(s)}
-              disabled={applying || record.status === s}
-              className={`py-2.5 px-3 rounded-lg border text-xs font-bold transition-all ${
-                record.status === s
-                  ? 'bg-[#1F3864] text-white border-[#1F3864] cursor-default'
-                  : 'bg-white text-slate-700 border-slate-200 hover:border-[#0078C1] hover:text-[#0078C1] cursor-pointer disabled:opacity-50'
+              onClick={() => { if (s === 'Draft') { setReturnToDraftOpen(true); return; } setSelectedStatus(s); setNewDeliveryDate(''); setSaveFeedback(null); }}
+              disabled={saving}
+              aria-pressed={s === 'Draft' ? undefined : selectedStatus === s}
+              aria-haspopup={s === 'Draft' ? 'dialog' : undefined}
+              className={`min-h-11 rounded-lg border px-3 py-2.5 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none ${
+                selectedStatus === s
+                  ? 'border-[#1F3864] bg-[#1F3864] text-white'
+                  : 'border-slate-200 bg-white text-slate-700 hover:border-[#0078C1] hover:text-[#0078C1]'
               }`}
             >
-              {applying && record.status !== s ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin mx-auto" />
-              ) : s}
+              {s === 'Draft' ? 'Return to Draft' : isRma && s === 'Delivered' ? 'Complete RMA' : s}
             </button>
           ))}
         </div>
-        <p className="text-[10px] text-slate-400">
-          Current status: <span className="font-bold text-slate-600">{record.status}</span>
-        </p>
-      </div>
+        <ReturnToDraftDialog
+          record={record}
+          open={returnToDraftOpen}
+          onDismiss={() => setReturnToDraftOpen(false)}
+          onSubmit={async reason => { await onUpdateRecord(record.id, { status: 'Draft', remarks: reason, ...(record.category === 'RMA' ? { expected_version: record.rma_version ?? 0 } : {}) }); notify.success('Record returned to Draft'); }}
+        />
+        {needsNewDate && (
+          <div className="space-y-1.5">
+            <label htmlFor="reschedule-new-date" className={workflowFieldLabelClass}>New delivery date <span className="text-red-600">*</span></label>
+            <input
+              id="reschedule-new-date"
+              type="date"
+              value={newDeliveryDate}
+              min={manilaToday()}
+              disabled={saving}
+              required
+              aria-invalid={!!newDateError}
+              aria-describedby="reschedule-new-date-help"
+              onChange={e => { setNewDeliveryDate(e.target.value); setSaveFeedback(null); }}
+              className={`${workflowInputClass} sm:max-w-xs ${newDateError ? 'border-red-400 bg-red-50' : ''}`}
+            />
+            <p id="reschedule-new-date-help" className={`${workflowFieldHintClass} ${newDateError ? 'font-semibold text-red-600' : ''}`}>
+              {newDateError ?? 'The driver sees this run again on the new date.'}
+            </p>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+          <p className="text-xs text-slate-600">
+            Current status: <span className="font-semibold text-slate-800">{record.status}</span>
+            {selectedStatus !== record.status && <span className="ml-2 text-[#1F3864]">→ {selectedStatus} (unsaved)</span>}
+          </p>
+        </div>
+        {photoError && <p role="alert" className="text-xs font-semibold text-red-700">{photoError}</p>}
+      </WorkflowSection>
 
+      {isRma && <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+        {statusChanged && selectedStatus === 'Delivered' ? <>
+          <label htmlFor="rma-recipient" className="block text-xs font-bold text-slate-700">Recipient / Collector *</label>
+          <input id="rma-recipient" type="text" value={receivedBy} onChange={e => setReceivedBy(e.target.value)}
+            disabled={saving} required className={inputCls} />
+          <p className="text-xs text-slate-500">The recipient or collector name is saved with completion and required remarks. Completed at is recorded automatically.</p>
+        </> : <>
+          <p className="text-xs font-bold text-slate-700">Recipient / Collector</p>
+          <p className="text-xs text-slate-700">{record.received_by || 'Not recorded'}</p>
+          {record.status !== 'Delivered' && <p className="text-xs text-slate-500">Select Complete RMA to enter the recipient or collector name and save it with completion.</p>}
+        </>}
+        {record.time_out && <p className="text-xs text-slate-700">Completed at: {formatTs(record.time_out)}</p>}
+      </div>}
+      {draftRecord && !isRma && <p className="text-xs text-slate-600">Submit this draft before changing its assignment. Existing assignments are retained.</p>}
+      {!isRma && <>
       {/* Driver assignment + completion fields */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Driver &amp; Delivery Details</h4>
+      <WorkflowSection title="Driver & delivery details" description="Assign the delivery crew and record receipt and run times.">
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700">Driver</label>
+            <label className={workflowFieldLabelClass}>Driver</label>
             {(() => {
               const recordSubregion = getSubregion(record.area);
               const nearbyAreas = getNearbyAreas(record.area);
 
-              const coveringDrivers = DRIVERS.filter(d => {
-                const coverage = DRIVER_COVERAGE_AREAS[d] ?? [];
-                if (coverage.length === 0) return false;
-                const matchesSubregion = recordSubregion ? coverage.includes(recordSubregion) : false;
-                const matchesArea = record.area
-                  ? coverage.some(a =>
-                      record.area.toLowerCase().includes(a.toLowerCase()) ||
-                      a.toLowerCase().includes(record.area.toLowerCase())
-                    )
-                  : false;
-                return matchesSubregion || matchesArea;
-              });
-              const otherDrivers = DRIVERS.filter(d => !coveringDrivers.includes(d));
+              // Exact Area, then explicit Subregion, then every other active Driver.
+              const ranked = rankDriversByCoverage(DRIVERS, d => DRIVER_COVERAGE_AREAS[d], record.area);
+              const coveringCount = ranked.area.length + ranked.subregion.length;
 
-              // Same-day driver hint: other records in the same subregion, assigned today
-              const today = new Date().toISOString().slice(0, 10);
+              const today = manilaToday();
               const subregionAreas = record.area ? [record.area, ...nearbyAreas] : [];
               const sameDayHintMap: Record<string, number> = {};
               if (recordSubregion) {
@@ -877,173 +1359,210 @@ function ActionsTab({
 
               return (
                 <>
-                  <select
-                    value={selectedDriver}
-                    onChange={e => setSelectedDriver(e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${
-                      !selectedDriver ? 'border-amber-400 bg-amber-50' : 'border-slate-300'
-                    }`}
-                  >
-                    <option value="">-- Unassigned --</option>
-                    {coveringDrivers.length > 0 && (
-                      <optgroup label={`Covers ${recordSubregion ?? record.area}`}>
-                        {coveringDrivers.map(d => <option key={d} value={d}>{d}</option>)}
-                      </optgroup>
-                    )}
-                    <optgroup label={coveringDrivers.length > 0 ? 'Other Drivers' : 'All Drivers'}>
-                      {otherDrivers.map(d => <option key={d} value={d}>{d}</option>)}
-                    </optgroup>
-                  </select>
-                  {coveringDrivers.length > 0 && (
-                    <p className="text-[10px] text-emerald-600 font-semibold">
-                      {coveringDrivers.length} driver{coveringDrivers.length !== 1 ? 's' : ''} normally cover{coveringDrivers.length === 1 ? 's' : ''} the {recordSubregion} area — shown first.
+                  <span className="relative block">
+                    <select
+                      value={selectedDriver}
+                      disabled={draftRecord || saving || !canAssign}
+                      onChange={e => setSelectedDriver(e.target.value)}
+                      className={`${workflowSelectClass} ${!selectedDriver ? 'border-amber-400 bg-amber-50' : ''}`}
+                    >
+                      <option value="">-- Unassigned --</option>
+                      {ranked.area.length > 0 && (
+                        <optgroup label={`Covers ${record.area}`}>
+                          {ranked.area.map(d => <option key={d} value={d}>{d}</option>)}
+                        </optgroup>
+                      )}
+                      {ranked.subregion.length > 0 && (
+                        <optgroup label={`Covers ${ranked.subregionName} (subregion)`}>
+                          {ranked.subregion.map(d => <option key={d} value={d}>{d}</option>)}
+                        </optgroup>
+                      )}
+                      {ranked.other.length > 0 && (
+                        <optgroup label={coveringCount > 0 ? 'Other drivers' : 'All drivers'}>
+                          {ranked.other.map(d => <option key={d} value={d}>{d}</option>)}
+                        </optgroup>
+                      )}
+                    </select>
+                    <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                  </span>
+                  {coveringCount > 0 && (
+                    <p className="text-xs leading-5 text-emerald-600 font-semibold">
+                      {coveringCount} driver{coveringCount !== 1 ? 's' : ''} cover{coveringCount === 1 ? 's' : ''} {record.area} — shown first.
                     </p>
                   )}
-                  {coveringDrivers.length === 0 && (
-                    <p className="text-[10px] text-slate-400">
-                      No driver is mapped to {recordSubregion ?? record.area} yet — showing all drivers.
+                  {coveringCount === 0 && (
+                    <p className={workflowFieldHintClass}>
+                      No driver covers {record.area || 'this area'} yet — showing all drivers.
                     </p>
                   )}
                   {recordSubregion && nearbyAreas.length > 0 && (
-                    <p className="text-[10px] text-slate-400 italic">
+                    <p className={`${workflowFieldHintClass} italic`}>
                       Part of <span className="font-semibold not-italic text-slate-500">{recordSubregion}</span> — nearby: {nearbyAreas.join(', ')}
                     </p>
                   )}
                   {sameDayHints.length > 0 && (
-                    <div className="mt-1.5 bg-blue-50 border border-blue-100 rounded-lg px-2.5 py-2 space-y-0.5">
-                      {sameDayHints.map(([driver, count]) => (
-                        <p key={driver} className="text-[10px] text-blue-700 font-semibold flex items-center gap-1">
-                          <Shield className="w-3 h-3 text-blue-400 shrink-0" />
-                          {driver} — {count} record{count !== 1 ? 's' : ''} nearby today
-                        </p>
+                    <p className="text-xs leading-5 text-[#0078C1] font-semibold mt-1 flex flex-col">
+                      <span className="mb-0.5 border-b border-blue-100 pb-0.5 inline-block w-max">On this page, also assigned to {recordSubregion ?? record.area} today:</span>
+                      {sameDayHints.map(([d, count]) => (
+                        <span key={d}>
+                          • {d} <span className="opacity-75">({count} {count === 1 ? 'run' : 'runs'})</span>
+                        </span>
                       ))}
-                    </div>
+                    </p>
                   )}
                 </>
               );
             })()}
           </div>
-
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-700">Driver Assistants</label>
-              <button
-                onClick={addAssistant}
-                className="text-[10px] font-bold text-[#0078C1] hover:underline cursor-pointer"
-              >+ Add</button>
+          <fieldset className="mt-4 space-y-2" aria-describedby="delivery-assistants-help">
+            <legend className="text-sm font-semibold text-slate-700">Driver assistants</legend>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p id="delivery-assistants-help" className={workflowFieldHintClass}>Choose anyone joining the driver for this delivery.</p>
+              <span className="text-xs font-medium text-slate-500">{selectedAssistantNames.length} selected</span>
             </div>
-            {assistants.length === 0 && (
-              <p className="text-[11px] text-slate-400 italic">No assistants assigned.</p>
-            )}
-            {assistants.map((a, i) => (
-              <div key={i} className="flex gap-2">
-                <select
-                  value={a}
-                  onChange={e => updateAssistant(i, e.target.value)}
-                  className={inputCls}
-                >
-                  <option value="">-- Select --</option>
-                  {DRIVER_ASSISTANTS.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-                <button
-                  onClick={() => removeAssistant(i)}
-                  className="px-2 py-1 text-slate-400 hover:text-red-500 border border-slate-200 rounded-lg hover:border-red-200 transition-colors text-xs cursor-pointer"
-                  title="Remove"
-                >✕</button>
-              </div>
-            ))}
-          </div>
+            {availableAssistantNames.length > 0 ? <ul className="grid max-h-48 gap-2 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-2 sm:grid-cols-2">
+              {availableAssistantNames.map(name => {
+                const selected = assistants.includes(name);
+                return <li key={name}>
+                  <label className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-sm transition-[border-color,background-color,box-shadow] duration-150 focus-within:ring-2 focus-within:ring-[#0078C1]/25 motion-reduce:transition-none ${selected ? 'border-[#0078C1]/40 bg-blue-50/70 font-semibold text-[#1F3864]' : 'border-slate-200 bg-white text-slate-700'} ${draftRecord || saving || !canAssign ? 'cursor-not-allowed opacity-60' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      disabled={draftRecord || saving || !canAssign}
+                      className="h-4 w-4 shrink-0 accent-[#0078C1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] disabled:cursor-not-allowed"
+                      onChange={event => setAssistants(current => {
+                        const currentNames = current.filter(value => value.trim());
+                        return event.target.checked
+                          ? currentNames.includes(name) ? currentNames : [...currentNames, name]
+                          : currentNames.filter(value => value !== name);
+                      })}
+                    />
+                    <span className="min-w-0 flex-1 truncate">{name}</span>
+                    {selected && <Check aria-hidden="true" className="h-4 w-4 shrink-0 text-[#0078C1]" />}
+                  </label>
+                </li>;
+              })}
+            </ul> : <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-sm text-slate-500">No driver assistants are available.</p>}
+          </fieldset>
 
-          <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+          <div className="space-y-1.5 border-t border-slate-100 pt-3">
+            <label className={workflowFieldLabelClass}>Received By <span className="text-red-600">*</span></label>
+            <input
+              type="text"
+              value={receivedBy}
+              disabled={saving || !access.canRecord(record.category, 'COMPLETE')}
+              onChange={e => setReceivedBy(e.target.value)}
+              placeholder="Name of receiver (if any)"
+              className={inputCls}
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Time In</label>
+              <label className={workflowFieldLabelClass}>Time In (Manila)</label>
               <input
-                type="time"
+                type="datetime-local"
                 value={timeIn}
+                disabled={!record.time_in || saving || !access.canRecord(record.category, 'TIME_IN')}
                 onChange={e => setTimeIn(e.target.value)}
                 className={inputCls}
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Time Out</label>
+              <label className={workflowFieldLabelClass}>Time Out (Manila)</label>
               <input
-                type="time"
+                type="datetime-local"
                 value={timeOut}
+                disabled={!record.time_out || saving || !access.canRecord(record.category, 'COMPLETE')}
                 onChange={e => setTimeOut(e.target.value)}
                 className={inputCls}
               />
             </div>
-            <div className="col-span-2 space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Received By</label>
-              <input
-                type="text"
-                value={receivedBy}
-                onChange={e => setReceivedBy(e.target.value)}
-                placeholder="Name of person who received the delivery"
-                className={inputCls}
-              />
-            </div>
           </div>
+          <p className="text-xs text-slate-500">Time In starts the run; Time Out is saved automatically on completion. Existing timestamps can be corrected above with remarks, using Manila time.</p>
+        </div>
+      </WorkflowSection>
 
-          <div className="space-y-1.5 pt-2 border-t border-slate-100">
-            <label className="text-xs font-bold text-slate-700">
-              Driver &amp; Delivery Remarks{' '}
-              {driverFieldsChanged
-                ? <span className="text-red-500">*</span>
-                : <span className="text-slate-400 font-normal">(optional — no changes detected)</span>
-              }
-            </label>
-            <textarea
-              value={driverFieldsRemarks}
-              onChange={e => { setDriverFieldsRemarks(e.target.value); if (driverFieldsRemarksError && e.target.value.trim()) setDriverFieldsRemarksError(false); }}
-              rows={2}
-              placeholder={driverFieldsChanged ? 'Reason for this driver/vehicle/delivery detail change (required)…' : 'Optional note for this save…'}
-              className={`w-full px-3 py-2 border rounded-lg text-xs resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${driverFieldsRemarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
-            />
-            {driverFieldsRemarksError && <p className="text-[11px] text-red-600 font-semibold">Driver & delivery remarks are required when making changes to these fields.</p>}
-          </div>
+      </>}
 
+      {/* Unified Save Model */}
+      <WorkflowSection title={isRma ? 'Save RMA update' : 'Save delivery changes'} description="Add a reason when changing dispatch or status details.">
+        <div className="space-y-1.5">
+          <label className={workflowFieldLabelClass}>
+            Change Reason / Remarks
+            {hasChanges
+              ? <span className="text-red-500 ml-1">*</span>
+              : <span className="text-slate-400 font-normal ml-1">(optional — no changes detected)</span>
+            }
+          </label>
+          <textarea
+            ref={actionRemarksRef}
+            value={actionRemarks}
+            onChange={e => { setActionRemarks(e.target.value); if (actionRemarksError && e.target.value.trim()) setActionRemarksError(false); }}
+            rows={3}
+            placeholder={hasChanges ? 'Reason for the changes above (required)…' : 'Optional note…'}
+            className={`${workflowInputClass} resize-y ${actionRemarksError ? 'border-red-400 bg-red-50' : ''}`}
+          />
+          {actionRemarksError && <p className="text-[11px] text-red-600 font-semibold">A reason is required when making changes to dispatch or status fields.</p>}
+        </div>
+
+        {saveFeedback && <p role="status" className="text-[11px] font-semibold text-amber-700">{saveFeedback}</p>}
+
+        <div className="flex gap-2 justify-end pt-4 border-t border-slate-200 mt-6">
           <button
-            onClick={handleSaveDriverFields}
-            disabled={savingFields}
-            className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-[#0078C1] hover:bg-[#1F3864] rounded-lg transition-colors cursor-pointer disabled:opacity-60"
+            onClick={() => {
+              setSelectedStatus(record.status);
+              setNewDeliveryDate('');
+              setSelectedDriver(record.driver);
+              setAssistants(record.driver_assistants ?? []);
+              setTimeIn(manilaDateTimeInput(record.time_in));
+              setTimeOut(manilaDateTimeInput(record.time_out));
+              setReceivedBy(record.received_by ?? '');
+              setActionRemarks('');
+              setActionRemarksError(false);
+              setSaveFeedback(null);
+            }}
+            disabled={saving || !hasChanges}
+            className={workflowSecondaryButtonClass}
           >
-            {savingFields ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-            {savingFields ? 'Saving…' : 'Save Driver & Delivery Details'}
+            Revert
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving || !access.canRecord(record.category, 'WRITE') || !!photoError || !!newDateError}
+            className={workflowPrimaryButtonClass}
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {saving ? 'Saving…' : isRma && statusChanged && selectedStatus === 'Delivered' ? 'Complete RMA' : 'Save Changes'}
           </button>
         </div>
-      </div>
+      </WorkflowSection>
     </div>
   );
 }
 
 // ─── Comments Tab ─────────────────────────────────────────────────────────────
 
-function CommentsTab({ recordId }: { recordId: string }) {
-  const [comments, setComments] = useState<ApiComment[]>([]);
-  const [loading, setLoading] = useState(true);
+function CommentsTab({ recordId, readOnly = false }: { recordId: string; readOnly?: boolean }) {
+  const client = useQueryClient();
+  const query = useQuery({ ...operationalSyncOptions, queryKey: ['record-comments', recordId], queryFn: () => api.getRecordComments(recordId) });
+  const comments = query.data ?? [];
+  const loading = query.isPending;
+  const loadError = query.isError ? 'Could not load comments. Please try again.' : '';
   const [commentBody, setCommentBody] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    setLoading(true);
-    api.getRecordComments(recordId)
-      .then(setComments)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [recordId]);
+  useWorkspaceDraft('comments', !!commentBody, submitting);
 
   const handleSubmit = async () => {
     const body = commentBody.trim();
-    if (!body || submitting) return;
+    if (readOnly || !body || submitting) return;
     setSubmitting(true);
     try {
       const created = await api.createRecordComment(recordId, body);
-      setComments(prev => [...prev, created]);
+      client.setQueryData<ApiComment[]>(['record-comments', recordId], previous => [...(previous ?? []), created]);
+      void client.invalidateQueries({ queryKey: ['record-comments', recordId] });
       setCommentBody('');
     } catch {
-      // silently fail — user can retry
+      notify.error('Could not send your comment. Your text is kept below; try again.');
     } finally {
       setSubmitting(false);
     }
@@ -1061,13 +1580,16 @@ function CommentsTab({ recordId }: { recordId: string }) {
     <div className="space-y-4 py-2">
       <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-2 px-1">
         <MessageSquare className="w-3.5 h-3.5 text-[#0078C1]" />
-        Notes & Comments
+        Comments
         {comments.length > 0 && (
           <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
             {comments.length}
           </span>
         )}
       </h4>
+      <p id="record-comment-help" className="text-sm text-slate-600">Optional discussion about this record. Comments do not replace the remarks required when making changes.</p>
+      {loadError && <div role="alert" className="text-sm text-red-700">{loadError} <button type="button" onClick={() => void query.refetch()} className="min-h-11 rounded px-3 font-semibold underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700">Retry loading comments</button></div>}
+      {readOnly && <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">You have read-only access to this discussion.</p>}
 
       {comments.length > 0 && (
         <div className="space-y-3">
@@ -1088,34 +1610,23 @@ function CommentsTab({ recordId }: { recordId: string }) {
         </div>
       )}
 
-      {comments.length === 0 && (
+      {!loadError && comments.length === 0 && (
         <div className="flex flex-col items-center justify-center py-10 text-center gap-3">
           <MessageSquare className="w-8 h-8 text-slate-200" />
-          <p className="text-sm text-slate-400">No comments yet. Add the first note below.</p>
+          <p className="text-sm text-slate-400">{readOnly ? 'No comments yet.' : 'No comments yet. Add the first comment below.'}</p>
         </div>
       )}
 
-      <div className="flex items-end gap-2">
-        <textarea
-          ref={inputRef}
+      {!readOnly && (
+        <CommentComposer
+          id="record-comment-body"
+          describedBy="record-comment-help"
           value={commentBody}
-          onChange={e => setCommentBody(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSubmit();
-          }}
-          placeholder="Add a note or comment… (Ctrl+Enter to send)"
-          rows={2}
-          className="flex-1 text-xs border border-slate-300 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] placeholder:text-slate-400"
+          onChange={setCommentBody}
+          onSubmit={handleSubmit}
+          submitting={submitting}
         />
-        <button
-          onClick={handleSubmit}
-          disabled={!commentBody.trim() || submitting}
-          className="p-2.5 bg-[#0078C1] text-white rounded-lg hover:bg-[#005fa3] disabled:opacity-40 transition-colors cursor-pointer shrink-0"
-          title="Send comment (Ctrl+Enter)"
-        >
-          {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-        </button>
-      </div>
+      )}
     </div>
   );
 }
@@ -1141,6 +1652,22 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
   collection_verified: 'Collection Verified',
   account_manager: 'Account Manager',
   reference: 'Reference',
+  rma_reference: 'RMA Document Reference',
+  legacy_sap_reference: 'Legacy SAP Reference',
+  rma_type: 'RMA Category',
+  rma_movement: 'Movement method',
+  rma_transport_status: 'Transport status',
+  rma_transport_started_at: 'Transport started',
+  rma_transport_completed_at: 'Transport completed',
+  rma_received_at: 'Physical receipt confirmed',
+  rma_received_by: 'Receipt confirmed by',
+  rma_recipient: 'Recipient',
+  rma_completed_at: 'RMA completed',
+  purchase_date: 'Purchase Date',
+  customer_contact_name: 'Customer Contact Name',
+  customer_contact_email: 'Customer Contact Email',
+  customer_contact_phone: 'Customer Contact Phone',
+  line_items: 'Line Items',
 };
 
 // Beyond the explicitly-listed skip fields, also drop the audit meta-fields
@@ -1150,7 +1677,8 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
 const AUDIT_SKIP_FIELDS = new Set([
   'id', 'company_id', 'customer_id', 'created_by_id',
   'created_at', 'updated_at', 'created_by', 'modified_by', 'modified_at',
-  'document_attachment', 'attachments', 'output_actions_log', 'email_notification_sent',
+  'document_attachment', 'attachments', 'output_actions_log', 'email_notification_sent', 'rma_version', 'rma_received_by',
+  'linked_collection', 'linked_collection_id',
 ]);
 
 function shouldSkipAuditField(key: string): boolean {
@@ -1163,11 +1691,46 @@ function auditFieldLabel(key: string): string {
 }
 
 function isEmptyAuditValue(v: unknown): boolean {
-  return v === null || v === undefined || v === '' || v === false;
+  return v === null || v === undefined || v === '' || v === false || (Array.isArray(v) && v.length === 0);
 }
 
-function formatAuditValue(v: unknown): string {
-  return isEmptyAuditValue(v) ? '—' : String(v);
+export function formatAuditValue(v: unknown): string {
+  if (isEmptyAuditValue(v)) return '—';
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v) && Number.isFinite(Date.parse(v))) return formatTs(v);
+  if (Array.isArray(v)) {
+    if (v.every(item => typeof item === 'string' || typeof item === 'number')) return v.join(', ');
+    const formatted = v.map(item => {
+      if (item && typeof item === 'object') {
+        const sku = (item as any).sku || (item as any).description;
+        const qty = (item as any).quantity;
+        if (sku !== undefined && qty !== undefined) return `${sku} × ${qty}`;
+        if (sku !== undefined) return String(sku);
+        if ('name' in (item as any) && typeof (item as any).name === 'string') return (item as any).name;
+      }
+      return typeof item === 'object' ? JSON.stringify(item) : String(item);
+    }).filter(Boolean);
+    return formatted.length > 0 ? formatted.join(', ') : '—';
+  }
+  if (typeof v === 'object' && v !== null) {
+    if ('name' in (v as any) && typeof (v as any).name === 'string') return (v as any).name;
+    if ('reference' in (v as any) && typeof (v as any).reference === 'string') return (v as any).reference;
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return '—';
+    }
+  }
+  return String(v);
+}
+
+function normalizeAuditForDiff(key: string, v: unknown): unknown {
+  if (key === 'line_items' && Array.isArray(v)) {
+    return v.map((item: any) => ({
+      sku: typeof item?.sku === 'string' ? item.sku : typeof item?.description === 'string' ? item.description : '',
+      quantity: typeof item?.quantity === 'number' ? item.quantity : parseInt(item?.quantity, 10) || 1,
+    }));
+  }
+  return v;
 }
 
 interface AuditDiffRow {
@@ -1177,7 +1740,7 @@ interface AuditDiffRow {
   hasOld: boolean;
 }
 
-function diffAuditEntry(oldVal: unknown, newVal: unknown): AuditDiffRow[] {
+export function diffAuditEntry(oldVal: unknown, newVal: unknown): AuditDiffRow[] {
   if (!newVal || typeof newVal !== 'object') return [];
   const newObj = newVal as Record<string, unknown>;
   const oldObj = (oldVal && typeof oldVal === 'object') ? oldVal as Record<string, unknown> : null;
@@ -1189,7 +1752,7 @@ function diffAuditEntry(oldVal: unknown, newVal: unknown): AuditDiffRow[] {
       if (shouldSkipAuditField(key)) continue;
       const ov = oldObj[key];
       const nv = newObj[key];
-      if (JSON.stringify(ov) === JSON.stringify(nv)) continue;
+      if (JSON.stringify(normalizeAuditForDiff(key, ov)) === JSON.stringify(normalizeAuditForDiff(key, nv))) continue;
       rows.push({ label: auditFieldLabel(key), oldVal: ov, newVal: nv, hasOld: true });
     }
   } else {
@@ -1206,18 +1769,10 @@ function diffAuditEntry(oldVal: unknown, newVal: unknown): AuditDiffRow[] {
 // ─── Audit Trail Tab ──────────────────────────────────────────────────────────
 
 function AuditTrailTab({ recordId }: { recordId: string }) {
-  const [entries, setEntries] = useState<ApiAuditEntry[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setLoading(true);
-    setError(null);
-    api.getRecordAudit(recordId)
-      .then(setEntries)
-      .catch(e => setError(e.message ?? 'Failed to load audit trail.'))
-      .finally(() => setLoading(false));
-  }, [recordId]);
+  const query = useQuery({ ...operationalSyncOptions, queryKey: ['record-audit', recordId], queryFn: () => api.getRecordAudit(recordId) });
+  const entries = query.data ?? null;
+  const loading = query.isPending;
+  const error = query.isError ? (query.error.message || 'Failed to load audit trail.') : null;
 
   if (loading) {
     return (
@@ -1319,159 +1874,252 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
 
 // ─── Documents Tab ────────────────────────────────────────────────────────────
 
-type UploadedFile = {
-  name: string;
-  size: number;
-  type: string;
-  url: string; // object URL for preview
-  uploadedAt: string;
-};
+function StagedAttachment({ staged, disabled, onRemove }: {
+  staged: StagedFile;
+  disabled: boolean;
+  onRemove: () => void;
+}) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const isPhoto = staged.file.type.startsWith('image/');
 
-function DocumentsTab({ record }: { record: DeliveryRecord }) {
-  const [files, setFiles] = useState<UploadedFile[]>(() =>
-    // Pre-populate from record.attachments (string filenames from existing data)
-    record.attachments.map(name => ({
-      name,
-      size: 0,
-      type: '',
-      url: '',
-      uploadedAt: record.created_at,
-    }))
-  );
-  const [dragging, setDragging] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  // Sync when record changes (e.g. prev/next navigation)
   useEffect(() => {
-    setFiles(record.attachments.map(name => ({
-      name, size: 0, type: '', url: '', uploadedAt: record.created_at,
-    })));
-  }, [record.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!isPhoto) return;
+    const url = URL.createObjectURL(staged.file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [isPhoto, staged.file]);
 
-  const addFiles = (incoming: FileList | null) => {
-    if (!incoming) return;
-    const newFiles: UploadedFile[] = Array.from(incoming).map(f => ({
-      name: f.name,
-      size: f.size,
-      type: f.type,
-      url: URL.createObjectURL(f),
-      uploadedAt: new Date().toISOString(),
-    }));
-    setFiles(prev => [...prev, ...newFiles]);
+  return (
+    <div className="flex min-w-0 items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+      {previewUrl ? (
+        <img src={previewUrl} alt="" className="h-12 w-12 shrink-0 rounded-lg object-cover" />
+      ) : (
+        <FileText aria-hidden="true" className="h-5 w-5 shrink-0 text-amber-700" />
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-xs font-semibold text-slate-800">{staged.file.name}</p>
+        <p className="mt-0.5 text-[10px] font-bold text-amber-700">Waiting to upload</p>
+      </div>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onRemove}
+        aria-label={`Remove staged ${staged.file.name}`}
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-600 hover:bg-red-50 hover:text-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <XIcon aria-hidden="true" className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+function DocumentsTab({ record, readOnly = false }: { record: DeliveryRecord; readOnly?: boolean }) {
+  const { files, stagedFiles, readiness, stageFiles, unstageFile, uploadStaged, removeFile: deleteFile } = usePodAttachments(record.id);
+  const uploading = readiness.uploading;
+  const [dragging, setDragging] = useState(false);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [staging, setStaging] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const busy = uploading || staging || removing;
+  useWorkspaceDraft('documents', readiness.hasStagedFiles, busy);
+
+  const addFiles = async (incoming: FileList | null) => {
+    if (!incoming || incoming.length === 0 || busy) return;
+    const selectedFiles = Array.from(incoming);
+    const rejection = getPodAttachmentRejection(selectedFiles);
+    if (rejection) {
+      notify.fileRejected(rejection.fileName, rejection.reason);
+      if (inputRef.current) inputRef.current.value = '';
+      return;
+    }
+
+    setStaging(true);
+    try {
+      await stageFiles(selectedFiles);
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : 'Could not stage files.');
+    } finally {
+      setStaging(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
   };
 
-  const removeFile = (idx: number) => {
-    setFiles(prev => {
-      const next = [...prev];
-      if (next[idx].url) URL.revokeObjectURL(next[idx].url);
-      next.splice(idx, 1);
-      return next;
-    });
+  const saveFiles = async () => {
+    if (!readiness.hasStagedFiles || busy) return;
+    try {
+      await uploadStaged();
+      notify.success('Documents uploaded');
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : 'Upload failed.');
+    }
   };
 
-  const formatSize = (bytes: number) => {
-    if (!bytes) return '';
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  const removeStaged = async (id: string) => {
+    if (busy) return;
+    setStaging(true);
+    try {
+      await unstageFile(id);
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : 'Could not remove staged file.');
+    } finally {
+      setStaging(false);
+    }
   };
 
-  const fileIcon = (type: string, name: string) => {
-    const ext = name.split('.').pop()?.toLowerCase() ?? '';
-    if (type.startsWith('image/')) return '🖼️';
-    if (type === 'application/pdf' || ext === 'pdf') return '📄';
-    if (['xlsx', 'xls', 'csv'].includes(ext)) return '📊';
-    if (['docx', 'doc'].includes(ext)) return '📝';
-    return '📎';
+  const removeFile = async () => {
+    if (!confirmRemoveId) return;
+    setRemoving(true);
+    try {
+      await deleteFile({ id: confirmRemoveId, remarks: '' });
+      setConfirmRemoveId(null);
+      notify.success('Attachment removed');
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : 'Could not remove attachment.');
+    } finally {
+      setRemoving(false);
+    }
   };
 
   return (
     <div className="space-y-4">
       {/* Drop zone */}
       <div
-        onDragOver={e => { e.preventDefault(); setDragging(true); }}
+        onDragOver={e => { if (!readOnly) { e.preventDefault(); setDragging(true); } }}
         onDragLeave={() => setDragging(false)}
-        onDrop={e => { e.preventDefault(); setDragging(false); addFiles(e.dataTransfer.files); }}
-        onClick={() => inputRef.current?.click()}
+        onDrop={e => { e.preventDefault(); setDragging(false); if (!readOnly && !busy) addFiles(e.dataTransfer.files); }}
+        onClick={() => { if (!readOnly && !busy) inputRef.current?.click(); }}
+        aria-busy={busy}
         className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all ${
           dragging
             ? 'border-[#0078C1] bg-blue-50'
-            : 'border-slate-300 hover:border-[#0078C1] hover:bg-slate-50'
+            : busy
+              ? 'border-slate-200 bg-slate-50 cursor-wait'
+              : readOnly ? 'border-slate-200 bg-slate-50 cursor-default' : 'border-slate-300 hover:border-[#0078C1] hover:bg-slate-50'
         }`}
       >
         <Paperclip className={`w-8 h-8 transition-colors ${dragging ? 'text-[#0078C1]' : 'text-slate-300'}`} />
         <div className="text-center">
-          <p className="text-sm font-bold text-slate-700">Drop files here or click to upload</p>
-          <p className="text-xs text-slate-400 mt-0.5">PDF, Word, Excel, images — any format</p>
+          <p className="text-sm font-bold text-slate-700">{readOnly ? 'Documents are read-only for your account' : staging ? 'Adding files…' : uploading ? 'Uploading…' : 'Drop files here or click to add'}</p>
+            <p className="text-xs text-slate-400 mt-0.5">{readOnly ? 'Document uploads require permission.' : 'PDF, JPG, PNG, DOCX or XLSX — supported documents can be previewed in app; up to 10 MB each'}</p>
         </div>
         <input
           ref={inputRef}
           type="file"
           multiple
+          accept={POD_ATTACHMENT_ACCEPT}
           className="hidden"
+          disabled={busy || readOnly}
           onChange={e => addFiles(e.target.files)}
         />
       </div>
 
-      {/* File list */}
+      {readiness.loading && <p role="status" className="text-xs text-slate-600">Loading attachments…</p>}
+      {readiness.loadFailed && <p role="alert" className="text-xs text-red-700">Could not load attachments.</p>}
+      {!readOnly && stagedFiles.length > 0 && (
+        <div className="space-y-2" aria-label="Files waiting to upload">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">
+              {stagedFiles.length} file{stagedFiles.length !== 1 ? 's' : ''} waiting to upload
+            </p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={saveFiles}
+              className="flex min-h-11 items-center gap-1.5 rounded-lg bg-[#0078C1] px-4 py-2 text-xs font-bold text-white hover:bg-[#1F3864] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {uploading ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Save aria-hidden="true" className="h-4 w-4" />}
+              {uploading ? 'Saving…' : 'Save Files'}
+            </button>
+          </div>
+          {stagedFiles.map(staged => (
+            <StagedAttachment
+              key={staged.id}
+              staged={staged}
+              disabled={busy}
+              onRemove={() => removeStaged(staged.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Persisted file list */}
       {files.length > 0 ? (
-        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+        <div className="space-y-2">
           <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
               {files.length} file{files.length !== 1 ? 's' : ''}
             </p>
           </div>
-          <div className="divide-y divide-slate-100">
-            {files.map((f, i) => (
-              <div key={i} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 group">
-                <span className="text-xl shrink-0">{fileIcon(f.type, f.name)}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-slate-800 truncate">{f.name}</p>
-                  <p className="text-[10px] text-slate-400 font-mono mt-0.5">
-                    {f.size ? formatSize(f.size) + ' · ' : ''}{formatTs(f.uploadedAt)}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {f.url && (
-                    <a
-                      href={f.url}
-                      download={f.name}
-                      className="p-1.5 hover:bg-slate-100 rounded text-slate-400 hover:text-[#0078C1] transition-colors"
-                      title="Download"
-                      onClick={e => e.stopPropagation()}
-                    >
-                      <FileText className="w-3.5 h-3.5" />
-                    </a>
-                  )}
-                  <button
-                    onClick={() => removeFile(i)}
-                    className="p-1.5 hover:bg-red-50 rounded text-slate-300 hover:text-red-500 transition-colors"
-                    title="Remove"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+          <PodAttachmentList
+            files={files}
+            removeDisabled={busy}
+            onRemove={!readOnly ? file => setConfirmRemoveId(file.id) : undefined}
+          />
         </div>
-      ) : (
+      ) : stagedFiles.length === 0 ? (
         <div className="text-center py-6 text-slate-400 text-xs">
           No documents attached yet. Upload files above.
         </div>
-      )}
+      ) : null}
 
-      <p className="text-[10px] text-slate-400 text-center">
-        Files are stored locally in this session. Backend file storage integration pending.
-      </p>
+      {/* Removal Confirmation Modal */}
+      {!readOnly && confirmRemoveId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="remove-attachment-title"
+            onKeyDown={event => {
+              if (event.key === 'Escape' && !removing) setConfirmRemoveId(null);
+            }}
+            className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 space-y-4"
+          >
+            <h3 id="remove-attachment-title" className="text-sm font-black text-slate-900">Remove Attachment</h3>
+            <p className="text-xs text-slate-600">
+              Are you sure you want to remove <span className="font-bold">{files.find(f => f.id === confirmRemoveId)?.name}</span>? This action cannot be undone and will be permanently recorded in the audit trail.
+            </p>
+            <div className="flex gap-2 justify-end pt-2">
+              <button
+                type="button"
+                autoFocus
+                disabled={removing}
+                onClick={() => setConfirmRemoveId(null)}
+                className="px-4 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={removing}
+                onClick={removeFile}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded-lg flex items-center gap-1.5"
+              >
+                {removing ? 'Removing...' : 'Remove'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      <p className="text-[10px] text-slate-400 text-center">Files are stored in the local Docker volume and protected by record access permissions.</p>
     </div>
   );
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function DeliveryRecordWorkspace({
-  record,
+export default function DeliveryRecordWorkspace(props: DeliveryRecordWorkspaceProps) {
+  const access = usePermissions();
+  if (!access.canRecord(props.record.category)) return <div role="alert">This record is not available for your account.</div>;
+  return (
+    <WorkspaceDraftProvider key={`${props.record.id}-${props.currentUserRole}-${props.forceReadOnly ?? false}`}>
+      <RecordWorkspace {...props} />
+    </WorkspaceDraftProvider>
+  );
+}
+
+function RecordWorkspace({
+  record: initialRecord,
   allRecordIds,
   allRecords = [],
   currentUserRole,
@@ -1483,20 +2131,52 @@ export default function DeliveryRecordWorkspace({
   outputActionConfigs,
   forceReadOnly = false,
 }: DeliveryRecordWorkspaceProps) {
+  const access = usePermissions();
+  const detail = useRecordDetailQuery(initialRecord, initialRecord.category === 'RMA');
+  const record = initialRecord.category === 'RMA' ? detail.data ?? initialRecord : initialRecord;
+  const { requestLeave, pending } = useWorkspaceNavigation();
+  const navigationNonce = useUIStore(s => s.navigationNonce);
+  const currentScreen = useUIStore(s => s.currentScreen);
+  const selectedRecordId = useUIStore(s => s.selectedRecordId);
+  const initialNavigationNonce = useRef(navigationNonce);
+  const moduleScreen = screenKeyForCategory(record.category);
+  const navigate = useUIStore(s => s.handleNavigate);
+
+  useEffect(() => {
+    if (navigationNonce === initialNavigationNonce.current) return;
+    initialNavigationNonce.current = navigationNonce;
+
+    if (currentScreen !== moduleScreen || selectedRecordId) return;
+    requestLeave(onBack);
+  }, [navigationNonce, currentScreen, selectedRecordId, moduleScreen, requestLeave, onBack]);
+
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
   const [pdfError, setPdfError]     = useState<string | null>(null);
+  const [docSize, setDocSize]       = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [pdfPreviewBlob, setPdfPreviewBlob] = useState<Blob | null>(null);
+  const [pdfFileName, setPdfFileName] = useState('');
+  useEffect(() => () => { if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl); }, [pdfPreviewUrl]);
 
   const handleDownloadPdf = async () => {
+    if (pdfLoading) return;
     setPdfLoading(true);
     setPdfError(null);
     try {
-      const [auditEntries, remarks, comments] = await Promise.all([
+      const [auditEntries, remarks, comments, attachments] = await Promise.all([
         api.getRecordAudit(record.id),
         api.getRecordRemarks(record.id),
         api.getRecordComments(record.id),
+        api.getRecordAttachments(record.id),
       ]);
-      const docData: ManifestDocumentationData = { auditEntries, remarks, comments };
-      await printSingleManifest(record, companies, docData);
+      const docData: ManifestDocumentationData = { auditEntries, remarks, comments, attachments };
+      const blob = await printSingleManifest(record, companies, docData, docSize);
+      const url = URL.createObjectURL(blob);
+      setPdfPreviewBlob(blob);
+      setPdfFileName(`manifest-${record.id}-${record.delivery_date}.pdf`);
+      setPdfPreviewUrl(url);
+      setPdfDialogOpen(false);
     } catch (err: any) {
       setPdfError(err.message ?? 'Failed to generate PDF. Please try again.');
     } finally {
@@ -1506,24 +2186,20 @@ export default function DeliveryRecordWorkspace({
 
   // Determine visible tabs per role; forceReadOnly hides the Assign tab
   const visibleTabs = ALL_TABS.filter(t =>
-    t.roles.includes(currentUserRole) && !(forceReadOnly && t.id === 'actions')
+    t.roles.includes(currentUserRole) && !(forceReadOnly && t.id === 'actions' && record.category !== 'RMA')
   );
-  const [activeTab, setActiveTab] = useState<TabId>(visibleTabs[0]?.id ?? 'general');
-
-  // Reset to first tab when navigating to a different record
-  useEffect(() => {
-    setActiveTab(visibleTabs[0]?.id ?? 'general');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [record.id]);
 
   const currentIndex = allRecordIds.indexOf(record.id);
   const prevId = currentIndex > 0 ? allRecordIds[currentIndex - 1] : null;
   const nextId = currentIndex < allRecordIds.length - 1 ? allRecordIds[currentIndex + 1] : null;
 
   const moduleName = record.category;
+  const startTimeSummary = getStartTimeDisplay(record, value =>
+    record.category === 'RMA' ? formatTs(value) : formatManilaTime(value),
+  );
 
-  const renderTabContent = () => {
-    switch (activeTab) {
+  const renderTabContent = (tabId: string) => {
+    switch (tabId) {
       case 'general':
         return (
           <GeneralTab
@@ -1531,10 +2207,12 @@ export default function DeliveryRecordWorkspace({
             currentUserRole={currentUserRole}
             currentUserName={currentUserName}
             onUpdateRecord={onUpdateRecord}
+            readOnly={forceReadOnly}
           />
         );
 
       case 'actions':
+        if (record.category === 'RMA') return <RmaWorkflowPanel key={record.id} record={record} currentUserRole={currentUserRole} />;
         return (
           <ActionsTab
             record={record}
@@ -1547,7 +2225,7 @@ export default function DeliveryRecordWorkspace({
         );
 
       case 'comments':
-        return <CommentsTab recordId={record.id} />;
+        return <CommentsTab recordId={record.id} readOnly={forceReadOnly || !access.canRecord(record.category, 'COMMENT')} />;
 
       case 'remarks':
         return <RemarksTab recordId={record.id} />;
@@ -1556,20 +2234,26 @@ export default function DeliveryRecordWorkspace({
         return <AuditTrailTab recordId={record.id} />;
 
       case 'documents':
-        return <DocumentsTab record={record} />;
+        return <DocumentsTab record={record} readOnly={forceReadOnly || !access.canRecord(record.category, 'POD')} />;
 
       default:
         return null;
     }
   };
 
+  if (detail.error instanceof ApiError && [401, 403, 404].includes(detail.error.status)) {
+    return <div role="alert" className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-700">This record is no longer available to your account. <button type="button" onClick={onBack} className="min-h-11 px-3 font-semibold text-blue-700">Back to records</button></div>;
+  }
+
   return (
     <div className="space-y-4" id={`delivery-record-workspace-${record.id}`}>
+      {detail.isError && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">The latest record could not sync. Saved information is shown. <button type="button" className="min-h-11 underline" onClick={() => void detail.refetch()}>Retry sync</button></p>}
       {/* Navigation bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-gray-100 pb-4">
+        <div className="flex min-w-[14rem] flex-1 items-center gap-3">
           <button
-            onClick={onBack}
+            onClick={() => requestLeave(onBack)}
+            disabled={pending}
             className="flex items-center gap-1.5 text-[#0078C1] hover:text-[#1F3864] text-xs font-semibold transition-colors shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -1580,10 +2264,11 @@ export default function DeliveryRecordWorkspace({
           <span className="text-slate-400 text-xs truncate hidden sm:inline">— {record.company_name}</span>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+         <div className="flex items-center gap-1">
           <button
-            onClick={() => prevId && onNavigateToRecord(prevId)}
-            disabled={!prevId}
+            onClick={() => { if (prevId) requestLeave(() => onNavigateToRecord(prevId)); }}
+            disabled={!prevId || pending}
             className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold text-slate-600"
             title="Previous Record"
           >
@@ -1594,19 +2279,22 @@ export default function DeliveryRecordWorkspace({
             {currentIndex + 1} / {allRecordIds.length}
           </span>
           <button
-            onClick={() => nextId && onNavigateToRecord(nextId)}
-            disabled={!nextId}
+            onClick={() => { if (nextId) requestLeave(() => onNavigateToRecord(nextId)); }}
+            disabled={!nextId || pending}
             className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-semibold text-slate-600"
             title="Next Record"
           >
             Next
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
-          {(['Sales Coordinator', 'Logistics', 'Admin'] as UserRole[]).includes(currentUserRole) && (
-            <div className="relative">
+         </div>
+          {(['Sales Coordinator', 'Logistics', 'TASS', 'Admin'] as UserRole[]).includes(currentUserRole) && (
+            <div>
               <button
-                onClick={handleDownloadPdf}
+                type="button"
+                onClick={() => { setPdfError(null); setPdfDialogOpen(true); }}
                 disabled={pdfLoading}
+                aria-haspopup="dialog"
                 className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors font-semibold text-slate-600 disabled:opacity-60"
                 title="Download delivery manifest with documentation trail (PDF)"
               >
@@ -1615,50 +2303,68 @@ export default function DeliveryRecordWorkspace({
                   : <Download className="w-3.5 h-3.5" />}
                 {pdfLoading ? 'Generating…' : 'Download PDF'}
               </button>
-              {pdfError && (
-                <div className="absolute right-0 top-full mt-1 z-50 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-[11px] text-red-700 font-semibold shadow-md whitespace-nowrap max-w-xs">
-                  <AlertTriangle className="w-3 h-3 inline mr-1" />
-                  {pdfError}
-                  <button
-                    onClick={() => setPdfError(null)}
-                    className="ml-2 text-red-400 hover:text-red-600 font-bold cursor-pointer"
-                  >✕</button>
-                </div>
-              )}
+              <ActionDialog
+                open={pdfDialogOpen}
+                title="Download PDF"
+                description="Choose a paper size for this record's manifest and documentation trail."
+                confirmLabel="Confirm & Download"
+                pending={pdfLoading}
+                error={pdfError}
+                onConfirm={handleDownloadPdf}
+                onDismiss={() => { setPdfDialogOpen(false); setPdfError(null); }}
+              >
+                <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={pdfLoading} />
+              </ActionDialog>
             </div>
           )}
         </div>
       </div>
 
-      {/* Tab Navigation + Content */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="border-b border-slate-200 overflow-x-auto">
-          <div className="flex items-stretch min-w-max">
-            {visibleTabs.map(tab => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-5 py-4 text-sm whitespace-nowrap border-b-[3px] transition-all ${
-                    isActive
-                      ? 'border-[#1F3864] text-[#1F3864] bg-blue-50/70 font-semibold'
-                      : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100 font-medium'
-                  }`}
-                >
-                  <Icon className="w-[18px] h-[18px] shrink-0" />
-                  {tab.label}
-                </button>
-              );
-            })}
+      <section aria-label="Record summary" className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <CompanyHistoryButton
+            companyId={record.company_id}
+            companyName={record.company_name}
+            currentRecordId={record.id}
+            disabled={pending}
+            className="font-bold text-slate-800"
+            onOpenRecord={(screen, id) => requestLeave(() => navigate(screen, id))}
+          />
+          <span className="text-slate-500">{record.category}</span>
+          <RecordStatus record={record} />
+          <span className={`rounded-full border px-2 py-0.5 ${PRIORITY_COLOR[record.priority] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}>Priority: {record.priority}</span>
+        </div>
+        <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-700">
+          {[
+            ['Driver', record.driver || 'Unassigned'],
+            ['Delivery date', record.delivery_date],
+            [record.category === 'RMA' ? startTimeSummary.label : 'Time in', startTimeSummary.value],
+            [record.category === 'RMA' ? 'Completed at' : 'Time out', formatManilaTime(record.category === 'RMA' ? record.rma_completed_at ?? record.time_out : record.time_out)],
+          ].map(([label, value]) => <div key={label} className="flex gap-1"><dt className="text-slate-500">{label}:</dt><dd className="font-semibold">{value}</dd></div>)}
+        </dl>
+      </section>
+      <WorkspaceTabs
+        id={`record-${record.id}`}
+        tabs={visibleTabs.map(tab => {
+          const Icon = tab.icon;
+          return { id: tab.id, label: tab.label, icon: <Icon aria-hidden="true" className="w-[18px] h-[18px] shrink-0" /> };
+        })}
+        renderPanel={renderTabContent}
+      />
+      {pdfPreviewUrl && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4" role="dialog" aria-modal="true" aria-label="PDF preview">
+          <div className="flex h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-slate-950 shadow-2xl">
+            <div className="flex items-center justify-between px-4 py-3 text-white">
+              <div className="min-w-0"><p className="truncate text-sm font-semibold">{pdfFileName}</p><p className="text-xs text-slate-400">PDF preview</p></div>
+              <button type="button" onClick={() => setPdfPreviewUrl(null)} className="rounded p-2 hover:bg-white/10" aria-label="Close preview"><XCircle className="h-5 w-5" /></button>
+            </div>
+            <iframe title="Generated delivery PDF preview" src={pdfPreviewUrl} className="min-h-0 flex-1 bg-white" />
+            <div className="flex justify-center p-4">
+              <button type="button" onClick={() => { if (!pdfPreviewBlob) return; const link = document.createElement('a'); link.href = URL.createObjectURL(pdfPreviewBlob); link.download = pdfFileName; link.click(); URL.revokeObjectURL(link.href); }} className="flex items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-100"><Download className="h-4 w-4" />Download PDF</button>
+            </div>
           </div>
         </div>
-
-        <div className="p-5">
-          {renderTabContent()}
-        </div>
-      </div>
+      )}
     </div>
   );
 }

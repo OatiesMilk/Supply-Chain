@@ -30,6 +30,9 @@ export * from './DriverManagerPage';
 export { default as DriverBoardPage } from './DriverBoardPage';
 export * from './DriverBoardPage';
 
+export { default as DriversPage } from './DriversPage';
+export * from './DriversPage';
+
 export { default as CalendarPage } from './CalendarPage';
 export * from './CalendarPage';
 
@@ -42,8 +45,6 @@ export * from './AdminPage';
 export { default as DataSamplerPage } from './DataSamplerPage';
 export * from './DataSamplerPage';
 
-export { default as StatusHistoryPage } from './StatusHistoryPage';
-export * from './StatusHistoryPage';
 
 export { default as StatisticalReportsPage } from './StatisticalReportsPage';
 export * from './StatisticalReportsPage';

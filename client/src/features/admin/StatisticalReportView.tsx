@@ -1,15 +1,21 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { usePermissions } from '@/hooks/usePermissions';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { BarChart2, Loader2, AlertTriangle, RefreshCw, FileDown, FileSpreadsheet, FileText, ChevronDown } from 'lucide-react';
+import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
+import DocumentSizeSelect from '@/components/DocumentSizeSelect';
 import { api, ApiReportSummary } from '@/api';
 import { DELIVERY_STATUSES } from '@/data';
 import { ExportColumn, ExportMeta, fmtDate, fmtTime, downloadCSV, downloadExcel, downloadPDF } from '@/utils/export';
 import { downloadDocx } from '@/utils/exportDocx';
+import ExportPreviewDialog, { type ExportPreviewFormat } from '@/components/ExportPreviewDialog';
+import { downloadBlob } from '@/utils/downloadBlob';
 
 const CATEGORIES = ['Deliveries', 'RMA', 'Accounting Collection', 'Procurement Pick-up', 'Sales Orders'];
 
-function SummaryCard({ label, value, sub, color }: { label: string; value: number | string; sub?: string; color: string }) {
+function SummaryCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
   return (
-    <div className={`bg-white border rounded-xl p-4 shadow-sm border-l-4 ${color}`}>
+    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{label}</p>
       <p className="text-2xl font-black text-slate-800">{value}</p>
       {sub && <p className="text-[11px] text-slate-400 mt-0.5">{sub}</p>}
@@ -52,11 +58,12 @@ const REPORT_COLUMNS: ExportColumn[] = [
 
 function buildReportRows(data: ApiReportSummary): Record<string, string>[] {
   const rows: Record<string, string>[] = [];
-  rows.push({ section: 'Summary', label: 'Total Records',    value: String(data.total) });
-  rows.push({ section: 'Summary', label: 'Delivered',        value: String(data.accomplished) });
+  rows.push({ section: 'Summary', label: 'Delivery Date Cohort — Total Records', value: String(data.total) });
+  rows.push({ section: 'Summary', label: 'Delivered in Delivery Date Cohort', value: String(data.accomplished) });
+  rows.push({ section: 'Summary', label: 'Completed by Time Out in Range (independent of Status filter)', value: String(data.completed_in_range) });
   rows.push({ section: 'Summary', label: 'On-Hold',          value: String(data.on_hold) });
   rows.push({ section: 'Summary', label: 'Pending',          value: String(data.pending) });
-  rows.push({ section: 'Summary', label: 'Completion Rate',  value: `${data.completion_rate}%` });
+  rows.push({ section: 'Summary', label: 'Delivered Rate in Delivery Date Cohort', value: `${data.completion_rate}%` });
   data.by_status.forEach(r   => rows.push({ section: 'By Status',   label: r.status,   value: String(r.count) }));
   data.by_category.forEach(r => rows.push({ section: 'By Category', label: r.category, value: String(r.count) }));
   data.by_area.forEach(r     => rows.push({ section: 'By Area',     label: r.area,     value: String(r.count) }));
@@ -77,6 +84,8 @@ function StatReportExportMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState<ExportFmt | null>(null);
+  const [docSize, setDocSize] = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
+  const [preview, setPreview] = useState<{ format: ExportFmt; rows: ReturnType<typeof buildReportRows>; meta: ExportMeta; title: string; fileBlob?: Blob; fileName?: string } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -94,23 +103,48 @@ function StatReportExportMenu({
     const title = 'Statistical Report';
     const dateRange = dateFrom || dateTo
       ? `${dateFrom || 'all time'} to ${dateTo || 'all time'}`
-      : undefined;
+      : 'All dates';
     const meta: ExportMeta = {
       reportName: title,
       dateRange,
+      dateBasis: 'Delivery Date cohort and completion Time Out (Asia/Manila)',
       generatedByName: currentUserName,
       generatedByRole: currentUserRole,
     };
     try {
-      if (fmt === 'csv')   downloadCSV(rows, REPORT_COLUMNS, 'mg-statistical-report', meta);
-      if (fmt === 'excel') await downloadExcel(rows, REPORT_COLUMNS, 'Statistical Report', 'mg-statistical-report', meta);
-      if (fmt === 'pdf')   await downloadPDF(rows, REPORT_COLUMNS, title, 'mg-statistical-report', meta, false);
-      if (fmt === 'docx')  await downloadDocx(rows, REPORT_COLUMNS, title, `mg-statistical-report-${new Date().toISOString().split('T')[0]}`, meta);
+      const stamp = new Date().toISOString().split('T')[0];
+      let fileBlob: Blob;
+      let fileName = `mg-statistical-report-${stamp}.${fmt === 'excel' ? 'xlsx' : fmt}`;
+      if (fmt === 'csv') fileBlob = downloadCSV(rows, REPORT_COLUMNS, 'mg-statistical-report', meta, undefined, true) as Blob;
+      else if (fmt === 'excel') fileBlob = await downloadExcel(rows, REPORT_COLUMNS, 'Statistical Report', 'mg-statistical-report', meta, undefined, docSize, true) as Blob;
+      else if (fmt === 'pdf') fileBlob = await downloadPDF(rows, REPORT_COLUMNS, title, 'mg-statistical-report', meta, false, undefined, docSize, true) as Blob;
+      else { fileBlob = await downloadDocx(rows, REPORT_COLUMNS, title, `mg-statistical-report-${stamp}`, meta, undefined, undefined, undefined, docSize, true) as Blob; fileName = `mg-statistical-report-${stamp}.docx`; }
+      setPreview({ format: fmt, rows, meta, title, fileBlob, fileName });
     } catch (err) {
       console.error('Statistical report export failed:', err);
     } finally {
       setLoading(null);
     }
+  };
+
+  const closePreview = useCallback(() => setPreview(null), []);
+  const downloadPreview = async () => {
+    if (!preview) return;
+    const { format: fmt, rows, meta, title } = preview;
+    setLoading(fmt);
+    try {
+      if (preview.fileBlob) {
+        downloadBlob(preview.fileBlob, preview.fileName ?? 'mg-statistical-report.xlsx');
+        return;
+      }
+      if (fmt === 'csv') downloadCSV(rows, REPORT_COLUMNS, 'mg-statistical-report', meta);
+      if (fmt === 'excel') await downloadExcel(rows, REPORT_COLUMNS, 'Statistical Report', 'mg-statistical-report', meta, undefined, docSize);
+      if (fmt === 'pdf') await downloadPDF(rows, REPORT_COLUMNS, title, 'mg-statistical-report', meta, false, undefined, docSize);
+      if (fmt === 'docx') await downloadDocx(rows, REPORT_COLUMNS, title, `mg-statistical-report-${new Date().toISOString().split('T')[0]}`, meta, undefined, undefined, undefined, docSize);
+    } catch (err) {
+      console.error('Statistical report export failed:', err);
+      throw err;
+    } finally { setLoading(null); }
   };
 
   const isLoading = loading !== null;
@@ -133,18 +167,34 @@ function StatReportExportMenu({
         {!isLoading && <ChevronDown className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />}
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg py-1 min-w-max">
-          {options.map(opt => (
-            <button
-              key={opt.fmt}
-              onClick={() => run(opt.fmt)}
-              className={`w-full flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold transition-colors cursor-pointer ${opt.color}`}
-            >
-              {opt.icon} {opt.label}
-            </button>
-          ))}
+        <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg p-3 min-w-[220px]">
+          <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={isLoading} />
+          <div className="flex flex-col -mx-3">
+            {options.map(opt => (
+              <button
+                key={opt.fmt}
+                onClick={() => run(opt.fmt)}
+                className={`w-full flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold transition-colors cursor-pointer ${opt.color}`}
+              >
+                {opt.icon} {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
+      {preview && <ExportPreviewDialog
+        format={preview.format as ExportPreviewFormat}
+        variant="current"
+        rows={preview.rows}
+        columns={REPORT_COLUMNS}
+        meta={preview.meta}
+        title={preview.title}
+        documentSize={docSize}
+        excelBlob={preview.format === 'excel' ? preview.fileBlob : undefined}
+        fileBlob={preview.fileBlob}
+        onClose={closePreview}
+        onDownload={downloadPreview}
+      />}
     </div>
   );
 }
@@ -156,6 +206,19 @@ export default function StatisticalReportView({ currentUserName = '', currentUse
   const [status,    setStatus]    = useState('');
   const [driver,    setDriver]    = useState('');
   const [area,      setArea]      = useState('');
+  const access = usePermissions();
+  const reportCategories = CATEGORIES.filter(value => access.canCategory(value));
+  const filterOptions = useQuery({
+    queryKey: ['reports', 'filter-options', reportCategories],
+    enabled: access.canAccess('statistical_reports') && reportCategories.length > 0,
+    queryFn: async () => {
+      const options = await Promise.all(reportCategories.map(value => api.getRecordFilterOptions(value)));
+      const unique = (values: string[]) => [...new Set(values.filter(value => value.trim()))].sort((a, b) => a.localeCompare(b));
+      return { drivers: unique(options.flatMap(value => value.drivers)), areas: unique(options.flatMap(value => value.areas)) };
+    },
+    staleTime: 30_000,
+  });
+
 
   const [data,    setData]    = useState<ApiReportSummary | null>(null);
   const [loading, setLoading] = useState(false);
@@ -169,8 +232,8 @@ export default function StatisticalReportView({ currentUserName = '', currentUse
     setError(null);
     try {
       const result = await api.getReportSummary({
-        dateFrom:  dateFrom  || undefined,
-        dateTo:    dateTo    || undefined,
+        deliveryDateFrom: dateFrom || undefined,
+        deliveryDateTo:   dateTo   || undefined,
         category:  category  || undefined,
         status:    status    || undefined,
         driver:    driver    || undefined,
@@ -190,37 +253,28 @@ export default function StatisticalReportView({ currentUserName = '', currentUse
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">
-            <BarChart2 className="w-5 h-5 text-[#0078C1]" />
-            Statistical Report
-          </h2>
-          <p className="text-xs text-slate-400 mt-0.5">On-demand delivery record summary with filters</p>
-        </div>
-        {data && (
-          <StatReportExportMenu
-            data={data}
-            dateFrom={dateFrom}
-            dateTo={dateTo}
-            currentUserName={currentUserName}
-            currentUserRole={currentUserRole}
-          />
-        )}
-      </div>
-
+    <div className="space-y-4">
       {/* Filter bar */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Filters</p>
+      <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-3.5 flex-wrap gap-2">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Filters</p>
+          {data && (
+            <StatReportExportMenu
+              data={data}
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              currentUserName={currentUserName}
+              currentUserRole={currentUserRole}
+            />
+          )}
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
           <div>
-            <label className={labelCls}>Date From</label>
+            <label className={labelCls}>Delivery Date From (Manila)</label>
             <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className={inputCls} />
           </div>
           <div>
-            <label className={labelCls}>Date To</label>
+            <label className={labelCls}>Delivery Date To (Manila)</label>
             <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={inputCls} />
           </div>
           <div>
@@ -238,14 +292,22 @@ export default function StatisticalReportView({ currentUserName = '', currentUse
             </select>
           </div>
           <div>
-            <label className={labelCls}>Driver</label>
-            <input type="text" value={driver} onChange={e => setDriver(e.target.value)} placeholder="Any driver" className={inputCls} />
+            <label htmlFor="report-driver" className={labelCls}>Driver</label>
+            <select id="report-driver" value={driver} onChange={e => setDriver(e.target.value)} disabled={filterOptions.isLoading || filterOptions.isError} className={inputCls}>
+              <option value="">All drivers</option>
+              {filterOptions.data?.drivers.map(value => <option key={value} value={value}>{value}</option>)}
+            </select>
           </div>
           <div>
-            <label className={labelCls}>Area</label>
-            <input type="text" value={area} onChange={e => setArea(e.target.value)} placeholder="Any area" className={inputCls} />
+            <label htmlFor="report-area" className={labelCls}>Area</label>
+            <select id="report-area" value={area} onChange={e => setArea(e.target.value)} disabled={filterOptions.isLoading || filterOptions.isError} className={inputCls}>
+              <option value="">All areas</option>
+              {filterOptions.data?.areas.map(value => <option key={value} value={value}>{value}</option>)}
+            </select>
           </div>
         </div>
+        {filterOptions.isLoading && <p role="status" className="mt-2 text-xs text-slate-500">Loading Driver and Area options…</p>}
+        {filterOptions.isError && <p role="alert" className="mt-2 text-xs text-red-600">Could not load Driver and Area options. <button type="button" className="underline" onClick={() => void filterOptions.refetch()}>Retry options</button></p>}
         <div className="flex items-center gap-2 mt-4">
           <button
             onClick={handleFetch}
@@ -273,36 +335,41 @@ export default function StatisticalReportView({ currentUserName = '', currentUse
       {data && (
         <div className="space-y-6">
           {/* Summary cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-            <SummaryCard label="Total Records"     value={data.total}            color="border-slate-400"   />
-            <SummaryCard label="Delivered"         value={data.accomplished}     color="border-emerald-500" />
-            <SummaryCard label="On-Hold"           value={data.on_hold}          color="border-red-500"     />
-            <SummaryCard label="Pending"           value={data.pending}          color="border-amber-500"   />
-            <SummaryCard label="Completion Rate"   value={`${data.completion_rate}%`} sub={`${data.accomplished} of ${data.total}`} color="border-blue-500" />
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4">
+            <SummaryCard label="Delivery Date Cohort" value={data.total} sub="Records scheduled in range" />
+            <SummaryCard label="Delivered in Cohort" value={data.accomplished} sub="Current Delivered status" />
+            <SummaryCard
+              label="Completed by Time Out"
+              value={data.completed_in_range}
+              sub={`${dateFrom || dateTo ? 'Selected Manila date range' : 'All dates'}; independent of Status filter`}
+            />
+            <SummaryCard label="On-Hold"           value={data.on_hold}     />
+            <SummaryCard label="Pending"           value={data.pending}   />
+            <SummaryCard label="Delivered Rate" value={`${data.completion_rate}%`} sub="Within Delivery Date cohort" />
           </div>
 
           {/* Breakdown tables */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <BreakdownTable
-              title="By Status"
+              title="By Status (Delivery Date cohort)"
               colA="Status"
               colB="Count"
               rows={data.by_status.map(r => ({ label: r.status, count: r.count }))}
             />
             <BreakdownTable
-              title="By Category"
+              title="By Category (Delivery Date cohort)"
               colA="Category"
               colB="Count"
               rows={data.by_category.map(r => ({ label: r.category, count: r.count }))}
             />
             <BreakdownTable
-              title="Top Areas (by volume)"
+              title="Top Areas (Delivery Date cohort)"
               colA="Area"
               colB="Count"
               rows={data.by_area.map(r => ({ label: r.area, count: r.count }))}
             />
             <BreakdownTable
-              title="By Driver"
+              title="By Driver (Delivery Date cohort)"
               colA="Driver"
               colB="Count"
               rows={data.by_driver.map(r => ({ label: r.driver, count: r.count }))}

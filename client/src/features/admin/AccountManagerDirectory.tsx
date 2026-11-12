@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { Users, TrendingUp, CheckCircle2, Clock, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { DeliveryRecord } from '@/types';
+import { useAmSummaryQuery, usePagedRecordsQuery } from '@/api/queries/useRecordsQuery';
+import { useClampRecordPage } from '@/api/queries/useOperationalViews';
+import RecordPageControls from '@/components/RecordPageControls';
 
 interface Props {
   records: DeliveryRecord[];
@@ -16,6 +19,7 @@ interface AmStats {
   rescheduled: number;
   scheduled: number;
   companies: Set<string>;
+  companyCount: number;
   records: DeliveryRecord[];
 }
 
@@ -35,22 +39,51 @@ export default function AccountManagerDirectory({ records, onNavigate }: Props) 
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'name' | 'total' | 'delivered'>('total');
 
-  // Aggregate per AM
+  const summaryQuery = useAmSummaryQuery();
+  const serverSummary = summaryQuery.data;
+  const [recordPage, setRecordPage] = useState(1);
+  const history = usePagedRecordsQuery({ account_manager_exact: expanded ?? undefined, page: recordPage, limit: 25 }, !!expanded);
+  useClampRecordPage(recordPage, history.data?.total, setRecordPage);
+
+  // Aggregate per AM (using server-side aggregation when available)
   const amMap: Record<string, AmStats> = {};
-  for (const r of records) {
-    const am = r.account_manager || 'Unknown';
-    if (!amMap[am]) {
-      amMap[am] = { name: am, total: 0, delivered: 0, pending: 0, onHold: 0, rescheduled: 0, scheduled: 0, companies: new Set(), records: [] };
+  if (serverSummary && serverSummary.length > 0) {
+    for (const item of serverSummary) {
+      amMap[item.name] = {
+        name: item.name,
+        total: item.total,
+        delivered: item.delivered,
+        pending: item.pending,
+        onHold: item.onHold,
+        rescheduled: item.rescheduled,
+        scheduled: item.scheduled,
+        companies: new Set(item.companies),
+        companyCount: item.company_count ?? item.companies.length,
+        records: [],
+      };
     }
-    const s = amMap[am];
-    s.total++;
-    s.records.push(r);
-    s.companies.add(r.company_name);
-    if (r.status === 'Delivered')    s.delivered++;
-    else if (r.status === 'Pending') s.pending++;
-    else if (r.status === 'On-Hold') s.onHold++;
-    else if (r.status === 'Rescheduled') s.rescheduled++;
-    else if (r.status === 'Scheduled')   s.scheduled++;
+    for (const r of records) {
+      const am = r.account_manager || 'Unknown';
+      if (amMap[am]) {
+        amMap[am].records.push(r);
+      }
+    }
+  } else {
+    for (const r of records) {
+      const am = r.account_manager || 'Unknown';
+      if (!amMap[am]) {
+        amMap[am] = { name: am, total: 0, delivered: 0, pending: 0, onHold: 0, rescheduled: 0, scheduled: 0, companies: new Set(), companyCount: 0, records: [] };
+      }
+      const s = amMap[am];
+      s.total++;
+      s.records.push(r);
+      s.companies.add(r.company_name); s.companyCount = s.companies.size;
+      if (r.status === 'Delivered')    s.delivered++;
+      else if (r.status === 'Pending') s.pending++;
+      else if (r.status === 'On-Hold') s.onHold++;
+      else if (r.status === 'Rescheduled') s.rescheduled++;
+      else if (r.status === 'Scheduled')   s.scheduled++;
+    }
   }
 
   const ams = Object.values(amMap).sort((a, b) => {
@@ -65,16 +98,11 @@ export default function AccountManagerDirectory({ records, onNavigate }: Props) 
   const totalOnHold    = ams.reduce((s, a) => s + a.onHold, 0);
 
   return (
-    <div className="space-y-6" id="am-directory-view">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900">Account Manager Directory</h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {totalAMs} active account managers · derived from current delivery records
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+    <div className="space-y-4" id="am-directory-view">
+      {summaryQuery.isPending && <p role="status" className="text-sm text-slate-600">Loading account manager totals…</p>}
+      {summaryQuery.error && <p role="alert" className="text-sm text-red-700">Could not load account manager totals. <button type="button" className="underline" onClick={() => void summaryQuery.refetch()}>Retry</button></p>}
+      {/* Sort Controls */}
+      <div className="flex items-center justify-end gap-2 flex-wrap">
           <span className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">Sort by:</span>
           {(['total', 'delivered', 'name'] as const).map(s => (
             <button
@@ -89,7 +117,6 @@ export default function AccountManagerDirectory({ records, onNavigate }: Props) 
               {s}
             </button>
           ))}
-        </div>
       </div>
 
       {/* Summary KPIs */}
@@ -119,7 +146,7 @@ export default function AccountManagerDirectory({ records, onNavigate }: Props) 
             <div key={am.name} className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
               {/* Card header */}
               <button
-                onClick={() => setExpanded(isExpanded ? null : am.name)}
+                onClick={() => (() => { setRecordPage(1); setExpanded(isExpanded ? null : am.name); })()}
                 className="w-full flex items-center gap-4 px-6 py-5 hover:bg-slate-50 transition-colors cursor-pointer text-left"
               >
                 <div className="w-12 h-12 rounded-xl bg-[#1F3864] text-white font-black text-base flex items-center justify-center shrink-0">
@@ -127,7 +154,7 @@ export default function AccountManagerDirectory({ records, onNavigate }: Props) 
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-black text-slate-900 text-base">{am.name}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">{am.companies.size} compan{am.companies.size === 1 ? 'y' : 'ies'} · {am.total} records</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{am.companyCount} compan{am.companyCount === 1 ? 'y' : 'ies'} · {am.total} records</p>
                 </div>
 
                 {/* Mini stats — always visible */}
@@ -174,13 +201,11 @@ export default function AccountManagerDirectory({ records, onNavigate }: Props) 
                   <div className="px-6 py-2.5 flex items-center gap-2 border-b border-slate-100">
                     <TrendingUp className="w-3.5 h-3.5 text-slate-400" />
                     <span className="text-xs font-black text-slate-500 uppercase tracking-widest">
-                      All Records ({am.records.length})
+                      All Records ({am.total})
                     </span>
                   </div>
                   <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
-                    {am.records
-                      .sort((a, b) => b.delivery_date.localeCompare(a.delivery_date))
-                      .map(r => (
+                    {(history.data?.rows ?? []).map(r => (
                         <button
                           key={r.id}
                           onClick={() => onNavigate(CATEGORY_SCREEN[r.category] ?? 'deliveries', r.id)}
@@ -201,6 +226,8 @@ export default function AccountManagerDirectory({ records, onNavigate }: Props) 
                         </button>
                       ))}
                   </div>
+                  <RecordPageControls page={recordPage} total={history.data?.total ?? 0} onPageChange={setRecordPage}
+                    loading={history.isPending} error={history.error} retry={() => void history.refetch()} />
                 </div>
               )}
             </div>

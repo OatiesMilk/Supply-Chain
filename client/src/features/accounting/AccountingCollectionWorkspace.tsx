@@ -1,15 +1,30 @@
+import { usePermissions } from '@/hooks/usePermissions';
+import { ReturnToDraftDialog } from '@/features/deliveries/ReturnToDraftDialog';
+import { selectableStatuses, canRecordTimeIn, isDraftRecord, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
+import { completionError } from '@/utils/podRequirement';
+import { podAttachmentsKey, usePodAttachments } from '@/api/queries/usePodAttachments';
+import { operationalSyncOptions } from '@/api/queries/operationalSync';
+import { useQuery } from '@tanstack/react-query';
+import { PodAttachmentList } from '@/components/PodAttachmentPreview';
+import { useRecordTimeInMutation, useUpdateRecordMutation } from '@/api/queries/useRecordsQuery';
+import PodUploader from '@/components/PodUploader';
+import CommentComposer from '@/components/CommentComposer';
+import { CompanyHistoryButton } from '@/components/CompanyHistoryPanel';
+import { useUIStore } from '@/store/uiStore';
 import { useState, useEffect, useRef } from 'react';
 import {
   ArrowLeft, ChevronLeft, ChevronRight,
   ClipboardList, History, ShieldCheck, FolderOpen,
   FileText, Shield, Paperclip, Lock, Loader2, AlertTriangle,
-  CheckCircle2, Check, MessageSquare, Send
+  CheckCircle2, Check, MessageSquare
 } from 'lucide-react';
 import { DeliveryRecord, UserRole, DeliveryStatus } from '@/types';
 import { acStatusLabel, DELIVERY_STATUSES } from '@/data';
 import { api, ApiAuditEntry, ApiComment } from '@/api';
 import ExportMenu from '@/components/ExportMenu';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, fmtDate, fmtDatetime, fmtStatus } from '@/utils/export';
+import { useWorkspaceDraft, useWorkspaceNavigation } from '@/features/deliveries/WorkspaceDrafts';
+import { notify } from '@/utils/notify';
 
 interface AccountingCollectionWorkspaceProps {
   record: DeliveryRecord;
@@ -19,7 +34,7 @@ interface AccountingCollectionWorkspaceProps {
   onBack: () => void;
   onVerifyCollection: (id: string) => Promise<void>;
   onNavigateToRecord: (id: string) => void;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
 }
 
 type TabId = 'overview' | 'timeline' | 'verification' | 'documents';
@@ -85,6 +100,7 @@ const AUDIT_SKIP_FIELDS = new Set([
   'id', 'company_id', 'customer_id', 'created_by_id',
   'created_at', 'updated_at', 'created_by', 'modified_by', 'modified_at',
   'document_attachment', 'attachments', 'output_actions_log', 'email_notification_sent',
+  'linked_collection', 'linked_collection_id',
 ]);
 
 function shouldSkipAuditField(key: string): boolean {
@@ -97,11 +113,46 @@ function auditFieldLabel(key: string): string {
 }
 
 function isEmptyAuditValue(v: unknown): boolean {
-  return v === null || v === undefined || v === '' || v === false;
+  return v === null || v === undefined || v === '' || v === false || (Array.isArray(v) && v.length === 0);
 }
 
 function formatAuditValue(v: unknown): string {
-  return isEmptyAuditValue(v) ? '—' : String(v);
+  if (isEmptyAuditValue(v)) return '—';
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v) && Number.isFinite(Date.parse(v))) return formatTs(v);
+  if (Array.isArray(v)) {
+    if (v.every(item => typeof item === 'string' || typeof item === 'number')) return v.join(', ');
+    const formatted = v.map(item => {
+      if (item && typeof item === 'object') {
+        const sku = (item as any).sku || (item as any).description;
+        const qty = (item as any).quantity;
+        if (sku !== undefined && qty !== undefined) return `${sku} × ${qty}`;
+        if (sku !== undefined) return String(sku);
+        if ('name' in (item as any) && typeof (item as any).name === 'string') return (item as any).name;
+      }
+      return typeof item === 'object' ? JSON.stringify(item) : String(item);
+    }).filter(Boolean);
+    return formatted.length > 0 ? formatted.join(', ') : '—';
+  }
+  if (typeof v === 'object' && v !== null) {
+    if ('name' in (v as any) && typeof (v as any).name === 'string') return (v as any).name;
+    if ('reference' in (v as any) && typeof (v as any).reference === 'string') return (v as any).reference;
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return '—';
+    }
+  }
+  return String(v);
+}
+
+function normalizeAuditForDiff(key: string, v: unknown): unknown {
+  if (key === 'line_items' && Array.isArray(v)) {
+    return v.map((item: any) => ({
+      sku: typeof item?.sku === 'string' ? item.sku : typeof item?.description === 'string' ? item.description : '',
+      quantity: typeof item?.quantity === 'number' ? item.quantity : parseInt(item?.quantity, 10) || 1,
+    }));
+  }
+  return v;
 }
 
 interface AuditDiffRow {
@@ -123,7 +174,7 @@ function diffAuditEntry(oldVal: unknown, newVal: unknown): AuditDiffRow[] {
       if (shouldSkipAuditField(key)) continue;
       const ov = oldObj[key];
       const nv = newObj[key];
-      if (JSON.stringify(ov) === JSON.stringify(nv)) continue;
+      if (JSON.stringify(normalizeAuditForDiff(key, ov)) === JSON.stringify(normalizeAuditForDiff(key, nv))) continue;
       rows.push({ label: auditFieldLabel(key), oldVal: ov, newVal: nv, hasOld: true });
     }
   } else {
@@ -137,54 +188,61 @@ function diffAuditEntry(oldVal: unknown, newVal: unknown): AuditDiffRow[] {
   return rows;
 }
 
-function ScaffoldTab({ icon: Icon, label, detail }: { icon: typeof FileText; label: string; detail?: string }) {
+function CollectionEvidence({ recordId }: { recordId: string }) {
+  const canRead = usePermissions().canRecord('Accounting Collection');
+  const attachments = useQuery({
+    ...operationalSyncOptions,
+    queryKey: podAttachmentsKey(recordId),
+    queryFn: () => api.getRecordAttachments(recordId),
+    enabled: !!recordId && canRead,
+  });
+
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
-      <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center">
-        <Icon className="w-8 h-8 text-slate-300" />
-      </div>
-      <div>
-        <h3 className="text-base font-bold text-slate-700">{label}</h3>
-        <p className="text-sm text-slate-400 mt-1 max-w-sm">
-          {detail ?? `This section is under development. ${label} data will appear here once the module is connected.`}
-        </p>
-      </div>
-    </div>
+    <section aria-label="Saved collection evidence" className="space-y-3 rounded-xl border border-slate-200 bg-white p-5">
+      <h3 className="flex items-center gap-2 text-sm font-bold text-slate-800"><Paperclip className="h-4 w-4" aria-hidden="true" /> Saved collection evidence</h3>
+      {!canRead ? <p className="text-xs text-slate-600">Collection evidence is not available for your account.</p>
+        : attachments.isPending ? <p role="status" className="text-xs text-slate-600">Loading saved collection evidence…</p>
+        : attachments.isError ? <p role="alert" className="text-xs text-red-700">Could not load collection evidence. <button type="button" onClick={() => void attachments.refetch()} className="underline">Retry loading evidence</button></p>
+        : attachments.data.length === 0 ? <p className="text-xs text-slate-600">No saved collection evidence is attached to this record.</p>
+        : <PodAttachmentList key={recordId} files={attachments.data} />}
+    </section>
   );
 }
 
 // ─── Audit Trail Tab ──────────────────────────────────────────────────────────
 function AuditTrailTab({ recordId }: { recordId: string }) {
+  const canComment = usePermissions().canRecord('Accounting Collection', 'COMMENT');
   const [entries, setEntries] = useState<ApiAuditEntry[] | null>(null);
   const [comments, setComments] = useState<ApiComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [commentBody, setCommentBody] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [retry, setRetry] = useState(0);
+  useWorkspaceDraft('comments', !!commentBody, submitting);
 
   useEffect(() => {
     setLoading(true);
     setError(null);
     Promise.all([
-      api.getRecordAudit(recordId),
-      api.getRecordComments(recordId)
+      api.getRecordAudit(recordId).catch(() => { throw new Error('Could not load audit history. Try again.'); }),
+      api.getRecordComments(recordId).catch(() => { throw new Error('Could not load comments. Try again.'); })
     ])
       .then(([audit, cmts]) => { setEntries(audit); setComments(cmts); })
       .catch(e => setError(e.message ?? 'Failed to load audit trail.'))
       .finally(() => setLoading(false));
-  }, [recordId]);
+  }, [recordId, retry]);
 
   const handleSubmitComment = async () => {
     const body = commentBody.trim();
-    if (!body || submitting) return;
+    if (!canComment || !body || submitting) return;
     setSubmitting(true);
     try {
       const created = await api.createRecordComment(recordId, body);
       setComments(prev => [...prev, created]);
       setCommentBody('');
     } catch {
-      // silently fail — user can retry
+      notify.error('Could not send your comment. Your text is kept below; try again.');
     } finally {
       setSubmitting(false);
     }
@@ -200,8 +258,9 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center gap-2 py-20 text-red-600 text-sm">
+      <div role="alert" className="flex flex-wrap items-center justify-center gap-2 py-20 text-red-600 text-sm">
         <AlertTriangle className="w-4 h-4" /> {error}
+        <button type="button" onClick={() => setRetry(value => value + 1)} className="min-h-11 rounded px-3 font-semibold underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700">Retry loading history and comments</button>
       </div>
     );
   }
@@ -290,13 +349,14 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
       <div className="border-t border-slate-200 pt-5">
         <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-2 mb-4 px-2">
           <MessageSquare className="w-3.5 h-3.5 text-[#0078C1]" />
-          Notes & Comments
+          Comments
           {comments.length > 0 && (
             <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
               {comments.length}
             </span>
           )}
         </h4>
+        <p id="accounting-comment-help" className="mb-3 px-2 text-sm text-slate-600">Optional discussion about this record. Comments do not replace the remarks required when making changes.</p>
 
         {/* Existing comments */}
         {comments.length > 0 && (
@@ -319,27 +379,15 @@ function AuditTrailTab({ recordId }: { recordId: string }) {
         )}
 
         {/* New comment input */}
-        <div className="flex items-end gap-2 px-2">
-          <textarea
-            ref={inputRef}
-            value={commentBody}
-            onChange={e => setCommentBody(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSubmitComment();
-            }}
-            placeholder="Add a note or comment… (Ctrl+Enter to send)"
-            rows={2}
-            className="flex-1 text-xs border border-slate-300 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] placeholder:text-slate-400"
-          />
-          <button
-            onClick={handleSubmitComment}
-            disabled={!commentBody.trim() || submitting}
-            className="p-2.5 bg-[#0078C1] text-white rounded-lg hover:bg-[#005fa3] disabled:opacity-40 transition-colors cursor-pointer shrink-0"
-            title="Send comment (Ctrl+Enter)"
-          >
-            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-          </button>
-        </div>
+        <CommentComposer disabled={!canComment}
+          id="accounting-comment-body"
+          describedBy="accounting-comment-help"
+          value={commentBody}
+          onChange={setCommentBody}
+          onSubmit={handleSubmitComment}
+          submitting={submitting}
+          className="px-2"
+        />
       </div>
     </div>
   );
@@ -357,14 +405,16 @@ function VerificationTab({
 }) {
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useWorkspaceDraft('verification', false, verifying);
 
-  const canVerify = currentUserRole === 'TASS' || currentUserRole === 'Admin';
+  const access = usePermissions();
+  const canVerify = currentUserRole === 'TASS' && access.canRecord('Accounting Collection', 'VERIFY_COLLECTION');
 
   if (!canVerify) {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-500">
         <Lock className="w-8 h-8 text-slate-300" />
-        <p className="text-sm">Verification requires TASS or Admin role.</p>
+        <p className="text-sm">Verification requires TASS collection-verification permission.</p>
       </div>
     );
   }
@@ -372,6 +422,7 @@ function VerificationTab({
   if (record.collection_verified) {
     return (
       <div className="max-w-md mx-auto py-10 space-y-4">
+        <CollectionEvidence recordId={record.id} />
         <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5 space-y-2">
           <p className="text-emerald-700 font-black text-sm flex items-center gap-2">
             <CheckCircle2 className="w-5 h-5" /> Collection Verified
@@ -412,6 +463,7 @@ function VerificationTab({
 
   return (
     <div className="max-w-md mx-auto py-10 space-y-4">
+      <CollectionEvidence recordId={record.id} />
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-3">
         <p className="text-sm font-bold text-slate-800 flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-[#0078C1]" /> Collection Verification
@@ -471,21 +523,46 @@ function OverviewTab({
 }: {
   record: DeliveryRecord;
   currentUserRole: UserRole;
-  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => void;
+  onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
 }) {
+  const navigate = useUIStore(s => s.handleNavigate);
   const [updating, setUpdating] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [receivedBy, setReceivedBy] = useState(record.received_by ?? '');
+  const [draftReference, setDraftReference] = useState(record.reference);
+  const [referenceEditVersion, setReferenceEditVersion] = useState(record.edit_version);
+  useEffect(() => { setReceivedBy(record.received_by ?? ''); setDraftReference(record.reference); setReferenceEditVersion(record.edit_version); setStatusError(null); }, [record.id]);
+  const { readiness, uploadStaged } = usePodAttachments(record.id);
+  const timeInMutation = useRecordTimeInMutation();
+  const referenceMutation = useUpdateRecordMutation();
   const [statusRemarks, setStatusRemarks] = useState('');
   const [remarksError, setRemarksError] = useState(false);
-  const canEdit = currentUserRole === 'Sales Coordinator' || currentUserRole === 'Logistics' || currentUserRole === 'Admin';
+  useWorkspaceDraft(
+    'overview',
+    draftReference !== record.reference || !!statusRemarks || receivedBy !== (record.received_by ?? ''),
+    updating
+  );
+  const access = usePermissions();
+  const canEdit = (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Logistics' || currentUserRole === 'Admin') && access.canRecord(record.category, 'WRITE');
+
+  const [returnToDraftOpen, setReturnToDraftOpen] = useState(false);
 
   const handleStatusChange = async (newStatus: DeliveryStatus) => {
-    if (!canEdit || newStatus === record.status || updating) return;
+    if (!canEdit || !access.canRecord(record.category, 'STATUS') || newStatus === 'Delivered' && !access.canRecord(record.category, 'COMPLETE') || newStatus === 'Draft' && !access.canRecord(record.category, 'SUBMIT') || newStatus === record.status || updating) return;
+    if (newStatus === 'Draft') { setReturnToDraftOpen(true); return; }
+    const error = completionError(record, newStatus, receivedBy, readiness);
+    if (error) { setStatusError(error); return; }
+    setStatusError(null);
     if (!statusRemarks.trim()) { setRemarksError(true); return; }
     setRemarksError(false);
     setUpdating(true);
     try {
-      await onUpdateRecord(record.id, { status: newStatus, ...({ status_remarks: statusRemarks.trim() } as any) });
+      await uploadStaged();
+      await onUpdateRecord(record.id, { status: newStatus, ...(newStatus === "Delivered" ? { received_by: receivedBy.trim() } : {}), ...({ status_remarks: statusRemarks.trim() } as any) });
       setStatusRemarks('');
+      notify.success('Collection status updated');
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : 'Could not update the collection.');
     } finally {
       setUpdating(false);
     }
@@ -496,10 +573,30 @@ function OverviewTab({
       {/* Status Update card */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-3">
         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Collection Status</h4>
+        {statusError && <p role="alert" className="text-xs text-red-700">{statusError}</p>}
         {canEdit ? (
           <>
+            {access.canRecord(record.category, 'UPDATE') && isDraftRecord(record) && (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') && <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-700">Reference (required to submit)</label>
+              <input value={draftReference} onChange={e => setDraftReference(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
+              <button type="button" disabled={updating || !statusRemarks.trim() || !draftReference.trim() || draftReference === record.reference} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold disabled:opacity-50"
+                onClick={async () => { setUpdating(true); setStatusError(null); try { const saved = await referenceMutation.mutateAsync({ id: record.id, updates: { reference: draftReference.trim(), remarks: statusRemarks.trim(), expected_edit_version: referenceEditVersion } }); setReferenceEditVersion(saved.edit_version); setStatusRemarks(''); notify.success('Draft reference saved'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not save the draft.'); } finally { setUpdating(false); } }}>Save Draft Reference</button>
+            </div>}
+            {record.status !== 'Delivered' && <>
+              <PodUploader recordId={record.id} required disabled={updating} />
+              <label className="block text-xs font-bold text-slate-700">Received By *</label>
+              <input value={receivedBy} onChange={e => setReceivedBy(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
+              {access.canRecord(record.category, 'TIME_IN') && canRecordTimeIn(record) && (currentUserRole === 'Logistics' || currentUserRole === 'Admin') && <button type="button" disabled={updating || !statusRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs text-white disabled:opacity-50"
+                onClick={async () => { setUpdating(true); setStatusError(null); try { await timeInMutation.mutateAsync({ id: record.id, remarks: statusRemarks.trim() }); setStatusRemarks(''); notify.success('Time In recorded'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not record Time In.'); } finally { setUpdating(false); } }}>Record Time In</button>}
+              {completionError(record, 'Delivered', receivedBy, readiness) && <p className="text-xs text-slate-600">{completionError(record, 'Delivered', receivedBy, readiness)}</p>}
+            </>}
             <div>
+              <label htmlFor="accounting-change-remarks" className="mb-1 block text-sm font-medium text-slate-700">Remarks — reason for change (required)</label>
+              <p id="accounting-change-remarks-help" className="mb-2 text-xs text-slate-600">Explain why you are making this change. The reason is saved with your name in the record history.</p>
               <textarea
+                id="accounting-change-remarks"
+                aria-describedby="accounting-change-remarks-help"
+                required
                 value={statusRemarks}
                 onChange={e => { setStatusRemarks(e.target.value); if (remarksError && e.target.value.trim()) setRemarksError(false); }}
                 rows={2}
@@ -509,24 +606,30 @@ function OverviewTab({
               {remarksError && <p className="text-[11px] text-red-600 font-semibold mt-1">Remarks are required to change status.</p>}
             </div>
             <div className="flex flex-wrap gap-2">
-              {DELIVERY_STATUSES.map(s => {
+              {selectableStatuses(record, currentUserRole).map(s => {
                 const isActive = record.status === s;
                 return (
                   <button
                     key={s}
                     onClick={() => handleStatusChange(s)}
-                    disabled={isActive || updating}
+                    disabled={isActive || updating || !access.canRecord(record.category, 'STATUS') || (s === 'Delivered' && !access.canRecord(record.category, 'COMPLETE')) || (s === 'Draft' && !access.canRecord(record.category, 'SUBMIT')) || !!completionError(record, s, receivedBy, readiness)}
                     className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all disabled:cursor-default ${
                       isActive
                         ? (STATUS_ACTIVE[s] ?? 'bg-slate-700 text-white border-slate-700')
                         : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50 hover:border-slate-400'
                     } ${updating && !isActive ? 'opacity-50' : ''}`}
                   >
-                    {acStatusLabel(s)}
+                    {s === "Scheduled" && isDraftRecord(record) ? "Submit" : s === "Draft" ? "Return to Draft" : acStatusLabel(s)}
                   </button>
                 );
               })}
             </div>
+            <ReturnToDraftDialog
+              record={record}
+              open={returnToDraftOpen}
+              onDismiss={() => setReturnToDraftOpen(false)}
+              onSubmit={async reason => { await onUpdateRecord(record.id, { status: 'Draft', remarks: reason }); notify.success('Record returned to Draft'); }}
+            />
           </>
         ) : (
           <span className={`inline-flex px-2.5 py-1 rounded-full border text-[10px] font-semibold tracking-wide ${STATUS_COLOR[record.status] ?? 'bg-slate-50 text-slate-700 border-slate-200'}`}>
@@ -548,8 +651,17 @@ function OverviewTab({
           <span className={`px-2.5 py-1 rounded-full border text-[10px] font-semibold ${PRIORITY_COLOR[record.priority] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}>
             Priority: {record.priority}
           </span>
+          {isPriorityLocked(record) && <span className="text-[11px] text-slate-500">{PRIORITY_LOCKED_NOTE}</span>}
         </div>
-        <p className="text-sm font-bold text-slate-700 mb-3">{record.company_name}</p>
+        <div className="text-sm font-bold text-slate-700 mb-3">
+          <CompanyHistoryButton
+            companyId={record.company_id}
+            companyName={record.company_name}
+            currentRecordId={record.id}
+            disabled={updating}
+            onOpenRecord={navigate}
+          />
+        </div>
         {record.amount != null && (
           <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3">
             <div>
@@ -580,12 +692,14 @@ function OverviewTab({
           <p className={`text-xs font-black uppercase tracking-wider mb-0.5 ${
             record.status === 'Delivered' ? 'text-emerald-700' : 'text-amber-700'
           }`}>
-            Collection Status: {acStatusLabel(record.status)}
+            Collection Status: {acStatusLabel(record.status)}{record.collection_verified ? ' · Collection Verified' : ''}
           </p>
           <p className={`text-[11px] ${record.status === 'Delivered' ? 'text-emerald-600' : 'text-amber-600'}`}>
-            {record.status === 'Delivered'
-              ? 'Collection confirmed. Verification is now available.'
-              : 'Collection has not been marked Collected yet. Verification cannot proceed until the collection is confirmed.'}
+            {record.collection_verified
+              ? `Collection verified${record.collection_verified_by ? ` by ${record.collection_verified_by}` : ''}${record.collection_verified_at ? ` at ${formatTs(record.collection_verified_at)}` : ''}.`
+              : record.status === 'Delivered'
+                ? 'Collection confirmed. Verification is now available.'
+                : 'Collection has not been marked Collected yet. Verification cannot proceed until the collection is confirmed.'}
           </p>
           {record.driver && (
             <p className="text-[10px] text-slate-500 mt-1 font-semibold">
@@ -606,7 +720,7 @@ function OverviewTab({
             { label: 'Driver',          value: record.driver || 'Unassigned' },
             { label: 'Account Manager', value: record.account_manager },
             { label: 'Delivery Date',   value: record.delivery_date },
-            { label: 'Date & Time',     value: record.date_time ? formatTs(record.date_time) : '—' },
+            { label: 'Created At',      value: record.created_at ? formatTs(record.created_at) : '—' },
             { label: 'Item Type',       value: record.item_type },
             { label: 'Draft',           value: record.is_draft },
           ].map(row => (
@@ -662,6 +776,19 @@ export default function AccountingCollectionWorkspace({
   onUpdateRecord,
 }: AccountingCollectionWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const { requestLeave, pending } = useWorkspaceNavigation();
+  const navigationNonce = useUIStore(s => s.navigationNonce);
+  const currentScreen = useUIStore(s => s.currentScreen);
+  const selectedRecordId = useUIStore(s => s.selectedRecordId);
+  const initialNavigationNonce = useRef(navigationNonce);
+
+  useEffect(() => {
+    if (navigationNonce === initialNavigationNonce.current) return;
+    initialNavigationNonce.current = navigationNonce;
+
+    if (currentScreen !== 'accounting_collection' || selectedRecordId) return;
+    requestLeave(onBack);
+  }, [navigationNonce, currentScreen, selectedRecordId, requestLeave, onBack]);
 
   const currentIndex = allRecordIds.indexOf(record.id);
   const prevId = currentIndex > 0 ? allRecordIds[currentIndex - 1] : null;
@@ -682,7 +809,7 @@ export default function AccountingCollectionWorkspace({
           />
         );
       case 'documents':
-        return <ScaffoldTab icon={Paperclip} label="Documents & Attachments" />;
+        return <CollectionEvidence recordId={record.id} />;
       default:
         return null;
     }
@@ -694,7 +821,8 @@ export default function AccountingCollectionWorkspace({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
         <div className="flex items-center gap-3 min-w-0">
           <button
-            onClick={onBack}
+            onClick={() => requestLeave(onBack)}
+            disabled={pending}
             className="flex items-center gap-1.5 text-[#0078C1] hover:text-[#1F3864] text-xs font-semibold transition-colors shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />

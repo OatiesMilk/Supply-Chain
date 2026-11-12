@@ -1,0 +1,13 @@
+{
+  "id": "RUN-20261016-02",
+  "status": "BLOCKED",
+  "revision": "713e895",
+  "branch": "fix/api-qa-major-remediation",
+  "results": [
+    {
+      "file": "api",
+      "status": "BLOCKED",
+      "reason": "Missing runtime variables: UAT_PASSWORD_SC, UAT_PASSWORD_LOGISTICS, UAT_PASSWORD_TASS, UAT_PASSWORD_ADMIN, UAT_PASSWORD_DRIVER"
+    }
+  ]
+}

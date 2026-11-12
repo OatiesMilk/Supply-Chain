@@ -1,18 +1,20 @@
 import { prisma } from '../db';
+import type { PrismaClient } from '@prisma/client';
 
 export async function notifyRole(
   role: string,
   title: string,
   message: string,
   recordId?: string,
-  recordType?: string
+  recordType?: string,
+  db: Pick<PrismaClient, 'user' | 'notification'> = prisma
 ) {
-  const users = await prisma.user.findMany({
+  const users = await db.user.findMany({
     where: { role, isActive: true },
     select: { id: true }
   });
   if (users.length === 0) return;
-  await prisma.notification.createMany({
+  await db.notification.createMany({
     data: users.map(u => ({
       userId: u.id,
       title,

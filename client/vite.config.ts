@@ -2,6 +2,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
+import { vendorChunk } from './config/vendorChunks';
 
 export default defineConfig(() => {
   return {
@@ -9,6 +10,13 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
+      },
+    },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: vendorChunk,
+        },
       },
     },
     server: {
@@ -19,7 +27,7 @@ export default defineConfig(() => {
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
       // Proxy API calls to the separate Express + Prisma backend (server/,
       // run with `cd server && npm run dev`, default port 4000). Proxying
-      // keeps /api/* same-origin from the browser's perspective, so the
+      // keeps /api/v1/* same-origin from the browser's perspective, so the
       // backend's httpOnly session cookie is sent/received without any CORS
       // or SameSite cookie complications in local dev.
       proxy: {

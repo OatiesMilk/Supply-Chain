@@ -7,24 +7,34 @@ interface OutputActionsPanelProps {
   onChange: (patch: Partial<OutputActionConfig>) => void;
 }
 
-const TOGGLES: { key: keyof OutputActionConfig; label: string }[] = [
-  { key: 'notifyAM', label: 'Notify AM' },
-  { key: 'notifyLogistics', label: 'Notify Logistics' },
-  { key: 'notifyTASS', label: 'Notify TASS' },
-  { key: 'exportPDF', label: 'Export to PDF' }
+type NotifyKey = 'notifyAM' | 'notifyLogistics' | 'notifyTASS';
+
+const NOTIFY_ROLES: { key: NotifyKey; label: string }[] = [
+  { key: 'notifyAM', label: 'AM' },
+  { key: 'notifyLogistics', label: 'Logistics' },
+  { key: 'notifyTASS', label: 'TASS' }
 ];
+
+const NOTIFY_ALL: Pick<OutputActionConfig, NotifyKey> = { notifyAM: true, notifyLogistics: true, notifyTASS: true };
+const NOTIFY_NONE: Pick<OutputActionConfig, NotifyKey> = { notifyAM: false, notifyLogistics: false, notifyTASS: false };
 
 // A small configurable "leave the system" panel per IPO process-output event.
 // Toggling here changes the shared, app-wide default for this trigger going
 // forward - it is genuinely configuration, not a one-off per-click choice.
+//
+// Notifications are opt-out: every role is notified unless it is ticked here.
+// The stored config keeps its positive notify* flags, so a ticked box means
+// the matching flag is false.
 export default function OutputActionsPanel({ trigger, config, onChange }: OutputActionsPanelProps) {
-  const toggle = (key: keyof OutputActionConfig) => {
-    if (key === 'internalOnly') {
-      onChange({ internalOnly: !config.internalOnly, notifyAM: false, notifyLogistics: false, notifyTASS: false, exportPDF: false });
-    } else {
-      onChange({ [key]: !config[key], internalOnly: false } as Partial<OutputActionConfig>);
-    }
-  };
+  const toggleExclusion = (key: NotifyKey) => onChange({ [key]: !config[key], internalOnly: false });
+
+  const toggleExportPDF = () => onChange({ exportPDF: !config.exportPDF, internalOnly: false });
+
+  const toggleInternalOnly = () => onChange(
+    config.internalOnly
+      ? { internalOnly: false, ...NOTIFY_ALL }
+      : { internalOnly: true, ...NOTIFY_NONE, exportPDF: false }
+  );
 
   return (
     <div
@@ -32,18 +42,28 @@ export default function OutputActionsPanel({ trigger, config, onChange }: Output
       id={`output-actions-${trigger.toLowerCase().replace(/\s+/g, '-')}`}
     >
       <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-        <Send className="w-3 h-3" /> Output Actions — When {trigger}
+        <Send className="w-3 h-3" /> Additional Output Actions — When {trigger}
       </p>
-      <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-        {TOGGLES.map(t => (
-          <label key={t.key} className="flex items-center gap-1 text-[10.5px] font-semibold text-slate-600 cursor-pointer">
-            <input type="checkbox" checked={config[t.key] as boolean} onChange={() => toggle(t.key)} className="accent-[#0078C1]" />
-            {t.label}
-          </label>
-        ))}
+      <p className="text-[10.5px] text-slate-500">
+        Select additional email recipients and exports. Automatic workflow notifications are handled separately.
+      </p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <fieldset className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <legend className="float-left mr-3 text-[10.5px] font-bold text-slate-600">Do not notify:</legend>
+          {NOTIFY_ROLES.map(role => (
+            <label key={role.key} className="flex items-center gap-1 text-[10.5px] font-semibold text-slate-600 cursor-pointer">
+              <input type="checkbox" checked={!config[role.key]} onChange={() => toggleExclusion(role.key)} className="accent-[#0078C1]" />
+              {role.label}
+            </label>
+          ))}
+        </fieldset>
+        <label className="flex items-center gap-1 text-[10.5px] font-semibold text-slate-600 cursor-pointer border-l border-slate-300 pl-3">
+          <input type="checkbox" checked={config.exportPDF} onChange={toggleExportPDF} className="accent-[#0078C1]" />
+          Export to PDF
+        </label>
         <label className="flex items-center gap-1 text-[10.5px] font-semibold text-slate-500 cursor-pointer border-l border-slate-300 pl-3">
-          <input type="checkbox" checked={config.internalOnly} onChange={() => toggle('internalOnly')} className="accent-slate-500" />
-          Internal Only
+          <input type="checkbox" checked={config.internalOnly} onChange={toggleInternalOnly} className="accent-slate-500" />
+          Skip additional outputs
         </label>
       </div>
     </div>

@@ -1,11 +1,15 @@
+import RecordStatus from '@/components/RecordStatus';
+import { usePermissions } from '@/hooks/usePermissions';
 import { useState, useMemo, useEffect } from "react";
-import { LayoutGrid, Plus } from "lucide-react";
+import { Layers, Plus } from "lucide-react";
 import { DeliveryRecord, DeliveryCategory, UserRole } from "@/types";
-import { ApiCompany } from "@/api";
+import { ApiCompany, apiUrl, api } from "@/api";
+import { normalizeApiRecord, usePagedRecordsQuery } from "@/api/queries/useRecordsQuery";
 import RecordCreateForm from "@/features/deliveries/RecordCreateForm";
 import AllOpsExportMenu from "@/components/AllOpsExportMenu";
 import { StatusHistoryCounts } from "@/utils/export";
 import { DateSortMode, sortRecordsByDate } from "@/utils/allOpsExport";
+import Pagination, { DEFAULT_PAGE_SIZE } from "@/components/Pagination";
 
 interface MainViewProps {
   records: DeliveryRecord[];
@@ -23,7 +27,7 @@ interface MainViewProps {
       | "modified_at"
       | "email_notification_sent"
     >,
-  ) => void;
+  ) => Promise<DeliveryRecord>;
   effectiveScreens: Set<string>;
 }
 
@@ -44,13 +48,6 @@ const CATEGORY_TO_SCREEN: Record<string, string> = {
   "Sales Orders": "sales_orders",
 };
 
-const STATUS_BADGE: Record<string, string> = {
-  Delivered: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  "On-Hold": "bg-red-50 text-red-700 border-red-200",
-  Rescheduled: "bg-purple-50 text-purple-700 border-purple-200",
-  Pending: "bg-amber-50 text-amber-700 border-amber-200",
-  Scheduled: "bg-blue-50 text-blue-700 border-blue-200",
-};
 
 const FILTER_BUTTONS: { key: FilterKey; label: string }[] = [
   { key: "all", label: "View All Items" },
@@ -69,11 +66,11 @@ function fmtCreatedAt(ts: string): string {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "Asia/Manila",
   });
 }
 
 export default function MainView({
-  records,
   currentUserRole,
   currentUserName,
   onNavigate,
@@ -81,6 +78,7 @@ export default function MainView({
   onCreateRecord,
   effectiveScreens,
 }: MainViewProps) {
+  const access = usePermissions();
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createCategory, setCreateCategory] = useState<DeliveryCategory | null>(
@@ -95,58 +93,43 @@ export default function MainView({
 
   useEffect(() => {
     const params = new URLSearchParams();
-    if (activeFilter !== "all" && activeFilter !== "draft")
-      params.set("status", activeFilter);
+    if (activeFilter !== "all")
+      params.set("status", activeFilter === "draft" ? "Draft" : activeFilter);
+    if (dateFrom) params.set("deliveryDateFrom", dateFrom);
+    if (dateTo) params.set("deliveryDateTo", dateTo);
 
-    fetch(`/api/records/status-history-counts?${params}`, {
-      credentials: "include",
-    })
-      .then((r) => (r.ok ? r.json() : null))
+    api.getStatusHistoryCounts(params)
       .then((data) => setStatusHistoryCounts(data ?? undefined))
       .catch(() => setStatusHistoryCounts(undefined));
-  }, [activeFilter]);
+  }, [activeFilter, dateFrom, dateTo]);
 
   const availableCategories = useMemo<DeliveryCategory[]>(
     () =>
       Object.entries(CATEGORY_TO_SCREEN)
         .filter(([, screen]) => effectiveScreens.has(screen))
         .map(([cat]) => cat as DeliveryCategory)
+        .filter(cat => access.canRecord(cat, 'CREATE'))
         .filter((cat) => !(currentUserRole === "Logistics" && cat === "RMA")),
-    [effectiveScreens, currentUserRole],
+    [effectiveScreens, currentUserRole, access],
   );
 
-  const sorted = useMemo(
-    () =>
-      [...records].sort(
-        (a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-      ),
-    [records],
-  );
-
-  const filtered = useMemo(() => {
-    switch (activeFilter) {
-      case "all":
-        return sorted;
-      case "draft":
-        return sorted.filter((r) => r.is_draft === "Yes");
-      default:
-        return sorted.filter((r) => r.status === activeFilter);
-    }
-  }, [sorted, activeFilter]);
-
-  const displayRecords = useMemo(() => {
-    let result = filtered;
-    if (dateFrom)
-      result = result.filter(
-        (r) => r.delivery_date && r.delivery_date >= dateFrom,
-      );
-    if (dateTo)
-      result = result.filter(
-        (r) => r.delivery_date && r.delivery_date <= dateTo,
-      );
-    return dateFrom || dateTo ? result : sortRecordsByDate(result, sortMode);
-  }, [filtered, dateFrom, dateTo, sortMode]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const query = usePagedRecordsQuery({
+    paged: true, page: currentPage, limit: pageSize,
+    status: activeFilter === 'all' ? undefined : activeFilter === 'draft' ? 'Draft' : activeFilter,
+    dateFrom: dateFrom || undefined, dateTo: dateTo || undefined,
+    dateSort: dateFrom || dateTo ? 'default' : sortMode,
+  });
+  const displayRecords = query.data?.rows ?? [];
+  const paginatedRecords = displayRecords;
+  const totalRecords = query.data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  useEffect(() => { setCurrentPage(1); }, [activeFilter, dateFrom, dateTo, sortMode, pageSize]);
+  useEffect(() => {
+    if (query.data && currentPage > totalPages) setCurrentPage(totalPages);
+  }, [query.data, currentPage, totalPages]);
 
   const handleRowClick = (record: DeliveryRecord) => {
     const screen = CATEGORY_TO_SCREEN[record.category];
@@ -159,36 +142,18 @@ export default function MainView({
     setShowCreateForm(true);
   };
 
-  return (
-    <div className="space-y-5">
-      {/* Page header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-base font-black text-slate-900 leading-tight">
-            Main
-          </h1>
-          <p className="text-[11px] text-slate-400">
-            All delivery records across every module, newest first.
-          </p>
-        </div>
-        <AllOpsExportMenu
-          records={displayRecords}
-          meta={{
-            reportName: "All Operations",
-            generatedByName: currentUserName,
-            generatedByRole: currentUserRole,
-          }}
-          activeFilterLabel={
-            activeFilter !== "all"
-              ? activeFilter === "draft"
-                ? "Draft Records"
-                : activeFilter + " Records"
-              : undefined
-          }
-          statusHistoryCounts={statusHistoryCounts}
-        />
-      </div>
+  const fetchExportData = async () => {
+    const raw = await api.getAllRecordsForExport({
+      status: activeFilter === "all" ? undefined : activeFilter === "draft" ? "Draft" : activeFilter,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
+    });
+    const normalized = raw.map(normalizeApiRecord);
+    return dateFrom || dateTo ? normalized : sortRecordsByDate(normalized, sortMode);
+  };
 
+  return (
+    <div className="space-y-3">
       {/* Filter shortcut buttons + New Delivery */}
       <div className="flex flex-wrap gap-2 items-center">
         {/* New Delivery — separate, not part of the active filter group */}
@@ -256,6 +221,7 @@ export default function MainView({
           <option value="oldest">Oldest First</option>
           <option value="furthest">Furthest Future First</option>
         </select>
+
         {(dateFrom || dateTo || sortMode !== "nearest") && (
           <button
             onClick={() => {
@@ -268,6 +234,30 @@ export default function MainView({
             Clear
           </button>
         )}
+
+        <div className="flex flex-wrap items-center justify-end gap-3 ml-auto">
+          <AllOpsExportMenu
+            records={displayRecords}
+            meta={{
+              reportName: "All Operations",
+              dateRange: dateFrom || dateTo
+                ? `${dateFrom || "earliest"} to ${dateTo || "latest"}`
+                : "All dates",
+              dateBasis: "Delivery Date (Asia/Manila)",
+              generatedByName: currentUserName,
+              generatedByRole: currentUserRole,
+            }}
+            activeFilterLabel={
+              activeFilter !== "all"
+                ? activeFilter === "draft"
+                  ? "Draft Records"
+                  : activeFilter + " Records"
+                : undefined
+            }
+            statusHistoryCounts={statusHistoryCounts}
+            fetchExportData={fetchExportData}
+          />
+        </div>
       </div>
 
       {/* Record count */}
@@ -276,97 +266,111 @@ export default function MainView({
         <span className="font-bold text-slate-700">
           {displayRecords.length}
         </span>{" "}
-        of <span className="font-bold text-slate-700">{records.length}</span>{" "}
-        records
+        of <span className="font-bold text-slate-700">{totalRecords}</span>{" "}
+        matching records
       </p>
 
       {/* Table */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        {displayRecords.length === 0 ? (
+        {query.isError ? (
+          <div role="alert" className="p-5 text-sm text-red-700">Could not load records. <button type="button" className="underline" onClick={() => void query.refetch()}>Retry loading records</button></div>
+        ) : query.isPending ? <p role="status" className="p-5 text-sm text-slate-600">Loading records…</p> : displayRecords.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <LayoutGrid className="w-10 h-10 text-slate-200" />
+            <Layers className="w-10 h-10 text-slate-200" />
             <p className="text-sm text-slate-400">
               No records match this filter.
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full table-auto text-xs">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-left">
-                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
-                    Date Created
-                  </th>
-                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                    Company
-                  </th>
-                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                    Reference
-                  </th>
-                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
-                    Category
-                  </th>
-                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                    Area
-                  </th>
-                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
-                    Account Manager
-                  </th>
-                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
-                    Delivery Date
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {displayRecords.map((record) => (
-                  <tr
-                    key={record.id}
-                    onClick={() => handleRowClick(record)}
-                    className="hover:bg-slate-50 cursor-pointer transition-colors group"
-                  >
-                    <td className="px-4 py-3 whitespace-nowrap text-slate-500 font-mono text-[10px]">
-                      {fmtCreatedAt(record.created_at)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="font-semibold text-slate-800 group-hover:text-[#0078C1] transition-colors line-clamp-1">
-                        {record.company_name}
-                      </span>
-                      <span className="block text-[10px] text-slate-400 font-mono">
-                        {record.id}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                      {record.reference || "—"}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
-                        {record.category}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span
-                        className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold ${STATUS_BADGE[record.status] ?? "bg-slate-50 text-slate-600 border-slate-200"}`}
-                      >
-                        {record.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                      {record.area || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                      {record.account_manager || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                      {record.delivery_date || "—"}
-                    </td>
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full table-auto text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-left">
+                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                      Date Created
+                    </th>
+                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                      Company
+                    </th>
+                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                      Reference
+                    </th>
+                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                      Category
+                    </th>
+                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                      Area
+                    </th>
+                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                      Account Manager
+                    </th>
+                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                      Delivery Date
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {paginatedRecords.map((record) => (
+                    <tr
+                      key={record.id}
+                      onClick={() => handleRowClick(record)}
+                      className="hover:bg-slate-50 cursor-pointer transition-colors group"
+                    >
+                      <td className="px-4 py-3 whitespace-nowrap text-slate-500 font-mono text-[10px]">
+                        {fmtCreatedAt(record.created_at)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="font-semibold text-slate-800 group-hover:text-[#0078C1] transition-colors line-clamp-1">
+                          {record.company_name}
+                        </span>
+                        <span className="block text-[10px] text-slate-400 font-mono">
+                          {record.id}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                        {record.reference || "—"}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                          {record.category}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <RecordStatus record={record} compact />
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                        {record.area || "—"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                        {record.account_manager || "—"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                        {record.delivery_date || "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="border-t border-slate-200">
+              <Pagination
+                currentPage={safeCurrentPage}
+                totalPages={totalPages}
+                totalItems={totalRecords}
+                pageSize={pageSize}
+                onPageChange={setCurrentPage}
+                onPageSizeChange={(newSize) => {
+                  setPageSize(newSize);
+                  setCurrentPage(1);
+                }}
+                pageSizeOptions={[10, 25, 50, 100]}
+              />
+            </div>
+          </>
         )}
       </div>
 

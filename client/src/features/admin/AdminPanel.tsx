@@ -1,232 +1,81 @@
 import React, { useState, useEffect } from 'react';
-import { Users, ClipboardList, UserX, Plus, ChevronLeft, ChevronRight, Loader2, Check, ShieldCheck, RotateCcw, X, Settings2, Send, Pencil, Link2 } from 'lucide-react';
-import { api, ApiUserAdmin, ApiAdminAuditEntry, ApiIntegrationStatus, ApiError } from '@/api';
+import { Users, ClipboardList, UserX, Plus, ChevronLeft, ChevronRight, Loader2, Check, ShieldCheck, X, Settings2, Send, Pencil, Link2, Trash2, Building2, Contact } from 'lucide-react';
+import { api, ApiDriver, ApiUserAdmin, ApiAdminAuditEntry, ApiIntegrationStatus, ApiError, type AccountPolicyVersion } from '@/api';
+import AccountActionsMenu from './AccountActionsMenu';
+import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
+import { ActionDialog } from '@/components/ActionDialog';
+import DashboardFilterChip from '@/components/DashboardFilterChip';
+import { DashboardFilterId } from '@/utils/dashboardFilters';
+import { manilaToday } from '@/utils/recordLifecycle';
 
-type Tab = 'users' | 'audit' | 'integrations';
+import { useAuthStore } from '@/store/authStore';
+import RolesPermissions from './PolicyEditor';
+import PolicyAuditDiff from './PolicyAuditDiff';
+import { accountPolicyVersion, roleChangeVersion } from './accountPolicy';
+import BusinessAuditDiff from './BusinessAuditDiff';
+import type { UserPermissionEditor } from '@/types/permissionEditor';
+import AccountManagersTab from './directory/AccountManagersTab';
+import CompaniesTab from './directory/CompaniesTab';
+import { usePermissions } from '@/hooks/usePermissions';
 
-const ROLE_OPTIONS = ['SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'ADMIN'] as const;
+type Tab = 'users' | 'account_managers' | 'companies' | 'audit' | 'integrations' | 'permissions';
+
+const ROLE_OPTIONS = ['SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'ADMIN', 'DRIVER'] as const;
 const ROLE_LABELS: Record<string, string> = {
   SALES_COORDINATOR: 'Sales Coordinator',
   LOGISTICS: 'Logistics',
   TASS: 'TASS',
-  ADMIN: 'Admin'
+  ADMIN: 'Admin',
+  DRIVER: 'Driver'
 };
 
-const ALL_SCREENS = [
-  'main', 'dashboard', 'deliveries', 'rma', 'accounting_collection',
-  'procurement_pickup', 'sales_orders', 'customers', 'suppliers',
-  'driver', 'driver_manager', 'calendar', 'driver_board', 'am_directory',
-  'transactions', 'inventory', 'data_sampler', 'admin'
-] as const;
-
-const SCREEN_LABELS: Record<string, string> = {
-  main: 'Main',
-  dashboard: 'Dashboard',
-  deliveries: 'Deliveries',
-  rma: 'RMA',
-  accounting_collection: 'Accounting Collection',
-  procurement_pickup: 'Procurement Pick-up',
-  sales_orders: 'Sales Orders',
-  customers: 'Customers',
-  suppliers: 'Suppliers',
-  driver: 'Driver View',
-  driver_manager: 'Driver Manager',
-  calendar: 'Delivery Calendar',
-  driver_board: 'Driver Board',
-  am_directory: 'AM Directory',
-  transactions: 'Transaction Center',
-  inventory: 'SKU Master',
-  data_sampler: 'Data Sampler',
-  admin: 'Admin Panel',
-};
-
-const ROLE_DEFAULT_SCREENS: Record<string, string[]> = {
-  SALES_COORDINATOR: ['main', 'dashboard', 'deliveries', 'rma', 'accounting_collection', 'procurement_pickup', 'sales_orders', 'customers', 'suppliers', 'am_directory', 'transactions', 'inventory'],
-  LOGISTICS:         ['main', 'dashboard', 'deliveries', 'rma', 'accounting_collection', 'procurement_pickup', 'sales_orders', 'customers', 'suppliers', 'driver', 'driver_manager', 'calendar', 'driver_board', 'transactions', 'inventory'],
-  TASS:              ['main', 'dashboard', 'accounting_collection', 'transactions'],
-  ADMIN:             ['main', 'dashboard', 'deliveries', 'rma', 'accounting_collection', 'procurement_pickup', 'sales_orders', 'customers', 'suppliers', 'driver', 'driver_manager', 'admin', 'calendar', 'driver_board', 'am_directory', 'transactions', 'inventory', 'data_sampler'],
-};
-
-interface PermissionsPanelProps {
-  user: ApiUserAdmin;
-  onClose: () => void;
+interface AdminPanelProps {
+  dashboardFilterId: DashboardFilterId | null;
+  clearDashboardFilter: () => void;
 }
 
-function PermissionsPanel({ user, onClose }: PermissionsPanelProps) {
-  const roleDefaults = new Set(ROLE_DEFAULT_SCREENS[user.role] ?? []);
-  const [toggles, setToggles] = useState<Record<string, boolean>>({});
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [savedOk, setSavedOk] = useState(false);
-
-  useEffect(() => {
-    setLoading(true);
-    setError(null);
-    api.getUserPermissions(user.id)
-      .then(({ permissions }) => {
-        const base: Record<string, boolean> = {};
-        for (const s of ALL_SCREENS) base[s] = roleDefaults.has(s);
-        for (const p of permissions) base[p.screen] = p.granted;
-        setToggles(base);
-      })
-      .catch(e => setError(e instanceof ApiError ? e.message : 'Failed to load permissions'))
-      .finally(() => setLoading(false));
-  }, [user.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleSave = async () => {
-    setSaving(true);
-    setError(null);
-    setSavedOk(false);
-    // Only send entries that differ from the role default
-    const overrides = ALL_SCREENS
-      .filter(s => toggles[s] !== roleDefaults.has(s))
-      .map(s => ({ screen: s, granted: toggles[s] }));
-    try {
-      await api.setUserPermissions(user.id, overrides);
-      setSavedOk(true);
-      setTimeout(() => setSavedOk(false), 2000);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Failed to save permissions');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleReset = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      await api.setUserPermissions(user.id, []);
-      const base: Record<string, boolean> = {};
-      for (const s of ALL_SCREENS) base[s] = roleDefaults.has(s);
-      setToggles(base);
-      setSavedOk(true);
-      setTimeout(() => setSavedOk(false), 2000);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Failed to reset permissions');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const inRole = ALL_SCREENS.filter(s => roleDefaults.has(s));
-  const notInRole = ALL_SCREENS.filter(s => !roleDefaults.has(s));
-
-  const ToggleRow: React.FC<{ screen: string }> = ({ screen }) => {
-    const isOn = toggles[screen] ?? roleDefaults.has(screen);
-    const isDefault = isOn === roleDefaults.has(screen);
-    const isAdminLocked = user.role === 'ADMIN' && screen === 'admin';
-    return (
-      <div className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-black/5">
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] font-semibold text-slate-700">{SCREEN_LABELS[screen] ?? screen}</span>
-          {isDefault && (
-            <span className="text-[9px] font-bold text-slate-400 border border-slate-200 rounded-full px-1.5 py-0.5">Default</span>
-          )}
-          {isAdminLocked && (
-            <span className="text-[9px] font-bold text-amber-600 border border-amber-200 rounded-full px-1.5 py-0.5">Locked</span>
-          )}
-        </div>
-        <button
-          type="button"
-          disabled={isAdminLocked || saving}
-          onClick={() => !isAdminLocked && setToggles(prev => ({ ...prev, [screen]: !prev[screen] }))}
-          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${isOn ? 'bg-[#0078C1]' : 'bg-slate-300'} ${isAdminLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-          aria-label={`Toggle ${SCREEN_LABELS[screen]}`}
-        >
-          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${isOn ? 'translate-x-4' : 'translate-x-0.5'}`} />
-        </button>
-      </div>
-    );
-  };
-
-  return (
-    <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-4 text-xs">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="w-4 h-4 text-[#0078C1]" />
-          <h4 className="text-sm font-bold text-slate-800">
-            Module Access — {user.name} <span className="text-slate-400 font-normal">({ROLE_LABELS[user.role] ?? user.role})</span>
-          </h4>
-        </div>
-        <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer">
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-
-      {loading ? (
-        <div className="flex items-center justify-center py-8 text-slate-400 gap-2">
-          <Loader2 className="w-4 h-4 animate-spin" /> Loading permissions…
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Default for role */}
-          <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-3 space-y-0.5">
-            <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider mb-2">Default for role</p>
-            {inRole.map(s => <ToggleRow key={s} screen={s} />)}
-          </div>
-          {/* Not in role */}
-          <div className="bg-slate-100/60 border border-slate-200 rounded-xl p-3 space-y-0.5">
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Not in role</p>
-            {notInRole.map(s => <ToggleRow key={s} screen={s} />)}
-          </div>
-        </div>
-      )}
-
-      {error && (
-        <p className="text-red-600 text-[11px] font-semibold bg-red-50 border border-red-200 rounded px-3 py-2">{error}</p>
-      )}
-
-      <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-200">
-        <button
-          onClick={handleSave} disabled={saving || loading}
-          className="px-4 py-2 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg text-[11px] uppercase flex items-center gap-1.5 disabled:opacity-60 cursor-pointer"
-        >
-          {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : savedOk ? <Check className="w-3 h-3" /> : <Check className="w-3 h-3" />}
-          {savedOk ? 'Saved!' : 'Save Changes'}
-        </button>
-        <button
-          onClick={handleReset} disabled={saving || loading}
-          className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg text-[11px] uppercase flex items-center gap-1.5 disabled:opacity-60 cursor-pointer"
-        >
-          <RotateCcw className="w-3 h-3" /> Reset to Role Default
-        </button>
-        <button
-          onClick={onClose}
-          className="px-4 py-2 text-slate-500 hover:text-slate-700 font-bold text-[11px] uppercase cursor-pointer"
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
-  );
-}
-
-export default function AdminPanel() {
+export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: AdminPanelProps) {
+  const activePermissionMode = useAuthStore(state => state.authUser?.activeMode);
+  const initialAuditDate = dashboardFilterId === 'admin-audit-today' ? manilaToday() : '';
   const [tab, setTab] = useState<Tab>('users');
+  const access = usePermissions();
+  const authRole = useAuthStore(state => state.authUser?.role);
+  // Mirrors the server guards on company and Account Manager writes.
+  const canManageDirectory = authRole === 'ADMIN' && access.canWrite('admin') && access.canResource('admin', 'WRITE') && access.canResource('companies', 'WRITE');
 
   // ── User Management ──────────────────────────────────────────────────────────
   const [users, setUsers] = useState<ApiUserAdmin[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
+  const [usersPage, setUsersPage] = useState(1);
+  const [usersPageSize, setUsersPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [createForm, setCreateForm] = useState({ name: '', email: '', password: '', role: 'SALES_COORDINATOR' });
+  const [createForm, setCreateForm] = useState({ name: '', email: '', password: '', role: 'SALES_COORDINATOR', driver_profile_id: '', microsoft_oid: '' });
+  // DRIVER logins own runs through a linked Driver profile (TSK-100).
+  const [driverProfiles, setDriverProfiles] = useState<ApiDriver[]>([]);
+  const [profilesLoading, setProfilesLoading] = useState(false);
+  const [profilesError, setProfilesError] = useState<string | null>(null);
+  const [linkingUserId, setLinkingUserId] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
-  const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
-  const [activatingId, setActivatingId] = useState<string | null>(null);
+  const [userAction, setUserAction] = useState<{ kind: 'deactivate' | 'activate' | 'delete'; user: ApiUserAdmin } | null>(null);
+  const [userActionLoading, setUserActionLoading] = useState(false);
+  const [userActionError, setUserActionError] = useState<string | null>(null);
+  const [editNotice, setEditNotice] = useState<string | null>(null);
   const [openPermissionsUserId, setOpenPermissionsUserId] = useState<string | null>(null);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: '', email: '', role: '' });
+  const [metadataVersion, setMetadataVersion] = useState('');
+  const [metadataConflict, setMetadataConflict] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
+  const [actionVersion, setActionVersion] = useState<AccountPolicyVersion | null>(null);
+  const [roleReview, setRoleReview] = useState<{ userId: string; form: typeof editForm; editor: UserPermissionEditor } | null>(null);
 
   const loadUsers = async () => {
     setUsersLoading(true);
     setUsersError(null);
     try {
-      const list = await api.getUsers();
-      setUsers(list);
+      setUsers(await api.getUsers());
     } catch (err) {
       setUsersError(err instanceof ApiError ? err.message : 'Failed to load users');
     } finally {
@@ -234,20 +83,100 @@ export default function AdminPanel() {
     }
   };
 
-  useEffect(() => { if (tab === 'users') loadUsers(); }, [tab]);
+  const loadDriverProfiles = async () => {
+    setProfilesLoading(true);
+    setProfilesError(null);
+    try {
+      setDriverProfiles((await api.getDrivers(true)).filter(p => p.type === 'DRIVER'));
+    } catch (err) {
+      setDriverProfiles([]);
+      setProfilesError(err instanceof Error ? err.message : 'Failed to load Driver profiles');
+    } finally {
+      setProfilesLoading(false);
+    }
+  };
+
+  // Legacy account mutations must not depend on candidate V1 policy data.
+  const reviewAccountPolicy = async (userId: string, proposedRole?: string) => {
+    if (activePermissionMode !== 'V1') return undefined;
+    const editor = await api.getUserPermissionEditor(userId, proposedRole);
+    if (editor.activeMode !== 'V1') throw new Error('Permission mode changed. Refresh your permissions before trying again.');
+    return editor;
+  };
+
+  // Profiles a DRIVER login may link to: unlinked ones, plus its current profile.
+  const linkableProfiles = (current?: string | null) =>
+    driverProfiles.filter(p => !p.is_linked || p.id === current);
+
+  const handleDriverLink = async (user: ApiUserAdmin, profileId: string) => {
+    setLinkingUserId(user.id);
+    setEditNotice(null);
+    try {
+      const policy = await reviewAccountPolicy(user.id);
+      const { driver_profile } = await api.setUserDriverProfile(user.id, profileId || null, policy ? accountPolicyVersion(policy) : {});
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, driver_profile } : u));
+      await loadDriverProfiles();
+    } catch (err) {
+      setEditNotice(err instanceof ApiError ? err.message : 'Failed to update the Driver profile link');
+    } finally {
+      setLinkingUserId(null);
+    }
+  };
+
+  useEffect(() => {
+    if (tab === 'users') { void loadUsers(); void loadDriverProfiles(); }
+  }, [tab]);
+
+  useEffect(() => {
+    if (dashboardFilterId === 'admin-active-users') {
+      setTab('users');
+      setAuditAction('');
+      setAuditFrom('');
+      setAuditTo('');
+    } else if (dashboardFilterId === 'admin-audit-today') {
+      const today = manilaToday();
+      setTab('audit');
+      setAuditAction('');
+      setAuditFrom(today);
+      setAuditTo(today);
+      loadAudit(1, auditPageSize, { action: '', from: today, to: today });
+    } else {
+      setAuditFrom('');
+      setAuditTo('');
+      if (dashboardFilterId === null && tab === 'audit') {
+        loadAudit(1, auditPageSize, { action: auditAction, from: '', to: '' });
+      }
+    }
+  }, [dashboardFilterId]); // eslint-disable-line react-hooks/exhaustive-deps -- filter transitions intentionally fetch explicit preset/clear parameters once
+
+  const visibleUsers = dashboardFilterId === 'admin-active-users'
+    ? users.filter(user => user.is_active)
+    : users;
+  const usersPages = Math.max(1, Math.ceil(visibleUsers.length / usersPageSize));
+  const currentUsersPage = Math.min(usersPage, usersPages);
+  const pagedUsers = visibleUsers.slice((currentUsersPage - 1) * usersPageSize, currentUsersPage * usersPageSize);
+
+  useEffect(() => { setUsersPage(1); }, [dashboardFilterId]);
+  useEffect(() => { setUsersPage(page => Math.min(page, usersPages)); }, [usersPages]);
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreateError(null);
     if (!createForm.name || !createForm.email || !createForm.password) {
-      setCreateError('All fields are required');
+      setCreateError('Name, email, and password are required');
       return;
     }
     setCreateLoading(true);
     try {
-      const created = await api.createUser(createForm);
+      const { driver_profile_id, microsoft_oid, ...fields } = createForm;
+      const created = await api.createUser({
+        ...fields,
+        ...(fields.role === 'DRIVER' && driver_profile_id ? { driver_profile_id } : {}),
+        ...(microsoft_oid.trim() ? { microsoft_oid: microsoft_oid.trim() } : {}),
+      });
       setUsers(prev => [...prev, created]);
-      setCreateForm({ name: '', email: '', password: '', role: 'SALES_COORDINATOR' });
+      if (created.role === 'DRIVER') await loadDriverProfiles();
+      setCreateForm({ name: '', email: '', password: '', role: 'SALES_COORDINATOR', driver_profile_id: '', microsoft_oid: '' });
       setShowCreateForm(false);
     } catch (err) {
       setCreateError(err instanceof ApiError ? err.message : 'Failed to create user');
@@ -256,64 +185,118 @@ export default function AdminPanel() {
     }
   };
 
-  const handleDeactivate = async (user: ApiUserAdmin) => {
-    if (!window.confirm(`Deactivate ${user.name} (${user.email})? They will no longer be able to log in.`)) return;
-    setDeactivatingId(user.id);
+  const requestUserAction = async (kind: 'deactivate' | 'activate' | 'delete', user: ApiUserAdmin) => {
+    setUserActionError(null);
+    setUserAction({ kind, user });
+    setActionVersion(null);
+    setUserActionLoading(true);
     try {
-      const updated = await api.deactivateUser(user.id);
-      setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
-    } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Failed to deactivate user');
-    } finally {
-      setDeactivatingId(null);
+      const policy = await reviewAccountPolicy(user.id);
+      setActionVersion(policy ? accountPolicyVersion(policy) : {});
     }
+    catch (err) { setUserActionError(err instanceof Error ? err.message : 'Could not load current account policy'); }
+    finally { setUserActionLoading(false); }
   };
 
-  const handleActivate = async (user: ApiUserAdmin) => {
-    if (!window.confirm(`Reactivate ${user.name} (${user.email})? They will be able to log in again.`)) return;
-    setActivatingId(user.id);
+  const confirmUserAction = async () => {
+    if (!userAction || userActionLoading || !actionVersion) return;
+    const { kind, user } = userAction;
+    setUserActionError(null);
+    setUserActionLoading(true);
     try {
-      const updated = await api.activateUser(user.id);
-      setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
+      if (kind === 'delete') {
+        await api.deleteUser(user.id, actionVersion);
+        setUsers(prev => prev.filter(u => u.id !== user.id));
+      } else {
+        const updated = kind === 'deactivate'
+          ? await api.deactivateUser(user.id, actionVersion)
+          : await api.activateUser(user.id, actionVersion);
+        // Keep the Driver profile link, which this response does not include.
+        setUsers(prev => prev.map(u => u.id === updated.id ? { ...u, ...updated } : u));
+      }
+      setUserAction(null);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Failed to activate user');
+      setUserActionError(err instanceof ApiError ? err.message : `Failed to ${kind} user`);
+      if (err instanceof ApiError && err.status === 409) {
+        setActionVersion(null);
+        setUserActionError(`${err.message}. Cancel and reopen this action to review the latest account before retrying.`);
+      }
     } finally {
-      setActivatingId(null);
+      setUserActionLoading(false);
     }
   };
 
   const startEdit = (u: ApiUserAdmin) => {
     setEditingUserId(u.id);
     setEditForm({ name: u.name, email: u.email, role: u.role });
+    setMetadataVersion(u.metadata_version ?? '');
+    setMetadataConflict(false);
+    setEditNotice(null);
   };
 
-  const handleEditSave = async (userId: string) => {
+  const persistUserEdit = async (userId: string, form: typeof editForm, editor?: UserPermissionEditor) => {
     setEditLoading(true);
     try {
-      const updated = await api.updateUser(userId, editForm);
-      setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
+      const updated = await api.updateUser(userId, { ...form, expectedMetadataVersion: metadataVersion, ...(editor ? roleChangeVersion(editor) : {}) });
+      // Leaving the DRIVER role unlinks the profile on the server.
+      setUsers(prev => prev.map(u => u.id === updated.id
+        ? { ...u, ...updated, driver_profile: u.role === 'DRIVER' && updated.role === 'DRIVER' ? u.driver_profile : null }
+        : u));
       setEditingUserId(null);
+      setRoleReview(null);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Failed to update user');
+      setEditNotice(err instanceof ApiError ? err.message : 'Failed to update user');
+      if (err instanceof ApiError && err.status === 409) { setRoleReview(null); setMetadataConflict(true); }
     } finally {
       setEditLoading(false);
     }
   };
 
+  const loadLatestEditedAccount = async () => {
+    setEditLoading(true);
+    try {
+      const latest = await api.getUsers();
+      const account = latest.find(user => user.id === editingUserId);
+      if (!account?.metadata_version) throw new Error('The latest account could not be loaded. Your draft is retained.');
+      setUsers(latest);
+      setMetadataVersion(account.metadata_version);
+      setMetadataConflict(false);
+      setRoleReview(null);
+      setEditNotice(`Latest saved account: ${account.name} (${account.email}), ${account.role}. Your draft is retained; review it before saving.`);
+    } catch (error) { setEditNotice(error instanceof Error ? error.message : 'Could not load the latest account.'); }
+    finally { setEditLoading(false); }
+  };
+
+  const handleEditSave = async (userId: string) => {
+    setEditLoading(true);
+    try {
+      const editor = await reviewAccountPolicy(userId, editForm.role);
+      if (editor?.roleChange) {
+        setRoleReview({ userId, form: { ...editForm }, editor });
+      } else {
+        await persistUserEdit(userId, { ...editForm }, editor);
+      }
+    } catch (err) {
+      setEditNotice(err instanceof Error ? err.message : 'Could not review account permissions');
+    } finally { setEditLoading(false); }
+  };
+
   // ── Integrations ──────────────────────────────────────────────────────────
   const [integrationStatus, setIntegrationStatus] = useState<ApiIntegrationStatus | null>(null);
   const [integrationLoading, setIntegrationLoading] = useState(false);
+  const [integrationError, setIntegrationError] = useState<string | null>(null);
   const [testEmailAddr, setTestEmailAddr] = useState('');
   const [testEmailResult, setTestEmailResult] = useState<{ ok: boolean; method: string; error?: string | null } | null>(null);
   const [testEmailLoading, setTestEmailLoading] = useState(false);
 
   const loadIntegrationStatus = async () => {
     setIntegrationLoading(true);
+    setIntegrationError(null);
     try {
       const status = await api.getIntegrationStatus();
       setIntegrationStatus(status);
-    } catch {
-      // ignore
+    } catch (err) {
+      setIntegrationError(err instanceof Error ? err.message : 'Failed to load integration status');
     } finally {
       setIntegrationLoading(false);
     }
@@ -339,24 +322,29 @@ export default function AdminPanel() {
   // ── Audit Log ────────────────────────────────────────────────────────────────
   const [auditPage, setAuditPage] = useState(1);
   const [auditAction, setAuditAction] = useState('');
-  const [auditFrom, setAuditFrom] = useState('');
-  const [auditTo, setAuditTo] = useState('');
+  const [auditFrom, setAuditFrom] = useState(initialAuditDate);
+  const [auditTo, setAuditTo] = useState(initialAuditDate);
   const [auditEntries, setAuditEntries] = useState<ApiAdminAuditEntry[]>([]);
   const [auditTotal, setAuditTotal] = useState(0);
   const [auditPages, setAuditPages] = useState(1);
+  const [auditPageSize, setAuditPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
 
-  const loadAudit = async (page: number) => {
+  const loadAudit = async (
+    page: number,
+    size = auditPageSize,
+    filters?: { action?: string; from?: string; to?: string },
+  ) => {
     setAuditLoading(true);
     setAuditError(null);
     try {
       const result = await api.getAuditLog({
         page,
-        limit: 50,
-        action: auditAction || undefined,
-        from: auditFrom || undefined,
-        to: auditTo || undefined
+        limit: size,
+        action: (filters ? filters.action : auditAction) || undefined,
+        from: (filters ? filters.from : auditFrom) || undefined,
+        to: (filters ? filters.to : auditTo) || undefined
       });
       setAuditEntries(result.entries);
       setAuditTotal(result.total);
@@ -369,7 +357,9 @@ export default function AdminPanel() {
     }
   };
 
-  useEffect(() => { if (tab === 'audit') loadAudit(1); }, [tab]);
+  useEffect(() => {
+    if (tab === 'audit' && dashboardFilterId !== 'admin-audit-today') loadAudit(1);
+  }, [tab]);
 
   const actionBadge = (action: string) => {
     if (action === 'CREATE') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
@@ -385,20 +375,22 @@ export default function AdminPanel() {
     }`;
 
   return (
-    <div className="space-y-6" id="admin-panel">
-      <div className="border-b border-slate-200 pb-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-            Admin Panel
-          </h2>
-          <p className="text-xs text-gray-500 mt-0.5">User management and system audit log.</p>
-        </div>
-      </div>
-
+    <div className="w-full min-w-0 max-w-full space-y-4" id="admin-panel">
+      <DashboardFilterChip
+        filterId={dashboardFilterId}
+        onClear={clearDashboardFilter}
+      />
       {/* Tab bar */}
-      <div className="flex border-b border-slate-200 -mt-2">
+      <div className="flex flex-wrap border-b border-slate-200">
+        <button className={tabClass('permissions')} onClick={() => { setOpenPermissionsUserId(null); setTab('permissions'); }}>Roles &amp; Permissions</button>
         <button className={tabClass('users')} onClick={() => setTab('users')}>
           <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> User Management</span>
+        </button>
+        <button className={tabClass('account_managers')} onClick={() => setTab('account_managers')}>
+          <span className="flex items-center gap-1.5"><Contact className="w-3.5 h-3.5" /> Account Managers</span>
+        </button>
+        <button className={tabClass('companies')} onClick={() => setTab('companies')}>
+          <span className="flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5" /> Companies</span>
         </button>
         <button className={tabClass('audit')} onClick={() => setTab('audit')}>
           <span className="flex items-center gap-1.5"><ClipboardList className="w-3.5 h-3.5" /> System Audit Log</span>
@@ -409,10 +401,13 @@ export default function AdminPanel() {
       </div>
 
       {/* ── Tab 1: User Management ── */}
+      {tab === 'permissions' && <RolesPermissions key={openPermissionsUserId ?? 'overview'} initialUserId={openPermissionsUserId} users={users} usersLoading={usersLoading} usersError={usersError} onRetryUsers={loadUsers} />}
+      {tab === 'account_managers' && <AccountManagersTab canManage={canManageDirectory} />}
+      {tab === 'companies' && <CompaniesTab canManage={canManageDirectory} />}
       {tab === 'users' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-xs text-slate-500 font-semibold">{users.length} registered account{users.length !== 1 ? 's' : ''}</p>
+            <p className="text-xs text-slate-500 font-semibold">{visibleUsers.length} {dashboardFilterId === 'admin-active-users' ? 'active account' : 'registered account'}{visibleUsers.length !== 1 ? 's' : ''}</p>
             <button
               onClick={() => setShowCreateForm(v => !v)}
               className="bg-[#1F3864] hover:bg-blue-900 text-white text-[11px] font-bold uppercase tracking-wider px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer"
@@ -463,6 +458,33 @@ export default function AdminPanel() {
                     {ROLE_OPTIONS.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
                   </select>
                 </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <label htmlFor="create-microsoft-oid" className="font-bold text-slate-700">Microsoft user Object ID (optional)</label>
+                  <input
+                    id="create-microsoft-oid" type="text" value={createForm.microsoft_oid}
+                    onChange={e => setCreateForm(f => ({ ...f, microsoft_oid: e.target.value }))}
+                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                    aria-describedby="create-microsoft-oid-help"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none"
+                  />
+                  <p id="create-microsoft-oid-help" className="text-[11px] text-slate-500">Copy the user's Object ID from their Microsoft Entra profile in the configured tenant. Providing it approves Microsoft sign-in; the email must match their Microsoft email or username. Leave blank for email and password login only.</p>
+                </div>
+                {createForm.role === 'DRIVER' && (
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <label htmlFor="create-driver-profile" className="font-bold text-slate-700">Driver profile</label>
+                    <select
+                      id="create-driver-profile"
+                      value={createForm.driver_profile_id}
+                      disabled={profilesLoading || !!profilesError}
+                      onChange={e => setCreateForm(f => ({ ...f, driver_profile_id: e.target.value }))}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none"
+                    >
+                      <option value="">Create a new profile named after this login</option>
+                      {linkableProfiles().map(p => <option key={p.id} value={p.id}>{p.name}{p.is_active ? '' : ' (inactive)'}</option>)}
+                    </select>
+                    <p className="text-[11px] text-slate-500">This login sees only runs assigned to the profile it is linked to.</p>
+                  </div>
+                )}
               </div>
               {createError && (
                 <p className="text-red-600 text-[11px] font-semibold bg-red-50 border border-red-200 rounded px-3 py-2">{createError}</p>
@@ -482,16 +504,24 @@ export default function AdminPanel() {
           )}
 
           {usersError && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-xs font-semibold rounded-lg px-4 py-3">{usersError}</div>
+            <div role="alert" className="bg-red-50 border border-red-200 text-red-700 text-xs font-semibold rounded-lg px-4 py-3">
+              {usersError} <button type="button" onClick={() => void loadUsers()} className="underline cursor-pointer">Retry users</button>
+            </div>
           )}
-
+          {profilesError && (
+            <div role="alert" className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-4 py-3">
+              Driver profile selection is unavailable. {profilesError}{' '}
+              <button type="button" onClick={() => void loadDriverProfiles()} className="underline cursor-pointer">Retry Driver profiles</button>
+            </div>
+          )}
           {usersLoading ? (
             <div className="flex items-center justify-center py-12 text-slate-400">
               <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading users...
             </div>
           ) : (
             <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-              <table className="w-full text-xs text-left border-collapse">
+              <div className="relative max-w-full overflow-x-auto" role="region" aria-label="User accounts" tabIndex={0}>
+              <table className="w-full min-w-[56rem] text-xs text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                     <th className="px-4 py-3">Name</th>
@@ -503,11 +533,10 @@ export default function AdminPanel() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {users.length === 0 ? (
+                  {visibleUsers.length === 0 ? (
                     <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">No users found.</td></tr>
-                  ) : users.map(u => (
-                    <React.Fragment key={u.id}>
-                      <tr className="hover:bg-slate-50 transition-all">
+                  ) : pagedUsers.map(u => (
+                      <tr key={u.id} className="hover:bg-slate-50 transition-all">
                         <td className="px-4 py-3">
                           {editingUserId === u.id ? (
                             <input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
@@ -535,6 +564,25 @@ export default function AdminPanel() {
                               {ROLE_LABELS[u.role] ?? u.role}
                             </span>
                           )}
+                          {u.role === 'DRIVER' && editingUserId !== u.id && (
+                            <div className="mt-1.5 space-y-1">
+                              <label htmlFor={`driver-profile-${u.id}`} className="sr-only">Driver profile for {u.name}</label>
+                              <select
+                                id={`driver-profile-${u.id}`}
+                                value={u.driver_profile?.id ?? ''}
+                                disabled={linkingUserId === u.id || profilesLoading || !!profilesError}
+                                onChange={e => { void handleDriverLink(u, e.target.value); }}
+                                className={`w-full max-w-[12rem] px-2 py-1 border rounded text-[10px] bg-white disabled:opacity-50 ${u.driver_profile ? 'border-slate-300' : 'border-amber-400 bg-amber-50'}`}
+                              >
+                                <option value="">No Driver profile</option>
+                                {u.driver_profile && !driverProfiles.some(p => p.id === u.driver_profile!.id) && (
+                                  <option value={u.driver_profile.id}>{u.driver_profile.name}</option>
+                                )}
+                                {linkableProfiles(u.driver_profile?.id).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                              </select>
+                              {!u.driver_profile && <p className="text-[10px] text-amber-700">Sees no runs until linked.</p>}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-center">
                           {u.microsoft_linked ? (
@@ -552,10 +600,11 @@ export default function AdminPanel() {
                           }
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center justify-center gap-2">
+                          <div className="flex items-center justify-center gap-2 whitespace-nowrap">
                             {editingUserId === u.id ? (
                               <>
-                                <button onClick={() => handleEditSave(u.id)} disabled={editLoading}
+                                {metadataConflict && <button onClick={() => void loadLatestEditedAccount()} disabled={editLoading} className="text-xs underline">Load latest account</button>}
+                                <button onClick={() => handleEditSave(u.id)} disabled={editLoading || metadataConflict}
                                   className="flex items-center gap-1 text-emerald-600 hover:text-emerald-800 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer">
                                   {editLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Save
                                 </button>
@@ -565,24 +614,24 @@ export default function AdminPanel() {
                                 </button>
                               </>
                             ) : (
-                              <>
+                              <AccountActionsMenu label={`Actions for ${u.name}`}>
                                 <button onClick={() => startEdit(u)}
                                   className="flex items-center gap-1 text-slate-500 hover:text-[#0078C1] font-bold text-[10px] uppercase tracking-wide cursor-pointer">
                                   <Pencil className="w-3 h-3" /> Edit
                                 </button>
                                 <button
-                                  onClick={() => setOpenPermissionsUserId(prev => prev === u.id ? null : u.id)}
-                                  className={`flex items-center gap-1 font-bold text-[10px] uppercase tracking-wide cursor-pointer ${openPermissionsUserId === u.id ? 'text-[#0078C1]' : 'text-slate-500 hover:text-[#0078C1]'}`}
+                                  onClick={() => { setOpenPermissionsUserId(u.id); setTab('permissions'); }}
+                                  className="flex items-center gap-1 font-bold text-[10px] uppercase tracking-wide cursor-pointer text-slate-500 hover:text-[#0078C1]"
                                 >
                                   <ShieldCheck className="w-3 h-3" /> Access
                                 </button>
                                 {u.is_active ? (
                                   <button
-                                    onClick={() => handleDeactivate(u)}
-                                    disabled={deactivatingId === u.id}
+                                    onClick={() => requestUserAction('deactivate', u)}
+                                    disabled={userActionLoading}
                                     className="flex items-center gap-1 text-red-600 hover:text-red-800 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer"
                                   >
-                                    {deactivatingId === u.id
+                                    {userActionLoading && userAction?.user.id === u.id && userAction.kind === 'deactivate'
                                       ? <Loader2 className="w-3 h-3 animate-spin" />
                                       : <UserX className="w-3 h-3" />
                                     }
@@ -590,36 +639,45 @@ export default function AdminPanel() {
                                   </button>
                                 ) : (
                                   <button
-                                    onClick={() => handleActivate(u)}
-                                    disabled={activatingId === u.id}
+                                    onClick={() => requestUserAction('activate', u)}
+                                    disabled={userActionLoading}
                                     className="flex items-center gap-1 text-emerald-600 hover:text-emerald-800 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer"
                                   >
-                                    {activatingId === u.id
+                                    {userActionLoading && userAction?.user.id === u.id && userAction.kind === 'activate'
                                       ? <Loader2 className="w-3 h-3 animate-spin" />
                                       : <Check className="w-3 h-3" />
                                     }
                                     Activate
                                   </button>
                                 )}
-                              </>
+                                <button
+                                  onClick={() => requestUserAction('delete', u)}
+                                  disabled={userActionLoading}
+                                  className="flex items-center gap-1 text-red-500 hover:text-red-700 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer"
+                                >
+                                  {userActionLoading && userAction?.user.id === u.id && userAction.kind === 'delete'
+                                    ? <Loader2 className="w-3 h-3 animate-spin" />
+                                    : <Trash2 className="w-3 h-3" />
+                                  }
+                                  Delete
+                                </button>
+                              </AccountActionsMenu>
                             )}
                           </div>
                         </td>
                       </tr>
-                      {openPermissionsUserId === u.id && (
-                        <tr>
-                          <td colSpan={6} className="px-4 py-3 bg-slate-50 border-b border-slate-100">
-                            <PermissionsPanel
-                              user={u}
-                              onClose={() => setOpenPermissionsUserId(null)}
-                            />
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
+              </div>
+              <Pagination
+                currentPage={currentUsersPage}
+                totalPages={usersPages}
+                totalItems={visibleUsers.length}
+                pageSize={usersPageSize}
+                onPageChange={page => { setUsersPage(page); setEditingUserId(null); }}
+                onPageSizeChange={size => { setUsersPageSize(size); setUsersPage(1); setEditingUserId(null); }}
+              />
             </div>
           )}
         </div>
@@ -628,6 +686,12 @@ export default function AdminPanel() {
       {/* ── Tab 3: Integrations ── */}
       {tab === 'integrations' && (
         <div className="space-y-5">
+          {integrationError && (
+            <div role="alert" className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-4 py-3">
+              {integrationError}{' '}
+              <button type="button" disabled={integrationLoading} onClick={() => void loadIntegrationStatus()} className="underline cursor-pointer">Retry integrations</button>
+            </div>
+          )}
           {integrationLoading ? (
             <div className="flex items-center justify-center py-12 text-slate-400">
               <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading integration status...
@@ -711,12 +775,16 @@ export default function AdminPanel() {
                   </button>
                 </form>
                 {testEmailResult && (
-                  <div className={`mt-3 px-4 py-3 rounded-lg text-xs font-semibold border ${testEmailResult.ok
+                  <div role="status" className={`mt-3 px-4 py-3 rounded-lg text-xs font-semibold border ${testEmailResult.ok && testEmailResult.method === 'mock'
+                    ? 'bg-amber-50 border-amber-200 text-amber-800'
+                    : testEmailResult.ok
                     ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
                     : 'bg-red-50 border-red-200 text-red-700'
                   }`}>
                     {testEmailResult.ok
-                      ? `Test email sent successfully via ${testEmailResult.method.toUpperCase()}`
+                      ? testEmailResult.method === 'mock'
+                        ? 'Mock email test completed. No email was sent. Configure a mail provider to send email.'
+                        : `Test email sent successfully via ${testEmailResult.method.toUpperCase()}`
                       : `Failed to send: ${testEmailResult.error || 'Unknown error'}`
                     }
                   </div>
@@ -804,7 +872,7 @@ export default function AdminPanel() {
                           </span>
                         </td>
                         <td className="px-4 py-3 font-mono text-[10px] text-slate-700">{e.record_id}</td>
-                        <td className="px-4 py-3 text-slate-600">{e.record_type}</td>
+                        <td className="px-4 py-3 text-slate-600">{e.record_type}<PolicyAuditDiff recordType={e.record_type} previous={e.previous} next={e.next} /><BusinessAuditDiff recordType={e.record_type} previous={e.previous} next={e.next} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -812,29 +880,65 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* Pagination */}
-            <div className="p-3 border-t border-slate-100 flex items-center justify-between">
-              <button
-                onClick={() => { const p = Math.max(1, auditPage - 1); setAuditPage(p); loadAudit(p); }}
-                disabled={auditPage <= 1 || auditLoading}
-                className="flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] rounded-lg disabled:opacity-40 cursor-pointer"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" /> Previous
-              </button>
-              <span className="text-[11px] text-slate-400 font-semibold">
-                {auditTotal === 0 ? '0 entries' : `${(auditPage - 1) * 50 + 1}–${Math.min(auditPage * 50, auditTotal)} of ${auditTotal}`}
-              </span>
-              <button
-                onClick={() => { const p = Math.min(auditPages, auditPage + 1); setAuditPage(p); loadAudit(p); }}
-                disabled={auditPage >= auditPages || auditLoading}
-                className="flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] rounded-lg disabled:opacity-40 cursor-pointer"
-              >
-                Next <ChevronRight className="w-3.5 h-3.5" />
-              </button>
+            <div className="border-t border-slate-100">
+              <Pagination
+                currentPage={auditPage}
+                totalPages={auditPages}
+                totalItems={auditTotal}
+                pageSize={auditPageSize}
+                onPageChange={(p) => {
+                  setAuditPage(p);
+                  loadAudit(p, auditPageSize);
+                }}
+                onPageSizeChange={(newSize) => {
+                  setAuditPageSize(newSize);
+                  setAuditPage(1);
+                  loadAudit(1, newSize);
+                }}
+                pageSizeOptions={[10, 25, 50, 100]}
+              />
             </div>
           </div>
         </div>
       )}
+      <ActionDialog
+        open={userAction !== null}
+        confirmDisabled={!actionVersion}
+        title={userAction?.kind === 'delete' ? `Permanently delete ${userAction.user.name}?` : userAction?.kind === 'deactivate' ? `Deactivate ${userAction.user.name}?` : `Activate ${userAction?.user.name ?? 'user'}?`}
+        description={userAction?.kind === 'delete'
+          ? `${userAction.user.email} and their permissions will be removed. This cannot be undone. Users linked to business records cannot be deleted.`
+          : userAction?.kind === 'deactivate'
+            ? `${userAction.user.email} will no longer be able to sign in. Their records remain available.`
+            : `${userAction?.user.email ?? 'This user'} will be able to sign in again.`}
+        confirmLabel={userAction?.kind === 'delete' ? 'Delete user' : userAction?.kind === 'deactivate' ? 'Deactivate user' : 'Activate user'}
+        destructive={userAction?.kind === 'delete'}
+        pending={userActionLoading}
+        error={userActionError}
+        onConfirm={confirmUserAction}
+        onDismiss={() => { setUserAction(null); setUserActionError(null); }}
+      />
+      <ActionDialog
+        open={roleReview !== null}
+        title="Review role change"
+        description={roleReview ? `Change this account from ${ROLE_LABELS[roleReview.editor.role]} to ${ROLE_LABELS[roleReview.form.role]}. Valid individual exceptions remain. Leaving Driver unlinks the Driver profile. Review any removed exceptions below before confirming.` : ''}
+        confirmLabel="Apply reviewed role change"
+        pending={editLoading}
+        confirmDisabled={!!roleReview?.editor.roleChange?.validationError}
+        error={roleReview?.editor.roleChange?.validationError}
+        onDismiss={() => setRoleReview(null)}
+        onConfirm={() => { if (roleReview) void persistUserEdit(roleReview.userId, roleReview.form, roleReview.editor); }}
+      >
+        <p className="text-sm text-slate-700">{roleReview?.editor.roleChange?.removedOverrides.length ? 'These exceptions will be removed:' : 'No individual exceptions need removal.'}</p>
+        <ul className="max-h-48 overflow-auto break-words text-sm text-slate-700">
+          {roleReview?.editor.roleChange?.removedOverrides.map(row => <li key={row.permissionKey}>{row.permissionKey}: {row.effect}</li>)}
+        </ul>
+      </ActionDialog>
+      <ActionDialog
+        open={editNotice !== null}
+        title="Account update"
+        description={editNotice ?? ''}
+        onDismiss={() => setEditNotice(null)}
+      />
     </div>
   );
 }

@@ -1,6 +1,8 @@
-import { useState, FormEvent } from 'react';
-import { Plus, X, Truck, UserCheck, Search, ToggleLeft, ToggleRight, Trash2, Edit3, Check, MapPin } from 'lucide-react';
+import { usePermissions } from '@/hooks/usePermissions';
+import { useState, useRef, FormEvent } from 'react';
+import { Plus, X, Truck, UserCheck, Search, ToggleLeft, ToggleRight, Edit3, Check, MapPin } from 'lucide-react';
 import { ApiDriver } from '@/api';
+import CoveragePicker, { legacyCoverage } from './CoveragePicker';
 
 interface DriverManagerViewProps {
   drivers: ApiDriver[];
@@ -13,7 +15,7 @@ interface DriverManagerViewProps {
 
 type Tab = 'drivers' | 'assistants';
 
-const EMPTY_FORM = { name: '', type: 'DRIVER' as 'DRIVER' | 'ASSISTANT', coverage_areas: '' };
+const EMPTY_FORM = { name: '', type: 'DRIVER' as 'DRIVER' | 'ASSISTANT', coverage_areas: [] as string[] };
 
 export default function DriverManagerView({
   drivers,
@@ -30,10 +32,28 @@ export default function DriverManagerView({
   const [search, setSearch] = useState('');
   const [showInactive, setShowInactive] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', coverage_areas: '' });
+  const [editForm, setEditForm] = useState({ name: '', coverage_areas: [] as string[] });
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const actionPending = useRef(false);
 
-  const canManage = currentUserRole === 'Logistics' || currentUserRole === 'Admin';
+  const runAction = async (action: () => Promise<void>) => {
+    if (actionPending.current) return false;
+    actionPending.current = true;
+    setSaving(true);
+    setActionError('');
+    try { await action(); return true; }
+    catch (error) { setActionError(error instanceof Error ? error.message : 'Could not save changes. Please try again.'); return false; }
+    finally { actionPending.current = false; setSaving(false); }
+  };
+
+  const access = usePermissions();
+  const canManage = (currentUserRole === 'Logistics' || currentUserRole === 'Admin') && access.canResource('drivers', 'WRITE');
+  // TSK-119: only Admin adds or renames Drivers; Logistics adds Assistants and
+  // keeps coverage/status edits. The server enforces the same rules.
+  const isAdmin = currentUserRole === 'Admin';
+  const canRename = (d: ApiDriver) => isAdmin || d.type !== 'DRIVER';
   const typeFilter = tab === 'drivers' ? 'DRIVER' : 'ASSISTANT';
 
   const filtered = drivers
@@ -46,53 +66,45 @@ export default function DriverManagerView({
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!access.canResource('drivers', 'CREATE')) return;
     const name = form.name.trim();
     if (!name) { setFormError('Name is required'); return; }
     const existing = drivers.find(d => d.name.toLowerCase() === name.toLowerCase() && d.type === form.type);
     if (existing) { setFormError(`A ${form.type === 'DRIVER' ? 'driver' : 'assistant'} with this name already exists`); return; }
     setFormError('');
-    const areas = form.coverage_areas
-      .split(',')
-      .map(a => a.trim())
-      .filter(Boolean);
-    await onCreateDriver({ name, type: form.type, coverage_areas: areas });
+    if (!await runAction(() => onCreateDriver({ name, type: form.type, coverage_areas: form.coverage_areas }))) return;
     setForm(EMPTY_FORM);
     setShowCreate(false);
   };
 
   const startEdit = (d: ApiDriver) => {
     setEditingId(d.id);
-    setEditForm({ name: d.name, coverage_areas: d.coverage_areas.join(', ') });
+    setEditForm({ name: d.name, coverage_areas: d.coverage_areas });
   };
 
   const saveEdit = async (d: ApiDriver) => {
+    if (!access.canResource('drivers', 'UPDATE')) return;
     const name = editForm.name.trim();
-    if (!name) return;
-    const areas = editForm.coverage_areas.split(',').map(a => a.trim()).filter(Boolean);
-    await onUpdateDriver(d.id, { name, coverage_areas: areas });
+    if (!name || legacyCoverage(editForm.coverage_areas).length > 0) return;
+    if (!await runAction(() => onUpdateDriver(d.id, { ...(canRename(d) ? { name } : {}), coverage_areas: editForm.coverage_areas }))) return;
     setEditingId(null);
   };
 
   const toggleActive = async (d: ApiDriver) => {
-    await onUpdateDriver(d.id, { is_active: !d.is_active });
+    if (!access.canResource('drivers', 'UPDATE')) return;
+    await runAction(() => onUpdateDriver(d.id, { is_active: !d.is_active }));
   };
 
   const handleDelete = async (id: string) => {
-    await onDeleteDriver(id);
+    if (!access.canResource('drivers', 'DELETE')) return;
+    if (!await runAction(() => onDeleteDriver(id))) return;
     setConfirmDeleteId(null);
   };
 
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-base font-black text-slate-900 leading-tight">Driver Manager</h1>
-          <p className="text-[11px] text-slate-400">
-            Manage drivers and assistants. Changes here reflect across all modules.
-          </p>
-        </div>
-      </div>
+    <div className="space-y-4">
+      {actionError && <div role="alert" className="p-3 bg-red-50 text-red-700 rounded">{actionError}</div>}
+      {saving && <div role="status">Saving changes...</div>}
 
       {/* Tabs + Controls */}
       <div className="flex flex-wrap gap-2 items-center justify-between">
@@ -148,13 +160,13 @@ export default function DriverManagerView({
           </button>
 
           {/* Add button */}
-          {canManage && (
+          {canManage && access.canResource('drivers', 'CREATE') && (
             <button
-              onClick={() => { setForm({ ...EMPTY_FORM, type: typeFilter }); setShowCreate(true); }}
+              onClick={() => { setForm({ ...EMPTY_FORM, type: isAdmin ? typeFilter : 'ASSISTANT' }); setShowCreate(true); }}
               className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-[#0078C1] text-white hover:bg-[#1F3864] transition-all border-2 border-transparent"
             >
               <Plus className="w-3.5 h-3.5" />
-              Add {tab === 'drivers' ? 'Driver' : 'Assistant'}
+              Add {isAdmin && tab === 'drivers' ? 'Driver' : 'Assistant'}
             </button>
           )}
         </div>
@@ -193,7 +205,7 @@ export default function DriverManagerView({
                 {filtered.map(d => (
                   <tr key={d.id} className={`transition-colors ${d.is_active ? 'hover:bg-slate-50' : 'bg-slate-50/50 opacity-60'}`}>
                     <td className="px-4 py-3">
-                      {editingId === d.id ? (
+                      {editingId === d.id && canRename(d) ? (
                         <input
                           type="text"
                           value={editForm.name}
@@ -204,20 +216,31 @@ export default function DriverManagerView({
                       ) : (
                         <span className="font-semibold text-slate-800">{d.name}</span>
                       )}
+                      {/* Logins are linked by Admin in Admin Panel → Users; this is visibility only. */}
+                      {d.type === 'DRIVER' && (
+                        <span
+                          className={`mt-1 block w-max rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${
+                            d.is_linked ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'
+                          }`}
+                          title={d.is_linked ? 'This profile has a Driver login' : 'No Driver login yet — Admin links logins in Admin Panel → Users'}
+                        >
+                          {d.is_linked ? 'Login linked' : 'No login'}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       {editingId === d.id ? (
-                        <input
-                          type="text"
+                        <CoveragePicker
+                          id={`coverage-${d.id}`}
                           value={editForm.coverage_areas}
-                          onChange={e => setEditForm(f => ({ ...f, coverage_areas: e.target.value }))}
-                          placeholder="e.g. Makati, BGC, Taguig"
-                          className="px-2 py-1 border border-slate-300 rounded text-xs w-full focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30"
+                          onChange={coverage_areas => setEditForm(f => ({ ...f, coverage_areas }))}
+                          disabled={saving}
                         />
                       ) : d.coverage_areas.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
                           {d.coverage_areas.map((a, i) => (
-                            <span key={i} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] bg-blue-50 text-blue-700 border border-blue-200">
+                            <span key={i} title={legacyCoverage([a]).length ? 'Not in the area list — edit to replace it' : undefined}
+                              className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] border ${legacyCoverage([a]).length ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
                               <MapPin className="w-2.5 h-2.5" />{a}
                             </span>
                           ))}
@@ -243,7 +266,8 @@ export default function DriverManagerView({
                             <>
                               <button
                                 onClick={() => saveEdit(d)}
-                                className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors"
+                                disabled={saving || legacyCoverage(editForm.coverage_areas).length > 0}
+                                className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors disabled:opacity-40"
                                 title="Save"
                               >
                                 <Check className="w-3.5 h-3.5" />
@@ -259,14 +283,14 @@ export default function DriverManagerView({
                           ) : (
                             <>
                               <button
-                                onClick={() => startEdit(d)}
+                                disabled={!access.canResource('drivers', 'UPDATE')} onClick={() => startEdit(d)}
                                 className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
                                 title="Edit"
                               >
                                 <Edit3 className="w-3.5 h-3.5" />
                               </button>
-                              <button
-                                onClick={() => toggleActive(d)}
+                              {!d.is_active && <button
+                                disabled={!access.canResource('drivers', 'UPDATE')} onClick={() => toggleActive(d)}
                                 className={`p-1.5 rounded-lg transition-colors ${
                                   d.is_active
                                     ? 'text-amber-500 hover:bg-amber-50'
@@ -275,14 +299,14 @@ export default function DriverManagerView({
                                 title={d.is_active ? 'Deactivate' : 'Activate'}
                               >
                                 {d.is_active ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
-                              </button>
-                              {confirmDeleteId === d.id ? (
+                              </button>}
+                              {access.canResource('drivers', 'DELETE') && d.is_active && (confirmDeleteId === d.id ? (
                                 <div className="flex items-center gap-1">
                                   <button
                                     onClick={() => handleDelete(d.id)}
                                     className="px-2 py-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-200 rounded hover:bg-red-100 transition-colors"
                                   >
-                                    Confirm
+                                    Deactivate
                                   </button>
                                   <button
                                     onClick={() => setConfirmDeleteId(null)}
@@ -295,11 +319,11 @@ export default function DriverManagerView({
                                 <button
                                   onClick={() => setConfirmDeleteId(d.id)}
                                   className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors"
-                                  title="Delete"
+                                  title="Deactivate (history is preserved)"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <ToggleLeft className="w-3.5 h-3.5" />
                                 </button>
-                              )}
+                              ))}
                             </>
                           )}
                         </div>
@@ -345,31 +369,39 @@ export default function DriverManagerView({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Type</label>
+                <label htmlFor="create-type" className="block text-xs font-semibold text-slate-600 mb-1">Type</label>
                 <select
+                  id="create-type"
                   value={form.type}
+                  disabled={!isAdmin}
+                  aria-describedby="create-type-help"
                   onChange={e => setForm(f => ({ ...f, type: e.target.value as 'DRIVER' | 'ASSISTANT' }))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] disabled:bg-slate-50 disabled:text-slate-500"
                 >
-                  <option value="DRIVER">Driver</option>
+                  {isAdmin && <option value="DRIVER">Driver</option>}
                   <option value="ASSISTANT">Assistant</option>
                 </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Coverage Areas</label>
-                <input
-                  type="text"
-                  value={form.coverage_areas}
-                  onChange={e => setForm(f => ({ ...f, coverage_areas: e.target.value }))}
-                  placeholder="e.g. Makati, BGC, Taguig (comma-separated)"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
-                />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Comma-separated area keywords for smart driver assignment suggestions.
+                <p id="create-type-help" className="text-[10px] text-slate-400 mt-1">
+                  {isAdmin
+                    ? form.type === 'DRIVER' && 'To let this Driver sign in, create a Driver login in Admin Panel → Users and link it to this profile.'
+                    : 'Only Admin can add drivers.'}
                 </p>
               </div>
 
+              <div>
+                <label htmlFor="create-coverage" className="block text-xs font-semibold text-slate-600 mb-1">Coverage Areas</label>
+                <CoveragePicker
+                  id="create-coverage"
+                  value={form.coverage_areas}
+                  onChange={coverage_areas => setForm(f => ({ ...f, coverage_areas }))}
+                  disabled={saving}
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Drivers covering a record's exact area are suggested first, then drivers covering its whole subregion.
+                </p>
+              </div>
+
+              {actionError && <p role="alert" className="text-xs text-red-600">{actionError}</p>}
               {formError && (
                 <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{formError}</p>
               )}
@@ -384,6 +416,7 @@ export default function DriverManagerView({
                 </button>
                 <button
                   type="submit"
+                  disabled={saving}
                   className="px-4 py-2 bg-[#1F3864] hover:bg-[#162952] text-white text-sm font-bold rounded-lg transition-colors"
                 >
                   Add {form.type === 'DRIVER' ? 'Driver' : 'Assistant'}

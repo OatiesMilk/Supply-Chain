@@ -6,16 +6,31 @@
     "server"
   ],
   "scripts": {
+    "test:client": "npm run test --workspace=client",
+    "test:server": "npm run test --workspace=mg-portal-server",
+    "test:seeded-db": "node scripts/test-seeded-postgres.mjs",
     "dev": "concurrently -n \"CLIENT,SERVER\" -c \"cyan,magenta\" \"npm run dev --workspace=client\" \"npm run dev --workspace=server\"",
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build --workspace=client",
     "start": "npm start --workspace=server",
     "lint": "npm run lint --workspace=client",
     "db:reset": "npm run db:reset --workspace=mg-portal-server",
     "db:clean": "npm run db:clean --workspace=mg-portal-server",
     "seed": "npm run seed --workspace=mg-portal-server",
+    "seed:users-only": "npm run seed:users-only --workspace=mg-portal-server",
     "seed:accounts": "npm run seed:accounts --workspace=mg-portal-server",
+    "seed:driver-demo": "npm run seed:driver-demo --workspace=mg-portal-server",
+    "seed:uat": "npm run seed:uat --workspace=mg-portal-server",
+    "seed:staging": "npm run seed:staging --workspace=mg-portal-server --",
+    "seed:staging:reset": "npm run seed:staging:reset --workspace=mg-portal-server --",
+    "pod:reconcile": "npm run pod:reconcile --workspace=mg-portal-server",
     "docker:up": "docker-compose up -d",
-    "docker:down": "docker-compose down"
+    "docker:down": "docker-compose down",
+    "e2e": "npm test --prefix e2e",
+    "e2e:sc": "npm run test:sc --prefix e2e",
+    "e2e:logistics": "npm run test:logistics --prefix e2e",
+    "e2e:driver": "npm run test:driver --prefix e2e",
+    "e2e:integration": "npm run test:integration --prefix e2e",
+    "e2e:report": "npm run report --prefix e2e"
   },
   "devDependencies": {
     "concurrently": "^10.0.5",

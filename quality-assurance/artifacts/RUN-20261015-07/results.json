@@ -1,0 +1,16 @@
+{
+  "run": "RUN-20261015-07",
+  "status": "Pass",
+  "tests": 1,
+  "passed": 1,
+  "failed": 0,
+  "duration_ms": 90037.97853,
+  "scope": "Interactive Microsoft sign-in account smoke only",
+  "identity": {
+    "status": 200,
+    "email": "dagodemarcgeraldarante@gmail.com",
+    "role": "SALES_COORDINATOR"
+  },
+  "build": "665775f",
+  "browser": "Playwright 1.64.1 using preinstalled Chromium revision 1243"
+}

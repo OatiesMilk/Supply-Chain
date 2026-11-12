@@ -1,3 +1,4 @@
+import { manilaToday } from '@/utils/recordLifecycle';
 import {
   AlertTriangle,
   Package,
@@ -13,32 +14,27 @@ import {
   RefreshCw,
   RotateCw,
 } from "lucide-react";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
+import DashboardStatusChart from './DashboardStatusChart';
 import {
   Product,
   InventoryItem,
   DeliveryRecord,
   DeliveryStatus,
 } from "@/types";
-import { ApiDashboardStats } from "@/api";
+import { api, ApiDashboardStats } from "@/api";
+import { useQuery } from "@tanstack/react-query";
+import { operationalSyncOptions } from "@/api/queries/operationalSync";
 import LogisticsDashboard from "@/features/dashboard/LogisticsDashboard";
 import TassDashboard from "@/features/dashboard/TassDashboard";
 import AdminDashboard from "@/features/dashboard/AdminDashboard";
+import { DashboardFilterId, filterRecordsForDashboard } from '@/utils/dashboardFilters';
 
 interface DashboardViewProps {
   products: Product[];
   inventory: InventoryItem[];
   deliveryRecords: DeliveryRecord[];
   dashboardStats?: ApiDashboardStats | null;
-  onNavigate: (screen: string, item_id?: string) => void;
+  onNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
   currentUserRole: string;
   onRefresh?: () => void;
 }
@@ -52,6 +48,10 @@ export default function DashboardView({
   currentUserRole,
   onRefresh,
 }: DashboardViewProps) {
+  const overviewQuery = useQuery({ ...operationalSyncOptions, queryKey: ['dashboard-overview'], queryFn: api.getDashboardOverview });
+  if (overviewQuery.isPending) return <p role="status" className="p-5 text-sm text-slate-600">Loading dashboard totals…</p>;
+  if (overviewQuery.isError) return <div role="alert" className="p-5 text-sm text-red-700">Could not load dashboard totals. <button type="button" className="underline" onClick={() => void overviewQuery.refetch()}>Retry dashboard</button></div>;
+  const overview = overviewQuery.data;
   // Narrow the discriminated union to the correct branch per role
   const salesStats =
     dashboardStats?.role === "SALES_COORDINATOR" ? dashboardStats : null;
@@ -65,6 +65,7 @@ export default function DashboardView({
     return (
       <LogisticsDashboard
         stats={logisticsStats}
+        overview={overview}
         deliveryRecords={deliveryRecords}
         onNavigate={onNavigate}
         onRefresh={onRefresh}
@@ -76,6 +77,7 @@ export default function DashboardView({
     return (
       <TassDashboard
         stats={tassStats}
+        overview={overview}
         deliveryRecords={deliveryRecords}
         onNavigate={onNavigate}
         onRefresh={onRefresh}
@@ -87,6 +89,7 @@ export default function DashboardView({
     return (
       <AdminDashboard
         stats={adminStats}
+        overview={overview}
         deliveryRecords={deliveryRecords}
         onNavigate={onNavigate}
         onRefresh={onRefresh}
@@ -95,70 +98,50 @@ export default function DashboardView({
   }
 
   // ── Sales Coordinator dashboard (default) ────────────────────────────────────
-  const today = new Date().toISOString().split("T")[0];
+  const today = manilaToday();
 
   const deliveriesScheduledToday =
     salesStats?.deliveries_scheduled_today ??
-    deliveryRecords.filter(
-      (r) => r.delivery_date === today && r.status === "Scheduled",
-    ).length;
+    filterRecordsForDashboard(deliveryRecords, 'sc-scheduled-today', today).length;
   const pendingDriverAssignment =
     salesStats?.pending_driver_assignment ??
-    deliveryRecords.filter((r) => !r.driver && r.status !== "Delivered").length;
+    filterRecordsForDashboard(deliveryRecords, 'sc-pending-assignment', today).length;
   const onHoldCount =
     salesStats?.on_hold ??
-    deliveryRecords.filter((r) => r.status === "On-Hold").length;
+    filterRecordsForDashboard(deliveryRecords, 'sc-on-hold', today).length;
   const rescheduledCount =
     salesStats?.rescheduled ??
-    deliveryRecords.filter((r) => r.status === "Rescheduled").length;
+    filterRecordsForDashboard(deliveryRecords, 'sc-rescheduled', today).length;
   const deliveriesCompletedToday =
     salesStats?.accomplished_today ??
-    deliveryRecords.filter(
-      (r) => r.status === "Delivered" && r.modified_at.split("T")[0] === today,
-    ).length;
+    filterRecordsForDashboard(deliveryRecords, 'sc-completed-today', today).length;
 
   const statusChartData: {
-    name: DeliveryStatus;
+    status: DeliveryStatus;
     count: number;
-    fill: string;
   }[] = [
     {
-      name: "Scheduled",
-      count: deliveryRecords.filter((r) => r.status === "Scheduled").length,
-      fill: "#0078C1",
+      status: "Scheduled",
+      count: overview.status_totals.Scheduled ?? 0,
     },
     {
-      name: "Pending",
-      count: deliveryRecords.filter((r) => r.status === "Pending").length,
-      fill: "#d97706",
+      status: "Pending",
+      count: overview.status_totals.Pending ?? 0,
     },
-    { name: "On-Hold", count: onHoldCount, fill: "#dc2626" },
-    { name: "Rescheduled", count: rescheduledCount, fill: "#9333ea" },
+    { status: "In Transit", count: overview.status_totals["In Transit"] ?? 0 },
+    { status: "On-Hold", count: overview.status_totals["On-Hold"] ?? 0 },
+    { status: "Rescheduled", count: overview.status_totals.Rescheduled ?? 0 },
     {
-      name: "Delivered",
-      count: deliveryRecords.filter((r) => r.status === "Delivered").length,
-      fill: "#059669",
+      status: "Delivered",
+      count: overview.status_totals.Delivered ?? 0,
     },
   ];
 
-  const msInDay = 24 * 60 * 60 * 1000;
-  const noDriverApproaching = deliveryRecords.filter((r) => {
-    if (r.driver) return false;
-    if (r.status === "Delivered") return false;
-    const diffDays =
-      (new Date(r.delivery_date).getTime() - new Date(today).getTime()) /
-      msInDay;
-    return diffDays <= 2;
-  });
-
-  const onHoldOrRescheduled = deliveryRecords.filter(
-    (r) => r.status === "On-Hold" || r.status === "Rescheduled",
-  );
-  const pendingConfirmation = deliveryRecords.filter(
-    (r) => r.status === "Pending" || r.status === "Scheduled",
-  );
-
-  const totalRecordCount = deliveryRecords.length + products.length;
+  const noDriverApproachingCount = overview.counts['sc-attention-no-driver'] ?? 0;
+  const onHoldOrRescheduledCount = overview.counts['sc-attention-on-hold-rescheduled'] ?? 0;
+  const pendingConfirmationCount = overview.counts['sc-attention-pending-confirmation'] ?? 0;
+  const needsAttentionCount = overview.counts['sc-attention-all'] ?? 0;
+  const totalRecordCount = overview.record_total + products.length;
 
   return (
     <div className="space-y-6" id="dashboard-view-container">
@@ -171,7 +154,7 @@ export default function DashboardView({
           <div
             className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-[#1F3864] transition-all cursor-pointer"
             id="kpi-scheduled-today"
-            onClick={() => onNavigate("deliveries")}
+            onClick={() => onNavigate("deliveries", undefined, 'sc-scheduled-today')}
           >
             <div className="min-w-0">
               <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -190,9 +173,9 @@ export default function DashboardView({
           </div>
 
           <div
-            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-amber-500 flex items-center justify-between gap-3 hover:border-amber-400 transition-all cursor-pointer"
+            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-amber-400 transition-all cursor-pointer"
             id="kpi-pending-driver"
-            onClick={() => onNavigate("deliveries")}
+            onClick={() => onNavigate("deliveries", undefined, 'sc-pending-assignment')}
           >
             <div className="min-w-0">
               <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -202,7 +185,7 @@ export default function DashboardView({
                 {pendingDriverAssignment}
               </h3>
               <span className="text-xs text-amber-600 font-extrabold flex items-center gap-1 mt-2">
-                Needs a driver <UserX className="w-3.5 h-3.5 shrink-0" />
+                Needs a driver
               </span>
             </div>
             <div
@@ -213,9 +196,9 @@ export default function DashboardView({
           </div>
 
           <div
-            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-red-500 flex items-center justify-between gap-3 hover:border-red-400 transition-all cursor-pointer"
+            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-red-400 transition-all cursor-pointer"
             id="kpi-on-hold"
-            onClick={() => onNavigate("deliveries")}
+            onClick={() => onNavigate("deliveries", undefined, 'sc-on-hold')}
           >
             <div className="min-w-0">
               <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -225,7 +208,7 @@ export default function DashboardView({
                 {onHoldCount}
               </h3>
               <span className="text-xs text-red-600 font-extrabold flex items-center gap-1 mt-2">
-                Blocked <PauseCircle className="w-3.5 h-3.5 shrink-0" />
+                Blocked
               </span>
             </div>
             <div className="bg-red-50 p-3 rounded-lg text-red-600 shrink-0">
@@ -234,9 +217,9 @@ export default function DashboardView({
           </div>
 
           <div
-            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-purple-500 flex items-center justify-between gap-3 hover:border-purple-400 transition-all cursor-pointer"
+            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-purple-400 transition-all cursor-pointer"
             id="kpi-rescheduled"
-            onClick={() => onNavigate("deliveries")}
+            onClick={() => onNavigate("deliveries", undefined, 'sc-rescheduled')}
           >
             <div className="min-w-0">
               <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -246,7 +229,7 @@ export default function DashboardView({
                 {rescheduledCount}
               </h3>
               <span className="text-xs text-purple-600 font-extrabold flex items-center gap-1 mt-2">
-                Needs follow-up <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                Needs follow-up
               </span>
             </div>
             <div className="bg-purple-50 p-3 rounded-lg text-purple-600 shrink-0">
@@ -257,7 +240,7 @@ export default function DashboardView({
           <div
             className=" bg-white  p-5 rounded-xl border border-transparent shadow-sm flex items-center justify-between gap-3 hover:border-[#0078C1] hover:shadow-md transition-all cursor-pointer"
             id="kpi-completed-today"
-            onClick={() => onNavigate("deliveries")}
+            onClick={() => onNavigate("deliveries", undefined, 'sc-completed-today')}
           >
             <div className="min-w-0">
               <p className="text-xs font-extrabold text-[#1F3864] uppercase tracking-wider">
@@ -293,42 +276,7 @@ export default function DashboardView({
             Status breakdown across all your delivery records
           </p>
           <div className="h-64" id="status-chart-wrapper">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={statusChartData}
-                layout="vertical"
-                margin={{ top: 5, right: 15, left: 5, bottom: 5 }}
-              >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  horizontal={false}
-                  stroke="#F1F5F9"
-                />
-                <XAxis
-                  type="number"
-                  stroke="#94A3B8"
-                  fontSize={11}
-                  tickLine={false}
-                />
-                <YAxis
-                  dataKey="name"
-                  type="category"
-                  stroke="#94A3B8"
-                  fontSize={10}
-                  tickLine={false}
-                  width={80}
-                />
-                <Tooltip
-                  formatter={(value: any) => [`${value} records`, "Total"]}
-                  contentStyle={{
-                    backgroundColor: "#fff",
-                    border: "1px solid #E2E8F0",
-                    borderRadius: "8px",
-                  }}
-                />
-                <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={20} />
-              </BarChart>
-            </ResponsiveContainer>
+            <DashboardStatusChart data={statusChartData} />
           </div>
         </div>
 
@@ -343,12 +291,10 @@ export default function DashboardView({
               Attention
             </h4>
             <button
-              onClick={() => onNavigate("deliveries")}
+              onClick={() => onNavigate("deliveries", undefined, 'sc-attention-all')}
               className="bg-amber-100 hover:bg-amber-200 text-amber-800 text-xs px-2.5 py-0.5 rounded font-extrabold uppercase tracking-wide cursor-pointer hover:underline transition-colors"
             >
-              {noDriverApproaching.length +
-                onHoldOrRescheduled.length +
-                pendingConfirmation.length}{" "}
+              {needsAttentionCount}{" "}
               Items Need Action
             </button>
           </div>
@@ -360,13 +306,13 @@ export default function DashboardView({
                 <span>No Driver, Due Soon</span>
               </span>
               <p className="text-2xl font-black text-slate-900">
-                {noDriverApproaching.length}
+                {noDriverApproachingCount}
               </p>
               <p className="text-[11px] text-slate-400 font-medium flex-1">
                 Deliveries with no driver assigned, due within 2 days.
               </p>
               <button
-                onClick={() => onNavigate("deliveries")}
+                onClick={() => onNavigate("deliveries", undefined, 'sc-attention-no-driver')}
                 className="text-[10px] text-[#0078C1] hover:underline font-bold uppercase tracking-wide cursor-pointer text-left"
               >
                 View records →
@@ -378,13 +324,13 @@ export default function DashboardView({
                 <span>On-Hold / Rescheduled</span>
               </span>
               <p className="text-2xl font-black text-slate-900">
-                {onHoldOrRescheduled.length}
+                {onHoldOrRescheduledCount}
               </p>
               <p className="text-[11px] text-slate-400 font-medium flex-1">
                 Records blocked or bumped to a new date.
               </p>
               <button
-                onClick={() => onNavigate("deliveries")}
+                onClick={() => onNavigate("deliveries", undefined, 'sc-attention-on-hold-rescheduled')}
                 className="text-[10px] text-[#0078C1] hover:underline font-bold uppercase tracking-wide cursor-pointer text-left"
               >
                 View records →
@@ -396,13 +342,13 @@ export default function DashboardView({
                 <span>Pending Confirmation</span>
               </span>
               <p className="text-2xl font-black text-slate-900">
-                {pendingConfirmation.length}
+                {pendingConfirmationCount}
               </p>
               <p className="text-[11px] text-slate-400 font-medium flex-1">
                 Scheduled or pending records awaiting confirmation.
               </p>
               <button
-                onClick={() => onNavigate("deliveries")}
+                onClick={() => onNavigate("deliveries", undefined, 'sc-attention-pending-confirmation')}
                 className="text-[10px] text-[#0078C1] hover:underline font-bold uppercase tracking-wide cursor-pointer text-left"
               >
                 View records →
@@ -418,14 +364,14 @@ export default function DashboardView({
         id="record-count-footer"
       >
         <span>
-          Total records in system:{" "}
+          Records available to your account:{" "}
           <span className="font-black text-slate-800">
             {totalRecordCount.toLocaleString()}
           </span>{" "}
-          ({deliveryRecords.length} delivery records, {products.length} SKUs)
+          ({overview.record_total} operational records, {products.length} SKUs)
         </span>
         <span className="text-emerald-600 font-bold">
-          No list-view threshold — unlimited record growth supported.
+          Counts include all records you can access.
         </span>
       </div>
     </div>

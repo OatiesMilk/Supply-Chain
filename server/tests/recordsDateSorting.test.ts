@@ -1,0 +1,97 @@
+import { afterEach, mock, test } from 'node:test';
+import assert from 'node:assert/strict';
+import { prisma } from '../src/db';
+import records from '../src/routes/records';
+
+const originalFindMany = prisma.deliveryRecord.findMany;
+const originalCount = prisma.deliveryRecord.count;
+afterEach(() => {
+  prisma.deliveryRecord.findMany = originalFindMany;
+  prisma.deliveryRecord.count = originalCount;
+  mock.restoreAll();
+});
+
+async function list(query: Record<string, string>, rows: any[] = []) {
+  const calls: any[] = [];
+  prisma.deliveryRecord.findMany = mock.fn(async (args: any) => {
+    calls.push(args);
+    return rows;
+  }) as any;
+  prisma.deliveryRecord.count = mock.fn(async ({ where }: any) =>
+    where?.AND?.some((filter: any) => filter?.deliveryDate?.not === '') ? 3 : rows.length
+  ) as any;
+  const layer = (records as any).stack.find((entry: any) => entry.route?.path === '/' && entry.route.methods.get);
+  assert.ok(layer, 'records list GET route must exist');
+  let status = 200;
+  let body: any;
+  const req = {
+    query: { category: 'Deliveries', paged: 'true', page: '1', limit: '2', ...query },
+    user: { id: 'admin-qa', name: 'QA Admin', role: 'ADMIN', effectiveScreens: ['deliveries'], permissions: [] },
+  };
+  const res = {
+    status(value: number) { status = value; return this; },
+    json(value: any) { body = value; return this; },
+  };
+  await layer.route.stack.at(-1).handle(req, res, (error: unknown) => { if (error) throw error; });
+  return { status, body, calls };
+}
+
+test('oldest and furthest sort dates globally, with blank dates in a separate final partition', async () => {
+  for (const [sort, direction] of [['oldest', 'asc'], ['furthest', 'desc']] as const) {
+    const pageTwo = await list({ dateSort: sort, page: '2' });
+    assert.equal(pageTwo.status, 200);
+    assert.equal(pageTwo.calls.length, 2); // dated remainder plus undated fill
+    assert.deepEqual(pageTwo.calls[0].orderBy, [{ deliveryDate: direction }, { id: 'asc' }]);
+    assert.equal(pageTwo.calls[0].skip, 2);
+    assert.equal(pageTwo.calls[0].take, 2);
+    assert.ok(pageTwo.calls[0].where.AND[0].AND, 'scope preserved for dated rows');
+    assert.deepEqual(pageTwo.calls[1].orderBy, [{ id: 'asc' }]);
+    assert.equal(pageTwo.calls[1].skip, 0);
+    assert.equal(pageTwo.calls[1].take, 2);
+    assert.equal(pageTwo.body.nextCursor, null);
+
+    const pageThree = await list({ dateSort: sort, page: '3' });
+    assert.equal(pageThree.calls.length, 1); // past all dated rows
+    assert.deepEqual(pageThree.calls[0].orderBy, [{ id: 'asc' }]);
+    assert.equal(pageThree.calls[0].skip, 1);
+  }
+});
+
+test('nearest sort collects bounded nearest candidates from both sides of today before slicing page two', async () => {
+  const result = await list({ dateSort: 'nearest', page: '2' });
+  assert.equal(result.status, 200);
+  assert.equal(result.calls.length, 3);
+  assert.deepEqual(result.calls[0].orderBy, [{ deliveryDate: 'desc' }, { id: 'asc' }]);
+  assert.deepEqual(result.calls[1].orderBy, [{ deliveryDate: 'asc' }, { id: 'asc' }]);
+  assert.deepEqual(result.calls[2].orderBy, [{ id: 'asc' }]);
+  for (const call of result.calls) {
+    assert.equal(call.take, 5);
+    assert.ok(call.where.AND[0].AND, 'original role/category/date constraints must remain present');
+  }
+});
+
+test('rejects an unsupported sort mode and disallows mixing cursor with non-default date sort', async () => {
+  const invalid = await list({ dateSort: 'unexpected' });
+  assert.equal(invalid.status, 400);
+  assert.match(invalid.body.error, /dateSort/);
+  assert.equal(invalid.calls.length, 0);
+
+  const mixed = await list({ dateSort: 'oldest', cursor: 'c_test' });
+  assert.equal(mixed.status, 400);
+  assert.match(mixed.body.error, /cursor/);
+  assert.equal(mixed.calls.length, 0);
+});
+
+test('status filters preserve Scheduled legacy RMA while internal Time In still implies In Transit', async () => {
+  const scheduled = await list({ status: 'Scheduled' });
+  const scheduledFilter = scheduled.calls[0].where.AND.find((filter: any) => filter.status === 'SCHEDULED');
+  assert.deepEqual(scheduledFilter, {
+    draft: false, status: 'SCHEDULED', OR: [{ category: 'RMA' }, { timeIn: null }],
+  });
+  const inTransit = await list({ status: 'In Transit' });
+  const transitFilter = inTransit.calls[0].where.AND.find((filter: any) => filter.OR?.some((state: any) => state.status === 'IN_TRANSIT'));
+  assert.deepEqual(transitFilter, {
+    draft: false,
+    OR: [{ status: 'IN_TRANSIT' }, { status: 'SCHEDULED', category: { not: 'RMA' }, NOT: { timeIn: null } }],
+  });
+});

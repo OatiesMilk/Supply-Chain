@@ -1,3 +1,4 @@
+import { usePermissions } from '@/hooks/usePermissions';
 import { useState, useEffect, useCallback } from 'react';
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Package, Layers,
@@ -198,7 +199,8 @@ function InventoryTab({
   const atp = inv?.atp ?? 0;
   const onHand = inv?.on_hand_qty ?? 0;
 
-  const canAdjust = currentUserRole === 'Admin' || currentUserRole === 'Logistics';
+  const access = usePermissions();
+  const canAdjust = (currentUserRole === 'Admin' || currentUserRole === 'Logistics') && access.canResource('skus', 'ADJUST');
 
   const [adjType, setAdjType] = useState<string>('Adjustment');
   const [adjQty, setAdjQty] = useState<string>('');
@@ -218,9 +220,9 @@ function InventoryTab({
   }
 
   const handleAdjust = async () => {
-    const qty = parseInt(adjQty, 10);
-    if (isNaN(qty) || qty === 0) {
-      setAdjError('Quantity must be a non-zero number.');
+    const qty = Number(adjQty);
+    if (!Number.isFinite(qty) || !Number.isInteger(qty) || qty === 0 || Math.abs(qty) > 2147483647) {
+      setAdjError('Quantity must be a non-zero whole number within the supported range.');
       return;
     }
     if (!adjRef.trim()) {

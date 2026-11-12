@@ -8,6 +8,7 @@ import {
   OutputActionTrigger,
 } from '@/types';
 import { ApiCompany } from '@/api';
+import { DashboardFilterId } from '@/utils/dashboardFilters';
 
 export interface DeliveriesPageProps {
   category?: DeliveryCategory;
@@ -15,13 +16,15 @@ export interface DeliveriesPageProps {
   companies: ApiCompany[];
   currentUserRole: UserRole;
   currentUserName: string;
-  onCreateRecord: (data: any) => Promise<void>;
+  onCreateRecord: (data: Omit<DeliveryRecord, 'id' | 'created_by' | 'created_at' | 'modified_by' | 'modified_at' | 'email_notification_sent'>) => Promise<DeliveryRecord>;
   onUpdateRecord: (id: string, updates: Partial<DeliveryRecord>) => Promise<void>;
   onVerifyCollection?: (id: string) => Promise<void>;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;
   onUpdateOutputActionConfig: (trigger: OutputActionTrigger, patch: Partial<OutputActionConfig>) => void;
   selectedRecordIdFromDashboard: string | null;
   clearSelectedRecordId: () => void;
+  dashboardFilterId: DashboardFilterId | null;
+  clearDashboardFilter: () => void;
   onRefresh: () => Promise<void>;
 }
 
@@ -31,8 +34,8 @@ const TITLE_MAP: Record<string, { title: string; subtitle: string }> = {
     subtitle: 'Schedule and track outbound deliveries to merchant customers.',
   },
   'RMA': {
-    title: 'RMA (Returns / Pull-out)',
-    subtitle: 'Manage returns, defective unit pull-outs, and replacement drop-offs.',
+    title: 'RMA Records',
+    subtitle: 'TASS manages return and pull-out records; Logistics can read and print saved records.',
   },
   'Accounting Collection': {
     title: 'Accounting Collection',
@@ -61,6 +64,8 @@ export const DeliveriesPage: React.FC<DeliveriesPageProps> = ({
   onUpdateOutputActionConfig,
   selectedRecordIdFromDashboard,
   clearSelectedRecordId,
+  dashboardFilterId,
+  clearDashboardFilter,
   onRefresh,
 }) => {
   const baseMeta = TITLE_MAP[category] || {
@@ -71,9 +76,9 @@ export const DeliveriesPage: React.FC<DeliveriesPageProps> = ({
   const meta =
     category === 'RMA' && currentUserRole === 'Logistics'
       ? {
-          title: 'TASS (Returns / Pull-out)',
+          title: 'RMA (Returns / Pull-out)',
           subtitle:
-            'View returns and pull-out records (read-only — driver assignment not available for Logistics on this screen).',
+            'View and print saved return and pull-out records. TASS owns RMA updates.',
         }
       : baseMeta;
 
@@ -93,6 +98,8 @@ export const DeliveriesPage: React.FC<DeliveriesPageProps> = ({
       onUpdateOutputActionConfig={onUpdateOutputActionConfig}
       selectedRecordIdFromDashboard={selectedRecordIdFromDashboard}
       clearSelectedRecordId={clearSelectedRecordId}
+      dashboardFilterId={dashboardFilterId}
+      clearDashboardFilter={clearDashboardFilter}
       onRefresh={onRefresh}
     />
   );

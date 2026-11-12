@@ -6,14 +6,18 @@
  *
  * Clean layout — no sidebar or header chrome. Uses jsPDF.
  */
+import { rmaWorkflowExportFields } from '@/utils/rmaTransport';
+import { formatManilaTimestamp } from '@/utils/manilaTimestamp';
 import { fmtDate } from '@/utils/export';
 import { DeliveryRecord } from '@/types';
-import { ApiCompany, ApiAuditEntry, ApiComment, ApiRemarkLog } from '@/api';
+import { ApiCompany, ApiAuditEntry, ApiComment, ApiRemarkLog, ApiPodAttachment } from '@/api';
+import { DocumentSize, getPdfFormat, fitColumnWidths, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
 
 export interface ManifestDocumentationData {
   auditEntries: ApiAuditEntry[];
   remarks: ApiRemarkLog[];
   comments: ApiComment[];
+  attachments?: ApiPodAttachment[];
 }
 
 const NAVY: [number, number, number] = [31, 56, 100];
@@ -80,15 +84,18 @@ const CONTEXT_LABEL: Record<string, string> = {
   STATUS_CHANGE: 'Status Change',
 };
 
+
+
 /** Generate a single-record manifest PDF.
  *  When docData is supplied, a second page (Documentation Trail) is appended. */
 export async function printSingleManifest(
   record: DeliveryRecord,
   companies: ApiCompany[],
-  docData?: ManifestDocumentationData
-): Promise<void> {
+  docData?: ManifestDocumentationData,
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
+): Promise<Blob> {
   const { jsPDF } = await import('jspdf');
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: getPdfFormat(documentSize) });
   const logo = await loadLogo();
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -97,13 +104,104 @@ export async function printSingleManifest(
 
   drawManifestHeader(
     doc, logo,
-    'Delivery Manifest',
-    `Record ${record.id} · ${fmtDate(record.delivery_date)}`,
+    record.category === 'RMA' ? 'RMA Document Record' : 'Delivery Manifest',
+    record.category === 'RMA' ? `RMA Document Reference ${record.rma_reference ?? record.reference} · Record ${record.id}` : `Record ${record.id} · ${fmtDate(record.delivery_date)}`,
     pageW
   );
 
+  if (record.category === 'RMA') {
+    const { default: autoTable } = await import('jspdf-autotable');
+    const attachments = [
+      ...(record.attachments ?? []),
+      ...(docData?.attachments ?? []).map(file => file.name),
+    ];
+    const workflow = rmaWorkflowExportFields(record);
+    const fields: [string, string][] = [
+      ['Record ID', record.id],
+      ['RMA Document Reference', record.rma_reference ?? record.reference],
+      ['Legacy SAP Reference', record.legacy_sap_reference ?? '—'],
+      ['RMA Category', record.rma_type ?? '—'],
+      ['Movement method', workflow.rma_movement_fmt || 'Not selected'],
+      ['Transport status', workflow.rma_transport_status_fmt || 'Not applicable'],
+      ['Transport started', workflow.rma_transport_started_at_fmt || (record.rma_movement === 'LOGISTICS_TRANSPORT' ? '—' : record.rma_movement ? 'Not applicable' : 'Not selected')],
+      ['Transport completed', workflow.rma_transport_completed_at_fmt || '—'],
+      ['Physical receipt recipient', workflow.rma_recipient || '—'],
+      ['Physical receipt confirmed', workflow.rma_received_at_fmt || 'Not confirmed'],
+      ['RMA completed', workflow.rma_completed_at_fmt || '—'],
+      ['Status', record.status],
+      ['Priority', record.priority],
+      ['Company', record.company_name],
+      ['Company ID', record.company_id],
+      ['Customer Contact Name', record.customer_contact_name ?? '—'],
+      ['Customer Contact Email', record.customer_contact_email ?? '—'],
+      ['Customer Contact Phone', record.customer_contact_phone ?? '—'],
+      ['Purchase Date', record.purchase_date ? fmtDate(record.purchase_date) : '—'],
+      ['Area', record.area || '—'],
+      ['Address', record.address || '—'],
+      ['Account Manager', record.account_manager || '—'],
+      ['Delivery Date', record.delivery_date ? fmtDate(record.delivery_date) : '—'],
+      ['Item Type', record.item_type || '—'],
+      ['Item Description', record.item_description || '—'],
+      ['Vehicle', record.vehicle || '—'],
+      ['Driver', record.driver || 'Unassigned'],
+      ['Driver ID', record.driver_id || '—'],
+      ['Driver Assistants', record.driver_assistants?.join(', ') || '—'],
+      ['Received By', record.received_by || '—'],
+      ['Completed Late', record.completed_late ? 'Yes' : 'No'],
+      ['Days Late', String(record.days_late ?? 0)],
+      ['Draft', record.is_draft],
+      ['Remarks', record.remarks || '—'],
+      ['Legacy Document Attachment', record.document_attachment || '—'],
+      ['Attachments', attachments.join(', ') || '—'],
+      ['Created By', record.created_by || '—'],
+      ['Created By ID', record.created_by_id ?? '—'],
+      ['Created At', formatManilaTimestamp(record.created_at)],
+      ['Modified By', record.modified_by || '—'],
+      ['Modified By ID', record.modified_by_id ?? '—'],
+      ['Modified At', formatManilaTimestamp(record.modified_at)],
+      ['Deleted At', formatManilaTimestamp(record.deleted_at)],
+      ['Amount', record.amount == null ? '—' : String(record.amount)],
+      ['Collection Verified', record.collection_verified ? 'Yes' : 'No'],
+      ['Collection Verified By', record.collection_verified_by ?? '—'],
+      ['Collection Verified At', formatManilaTimestamp(record.collection_verified_at)],
+      ['Linked Collection', record.linked_collection ? `${record.linked_collection.id} · ${record.linked_collection.reference}` : record.linked_collection_id ?? '—'],
+    ];
+    autoTable(doc, {
+      head: [['RMA Record Field', 'Saved Value']],
+      body: fields,
+      startY: 31,
+      margin: { left: 10, right: 10, top: 31, bottom: 11 },
+      styles: { fontSize: 7.5, cellPadding: 1.5, overflow: 'linebreak', valign: 'top' },
+      columnStyles: { 0: { cellWidth: 52, fontStyle: 'bold' }, 1: { cellWidth: 'auto' } },
+      headStyles: { fillColor: [...NAVY], textColor: [255, 255, 255], fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 249, 250] },
+      didDrawPage: () => drawManifestHeader(doc, logo, 'RMA Document Record', `RMA Document Reference ${record.rma_reference ?? record.reference} · Record ${record.id}`, pageW),
+    });
+    if (record.line_items?.length) {
+      const tableEnd = (doc as any).lastAutoTable?.finalY ?? 31;
+      autoTable(doc, {
+        head: [['Line Item', 'Quantity']],
+        body: record.line_items.map(item => [item.sku, String(item.quantity)]),
+        startY: tableEnd + 5,
+        margin: { left: 10, right: 10, top: 31, bottom: 11 },
+        styles: { fontSize: 7.5, cellPadding: 1.5 },
+        headStyles: { fillColor: [...NAVY], textColor: [255, 255, 255], fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 249, 250] },
+        didDrawPage: () => drawManifestHeader(doc, logo, 'RMA Document Record', `RMA Document Reference ${record.rma_reference ?? record.reference} · Record ${record.id}`, pageW),
+      });
+    }
+    for (let page = 1; page <= doc.getNumberOfPages(); page++) {
+      doc.setPage(page);
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text('Microgenesis Business Systems — Confidential', pageW / 2, pageH - 8, { align: 'center' });
+      doc.text(`Generated: ${fmtDate(new Date().toISOString())}`, 10, pageH - 8);
+    }
+  } else {
   let y = 34;
-  const col1 = 10, col2 = 110, colW = 90;
+  const col1 = 10;
+  const colW = (pageW - 30) / 2;
+  const col2 = col1 + colW + 10;
 
   // ── Section: Recipient ──────────────────────────────────────────────────
   doc.setFillColor(...NAVY);
@@ -178,20 +276,21 @@ export async function printSingleManifest(
   doc.setLineWidth(0.3);
   const sigY = Math.max(y + 20, pageH - 60);
 
-  doc.line(10, sigY, 85, sigY);
+  doc.line(col1, sigY, col1 + colW - 15, sigY);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(...SLATE);
-  doc.text('Received by (Signature over Printed Name)', 10, sigY + 4);
+  doc.text('Received by (Signature over Printed Name)', col1, sigY + 4);
 
-  doc.line(110, sigY, 185, sigY);
-  doc.text('Date & Time Received', 110, sigY + 4);
+  doc.line(col2, sigY, col2 + colW - 15, sigY);
+  doc.text('Date & Time Received', col2, sigY + 4);
 
   // ── Footer ───────────────────────────────────────────────────────────────
   doc.setFontSize(7.5);
   doc.setTextColor(148, 163, 184);
   doc.text('Microgenesis Business Systems — Confidential', pageW / 2, pageH - 8, { align: 'center' });
   doc.text(`Generated: ${fmtDate(new Date().toISOString())}`, 10, pageH - 8);
+  }
 
   // ── Page 2: Documentation Trail ─────────────────────────────────────────────
   if (docData) {
@@ -339,7 +438,7 @@ export async function printSingleManifest(
     });
   }
 
-  doc.save(`manifest-${record.id}-${record.delivery_date}.pdf`);
+  return doc.output('blob');
 }
 
 /** Generate a driver-day manifest (all records for one driver on one date) */
@@ -347,12 +446,13 @@ export async function printDriverDayManifest(
   driver: string,
   date: string,
   records: DeliveryRecord[],
-  companies: ApiCompany[]
+  companies: ApiCompany[],
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
 ): Promise<void> {
   const { jsPDF } = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
 
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: getPdfFormat(documentSize) });
   const logo = await loadLogo();
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -393,19 +493,24 @@ export async function printDriverDayManifest(
     head: [['#', 'Record ID', 'Company', 'Area', 'Address', 'SAP Ref', 'Item Type', 'Status']],
     body,
     startY: 44,
+    margin: { left: 10, right: 10 },
     styles: { fontSize: 8, cellPadding: { top: 2, right: 2.5, bottom: 2, left: 2.5 } },
     headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
     alternateRowStyles: { fillColor: [248, 249, 250] },
-    columnStyles: {
-      0: { cellWidth: 8, halign: 'center' },
-      1: { cellWidth: 22, fontStyle: 'bold' },
-      2: { cellWidth: 38 },
-      3: { cellWidth: 22 },
-      4: { cellWidth: 40 },
-      5: { cellWidth: 22 },
-      6: { cellWidth: 20 },
-      7: { cellWidth: 18 }
-    },
+    columnStyles: (() => {
+      const weights = [8, 22, 38, 22, 40, 22, 20, 18];
+      const scaled = fitColumnWidths(weights, pageW - 20);
+      return {
+        0: { cellWidth: scaled[0], halign: 'center' as const },
+        1: { cellWidth: scaled[1], fontStyle: 'bold' as const },
+        2: { cellWidth: scaled[2] },
+        3: { cellWidth: scaled[3] },
+        4: { cellWidth: scaled[4] },
+        5: { cellWidth: scaled[5] },
+        6: { cellWidth: scaled[6] },
+        7: { cellWidth: scaled[7] }
+      };
+    })(),
     didDrawPage: (data) => {
       const pages = (doc as any).internal.getNumberOfPages();
       doc.setFontSize(7.5);

@@ -1,0 +1,16 @@
+{
+  "method": "GET",
+  "endpoint": "/records/REC-28510/attachments",
+  "status": 200,
+  "body": [
+    {
+      "id": "cmv96ax34003nq1sbxvzykrb1",
+      "name": "uat-photo.jpg",
+      "mime_type": "image/jpeg",
+      "is_photo": true,
+      "size": 784,
+      "uploaded_at": "2026-10-15T06:44:05.248Z",
+      "download_url": "/api/records/REC-28510/attachments/cmv96ax34003nq1sbxvzykrb1/download"
+    }
+  ]
+}

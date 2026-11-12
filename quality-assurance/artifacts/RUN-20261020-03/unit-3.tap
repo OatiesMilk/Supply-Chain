@@ -1,0 +1,73 @@
+TAP version 13
+# Subtest: Layer 1 (Unit): Customer Input Validation & Concurrency Tokens
+    # Subtest: Customer Update Body Parser (parseCustomerUpdate)
+        # Subtest: test_accepts_clean_valid_update_with_concurrency_token
+        ok 1 - test_accepts_clean_valid_update_with_concurrency_token
+          ---
+          duration_ms: 1.083417
+          type: 'test'
+          ...
+        # Subtest: test_rejects_empty_or_whitespace_customer_name
+        ok 2 - test_rejects_empty_or_whitespace_customer_name
+          ---
+          duration_ms: 0.222482
+          type: 'test'
+          ...
+        # Subtest: test_rejects_malformed_email_address
+        ok 3 - test_rejects_malformed_email_address
+          ---
+          duration_ms: 0.200623
+          type: 'test'
+          ...
+        # Subtest: test_rejects_phone_with_invalid_characters
+        ok 4 - test_rejects_phone_with_invalid_characters
+          ---
+          duration_ms: 0.18569
+          type: 'test'
+          ...
+        # Subtest: test_requires_mandatory_change_remarks
+        ok 5 - test_requires_mandatory_change_remarks
+          ---
+          duration_ms: 0.232714
+          type: 'test'
+          ...
+        # Subtest: test_requires_expected_modified_at_for_optimistic_locking
+        ok 6 - test_requires_expected_modified_at_for_optimistic_locking
+          ---
+          duration_ms: 0.256319
+          type: 'test'
+          ...
+        1..6
+    ok 1 - Customer Update Body Parser (parseCustomerUpdate)
+      ---
+      duration_ms: 3.296669
+      type: 'suite'
+      ...
+    # Subtest: Customer Snapshot Differences (customerChanges)
+        # Subtest: test_computes_field_level_diffs_for_audit_trail
+        ok 1 - test_computes_field_level_diffs_for_audit_trail
+          ---
+          duration_ms: 1.071879
+          type: 'test'
+          ...
+        1..1
+    ok 2 - Customer Snapshot Differences (customerChanges)
+      ---
+      duration_ms: 1.362476
+      type: 'suite'
+      ...
+    1..2
+ok 1 - Layer 1 (Unit): Customer Input Validation & Concurrency Tokens
+  ---
+  duration_ms: 6.119109
+  type: 'suite'
+  ...
+1..1
+# tests 7
+# suites 3
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 16.923423

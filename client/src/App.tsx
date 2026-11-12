@@ -1,39 +1,128 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties, Suspense } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { queryClient } from '@/api/queryClient';
+import { Toaster } from 'sonner';
+import { createQueryClient } from '@/api/queryClient';
 import { useAuth, useUIStore } from '@/store';
+import { useAuthStore } from '@/store/authStore';
 import { useAppData, useDeliveryActions, usePermissions } from '@/hooks';
 import { MainLayout } from '@/layouts';
 import { AppRouter } from '@/routes';
-import LoginView from '@/features/auth/LoginView';
-import DriverDashboard from '@/features/dashboard/DriverDashboard';
-import { DeliveryCategory } from '@/types';
+import { syncAuthenticatedRoute } from '@/routes/screenRouting';
+import { lazyPage } from '@/routes/lazyPage';
+import { PageDataContext } from '@/routes/PageDataGate';
+import { useServerAvailability } from '@/hooks/useServerAvailability';
+import { permissionSessionKey } from '@/utils/permissions';
+import { DashboardFilterId } from '@/utils/dashboardFilters';
+import ServerUnavailableView from '@/features/auth/ServerUnavailableView';
+import { canManageAdminSettings } from '@/layouts/accountSettingsAccess';
+
+const LoginView = lazyPage(() => import('@/features/auth/LoginView'));
+const DriverDashboard = lazyPage(() => import('@/features/dashboard/DriverDashboard'));
 
 function AppContent() {
+  const { authUser, authChecked, logoutPending, login, checkAuth } = useAuth();
+  const { status, retrying, retry } = useServerAvailability();
+  const [sessionReady, setSessionReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSessionReady(false);
+    if (status === 'available') {
+      void checkAuth().then(() => {
+        if (!cancelled) setSessionReady(true);
+      });
+    }
+    return () => { cancelled = true; };
+  }, [checkAuth, status]);
+
+  useEffect(() => {
+    if (!authUser) return;
+    const refresh = () => { void useAuthStore.getState().refreshPermissions(); };
+    const interval = window.setInterval(refresh, 30_000);
+    window.addEventListener('focus', refresh);
+    window.addEventListener('online', refresh);
+    window.addEventListener('session-permissions-changed', refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('online', refresh);
+      window.removeEventListener('session-permissions-changed', refresh);
+    };
+  }, [authUser?.id]);
+
+  if (status === 'unavailable') {
+    return <ServerUnavailableView retrying={retrying} onRetry={retry} />;
+  }
+
+  if (status === 'checking' || !sessionReady || !authChecked) {
+    return (
+      <div className="min-h-screen bg-[#F8F9FB] flex items-center justify-center" id="auth-check-loading" role="status">
+        Checking your session…
+      </div>
+    );
+  }
+
+  if (logoutPending) return <div role="status" className="min-h-screen flex items-center justify-center">Signing out...</div>;
+  if (!authUser) return <LoginView onLoggedIn={login} />;
+
+  return <SessionApp key={`${authUser.name}:${permissionSessionKey(authUser)}`} />;
+}
+
+function SessionApp() {
+  // A new cache for every login also isolates late requests from the old session.
+  const [client] = useState(createQueryClient);
+  useEffect(() => () => { client.clear(); }, [client]);
+  return (
+    <QueryClientProvider client={client}>
+      <AuthenticatedApp />
+      <Toaster
+        position="bottom-right"
+        richColors
+        closeButton
+        duration={5000}
+        style={{
+          '--normal-bg': '#FFFFFF',
+          '--normal-text': '#1F3864',
+          '--normal-border': '#0078C1',
+          '--success-bg': '#1F3864',
+          '--success-text': '#FFFFFF',
+          '--success-border': '#0078C1',
+          '--error-bg': '#FFFFFF',
+          '--error-text': '#991B1B',
+          '--error-border': '#0078C1',
+          '--info-bg': '#E6F4FB',
+          '--info-text': '#1F3864',
+          '--info-border': '#0078C1',
+        } as CSSProperties}
+      />
+    </QueryClientProvider>
+  );
+}
+
+// Keep protected data hooks and application effects behind the session gate.
+function AuthenticatedApp() {
   const {
     authUser,
-    authChecked,
     currentUserRole,
     currentUserName,
     currentUserInitials,
-    login,
     logout,
-    checkAuth,
   } = useAuth();
-
-  // Validate session on app initialization
-  useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
 
   const currentUser = {
     name: currentUserName,
+    email: authUser.email,
     initials: currentUserInitials,
   };
+
+  // Zustand UI Store state and actions
+  const currentScreen = useUIStore(s => s.currentScreen);
+  const searchOpen = useUIStore(s => s.searchOpen);
 
   // TanStack Query synchronized application data hook
   const {
     deliveryRecords,
+    activeRecordCounts,
     companies,
     customers,
     suppliers,
@@ -42,6 +131,7 @@ function AppContent() {
     managedDrivers,
     dataLoading,
     dataError,
+    retryPageData,
     resetting,
     refreshData,
     handleCreateCustomer,
@@ -50,7 +140,7 @@ function AppContent() {
     handleUpdateDriver,
     handleDeleteDriver,
     handleResetDemoData,
-  } = useAppData(authUser, currentUser, currentUserRole);
+  } = useAppData(authUser, currentUser, currentUserRole, authUser.role === 'DRIVER' && authUser.effectiveScreens.includes('driver_dashboard') ? 'driver_dashboard' : currentScreen, searchOpen);
 
   // TanStack Query mutation action workflows hook
   const {
@@ -68,15 +158,10 @@ function AppContent() {
   // Role permissions & screen access hook
   const { effectiveScreens, canAccess } = usePermissions(authUser);
 
-  // Zustand UI Store state and actions
-  const currentScreen = useUIStore(s => s.currentScreen);
   const isSidebarOpen = useUIStore(s => s.isSidebarOpen);
   const setIsSidebarOpen = useUIStore(s => s.setIsSidebarOpen);
   const isSidebarCollapsed = useUIStore(s => s.isSidebarCollapsed);
   const setIsSidebarCollapsed = useUIStore(s => s.setIsSidebarCollapsed);
-  const zoomFactor = useUIStore(s => s.zoomFactor);
-  const setZoomFactor = useUIStore(s => s.setZoomFactor);
-  const searchOpen = useUIStore(s => s.searchOpen);
   const setSearchOpen = useUIStore(s => s.setSearchOpen);
   const accessRequestOpen = useUIStore(s => s.accessRequestOpen);
   const accessRequestScreen = useUIStore(s => s.accessRequestScreen);
@@ -86,15 +171,26 @@ function AppContent() {
   const setSelectedProductId = useUIStore(s => s.setSelectedProductId);
   const selectedRecordId = useUIStore(s => s.selectedRecordId);
   const setSelectedRecordId = useUIStore(s => s.setSelectedRecordId);
-  const handleNavigate = useUIStore(s => s.handleNavigate);
+  const dashboardFilterId = useUIStore(s => s.dashboardFilterId);
+  const clearDashboardFilter = useUIStore(s => s.clearDashboardFilter);
+  const navigate = useUIStore(s => s.handleNavigate);
+  const handleNavigate = useCallback((screen: string, itemId?: string, filterId?: DashboardFilterId) => {
+    if (screen !== 'no-access' && !effectiveScreens.has(screen)) {
+      openAccessRequest(screen);
+      return;
+    }
+    navigate(screen, itemId, filterId);
+  }, [navigate, effectiveScreens, openAccessRequest]);
 
-  // Synchronize accessibility root font-size with zoomFactor
+  // Client-side routing
   useEffect(() => {
-    document.documentElement.style.fontSize = `${zoomFactor}%`;
-    return () => {
-      document.documentElement.style.fontSize = '';
+    const syncRoute = () => {
+      syncAuthenticatedRoute(effectiveScreens, handleNavigate);
     };
-  }, [zoomFactor]);
+    syncRoute();
+    window.addEventListener('popstate', syncRoute);
+    return () => window.removeEventListener('popstate', syncRoute);
+  }, [handleNavigate, effectiveScreens]);
 
   // Global Ctrl+K / Cmd+K search modal shortcut
   useEffect(() => {
@@ -108,34 +204,49 @@ function AppContent() {
     return () => document.removeEventListener('keydown', handler);
   }, [searchOpen, setSearchOpen]);
 
-  // Dynamic counts for sidebar badges
-  const countByCategory = (cat: DeliveryCategory, statuses: string[]) =>
-    deliveryRecords.filter(r => r.category === cat && statuses.includes(r.status)).length;
-
-  const deliveriesActiveCount = countByCategory('Deliveries', ['Scheduled', 'Pending']);
-  const rmaActiveCount = countByCategory('RMA', ['Scheduled', 'Pending', 'On-Hold']);
-  const salesOrdersActiveCount = countByCategory('Sales Orders', ['Scheduled', 'Pending']);
-
-  // Authentication loading gate
-  if (!authChecked) {
-    return <div className="min-h-screen bg-[#F8F9FB]" id="auth-check-loading" />;
-  }
-
-  // Unauthenticated -> Render Login view
-  if (!authUser) {
-    return <LoginView onLoggedIn={login} />;
-  }
+  // Small, server-scoped aggregates keep badge counts correct even when
+  // Customers/Inventory/Admin do not download the complete records list.
+  const deliveriesActiveCount = activeRecordCounts?.deliveries ?? 0;
+  const rmaActiveCount = activeRecordCounts?.rma ?? 0;
+  const salesOrdersActiveCount = activeRecordCounts?.sales_orders ?? 0;
+  const accountingActiveCount = activeRecordCounts?.accounting_collection ?? 0;
+  const procurementActiveCount = activeRecordCounts?.procurement_pickup ?? 0;
 
   // Driver role gets standalone mobile-first dashboard
-  if (authUser.role === 'DRIVER') {
+  if (effectiveScreens.size === 0) {
+    return <div className="min-h-screen flex flex-col items-center justify-center gap-4">
+      <h1 className="text-xl font-bold">No modules assigned</h1>
+      <p>Contact your administrator to request access.</p>
+      <button onClick={() => void logout()} className="rounded bg-blue-800 px-4 py-2 text-white">Sign out</button>
+    </div>;
+  }
+
+  if (authUser.role === 'DRIVER' && canAccess('driver_dashboard')) {
     return (
-      <DriverDashboard
-        records={deliveryRecords}
-        currentUserName={currentUser.name}
-        onUpdateRecord={handleUpdateRecord}
-        onLogout={logout}
-        dataLoading={dataLoading}
-      />
+      <Suspense
+        fallback={
+          <div className="min-h-screen bg-[#F8F9FB] flex items-center justify-center text-slate-500" role="status">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-8 h-8 border-3 border-sky-600 border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm font-medium text-slate-600">Loading driver dashboard…</span>
+            </div>
+          </div>
+        }
+      >
+        <PageDataContext.Provider value={{ loading: dataLoading, error: dataError, onRetry: retryPageData }}>
+          <DriverDashboard
+            serverPaging
+            records={deliveryRecords}
+            currentUserName={currentUser.name}
+            currentUserEmail={currentUser.email}
+            canManageAdmin={false}
+            onNavigate={handleNavigate}
+            onUpdateRecord={handleUpdateRecord}
+            onLogout={logout}
+            dataLoading={dataLoading}
+          />
+        </PageDataContext.Provider>
+      </Suspense>
     );
   }
 
@@ -144,7 +255,11 @@ function AppContent() {
       searchOpen={searchOpen}
       setSearchOpen={setSearchOpen}
       deliveryRecords={deliveryRecords}
-      products={products}
+      customers={canAccess('customers') ? customers : []}
+      suppliers={canAccess('suppliers') ? suppliers : []}
+      drivers={canAccess('driver_manager') || canAccess('driver') || canAccess('driver_board') ? managedDrivers : []}
+      products={canAccess('inventory') ? products : []}
+      accessibleScreens={effectiveScreens}
       dataError={dataError}
       accessRequestModalProps={{
         isOpen: accessRequestOpen,
@@ -165,15 +280,16 @@ function AppContent() {
         deliveriesActiveCount,
         rmaActiveCount,
         salesOrdersActiveCount,
+        accountingActiveCount,
+        procurementActiveCount,
         onRequestAccess: () => openAccessRequest(''),
       }}
       navbarProps={{
         currentScreen,
         setIsSidebarOpen,
-        zoomFactor,
-        setZoomFactor,
         currentUser,
         currentUserRole,
+        canManageAdmin: canManageAdminSettings(authUser.role, canAccess),
         setSearchOpen,
         deliveryRecords,
         handleNavigate,
@@ -182,44 +298,44 @@ function AppContent() {
         handleLogout: logout,
       }}
     >
-      <AppRouter
-        currentScreen={currentScreen}
-        deliveryRecords={deliveryRecords}
-        companies={companies}
-        customers={customers}
-        suppliers={suppliers}
-        products={products}
-        managedDrivers={managedDrivers}
-        dashboardStats={dashboardStats}
-        currentUserRole={currentUserRole}
-        currentUserName={currentUser.name}
-        effectiveScreens={effectiveScreens}
-        canAccess={canAccess}
-        handleNavigate={handleNavigate}
-        handleCreateRecord={handleCreateRecord}
-        handleUpdateRecord={handleUpdateRecord}
-        handleVerifyCollection={handleVerifyCollection}
-        outputActionConfigs={outputActionConfigs}
-        handleUpdateOutputActionConfig={handleUpdateOutputActionConfig}
-        selectedRecordId={selectedRecordId}
-        setSelectedRecordId={setSelectedRecordId}
-        selectedProductId={selectedProductId}
-        setSelectedProductId={setSelectedProductId}
-        handleCreateCustomer={handleCreateCustomer}
-        handleCreateSupplier={handleCreateSupplier}
-        handleCreateDriver={handleCreateDriver}
-        handleUpdateDriver={handleUpdateDriver}
-        handleDeleteDriver={handleDeleteDriver}
-        refreshData={refreshData}
-      />
+      <PageDataContext.Provider value={{ loading: canAccess(currentScreen) && dataLoading, error: canAccess(currentScreen) ? dataError : null, onRetry: retryPageData }}>
+        <AppRouter
+          currentScreen={currentScreen}
+          deliveryRecords={deliveryRecords}
+          companies={companies}
+          customers={customers}
+          suppliers={suppliers}
+          products={products}
+          managedDrivers={managedDrivers}
+          dashboardStats={dashboardStats}
+          currentUserRole={currentUserRole}
+          currentUserName={currentUser.name}
+          effectiveScreens={effectiveScreens}
+          canAccess={canAccess}
+          handleNavigate={handleNavigate}
+          handleCreateRecord={handleCreateRecord}
+          handleUpdateRecord={handleUpdateRecord}
+          handleVerifyCollection={handleVerifyCollection}
+          outputActionConfigs={outputActionConfigs}
+          handleUpdateOutputActionConfig={handleUpdateOutputActionConfig}
+          selectedRecordId={selectedRecordId}
+          setSelectedRecordId={setSelectedRecordId}
+          dashboardFilterId={dashboardFilterId}
+          clearDashboardFilter={clearDashboardFilter}
+          selectedProductId={selectedProductId}
+          setSelectedProductId={setSelectedProductId}
+          handleCreateCustomer={handleCreateCustomer}
+          handleCreateSupplier={handleCreateSupplier}
+          handleCreateDriver={handleCreateDriver}
+          handleUpdateDriver={handleUpdateDriver}
+          handleDeleteDriver={handleDeleteDriver}
+          refreshData={refreshData}
+        />
+      </PageDataContext.Provider>
     </MainLayout>
   );
 }
 
 export default function App() {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <AppContent />
-    </QueryClientProvider>
-  );
+  return <AppContent />;
 }

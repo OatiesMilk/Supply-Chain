@@ -2,7 +2,9 @@
  * Authentication and User Management types
  */
 
-export interface ApiUser {
+import type { PermissionSession } from './permissions';
+
+export interface ApiUser extends PermissionSession {
   id: string;
   name: string;
   email: string;

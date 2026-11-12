@@ -1,0 +1,23 @@
+{
+  "note": "An initial probe used a mistyped profile ID and returned 400; no user was created. The case was then executed with the exact John Doe profile ID returned by GET /api/drivers.",
+  "request": {
+    "method": "POST",
+    "path": "/api/users",
+    "body": {
+      "name": "UAT Driver Clash",
+      "email": "uat.clash@microgenesis.test",
+      "password": "[redacted]",
+      "role": "DRIVER",
+      "driver_profile_id": "cmv86h1lc00242otceamv0y39"
+    }
+  },
+  "response": {
+    "status": 409,
+    "body": "{\"error\":\"This Driver profile is already linked to another login. Unlink it first.\"}"
+  },
+  "followup": {
+    "method": "GET",
+    "path": "/api/users",
+    "matchingUserCreated": false
+  }
+}

@@ -1,3 +1,5 @@
+import RecordStatus from '@/components/RecordStatus';
+import { manilaToday } from '@/utils/recordLifecycle';
 import {
   Truck,
   UserX,
@@ -9,68 +11,121 @@ import {
   Navigation,
 } from "lucide-react";
 import { DeliveryRecord } from "@/types";
-import { ApiDashboardStats } from "@/api";
+import { ApiDashboardStats, ApiDashboardOverview } from "@/api";
 import { screenKeyForCategory } from "@/routes/screenRouting";
+import { DashboardFilterId, filterRecordsForDashboard } from '@/utils/dashboardFilters';
 
 interface Props {
   stats: Extract<ApiDashboardStats, { role: "LOGISTICS" }> | null;
   deliveryRecords: DeliveryRecord[];
-  onNavigate: (screen: string, item_id?: string) => void;
+  overview: ApiDashboardOverview;
+  onNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
   onRefresh?: () => void;
 }
 
 export default function LogisticsDashboard({
   stats,
+  overview,
   deliveryRecords,
   onNavigate,
   onRefresh,
 }: Props) {
-  const today = new Date().toISOString().split("T")[0];
-
-  // Derive lists from deliveryRecords (already filtered to Logistics-visible records by API)
-  const unassignedRecords = deliveryRecords.filter(
-    (r) => !r.driver && r.status !== "Delivered",
-  );
-  const onHoldRecords = deliveryRecords.filter((r) => r.status === "On-Hold");
-  const rescheduledRecords = deliveryRecords.filter(
-    (r) => r.status === "Rescheduled",
-  );
-
-  // Drivers currently out: assigned, today's date, not yet accomplished
-  const driversOutMap: Record<
-    string,
-    { driver: string; records: DeliveryRecord[] }
-  > = {};
-  for (const r of deliveryRecords) {
-    if (r.driver && r.delivery_date === today && r.status !== "Delivered") {
-      if (!driversOutMap[r.driver])
-        driversOutMap[r.driver] = { driver: r.driver, records: [] };
-      driversOutMap[r.driver].records.push(r);
-    }
-  }
-  const driversOut = Object.values(driversOutMap);
-
-  const assignedToday =
-    stats?.assigned_today ??
-    deliveryRecords.filter(
-      (r) => r.driver && r.delivery_date === today && r.status !== "Delivered",
-    ).length;
-  const unassignedCount = stats?.unassigned_count ?? unassignedRecords.length;
+  const rmaRequests = overview.record_previews.rma_requests;
+  const rmaRequestTotal = overview.counts.rma_requests ?? 0;
+  const flagsCount = overview.counts['log-flags'] ?? 0;
+  const onHoldCount = overview.counts['log-on-hold'] ?? 0;
+  const rescheduledCount = overview.counts['log-rescheduled'] ?? 0;
+  const driversOut = overview.drivers_out;
+  const assignedToday = stats?.assigned_today ?? 0;
+  const unassignedCount = stats?.unassigned_count ?? overview.counts['log-unassigned'] ?? 0;
   const completedToday = stats?.completed_today ?? 0;
-  const onHoldRescheduled =
-    stats?.on_hold_rescheduled ??
-    onHoldRecords.length + rescheduledRecords.length;
+  const onHoldRescheduled = stats?.on_hold_rescheduled ?? 0;
 
   return (
     <div className="space-y-6" id="logistics-dashboard">
-      {/* Welcome Banner */}
+      <section aria-label="RMA transport requests" className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <header className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-[#1F3864]">
+              <RefreshCw aria-hidden="true" className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-base font-bold text-[#1F3864]">RMA transport requests</h2>
+              <p className="mt-0.5 text-xs leading-5 text-slate-500">Returns waiting for Logistics dispatch.</p>
+            </div>
+          </div>
+          <span className="inline-flex min-h-8 items-center self-start rounded-full border border-blue-200 bg-blue-50 px-3 text-xs font-semibold text-[#1F3864] sm:self-auto">
+            {rmaRequestTotal} {rmaRequestTotal === 1 ? 'request' : 'requests'}
+          </span>
+        </header>
 
+        {rmaRequestTotal === 0 ? (
+          <div className="p-4 sm:p-5">
+            <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-center text-sm text-slate-600">
+              No RMA transport requests need dispatch.
+            </p>
+          </div>
+        ) : (
+          <>
+            <ul className="grid gap-3 p-4 sm:p-5">
+              {rmaRequests.map(record => (
+                <li key={record.id}>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('rma', record.id)}
+                    aria-label={`Open RMA ${record.rma_reference || record.id} for ${record.company_name}`}
+                    className="group w-full rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition-colors hover:border-[#0078C1]/50 hover:bg-blue-50/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] motion-reduce:transition-none"
+                  >
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="font-bold text-[#1F3864]">{record.rma_reference || record.id}</span>
+                      <RecordStatus record={record} />
+                    </span>
+                    <span className="mt-3 grid gap-x-4 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <span className="min-w-0">
+                        <span className="block text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Company</span>
+                        <span className="mt-1 block truncate text-sm font-semibold text-slate-800">{record.company_name}</span>
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Area</span>
+                        <span className="mt-1 block truncate text-sm font-medium text-slate-700">{record.area}</span>
+                      </span>
+                      <span>
+                        <span className="block text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Transport date</span>
+                        <span className="mt-1 block text-sm font-medium text-slate-700">{record.delivery_date}</span>
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Driver</span>
+                        <span className={`mt-1 block truncate text-sm font-semibold ${record.driver ? 'text-slate-800' : 'text-amber-700'}`}>
+                          {record.driver || 'Needs driver'}
+                        </span>
+                      </span>
+                    </span>
+                    <span className="mt-3 flex items-center justify-end gap-1 text-xs font-semibold text-[#0078C1] group-hover:text-[#1F3864]">
+                      Open RMA <ArrowRight aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {rmaRequestTotal > 0 && <footer className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+              <p className="text-xs text-slate-500">Showing {rmaRequests.length} of {rmaRequestTotal} requests</p>
+              <button
+                type="button"
+                onClick={() => onNavigate('rma')}
+                className="inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-[#1F3864] transition-colors hover:border-[#0078C1]/50 hover:bg-blue-50/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] sm:self-auto motion-reduce:transition-none"
+              >
+                View all requests <ArrowRight aria-hidden="true" className="h-4 w-4" />
+              </button>
+            </footer>}
+          </>
+        )}
+      </section>
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Assigned Today */}
         <div
           className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-[#1F3864] transition-all cursor-pointer"
-          onClick={() => onNavigate("deliveries")}
+          onClick={() => onNavigate("deliveries", undefined, 'log-assigned-today')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -90,8 +145,9 @@ export default function LogisticsDashboard({
 
         {/* Unassigned (orange — needs attention) */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-amber-500 flex items-center justify-between gap-3 hover:border-amber-400 transition-all cursor-pointer"
-          onClick={() => onNavigate("deliveries")}
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-amber-400 transition-all cursor-pointer"
+          id="kpi-log-unassigned"
+          onClick={() => onNavigate("deliveries", undefined, 'log-unassigned')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -101,7 +157,7 @@ export default function LogisticsDashboard({
               {unassignedCount}
             </h3>
             <span className="text-xs text-amber-600 font-extrabold flex items-center gap-1 mt-2">
-              Needs driver <UserX className="w-3.5 h-3.5 shrink-0" />
+              Needs driver
             </span>
           </div>
           <div
@@ -113,8 +169,8 @@ export default function LogisticsDashboard({
 
         {/* Completed Today */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-emerald-500 flex items-center justify-between gap-3 hover:border-emerald-400 transition-all cursor-pointer"
-          onClick={() => onNavigate("deliveries")}
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-emerald-400 transition-all cursor-pointer"
+          onClick={() => onNavigate("deliveries", undefined, 'log-completed-today')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -124,7 +180,7 @@ export default function LogisticsDashboard({
               {completedToday}
             </h3>
             <span className="text-xs text-emerald-600 font-extrabold flex items-center gap-1 mt-2">
-              Accomplished <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+              Accomplished
             </span>
           </div>
           <div className="bg-emerald-50 p-3 rounded-lg text-emerald-600 shrink-0">
@@ -134,8 +190,8 @@ export default function LogisticsDashboard({
 
         {/* On-Hold / Rescheduled */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-purple-500 flex items-center justify-between gap-3 hover:border-purple-400 transition-all cursor-pointer"
-          onClick={() => onNavigate("deliveries")}
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-purple-400 transition-all cursor-pointer"
+          onClick={() => onNavigate("deliveries", undefined, 'log-on-hold-rescheduled')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -145,7 +201,7 @@ export default function LogisticsDashboard({
               {onHoldRescheduled}
             </h3>
             <span className="text-xs text-purple-600 font-extrabold flex items-center gap-1 mt-2">
-              Needs reassignment <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+              Needs reassignment
             </span>
           </div>
           <div className="bg-purple-50 p-3 rounded-lg text-purple-600 shrink-0">
@@ -164,7 +220,7 @@ export default function LogisticsDashboard({
             </h4>
           </div>
           <span className="bg-[#0078C1] text-white text-[10px] font-bold px-2.5 py-1 rounded-full">
-            {driversOut.length} driver{driversOut.length !== 1 ? "s" : ""}{" "}
+            {overview.drivers_out_total} driver{overview.drivers_out_total !== 1 ? "s" : ""}{" "}
             active
           </span>
         </div>
@@ -175,7 +231,7 @@ export default function LogisticsDashboard({
           </p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {driversOut.map(({ driver, records }) => (
+            {driversOut.map(({ driver, records, total }) => (
               <div
                 key={driver}
                 className="bg-white/10 rounded-lg p-3 border border-white/10"
@@ -194,8 +250,8 @@ export default function LogisticsDashboard({
                   </span>
                 </div>
                 <p className="text-white/60 text-[10px] font-bold uppercase tracking-wide mb-1.5">
-                  {records.length} active deliver
-                  {records.length !== 1 ? "ies" : "y"}
+                  {total} active deliver
+                  {total !== 1 ? "ies" : "y"}
                 </p>
                 <div className="space-y-1">
                   {records.slice(0, 3).map((r) => (
@@ -209,9 +265,9 @@ export default function LogisticsDashboard({
                       {r.id} · {r.company_name}
                     </button>
                   ))}
-                  {records.length > 3 && (
+                  {total > records.length && (
                     <p className="text-[10px] text-white/40 font-semibold">
-                      +{records.length - 3} more records
+                      +{total - records.length} more records
                     </p>
                   )}
                 </div>
@@ -221,6 +277,7 @@ export default function LogisticsDashboard({
         )}
       </div>
 
+      {overview.drivers_out_total > driversOut.length && <button type="button" onClick={() => onNavigate('driver_board')} className="text-sm text-blue-800 underline">View all {overview.drivers_out_total} assigned Drivers</button>}
       {/* Needs Attention Panel */}
       <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
@@ -228,12 +285,10 @@ export default function LogisticsDashboard({
             <AlertTriangle className="w-4 h-4 text-amber-500" /> Needs Attention
           </h4>
           <button
-            onClick={() => onNavigate("deliveries")}
+            onClick={() => onNavigate("deliveries", undefined, 'log-flags')}
             className="bg-amber-100 hover:bg-amber-200 text-amber-800 text-xs px-2.5 py-0.5 rounded font-extrabold uppercase tracking-wide cursor-pointer hover:underline transition-colors"
           >
-            {unassignedRecords.length +
-              onHoldRecords.length +
-              rescheduledRecords.length}{" "}
+            {flagsCount}{" "}
             Flags
           </button>
         </div>
@@ -246,13 +301,13 @@ export default function LogisticsDashboard({
               Unassigned Records
             </span>
             <p className="text-2xl font-black text-slate-900">
-              {unassignedRecords.length}
+              {unassignedCount}
             </p>
             <p className="text-[11px] text-slate-400 font-medium flex-1">
               Records with no driver assigned yet.
             </p>
             <button
-              onClick={() => onNavigate("deliveries")}
+              onClick={() => onNavigate("deliveries", undefined, 'log-unassigned')}
               className="text-[10px] text-[#0078C1] hover:underline font-bold uppercase tracking-wide cursor-pointer text-left"
             >
               View records →
@@ -266,13 +321,13 @@ export default function LogisticsDashboard({
               On-Hold Items
             </span>
             <p className="text-2xl font-black text-slate-900">
-              {onHoldRecords.length}
+              {onHoldCount}
             </p>
             <p className="text-[11px] text-slate-400 font-medium flex-1">
               Deliveries currently blocked.
             </p>
             <button
-              onClick={() => onNavigate("deliveries")}
+              onClick={() => onNavigate("deliveries", undefined, 'log-on-hold')}
               className="text-[10px] text-[#0078C1] hover:underline font-bold uppercase tracking-wide cursor-pointer text-left"
             >
               View records →
@@ -286,13 +341,13 @@ export default function LogisticsDashboard({
               Rescheduled Items
             </span>
             <p className="text-2xl font-black text-slate-900">
-              {rescheduledRecords.length}
+              {rescheduledCount}
             </p>
             <p className="text-[11px] text-slate-400 font-medium flex-1">
               Bumped to a new delivery date.
             </p>
             <button
-              onClick={() => onNavigate("deliveries")}
+              onClick={() => onNavigate("deliveries", undefined, 'log-rescheduled')}
               className="text-[10px] text-[#0078C1] hover:underline font-bold uppercase tracking-wide cursor-pointer text-left"
             >
               View records →

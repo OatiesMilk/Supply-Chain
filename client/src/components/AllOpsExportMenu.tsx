@@ -1,8 +1,11 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { FileDown, FileSpreadsheet, FileText, ChevronDown, Loader2, Clock, History } from 'lucide-react';
+import { DocumentSize, DEFAULT_DOCUMENT_SIZE } from '../utils/documentSize';
+import DocumentSizeSelect from './DocumentSizeSelect';
 import { DeliveryRecord } from '../types';
 import { ExportMeta, StatusHistoryCounts } from '../utils/export';
 import {
+  type AllOpsSummary,
   computeAllOpsSummary,
   serializeAllOpsRow,
   ALL_OPS_COLUMNS,
@@ -12,21 +15,27 @@ import {
   downloadAllOpsPDF,
 } from '../utils/allOpsExport';
 import { downloadDocx } from '../utils/exportDocx';
+import ExportPreviewDialog, { type ExportPreviewFormat } from './ExportPreviewDialog';
+import { downloadBlob } from '@/utils/downloadBlob';
 
 interface Props {
   records: DeliveryRecord[];
   meta: ExportMeta;
   activeFilterLabel?: string;
   statusHistoryCounts?: StatusHistoryCounts;
+  totalCount?: number;
+  fetchExportData?: () => Promise<DeliveryRecord[]>;
 }
 
 type Format = 'csv' | 'excel' | 'pdf' | 'docx';
 type Variant = 'current' | 'trail';
 type LoadingKey = `${Format}-${Variant}`;
 
-export default function AllOpsExportMenu({ records, meta, activeFilterLabel, statusHistoryCounts }: Props) {
+export default function AllOpsExportMenu({ records, meta, activeFilterLabel, statusHistoryCounts, totalCount, fetchExportData }: Props) {
   const [open,    setOpen]    = useState(false);
   const [loading, setLoading] = useState<LoadingKey | null>(null);
+  const [docSize, setDocSize] = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
+  const [preview, setPreview] = useState<{ format: Format; variant: Variant; rows: ReturnType<typeof serializeAllOpsRow>[]; summary: AllOpsSummary; title: string; fileBlob?: Blob; fileName?: string } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -44,21 +53,46 @@ export default function AllOpsExportMenu({ records, meta, activeFilterLabel, sta
     setLoading(`${fmt}-${variant}`);
     const hist = variant === 'trail' ? statusHistoryCounts : undefined;
     try {
-      const rows        = records.map(serializeAllOpsRow);
-      const summary     = computeAllOpsSummary(records, 'nearest');
+      const targetRecords = fetchExportData ? await fetchExportData() : records;
+      const rows        = targetRecords.map(serializeAllOpsRow);
+      const summary     = computeAllOpsSummary(targetRecords, 'nearest');
       const reportTitle = activeFilterLabel
         ? `${activeFilterLabel} — Comprehensive Report`
         : 'All Operations — Comprehensive Report';
-
-      if (fmt === 'csv')   downloadAllOpsCSV(rows, ALL_OPS_COLUMNS, 'all-operations', meta, summary, reportTitle, hist);
-      if (fmt === 'excel') await downloadAllOpsExcel(rows, ALL_OPS_COLUMNS, 'all-operations', meta, summary, reportTitle, hist);
-      if (fmt === 'pdf')   await downloadAllOpsPDF(rows, PDF_ALL_OPS_COLUMNS, 'all-operations', meta, summary, reportTitle, hist);
-      if (fmt === 'docx')  await downloadDocx(rows, ALL_OPS_COLUMNS, reportTitle, 'all-operations', meta, summary, reportTitle, hist);
+      const stamp = new Date().toISOString().split('T')[0];
+      let fileBlob: Blob;
+      let fileName = `all-operations-${stamp}.${fmt === 'excel' ? 'xlsx' : fmt}`;
+      if (fmt === 'csv') fileBlob = downloadAllOpsCSV(rows, ALL_OPS_COLUMNS, 'all-operations', meta, summary, reportTitle, hist, true) as Blob;
+      else if (fmt === 'excel') fileBlob = await downloadAllOpsExcel(rows, ALL_OPS_COLUMNS, 'all-operations', meta, summary, reportTitle, hist, docSize, true) as Blob;
+      else if (fmt === 'pdf') fileBlob = await downloadAllOpsPDF(rows, PDF_ALL_OPS_COLUMNS, 'all-operations', meta, summary, reportTitle, hist, docSize, true) as Blob;
+      else { fileBlob = await downloadDocx(rows, ALL_OPS_COLUMNS, reportTitle, 'all-operations', meta, summary, reportTitle, hist, docSize, true) as Blob; fileName = 'all-operations.docx'; }
+      setPreview({ format: fmt, variant, rows, summary, title: reportTitle, fileBlob, fileName });
     } catch (err) {
       console.error('All Ops export failed:', err);
     } finally {
       setLoading(null);
     }
+  };
+
+  const closePreview = useCallback(() => setPreview(null), []);
+  const downloadPreview = async () => {
+    if (!preview) return;
+    const { format: fmt, variant, rows, summary, title } = preview;
+    const hist = variant === 'trail' ? statusHistoryCounts : undefined;
+    setLoading(`${fmt}-${variant}`);
+    try {
+      if (preview.fileBlob) {
+        downloadBlob(preview.fileBlob, preview.fileName ?? 'all-operations.xlsx');
+        return;
+      }
+      if (fmt === 'csv') downloadAllOpsCSV(rows, ALL_OPS_COLUMNS, 'all-operations', meta, summary, title, hist);
+      if (fmt === 'excel') await downloadAllOpsExcel(rows, ALL_OPS_COLUMNS, 'all-operations', meta, summary, title, hist, docSize);
+      if (fmt === 'pdf') await downloadAllOpsPDF(rows, PDF_ALL_OPS_COLUMNS, 'all-operations', meta, summary, title, hist, docSize);
+      if (fmt === 'docx') await downloadDocx(rows, ALL_OPS_COLUMNS, title, 'all-operations', meta, summary, title, hist, docSize);
+    } catch (err) {
+      console.error('All Ops export failed:', err);
+      throw err;
+    } finally { setLoading(null); }
   };
 
   const isLoading = loading !== null;
@@ -95,9 +129,11 @@ export default function AllOpsExportMenu({ records, meta, activeFilterLabel, sta
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg py-1 min-w-[220px]">
-          {hasTrail ? (
-            <>
+        <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg p-3 min-w-[220px]">
+          <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={isLoading} />
+          <div className="flex flex-col -mx-3">
+            {hasTrail ? (
+              <>
               {/* ── Current Status ── */}
               <div className="px-3.5 pt-2 pb-1">
                 <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-slate-400">
@@ -130,12 +166,27 @@ export default function AllOpsExportMenu({ records, meta, activeFilterLabel, sta
               {btn('pdf',   'Export PDF',          <FileDown className="w-3.5 h-3.5" />,        'text-red-700 hover:bg-red-50',         'current')}
             </>
           )}
-
+          </div>
           <div className="mx-3.5 mt-1 pt-1 border-t border-slate-100 text-[9px] text-slate-400 pb-1">
             {records.length} record{records.length !== 1 ? 's' : ''} · includes cover summary
           </div>
         </div>
       )}
+      {preview && <ExportPreviewDialog
+        format={preview.format as ExportPreviewFormat}
+        variant={preview.variant}
+        rows={preview.rows}
+        columns={preview.format === 'pdf' ? PDF_ALL_OPS_COLUMNS : ALL_OPS_COLUMNS}
+        meta={meta}
+        title={preview.title}
+        documentSize={docSize}
+        statusHistoryCounts={preview.variant === 'trail' ? statusHistoryCounts : undefined}
+        summary={preview.summary}
+        excelBlob={preview.format === 'excel' ? preview.fileBlob : undefined}
+        fileBlob={preview.fileBlob}
+        onClose={closePreview}
+        onDownload={downloadPreview}
+      />}
     </div>
   );
 }

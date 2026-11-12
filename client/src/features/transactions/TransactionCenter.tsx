@@ -1,13 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Filter, ChevronLeft, ChevronRight, Loader2, AlertTriangle } from 'lucide-react';
+import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { api, ApiTransaction, ApiTransactionList } from '@/api';
 import TransactionDetail from '@/features/transactions/TransactionDetail';
 import ExportMenu from '@/components/ExportMenu';
 import { TXN_COLUMNS, fmtDate, fmtStatus } from '@/utils/export';
+import { DashboardFilterId, getManilaWeekRange } from '@/utils/dashboardFilters';
+import DashboardFilterChip from '@/components/DashboardFilterChip';
 
 interface TransactionCenterProps {
   currentUserRole: string;
   currentUserName: string;
+  dashboardFilterId: DashboardFilterId | null;
+  clearDashboardFilter: () => void;
 }
 
 const showExportForRole = (role: string) => role === 'Admin' || role === 'Sales Coordinator';
@@ -51,11 +56,22 @@ const CATEGORY_OPTIONS_BY_ROLE: Record<string, Array<{ label: string; value: str
   ],
   TASS: [
     { label: 'Accounting Collection', value: 'ACCOUNTING_COLLECTION' }
+  ],
+  Driver: [
+    { label: 'Deliveries',            value: 'DELIVERY' },
+    { label: 'RMA',                   value: 'RMA' },
+    { label: 'Accounting Collection', value: 'ACCOUNTING_COLLECTION' },
+    { label: 'Procurement Pick-up',   value: 'PROCUREMENT_PICKUP' },
+    { label: 'Sales Orders',          value: 'SALES_ORDERS' }
   ]
 };
 
 function getCategoryOptions(role: string) {
-  return CATEGORY_OPTIONS_BY_ROLE[role] ?? CATEGORY_OPTIONS_BY_ROLE['Admin'];
+  return CATEGORY_OPTIONS_BY_ROLE[role] ?? [];
+}
+
+function canViewInventory(role: string) {
+  return ['Admin', 'Sales Coordinator', 'Logistics'].includes(role);
 }
 
 // ─── Filter state ─────────────────────────────────────────────────────────────
@@ -68,13 +84,19 @@ interface Filters {
   to:       string;
 }
 
-function defaultFilters(role: string): Filters {
-  return {
-    source:   role === 'TASS' ? 'delivery' : 'all',
+function defaultFilters(role: string, dashboardFilterId: DashboardFilterId | null = null): Filters {
+  const base: Filters = {
+    source: canViewInventory(role) ? 'all' : 'delivery',
     category: '',
-    status:   '',
-    from:     '',
-    to:       ''
+    status: '',
+    from: '',
+    to: '',
+  };
+  if (dashboardFilterId === 'admin-records-this-week') {
+    return { ...base, source: 'delivery', ...getManilaWeekRange() };
+  }
+  return {
+    ...base,
   };
 }
 
@@ -94,31 +116,41 @@ function SourceBadge({ source }: { source: 'delivery' | 'inventory' }) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function TransactionCenter({ currentUserRole, currentUserName }: TransactionCenterProps) {
+export default function TransactionCenter({ currentUserRole, currentUserName, dashboardFilterId, clearDashboardFilter }: TransactionCenterProps) {
   const [data,    setData]    = useState<ApiTransactionList | null>(null);
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
 
   const [page,    setPage]    = useState(1);
-  const [filters, setFilters] = useState<Filters>(() => defaultFilters(currentUserRole));
-  const [pendingFilters, setPendingFilters] = useState<Filters>(() => defaultFilters(currentUserRole));
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [filters, setFilters] = useState<Filters>(() => defaultFilters(currentUserRole, dashboardFilterId));
+  const [pendingFilters, setPendingFilters] = useState<Filters>(() => defaultFilters(currentUserRole, dashboardFilterId));
   const [filtersOpen, setFiltersOpen] = useState(true);
 
   // Selected transaction for detail view
   const [selected, setSelected] = useState<{ source: 'delivery' | 'inventory'; id: string } | null>(null);
 
   const isTass = currentUserRole === 'TASS';
+  const inventoryAllowed = canViewInventory(currentUserRole);
   const categoryOptions = getCategoryOptions(currentUserRole);
+
+  useEffect(() => {
+    const fresh = defaultFilters(currentUserRole, dashboardFilterId);
+    setFilters(fresh);
+    setPendingFilters(fresh);
+    setPage(1);
+    setSelected(null);
+  }, [currentUserRole, dashboardFilterId]);
 
   // Only show category/status filters when source includes delivery records
   const showCategoryFilter = pendingFilters.source !== 'inventory' && !isTass;
   const showStatusFilter   = pendingFilters.source !== 'inventory';
 
-  const fetchData = useCallback(async (f: Filters, p: number) => {
+  const fetchData = useCallback(async (f: Filters, p: number, limit: number) => {
     setLoading(true);
     setError(null);
     try {
-      const params: Parameters<typeof api.getTransactions>[0] = { page: p, limit: 25 };
+      const params: Parameters<typeof api.getTransactions>[0] = { page: p, limit };
       if (f.source   && f.source   !== 'all') params.source   = f.source;
       if (f.category)                          params.category = f.category;
       if (f.status)                            params.status   = f.status;
@@ -134,8 +166,8 @@ export default function TransactionCenter({ currentUserRole, currentUserName }: 
   }, []);
 
   useEffect(() => {
-    fetchData(filters, page);
-  }, [filters, page, fetchData]);
+    fetchData(filters, page, pageSize);
+  }, [filters, page, pageSize, fetchData]);
 
   const handleApply = () => {
     setFilters(pendingFilters);
@@ -147,6 +179,7 @@ export default function TransactionCenter({ currentUserRole, currentUserName }: 
     setPendingFilters(fresh);
     setFilters(fresh);
     setPage(1);
+    clearDashboardFilter();
   };
 
   // If detail view is active, render TransactionDetail instead
@@ -180,32 +213,13 @@ export default function TransactionCenter({ currentUserRole, currentUserName }: 
   }));
 
   return (
-    <div className="space-y-6" id="transaction-center">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">Transaction Center</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Unified view of all operational transactions across delivery records and inventory movements.
-          </p>
-        </div>
-        {showExportForRole(currentUserRole) && (
-          <ExportMenu
-            rows={exportRows}
-            columns={TXN_COLUMNS}
-            sheetName="Transactions"
-            filename={`transactions-p${page}`}
-            pdfTitle="Transaction Center Report"
-            showPdf={false}
-            meta={{
-              reportName: 'Transaction Center Export',
-              generatedByName: currentUserName,
-              generatedByRole: currentUserRole,
-            }}
-          />
-        )}
-      </div>
-
+    <div className="space-y-4" id="transaction-center">
+      <DashboardFilterChip filterId={dashboardFilterId} onClear={handleClear} />
+      {dashboardFilterId === 'admin-records-this-week' && (
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          Transaction Center filters delivery date for this week; the dashboard total is based on record creation date.
+        </p>
+      )}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
         {/* Filters bar */}
         <div className="border-b border-slate-200">
@@ -216,14 +230,33 @@ export default function TransactionCenter({ currentUserRole, currentUserName }: 
             <span className="flex items-center gap-1.5 text-[10px] font-black text-slate-400 uppercase tracking-widest">
               <Filter className="w-3.5 h-3.5" /> Filters
             </span>
-            <span className="text-[10px] text-slate-400">{filtersOpen ? 'Collapse ▲' : 'Expand ▼'}</span>
+            <div className="flex items-center gap-3">
+              {showExportForRole(currentUserRole) && (
+                <div onClick={e => e.stopPropagation()}>
+                  <ExportMenu
+                    rows={exportRows}
+                    columns={TXN_COLUMNS}
+                    sheetName="Transactions"
+                    filename={`transactions-p${page}`}
+                    pdfTitle="Transaction Center Report"
+                    showPdf={false}
+                    meta={{
+                      reportName: 'Transaction Center Export',
+                      generatedByName: currentUserName,
+                      generatedByRole: currentUserRole,
+                    }}
+                  />
+                </div>
+              )}
+              <span className="text-[10px] text-slate-400">{filtersOpen ? 'Collapse ▲' : 'Expand ▼'}</span>
+            </div>
           </div>
 
           {filtersOpen && (
             <div className="px-4 pb-4 space-y-3">
               <div className="flex flex-wrap gap-3 items-end">
-                {/* Source filter — hidden for TASS */}
-                {!isTass && (
+                {/* Inventory sources require an explicitly authorized role. */}
+                {inventoryAllowed && (
                   <div>
                     <label className="text-[11px] font-semibold text-slate-500 block mb-1">Source</label>
                     <select
@@ -358,35 +391,19 @@ export default function TransactionCenter({ currentUserRole, currentUserName }: 
           </div>
         )}
 
-        {/* Footer / Pagination */}
-        <div className="p-3 bg-slate-50 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-slate-500">
-          <span>
-            {total === 0
-              ? 'No transactions'
-              : `Showing ${startRow}–${endRow} of ${total} transaction${total !== 1 ? 's' : ''}`}
-          </span>
-
-          {totalPages > 1 && (
-            <div className="flex items-center gap-2">
-              <button
-                disabled={page <= 1}
-                onClick={() => setPage(p => p - 1)}
-                className="flex items-center gap-1 px-2.5 py-1 border border-slate-200 rounded-lg hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-slate-600 transition-colors"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" /> Prev
-              </button>
-              <span className="font-semibold text-slate-600">
-                Page {page} of {totalPages}
-              </span>
-              <button
-                disabled={page >= totalPages}
-                onClick={() => setPage(p => p + 1)}
-                className="flex items-center gap-1 px-2.5 py-1 border border-slate-200 rounded-lg hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-slate-600 transition-colors"
-              >
-                Next <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
+        <div className="border-t border-slate-100">
+          <Pagination
+            currentPage={page}
+            totalPages={totalPages}
+            totalItems={total}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(newSize) => {
+              setPageSize(newSize);
+              setPage(1);
+            }}
+            pageSizeOptions={[10, 25, 50, 100]}
+          />
         </div>
       </div>
     </div>
@@ -410,7 +427,7 @@ function TransactionRow({ txn, onClick }: { key?: React.Key; txn: ApiTransaction
       </td>
       <td className="px-4 py-3 font-semibold text-slate-700">{txn.type}</td>
       <td className="px-4 py-3 font-mono text-slate-700">{txn.reference}</td>
-      <td className="px-4 py-3 max-w-[160px] truncate font-medium text-slate-800" title={txn.entity}>
+      <td className="px-4 py-3 max-w-[160px] truncate font-semibold text-slate-800" title={txn.entity}>
         {txn.entity}
       </td>
       <td className="px-4 py-3">

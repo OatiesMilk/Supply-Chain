@@ -1,110 +1,83 @@
 import { Router } from 'express';
+import type { Prisma } from '@prisma/client';
+import { asyncRoute } from '../middleware/asyncRoute';
 import { prisma } from '../db';
-import { requireAuth, requireRole } from '../middleware/auth';
-import { CATEGORY_TO_DB, CATEGORY_FROM_DB, STATUS_TO_DB, STATUS_FROM_DB } from '../mappings';
+import { requireAuth, requireScreen, requireResource } from '../middleware/auth';
+import { CATEGORY_TO_DB, CATEGORY_FROM_DB, STATUS_FROM_DB } from '../mappings';
+import { runState } from '../services/deliveryLifecycle';
+import { recordScope } from '../services/recordAccess';
+import { manilaDateRange } from '../services/dateSemantics';
 
 const router = Router();
 
-// GET /reports/daily-status-history?from=YYYY-MM-DD&to=YYYY-MM-DD&status=&category=
-// Reads from the DailyStatusSnapshot rollup table (written once daily by the
-// 6 PM EOD job) instead of recomputing counts live from DeliveryRecord.
-router.get('/daily-status-history', requireAuth, requireRole('LOGISTICS', 'ADMIN'), async (req, res) => {
-  const { from, to, status, category } = req.query as { from?: string; to?: string; status?: string; category?: string };
+// GET /reports/summary — delivery-date cohort with a distinct Time Out count.
+// Legacy dateFrom/dateTo aliases remain supported for existing API clients.
+router.get('/summary', requireAuth, requireResource('records'), requireScreen('statistical_reports'), asyncRoute(async (req, res) => {
+  const queryValue = (key: string): string | undefined => {
+    const value = req.query[key];
+    return typeof value === 'string' ? value : undefined;
+  };
+  const deliveryDateFrom = queryValue('deliveryDateFrom') ?? queryValue('dateFrom');
+  const deliveryDateTo = queryValue('deliveryDateTo') ?? queryValue('dateTo');
+  const category = queryValue('category');
+  const area = queryValue('area');
+  const driver = queryValue('driver');
+  const status = queryValue('status');
 
-  if (!from || !to) {
-    return res.status(400).json({ error: 'from and to date parameters are required' });
+  if ([req.query.deliveryDateFrom, req.query.deliveryDateTo, req.query.dateFrom, req.query.dateTo,
+    req.query.category, req.query.area, req.query.driver, req.query.status]
+    .some(value => value !== undefined && typeof value !== 'string')) {
+    return res.status(400).json({ error: 'Report filters must be single string values.' });
+  }
+  if ((req.query.deliveryDateFrom !== undefined || req.query.deliveryDateTo !== undefined)
+    && (req.query.dateFrom !== undefined || req.query.dateTo !== undefined)) {
+    return res.status(400).json({ error: 'Use deliveryDateFrom/deliveryDateTo or the legacy dateFrom/dateTo aliases, not both.' });
   }
 
-  const where: any = { date: { gte: from, lte: to } };
-
-  if (status) {
-    const dbStatus = STATUS_TO_DB[status] ?? status;
-    where.status = dbStatus;
+  let completionRange: ReturnType<typeof manilaDateRange>;
+  try {
+    completionRange = manilaDateRange(deliveryDateFrom, deliveryDateTo);
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid delivery date range.' });
   }
 
-  // Default to the combined 'ALL' total unless a specific category is requested —
-  // never mix per-category and combined rows in the same result set.
-  if (category) {
-    where.category = CATEGORY_TO_DB[category] ?? category;
-  } else {
-    where.category = 'ALL';
+  const filters: Prisma.DeliveryRecordWhereInput = {
+    deletedAt: null,
+    AND: [recordScope(req.user!)],
+  };
+  if (category) filters.category = CATEGORY_TO_DB[category] ?? category;
+  if (area) filters.area = area;
+  if (driver) filters.driver = driver;
+
+  const cohortWhere: Prisma.DeliveryRecordWhereInput = { ...filters };
+  if (deliveryDateFrom || deliveryDateTo) {
+    cohortWhere.deliveryDate = {
+      ...(deliveryDateFrom ? { gte: deliveryDateFrom } : {}),
+      ...(deliveryDateTo ? { lte: deliveryDateTo } : {}),
+    };
   }
 
-  const snapshots = await prisma.dailyStatusSnapshot.findMany({
-    where,
-    orderBy: [{ date: 'asc' }, { status: 'asc' }]
-  });
+  const completionWhere: Prisma.DeliveryRecordWhereInput = {
+    ...filters,
+    draft: false,
+    status: 'ACCOMPLISHED',
+    // Lifecycle writes store UTC ISO strings; use the same representation for
+    // lexical range comparisons, including the exclusive next-Manila-day bound.
+    timeOut: Object.keys(completionRange).length > 0 ? {
+      ...(completionRange.gte ? { gte: completionRange.gte.toISOString() } : {}),
+      ...(completionRange.lt ? { lt: completionRange.lt.toISOString() } : {}),
+    } : { not: null },
+  };
 
-  const snapshotDates = new Set(snapshots.map(s => s.date));
-
-  // Query live records for any dates within range not covered by pre-computed snapshots
-  const dbStatus   = status   ? (STATUS_TO_DB[status]     ?? status)   : undefined;
-  const dbCategory = category ? (CATEGORY_TO_DB[category] ?? category) : undefined;
-
-  const liveRecords = await prisma.deliveryRecord.findMany({
-    where: {
-      deletedAt: null,
-      deliveryDate: { gte: from, lte: to },
-      ...(dbStatus   ? { status: dbStatus }     : {}),
-      ...(dbCategory ? { category: dbCategory } : {}),
-    },
-    select: { category: true, status: true, deliveryDate: true }
-  });
-
-  // Group live records by date + category + status for dates not in snapshots
-  const grouped: Record<string, number> = {};
-  for (const r of liveRecords) {
-    const date = r.deliveryDate ?? '';
-    if (snapshotDates.has(date)) continue;
-    const cat  = dbCategory ? r.category : 'ALL';
-    const key  = `${date}::${cat}::${r.status}`;
-    grouped[key] = (grouped[key] ?? 0) + 1;
-  }
-
-  const combinedRows = [
-    ...snapshots.map(s => ({
-      date:     s.date,
-      category: CATEGORY_FROM_DB[s.category] ?? s.category,
-      status:   STATUS_FROM_DB[s.status] ?? s.status,
-      count:    s.count,
-    })),
-    ...Object.entries(grouped).map(([key, count]) => {
-      const [date, cat, st] = key.split('::');
-      return {
-        date,
-        category: CATEGORY_FROM_DB[cat] ?? cat,
-        status:   STATUS_FROM_DB[st]    ?? st,
-        count,
-      };
+  const [foundRecords, completedInRange] = await Promise.all([
+    prisma.deliveryRecord.findMany({
+      where: cohortWhere,
+      select: { category: true, status: true, draft: true, timeIn: true, area: true, driver: true, deliveryDate: true },
     }),
-  ].sort((a, b) => a.date.localeCompare(b.date) || a.status.localeCompare(b.status));
-
-  res.json({
-    source: snapshots.length > 0 ? (Object.keys(grouped).length > 0 ? 'hybrid' : 'snapshot') : 'live',
-    rows: combinedRows,
-  });
-});
-
-// GET /reports/summary — on-demand statistical summary with optional filters.
-// Reads live from DeliveryRecord (not the snapshot table).
-router.get('/summary', requireAuth, requireRole('LOGISTICS', 'ADMIN'), async (req, res) => {
-  const { dateFrom, dateTo, category, area, driver, status } = req.query as Record<string, string>;
-
-  const where: any = { deletedAt: null };
-  if (dateFrom || dateTo) {
-    where.deliveryDate = {};
-    if (dateFrom) where.deliveryDate.gte = dateFrom;
-    if (dateTo)   where.deliveryDate.lte = dateTo;
-  }
-  if (category) where.category = CATEGORY_TO_DB[category] ?? category;
-  if (area)     where.area     = area;
-  if (driver)   where.driver   = driver;
-  if (status)   where.status   = STATUS_TO_DB[status] ?? status;
-
-  const records = await prisma.deliveryRecord.findMany({
-    where,
-    select: { category: true, status: true, area: true, driver: true, deliveryDate: true }
-  });
+    prisma.deliveryRecord.count({ where: completionWhere }),
+  ]);
+  const normalizedStatus = status ? (STATUS_FROM_DB[status] ?? status) : undefined;
+  const records = foundRecords.filter(record => !normalizedStatus || runState(record) === normalizedStatus);
 
   const total = records.length;
   const byStatus:   Record<string, number> = {};
@@ -113,7 +86,7 @@ router.get('/summary', requireAuth, requireRole('LOGISTICS', 'ADMIN'), async (re
   const byDriver:   Record<string, number> = {};
 
   for (const r of records) {
-    const statusKey   = STATUS_FROM_DB[r.status]     ?? r.status;
+    const statusKey   = runState(r);
     const categoryKey = CATEGORY_FROM_DB[r.category] ?? r.category;
     byStatus[statusKey]     = (byStatus[statusKey]     ?? 0) + 1;
     byCategory[categoryKey] = (byCategory[categoryKey] ?? 0) + 1;
@@ -126,14 +99,20 @@ router.get('/summary', requireAuth, requireRole('LOGISTICS', 'ADMIN'), async (re
   res.json({
     total,
     accomplished,
+    completed_in_range: completedInRange,
     on_hold:         byStatus['On-Hold']  ?? 0,
     pending:         byStatus['Pending']  ?? 0,
     completion_rate: total > 0 ? Math.round((accomplished / total) * 100) : 0,
+    date_basis: {
+      cohort: 'deliveryDate',
+      completion: 'timeOut',
+      time_zone: 'Asia/Manila',
+    },
     by_status:    Object.entries(byStatus).map(([s, count]) => ({ status: s, count })),
     by_category:  Object.entries(byCategory).map(([c, count]) => ({ category: c, count })),
     by_area:      Object.entries(byArea).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([a, count]) => ({ area: a, count })),
-    by_driver:    Object.entries(byDriver).sort((a, b) => b[1] - a[1]).map(([d, count]) => ({ driver: d, count }))
+    by_driver:    Object.entries(byDriver).sort((a, b) => b[1] - a[1]).map(([d, count]) => ({ driver: d, count })),
   });
-});
+}));
 
 export default router;

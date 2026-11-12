@@ -1,3 +1,5 @@
+import RecordStatus from '@/components/RecordStatus';
+import { manilaToday } from '@/utils/recordLifecycle';
 import {
   RotateCcw,
   Clock,
@@ -9,12 +11,14 @@ import {
   RotateCw,
 } from "lucide-react";
 import { DeliveryRecord } from "@/types";
-import { ApiDashboardStats } from "@/api";
+import { ApiDashboardStats, ApiDashboardOverview } from "@/api";
+import { DashboardFilterId, filterRecordsForDashboard } from '@/utils/dashboardFilters';
 
 interface Props {
   stats: Extract<ApiDashboardStats, { role: "TASS" }> | null;
   deliveryRecords: DeliveryRecord[];
-  onNavigate: (screen: string, item_id?: string) => void;
+  overview: ApiDashboardOverview;
+  onNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
   onRefresh?: () => void;
 }
 
@@ -23,14 +27,10 @@ function daysSince(dateStr: string): number {
   return Math.floor((Date.now() - then) / (1000 * 60 * 60 * 24));
 }
 
-const STATUS_BADGE: Record<string, string> = {
-  Scheduled: "bg-blue-50 text-blue-700 border-blue-200",
-  Pending: "bg-amber-50 text-amber-700 border-amber-200",
-  "On-Hold": "bg-red-50 text-red-700 border-red-200",
-};
 
 export default function TassDashboard({
   stats,
+  overview,
   deliveryRecords,
   onNavigate,
   onRefresh,
@@ -38,83 +38,40 @@ export default function TassDashboard({
   // KPI values — fall back to computing from deliveryRecords when stats haven't loaded
   const openRma =
     stats?.open_rma ??
-    deliveryRecords.filter(
-      (r) =>
-        r.category === "RMA" &&
-        (r.status === "Scheduled" || r.status === "Pending"),
-    ).length;
+    filterRecordsForDashboard(deliveryRecords, 'tass-open-rma').length;
 
   const rmaOnHold =
     stats?.rma_on_hold ??
-    deliveryRecords.filter(
-      (r) => r.category === "RMA" && r.status === "On-Hold",
-    ).length;
+    filterRecordsForDashboard(deliveryRecords, 'tass-rma-on-hold').length;
 
   const pendingProcurementPickup =
     stats?.pending_procurement_pickup ??
-    deliveryRecords.filter(
-      (r) =>
-        r.category === "Procurement Pick-up" &&
-        (r.status === "Scheduled" || r.status === "Pending"),
-    ).length;
+    filterRecordsForDashboard(deliveryRecords, 'tass-pending-pickups').length;
 
   const pendingVerification =
     stats?.pending_verification ??
-    deliveryRecords.filter(
-      (r) =>
-        r.category === "Accounting Collection" &&
-        r.status === "Delivered" &&
-        !r.collection_verified,
-    ).length;
+    filterRecordsForDashboard(deliveryRecords, 'tass-pending-verification').length;
 
   const verifiedToday =
     stats?.verified_today ??
     (() => {
-      const today = new Date().toISOString().split("T")[0];
+      const today = manilaToday();
       return deliveryRecords.filter(
-        (r) =>
-          r.collection_verified &&
-          r.collection_verified_at?.slice(0, 10) === today,
+        (record) => record.collection_verified && record.collection_verified_at?.slice(0, 10) === today,
       ).length;
     })();
 
-  // Needs Attention table — open RMA records sorted oldest first
-  const openRmaRecords = deliveryRecords
-    .filter(
-      (r) =>
-        r.category === "RMA" &&
-        ["Scheduled", "Pending", "On-Hold"].includes(r.status),
-    )
-    .sort(
-      (a, b) =>
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-    );
+  const openRmaRecords = overview.record_previews.rma_attention;
+  const attentionTotal = overview.counts.rma_attention ?? 0;
 
   return (
     <div className="space-y-6" id="tass-dashboard">
-      {/* Welcome Banner */}
-      <div className="bg-gradient-to-r from-[#1F3864] to-[#122B4F] text-white p-6 rounded-xl shadow-md flex items-center justify-between gap-4 border-l-8 border-l-[#0078C1]">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-black tracking-tight">
-            Technical Operations
-          </h1>
-        </div>
-        {onRefresh && (
-          <button
-            onClick={onRefresh}
-            className="flex items-center gap-1.5 bg-black/20 hover:bg-black/30 px-3 py-2 rounded-lg border border-white/10 text-xs font-bold text-white transition-colors cursor-pointer"
-          >
-            <RotateCw className="w-3.5 h-3.5" /> Refresh
-          </button>
-        )}
-      </div>
-
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Open RMA Records */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-blue-500 flex items-center justify-between gap-3 hover:border-blue-400 transition-all cursor-pointer"
-          onClick={() => onNavigate("rma")}
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-blue-400 transition-all cursor-pointer"
+          onClick={() => onNavigate("rma", undefined, 'tass-open-rma')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -136,8 +93,8 @@ export default function TassDashboard({
 
         {/* RMA On-Hold */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-red-500 flex items-center justify-between gap-3 hover:border-red-400 transition-all cursor-pointer"
-          onClick={() => onNavigate("rma")}
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-red-400 transition-all cursor-pointer"
+          onClick={() => onNavigate("rma", undefined, 'tass-rma-on-hold')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -147,8 +104,7 @@ export default function TassDashboard({
               {rmaOnHold}
             </h3>
             <span className="text-xs text-red-600 font-extrabold flex items-center gap-1 mt-2">
-              Blocked — needs action{" "}
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              Blocked — needs action
             </span>
           </div>
           <div
@@ -160,8 +116,8 @@ export default function TassDashboard({
 
         {/* Procurement Pick-ups Pending */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-purple-500 flex items-center justify-between gap-3 hover:border-purple-400 transition-all cursor-pointer"
-          onClick={() => onNavigate("procurement_pickup")}
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-purple-400 transition-all cursor-pointer"
+          onClick={() => onNavigate("procurement_pickup", undefined, 'tass-pending-pickups')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -183,8 +139,8 @@ export default function TassDashboard({
 
         {/* Collections Pending Verification */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-amber-400 flex items-center justify-between gap-3 hover:border-amber-300 transition-all cursor-pointer"
-          onClick={() => onNavigate("accounting_collection")}
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-amber-300 transition-all cursor-pointer"
+          onClick={() => onNavigate("accounting_collection", undefined, 'tass-pending-verification')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -196,8 +152,7 @@ export default function TassDashboard({
             <span className="text-xs text-amber-600 font-extrabold flex items-center gap-1 mt-1">
               {verifiedToday > 0
                 ? `${verifiedToday} verified today`
-                : "Awaiting TASS sign-off"}{" "}
-              <Clock className="w-3.5 h-3.5 shrink-0" />
+                : "Awaiting TASS sign-off"}
             </span>
           </div>
           <div
@@ -208,6 +163,7 @@ export default function TassDashboard({
         </div>
       </div>
 
+      {attentionTotal > 0 && <button type="button" onClick={() => onNavigate('rma')} className="text-sm text-blue-800 underline">View all {attentionTotal} open RMA records (showing {openRmaRecords.length})</button>}
       {/* Needs Attention: Open RMA Records */}
       <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
@@ -217,16 +173,16 @@ export default function TassDashboard({
           </h4>
           <span
             className={`text-xs px-2.5 py-0.5 rounded font-extrabold uppercase tracking-wide ${
-              openRmaRecords.length > 0
+              attentionTotal > 0
                 ? "bg-blue-100 text-blue-800"
                 : "bg-emerald-100 text-emerald-800"
             }`}
           >
-            {openRmaRecords.length} open
+            {attentionTotal} open
           </span>
         </div>
 
-        {openRmaRecords.length === 0 ? (
+        {attentionTotal === 0 ? (
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <ShieldCheck className="w-10 h-10 text-emerald-500 mb-2" />
             <p className="text-base font-bold text-slate-700">
@@ -276,11 +232,7 @@ export default function TassDashboard({
                         {r.area || "—"}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <span
-                          className={`border text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_BADGE[r.status] ?? "bg-slate-50 text-slate-600 border-slate-200"}`}
-                        >
-                          {r.status}
-                        </span>
+                        <RecordStatus record={r} />
                       </td>
                       <td className="px-4 py-3 text-center text-slate-600 font-semibold whitespace-nowrap">
                         {r.delivery_date || "—"}

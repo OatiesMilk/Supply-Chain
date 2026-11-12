@@ -12,30 +12,46 @@ datasource db {
 // and the RBAC checks in server/src/middleware/auth.ts + routes). Valid
 // values are documented in the comments below.
 
-model User {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  password     String
-  role         String // SALES_COORDINATOR | LOGISTICS | TASS | ADMIN
-  isActive     Boolean  @default(true)
-  microsoftOid String?  @unique
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+// Short-lived OAuth state digests prevent replay across multiple API instances.
+model OAuthLoginState {
+  id        String   @id // SHA-256 of the random browser-bound state
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 
-  createdRecords   DeliveryRecord[] @relation("CreatedByUser")
-  modifiedRecords  DeliveryRecord[] @relation("ModifiedByUser")
-  auditEntries     AuditLog[]
-  productCreated   Product[]        @relation("ProductCreatedBy")
-  productModified  Product[]        @relation("ProductModifiedBy")
-  customerCreated  Customer[]       @relation("CustomerCreatedBy")
-  customerModified Customer[]       @relation("CustomerModifiedBy")
-  supplierCreated  Supplier[]       @relation("SupplierCreatedBy")
-  supplierModified Supplier[]       @relation("SupplierModifiedBy")
-  notifications    Notification[]
-  comments         Comment[]
-  permissions      UserPermission[]
-  remarkLogs       RemarkLog[]
+  @@index([expiresAt])
+}
+
+model User {
+  id                  String    @id @default(cuid())
+  name                String
+  email               String    @unique
+  password            String
+  role                String // SALES_COORDINATOR | LOGISTICS | TASS | ADMIN
+  isActive            Boolean   @default(true)
+  authorizationRevision BigInt @default(1)
+  microsoftOid        String?   @unique
+  microsoftApprovedAt DateTime? // Admin approval; legacy auto-created links are denied
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  createdRecords         DeliveryRecord[] @relation("CreatedByUser")
+  modifiedRecords        DeliveryRecord[] @relation("ModifiedByUser")
+  auditEntries           AuditLog[]
+  productCreated         Product[]        @relation("ProductCreatedBy")
+  productModified        Product[]        @relation("ProductModifiedBy")
+  customerCreated        Customer[]       @relation("CustomerCreatedBy")
+  customerModified       Customer[]       @relation("CustomerModifiedBy")
+  supplierCreated        Supplier[]       @relation("SupplierCreatedBy")
+  supplierModified       Supplier[]       @relation("SupplierModifiedBy")
+  notifications          Notification[]
+  comments               Comment[]
+  permissions            UserPermission[]
+  permissionOverrides    UserPermissionOverride[]
+  permissionConversion   PermissionConversion?
+  remarkLogs             RemarkLog[]
+  podAttachmentsUploaded PodAttachment[]
+  driverProfile          Driver?          @relation("DriverLogin")
+  accountManagerProfile  AccountManager?  @relation("AccountManagerLogin")
 }
 
 model UserPermission {
@@ -50,15 +66,143 @@ model UserPermission {
   @@unique([userId, screen])
 }
 
-model Company {
-  id            String   @id @default(cuid())
-  name          String
-  sapNumber     String
-  address       String
-  contactPerson String
+// Permission foundation is additive. Legacy UserPermission and AuditLog stay
+// authoritative until the evaluator/rollout steps explicitly activate V1.
+enum PermissionEffect {
+  ALLOW
+  DENY
+}
+
+enum PermissionScope {
+  SCREEN
+  RESOURCE
+  CATEGORY
+}
+
+enum PermissionAction {
+  READ
+  WRITE
+  CREATE
+  UPDATE
+  ASSIGN
+  STATUS
+  TIME_IN
+  POD
+  COMMENT
+  SUBMIT
+  RECEIVE
+  COMPLETE
+  VERIFY_COLLECTION
+  DELETE
+  ADJUST
+}
+
+model PermissionDefinition {
+  key       String @id
+  scope     PermissionScope
+  module    String
+  action    PermissionAction
+  roles     RolePermission[]
+  overrides UserPermissionOverride[]
+
+  @@unique([scope, module, action])
+}
+
+model RolePolicy {
+  role        String @id // Five built-in roles; constrained in migration SQL.
+  revision    BigInt @default(1)
+  catalogVersion Int @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  permissions RolePermission[]
+}
+
+model RolePermission {
+  role          String
+  policy        RolePolicy @relation(fields: [role], references: [role], onDelete: Restrict)
+  permissionKey String
+  permission    PermissionDefinition @relation(fields: [permissionKey], references: [key], onDelete: Restrict)
+  effect        PermissionEffect
+
+  @@id([role, permissionKey])
+}
+
+// Absence is Inherit. An explicit Allow/Deny is retained even when equal to a
+// role default; sourceLegacyIds preserves conversion provenance.
+model UserPermissionOverride {
+  userId        String
+  user          User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissionKey String
+  permission    PermissionDefinition @relation(fields: [permissionKey], references: [key], onDelete: Restrict)
+  effect        PermissionEffect
+  source        String @default("MANUAL")
+  sourceLegacyIds String[] @default([])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@id([userId, permissionKey])
+}
+
+// One transaction/checkpoint per user makes interrupted conversion resumable.
+// A changed legacy source is reported, never silently overwritten on rerun.
+model PermissionConversion {
+  userId        String @id
+  user          User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceHash    String
+  catalogVersion Int @default(1)
+  report        Json
+  completedAt   DateTime @default(now())
+}
+
+// Retained source evidence for unknown/protected entries; no FK to the legacy
+// row, so a future compatibility writer cannot erase quarantine evidence.
+model PermissionQuarantine {
+  legacyId      String @id
+  userId        String
+  screen        String
+  granted       Boolean
+  reason        String
+  sourceHash    String
   createdAt     DateTime @default(now())
 
+  @@index([userId])
+}
+
+model Company {
+  id                      String          @id @default(cuid())
+  name                    String
+  // lower(trimmed, single-spaced name); blocks case/spacing duplicates.
+  normalizedName          String          @unique
+  // Nonblank values are unique; enforced by the companies API under the directory lock.
+  sapNumber               String
+  address                 String
+  contactPerson           String
+  isActive                Boolean         @default(true)
+  version                 Int             @default(1)
+  defaultAccountManagerId String?
+  defaultAccountManager   AccountManager? @relation(fields: [defaultAccountManagerId], references: [id], onDelete: SetNull)
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @default(now()) @updatedAt
+
   records DeliveryRecord[]
+
+  @@index([defaultAccountManagerId])
+}
+
+// Admin-managed Account Manager directory. DeliveryRecord.accountManager keeps
+// the name as written at the time (historical text, no foreign key).
+model AccountManager {
+  id             String    @id @default(cuid())
+  name           String
+  normalizedName String    @unique
+  email          String? // Contact detail only; record mail goes to the linked portal user.
+  userId         String?   @unique
+  user           User?     @relation("AccountManagerLogin", fields: [userId], references: [id], onDelete: SetNull)
+  isActive       Boolean   @default(true)
+  version        Int       @default(1)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  companies      Company[]
 }
 
 // Merchant directory — separate from Company (the validated Company Name
@@ -90,7 +234,9 @@ model Supplier {
   phone         String
   address       String
   city          String
-  category      String // Hardware | Consumables | Electronics | Packaging | Services
+  category      String // Deprecated compatibility snapshot; categories is authoritative.
+  version       Int @default(1)
+  categories    SupplierCategoryAssignment[]
   createdById   String
   createdBy     User     @relation("SupplierCreatedBy", fields: [createdById], references: [id])
   createdAt     DateTime @default(now())
@@ -99,30 +245,73 @@ model Supplier {
   modifiedAt    DateTime @updatedAt
 }
 
+// Deactivate catalog entries instead of deleting them; actor history is in AuditLog.
+model SupplierCategory {
+  id             String @id @default(cuid())
+  name           String
+  normalizedName String @unique
+  isActive       Boolean @default(true)
+  version        Int @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  suppliers      SupplierCategoryAssignment[]
+}
+
+model SupplierCategoryAssignment {
+  supplierId String
+  categoryId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  category   SupplierCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@id([supplierId, categoryId])
+  @@index([categoryId])
+}
+
 model DeliveryRecord {
-  id                 String  @id @default(cuid())
-  companyId          String
-  company            Company @relation(fields: [companyId], references: [id])
-  priority           String // 1 - Low | 2 - Moderate | 3 - High
-  reference          String
-  remarks            String  @default("")
-  status             String // SCHEDULED | ACCOMPLISHED | ON_HOLD | RESCHEDULED | PENDING
-  vehicle            String  @default("(None)")
-  area               String
-  driver             String  @default("")
-  driverAssistants   String  @default("[]")
-  timeIn             String?
-  timeOut            String?
-  receivedBy         String?
-  accountManager     String
-  deliveryDate       String
-  category           String // DELIVERY | RMA | ACCOUNTING_COLLECTION | PROCUREMENT_PICKUP | SALES_ORDERS
-  itemType           String
-  draft              Boolean @default(false)
-  dateAndTime        String
-  itemDescription    String  @default("")
-  documentAttachment String?
-  address            String  @default("")
+  id                   String     @id @default(cuid())
+  companyId            String
+  company              Company    @relation(fields: [companyId], references: [id])
+  priority             String // 1 - Low | 2 - Moderate | 3 - High
+  reference            String
+  rmaReference         String?
+  legacySapReference   String?
+  remarks              String     @default("")
+  status               String // SCHEDULED | ACCOMPLISHED | ON_HOLD | RESCHEDULED | PENDING
+  vehicle              String     @default("(None)")
+  area                 String
+  driver               String     @default("") // display snapshot of the assigned Driver profile name; never used for authorization
+  driverId             String? // stable assignment — the assigned Driver profile decides Driver ownership
+  assignedDriver       Driver?    @relation("DriverAssignments", fields: [driverId], references: [id])
+  driverAssistants     String     @default("[]")
+  timeIn               String?
+  timeOut              String?
+  receivedBy           String?
+  completedLate        Boolean    @default(false)
+  daysLate             Int        @default(0)
+  accountManager       String
+  deliveryDate         String
+  category             String // DELIVERY | RMA | ACCOUNTING_COLLECTION | PROCUREMENT_PICKUP | SALES_ORDERS
+  itemType             String
+  draft                Boolean    @default(false)
+  itemDescription      String     @default("")
+  lineItems            LineItem[] @relation("DeliveryRecordLineItems")
+  documentAttachment   String?
+  address              String     @default("")
+  rmaType              String?
+  purchaseDate         String?
+  customerContactName  String?
+  customerContactEmail String?
+  customerContactPhone String?
+  // Explicit responsibility; null historical rows stay outside driver dispatch.
+  rmaMovement          String?
+  rmaTransportStatus   String?
+  rmaTransportStartedAt DateTime?
+  rmaTransportCompletedAt DateTime?
+  rmaReceivedAt        DateTime?
+  rmaReceivedBy        String?
+  rmaRecipient         String?
+  rmaCompletedAt       DateTime?
+  rmaVersion           Int        @default(0)
 
   collectionVerified   Boolean   @default(false)
   collectionVerifiedBy String?
@@ -137,6 +326,7 @@ model DeliveryRecord {
   linkedCollectionId String?
   linkedCollection   DeliveryRecord?  @relation("CollectionLink", fields: [linkedCollectionId], references: [id])
   linkedDeliveries   DeliveryRecord[] @relation("CollectionLink")
+  podAttachments     PodAttachment[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -144,10 +334,42 @@ model DeliveryRecord {
 
   @@index([deletedAt, category, status])
   @@index([driver])
+  @@index([driverId])
   @@index([deliveryDate])
   @@index([companyId])
   @@index([accountManager])
   @@index([linkedCollectionId])
+  @@index([category, rmaReference])
+  @@index([category, rmaMovement, rmaTransportStatus])
+}
+
+model PodAttachment {
+  id           String         @id @default(cuid())
+  recordId     String
+  record       DeliveryRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  originalName String
+  storageKey   String         @unique
+  mimeType     String
+  size         Int
+  uploadedById String
+  uploadedBy   User           @relation(fields: [uploadedById], references: [id])
+  createdAt    DateTime       @default(now())
+
+  @@index([recordId, createdAt(sort: Desc)])
+}
+
+// Durable outbox: committed attachment removals are retried independently of storage.
+model PodStorageDeletion {
+  id               String   @id @default(cuid())
+  storageKey       String
+  storageNamespace String
+  attempts         Int      @default(0)
+  nextAttemptAt    DateTime @default(now())
+  lastError        String?
+  createdAt        DateTime @default(now())
+
+  @@unique([storageNamespace, storageKey])
+  @@index([storageNamespace, nextAttemptAt])
 }
 
 model AuditLog {
@@ -247,7 +469,7 @@ model NotificationLog {
   recipientName String
   message       String
   sentAt        DateTime @default(now())
-  status        String // SENT | FAILED | MOCKED
+  status        String // SENT | FAILED | MOCKED | SKIPPED
 }
 
 // Daily rollup of record counts by category + status, written once per day by
@@ -272,15 +494,18 @@ model RemarkLog {
 // arrays in data.ts. Drivers and assistants managed here propagate to every
 // assignment dropdown, dispatch board, and report across the portal.
 model Driver {
-  id            String   @id @default(cuid())
+  id            String           @id @default(cuid())
   name          String
   type          String // DRIVER | ASSISTANT
-  coverageAreas String   @default("[]") // JSON string[] of area keywords
-  isActive      Boolean  @default(true)
+  coverageAreas String           @default("[]") // JSON string[] of area keywords
+  isActive      Boolean          @default(true)
+  userId        String?          @unique // DRIVER login linked by Admin; null for assistants and unlinked profiles
+  user          User?            @relation("DriverLogin", fields: [userId], references: [id], onDelete: SetNull)
+  assignments   DeliveryRecord[] @relation("DriverAssignments")
   createdBy     String
-  createdAt     DateTime @default(now())
+  createdAt     DateTime         @default(now())
   modifiedBy    String
-  modifiedAt    DateTime @updatedAt
+  modifiedAt    DateTime         @updatedAt
 }
 
 model DailyStatusSnapshot {
@@ -292,4 +517,15 @@ model DailyStatusSnapshot {
   createdAt DateTime @default(now())
 
   @@unique([date, category, status])
+}
+
+model LineItem {
+  id               String         @id @default(cuid())
+  deliveryRecordId String
+  deliveryRecord   DeliveryRecord @relation("DeliveryRecordLineItems", fields: [deliveryRecordId], references: [id], onDelete: Cascade)
+  sku              String
+  quantity         Int            @default(1)
+  createdAt        DateTime       @default(now())
+
+  @@index([deliveryRecordId])
 }

@@ -6,6 +6,7 @@ export const DEV_ADMIN_USER: ApiUser = {
   name: 'System Admin',
   email: 'admin@microgenesis.com',
   role: 'ADMIN',
+  effectiveScreens: [], resources: [], permissionVersion: 'mock',
   permissions: [
     { screen: 'Dashboard', granted: true },
     { screen: 'Deliveries', granted: true },
@@ -21,7 +22,6 @@ export const DEV_ADMIN_USER: ApiUser = {
     { screen: 'Suppliers', granted: true },
     { screen: 'Driver Management', granted: true },
     { screen: 'Account Managers', granted: true },
-    { screen: 'Status History', granted: true },
     { screen: 'Statistical Report', granted: true },
     { screen: 'Admin Panel', granted: true },
     { screen: 'Data Sampler', granted: true },
@@ -34,21 +34,21 @@ export const DEV_USERS: Record<string, ApiUser> = {
     name: 'Maria Reyes',
     email: 'sales@microgenesis.com',
     role: 'SALES_COORDINATOR',
-    permissions: [],
+    permissions: [], effectiveScreens: [], resources: [], permissionVersion: 'mock',
   },
   'logistics@microgenesis.com': {
     id: 'usr-juan',
     name: 'Juan Santos',
     email: 'logistics@microgenesis.com',
     role: 'LOGISTICS',
-    permissions: [],
+    permissions: [], effectiveScreens: [], resources: [], permissionVersion: 'mock',
   },
   'tass@microgenesis.com': {
     id: 'usr-ana',
     name: 'Ana Cruz',
     email: 'tass@microgenesis.com',
     role: 'TASS',
-    permissions: [],
+    permissions: [], effectiveScreens: [], resources: [], permissionVersion: 'mock',
   },
   'admin@microgenesis.com': DEV_ADMIN_USER,
 };
@@ -89,7 +89,11 @@ export function getMockCompanies(): ApiCompany[] {
     sap_number: `SAP-${c.id.replace('CST-', '')}`,
     address: c.address,
     contact_person: c.contact_person,
+    is_active: true,
+    version: 1,
+    default_account_manager: null,
     created_at: c.created_at,
+    updated_at: c.created_at,
   }));
 }
 

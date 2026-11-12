@@ -1,6 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import { usePermissions } from '@/hooks/usePermissions';
+import React, { useState, useEffect, useRef } from 'react';
+import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { Search, Filter } from 'lucide-react';
 import { ApiSku } from '@/api';
+import CreateSkuForm from './CreateSkuForm';
 import SkuWorkspace from '@/features/inventory/SkuWorkspace';
 import ExportMenu from '@/components/ExportMenu';
 import { SKU_COLUMNS, fmtCurrency } from '@/utils/export';
@@ -22,13 +25,37 @@ export default function InventoryView({
   selectedProductIdFromDashboard,
   clearSelectedProductId
 }: InventoryViewProps) {
+  const access = usePermissions();
+  const [creating, setCreating] = useState(false);
+  const [createdCode, setCreatedCode] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [searchTerm, setSearchTerm] = useState('');
+  const [appliedSearchTerm, setAppliedSearchTerm] = useState('');
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [warehouseFilter, setWarehouseFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [selectedSkuId, setSelectedSkuId] = useState<string | null>(
     selectedProductIdFromDashboard ?? null
   );
+
+  useEffect(() => {
+    if (searchTerm === appliedSearchTerm) return;
+
+    searchTimeoutRef.current = setTimeout(() => {
+      setAppliedSearchTerm(searchTerm);
+      setPage(1);
+      searchTimeoutRef.current = null;
+    }, 300);
+
+    return () => {
+      if (searchTimeoutRef.current !== null) {
+        clearTimeout(searchTimeoutRef.current);
+        searchTimeoutRef.current = null;
+      }
+    };
+  }, [searchTerm, appliedSearchTerm]);
 
   // Sync dashboard navigation into local selection
   useEffect(() => {
@@ -73,9 +100,9 @@ export default function InventoryView({
   // Filter SKUs
   const filteredSkus = skus.filter(sku => {
     const matchesSearch =
-      sku.sku_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      sku.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      sku.description.toLowerCase().includes(searchTerm.toLowerCase());
+      sku.sku_code.toLowerCase().includes(appliedSearchTerm.toLowerCase()) ||
+      sku.name.toLowerCase().includes(appliedSearchTerm.toLowerCase()) ||
+      sku.description.toLowerCase().includes(appliedSearchTerm.toLowerCase());
 
     const matchesCategory = categoryFilter === 'ALL' || sku.category === categoryFilter;
 
@@ -96,48 +123,17 @@ export default function InventoryView({
     return matchesSearch && matchesCategory && matchesWarehouse && matchesStatus;
   });
 
-  return (
-    <div className="space-y-6" id="inventory-view-container">
-      {/* View Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">SKU Master</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Real-time SKU catalog master registry, ATP computations, and location bins. Click any row to open the SKU workspace.
-          </p>
-        </div>
-        {(currentUserRole === 'Admin' || currentUserRole === 'Logistics') && (
-          <ExportMenu
-            rows={filteredSkus.map(sku => ({
-              sku_code: sku.sku_code,
-              name: sku.name,
-              category: sku.category,
-              unit_cost_fmt: fmtCurrency(sku.unit_cost),
-              unit_price_fmt: fmtCurrency(sku.unit_price),
-              reorder_point: sku.reorder_point,
-              on_hand_qty: sku.inventory?.on_hand_qty ?? 0,
-              allocated_qty: sku.inventory?.allocated_qty ?? 0,
-              atp: sku.inventory?.atp ?? 0,
-              warehouse_location: sku.inventory?.warehouse_location ?? '',
-              description: sku.description,
-              created_by: sku.created_by,
-              modified_by: sku.modified_by,
-            }))}
-            columns={SKU_COLUMNS}
-            sheetName="SKU Master"
-            filename="sku-master"
-            pdfTitle="SKU Master Report"
-            showPdf={true}
-            pdfPortrait={false}
-            meta={{
-              reportName: 'SKU Master Export',
-              generatedByName: currentUserName,
-              generatedByRole: currentUserRole,
-            }}
-          />
-        )}
-      </div>
+  const totalPages = Math.max(1, Math.ceil(filteredSkus.length / pageSize));
+  // Keep rows and pagination in sync if refreshed data shrinks the result set.
+  const currentPage = Math.max(1, Math.min(page, totalPages));
 
+  return (
+    <div className="space-y-4" id="inventory-view-container">
+      {currentUserRole === 'Admin' && access.canResource('skus', 'CREATE') && creating && <CreateSkuForm onCancel={() => setCreating(false)} onCreated={sku => {
+        setCreating(false); setCreatedCode(sku.sku_code);
+        setSearchTerm(''); setAppliedSearchTerm(''); setCategoryFilter('ALL'); setWarehouseFilter('ALL'); setStatusFilter('ALL'); setPage(1);
+      }} />}
+      {createdCode && <p role="status" className="text-sm text-emerald-700">SKU {createdCode} created with zero stock.</p>}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
         {/* Filters */}
         <div className="p-4 border-b border-slate-200 space-y-3">
@@ -152,6 +148,37 @@ export default function InventoryView({
                 className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-[#1F3864] focus:bg-white transition-all font-mono"
               />
             </div>
+            {currentUserRole === 'Admin' && access.canResource('skus', 'CREATE') && !creating && <button type="button" onClick={() => { setCreating(true); setCreatedCode(null); }} className="rounded-lg bg-[#0078C1] px-4 py-2 text-xs font-semibold text-white">Create SKU</button>}
+            {(currentUserRole === 'Admin' || currentUserRole === 'Logistics') && access.canResource('skus') && (
+              <ExportMenu
+                rows={filteredSkus.map(sku => ({
+                  sku_code: sku.sku_code,
+                  name: sku.name,
+                  category: sku.category,
+                  unit_cost_fmt: fmtCurrency(sku.unit_cost),
+                  unit_price_fmt: fmtCurrency(sku.unit_price),
+                  reorder_point: sku.reorder_point,
+                  on_hand_qty: sku.inventory?.on_hand_qty ?? 0,
+                  allocated_qty: sku.inventory?.allocated_qty ?? 0,
+                  atp: sku.inventory?.atp ?? 0,
+                  warehouse_location: sku.inventory?.warehouse_location ?? '',
+                  description: sku.description,
+                  created_by: sku.created_by,
+                  modified_by: sku.modified_by,
+                }))}
+                columns={SKU_COLUMNS}
+                sheetName="SKU Master"
+                filename="sku-master"
+                pdfTitle="SKU Master Report"
+                showPdf={true}
+                pdfPortrait={false}
+                meta={{
+                  reportName: 'SKU Master Export',
+                  generatedByName: currentUserName,
+                  generatedByRole: currentUserRole,
+                }}
+              />
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -161,7 +188,7 @@ export default function InventoryView({
 
             <select
               value={categoryFilter}
-              onChange={e => setCategoryFilter(e.target.value)}
+              onChange={e => { setCategoryFilter(e.target.value); setPage(1); }}
               className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none text-xs font-medium"
             >
               <option value="ALL">All Categories (A / B / C)</option>
@@ -172,7 +199,7 @@ export default function InventoryView({
 
             <select
               value={warehouseFilter}
-              onChange={e => setWarehouseFilter(e.target.value)}
+              onChange={e => { setWarehouseFilter(e.target.value); setPage(1); }}
               className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none text-xs font-medium"
             >
               <option value="ALL">All Bins</option>
@@ -183,7 +210,7 @@ export default function InventoryView({
 
             <select
               value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value)}
+              onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
               className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none text-xs font-medium"
             >
               <option value="ALL">All Stock Statuses</option>
@@ -192,13 +219,19 @@ export default function InventoryView({
               <option value="Out of Stock">Out of Stock</option>
             </select>
 
-            {(searchTerm || categoryFilter !== 'ALL' || warehouseFilter !== 'ALL' || statusFilter !== 'ALL') && (
+            {(searchTerm || appliedSearchTerm || categoryFilter !== 'ALL' || warehouseFilter !== 'ALL' || statusFilter !== 'ALL') && (
               <button
                 onClick={() => {
+                  if (searchTimeoutRef.current !== null) {
+                    clearTimeout(searchTimeoutRef.current);
+                    searchTimeoutRef.current = null;
+                  }
                   setSearchTerm('');
+                  setAppliedSearchTerm('');
                   setCategoryFilter('ALL');
                   setWarehouseFilter('ALL');
                   setStatusFilter('ALL');
+                  setPage(1);
                 }}
                 className="text-[#1F3864] hover:underline font-bold uppercase text-[10px]"
               >
@@ -232,7 +265,7 @@ export default function InventoryView({
                   </td>
                 </tr>
               ) : (
-                filteredSkus.map(sku => {
+                filteredSkus.slice((currentPage - 1) * pageSize, currentPage * pageSize).map(sku => {
                   const inv = sku.inventory;
                   const atp = inv?.atp ?? 0;
                   const onHand = inv?.on_hand_qty ?? 0;
@@ -274,9 +307,19 @@ export default function InventoryView({
           </table>
         </div>
 
-        <div className="p-3 bg-slate-50 border-t border-slate-100 text-[11px] text-slate-400 flex items-center justify-between">
-          <span>Showing {filteredSkus.length} of {skus.length} entries</span>
-          <span>Available to Promise (ATP) = On-Hand − Allocated</span>
+        <div className="border-t border-slate-100">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filteredSkus.length}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
+            pageSizeOptions={[10, 25, 50, 100]}
+          />
+          <div className="p-3 bg-slate-50 border-t border-slate-100 text-[11px] text-slate-400 flex justify-end">
+            <span>Available to Promise (ATP) = On-Hand − Allocated</span>
+          </div>
         </div>
       </div>
     </div>

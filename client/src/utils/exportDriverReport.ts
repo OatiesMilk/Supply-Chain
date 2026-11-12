@@ -1,5 +1,6 @@
 import { DeliveryRecord } from '../types';
 import { AREA_HIERARCHY } from '../data';
+import { DocumentSize, DEFAULT_DOCUMENT_SIZE, getDocxDimensions, getDocxLandscapeContentWidth, getExcelPageSetup, getPdfFormat } from './documentSize';
 
 // ─── Style constants (navy/gold — matches Microgenesis template) ──────────────
 
@@ -134,7 +135,7 @@ function monthName(mo: number): string {
 
 // ─── Driver statistics ────────────────────────────────────────────────────────
 
-interface DriverStats {
+export interface DriverStats {
   acc: number;
   rh: number;
   pend: number;
@@ -144,7 +145,7 @@ interface DriverStats {
   lastRemark: string;
 }
 
-function buildDriverStats(
+export function buildDriverStats(
   drivers: string[],
   assigned: DeliveryRecord[],
   auditSets?: Map<string, Set<string>>,
@@ -950,11 +951,13 @@ async function exportPDF(
   stats: Map<string, DriverStats>,
   month: string, year: number,
   byName: string, byRole: string,
-): Promise<void> {
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE,
+  returnBlob = false,
+): Promise<void | Blob> {
   const { jsPDF } = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
 
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: getPdfFormat(documentSize) });
   const NAVY_RGB: [number, number, number]   = [31, 56, 100];
   const DARKER_RGB: [number, number, number] = [13, 27, 42];
   const GOLD_RGB: [number, number, number]   = [255, 192, 0];
@@ -1280,6 +1283,7 @@ async function exportPDF(
     didDrawPage: pageCallback,
   });
 
+  if (returnBlob) return doc.output('blob');
   doc.save(`Microgenesis_Driver_Report_${month}_${year}.pdf`);
 }
 
@@ -1291,7 +1295,9 @@ async function exportDOCX(
   stats: Map<string, DriverStats>,
   month: string, year: number,
   byName: string, byRole: string,
-): Promise<void> {
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE,
+  returnBlob = false,
+): Promise<void | Blob> {
   const assigned = deliveries.filter(r => r.driver?.trim());
   const pctStr = (n: number, total: number) => total > 0 ? `${((n / total) * 100).toFixed(2)}%` : '0.00%';
   const {
@@ -1299,7 +1305,8 @@ async function exportDOCX(
     AlignmentType, WidthType, PageOrientation, VerticalAlign,
   } = await import('docx');
 
-  const CONTENT_W = 15398;
+  const { width, height } = getDocxDimensions(documentSize);
+  const CONTENT_W = getDocxLandscapeContentWidth(documentSize);
   const navyFill = '1F3864';
   const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
@@ -1495,7 +1502,7 @@ async function exportDOCX(
     sections: [{
       properties: {
         page: {
-          size: { orientation: PageOrientation.LANDSCAPE, width: 16838, height: 11906 },
+          size: { orientation: PageOrientation.LANDSCAPE, width, height },
           margin: { top: 720, right: 720, bottom: 720, left: 720 },
         },
       },
@@ -1543,6 +1550,7 @@ async function exportDOCX(
   });
 
   const blob = await Packer.toBlob(doc);
+  if (returnBlob) return blob;
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
@@ -1553,14 +1561,16 @@ async function exportDOCX(
 
 // ─── CSV Export ───────────────────────────────────────────────────────────────
 
-function exportCSV(
+export function buildDriverReportCSV(
   deliveries: DeliveryRecord[],
   drivers: string[],
   stats: Map<string, DriverStats>,
-  month: string, year: number,
-  byName: string, byRole: string,
-): void {
-  const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  month: string,
+  year: number,
+  byName: string,
+  byRole: string,
+  dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+): string {
   const pctFmt = (n: number, t: number) => t > 0 ? `${(n / t * 100).toFixed(1)}%` : '0%';
   const rows: string[][] = [
     ['Microgenesis Business Systems'],
@@ -1628,11 +1638,23 @@ function exportCSV(
     if (s.lastRemark) rows.push([d, s.lastRemark]);
   }
 
-  const csv = rows
+  return rows
     .map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(','))
     .join('\r\n');
+}
 
-  const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }));
+function exportCSV(
+  deliveries: DeliveryRecord[],
+  drivers: string[],
+  stats: Map<string, DriverStats>,
+  month: string, year: number,
+  byName: string, byRole: string,
+  returnBlob = false,
+): void | Blob {
+  const csv = buildDriverReportCSV(deliveries, drivers, stats, month, year, byName, byRole);
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+  if (returnBlob) return blob;
+  const url = URL.createObjectURL(blob);
   const a   = document.createElement('a');
   a.href     = url;
   a.download = `Microgenesis_Driver_Report_${month}_${year}.csv`;
@@ -1650,7 +1672,9 @@ export async function downloadDriverReport(
   generatedByName: string,
   generatedByRole: string,
   auditSets?: Map<string, Set<string>>,
-): Promise<void> {
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE,
+  returnBlob = false,
+): Promise<void | Blob> {
   const mo = monthName(month);
 
   const deliveries = records.filter(r => {
@@ -1664,18 +1688,15 @@ export async function downloadDriverReport(
   const stats    = buildDriverStats(drivers, assigned, auditSets);
 
   if (format === 'csv') {
-    exportCSV(deliveries, drivers, stats, mo, year, generatedByName, generatedByRole);
-    return;
+    return exportCSV(deliveries, drivers, stats, mo, year, generatedByName, generatedByRole, returnBlob);
   }
 
   if (format === 'pdf') {
-    await exportPDF(deliveries, drivers, stats, mo, year, generatedByName, generatedByRole);
-    return;
+    return exportPDF(deliveries, drivers, stats, mo, year, generatedByName, generatedByRole, documentSize, returnBlob);
   }
 
   if (format === 'docx') {
-    await exportDOCX(deliveries, drivers, stats, mo, year, generatedByName, generatedByRole);
-    return;
+    return exportDOCX(deliveries, drivers, stats, mo, year, generatedByName, generatedByRole, documentSize, returnBlob);
   }
 
   // Excel
@@ -1684,11 +1705,12 @@ export async function downloadDriverReport(
   wb.creator = generatedByName;
   wb.created = new Date();
 
-  await buildSheet1(wb.addWorksheet('Monthly Report'), deliveries, assigned, drivers, stats, mo, year, generatedByName, generatedByRole);
-  buildSheet2(wb.addWorksheet('Summary'),        deliveries, assigned, drivers, stats, mo, year, generatedByName, generatedByRole);
+  await buildSheet1(wb.addWorksheet('Monthly Report', { pageSetup: getExcelPageSetup(documentSize) }), deliveries, assigned, drivers, stats, mo, year, generatedByName, generatedByRole);
+  buildSheet2(wb.addWorksheet('Summary', { pageSetup: getExcelPageSetup(documentSize) }), deliveries, assigned, drivers, stats, mo, year, generatedByName, generatedByRole);
 
   const buf  = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  if (returnBlob) return blob;
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;

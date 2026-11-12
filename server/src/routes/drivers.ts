@@ -1,25 +1,32 @@
 import { Router } from 'express';
 import { prisma } from '../db';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireScreen, requireResource, requireAuth, requireRole } from '../middleware/auth';
+import { canonicalCoverageList, createDriverDirectory, DriverConflictError, driverInputError, DriverPermissionError, parseCoverageAreas, readDriverDirectory, updateDriverDirectory } from '../services/driverDirectory';
+
+import { asyncRoute } from '../middleware/asyncRoute';
+import type { Request, Response } from 'express';
 
 const router = Router();
+const driverRoute = (handler: (req: Request, res: Response) => Promise<unknown>) => asyncRoute(async (req, res) => {
+  try { return await handler(req, res); }
+  catch (error) {
+    if (error instanceof DriverConflictError) return res.status(409).json({ error: error.message });
+    if (error instanceof DriverPermissionError) return res.status(403).json({ error: error.message });
+    throw error;
+  }
+});
 
-const DEFAULT_SEED = [
-  { name: 'Lando Navarro',     type: 'DRIVER',    areas: ['Makati', 'BGC', 'Taguig', 'Mandaluyong', 'San Juan', 'Pasig', 'Ortigas'] },
-  { name: 'Manny Santos',      type: 'DRIVER',    areas: ['Quezon City', 'Marikina', 'Caloocan', 'Valenzuela', 'Malabon', 'Bulacan', 'Cainta', 'Antipolo'] },
-  { name: 'Ronald de la Cruz', type: 'DRIVER',    areas: ['Manila', 'Parañaque', 'Pasay', 'Las Piñas', 'Muntinlupa', 'Cavite', 'Laguna', 'Batangas'] },
-  { name: 'Jayson Reyes',      type: 'ASSISTANT', areas: [] },
-  { name: 'Bong Alvarez',      type: 'ASSISTANT', areas: [] },
-  { name: 'Ricky Mendoza',     type: 'ASSISTANT', areas: [] },
-];
-
-function serialize(d: any) {
+// Everyone with roster access sees whether a profile has a login; only Admin
+// sees which account it is.
+function serialize(d: any, isAdmin = false) {
   return {
     id: d.id,
     name: d.name,
     type: d.type,
-    coverage_areas: JSON.parse(d.coverageAreas || '[]') as string[],
+    coverage_areas: parseCoverageAreas(d.coverageAreas || '[]'),
     is_active: d.isActive,
+    is_linked: !!d.userId,
+    ...(isAdmin && { linked_user: d.user ? { id: d.user.id, name: d.user.name, email: d.user.email } : null }),
     created_by: d.createdBy,
     created_at: d.createdAt,
     modified_by: d.modifiedBy,
@@ -27,139 +34,59 @@ function serialize(d: any) {
   };
 }
 
-// Scan delivery records for driver/assistant names not yet in the Driver table
-// and auto-import them so the Driver Manager stays in sync with actual usage.
-async function syncDriversFromRecords() {
-  const managed = await prisma.driver.findMany({ select: { name: true } });
-  const knownNames = new Set(managed.map(d => d.name));
-
-  // Distinct driver names from delivery records
-  const driverRows: { driver: string }[] = await prisma.deliveryRecord.findMany({
-    where: { driver: { not: '' }, deletedAt: null },
-    select: { driver: true },
-    distinct: ['driver'],
-  });
-
-  // Distinct assistant names (stored as JSON array string per record)
-  const assistantRows: { driverAssistants: string }[] = await prisma.deliveryRecord.findMany({
-    where: { driverAssistants: { not: '[]' }, deletedAt: null },
-    select: { driverAssistants: true },
-    distinct: ['driverAssistants'],
-  });
-  const assistantNames = new Set<string>();
-  for (const row of assistantRows) {
-    try {
-      const arr = JSON.parse(row.driverAssistants);
-      if (Array.isArray(arr)) arr.forEach((n: string) => { if (n.trim()) assistantNames.add(n.trim()); });
-    } catch { /* skip malformed */ }
-  }
-
-  const toCreate: { name: string; type: string; coverageAreas: string; createdBy: string; modifiedBy: string }[] = [];
-
-  for (const row of driverRows) {
-    if (row.driver.trim() && !knownNames.has(row.driver.trim())) {
-      knownNames.add(row.driver.trim());
-      toCreate.push({ name: row.driver.trim(), type: 'DRIVER', coverageAreas: '[]', createdBy: 'system', modifiedBy: 'system' });
-    }
-  }
-  for (const name of assistantNames) {
-    if (!knownNames.has(name)) {
-      knownNames.add(name);
-      toCreate.push({ name, type: 'ASSISTANT', coverageAreas: '[]', createdBy: 'system', modifiedBy: 'system' });
-    }
-  }
-
-  if (toCreate.length > 0) {
-    await prisma.driver.createMany({ data: toCreate });
-  }
+// Login identities are linked only by Admin through /api/v1/users, never through
+// the roster, so Logistics cannot create or move a Driver login link.
+function linkingFieldError(req: Request, res: Response) {
+  if (!req.body || !['user_id', 'userId', 'linked_user_id'].some(key => key in req.body)) return false;
+  res.status(req.user!.role === 'ADMIN' ? 400 : 403).json({ error: 'Driver logins are linked by Admin in Admin Panel → Users.' });
+  return true;
 }
 
-// List all drivers (active only by default, ?all=1 for all)
-// On first call (empty table): seeds hardcoded defaults + drivers found in records.
-router.get('/', requireAuth, async (req, res) => {
-  const total = await prisma.driver.count();
-  if (total === 0) {
-    // Seed hardcoded defaults first
-    await prisma.driver.createMany({
-      data: DEFAULT_SEED.map(d => ({
-        name: d.name,
-        type: d.type,
-        coverageAreas: JSON.stringify(d.areas),
-        createdBy: 'system',
-        modifiedBy: 'system',
-      })),
-    });
-    // Import any driver/assistant names from delivery records once on initialization
-    await syncDriversFromRecords();
-  }
+// Reads never seed or import the roster.
+router.get('/', requireAuth, requireResource('drivers'), driverRoute(async (req, res) => {
+  const drivers = await readDriverDirectory(prisma, req.query.all === '1');
+  res.json(drivers.map(d => serialize(d, req.user!.role === 'ADMIN')));
+}));
 
-  const where = req.query.all === '1' ? {} : { isActive: true };
-  const drivers = await prisma.driver.findMany({ where, orderBy: { name: 'asc' } });
-  res.json(drivers.map(serialize));
-});
-
-// Create a driver — Logistics + Admin only
-router.post('/', requireAuth, requireRole('LOGISTICS', 'ADMIN'), async (req, res) => {
+// Create a roster entry — Admin adds Drivers; Logistics adds Assistants only (TSK-119).
+router.post('/', requireAuth, requireResource('drivers', 'CREATE'), requireScreen('driver_manager'), requireRole('LOGISTICS', 'ADMIN'), driverRoute(async (req, res) => {
+  if (linkingFieldError(req, res)) return;
   const { name, type, coverage_areas } = req.body ?? {};
-  if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
-  const driverType = type === 'ASSISTANT' ? 'ASSISTANT' : 'DRIVER';
+  const invalid = driverInputError(req.body ?? {}, true);
+  if (invalid) return res.status(400).json({ error: invalid });
+  if ((type ?? 'DRIVER') === 'DRIVER' && req.user!.role !== 'ADMIN') {
+    return res.status(403).json({ error: 'Only Admin can add drivers. Logistics can add assistants.' });
+  }
+  const created = await createDriverDirectory(prisma, {
+    name: name.trim(), type: type ?? 'DRIVER',
+    coverageAreas: JSON.stringify(canonicalCoverageList(coverage_areas ?? [])),
+    createdBy: req.user!.name, modifiedBy: req.user!.name,
+  }, req.user!);
+  res.status(201).json(serialize(created, req.user!.role === 'ADMIN'));
+}));
 
-  const created = await prisma.driver.create({
-    data: {
-      name: name.trim(),
-      type: driverType,
-      coverageAreas: JSON.stringify(coverage_areas ?? []),
-      createdBy: req.user!.name,
-      modifiedBy: req.user!.name,
-    },
-  });
-  res.status(201).json(serialize(created));
-});
-
-// Update a driver — Logistics + Admin only
-router.put('/:id', requireAuth, requireRole('LOGISTICS', 'ADMIN'), async (req, res) => {
+// Update a roster entry — Logistics keeps coverage/status edits; type changes
+// and Driver renames are Admin only (TSK-119).
+router.put('/:id', requireAuth, requireResource('drivers', 'UPDATE'), requireScreen('driver_manager'), requireRole('LOGISTICS', 'ADMIN'), driverRoute(async (req, res) => {
+  if (linkingFieldError(req, res)) return;
   const { name, type, coverage_areas, is_active } = req.body ?? {};
-  const existing = await prisma.driver.findUnique({ where: { id: req.params.id } });
-  if (!existing) return res.status(404).json({ error: 'Driver not found' });
-
-  const updated = await prisma.driver.update({
-    where: { id: req.params.id },
-    data: {
+  const invalid = driverInputError(req.body ?? {});
+  if (invalid) return res.status(400).json({ error: invalid });
+  const updated = await updateDriverDirectory(prisma, req.params.id, {
       ...(name !== undefined && { name: name.trim() }),
       ...(type !== undefined && { type: type === 'ASSISTANT' ? 'ASSISTANT' : 'DRIVER' }),
-      ...(coverage_areas !== undefined && { coverageAreas: JSON.stringify(coverage_areas) }),
+      ...(coverage_areas !== undefined && { coverageAreas: JSON.stringify(canonicalCoverageList(coverage_areas)) }),
       ...(is_active !== undefined && { isActive: is_active }),
-      modifiedBy: req.user!.name,
-    },
-  });
-  res.json(serialize(updated));
-});
+    }, req.user!, false, req.user!.role !== 'ADMIN');
+  if (!updated) return res.status(404).json({ error: 'Driver not found' });
+  res.json(serialize(updated, req.user!.role === 'ADMIN'));
+}));
 
-// Delete a driver — Logistics + Admin only
-router.delete('/:id', requireAuth, requireRole('LOGISTICS', 'ADMIN'), async (req, res) => {
-  const existing = await prisma.driver.findUnique({ where: { id: req.params.id } });
-  if (!existing) return res.status(404).json({ error: 'Driver not found' });
-
-  const inUse = await prisma.deliveryRecord.count({
-    where: {
-      OR: [
-        { driver: existing.name },
-        { driverAssistants: { contains: existing.name } }
-      ],
-      deletedAt: null
-    }
-  });
-
-  if (inUse > 0) {
-    // Soft-delete to preserve historical delivery record audit integrity
-    await prisma.driver.update({
-      where: { id: req.params.id },
-      data: { isActive: false, modifiedBy: req.user!.name }
-    });
-  } else {
-    await prisma.driver.delete({ where: { id: req.params.id } });
-  }
+// Deactivate a driver — Logistics + Admin only
+router.delete('/:id', requireAuth, requireResource('drivers', 'DELETE'), requireScreen('driver_manager'), requireRole('LOGISTICS', 'ADMIN'), driverRoute(async (req, res) => {
+  const updated = await updateDriverDirectory(prisma, req.params.id, { isActive: false }, req.user!, true);
+  if (!updated) return res.status(404).json({ error: 'Driver not found' });
   res.status(204).end();
-});
+}));
 
 export default router;

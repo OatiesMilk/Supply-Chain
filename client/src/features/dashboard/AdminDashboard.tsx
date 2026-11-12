@@ -1,3 +1,4 @@
+import { manilaToday } from '@/utils/recordLifecycle';
 import {
   Users,
   ClipboardList,
@@ -7,40 +8,18 @@ import {
   CheckCircle,
   RotateCw,
 } from "lucide-react";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
-import { ApiDashboardStats } from "@/api";
+import DashboardStatusChart from './DashboardStatusChart';
+import { ApiDashboardStats, ApiDashboardOverview } from "@/api";
 import { DeliveryRecord } from "@/types";
+import { DashboardFilterId, getManilaWeekRange, matchesDashboardFilter } from '@/utils/dashboardFilters';
 
 interface Props {
   stats: Extract<ApiDashboardStats, { role: "ADMIN" }> | null;
   deliveryRecords: DeliveryRecord[];
-  onNavigate: (screen: string, item_id?: string) => void;
+  overview: ApiDashboardOverview;
+  onNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
   onRefresh?: () => void;
 }
-
-const STATUS_LABELS: Record<string, string> = {
-  SCHEDULED: "Scheduled",
-  ACCOMPLISHED: "Delivered",
-  ON_HOLD: "On-Hold",
-  RESCHEDULED: "Rescheduled",
-  PENDING: "Pending",
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  SCHEDULED: "#0078C1",
-  ACCOMPLISHED: "#059669",
-  PENDING: "#d97706",
-  ON_HOLD: "#dc2626",
-  RESCHEDULED: "#9333ea",
-};
 
 const ACTION_BADGE: Record<string, string> = {
   CREATE: "bg-green-100 text-green-700",
@@ -57,11 +36,15 @@ const ROLE_LABELS: Record<string, string> = {
 
 export default function AdminDashboard({
   stats,
+  overview,
   deliveryRecords,
   onNavigate,
   onRefresh,
 }: Props) {
-  const today = new Date().toISOString().split("T")[0];
+  const today = manilaToday();
+  const weekRange = getManilaWeekRange(today);
+  const weekStart = new Date(`${weekRange.from}T00:00:00+08:00`).getTime();
+  const endExclusive = new Date(`${today}T00:00:00+08:00`).getTime() + 86_400_000;
 
   // Compute from deliveryRecords as fallback / supplement
   const totalActiveUsers = stats?.total_active_users ?? 0;
@@ -69,35 +52,16 @@ export default function AdminDashboard({
   const recordsThisWeek =
     stats?.records_this_week ??
     deliveryRecords.filter((r) => {
-      const d = new Date(r.created_at);
-      const dow = d.getUTCDay();
-      const weekStart = new Date(d);
-      weekStart.setUTCDate(d.getUTCDate() - dow);
-      return new Date(r.created_at) >= weekStart;
+      const createdAt = new Date(r.created_at).getTime();
+      return createdAt >= weekStart && createdAt < endExclusive;
     }).length;
   const unverifiedCollections =
     stats?.unverified_collections ??
-    deliveryRecords.filter(
-      (r) =>
-        r.category === "Accounting Collection" &&
-        r.status === "Delivered" &&
-        !r.collection_verified,
-    ).length;
-  const unverifiedCollectionsAmount = deliveryRecords
-    .filter(
-      (r) =>
-        r.category === "Accounting Collection" &&
-        r.status === "Delivered" &&
-        !r.collection_verified,
-    )
-    .reduce((sum, r) => sum + (r.amount ?? 0), 0);
+    deliveryRecords.filter(r => matchesDashboardFilter(r, 'admin-unverified-collections')).length;
+  const unverifiedCollectionsAmount = overview.unverified_collections_amount;
   const auditEventsToday = stats?.audit_events_today ?? 0;
 
-  const statusChartData = (stats?.records_by_status ?? []).map((s) => ({
-    name: STATUS_LABELS[s.status] ?? s.status,
-    count: s.count,
-    fill: STATUS_COLORS[s.status] ?? "#94A3B8",
-  }));
+  const statusChartData = stats?.records_by_status ?? [];
 
   const recentAudit = stats?.recent_audit ?? [];
 
@@ -108,7 +72,7 @@ export default function AdminDashboard({
         {/* Total Active Users */}
         <div
           className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-[#1F3864] transition-all cursor-pointer"
-          onClick={() => onNavigate("admin")}
+          onClick={() => onNavigate("admin", undefined, 'admin-active-users')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -136,7 +100,7 @@ export default function AdminDashboard({
         {/* Records Created This Week */}
         <div
           className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-[#1F3864] transition-all cursor-pointer"
-          onClick={() => onNavigate("transactions")}
+          onClick={() => onNavigate("transactions", undefined, 'admin-records-this-week')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -156,8 +120,8 @@ export default function AdminDashboard({
 
         {/* Unverified Collections */}
         <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-amber-500 flex items-center justify-between gap-3 hover:border-amber-400 transition-all cursor-pointer"
-          onClick={() => onNavigate("accounting_collection")}
+          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-amber-400 transition-all cursor-pointer"
+          onClick={() => onNavigate("accounting_collection", undefined, 'admin-unverified-collections')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -179,7 +143,7 @@ export default function AdminDashboard({
               </p>
             )}
             <span className="text-xs text-amber-600 font-extrabold flex items-center gap-1 mt-1">
-              Awaiting TASS <Banknote className="w-3.5 h-3.5 shrink-0" />
+              Awaiting TASS
             </span>
           </div>
           <div
@@ -192,7 +156,7 @@ export default function AdminDashboard({
         {/* System Audit Events Today */}
         <div
           className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-[#1F3864] transition-all cursor-pointer"
-          onClick={() => onNavigate("admin")}
+          onClick={() => onNavigate("admin", undefined, 'admin-audit-today')}
         >
           <div className="min-w-0">
             <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
@@ -227,47 +191,7 @@ export default function AdminDashboard({
             </div>
           ) : (
             <div className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={statusChartData}
-                  layout="vertical"
-                  margin={{ top: 4, right: 15, left: 5, bottom: 4 }}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    horizontal={false}
-                    stroke="#F1F5F9"
-                  />
-                  <XAxis
-                    type="number"
-                    stroke="#94A3B8"
-                    fontSize={11}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    dataKey="name"
-                    type="category"
-                    stroke="#94A3B8"
-                    fontSize={10}
-                    tickLine={false}
-                    width={80}
-                  />
-                  <Tooltip
-                    formatter={(value: any) => [`${value} records`, "Total"]}
-                    contentStyle={{
-                      backgroundColor: "#fff",
-                      border: "1px solid #E2E8F0",
-                      borderRadius: "8px",
-                    }}
-                  />
-                  <Bar
-                    dataKey="count"
-                    radius={[0, 4, 4, 0]}
-                    barSize={18}
-                    fill="#0078C1"
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+              <DashboardStatusChart data={statusChartData} />
             </div>
           )}
         </div>

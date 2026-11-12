@@ -1,6 +1,8 @@
 import { FormEvent, useState, useEffect } from 'react';
 import { LogIn, Loader2, Mail, ChevronDown } from 'lucide-react';
-import { api, ApiUser } from '@/api';
+import { api, apiUrl, ApiUser } from '@/api';
+import { demoAccountsEnabled } from '@/utils/demoAccounts';
+import { keepLoginRoute } from '@/routes/screenRouting';
 
 interface LoginViewProps {
   onLoggedIn: (user: ApiUser) => void;
@@ -45,7 +47,12 @@ const DEMO_ACCOUNTS = [
   },
 ] as const;
 
-const SHOW_DEMO = import.meta.env.DEV || import.meta.env.VITE_SHOW_DEMO_ACCOUNTS === 'true';
+// Keep DEV outside the helper so production builds can remove demo accounts entirely.
+const SHOW_DEMO = import.meta.env.DEV && demoAccountsEnabled({
+  dev: import.meta.env.DEV,
+  mode: import.meta.env.MODE,
+  showDemoAccounts: import.meta.env.VITE_SHOW_DEMO_ACCOUNTS,
+});
 
 function MicrosoftLogo() {
   return (
@@ -71,19 +78,16 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
     const errParam = params.get('error');
     if (errParam === 'account_deactivated') {
       setError('Your Microsoft account is not authorized. Contact your administrator.');
-      window.history.replaceState({}, '', '/');
     } else if (errParam === 'sso_failed') {
       setError('Microsoft login failed. Please try again or use email login.');
-      window.history.replaceState({}, '', '/');
     } else if (errParam === 'sso_not_configured') {
       setError('Microsoft login is not configured. Use email login.');
       setShowEmailForm(true);
-      window.history.replaceState({}, '', '/');
     } else if (errParam === 'sso_no_email') {
       setError('Could not retrieve email from your Microsoft account. Use email login.');
       setShowEmailForm(true);
-      window.history.replaceState({}, '', '/');
     }
+    return keepLoginRoute();
   }, []);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -104,7 +108,7 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
     setError(null);
     setSsoLoading(true);
     try {
-      const res = await fetch('/api/auth/microsoft', {
+      const res = await fetch(apiUrl('/auth/microsoft'), {
         method: 'POST',
         credentials: 'include',
       });
@@ -123,6 +127,7 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
   };
 
   const handleQuickLogin = async (demoEmail: string, demoPassword: string) => {
+    if (!SHOW_DEMO) return;
     setError(null);
     setLoading(true);
     try {
@@ -311,6 +316,8 @@ export default function LoginView({ onLoggedIn }: LoginViewProps) {
                   </button>
                 ))}
               </div>
+
+              <p className="mt-4 text-xs text-slate-500">Prepare demo or UAT data from an approved disposable local database using the guarded CLI. See GETTING_STARTED.md.</p>
             </div>
           )}
         </div>
