@@ -1,7 +1,15 @@
 # Plan: Short, readable record numbers for every record type
 
-Status: **Draft, waiting for Dylan's approval.** No code changes until approved.
+Status: **Approved by Dylan on 2026-11-12.**
 Branch: `feature/short-record-ids` (off `dev` at `6cb73f0`, after #312 and #314).
+
+## Approved decisions (2026-11-12)
+
+1. Format `{PREFIX}-{YY}-{NNNNN}` (e.g. `DEL-26-00042`), counter resets each Manila year per record type.
+2. Prefixes `DEL`, `RMA`, `PUP`, `SO`, `COL`.
+3. Accounting Collection is numbered too (all five types).
+4. Drafts get their number at creation and keep it.
+5. The long internal key is hidden from users entirely (no "System ID" line).
 
 ## 1. Summary
 
