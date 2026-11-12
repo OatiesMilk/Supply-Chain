@@ -37,7 +37,7 @@ test('migration adds a nullable column and holds the same backfill statements as
   const dir = path.join(__dirname, '..', 'prisma', 'migrations');
   const name = readdirSync(dir).find(entry => entry.endsWith('_record_submitted_at'));
   assert.ok(name, 'migration folder exists');
-  const sql = readFileSync(path.join(dir, name!, 'migration.sql'), 'utf8');
+  const sql = readFileSync(path.join(dir, name!, 'migration.sql'), 'utf8').replace(/\r\n/g, '\n'); // Windows checkouts use CRLF
   assert.match(sql, /ADD COLUMN "submittedAt" TIMESTAMP\(3\);/);
   assert.doesNotMatch(sql, /NOT NULL|DEFAULT/);
   assert.ok(sql.includes(BACKFILL_FROM_AUDIT_SQL + ';'), 'rule 1 SQL matches');

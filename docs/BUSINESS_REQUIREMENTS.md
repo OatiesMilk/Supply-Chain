@@ -40,6 +40,7 @@ Out of scope today: automatic stock movement from deliveries, customer signature
 | BR-REC-10 | Priority (1 Low, 2 Moderate, 3 High) editable from the Overview tab | Implemented | Sales Coordinator, Logistics |
 | BR-REC-11 | Company history panel listing the company's accessible records | Implemented | Respects role/category limits (TASS sees RMA and Accounting Collection only) |
 | BR-REC-12 | Stage document uploads and save with the record; save feedback and "unchanged status" explanations | Implemented | Sonner toasts, unified save actions |
+| BR-REC-13 | Every record has a short, unique record number users can read, search and quote (e.g. DEL-26-00042) | Implemented | Assigned by PostgreSQL on insert; prefix per type, yearly counter in Asia/Manila; the internal id is never shown. Plan: `docs/plans/short-record-ids.md` |
 
 ### 3.2 Status lifecycle and dispatch
 

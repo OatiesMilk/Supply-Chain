@@ -47,6 +47,7 @@ import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
 import { ReturnToDraftDialog } from './ReturnToDraftDialog';
 import { selectableStatuses, canRecordTimeIn, isDraftRecord, manilaToday, manilaDateTimeInput, manilaInputToIso, rescheduleDateError, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
 import { formatManilaTime, formatManilaTimestamp as formatTs } from '@/utils/manilaTimestamp';
+import { recordLabel } from '../../utils/recordLabel';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -902,8 +903,8 @@ function LinkedCollectionCard({
         <div className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2 text-xs">
             <div className="flex flex-col gap-0.5">
-              <span className={labelCls}>Collection ID</span>
-              <span className="font-mono font-bold text-slate-800">{lc.id}</span>
+              <span className={labelCls}>Collection Record No.</span>
+              <span className="font-mono font-bold text-slate-800">{recordLabel(lc)}</span>
             </div>
             <div className="flex flex-col gap-0.5">
               <span className={labelCls}>Reference</span>
@@ -939,12 +940,12 @@ function LinkedCollectionCard({
           {canLink ? (
             <>
               <div className="space-y-1.5 text-xs">
-                <label className={labelCls}>Collection Record ID</label>
+                <label className={labelCls}>Collection Record No.</label>
                 <input
                   type="text"
                   value={linkInput}
                   onChange={e => { setLinkInput(e.target.value); setLinkError(null); }}
-                  placeholder="e.g. REC-12345"
+                  placeholder="e.g. COL-26-00019"
                   className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
                 />
               </div>
@@ -2174,7 +2175,7 @@ function RecordWorkspace({
       const blob = await printSingleManifest(record, companies, docData, docSize);
       const url = URL.createObjectURL(blob);
       setPdfPreviewBlob(blob);
-      setPdfFileName(`manifest-${record.id}-${record.delivery_date}.pdf`);
+      setPdfFileName(`manifest-${recordLabel(record)}-${record.delivery_date}.pdf`);
       setPdfPreviewUrl(url);
       setPdfDialogOpen(false);
     } catch (err: any) {
@@ -2260,7 +2261,7 @@ function RecordWorkspace({
             {moduleName}
           </button>
           <span className="text-slate-300">/</span>
-          <span className="font-mono font-black text-slate-700 text-sm truncate">{record.id}</span>
+          <span className="font-mono font-black text-slate-700 text-sm truncate">{recordLabel(record)}</span>
           <span className="text-slate-400 text-xs truncate hidden sm:inline">— {record.company_name}</span>
         </div>
 

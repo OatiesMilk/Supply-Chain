@@ -1,7 +1,7 @@
 import { test, expect, type Browser, type BrowserContext, type Page, type APIResponse, type Response } from '@playwright/test';
 
 type Rma = {
-  id: string; status: string; is_draft: string; rma_reference: string;
+  id: string; record_no?: string | null; status: string; is_draft: string; rma_reference: string;
   driver_id: string | null; driver: string; rma_version: number;
   rma_movement: string | null; rma_transport_status: string | null;
   rma_transport_started_at: string | null; rma_transport_completed_at: string | null;
@@ -177,7 +177,7 @@ test('three online sessions synchronize submission, reassignment, transport/POD 
     await logistics.page.evaluate(() => { window.dispatchEvent(new Event('online')); window.dispatchEvent(new Event('focus')); });
     since = Date.now();
     await propagated('reconnect to final TASS status', since, () => expect(logistics.page.getByRole('region', { name: 'Record summary' })).toContainText('Delivered'), observations);
-    await expect(logistics.page.getByText(final.id, { exact: true })).toBeVisible();
+    await expect(logistics.page.getByText(final.record_no!, { exact: true })).toBeVisible();
     expect((await read(tass, draft.id)).rma_version).toBe(final.rma_version);
   } finally {
     await info.attach('observed-propagation-ms', { body: JSON.stringify(observations, null, 2), contentType: 'application/json' });

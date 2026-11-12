@@ -22,6 +22,7 @@
     "db:reset": "prisma migrate reset --force",
     "seed:accounts": "tsx prisma/seed-accounts-only.ts",
     "records:submitted-at-dry-run": "tsx prisma/dry-run-submitted-at-backfill.ts",
+    "records:record-no-dry-run": "tsx prisma/dry-run-record-no-backfill.ts",
     "suppliers:category-report": "tsx prisma/report-supplier-categories.ts",
     "pod:reconcile": "tsx prisma/reconcile-pod-files.ts",
     "drivers:import": "tsx prisma/import-historical-drivers.ts",

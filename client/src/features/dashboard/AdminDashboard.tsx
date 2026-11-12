@@ -86,7 +86,7 @@ export default function AdminDashboard({ stats, overview, onNavigate, onRefresh,
                           <span className="block truncate text-sm text-slate-800">
                             <span className="font-semibold">{entry.changed_by}</span>
                             <span className="text-slate-600"> · {entry.record_type} </span>
-                            <span className="font-mono">{entry.record_id.slice(0, 12)}{entry.record_id.length > 12 ? '…' : ''}</span>
+                            <span className="font-mono">{entry.record_no ?? `${entry.record_id.slice(0, 12)}${entry.record_id.length > 12 ? '…' : ''}`}</span>
                           </span>
                           <span className="block text-xs text-slate-600">{formatManilaTimestamp(entry.timestamp)}</span>
                         </span>

@@ -9,6 +9,7 @@ import {
   DashboardPage, DashboardPanel, EmptyState, KpiRow, KpiTile, PanelError, RecordTable, StatusPill, TileSkeleton, formatDate, formatDateTime,
   type RecordColumn,
 } from './ui';
+import { recordLabel } from '../../utils/recordLabel';
 
 type SalesStats = Extract<ApiDashboardStats, { role: 'SALES_COORDINATOR' }>;
 
@@ -140,7 +141,7 @@ export default function SalesCoordinatorDashboard({ stats, overview, overviewSta
             : <RecordTable rows={inTransit} columns={inTransitColumns} rowKey={record => record.id} caption="Jobs in transit, oldest planned date first"
                 onOpen={record => onNavigate(screenKeyForCategory(record.category), record.id)}
                 canOpen={record => canAccess(screenKeyForCategory(record.category))}
-                openLabel={record => `Open ${jobTypeLabel(record.category)} ${record.id} for ${record.company_name}`} />)}
+                openLabel={record => `Open ${jobTypeLabel(record.category)} ${recordLabel(record)} for ${record.company_name}`} />)}
         </DashboardPanel>
       </div>
     </DashboardPage>

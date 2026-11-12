@@ -5,6 +5,7 @@ import { screenKeyForCategory } from '@/routes/screenRouting';
 import { jobTypeLabel } from '@/utils/driverJobs';
 import type { DashboardFilterId } from '@/utils/dashboardFilters';
 import { DashboardPage, DashboardPanel, EmptyState, KpiRow, KpiTile, PanelError, RecordTable, StatusPill, TileSkeleton, formatDate, type RecordColumn } from './ui';
+import { recordLabel } from '../../utils/recordLabel';
 
 type LogisticsStats = Extract<ApiDashboardStats, { role: 'LOGISTICS' }>;
 
@@ -44,7 +45,7 @@ function showTransportRequests() {
   panel.focus({ preventScroll: true });
 }
 
-const recordRef = (record: DeliveryRecord) => (record.category === 'RMA' && record.rma_reference) || record.id;
+const recordRef = (record: DeliveryRecord) => (record.category === 'RMA' && record.rma_reference) || recordLabel(record);
 
 const requestColumns: RecordColumn<DeliveryRecord>[] = [
   { key: 'id', header: 'Record', render: recordRef },
@@ -133,14 +134,14 @@ export default function LogisticsDashboard({ stats, overview, overviewStatus, on
                   <ul className="space-y-1">
                     {records.slice(0, 3).map(record => {
                       const screen = screenKeyForCategory(record.category);
-                      const label = <>{record.id} · {record.company_name}</>;
+                      const label = <>{recordLabel(record)} · {record.company_name}</>;
                       return (
                         <li key={record.id} className="flex min-w-0 items-center gap-2 text-sm">
                           <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-700">{jobTypeLabel(record.category)}</span>
                           {canAccess(screen)
                             ? <button type="button" onClick={() => onNavigate(screen, record.id)}
                                 className="block min-w-0 truncate rounded-sm text-left font-mono text-[#1F3864] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]"
-                                aria-label={`Open ${jobTypeLabel(record.category)} ${record.id} for ${record.company_name}${inTransit(record) ? ', in transit' : ''}`}>
+                                aria-label={`Open ${jobTypeLabel(record.category)} ${recordLabel(record)} for ${record.company_name}${inTransit(record) ? ', in transit' : ''}`}>
                                 {label}
                               </button>
                             : <span className="block min-w-0 truncate font-mono text-slate-700">{label}</span>}

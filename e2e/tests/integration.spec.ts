@@ -8,7 +8,7 @@
  * themselves within the test so both sessions can be verified in sequence.
  */
 import { test, expect, chromium, type BrowserContext } from '@playwright/test';
-import { recordRows } from '../support/recordRows';
+import { RECORD_NO_PATTERN, recordRows } from '../support/recordRows';
 
 const BASE_URL = 'http://localhost:3000';
 
@@ -18,7 +18,7 @@ const CREDS = {
   driver:    { email: 'driver@microgenesis.com',    password: 'password123' },
 };
 
-type ApiRecord = { id: string; edit_version: string; reference: string; category: string; status: string; is_draft: string; driver: string; delivery_date: string; time_in?: string | null };
+type ApiRecord = { id: string; record_no?: string | null; edit_version: string; reference: string; category: string; status: string; is_draft: string; driver: string; delivery_date: string; time_in?: string | null };
 
 async function getRecords(context: BrowserContext): Promise<ApiRecord[]> {
   const response = await context.request.get(`${BASE_URL}/api/v1/records`);
@@ -73,6 +73,7 @@ test.describe('X Cross-Role Integration', () => {
     let logisticsCtx: BrowserContext | undefined;
     let driverCtx: BrowserContext | undefined;
     let recordId: string | undefined;
+    let recordNo = '';
     const reference = `SAP-TSK120-${Date.now()}`;
 
     try {
@@ -105,11 +106,13 @@ test.describe('X Cross-Role Integration', () => {
       expect(createResponse.status(), 'saving the Draft must finish successfully').toBe(201);
       const saved = await createResponse.json() as ApiRecord;
       recordId = saved.id; // Retain the saved ID for cleanup even if a later assertion fails.
+      recordNo = saved.record_no ?? ''; // Screens show the short record number, never the internal id.
+      expect(recordNo).toMatch(RECORD_NO_PATTERN);
       expect(saved.reference).toBe(reference);
       expect(saved.delivery_date).toBe(deliveryDate);
 
       console.log('TSK-120: Created draft');
-      await expect(salesPage.getByText(`${reference} · ${recordId}`, { exact: true })).toBeVisible({ timeout: 10_000 });
+      await expect(salesPage.getByText(`${reference} · ${recordNo}`, { exact: true })).toBeVisible({ timeout: 10_000 });
       // The form's Delivery Date must not leak into the list's date filter.
       await expect(salesPage.getByRole('button', { name: /^Delivery dates / })).toContainText('All delivery dates');
       const created = (await getRecords(salesCtx)).find(record => !existingIds.has(record.id) && record.reference === reference);
@@ -119,7 +122,7 @@ test.describe('X Cross-Role Integration', () => {
       console.log('TSK-120: Found created id', recordId);
 
       console.log('TSK-120: Clicking salesRow');
-      const salesRow = salesPage.getByRole('row').filter({ hasText: recordId });
+      const salesRow = salesPage.getByRole('row').filter({ hasText: recordNo });
       await expect(salesRow).toBeVisible();
       await salesRow.click();
 
@@ -140,7 +143,7 @@ test.describe('X Cross-Role Integration', () => {
       await logisticsPage.goto(`${BASE_URL}/deliveries`);
       
       console.log('TSK-120: Logistics clicking row');
-      await logisticsPage.getByRole('row').filter({ hasText: recordId }).click();
+      await logisticsPage.getByRole('row').filter({ hasText: recordNo }).click();
       await logisticsPage.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
       const dispatchPanel = logisticsPage.getByRole('tabpanel');
       const draftDriverSelect = dispatchPanel.locator('select').filter({ has: logisticsPage.locator('option', { hasText: '-- Unassigned --' }) });
@@ -174,7 +177,7 @@ test.describe('X Cross-Role Integration', () => {
 
       await logisticsPage.goto(`${BASE_URL}/deliveries`);
       
-      await logisticsPage.getByRole('row').filter({ hasText: recordId }).click();
+      await logisticsPage.getByRole('row').filter({ hasText: recordNo }).click();
       await logisticsPage.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
       const assignmentPanel = logisticsPage.getByRole('tabpanel');
       const driverSelect = assignmentPanel.locator('select').filter({ has: logisticsPage.locator('option', { hasText: '-- Unassigned --' }) });
@@ -223,12 +226,14 @@ test.describe('X Cross-Role Integration', () => {
       expect(record, 'The isolated UAT data must provide a due, unstarted Scheduled Delivery').toBeTruthy();
       expect(record!.reference).toBeTruthy();
       const recordId = record!.id;
+      const recordNo = record!.record_no ?? '';
+      expect(recordNo).toMatch(RECORD_NO_PATTERN);
       const reference = record!.reference;
 
       await logisticsPage.goto(BASE_URL + '/deliveries');
-      await logisticsPage.getByRole('textbox', { name: 'Search delivery records' }).fill(recordId);
+      await logisticsPage.getByRole('textbox', { name: 'Search delivery records' }).fill(recordNo);
       await logisticsPage.getByRole('row').filter({
-        has: logisticsPage.getByRole('cell', { name: recordId, exact: true }),
+        has: logisticsPage.getByRole('cell', { name: recordNo, exact: true }),
       }).click();
       await logisticsPage.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
       const actions = logisticsPage.getByRole('tabpanel');
@@ -266,9 +271,9 @@ test.describe('X Cross-Role Integration', () => {
       expect(visible.ok()).toBeTruthy();
       expect((await visible.json()).time_in).toBe(savedTimeIn);
       await verifyPage.goto(BASE_URL + '/deliveries');
-      await verifyPage.getByRole('textbox', { name: 'Search delivery records' }).fill(recordId);
+      await verifyPage.getByRole('textbox', { name: 'Search delivery records' }).fill(recordNo);
       await verifyPage.getByRole('row').filter({
-        has: verifyPage.getByRole('cell', { name: recordId, exact: true }),
+        has: verifyPage.getByRole('cell', { name: recordNo, exact: true }),
       }).click();
       await verifyPage.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
       await expect(verifyPage.getByRole('tabpanel').locator('input[type="datetime-local"]').first()).not.toHaveValue('');

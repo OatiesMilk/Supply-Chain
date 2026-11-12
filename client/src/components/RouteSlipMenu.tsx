@@ -9,6 +9,7 @@ import { routeSlipPeriod, routeSlipSelectionError } from '../utils/routeSlipPeri
 import ExportPreviewDialog from './ExportPreviewDialog';
 import { downloadBlob } from '../utils/downloadBlob';
 import type { ExportColumn, ExportMeta } from '../utils/export';
+import { recordLabel } from '../utils/recordLabel';
 
 interface Props extends RouteSlipPeriodFieldsProps {
   driverFilter: string;
@@ -91,7 +92,7 @@ export default function RouteSlipMenu({ driverFilter, selection, onChange, prepa
     if (preview) downloadBlob(preview.blob, preview.fileName);
   }, [preview]);
   const previewColumns: ExportColumn[] = [
-    { header: 'Record ID', key: 'id' },
+    { header: 'Record No.', key: 'id' },
     { header: 'Company', key: 'company' },
     { header: 'Area', key: 'area' },
     { header: 'Delivery Date', key: 'delivery_date' },
@@ -99,7 +100,7 @@ export default function RouteSlipMenu({ driverFilter, selection, onChange, prepa
     { header: 'Status', key: 'status' },
   ];
   const previewRows = preview?.records.map(record => ({
-    id: record.id,
+    id: recordLabel(record),
     company: record.company_name,
     area: record.area ?? '',
     delivery_date: record.delivery_date ?? '',

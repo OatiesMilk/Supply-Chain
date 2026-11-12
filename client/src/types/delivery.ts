@@ -50,7 +50,8 @@ export interface OutputActionLogEntry {
 }
 
 export interface DeliveryRecord extends AuditFields {
-  id: string; // e.g., REC-4001
+  id: string; // internal key used for API calls; never shown to users
+  record_no?: string | null; // short user-facing number, e.g. DEL-26-00042
   edit_version?: string; // Server-issued metadata editor precondition.
   expected_edit_version?: string;
   company_name: string; // display name of the record's Company
@@ -115,6 +116,7 @@ export interface DeliveryRecord extends AuditFields {
   linked_collection_id?: string | null;
   linked_collection?: {
     id: string;
+    record_no?: string | null;
     reference: string;
     company_name: string;
     status: string;

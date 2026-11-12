@@ -7,6 +7,7 @@ import { DeliveryRecord } from '../types';
 import { api } from '../api';
 import { filterRouteSlipRecords, routeSlipDriverNames, routeSlipPeriodLabel, type RouteSlipPeriod } from './routeSlipPeriod';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE, getExcelPageSetup, getPdfFormat, fitColumnWidths, getDocxDimensions, getDocxLandscapeContentWidth } from './documentSize';
+import { recordLabel } from './recordLabel';
 
 export interface RouteSlipParams {
   records: DeliveryRecord[];
@@ -242,7 +243,7 @@ export async function downloadRouteSlipExcel({
     const dr = next([
       r.priority      || '',
       r.company_name  || '',
-      r.id            || '',
+      recordLabel(r),
       r.reference     || '',
       '',   // Waybill # — blank
       r.remarks       || '',
@@ -518,7 +519,7 @@ export async function downloadRouteSlipPDF({
     body: sorted.map(r => [
       r.priority     || '',
       r.company_name || '',
-      r.id           || '',
+      recordLabel(r),
       r.reference    || '',
       '',  // Waybill #
       r.remarks      || '',
@@ -829,7 +830,7 @@ export async function downloadAllDriversRouteSlipExcel({
     // Data rows
     driverRecords.forEach((r, idx) => {
       const dr = next([
-        r.priority || '', r.company_name || '', r.id || '', r.reference || '',
+        r.priority || '', r.company_name || '', recordLabel(r), r.reference || '',
         '', r.remarks || '', r.area || '', '', '', '', '', '',
       ]);
       const isAlt = idx % 2 === 1;
@@ -1115,7 +1116,7 @@ export async function downloadAllDriversRouteSlipPDF({
           'TIME-IN', 'TIME-OUT', 'Signed by\nClient', 'Remarks',
         ]],
         body: driverRecords.map(r => [
-          r.priority || '', r.company_name || '', r.id || '', r.reference || '',
+          r.priority || '', r.company_name || '', recordLabel(r), r.reference || '',
           '', r.remarks || '', r.area || '', '', '', '', '', '',
         ]),
         startY: 33,
@@ -1269,7 +1270,7 @@ export async function downloadRouteSlipDocx({
         children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: h, bold: true, color: 'FFFFFF', size: 16 })] })],
       })) }),
       ...sorted.map((r, idx) => new TableRow({ children: [
-        r.priority || '', r.company_name || '', r.id || '', r.reference || '',
+        r.priority || '', r.company_name || '', recordLabel(r), r.reference || '',
         '', r.remarks || '', r.area || '', '', '', '', '', '',
       ].map((val, i) => new TableCell({
         shading: idx % 2 === 1 ? { fill: 'F8F9FA' } : undefined,
@@ -1435,7 +1436,7 @@ export async function downloadAllDriversRouteSlipDocx({
           children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: h, bold: true, color: 'FFFFFF', size: 16 })] })],
         })) }),
         ...sorted.map((r, idx) => new TableRow({ children: [
-          r.priority || '', r.company_name || '', r.id || '', r.reference || '',
+          r.priority || '', r.company_name || '', recordLabel(r), r.reference || '',
           '', r.remarks || '', r.area || '', '', '', '', '', '',
         ].map((val, i) => new TableCell({
           shading: idx % 2 === 1 ? { fill: 'F8F9FA' } : undefined,

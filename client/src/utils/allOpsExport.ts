@@ -7,6 +7,7 @@
 import { DeliveryRecord } from '../types';
 import { ExportColumn, ExportMeta, StatusHistoryCounts, fmtDate, fmtTime, fmtStatus, fmtCurrency, fmtDatetime, statusHistoryCohortLabel } from './export';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE, getExcelPageSetup, getPdfFormat, fitColumnWidths } from './documentSize';
+import { recordLabel } from './recordLabel';
 
 const STATUS_ORDER = ['Draft', 'Scheduled', 'In Transit', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'] as const;
 
@@ -109,7 +110,7 @@ export function computeAllOpsSummary(records: DeliveryRecord[], sortMode: DateSo
 // ─── Column definitions ───────────────────────────────────────────────────────
 
 export const ALL_OPS_COLUMNS: ExportColumn[] = [
-  { header: 'Record ID',       key: 'id',              width: 18 },
+  { header: 'Record No.',      key: 'id',              width: 14 },
   { header: 'Company Name',    key: 'company_name',    width: 28 },
   { header: 'Reference No.',   key: 'reference',       width: 22 },
   { header: 'Category',        key: 'category',        width: 26 },
@@ -127,7 +128,7 @@ export const ALL_OPS_COLUMNS: ExportColumn[] = [
 ];
 
 export const PDF_ALL_OPS_COLUMNS: ExportColumn[] = [
-  { header: 'Record ID',      key: 'id',              pdfWidth: 20                                          },
+  { header: 'Record No.',     key: 'id',              pdfWidth: 20                                          },
   { header: 'Company',        key: 'company_name',    pdfWidth: 50                                          },
   { header: 'Reference',      key: 'reference',       pdfWidth: 24                                          },
   { header: 'Category',       key: 'category',        pdfWidth: 34                                          },
@@ -141,7 +142,7 @@ export const PDF_ALL_OPS_COLUMNS: ExportColumn[] = [
 
 export function serializeAllOpsRow(r: DeliveryRecord): Record<string, string | number | null> {
   return {
-    id:              r.id,
+    id:              recordLabel(r),
     company_name:    r.company_name,
     reference:       r.reference || '',
     category:        r.category,

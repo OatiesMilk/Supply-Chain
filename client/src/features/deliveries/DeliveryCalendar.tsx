@@ -8,6 +8,7 @@ import { usePagedRecordsQuery } from '@/api/queries/useRecordsQuery';
 import { useCalendarCountsQuery } from '@/api/queries/useOperationalViews';
 import { useClampRecordPage } from '@/api/queries/useOperationalViews';
 import RecordPageControls from '@/components/RecordPageControls';
+import { recordLabel } from '../../utils/recordLabel';
 
 interface Props {
   records: DeliveryRecord[];
@@ -201,7 +202,7 @@ export default function DeliveryCalendar({ records, onNavigate }: Props) {
                   <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${STATUS_COLOR[r.status] ?? 'bg-slate-400'}`} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-[10px] font-bold text-slate-500">{r.id}</span>
+                      <span className="font-mono text-[10px] font-bold text-slate-500">{recordLabel(r)}</span>
                       <span className="text-[10px] text-slate-400">{r.category}</span>
                     </div>
                     <p className="text-xs font-bold text-slate-800 truncate">{r.company_name}</p>
