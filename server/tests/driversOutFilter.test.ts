@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { driversInTransitFilter, driversOutFilter } from '../src/services/dashboardFilters';
+import { driversInTransitFilter, driversOutFilter, driversWaitingFilter } from '../src/services/dashboardFilters';
 
 const TODAY = '2026-11-12';
 const YESTERDAY = '2026-11-11';
@@ -16,6 +16,7 @@ function matches(row: Record<string, unknown>, where: any): boolean {
     if (condition === null || typeof condition !== 'object') return value === condition;
     if ('in' in condition) return condition.in.includes(value);
     if ('notIn' in condition) return value !== null && !condition.notIn.includes(value);
+    if ('not' in condition) return value !== null && value !== condition.not;
     throw new Error(`Unsupported condition on ${key}`);
   });
 }
@@ -58,4 +59,17 @@ test('on hold, rescheduled, done, draft and unassigned jobs do not count', () =>
   }
   assert.equal(out(job({ draft: true })), false);
   assert.equal(out(job({ driverId: null, driver: 'Old Name' })), false, 'a name without a Driver profile is not counted');
+});
+
+test('in transit and waiting split the drivers-out jobs exactly', () => {
+  const waiting = (row: Record<string, unknown>) => matches(row, driversWaitingFilter(TODAY));
+  const rows = [
+    job(), job({ category: 'SALES_ORDERS', status: 'PENDING' }), job({ status: 'IN_TRANSIT', timeIn: '2026-11-12T01:00:00.000Z' }),
+    job({ deliveryDate: YESTERDAY, timeIn: '2026-11-11T01:00:00.000Z' }), job({ status: 'ON_HOLD' }),
+    job({ category: 'RMA', rmaMovement: 'LOGISTICS_TRANSPORT', rmaTransportStatus: 'PENDING' }),
+    job({ category: 'RMA', rmaMovement: 'LOGISTICS_TRANSPORT', rmaTransportStatus: 'IN_TRANSIT', deliveryDate: YESTERDAY }),
+  ];
+  for (const row of rows) {
+    assert.equal(Number(inTransit(row)) + Number(waiting(row)), Number(out(row)), JSON.stringify(row));
+  }
 });

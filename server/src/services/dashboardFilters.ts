@@ -36,6 +36,14 @@ export function driversInTransitFilter(today = manilaToday()): Prisma.DeliveryRe
   ] }] };
 }
 
+/** The not-yet-started subset of driversOutFilter; with driversInTransitFilter it splits it exactly. */
+export function driversWaitingFilter(today = manilaToday()): Prisma.DeliveryRecordWhereInput {
+  return { AND: [driversOutFilter(today), { OR: [
+    { category: { in: DRIVER_RUN_CATEGORIES }, status: { not: 'IN_TRANSIT' }, timeIn: null },
+    { category: 'RMA', rmaTransportStatus: 'PENDING' },
+  ] }] };
+}
+
 /** Shared by paginated drill-downs and aggregate counters; authorization scope
  * is intersected separately by every caller. */
 export function dashboardRecordFilter(id: string, today = manilaToday()): Prisma.DeliveryRecordWhereInput | null {
