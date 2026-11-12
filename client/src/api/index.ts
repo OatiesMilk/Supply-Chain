@@ -320,8 +320,12 @@ export interface ApiDashboardOverview {
   status_totals: Record<string, number>;
   counts: Record<string, number>;
   record_previews: { rma_requests: import('../types').DeliveryRecord[]; rma_attention: import('../types').DeliveryRecord[] };
-  drivers_out: Array<{ driver: string; total: number; records: import('../types').DeliveryRecord[] }>;
+  /** Up to 10 Driver profiles with an active job (Delivery, RMA transport, Procurement Pickup, Sales Order) today or already started. */
+  drivers_out: Array<{ driver_id: string; driver: string; total: number; in_transit: number; records: import('../types').DeliveryRecord[] }>;
+  /** Distinct drivers out for delivery. */
   drivers_out_total: number;
+  /** Active jobs across all of those drivers. */
+  drivers_out_jobs_total?: number;
   unverified_collections_amount: number;
 }
 

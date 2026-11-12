@@ -2,6 +2,7 @@ import { AlertTriangle, ArrowRight, CheckCircle2, Navigation, PauseCircle, Refre
 import type { ApiDashboardOverview, ApiDashboardStats } from '@/api';
 import type { DeliveryRecord } from '@/types';
 import { screenKeyForCategory } from '@/routes/screenRouting';
+import { jobTypeLabel } from '@/utils/driverJobs';
 import type { DashboardFilterId } from '@/utils/dashboardFilters';
 import { DashboardPage, DashboardPanel, EmptyState, KpiRow, KpiTile, PanelError, RecordTable, StatusPill, TileSkeleton, formatDate, type RecordColumn } from './ui';
 
@@ -20,6 +21,10 @@ interface Props {
 }
 
 const linkClass = 'inline-flex items-center gap-1 rounded-sm text-sm font-semibold text-[#1F3864] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]';
+
+const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+/** Same started rule as the server: RMA by transport status, other jobs once Time In is recorded. */
+const inTransit = (record: DeliveryRecord) => (record.category === 'RMA' ? record.rma_transport_status === 'IN_TRANSIT' : record.status === 'In Transit' || !!record.time_in);
 
 const requestColumns: RecordColumn<DeliveryRecord>[] = [
   { key: 'id', header: 'RMA', render: record => record.rma_reference || record.id },
@@ -85,25 +90,35 @@ export default function LogisticsDashboard({ stats, overview, overviewStatus, on
         {status === 'pending' && <TileSkeleton lines={3} />}
         {status === 'error' && <PanelError message="Drivers out for delivery could not be loaded." onRetry={onRetryOverview} />}
         {status === 'success' && (driversOut.length === 0
-          ? <EmptyState icon={<Navigation className="h-9 w-9 text-slate-500" />} title="No drivers currently assigned to today's deliveries" />
+          ? <EmptyState icon={<Navigation className="h-9 w-9 text-slate-500" />} title="No drivers are out for delivery today" />
           : (
             <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {driversOut.map(({ driver, records, total }) => (
-                <li key={driver} className="rounded-lg border border-slate-200 p-3">
+              {driversOut.map(({ driver_id, driver, records, total, in_transit }) => (
+                <li key={driver_id} className="rounded-lg border border-slate-200 p-3">
                   <p className="truncate font-semibold text-slate-900" title={driver}>{driver}</p>
-                  <p className="mb-2 text-sm text-slate-600">{total} active deliver{total !== 1 ? 'ies' : 'y'}</p>
+                  <p className="mb-2 text-sm text-slate-600">
+                    {plural(total, 'active job', 'active jobs')}{in_transit > 0 && <> · <span className="font-semibold text-[#1F3864]">{in_transit} in transit</span></>}
+                  </p>
                   <ul className="space-y-1">
-                    {records.slice(0, 3).map(record => (
-                      <li key={record.id}>
-                        <button type="button" onClick={() => onNavigate(screenKeyForCategory(record.category), record.id)}
-                          className="block w-full truncate rounded-sm text-left font-mono text-sm text-[#1F3864] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]"
-                          aria-label={`Open ${record.id} for ${record.company_name}`}>
-                          {record.id} · {record.company_name}
-                        </button>
-                      </li>
-                    ))}
+                    {records.slice(0, 3).map(record => {
+                      const screen = screenKeyForCategory(record.category);
+                      const label = <>{record.id} · {record.company_name}</>;
+                      return (
+                        <li key={record.id} className="flex min-w-0 items-center gap-2 text-sm">
+                          <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-700">{jobTypeLabel(record.category)}</span>
+                          {canAccess(screen)
+                            ? <button type="button" onClick={() => onNavigate(screen, record.id)}
+                                className="block min-w-0 truncate rounded-sm text-left font-mono text-[#1F3864] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]"
+                                aria-label={`Open ${jobTypeLabel(record.category)} ${record.id} for ${record.company_name}${inTransit(record) ? ', in transit' : ''}`}>
+                                {label}
+                              </button>
+                            : <span className="block min-w-0 truncate font-mono text-slate-700">{label}</span>}
+                          {inTransit(record) && <span className="shrink-0 text-xs font-semibold text-[#1F3864]">In transit</span>}
+                        </li>
+                      );
+                    })}
                   </ul>
-                  {total > records.length && <p className="mt-1 text-sm text-slate-600">+{total - records.length} more records</p>}
+                  {total > records.length && <p className="mt-1 text-sm text-slate-600">+{plural(total - records.length, 'more job', 'more jobs')}</p>}
                 </li>
               ))}
             </ul>
