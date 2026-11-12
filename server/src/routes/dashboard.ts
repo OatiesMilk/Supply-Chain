@@ -8,6 +8,7 @@ import { visibleAuditEntries, visibleAuditCount } from '../services/auditVisibil
 import { asyncRoute } from '../middleware/asyncRoute';
 import { dashboardOverview } from '../services/dashboardOverview';
 import { dashboardRecordFilter } from '../services/dashboardFilters';
+import { recordNumbersForAudit } from '../services/recordIds';
 
 const router = Router();
 
@@ -101,6 +102,7 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
       userBreakdown[g.role] = g._count._all;
     }
 
+    const recordNumbers = await recordNumbersForAudit(prisma, recentAudit);
     return res.json({
       role: 'ADMIN',
       total_active_users: activeUsers,
@@ -114,6 +116,7 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
         action: e.action,
         changed_by: e.changedBy.name,
         record_id: e.recordId,
+        record_no: recordNumbers.get(e.recordId) ?? null,
         record_type: e.recordType,
         timestamp: e.timestamp
       }))

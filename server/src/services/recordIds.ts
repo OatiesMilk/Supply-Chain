@@ -51,3 +51,13 @@ export function parseRecordNo(input: unknown): string | null {
   const value = input.trim().toUpperCase();
   return RECORD_NO_PATTERN.test(value) ? value : null;
 }
+
+type RecordNoLookup = { deliveryRecord: { findMany(args: { where: { id: { in: string[] } }; select: { id: true; recordNo: true } }): Promise<Array<{ id: string; recordNo: string }>> } };
+
+/** Record numbers for the DeliveryRecord entries of an audit page, keyed by internal id. */
+export async function recordNumbersForAudit(db: RecordNoLookup, entries: Array<{ recordId: string; recordType: string }>): Promise<Map<string, string>> {
+  const ids = [...new Set(entries.filter(entry => entry.recordType === 'DeliveryRecord').map(entry => entry.recordId))];
+  if (!ids.length) return new Map();
+  const rows = await db.deliveryRecord.findMany({ where: { id: { in: ids } }, select: { id: true, recordNo: true } });
+  return new Map(rows.map(row => [row.id, row.recordNo]));
+}

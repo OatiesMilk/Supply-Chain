@@ -10,6 +10,7 @@ import { visibleBusinessAuditSnapshots } from '../services/businessAudit';
 import { visibleAuditEntries, visibleAuditCount } from '../services/auditVisibility';
 import { isValidDateOnly } from '../services/deliveryLifecycle';
 import { manilaStartOfDay } from '../services/dateSemantics';
+import { recordNumbersForAudit } from '../services/recordIds';
 
 const router = Router();
 
@@ -73,7 +74,7 @@ router.get('/audit-log', requireAuth, requireResource('admin'), requireRole('ADM
     req.user!.activeMode === 'V1' ? visibleAuditCount(prisma, req.user!, where) : prisma.auditLog.count({ where })
   ]);
 
-  const business = await visibleBusinessAuditSnapshots(entries, req.user!);
+  const [business, recordNumbers] = await Promise.all([visibleBusinessAuditSnapshots(entries, req.user!), recordNumbersForAudit(prisma, entries)]);
   res.json({
     page,
     limit,
@@ -82,6 +83,7 @@ router.get('/audit-log', requireAuth, requireResource('admin'), requireRole('ADM
     entries: entries.map((e, index) => ({
       id: e.id,
       record_id: e.recordId,
+      record_no: recordNumbers.get(e.recordId) ?? null,
       record_type: e.recordType,
       action: e.action,
       changed_by: e.changedBy.name,
