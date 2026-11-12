@@ -83,6 +83,8 @@ Create example:
 
 Record responses include `submitted_at` (ISO timestamp, or `null`). It is the time the record last left Draft: set when a record is created as submitted, set again on every Draft to submitted change, and cleared when a record is returned to Draft. Dashboards measure RMA age from it. Clients never send it.
 
+Record responses include `record_no`, the short number users see and type, for example `DEL-26-00042`. The format is `{PREFIX}-{YY}-{NNNNN}` with prefixes `DEL` (Deliveries), `RMA`, `PUP` (Procurement Pick-up), `SO` (Sales Orders) and `COL` (Accounting Collection); the counter restarts each Asia/Manila year per type and grows past five digits instead of failing. PostgreSQL assigns it on insert, drafts included, and it never changes or gets reused. Clients never send it (the field is rejected on writes). `id` stays the key for every API call. The record `search` parameter matches `record_no`, and `linked_collection_id` accepts either a record number or an internal id. `linked_collection.record_no` and the `record_no` of audit entries for records (`GET /admin/audit`, Admin dashboard `recent_audit`) carry the same number.
+
 Status example (`Delivered` also needs Time In, a saved JPG/PNG proof photo, recipient and remarks; otherwise `400`):
 
 ```json

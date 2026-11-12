@@ -11,6 +11,19 @@ Branch: `feature/short-record-ids` (off `dev` at `6cb73f0`, after #312 and #314)
 4. Drafts get their number at creation and keep it.
 5. The long internal key is hidden from users entirely (no "System ID" line).
 
+## Implementation notes (stage 2)
+
+- **Allocation runs in PostgreSQL, not in each create path.** A `BEFORE INSERT` trigger (`assign_record_no`) takes the next number from `RecordSequence` with one `INSERT ... ON CONFLICT DO UPDATE ... RETURNING`, inside the insert's own transaction. This covers the API, the data sampler, every seed and any future create path with no code to forget, and keeps concurrent creates safe through the counter row lock. `formatRecordNo` in `server/src/services/recordIds.ts` holds the same rules for the dry run, tests and input parsing, and a unit test keeps the SQL prefixes and the TypeScript prefixes in step.
+- A second trigger (`keep_record_no`) refuses any change to a number once set. A row inserted with a number already filled in (a restore or import) keeps it.
+- Writes that send `record_no` are rejected with `400` ("Unsupported record mutation fields") in the permission runtime, which is stricter than ignoring them; in legacy mode the field is simply never written.
+- Driver job cards keep showing the SAP or RMA reference, as approved in the driver job cards plan; they never showed the internal key.
+
+## Release runbook (stage 4)
+
+1. Dry run against the target database (read-only, prints counts and the first and last number per type and year): `npm run records:record-no-dry-run --workspace=mg-portal-server`. `migration_would_fail` must be `false`.
+2. With Dylan's go-ahead, `npx prisma migrate deploy` applies `20261112090000_record_no` in one transaction: create `RecordSequence`, add and backfill `recordNo`, set `NOT NULL` and unique, then install both triggers. Rollback statements are at the top of the migration file.
+3. Run the dry run again: `records_to_number` must be `0`.
+
 ## 1. Summary
 
 Every record (Deliveries, RMA, Procurement Pick-up, Sales Orders and Accounting Collection) shows its database key as the "Record ID", for example `REC-3f9a2c1e-7b4d-4e8a-9c21-5d6f0e8b1a73` (40 characters). It is hard to read aloud, does not fit table columns or route slips, and tells the user nothing.
