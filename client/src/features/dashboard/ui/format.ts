@@ -16,3 +16,11 @@ export function formatDate(value: string | null | undefined): string {
   const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
   return Number.isNaN(date.getTime()) ? value : dateFormat.format(date);
 }
+
+const dateTimeFormat = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Manila' });
+/** A timestamp in Manila time, e.g. "Nov 12, 9:05 AM", or "Not recorded" when empty or invalid. */
+export function formatDateTime(value: string | null | undefined): string {
+  if (!value) return 'Not recorded';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Not recorded' : dateTimeFormat.format(date);
+}

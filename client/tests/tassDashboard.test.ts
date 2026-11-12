@@ -166,3 +166,43 @@ test('aging matcher uses Manila days since submission and falls back to creation
   assert.equal(matchesDashboardFilter(rma('c', { submitted_at: null, created_at: at(12) }), 'tass-rma-aging'), true);
   assert.equal(matchesDashboardFilter(rma('d', { submitted_at: at(30), status: 'Delivered' }), 'tass-rma-aging'), false);
 });
+
+const transit = (id: string, extra: Partial<DeliveryRecord> = {}) => rma(id, { rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'IN_TRANSIT', driver: 'Ben Reyes', driver_id: 'drv-ben',
+  rma_transport_started_at: '2026-11-11T23:30:00.000Z', ...extra });
+const withTransit = { ...overview, counts: { ...overview.counts, 'tass-rma-in-transit': 6001 },
+  record_previews: { ...overview.record_previews, rma_in_transit: [transit('REC-7', { rma_reference: 'RMA-2026-007' }), transit('REC-8', { rma_transport_started_at: null })] } } as ApiDashboardOverview;
+
+test('RMA in transit panel shows reference, driver, transport start and RMA status (AC13)', () => {
+  const markup = html({ overview: withTransit }); const t = text(markup);
+  assert.match(t, /RMA in transit 6001 in transit/); assert.match(t, /Showing 2 of 6001/); assert.match(t, /View all 6001 in transit/);
+  for (const header of ['RMA', 'Company', 'Area', 'Driver', 'Transport started', 'RMA status']) assert.match(markup, new RegExp(`<th[^>]*>${header}</th>`));
+  assert.match(t, /RMA-2026-007 REC-7 Acme Trading Corporation of the Philippines Makati Ben Reyes Nov 12, 7:30 AM/);
+  assert.match(t, /REC-8 .*Not recorded/);
+  assert.match(markup, /aria-label="Open RMA in transit RMA-2026-007"/);
+  assert.match(markup, /caption[^>]*>RMA in transit, oldest transport start first/);
+});
+
+test('RMA in transit panel is calm when empty and plain text without RMA access', () => {
+  assert.match(text(html()), /No RMA are in transit/);
+  const denied = html({ overview: withTransit, canAccess: (screen: string) => screen !== 'rma' });
+  assert.doesNotMatch(denied, /View all 6001 in transit/); assert.doesNotMatch(denied, /aria-label="Open RMA in transit/);
+  assert.match(text(denied), /RMA-2026-007/);
+});
+
+test('RMA in transit footer and rows navigate with tass-rma-in-transit', async () => {
+  const { act } = await import('react');
+  const { createRoot } = await import('react-dom/client');
+  const dom = new JSDOM('<div id="root"></div>');
+  Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, configurable: true });
+  Object.defineProperty(globalThis, 'window', { value: dom.window, configurable: true });
+  Object.defineProperty(globalThis, 'document', { value: dom.window.document, configurable: true });
+  const calls: unknown[][] = [];
+  const root = createRoot(dom.window.document.getElementById('root')!);
+  await act(async () => { root.render(h(TassDashboard, { stats, overview: withTransit, onNavigate: (...args: unknown[]) => { calls.push(args); } })); });
+  const buttons = [...dom.window.document.querySelectorAll('button')];
+  const click = (el: Element) => act(async () => { el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+  await click(buttons.find(b => b.textContent?.includes('View all 6001 in transit'))!);
+  await click(buttons.find(b => b.getAttribute('aria-label') === 'Open RMA in transit RMA-2026-007')!);
+  assert.deepEqual(calls, [['rma', undefined, 'tass-rma-in-transit'], ['rma', 'REC-7']]);
+  await act(async () => { root.unmount(); });
+});
