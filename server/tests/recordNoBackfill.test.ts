@@ -5,7 +5,8 @@ import path from 'node:path';
 import { ASSIGN_FUNCTION_SQL, BACKFILL_SQL, KEEP_FUNCTION_SQL, SEQUENCE_SYNC_SQL, previewSql } from '../src/services/recordNoBackfill';
 import { RECORD_NO_PREFIX } from '../src/services/recordIds';
 
-const migration = readFileSync(path.join(__dirname, '../prisma/migrations/20261112090000_record_no/migration.sql'), 'utf8');
+const migration = readFileSync(path.join(__dirname, '../prisma/migrations/20261112090000_record_no/migration.sql'), 'utf8')
+  .replace(/\r\n/g, '\n'); // Windows checkouts use CRLF; the SQL constants use LF
 
 test('the record number migration runs the same SQL as the dry run and tests', () => {
   for (const sql of [BACKFILL_SQL, SEQUENCE_SYNC_SQL, ASSIGN_FUNCTION_SQL, KEEP_FUNCTION_SQL]) assert.ok(migration.includes(sql));
