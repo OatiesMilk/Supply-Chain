@@ -319,7 +319,19 @@ export interface ApiDashboardOverview {
   record_total: number;
   status_totals: Record<string, number>;
   counts: Record<string, number>;
-  record_previews: { rma_requests: import('../types').DeliveryRecord[]; rma_attention: import('../types').DeliveryRecord[] };
+  record_previews: {
+    /** Superseded by transport_requests; kept for one release. */
+    rma_requests: import('../types').DeliveryRecord[];
+    rma_attention: import('../types').DeliveryRecord[];
+    /** Logistics: up to 10 open driver jobs with no Driver profile, oldest date first. */
+    transport_requests?: import('../types').DeliveryRecord[];
+    /** Sales Coordinator: up to 10 Delivery, Pick-up and Sales Order jobs in transit. */
+    in_transit?: import('../types').DeliveryRecord[];
+    /** TASS: up to 10 Logistics-transport RMA in transit, oldest transport start first. */
+    rma_in_transit?: import('../types').DeliveryRecord[];
+  };
+  /** Logistics: transport requests per job type (database category). */
+  transport_requests_by_type?: Partial<Record<'DELIVERY' | 'RMA' | 'PROCUREMENT_PICKUP' | 'SALES_ORDERS', number>>;
   /** Up to 10 Driver profiles with an active job (Delivery, RMA transport, Procurement Pickup, Sales Order) today or already started. */
   drivers_out: Array<{ driver_id: string; driver: string; total: number; in_transit: number; records: import('../types').DeliveryRecord[] }>;
   /** Distinct drivers out for delivery. */

@@ -23,7 +23,12 @@ export async function dashboardOverview(db: PrismaClient, user: AuthUser) {
   const result = {
     role: user.role, generated_at: new Date().toISOString(), record_total: await db.deliveryRecord.count({ where: scoped() }),
     status_totals: {} as Record<string, number>, counts: {} as Record<string, number>,
-    record_previews: { rma_requests: [] as ReturnType<typeof serializeRecord>[], rma_attention: [] as ReturnType<typeof serializeRecord>[] },
+    record_previews: {
+      rma_requests: [] as ReturnType<typeof serializeRecord>[], rma_attention: [] as ReturnType<typeof serializeRecord>[],
+      transport_requests: [] as ReturnType<typeof serializeRecord>[], in_transit: [] as ReturnType<typeof serializeRecord>[],
+      rma_in_transit: [] as ReturnType<typeof serializeRecord>[],
+    },
+    transport_requests_by_type: {} as Record<string, number>,
     drivers_out: [] as Array<{ driver_id: string; driver: string; total: number; in_transit: number; records: ReturnType<typeof serializeRecord>[] }>,
     drivers_out_total: 0, drivers_out_jobs_total: 0,
     unverified_collections_amount: 0,
@@ -39,6 +44,10 @@ export async function dashboardOverview(db: PrismaClient, user: AuthUser) {
     ];
     const totals = await Promise.all(states.map(([, where]) => db.deliveryRecord.count({ where: scoped({ category: 'DELIVERY', draft: false, ...where }) })));
     states.forEach(([status], i) => { result.status_totals[status] = totals[i]; });
+    const inTransit = dashboardRecordFilter('sc-in-transit', today)!;
+    [result.counts['sc-in-transit'], result.record_previews.in_transit] = await Promise.all([
+      count('sc-in-transit'), preview(inTransit, [{ deliveryDate: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }]),
+    ]);
   }
   if (user.role === 'LOGISTICS') {
     const ids = ['log-flags', 'log-unassigned', 'log-on-hold', 'log-rescheduled'];
@@ -46,6 +55,16 @@ export async function dashboardOverview(db: PrismaClient, user: AuthUser) {
     const requests = dashboardRecordFilter('log-rma-requests', today)!;
     result.counts.rma_requests = await db.deliveryRecord.count({ where: scoped(requests) });
     result.record_previews.rma_requests = await preview(requests);
+    // Every driver job type with no Driver profile yet; one grouped count gives the per-type links.
+    const transport = dashboardRecordFilter('log-transport-requests', today)!;
+    const [transportTotal, transportPreview, byType] = await Promise.all([
+      count('log-transport-requests'),
+      preview(transport, [{ deliveryDate: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }]),
+      db.deliveryRecord.groupBy({ by: ['category'], where: scoped(transport), _count: { _all: true } }),
+    ]);
+    result.counts['log-transport-requests'] = transportTotal;
+    result.record_previews.transport_requests = transportPreview;
+    for (const group of byType) if (group.category) result.transport_requests_by_type[group.category] = group._count._all;
     // Distinct Driver profiles with at least one active job (see driversOutFilter).
     // Only grouped counts are materialized; each displayed driver's links are bounded to three.
     const [jobs, transit] = await Promise.all([
@@ -86,6 +105,10 @@ export async function dashboardOverview(db: PrismaClient, user: AuthUser) {
       ? await preview({ AND: [open, { status: { not: 'ON_HOLD' } }] }, oldest, PREVIEW_LIMIT - onHold.length)
       : [];
     result.record_previews.rma_attention = [...onHold, ...rest];
+    const moving = dashboardRecordFilter('tass-rma-in-transit', today)!;
+    [result.counts['tass-rma-in-transit'], result.record_previews.rma_in_transit] = await Promise.all([
+      count('tass-rma-in-transit'), preview(moving, [{ rmaTransportStartedAt: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }]),
+    ]);
   }
   if (user.role === 'ADMIN') {
     const sum = await db.deliveryRecord.aggregate({ where: scoped(dashboardRecordFilter('admin-unverified-collections', today)!), _sum: { amount: true } });

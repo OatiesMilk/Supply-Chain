@@ -15,7 +15,9 @@ function fixture() {
   const db: any = { deliveryRecord: {
     count: async (query: any) => { reads.push({ operation: 'count', ...query }); return 6001; },
     aggregate: async (query: any) => { reads.push({ operation: 'aggregate', ...query }); return { _sum: { amount: 12345 } }; },
-    groupBy: async (query: any) => { reads.push({ operation: 'group', ...query }); return [{ driverId: 'driver-id', driver: 'Driver', _count: { _all: 6001 } }]; },
+    groupBy: async (query: any) => { reads.push({ operation: 'group', ...query }); return query.by[0] === 'category'
+      ? [{ category: 'DELIVERY', _count: { _all: 4000 } }, { category: 'RMA', _count: { _all: 2001 } }]
+      : [{ driverId: 'driver-id', driver: 'Driver', _count: { _all: 6001 } }]; },
     findMany: async (query: any) => { reads.push({ operation: 'records', ...query }); return Array.from({ length: query.take }, (_, i) => row(i)); },
   }, driver: { findMany: async (query: any) => { reads.push({ operation: 'drivers', ...query }); return [{ id: 'driver-id', name: 'Driver' }]; } } };
   return { db, reads };
@@ -26,7 +28,10 @@ test('Sales dashboard counts the complete scoped data set without fetching recor
   const result = await dashboardOverview(db, user);
   assert.equal(result.record_total, 6001); assert.equal(result.status_totals.Delivered, 6001);
   assert.equal(result.counts['sc-attention-all'], 6001);
-  assert.equal(reads.some(read => read.operation === 'records'), false);
+  // The only rows read are the bounded in-transit preview.
+  const rows = reads.filter(read => read.operation === 'records');
+  assert.equal(rows.length, 1); assert.equal(rows[0].take, 10);
+  assert.equal(result.counts['sc-in-transit'], 6001); assert.equal(result.record_previews.in_transit.length, 10);
   for (const read of reads) assert.deepEqual(read.where.AND[0], recordScope(user));
   assert.deepEqual(dashboardRecordFilter('sc-scheduled-today', '2026-10-30'), { category: 'DELIVERY', draft: false, status: 'SCHEDULED', timeIn: null, deliveryDate: '2026-10-30' });
 });
@@ -37,7 +42,7 @@ test('Logistics previews are bounded while assignment totals remain complete', a
   assert.equal(result.drivers_out_total, 1); assert.equal(result.drivers_out[0].total, 6001);
   assert.equal(result.drivers_out_jobs_total, 6001);
   assert.equal(result.drivers_out[0].records.length, 3);
-  for (const read of reads.filter(read => read.operation === 'group')) assert.deepEqual(read.by, ['driverId']);
+  for (const read of reads.filter(read => read.operation === 'group')) assert.ok(['driverId', 'category'].includes(read.by[0]));
   for (const read of reads.filter(read => read.operation === 'records')) {
     assert.ok(read.take <= 10); assert.ok(JSON.stringify(read.where).includes('deletedAt'));
   }
@@ -106,4 +111,54 @@ test('Logistics previews at most ten drivers while the total stays complete', as
   const result = await dashboardOverview(db, actor('LOGISTICS'));
   assert.equal(result.drivers_out_total, 12); assert.equal(result.drivers_out.length, 10);
   assert.equal(result.drivers_out[0].driver, 'snapshot-d-00', 'falls back to the record name when the profile is missing');
+});
+
+const readFor = (reads: any[], operation: string, id: string) => reads.find(read => read.operation === operation
+  && JSON.stringify(read.where.AND[2]) === JSON.stringify(dashboardRecordFilter(id)));
+
+test('Logistics transport requests: scoped total, per-type counts and a bounded oldest-first preview (AC1, AC4)', async () => {
+  const { db, reads } = fixture(); const user = actor('LOGISTICS');
+  const result = await dashboardOverview(db, user);
+  assert.equal(result.counts['log-transport-requests'], 6001);
+  assert.deepEqual(result.transport_requests_by_type, { DELIVERY: 4000, RMA: 2001 });
+  assert.equal(result.record_previews.transport_requests.length, 10);
+  const rows = readFor(reads, 'records', 'log-transport-requests');
+  assert.equal(rows.take, 10);
+  assert.deepEqual(rows.orderBy, [{ deliveryDate: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }]);
+  const group = readFor(reads, 'group', 'log-transport-requests');
+  assert.deepEqual(group.by, ['category']);
+  for (const read of [rows, group, readFor(reads, 'count', 'log-transport-requests')]) {
+    assert.deepEqual(read.where.AND[0], recordScope(user)); assert.deepEqual(read.where.AND[1], { deletedAt: null });
+  }
+  // Kept for one release so a cached client keeps working.
+  assert.equal(result.record_previews.rma_requests.length, 10); assert.equal(result.counts.rma_requests, 6001);
+});
+
+test('Sales Coordinator in transit is read inside the SC record scope (AC9)', async () => {
+  const { db, reads } = fixture(); const user = actor('SALES_COORDINATOR');
+  await dashboardOverview(db, user);
+  for (const operation of ['count', 'records']) {
+    const read = readFor(reads, operation, 'sc-in-transit');
+    assert.ok(read, operation); assert.deepEqual(read.where.AND[0], recordScope(user)); assert.deepEqual(read.where.AND[1], { deletedAt: null });
+  }
+  assert.deepEqual(readFor(reads, 'records', 'sc-in-transit').orderBy, [{ deliveryDate: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }]);
+  assert.equal(reads.some(read => read.operation === 'group'), false);
+});
+
+test('TASS RMA in transit: scoped count and oldest transport start first', async () => {
+  const { db, reads } = fixture(); const user = actor('TASS');
+  const result = await dashboardOverview(db, user);
+  assert.equal(result.counts['tass-rma-in-transit'], 6001); assert.equal(result.record_previews.rma_in_transit.length, 10);
+  const rows = readFor(reads, 'records', 'tass-rma-in-transit');
+  assert.equal(rows.take, 10); assert.deepEqual(rows.where.AND[0], recordScope(user));
+  assert.deepEqual(rows.orderBy, [{ rmaTransportStartedAt: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }]);
+});
+
+test('each role only gets its own new fields', async () => {
+  const sc = await dashboardOverview(fixture().db, actor('SALES_COORDINATOR'));
+  assert.equal(sc.record_previews.transport_requests.length, 0); assert.equal(sc.record_previews.rma_in_transit.length, 0);
+  const tass = await dashboardOverview(fixture().db, actor('TASS'));
+  assert.equal(tass.record_previews.in_transit.length, 0); assert.equal(tass.counts['log-transport-requests'], undefined);
+  const admin = await dashboardOverview(fixture().db, actor('ADMIN'));
+  assert.deepEqual(admin.transport_requests_by_type, {}); assert.equal(admin.counts['sc-in-transit'], undefined);
 });

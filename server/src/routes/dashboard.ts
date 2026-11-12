@@ -42,7 +42,8 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
   // ── LOGISTICS ─────────────────────────────────────────────────────────────────
   if (role === 'LOGISTICS') {
     const [assignedToday, unassignedCount, completedToday, onHoldRescheduled] = await Promise.all([
-      'log-assigned-today', 'log-unassigned', 'log-completed-today', 'log-on-hold-rescheduled',
+      // No driver assigned counts every driver job type, the same set as the Transport requests panel.
+      'log-assigned-today', 'log-transport-requests', 'log-completed-today', 'log-on-hold-rescheduled',
     ].map(count));
     return res.json({
       role: 'LOGISTICS',

@@ -37,8 +37,10 @@ test('dashboard today uses Manila midnight and excludes drafts from assignment c
   assert.equal(queries[0].deliveryDate, '2026-10-06');
   assert.equal(queries[0].category, 'DELIVERY');
   assert.equal(queries[0].draft, false);
-  assert.equal(queries[1].category, 'DELIVERY');
+  // No driver assigned: every driver job type with no Driver profile, drafts excluded.
   assert.equal(queries[1].draft, false);
+  assert.equal(queries[1].driverId, null);
+  assert.deepEqual(queries[1].OR.map((part: any) => part.category), [{ in: ['DELIVERY', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'] }, 'RMA']);
   assert.equal(queries[2].category, 'DELIVERY');
   assert.equal(queries[2].timeOut.gte, '2026-10-05T16:00:00.000Z');
   assert.equal(queries[2].timeOut.lt, '2026-10-06T16:00:00.000Z');
