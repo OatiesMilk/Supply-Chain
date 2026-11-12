@@ -191,19 +191,30 @@ test.describe('B-1 Login & Access Control', () => {
 });
 
 test.describe('TSK-126 dashboard card filters', () => {
-  test('Logistics unassigned card opens the matching Delivery list', async ({ page }) => {
+  // Since the transport requests panel (#314) the card shows that panel instead of opening a list;
+  // the panel's per-type links open the matching lists.
+  test('Logistics unassigned card shows transport requests and its Delivery link opens the matching list', async ({ page }) => {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
-    const { tile: card, count: cardCount } = await kpiTile(page, 'No driver assigned');
+    const { tile: card, count: cardCount } = await kpiTile(page, 'No driver assigned', 'Show transport requests');
     await card.click();
 
-    await expect(page.getByText('Showing: No Driver Assigned (from Dashboard)', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Clear dashboard filter: No Driver Assigned' })).toBeVisible();
+    const panel = page.locator('#transport-requests-panel');
+    await expect(panel).toBeFocused();
+    await expect(panel.getByText(`${cardCount} ${cardCount === 1 ? 'request' : 'requests'}`, { exact: true })).toBeVisible();
+
+    const deliveriesLink = panel.getByRole('button', { name: /^View (\d+) Deliver(y|ies)$/ });
+    test.skip(await deliveriesLink.count() === 0, 'The seed has no unassigned Delivery to open');
+    const deliveryCount = Number((await deliveriesLink.innerText()).match(/\d+/)![0]);
+    await deliveriesLink.click();
+
+    await expect(page.getByText('Showing: Transport requests (from Dashboard)', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Clear dashboard filter: Transport requests' })).toBeVisible();
     const recordsInfo = page.getByTestId('pagination-records-info');
     await expect(recordsInfo).toContainText(/of\s+\d+\s+records/i);
     await expect.poll(async () =>
       Number((await recordsInfo.innerText()).match(/of\s+(\d+)\s+records/i)?.[1])
-    ).toBe(cardCount);
+    ).toBe(deliveryCount);
   });
 });
 
