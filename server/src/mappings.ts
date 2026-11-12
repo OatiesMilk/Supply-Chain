@@ -67,6 +67,7 @@ export function serializeRecord(r: any, user?: AuthUser) {
   );
   return {
     id: r.id,
+    record_no: r.recordNo ?? null,
     edit_version: recordEditVersion(r),
     company_name: r.company?.name ?? '',
     company_id: r.companyId,
