@@ -10,6 +10,7 @@ import { api } from '@/api';
 import { invalidateOperationalQueries, normalizeApiRecord, saveRecordToCache } from '@/api/queries/useRecordsQuery';
 
 import { useRecordTimeInMutation, usePagedRecordsQuery } from '@/api/queries/useRecordsQuery';
+import { confirmDisabled } from './driverSheetRules';
 import { useDriverOverviewQuery, useClampRecordPage } from '@/api/queries/useOperationalViews';
 import RecordPageControls from '@/components/RecordPageControls';
 import { deliveryScheduleState, hasValidRunTimeIn, isDashboardRunActionable, isDraftRecord, manilaToday } from '@/utils/recordLifecycle';
@@ -162,6 +163,12 @@ function DriverDashboardContent({
   // While the first load is in flight there is nothing trustworthy to count.
   const summaryLoading = dataLoading && records.length === 0 && !dashboardCounts;
 
+  const startSheet = pendingAction?.action === 'start';
+  const confirmBlocked = pendingAction ? confirmDisabled(pendingAction.action, remarksInput, saving, photoError) : true;
+  // The start sheet has no required field, so focus lands on Confirm and the phone keyboard stays closed.
+  const confirmButton = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => { if (startSheet) confirmButton.current?.focus(); }, [startSheet]);
+
   // The button that opened the confirm sheet gets focus back when it closes.
   const sheetOpener = useRef<HTMLElement | null>(null);
   const openSheet = (rec: DeliveryRecord, action: DriverAction) => {
@@ -184,7 +191,7 @@ function DriverDashboardContent({
     return () => document.removeEventListener('keydown', onKey);
   }, [pendingAction, saving, closeSheet]);
 
-  const saveRma = async (rec: DeliveryRecord, data: { transport_status: 'IN_TRANSIT' | 'COMPLETED'; remarks: string; received_by?: string }) => {
+  const saveRma = async (rec: DeliveryRecord, data: { transport_status: 'IN_TRANSIT' | 'COMPLETED'; remarks?: string; received_by?: string }) => {
     const saved = await api.progressRmaTransport(rec.id, { ...data, expected_version: rec.rma_version ?? 0 });
     await saveRecordToCache(queryClient, normalizeApiRecord(saved));
     await invalidateOperationalQueries(queryClient);
@@ -194,7 +201,7 @@ function DriverDashboardContent({
   const startTransport = async (rec: DeliveryRecord, remarks: string) => {
     if (rec.category === 'RMA') return saveRma(rec, { transport_status: 'IN_TRANSIT', remarks });
     if (!access.canRecord(rec.category, 'TIME_IN')) throw new Error('This action is no longer available for your account.');
-    await timeInMutation.mutateAsync({ id: rec.id, remarks });
+    await timeInMutation.mutateAsync({ id: rec.id, remarks, remarksOptional: true });
   };
 
   /** Complete delivery: uploads the staged POD first, then completes with Received By. */
@@ -396,19 +403,22 @@ function DriverDashboardContent({
             </div>
 
             <div className="space-y-1.5">
+              {startSheet && <p className="text-sm text-slate-700">Your start time is recorded when you confirm.</p>}
               <label htmlFor="driver-action-remarks" className="text-sm font-semibold text-slate-700 block">
-                Remarks, reason for change (required)
+                {startSheet ? 'Note (optional)' : 'Remarks, reason for change (required)'}
               </label>
-              <p id="driver-action-remarks-help" className="text-xs text-slate-600">Explain why you are making this change. The reason is saved with your name in the record history.</p>
+              <p id="driver-action-remarks-help" className="text-xs text-slate-600">
+                {startSheet ? 'Add anything Logistics should know. It is saved with your name in the record history.' : 'Explain why you are making this change. The reason is saved with your name in the record history.'}
+              </p>
               <textarea
                 id="driver-action-remarks"
                 aria-describedby="driver-action-remarks-help"
-                required
+                required={!startSheet}
                 value={remarksInput}
                 onChange={(e) => setRemarksInput(e.target.value)}
                 rows={3}
-                placeholder="Enter remarks…"
-                autoFocus
+                placeholder={startSheet ? 'Add a note…' : 'Enter remarks…'}
+                autoFocus={!startSheet}
                 className="w-full resize-none rounded-xl border border-slate-300 px-3 py-2 text-base focus:border-[#0078C1] focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 sm:text-sm"
               />
             </div>
@@ -426,9 +436,10 @@ function DriverDashboardContent({
               </button>
               <button
                 type="button"
-                disabled={saving || !remarksInput.trim() || !!photoError}
+                ref={confirmButton}
+                disabled={confirmBlocked}
                 onClick={async () => {
-                  if (saving || !remarksInput.trim() || photoError) return;
+                  if (confirmBlocked) return;
                   setSaving(true);
                   setSaveFeedback(null);
                   try {

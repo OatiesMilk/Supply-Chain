@@ -4,6 +4,7 @@ import { prisma } from '../db';
 import { asyncRoute } from '../middleware/asyncRoute';
 import { requireAuth, requireResource, requireRole, requireAction, type AuthUser } from '../middleware/auth';
 import { serializeRecord } from '../mappings';
+import { resolveStartRemarks } from '../services/startRemarks';
 import { canPerformPolicyRecordAction, canReadRecord, canReadPolicyRecord, recordScope } from '../services/recordAccess';
 import { readRmaPermissions } from '../services/rmaDispatchPermissions';
 import { eligibleRmaTransport, rmaTransportContext, rmaTransportDateError, validRmaMovement } from '../services/rmaMovement';
@@ -83,9 +84,16 @@ async function savedAction(tx: Prisma.TransactionClient, row: Row, data: Prisma.
   await tx.remarkLog.create({ data: { recordId: row.id, body: remarks, context, authorId: user.id } });
   return saved;
 }
-function input(body: Record<string, unknown>, allowed: string[]) {
+const REMARKS_REQUIRED = 'Remarks are required for this RMA action.';
+function input(body: Record<string, unknown>, allowed: string[], user?: AuthUser) {
   if (Object.keys(body).some(key => !allowed.includes(key))) throw new RmaActionError(400, 'This action contains unsupported fields.');
-  if (typeof body.remarks !== 'string' || !body.remarks.trim()) throw new RmaActionError(400, 'Remarks are required for this RMA action.');
+  // Only a Driver starting transport may omit remarks; every other action keeps them required.
+  if (user && body.transport_status === 'IN_TRANSIT') {
+    const start = resolveStartRemarks(body.remarks, user.role, REMARKS_REQUIRED);
+    if (!start.ok) throw new RmaActionError(400, start.error);
+    return start.remarks;
+  }
+  if (typeof body.remarks !== 'string' || !body.remarks.trim()) throw new RmaActionError(400, REMARKS_REQUIRED);
   return body.remarks.trim();
 }
 function version(row: Row, expected: unknown) {
@@ -131,7 +139,7 @@ router.patch('/:id/rma-assignment', requireAuth, requireResource('records'), req
 
 router.patch('/:id/rma-transport', requireAuth, requireResource('records'), requireRole('DRIVER'), requireAction('CATEGORY', 'RMA', 'STATUS'), action(async (req, res) => {
   const body = req.body ?? {};
-  const remarks = input(body, ['transport_status', 'expected_version', 'remarks', 'received_by']);
+  const remarks = input(body, ['transport_status', 'expected_version', 'remarks', 'received_by'], req.user!);
   if (!['IN_TRANSIT', 'COMPLETED'].includes(body.transport_status)) throw new RmaActionError(400, 'Choose a valid transport status.');
   if (body.transport_status === 'IN_TRANSIT' && body.received_by !== undefined) throw new RmaActionError(400, 'Received By is recorded when completing transport.');
   const receivedBy = body.transport_status === 'COMPLETED' ? receivedByError(body.received_by) : null;

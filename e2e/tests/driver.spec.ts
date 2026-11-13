@@ -150,8 +150,8 @@ test.describe('C-2 ePOD Flow', () => {
     await timeInBtn.click();
     await page.waitForTimeout(1000);
 
-    // Enter remarks in modal
-    await page.getByPlaceholder(/remarks/i).fill('Started run via mobile app');
+    // The start sheet only asks for an optional note; add one to cover the typed-note path
+    await page.getByPlaceholder(/note/i).fill('Started run via mobile app');
     await page.getByRole('button', { name: /^confirm$/i }).click();
 
     // Starting transport should persist and show its timestamp in the active-run card.

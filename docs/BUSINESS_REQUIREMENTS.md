@@ -49,7 +49,7 @@ Out of scope today: automatic stock movement from deliveries, customer signature
 | BR-LIFE-01 | States: Draft, Scheduled, In Transit, Pending, On-Hold, Rescheduled, Delivered, with server-enforced transitions | Implemented | `services/deliveryLifecycle.ts` |
 | BR-LIFE-02 | In Transit only via a dedicated Time In action; needs an assigned driver and a Scheduled or Rescheduled run | Implemented | Driver, Logistics, Admin |
 | BR-LIFE-03 | Delivered requires Time In, recipient name, remarks and a verified JPG/PNG proof photo; the server stamps Time Out | Implemented | PDF/DOC are supporting files only |
-| BR-LIFE-04 | Status changes require remarks; Rescheduling clears the run timestamps | Implemented | |
+| BR-LIFE-04 | Status changes require remarks; Rescheduling clears the run timestamps | Implemented | Exception: a Driver starting an assigned run (Start transport, including RMA transport start) may leave the note blank; the server records `Transport started`. Logistics/Admin recording Time In and every completion still require remarks |
 | BR-LIFE-05 | Drivers may act only on their own assigned, non-draft runs; future-dated unstarted deliveries are read-only; overdue ones stay actionable and are flagged | Implemented | Ownership by Admin-linked `Driver` profile id |
 | BR-LIFE-06 | Late completion is recorded (`completedLate`, `daysLate`) | Implemented | |
 | BR-LIFE-07 | Assign driver, vehicle, assistants; coverage areas guide driver matching | Implemented | Logistics, Admin |
@@ -149,7 +149,7 @@ The exact default screens per role are listed in [Module access](./MODULE_ACCESS
 
 1. A record has exactly one category; category determines which module, role limits and TASS visibility apply.
 2. Reference/SAP number is required unless the record is a Draft.
-3. Remarks are mandatory for any substantive edit and for every status change.
+3. Remarks are mandatory for any substantive edit and for every status change. Exception (BR-LIFE-04): a Driver starting transport may omit the note and the server writes `Transport started`.
 4. A started run (Time In recorded) cannot return to Draft or Scheduled.
 5. Proof of delivery means a verified JPG/PNG saved on the server; client claims are never trusted.
 6. A Driver sees and writes only runs assigned to their linked profile; an unlinked Driver account sees nothing.

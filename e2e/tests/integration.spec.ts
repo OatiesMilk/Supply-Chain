@@ -255,12 +255,16 @@ test.describe('X Cross-Role Integration', () => {
       const driverCard = driverPage.getByRole('article', { name: `Active delivery ${reference}` });
       await expect(driverCard).toHaveCount(1);
       await driverCard.getByRole('button', { name: /^start transport$/i }).click();
-      await driverPage.locator('#driver-action-remarks').fill('UAT integration test - starting assigned Delivery');
+      // The start sheet is a confirmation: Confirm is enabled with a blank note and the server records the default remark.
+      await expect(driverPage.getByRole('button', { name: 'Confirm', exact: true })).toBeEnabled();
       await driverPage.getByRole('button', { name: 'Confirm', exact: true }).click();
       await expect(driverCard.getByText(/Transport started:/i)).toBeVisible();
       const started = await driverCtx.request.get(BASE_URL + '/api/v1/records/' + recordId);
       expect(started.ok()).toBeTruthy();
       const savedTimeIn = (await started.json()).time_in;
+      const startRemarks = await driverCtx.request.get(BASE_URL + '/api/v1/records/' + recordId + '/remarks');
+      expect(startRemarks.ok()).toBeTruthy();
+      expect((await startRemarks.json()).some((entry: { body: string }) => entry.body === 'Transport started')).toBeTruthy();
       expect(savedTimeIn).toBeTruthy();
 
       // A fresh Logistics session must read the exact timestamp written by this Driver.

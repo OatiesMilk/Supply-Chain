@@ -202,3 +202,39 @@ test('generic RMA writes cannot bypass assignment, receiving or metadata Update 
   assert.equal((await draft.request('TASS', 'put', '/:id', { is_draft: 'No', item_description: 'Changed', remarks: 'Submit plus edit', expected_version: 0 }, { deny: 'CATEGORY:RMA:UPDATE' })).status, 403);
   assert.equal(state.audits().length, 0); assert.equal(draft.audits().length, 0);
 });
+
+test('Driver RMA transport start needs no remarks, while completion and other actions still do', async () => {
+  const state = fixture();
+  for (const remarks of [5, true, {}]) {
+    assert.equal((await state.request('DRIVER', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 0, remarks })).status, 400);
+  }
+  assert.equal(state.remarks().length, 0);
+  const started = await state.request('DRIVER', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 0 });
+  assert.equal(started.status, 200);
+  assert.equal(started.body.rma_transport_status, 'IN_TRANSIT');
+  assert.ok(started.body.rma_transport_started_at);
+  assert.equal(state.remarks().length, 1);
+  assert.equal(state.remarks()[0].body, 'Transport started');
+  assert.equal(state.remarks()[0].context, 'RMA_TRANSPORT');
+  assert.equal(state.remarks()[0].authorId, 'driver');
+  assert.equal(state.audits().length, 1);
+  state.proof();
+  const finish = { transport_status: 'COMPLETED', expected_version: 1, received_by: 'Warehouse guard' };
+  assert.equal((await state.request('DRIVER', 'patch', '/:id/rma-transport', finish)).status, 400);
+  assert.equal((await state.request('DRIVER', 'patch', '/:id/rma-transport', { ...finish, remarks: '   ' })).status, 400);
+  assert.equal(state.remarks().length, 1);
+});
+
+test('a typed Driver RMA start note is trimmed and replaces the default', async () => {
+  const state = fixture();
+  const started = await state.request('DRIVER', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 0, remarks: '  Using backup van ' });
+  assert.equal(started.status, 200);
+  assert.equal(state.remarks()[0].body, 'Using backup van');
+});
+
+test('RMA actions other than a Driver transport start keep requiring remarks', async () => {
+  const state = fixture({ driverId: null, driver: '' });
+  const body = { driver_id: 'driver-one', expected_version: 0 };
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-assignment', body)).status, 400);
+  assert.equal((await state.request('TASS', 'post', '/:id/rma-receipt', { recipient: 'Recipient', expected_version: 0 })).status, 400);
+});

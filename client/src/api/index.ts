@@ -642,7 +642,7 @@ export const api = {
   getRmaCapabilities: (id: string) => request<RmaCapabilities>(`/records/${id}/rma-capabilities`),
   assignRma: (id: string, data: { driver_id: string | null; vehicle?: string; driver_assistants?: string[]; expected_version: number; remarks: string }) =>
     request<any>(`/records/${id}/rma-assignment`, { method: 'PATCH', body: JSON.stringify(data) }),
-  progressRmaTransport: (id: string, data: { transport_status: 'IN_TRANSIT' | 'COMPLETED'; expected_version: number; remarks: string; received_by?: string }) =>
+  progressRmaTransport: (id: string, data: { transport_status: 'IN_TRANSIT' | 'COMPLETED'; expected_version: number; remarks?: string; received_by?: string }) =>
     request<any>(`/records/${id}/rma-transport`, { method: 'PATCH', body: JSON.stringify(data) }),
   receiveRma: (id: string, data: { recipient: string; expected_version: number; remarks: string }) =>
     request<any>(`/records/${id}/rma-receipt`, { method: 'POST', body: JSON.stringify(data) }),
@@ -651,7 +651,7 @@ export const api = {
     request<any>('/records', { method: 'POST', body: JSON.stringify(data) }),
   updateRecord: (id: string, data: Record<string, unknown>) =>
     request<any>(`/records/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  recordTimeIn: (id: string, remarks: string) =>
+  recordTimeIn: (id: string, remarks?: string) =>
     request<any>(`/records/${id}/time-in`, { method: 'POST', body: JSON.stringify({ remarks }) }),
   patchStatus: (id: string, status: string, remarks?: string, extra?: { time_out?: string; received_by?: string; priority?: string; delivery_date?: string; expected_version?: number; expected_edit_version?: string }) =>
     request<any>(`/records/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, remarks: remarks ?? '', ...extra }) }),

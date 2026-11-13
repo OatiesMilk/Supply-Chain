@@ -7,6 +7,7 @@ import { recordAccountManager } from '../services/accountDirectory';
 import { asyncRoute } from '../middleware/asyncRoute';
 import { assignmentError, resolveDriverAssignment, withDriverDirectoryLock, type DriverChange } from '../services/driverDirectory';
 import { requireAuth, requireRole, requireResource } from '../middleware/auth';
+import { resolveStartRemarks } from '../services/startRemarks';
 import { visibleRecordAuditSnapshots } from '../services/recordAuditVisibility';
 import { notifyAccomplished } from '../services/notify';
 import { notifyRole, notifyUser } from '../services/inAppNotify';
@@ -1579,8 +1580,9 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
 
 // Time In is the sole action that starts an assigned run.
 router.post('/:id/time-in', requireAuth, requireResource('records'), requireRecordAccess, requireRole('DRIVER', 'LOGISTICS', 'ADMIN'), asyncRoute(async (req, res) => {
-  const remarks = req.body?.remarks;
-  if (typeof remarks !== 'string' || !remarks.trim()) return res.status(400).json({ error: 'Remarks are required when recording Time In.' });
+  const start = resolveStartRemarks(req.body?.remarks, req.user!.role, 'Remarks are required when recording Time In.');
+  if (!start.ok) return res.status(400).json({ error: start.error });
+  const remarks = start.remarks;
   const result = await prisma.$transaction(async tx => {
     await lockPodRecord(tx, req.params.id);
     const current = await tx.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] }, include: recordInclude });
@@ -1590,13 +1592,13 @@ router.post('/:id/time-in', requireAuth, requireResource('records'), requireReco
     const error = timeInError(current);
     if (error) return { error, saved: null };
     const saved = await tx.deliveryRecord.update({ where: { id: current.id }, data: {
-      timeIn: new Date().toISOString(), timeOut: null, status: 'IN_TRANSIT', remarks: remarks.trim(), modifiedById: req.user!.id,
+      timeIn: new Date().toISOString(), timeOut: null, status: 'IN_TRANSIT', remarks, modifiedById: req.user!.id,
     }, include: recordInclude });
     await tx.auditLog.create({ data: {
       recordId: saved.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id,
       previousValue: JSON.stringify(serializeRecord(current)), newValue: JSON.stringify(serializeRecord(saved)),
     } });
-    await tx.remarkLog.create({ data: { recordId: saved.id, body: remarks.trim(), context: 'TIME_IN', authorId: req.user!.id } });
+    await tx.remarkLog.create({ data: { recordId: saved.id, body: remarks, context: 'TIME_IN', authorId: req.user!.id } });
     return { error: null, saved };
   });
   if (result.error) return res.status(400).json({ error: result.error });
