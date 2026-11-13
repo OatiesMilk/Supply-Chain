@@ -126,8 +126,10 @@ test('Driver transport completion requires POD and never calls the final RMA sta
     await ui.render(record, 'Driver');
     await ui.input('Remarks', 'Transport finished'); assert.equal(ui.button('Complete transport')!.disabled, true);
     photos = [{ id: 'photo', original_name: 'pod.png', mime_type: 'image/png', is_photo: true }]; await act(async () => { await ui.client.invalidateQueries({ queryKey: ['pod-attachments', record.id] }); }); await ui.flush();
+    assert.equal(ui.button('Complete transport')!.disabled, true, 'Received by is required');
+    await ui.input('Received by', 'Warehouse guard');
     assert.equal(ui.button('Complete transport')!.disabled, false); await act(async () => ui.button('Complete transport')!.click()); await ui.flush();
-    assert.equal(transport.mock.callCount(), 1); assert.equal(final.mock.callCount(), 0); assert.equal(record.status, 'Scheduled'); assert.equal(record.rma_received_at, undefined);
+    assert.equal(transport.mock.callCount(), 1); assert.equal((transport.mock.calls[0].arguments[1] as any).received_by, 'Warehouse guard'); assert.equal(final.mock.callCount(), 0); assert.equal(record.status, 'Scheduled'); assert.equal(record.rma_received_at, undefined);
     assert.match(ui.dom.window.document.body.textContent!, /Transport: Complete/); assert.equal(ui.button('Complete RMA'), undefined);
     await ui.render(initialRecord, 'Logistics', true);
     const summary = () => ui.dom.window.document.querySelector('[aria-label="Record summary"]')!.textContent!;
@@ -280,4 +282,40 @@ test('record rows update from saved transport and ordinary status changes across
       }
     } finally { await ui.close(); }
   }
+});
+
+test('Logistics records transport for the assigned driver with Received by, proof photo and a visible notice', async () => {
+  const ui = await fixture(); let record = base({ delivery_date: '2020-01-01', rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'PENDING', driver_id: 'driver-a', driver: 'Juan Driver' }); let photos: any[] = [];
+  mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => photos);
+  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, transport: record.rma_transport_status !== 'COMPLETED', pod: record.rma_transport_status === 'IN_TRANSIT' }));
+  const transport = mock.method(api, 'progressRmaTransport', async (_id: string, data: any) => record = { ...record, rma_version: (record.rma_version ?? 0) + 1,
+    rma_transport_status: data.transport_status === 'IN_TRANSIT' ? 'IN_TRANSIT' : 'COMPLETED' });
+  try {
+    await ui.render(record, 'Logistics');
+    assert.match(ui.dom.window.document.body.textContent!, /Recording for Juan Driver\. This is saved under your name\./);
+    assert.equal(ui.button('Complete transport'), undefined, 'nothing to complete before the start');
+    await ui.input('Remarks', 'Driver phone is dead'); await act(async () => ui.button('Start transport')!.click()); await ui.flush();
+    assert.deepEqual(transport.mock.calls[0].arguments[1], { expected_version: 0, remarks: 'Driver phone is dead', transport_status: 'IN_TRANSIT' });
+    await ui.render(record, 'Logistics');
+    assert.match(ui.dom.window.document.body.textContent!, /photo/i, 'the proof photo uploader is shown');
+    await ui.input('Remarks', 'Handed over'); await ui.input('Received by', 'x'.repeat(10));
+    assert.equal(ui.button('Complete transport')!.disabled, true, 'no saved photo yet');
+    photos = [{ id: 'photo', original_name: 'pod.png', mime_type: 'image/png', is_photo: true }]; await act(async () => { await ui.client.invalidateQueries({ queryKey: ['pod-attachments', record.id] }); }); await ui.flush();
+    assert.equal(ui.button('Complete transport')!.disabled, false);
+    await act(async () => ui.button('Complete transport')!.click()); await ui.flush();
+    assert.equal((transport.mock.calls[1].arguments[1] as any).received_by, 'x'.repeat(10));
+  } finally { await ui.close(); }
+});
+
+test('Logistics sees the planned start date instead of buttons before it, and nothing extra for other roles', async () => {
+  const ui = await fixture(); const record = base({ delivery_date: '2999-01-01', rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'PENDING', driver_id: 'driver-a', driver: 'Juan Driver' });
+  mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []);
+  mock.method(api, 'getRmaCapabilities', async () => none);
+  try {
+    await ui.render(record, 'Logistics');
+    assert.match(ui.dom.window.document.body.textContent!, /Transport can start on 2999-01-01\./);
+    assert.equal(ui.button('Start transport'), undefined);
+    await ui.render(record, 'TASS');
+    assert.doesNotMatch(ui.dom.window.document.body.textContent!, /Transport can start on|Recording for/);
+  } finally { await ui.close(); }
 });

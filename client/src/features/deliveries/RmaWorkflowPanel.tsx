@@ -11,7 +11,7 @@ import { useDriversQuery } from '@/api/queries/useDriversQuery';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
 import { invalidateOperationalQueries, normalizeApiRecord, saveRecordToCache, useRecordDetailQuery } from '@/api/queries/useRecordsQuery';
 import { operationalSyncOptions } from '@/api/queries/operationalSync';
-import { RMA_MOVEMENT_LABELS } from '@/utils/rmaTransport';
+import { RMA_MOVEMENT_LABELS, RMA_RECEIVED_BY_MAX, rmaLogisticsTransportNotice, rmaReceivedByError } from '@/utils/rmaTransport';
 import { formatManilaTimestamp } from '@/utils/manilaTimestamp';
 import { rankDriversByCoverage } from '@/utils/driverCoverage';
 import { notify } from '@/utils/notify';
@@ -49,11 +49,11 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
   const awaitingTransport = internalTransport && record.rma_transport_status !== 'COMPLETED';
   const caps = allowed ? {
     assign: access.canRecord('RMA', 'ASSIGN') && allowed.assign && submitted && !finished && awaitingTransport && !record.rma_received_at && (currentUserRole === 'Logistics' || currentUserRole === 'Admin'),
-    transport: access.canRecord('RMA', 'STATUS') && allowed.transport && submitted && !finished && awaitingTransport && currentUserRole === 'Driver',
+    transport: access.canRecord('RMA', 'STATUS') && allowed.transport && submitted && !finished && awaitingTransport && (currentUserRole === 'Driver' || currentUserRole === 'Logistics'),
     receive: access.canRecord('RMA', 'RECEIVE') && allowed.receive && submitted && !finished && !!record.rma_movement && !awaitingTransport && !record.rma_received_at && currentUserRole === 'TASS',
     complete: access.canRecord('RMA', 'COMPLETE') && allowed.complete && submitted && !finished && !awaitingTransport && !!record.rma_received_at && currentUserRole === 'TASS',
     pod: access.canRecord('RMA', 'POD') && allowed.pod && submitted && !finished && internalTransport
-      && record.rma_transport_status === 'IN_TRANSIT' && currentUserRole === 'Driver',
+      && record.rma_transport_status === 'IN_TRANSIT' && (currentUserRole === 'Driver' || currentUserRole === 'Logistics'),
     status: access.canRecord('RMA', 'STATUS') && allowed.status && !finished && (currentUserRole === 'TASS' || currentUserRole === 'Admin'),
   } : undefined;
   const directory = useDriversQuery(caps?.assign === true);
@@ -62,6 +62,7 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
   const [vehicle, setVehicle] = useState(record.vehicle || '(None)');
   const [assistants, setAssistants] = useState(record.driver_assistants ?? []);
   const [recipient, setRecipient] = useState('');
+  const [receivedBy, setReceivedBy] = useState('');
   const [nextStatus, setNextStatus] = useState<DeliveryStatus | ''>('');
   const [remarks, setRemarks] = useState('');
   const [dirty, setDirty] = useState(false);
@@ -93,9 +94,14 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
         driver_assistants: assistants,
       });
       if (action === 'start' || action === 'transport-complete') {
-        if (action === 'transport-complete') await uploadStaged();
+        if (action === 'transport-complete') {
+          const missing = rmaReceivedByError(receivedBy);
+          if (missing) throw new Error(missing);
+          await uploadStaged();
+        }
         return api.progressRmaTransport(record.id, {
           ...precondition, transport_status: action === 'start' ? 'IN_TRANSIT' : 'COMPLETED',
+          ...(action === 'transport-complete' ? { received_by: receivedBy.trim() } : {}),
         });
       }
       if (action === 'status') {
@@ -113,6 +119,7 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
       setDirty(false);
       setRemarks('');
       setRecipient('');
+      setReceivedBy('');
       setNextStatus('');
       const message = action === 'assign' ? 'Driver assignment saved.'
         : action === 'start' ? 'Transport started.'
@@ -145,6 +152,9 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
   const assistantOptions = (directory.data ?? []).filter(entry => entry.type === 'ASSISTANT' && entry.is_active);
   const canStart = caps?.transport && record.rma_transport_status === 'PENDING';
   const canFinishTransport = caps?.transport && record.rma_transport_status === 'IN_TRANSIT';
+  const receivedByInvalid = !!canFinishTransport && rmaReceivedByError(receivedBy) !== null;
+  const transportNotice = currentUserRole === 'Logistics' && internalTransport && !finished && allowed
+    ? rmaLogisticsTransportNotice(record, !!caps?.transport) : null;
   const statusOptions = caps?.status ? (record.allowed_statuses ?? []).filter(status => !['Draft', 'Delivered', 'In Transit'].includes(status)) : [];
   const hasAction = caps?.assign || caps?.transport || caps?.receive || caps?.complete || statusOptions.length > 0;
   const savedAssistants = record.driver_assistants ?? [];
@@ -257,7 +267,8 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
       </fieldset>
     </WorkflowSection>}
 
-    {caps?.pod && currentUserRole === 'Driver' && <PodUploader recordId={record.id} required disabled={busy} purpose="transport" />}
+    {caps?.pod && <PodUploader recordId={record.id} required disabled={busy} purpose="transport" />}
+    {transportNotice && <p role="status" data-testid="rma-transport-notice" className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm text-[#1F3864]">{transportNotice.text}</p>}
     {hasAction && <WorkflowSection variant="flat" title={embedded ? 'Transport actions' : 'RMA workflow actions'} description="Available actions depend on the return movement, current stage, and your role.">
     {caps?.receive && <label htmlFor={`${id}-recipient`} className={fieldLabel}>Recipient
       <input id={`${id}-recipient`} value={recipient} className={input} disabled={busy} onChange={event => { beginEdit(); setRecipient(event.target.value); }} placeholder="Name of recipient / collector" />
@@ -273,6 +284,10 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
       </span>
       <span className={fieldHint}>Current status: {record.status}</span>
     </label>}
+    {canFinishTransport && <label htmlFor={`${id}-received-by`} className={fieldLabel}>Received by <span className="text-red-600">Required</span>
+      <input id={`${id}-received-by`} value={receivedBy} maxLength={RMA_RECEIVED_BY_MAX} className={input} disabled={busy} onChange={event => { beginEdit(); setReceivedBy(event.target.value); }} placeholder="Name of the person who received the item" />
+      <span className={fieldHint}>Saved with the transport completion. TASS still confirms physical receipt.</span>
+    </label>}
     {hasAction && <label htmlFor={`${id}-remarks`} className={fieldLabel}>Remarks <span className="text-red-600">Required</span>
       <textarea id={`${id}-remarks`} required value={remarks} rows={3} aria-describedby={`${id}-remarks-help`} className={`${input} resize-y`} disabled={busy} onChange={event => { beginEdit(); setRemarks(event.target.value); }} placeholder="Reason for this workflow update" />
       <span id={`${id}-remarks-help`} className={fieldHint}>This reason is saved to the RMA audit trail.</span>
@@ -280,7 +295,7 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
 
     {staleForm && <div role="alert" className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
       <CircleAlert aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
-      <p>This RMA changed while you were editing. Review the latest saved state before retrying. <button type="button" className="min-h-11 font-semibold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-800" onClick={() => { setDirty(false); setRemarks(''); setRecipient(''); setNextStatus(''); setFeedback(''); }}>Use latest saved values</button></p>
+      <p>This RMA changed while you were editing. Review the latest saved state before retrying. <button type="button" className="min-h-11 font-semibold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-800" onClick={() => { setDirty(false); setRemarks(''); setRecipient(''); setReceivedBy(''); setNextStatus(''); setFeedback(''); }}>Use latest saved values</button></p>
     </div>}
     {canFinishTransport && !readiness.hasPhoto && <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600">Save a transport proof photo before completing transport.</p>}
 
@@ -299,7 +314,7 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
           {canStart && <button type="button" className={button} disabled={!canSave} onClick={() => mutation.mutate('start')}>
             {busy && mutation.variables === 'start' ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Starting…</> : 'Start transport'}
           </button>}
-          {canFinishTransport && <button type="button" className={button} disabled={!canSave || !readiness.hasPhoto || readiness.loading || readiness.uploading || readiness.loadFailed} onClick={() => mutation.mutate('transport-complete')}>
+          {canFinishTransport && <button type="button" className={button} disabled={!canSave || receivedByInvalid || !readiness.hasPhoto || readiness.loading || readiness.uploading || readiness.loadFailed} onClick={() => mutation.mutate('transport-complete')}>
             {busy && mutation.variables === 'transport-complete' ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Completing…</> : 'Complete transport'}
           </button>}
           {caps?.receive && <button type="button" className={button} disabled={!canSave || !recipient.trim()} onClick={() => mutation.mutate('receive')}>
@@ -320,7 +335,7 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
       {mutation.isError ? <CircleAlert aria-hidden="true" className="h-4 w-4 shrink-0" /> : <CircleCheck aria-hidden="true" className="h-4 w-4 shrink-0" />}
       <span>{feedback}</span>
     </div>}
-    {!hasAction && !finished && !capabilities.isPending && !capabilities.isError && <p className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600"><CircleAlert aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />No workflow action is available for this record and account.</p>}
+    {!hasAction && !finished && !transportNotice && !capabilities.isPending && !capabilities.isError && <p className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600"><CircleAlert aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />No workflow action is available for this record and account.</p>}
     </div>
   </section>;
 }
