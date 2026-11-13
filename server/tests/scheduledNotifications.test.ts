@@ -7,6 +7,7 @@ import { notify4PM, notifyWeeklyReport } from '../src/services/scheduledNotifica
 import { notificationVisibility } from '../src/services/notificationVisibility';
 import { sessionUser } from '../src/services/permissions';
 import type { AuthUser } from '../src/middleware/auth';
+import { rmaTestPolicy } from './rmaTestPolicy';
 
 function stubEnv(t: TestContext, mode = 'LEGACY') {
   const saved = {
@@ -129,9 +130,12 @@ test('4 PM summary resolves AM via directory rules, filters by record access, an
   assert.ok(notif.message.includes('DEL-26-00001'));
   assert.ok(!notif.message.includes('RMA-26-00001'));
 
-  // Confirm ScopedSummary is not blocked by DeliveryRecord visibility in LEGACY mode.
+  // Confirm ScopedSummary is not blocked by DeliveryRecord visibility in LEGACY mode
+  // and binds the summary check to the recipient's current permissionVersion.
   const visibilitySql = notificationVisibility(expectedSession);
   assert.ok(visibilitySql.sql.includes("IS DISTINCT FROM 'DeliveryRecord'"));
+  assert.match(visibilitySql.sql, /ScopedSummary/);
+  assert.ok(visibilitySql.values.includes(expectedSession.permissionVersion));
 
   assert.equal(sentEmails[0].to, 'alice@example.test');
   assert.equal(createdLogs[0].recipientName, 'Alice Mercado');
@@ -190,4 +194,108 @@ test('Weekly report logs SKIPPED when there are no active Logistics or Admin rec
   assert.equal(createdLogs.length, 1);
   assert.equal(createdLogs[0].triggerEvent, 'WEEKLY_REPORT');
   assert.equal(createdLogs[0].status, 'SKIPPED');
+});
+
+test('4 PM summary in LEGACY mode loads RMA policy/overrides and excludes explicitly denied RMA records', async (t) => {
+  stubEnv(t, 'LEGACY');
+  const stub = installStubs(t);
+
+  const logisticsDeniedRma = {
+    id: 'user-log-rma-denied',
+    name: 'Lia Logistics',
+    email: 'lia@example.test',
+    role: 'LOGISTICS',
+    isActive: true,
+    permissions: [],
+    permissionOverrides: [{ userId: 'user-log-rma-denied', permissionKey: 'CATEGORY:RMA:READ', effect: 'DENY' }],
+    authorizationRevision: 2n,
+    driverProfile: null,
+  };
+  const tassDeniedOnlyRma = {
+    id: 'user-tass-rma-denied',
+    name: 'Tina Denied',
+    email: 'tina-denied@example.test',
+    role: 'TASS',
+    isActive: true,
+    permissions: [],
+    permissionOverrides: [{ userId: 'user-tass-rma-denied', permissionKey: 'CATEGORY:RMA:READ', effect: 'DENY' }],
+    authorizationRevision: 2n,
+    driverProfile: null,
+  };
+  const tassAllowedRma = {
+    id: 'user-tass-rma-allowed',
+    name: 'Toby Allowed',
+    email: 'toby@example.test',
+    role: 'TASS',
+    isActive: true,
+    permissions: [],
+    permissionOverrides: [],
+    authorizationRevision: 1n,
+    driverProfile: null,
+  };
+  const users = [logisticsDeniedRma, tassDeniedOnlyRma, tassAllowedRma];
+  const directory = users.map(user => ({
+    name: user.name,
+    normalizedName: user.name.toLowerCase(),
+    isActive: true,
+    user,
+  }));
+
+  const createdNotifications: any[] = [];
+  const createdLogs: any[] = [];
+  const sentEmails: mailer.MailMessage[] = [];
+
+  stub(prisma.deliveryRecord, 'findMany', async ({ where }: any) => {
+    if (where?.status === 'SCHEDULED') return [];
+    return [
+      { id: 'rec-del-ok', recordNo: 'DEL-26-00010', reference: 'REF-10', category: 'DELIVERY', status: 'SCHEDULED', draft: false, driverId: null, accountManager: 'Lia Logistics', company: { name: 'Allowed Delivery Co' } },
+      { id: 'rec-rma-denied-1', recordNo: 'RMA-26-00010', reference: 'RMA-10', category: 'RMA', status: 'SCHEDULED', draft: false, driverId: null, accountManager: 'Lia Logistics', company: { name: 'Hidden RMA Co' } },
+      { id: 'rec-rma-denied-2', recordNo: 'RMA-26-00011', reference: 'RMA-11', category: 'RMA', status: 'SCHEDULED', draft: false, driverId: null, accountManager: 'Tina Denied', company: { name: 'Denied Only RMA Co' } },
+      { id: 'rec-rma-allowed', recordNo: 'RMA-26-00012', reference: 'RMA-12', category: 'RMA', status: 'SCHEDULED', draft: false, driverId: null, accountManager: 'Toby Allowed', company: { name: 'Visible RMA Co' } },
+    ];
+  });
+  stub(prisma.notificationLog, 'findFirst', async () => null);
+  stub(prisma.accountManager, 'findUnique', async ({ where }: any) => {
+    const found = directory.find(entry => entry.normalizedName === where.normalizedName);
+    return found ? { isActive: found.isActive, user: found.user } : null;
+  });
+  stub(prisma.user, 'findMany', async ({ where }: any) => {
+    if (where?.name?.equals) {
+      return users.filter(u => u.isActive && u.name.toLowerCase() === where.name.equals.toLowerCase());
+    }
+    return [];
+  });
+  stub(prisma.user, 'findUnique', async ({ where }: any) => users.find(u => u.id === where.id) ?? null);
+  stub(prisma.rolePolicy, 'findUnique', async ({ where }: any) => rmaTestPolicy(where.role));
+  stub(prisma.notification, 'create', async ({ data }: any) => { createdNotifications.push(data); return data; });
+  stub(prisma.notificationLog, 'create', async ({ data }: any) => { createdLogs.push(data); return data; });
+  stub(nodemailer, 'createTransport', () => ({
+    sendMail: async (message: mailer.MailMessage) => { sentEmails.push(message); return {}; },
+  }));
+
+  await notify4PM(new Date('2026-11-13T08:00:00.000Z'));
+
+  assert.equal(createdNotifications.length, 2, 'Denied-RMA-only AM receives no summary');
+  assert.equal(sentEmails.length, 2);
+  assert.equal(createdLogs.length, 2);
+
+  const liaNotif = createdNotifications.find(n => n.userId === logisticsDeniedRma.id);
+  const liaEmail = sentEmails.find(m => m.to === logisticsDeniedRma.email);
+  assert.ok(liaNotif);
+  assert.ok(liaEmail);
+  assert.ok(liaNotif.title.includes('1 open record'));
+  assert.ok(liaNotif.message.includes('DEL-26-00010'));
+  assert.ok(liaNotif.message.includes('Allowed Delivery Co'));
+  assert.ok(!liaNotif.message.includes('RMA-26-00010'));
+  assert.ok(!liaNotif.message.includes('Hidden RMA Co'));
+  assert.ok(!String(liaEmail.text).includes('RMA-26-00010'));
+  assert.ok(!String(liaEmail.text).includes('Hidden RMA Co'));
+
+  assert.equal(createdNotifications.some(n => n.userId === tassDeniedOnlyRma.id), false);
+  assert.equal(sentEmails.some(m => m.to === tassDeniedOnlyRma.email), false);
+
+  const tobyNotif = createdNotifications.find(n => n.userId === tassAllowedRma.id);
+  assert.ok(tobyNotif);
+  assert.ok(tobyNotif.message.includes('RMA-26-00012'));
+  assert.ok(tobyNotif.message.includes('Visible RMA Co'));
 });

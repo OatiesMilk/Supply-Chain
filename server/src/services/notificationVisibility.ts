@@ -18,10 +18,12 @@ export function notificationVisibility(user: AuthUser) {
   }
   const recordVisible = Prisma.sql`r."id" IS NOT NULL AND r."deletedAt" IS NULL AND ${category} AND ${ownership}`;
 
+  const summaryVisible = Prisma.sql`(n."recordType" = 'ScopedSummary' AND n."recordId" = ${user.permissionVersion})`;
+
   if (user.activeMode === 'V1') {
     const resource = (name: string) => !!user.snapshot && hasActionPermission(user.snapshot, 'RESOURCE', name, 'READ');
     return Prisma.sql`(
-      (n."recordType" = 'ScopedSummary' AND n."recordId" = ${user.permissionVersion}) OR
+      ${summaryVisible} OR
       (n."recordType" = 'DeliveryRecord' AND ${recordVisible}) OR
       (n."recordType" IN ('SKU', 'Product', 'InventoryTransaction') AND ${resource('skus')}) OR
       (n."recordType" = 'Customer' AND ${resource('customers')}) OR
@@ -30,5 +32,9 @@ export function notificationVisibility(user: AuthUser) {
       (n."recordType" IN ('User', 'RolePolicy', 'UserPermission', 'UserPermissionOverride', 'UserAuthorization') AND ${resource('admin')})
     )`;
   }
-  return Prisma.sql`(n."recordType" IS DISTINCT FROM 'DeliveryRecord' OR (${recordVisible}))`;
+  return Prisma.sql`(
+    ${summaryVisible} OR
+    (n."recordType" = 'DeliveryRecord' AND (${recordVisible})) OR
+    (n."recordType" IS DISTINCT FROM 'DeliveryRecord' AND n."recordType" IS DISTINCT FROM 'ScopedSummary')
+  )`;
 }

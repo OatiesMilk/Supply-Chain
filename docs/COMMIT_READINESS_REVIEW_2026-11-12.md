@@ -26,6 +26,7 @@ Individual tests also select V1 explicitly; this is not deployed V1 activation.
 | Post-merge (`40c14af`) + P2 fixes `npm run lint --workspace=client` & `server` | Passed | Current working tree; TypeScript only |
 | Post-merge (`40c14af`) + P2 fixes `npm run test:client` | 442 total: 441 passed, 0 failed, 1 skipped | Current working tree; 1 skipped test requires isolated PostgreSQL |
 | Post-merge (`40c14af`) + P2 fixes `PERMISSION_MODE=LEGACY npm run test:server` | 587 total: 575 passed, 0 failed, 12 skipped | Current working tree; doubles/router tests, 12 skipped checks require designated PostgreSQL |
+| Post-review LEGACY permission fixes (`lint`, `test:client`, `PERMISSION_MODE=LEGACY npm run test:server`, `build`) | Client 442 total (441 passed, 0 failed, 1 skipped); Server 590 total (578 passed, 0 failed, 12 skipped); lint & build passed | Working tree after `loadLegacySession` + `ScopedSummary` LEGACY fix; doubles/router tests, PostgreSQL/E2E/provider delivery unchanged |
 
 The eight skipped checks require designated PostgreSQL targets: permission
 conversion, permission management, attachment deletion, RMA activation, seeded
@@ -43,11 +44,11 @@ Aligned [DriverView](../client/src/features/drivers/DriverView.tsx) and [driverS
 
 ### P2 — 4 PM in-app summaries use a user ID as a DeliveryRecord ID (Resolved)
 
-Extracted scheduled notification jobs into [scheduledNotifications.ts](../server/src/services/scheduledNotifications.ts) and updated `notify4PM` to store `recordType: 'ScopedSummary'` and `recordId: session.permissionVersion` (matching [scopedSummaries.ts](../server/src/services/scopedSummaries.ts) and [notificationVisibility.ts](../server/src/services/notificationVisibility.ts)). Verified by [scheduledNotifications.test.ts](../server/tests/scheduledNotifications.test.ts).
+Extracted scheduled notification jobs into [scheduledNotifications.ts](../server/src/services/scheduledNotifications.ts) and updated `notify4PM` to store `recordType: 'ScopedSummary'` and `recordId: session.permissionVersion` (matching [scopedSummaries.ts](../server/src/services/scopedSummaries.ts)). [notificationVisibility.ts](../server/src/services/notificationVisibility.ts) now checks `ScopedSummary` against `user.permissionVersion` in both `V1` and `LEGACY` modes while preserving generic non-summary alerts in `LEGACY`. Verified by [scheduledNotifications.test.ts](../server/tests/scheduledNotifications.test.ts) and [permissionVisibility.test.ts](../server/tests/permissionVisibility.test.ts).
 
 ### P2 — 4 PM AM resolution bypasses directory identity rules (Resolved)
 
-Updated `notify4PM` in [scheduledNotifications.ts](../server/src/services/scheduledNotifications.ts) to resolve AM accounts exclusively via [accountManagerMailUsers](../server/src/services/accountDirectory.ts#L149) and filter records with [canReadRecord](../server/src/services/recordAccess.ts#L54). Deactivated AMs, inactive linked logins, and ambiguous duplicate names no longer receive alerts. Verified by [scheduledNotifications.test.ts](../server/tests/scheduledNotifications.test.ts).
+Updated `notify4PM` in [scheduledNotifications.ts](../server/src/services/scheduledNotifications.ts) to resolve AM accounts exclusively via [accountManagerMailUsers](../server/src/services/accountDirectory.ts#L149), load the full `LEGACY` session context via [loadLegacySession](../server/src/services/sessionPermissions.ts) (matching [auth.ts](../server/src/middleware/auth.ts) and [mailPermissions.ts](../server/src/services/mailPermissions.ts) so RMA `RolePolicy` and `UserPermissionOverride` denials apply), and filter records with [canReadRecord](../server/src/services/recordAccess.ts#L54). Deactivated AMs, inactive linked logins, and ambiguous duplicate names no longer receive alerts. Verified by [scheduledNotifications.test.ts](../server/tests/scheduledNotifications.test.ts).
 
 ### P2 — Mixed weekly email outcomes are collapsed into SENT (Resolved)
 

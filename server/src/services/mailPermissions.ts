@@ -1,9 +1,8 @@
 import type { AuthUser } from '../middleware/auth';
 import { prisma } from '../db';
 import { canCreateCategory, canPerformRecordAction, canReadRecord, canWriteCategory } from './recordAccess';
-import { loadPermissionSession } from './sessionPermissions';
+import { loadLegacySession, loadPermissionSession } from './sessionPermissions';
 import { permissionMode } from './permissionManagement';
-import { sessionUser } from './permissions';
 import { accountManagerMailUsers } from './accountDirectory';
 
 export const MAIL_TRIGGERS = ['Accomplished', 'Rescheduled', 'On-Hold', 'RMA Completed', 'Collection Verified', 'Record Created'] as const;
@@ -50,14 +49,10 @@ export async function recordMailRecipients(recipients: readonly string[], record
 
 /** Mail disclosures follow the recipient's current account permissions in either mode. */
 async function recipientCanReadRecord(id: string, record: any): Promise<boolean> {
-  if (permissionMode() === 'V1') {
-    const loaded = await loadPermissionSession(prisma, id);
-    return !!loaded?.isActive && canReadRecord(loaded.session as AuthUser, record);
-  }
-  const user = await prisma.user.findUnique({ where: { id }, include: { permissions: true, driverProfile: true } });
-  if (!user?.isActive) return false;
-  const session = { ...sessionUser(user), driverProfileId: user.driverProfile?.type === 'DRIVER' && user.driverProfile.isActive ? user.driverProfile.id : null } as AuthUser;
-  return canReadRecord(session, record);
+  const loaded = permissionMode() === 'V1'
+    ? await loadPermissionSession(prisma, id)
+    : await loadLegacySession(prisma, id);
+  return !!loaded?.isActive && canReadRecord(loaded.session as AuthUser, record);
 }
 
 /** Deployment-owned mapping, never a request-supplied address or inferred display label.
