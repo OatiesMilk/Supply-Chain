@@ -5,20 +5,23 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from '@/api';
 import type { DeliveryRecord, DeliveryStatus, UserRole } from '@/types';
 import { VEHICLES } from '@/data';
-import PodUploader from '@/components/PodUploader';
+import NextStepCard from './NextStepCard';
+import MarkDeliveredDialog, { type CompletionValues } from './MarkDeliveredDialog';
+import StartTransportDialog from './StartTransportDialog';
+import { START_LABEL, completionLabels, recordingForLine } from '@/utils/completionDialog';
 import { useWorkspaceDraft } from './WorkspaceDrafts';
 import { useDriversQuery } from '@/api/queries/useDriversQuery';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
 import { invalidateOperationalQueries, normalizeApiRecord, saveRecordToCache, useRecordDetailQuery } from '@/api/queries/useRecordsQuery';
 import { operationalSyncOptions } from '@/api/queries/operationalSync';
-import { RMA_MOVEMENT_LABELS, RMA_RECEIVED_BY_MAX, rmaLogisticsTransportNotice, rmaReceivedByError } from '@/utils/rmaTransport';
+import { RMA_MOVEMENT_LABELS, rmaLogisticsTransportNotice } from '@/utils/rmaTransport';
 import { formatManilaTimestamp } from '@/utils/manilaTimestamp';
 import { rankDriversByCoverage } from '@/utils/driverCoverage';
 import { notify } from '@/utils/notify';
 import { Check, ChevronDown, CircleAlert, CircleCheck, Loader2 } from 'lucide-react';
 import { WorkflowSection, workflowFieldHintClass, workflowFieldLabelClass, workflowInputClass, workflowPrimaryButtonClass, workflowSelectClass } from './WorkflowSection';
 
-type Action = 'assign' | 'start' | 'transport-complete' | 'receive' | 'complete' | 'status';
+type Action = 'assign' | 'receive' | 'complete' | 'status';
 
 function SummaryItem({ label, value }: { label: string; value: string }) {
   return <div className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
@@ -57,12 +60,14 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
     status: access.canRecord('RMA', 'STATUS') && allowed.status && !finished && (currentUserRole === 'TASS' || currentUserRole === 'Admin'),
   } : undefined;
   const directory = useDriversQuery(caps?.assign === true);
-  const { readiness, uploadStaged } = usePodAttachments(record.id);
+  const { readiness } = usePodAttachments(record.id);
   const [driverId, setDriverId] = useState(record.driver_id ?? '');
   const [vehicle, setVehicle] = useState(record.vehicle || '(None)');
   const [assistants, setAssistants] = useState(record.driver_assistants ?? []);
   const [recipient, setRecipient] = useState('');
-  const [receivedBy, setReceivedBy] = useState('');
+  const [dialog, setDialog] = useState<'start' | 'complete' | null>(null);
+  const [dialogVersion, setDialogVersion] = useState(0);
+  const [cardFocus, setCardFocus] = useState(0);
   const [nextStatus, setNextStatus] = useState<DeliveryStatus | ''>('');
   const [remarks, setRemarks] = useState('');
   const [dirty, setDirty] = useState(false);
@@ -85,7 +90,7 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
   };
   const mutation = useMutation({
     mutationFn: async (action: Action) => {
-      const permission = action === 'assign' ? caps?.assign : action === 'start' || action === 'transport-complete' ? caps?.transport : action === 'receive' ? caps?.receive : action === 'status' ? caps?.status : caps?.complete;
+      const permission = action === 'assign' ? caps?.assign : action === 'receive' ? caps?.receive : action === 'status' ? caps?.status : caps?.complete;
       if (!permission) throw new Error('This action is no longer available for your account.');
       const precondition = { expected_version: dirty ? editVersion : version, remarks: remarks.trim() };
       if (!precondition.remarks) throw new Error('Enter remarks before saving.');
@@ -93,17 +98,6 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
         ...precondition, driver_id: driverId || null, vehicle,
         driver_assistants: assistants,
       });
-      if (action === 'start' || action === 'transport-complete') {
-        if (action === 'transport-complete') {
-          const missing = rmaReceivedByError(receivedBy);
-          if (missing) throw new Error(missing);
-          await uploadStaged();
-        }
-        return api.progressRmaTransport(record.id, {
-          ...precondition, transport_status: action === 'start' ? 'IN_TRANSIT' : 'COMPLETED',
-          ...(action === 'transport-complete' ? { received_by: receivedBy.trim() } : {}),
-        });
-      }
       if (action === 'status') {
         if (!nextStatus) throw new Error('Select an RMA status.');
         return api.patchStatus(record.id, nextStatus, precondition.remarks, { expected_version: precondition.expected_version });
@@ -119,14 +113,9 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
       setDirty(false);
       setRemarks('');
       setRecipient('');
-      setReceivedBy('');
       setNextStatus('');
-      const message = action === 'assign' ? 'Driver assignment saved.'
-        : action === 'start' ? 'Transport started.'
-          : action === 'transport-complete' ? 'RMA transport accomplished. Awaiting TASS receipt.'
-            : 'Workflow update saved.';
+      const message = action === 'assign' ? 'Driver assignment saved.' : 'Workflow update saved.';
       setFeedback(message);
-      if (action === 'transport-complete') notify.success(message);
       await invalidateOperationalQueries(client);
     },
     onError: async error => {
@@ -144,19 +133,38 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
   const denied = detail.error instanceof ApiError && [401, 403, 404].includes(detail.error.status);
   if (denied) return <section role="region" aria-label="RMA transport" className={embedded ? 'rounded-lg border border-red-200 bg-red-50 p-3' : 'rounded-xl border border-slate-200 bg-white p-5'}><p role="alert">This RMA is no longer available to your account.</p></section>;
 
+  const openDialog = (kind: 'start' | 'complete') => { setDialogVersion(record.rma_version ?? 0); setDialog(kind); };
+  const closeDialog = (reason: 'cancel' | 'success') => { setDialog(null); if (reason === 'success') setCardFocus(value => value + 1); };
+  /** Saves with the version the dialog opened with; a stale version keeps the dialog open and refreshes the record. */
+  const saveTransport = async (data: { transport_status: 'IN_TRANSIT' | 'COMPLETED'; remarks: string; received_by?: string }, success: string) => {
+    try {
+      const saved = await api.progressRmaTransport(record.id, { ...data, expected_version: dialogVersion });
+      await saveRecordToCache(client, normalizeApiRecord(saved));
+      notify.success(success);
+      await invalidateOperationalQueries(client);
+    } catch (error) {
+      await invalidateOperationalQueries(client);
+      if (error instanceof ApiError && error.status === 409) throw new Error('This RMA changed in another session. Close this and try again.');
+      throw error;
+    }
+  };
+  const startTransport = (remarks: string) => saveTransport({ transport_status: 'IN_TRANSIT', remarks }, 'Transport started.');
+  const completeTransport = ({ receivedBy, remarks }: CompletionValues) => saveTransport({ transport_status: 'COMPLETED', remarks, received_by: receivedBy }, 'Transport complete. Waiting for TASS receipt.');
+
   const busy = mutation.isPending;
   const canSave = !!remarks.trim() && !busy && !staleForm && !detail.isError && !capabilities.isError;
   const drivers = (directory.data ?? []).filter(entry => entry.type === 'DRIVER' && entry.is_active);
   const rankedDrivers = rankDriversByCoverage(drivers, entry => entry.coverage_areas, record.area);
   const coveringCount = rankedDrivers.area.length + rankedDrivers.subregion.length;
   const assistantOptions = (directory.data ?? []).filter(entry => entry.type === 'ASSISTANT' && entry.is_active);
-  const canStart = caps?.transport && record.rma_transport_status === 'PENDING';
-  const canFinishTransport = caps?.transport && record.rma_transport_status === 'IN_TRANSIT';
-  const receivedByInvalid = !!canFinishTransport && rmaReceivedByError(receivedBy) !== null;
-  const transportNotice = currentUserRole === 'Logistics' && internalTransport && !finished && allowed
-    ? rmaLogisticsTransportNotice(record, !!caps?.transport) : null;
+  const transportStep = caps?.transport && record.rma_transport_status === 'PENDING' ? 'start' as const
+    : caps?.transport && record.rma_transport_status === 'IN_TRANSIT' ? 'complete' as const : null;
+  const futureNotice = !transportStep && currentUserRole === 'Logistics' && internalTransport && !finished && allowed
+    ? rmaLogisticsTransportNotice(record, false) : null;
+  const recordingFor = transportStep && currentUserRole !== 'Driver' ? recordingForLine(record.driver) : null;
+  const transportReference = record.rma_reference || record.record_no || '';
   const statusOptions = caps?.status ? (record.allowed_statuses ?? []).filter(status => !['Draft', 'Delivered', 'In Transit'].includes(status)) : [];
-  const hasAction = caps?.assign || caps?.transport || caps?.receive || caps?.complete || statusOptions.length > 0;
+  const hasAction = caps?.assign || caps?.receive || caps?.complete || statusOptions.length > 0;
   const savedAssistants = record.driver_assistants ?? [];
   const assignmentChanged = driverId !== (record.driver_id ?? '')
     || vehicle !== (record.vehicle || '(None)')
@@ -201,6 +209,20 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
       <p>Updates could not sync. Your saved view is shown; actions are paused. <button type="button" className="min-h-11 font-semibold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700" onClick={() => { void detail.refetch(); void capabilities.refetch(); }}>Retry sync</button></p>
     </div>}
     {capabilities.isPending && <p role="status" className="flex items-center gap-2 text-sm text-slate-600"><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Loading available actions…</p>}
+
+    {(transportStep || futureNotice) && <NextStepCard title="Transport"
+      text={transportStep === 'start' ? `Transport not started${record.driver ? ` · Driver: ${record.driver}` : ''}`
+        : transportStep === 'complete' ? `In transit${record.rma_transport_started_at ? ` since ${formatManilaTimestamp(record.rma_transport_started_at)}` : ''}${record.driver ? ` · Driver: ${record.driver}` : ''}`
+          : futureNotice!.text}
+      buttonLabel={transportStep === 'start' ? START_LABEL : transportStep === 'complete' ? completionLabels('RMA').button : undefined}
+      onAction={transportStep ? () => openDialog(transportStep) : undefined} disabled={busy} focusSignal={cardFocus}
+      actionHint={transportStep === 'start' ? 'Opens a short form for remarks.' : transportStep === 'complete' ? 'Opens a short form for the proof photo, Received by and remarks.' : undefined}>
+      {recordingFor && <p className="mt-2 text-sm text-slate-700">{recordingFor}</p>}
+    </NextStepCard>}
+    {transportStep && <>
+      <StartTransportDialog open={dialog === 'start'} company={record.company_name} typeLabel="RMA" reference={transportReference} driver={record.driver} showRecordingFor={currentUserRole !== 'Driver'} timeInNote={false} onConfirm={startTransport} onClose={closeDialog} />
+      <MarkDeliveredDialog open={dialog === 'complete'} recordId={record.id} category="RMA" rma company={record.company_name} typeLabel="RMA" reference={transportReference} driver={record.driver} showRecordingFor={currentUserRole !== 'Driver'} onConfirm={completeTransport} onClose={closeDialog} />
+    </>}
 
     {caps?.assign && <WorkflowSection title="Driver & transport details" description={`Choose the crew for this return. Drivers covering ${record.area} are listed first.`}>
       <fieldset disabled={busy} aria-label="RMA driver assignment" className="min-w-0 space-y-4 border-0 p-0">
@@ -267,8 +289,6 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
       </fieldset>
     </WorkflowSection>}
 
-    {caps?.pod && <PodUploader recordId={record.id} required disabled={busy} purpose="transport" />}
-    {transportNotice && <p role="status" data-testid="rma-transport-notice" className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm text-[#1F3864]">{transportNotice.text}</p>}
     {hasAction && <WorkflowSection variant="flat" title={embedded ? 'Transport actions' : 'RMA workflow actions'} description="Available actions depend on the return movement, current stage, and your role.">
     {caps?.receive && <label htmlFor={`${id}-recipient`} className={fieldLabel}>Recipient
       <input id={`${id}-recipient`} value={recipient} className={input} disabled={busy} onChange={event => { beginEdit(); setRecipient(event.target.value); }} placeholder="Name of recipient / collector" />
@@ -284,10 +304,6 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
       </span>
       <span className={fieldHint}>Current status: {record.status}</span>
     </label>}
-    {canFinishTransport && <label htmlFor={`${id}-received-by`} className={fieldLabel}>Received by <span className="text-red-600">Required</span>
-      <input id={`${id}-received-by`} value={receivedBy} maxLength={RMA_RECEIVED_BY_MAX} className={input} disabled={busy} onChange={event => { beginEdit(); setReceivedBy(event.target.value); }} placeholder="Name of the person who received the item" />
-      <span className={fieldHint}>Saved with the transport completion. TASS still confirms physical receipt.</span>
-    </label>}
     {hasAction && <label htmlFor={`${id}-remarks`} className={fieldLabel}>Remarks <span className="text-red-600">Required</span>
       <textarea id={`${id}-remarks`} required value={remarks} rows={3} aria-describedby={`${id}-remarks-help`} className={`${input} resize-y`} disabled={busy} onChange={event => { beginEdit(); setRemarks(event.target.value); }} placeholder="Reason for this workflow update" />
       <span id={`${id}-remarks-help`} className={fieldHint}>This reason is saved to the RMA audit trail.</span>
@@ -295,9 +311,8 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
 
     {staleForm && <div role="alert" className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
       <CircleAlert aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
-      <p>This RMA changed while you were editing. Review the latest saved state before retrying. <button type="button" className="min-h-11 font-semibold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-800" onClick={() => { setDirty(false); setRemarks(''); setRecipient(''); setReceivedBy(''); setNextStatus(''); setFeedback(''); }}>Use latest saved values</button></p>
+      <p>This RMA changed while you were editing. Review the latest saved state before retrying. <button type="button" className="min-h-11 font-semibold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-800" onClick={() => { setDirty(false); setRemarks(''); setRecipient(''); setNextStatus(''); setFeedback(''); }}>Use latest saved values</button></p>
     </div>}
-    {canFinishTransport && !readiness.hasPhoto && <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600">Save a transport proof photo before completing transport.</p>}
 
     <div className="space-y-3 border-t border-slate-200 pt-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -310,12 +325,6 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
         <div className="flex flex-wrap gap-2 sm:justify-end">
           {caps?.assign && <button type="button" className={button} disabled={!canSave || !assignmentChanged || directory.isPending || directory.isError} onClick={() => mutation.mutate('assign')}>
             {busy && mutation.variables === 'assign' ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Saving assignment…</> : 'Save assignment'}
-          </button>}
-          {canStart && <button type="button" className={button} disabled={!canSave} onClick={() => mutation.mutate('start')}>
-            {busy && mutation.variables === 'start' ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Starting…</> : 'Start transport'}
-          </button>}
-          {canFinishTransport && <button type="button" className={button} disabled={!canSave || receivedByInvalid || !readiness.hasPhoto || readiness.loading || readiness.uploading || readiness.loadFailed} onClick={() => mutation.mutate('transport-complete')}>
-            {busy && mutation.variables === 'transport-complete' ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Completing…</> : 'Complete transport'}
           </button>}
           {caps?.receive && <button type="button" className={button} disabled={!canSave || !recipient.trim()} onClick={() => mutation.mutate('receive')}>
             {busy && mutation.variables === 'receive' ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Confirming…</> : 'Confirm physical receipt'}
@@ -335,7 +344,7 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
       {mutation.isError ? <CircleAlert aria-hidden="true" className="h-4 w-4 shrink-0" /> : <CircleCheck aria-hidden="true" className="h-4 w-4 shrink-0" />}
       <span>{feedback}</span>
     </div>}
-    {!hasAction && !finished && !transportNotice && !capabilities.isPending && !capabilities.isError && <p className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600"><CircleAlert aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />No workflow action is available for this record and account.</p>}
+    {!hasAction && !finished && !transportStep && !futureNotice && !capabilities.isPending && !capabilities.isError && <p className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600"><CircleAlert aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />No workflow action is available for this record and account.</p>}
     </div>
   </section>;
 }

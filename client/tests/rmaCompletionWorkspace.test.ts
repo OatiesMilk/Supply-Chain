@@ -31,6 +31,9 @@ async function fixture() {
     queueMicrotask(() => request.onsuccess?.()); return request;
   } };
   dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+  // JSDOM has no native dialog behavior; the dialogs' handlers and markup are what these tests cover.
+  dom.window.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+  dom.window.HTMLDialogElement.prototype.close = function () { this.open = false; };
   for (const [name, value] of Object.entries({ window: dom.window, document: dom.window.document, navigator: dom.window.navigator, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement, Node: dom.window.Node, getComputedStyle: dom.window.getComputedStyle.bind(dom.window), indexedDB, requestAnimationFrame: (callback: () => void) => { callback(); return 0; }, IDBKeyRange: { only: (value: unknown) => value }, IS_REACT_ACT_ENVIRONMENT: true })) Object.defineProperty(globalThis, name, { value, configurable: true });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const { createRoot } = await import('react-dom/client');
@@ -65,6 +68,10 @@ async function fixture() {
     for (const name of ['window', 'document', 'navigator', 'Element', 'HTMLElement', 'Node', 'getComputedStyle', 'indexedDB', 'IDBKeyRange', 'requestAnimationFrame', 'IS_REACT_ACT_ENVIRONMENT']) { if (original[name]) Object.defineProperty(globalThis, name, original[name]); else Reflect.deleteProperty(globalThis, name); }
   } };
 }
+const dialogButton = (ui: { dom: JSDOM }, title: string, label: string) => {
+  const dialog = [...ui.dom.window.document.querySelectorAll('dialog')].find(item => item.querySelector('h2')?.textContent === title);
+  return [...(dialog?.querySelectorAll('button') ?? [])].find(item => item.textContent?.trim() === label) as HTMLButtonElement | undefined;
+};
 const none = { assign: false, transport: false, receive: false, complete: false, pod: false };
 
 test('TASS confirms physical receipt separately before final completion without a metadata PUT or driver clocks', async () => {
@@ -124,12 +131,14 @@ test('Driver transport completion requires POD and never calls the final RMA sta
   const transport = mock.method(api, 'progressRmaTransport', async () => record = { ...record, rma_version: 1, rma_transport_status: 'COMPLETED', rma_transport_completed_at: '2026-10-28T02:00:00Z' });
   try {
     await ui.render(record, 'Driver');
-    await ui.input('Remarks', 'Transport finished'); assert.equal(ui.button('Complete transport')!.disabled, true);
+    assert.equal(ui.button('Complete transport'), undefined, 'no inline completion controls');
+    await act(async () => ui.button('Mark as delivered')!.click()); await ui.flush();
+    await ui.input('Remarks', 'Transport finished'); assert.equal(dialogButton(ui, 'Mark as delivered', 'Mark as delivered')!.disabled, true);
     photos = [{ id: 'photo', original_name: 'pod.png', mime_type: 'image/png', is_photo: true }]; await act(async () => { await ui.client.invalidateQueries({ queryKey: ['pod-attachments', record.id] }); }); await ui.flush();
-    assert.equal(ui.button('Complete transport')!.disabled, true, 'Received by is required');
+    assert.equal(dialogButton(ui, 'Mark as delivered', 'Mark as delivered')!.disabled, true, 'Received by is required');
     await ui.input('Received by', 'Warehouse guard');
-    assert.equal(ui.button('Complete transport')!.disabled, false); await act(async () => ui.button('Complete transport')!.click()); await ui.flush();
-    assert.equal(transport.mock.callCount(), 1); assert.equal((transport.mock.calls[0].arguments[1] as any).received_by, 'Warehouse guard'); assert.equal(final.mock.callCount(), 0); assert.equal(record.status, 'Scheduled'); assert.equal(record.rma_received_at, undefined);
+    assert.equal(dialogButton(ui, 'Mark as delivered', 'Mark as delivered')!.disabled, false); await act(async () => dialogButton(ui, 'Mark as delivered', 'Mark as delivered')!.click()); await ui.flush();
+    assert.equal(transport.mock.callCount(), 1); assert.equal((transport.mock.calls[0].arguments[1] as any).received_by, 'Warehouse guard'); assert.equal((transport.mock.calls[0].arguments[1] as any).expected_version, 0); assert.equal(final.mock.callCount(), 0); assert.equal(record.status, 'Scheduled'); assert.equal(record.rma_received_at, undefined);
     assert.match(ui.dom.window.document.body.textContent!, /Transport: Complete/); assert.equal(ui.button('Complete RMA'), undefined);
     await ui.render(initialRecord, 'Logistics', true);
     const summary = () => ui.dom.window.document.querySelector('[aria-label="Record summary"]')!.textContent!;
@@ -157,23 +166,24 @@ test('a TASS-finalized RMA is read-only and displays its completed state to its 
   } finally { await ui.close(); }
 });
 
-test('RMA POD stays hidden until transport starts, even if capabilities are stale', async () => {
+test('RMA proof uploader stays out of the page; transport steps open dialogs, even if capabilities are stale', async () => {
   const ui = await fixture(); let record = base({ rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'PENDING', driver_id: 'driver-a', driver: 'Driver A' });
   mock.method(api, 'getRecord', async () => record);
   mock.method(api, 'getRecordAttachments', async () => []);
-  // The panel must still honor the record lifecycle if an earlier capability
-  // response says POD is allowed while this record is pending.
+  // An earlier capability response may say POD is allowed while this record is pending.
   mock.method(api, 'getRmaCapabilities', async () => ({ ...none, transport: true, pod: true }));
   const start = mock.method(api, 'progressRmaTransport', async () => record = { ...record, rma_version: 1, rma_transport_status: 'IN_TRANSIT' });
   try {
     await ui.render(record, 'Driver');
-    assert.equal(ui.button('Start transport')?.disabled, true);
-    assert.equal(ui.button('Select Photo / Document'), undefined);
-
-    await ui.input('Remarks', 'Starting the return transport');
+    const doc = ui.dom.window.document;
+    assert.equal([...doc.querySelectorAll('input[type=file]')].length, 0, 'no uploader on the page before any dialog opens');
+    assert.equal(ui.button('Mark as delivered'), undefined, 'cannot complete a pending transport');
     await act(async () => ui.button('Start transport')!.click()); await ui.flush();
+    assert.equal(dialogButton(ui, 'Start transport', 'Start transport')!.disabled, true, 'remarks are required');
+    await ui.input('Remarks', 'Starting the return transport');
+    await act(async () => dialogButton(ui, 'Start transport', 'Start transport')!.click()); await ui.flush();
     assert.equal(start.mock.callCount(), 1);
-    assert.ok(ui.button('Select Photo / Document'));
+    assert.ok(ui.button('Mark as delivered'), 'the card now offers Mark as delivered');
   } finally { await ui.close(); }
 });
 
@@ -284,7 +294,7 @@ test('record rows update from saved transport and ordinary status changes across
   }
 });
 
-test('Logistics records transport for the assigned driver with Received by, proof photo and a visible notice', async () => {
+test('Logistics starts and completes RMA transport through dialogs with a visible recording-for line', async () => {
   const ui = await fixture(); let record = base({ delivery_date: '2020-01-01', rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'PENDING', driver_id: 'driver-a', driver: 'Juan Driver' }); let photos: any[] = [];
   mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => photos);
   mock.method(api, 'getRmaCapabilities', async () => ({ ...none, transport: record.rma_transport_status !== 'COMPLETED', pod: record.rma_transport_status === 'IN_TRANSIT' }));
@@ -292,18 +302,43 @@ test('Logistics records transport for the assigned driver with Received by, proo
     rma_transport_status: data.transport_status === 'IN_TRANSIT' ? 'IN_TRANSIT' : 'COMPLETED' });
   try {
     await ui.render(record, 'Logistics');
-    assert.match(ui.dom.window.document.body.textContent!, /Recording for Juan Driver\. This is saved under your name\./);
-    assert.equal(ui.button('Complete transport'), undefined, 'nothing to complete before the start');
-    await ui.input('Remarks', 'Driver phone is dead'); await act(async () => ui.button('Start transport')!.click()); await ui.flush();
+    const text = () => ui.dom.window.document.body.textContent!;
+    assert.match(text(), /Recording for Juan Driver\. This is saved under your name\./);
+    assert.equal(ui.button('Mark as delivered'), undefined, 'nothing to complete before the start');
+    await act(async () => ui.button('Start transport')!.click()); await ui.flush();
+    await ui.input('Remarks', 'Driver phone is dead');
+    await act(async () => dialogButton(ui, 'Start transport', 'Start transport')!.click()); await ui.flush();
     assert.deepEqual(transport.mock.calls[0].arguments[1], { expected_version: 0, remarks: 'Driver phone is dead', transport_status: 'IN_TRANSIT' });
     await ui.render(record, 'Logistics');
-    assert.match(ui.dom.window.document.body.textContent!, /photo/i, 'the proof photo uploader is shown');
+    await act(async () => ui.button('Mark as delivered')!.click()); await ui.flush();
+    assert.match(text(), /Proof of Transport/);
+    assert.match(text(), /This completes the transport\. TASS still confirms receipt and completes the RMA\./);
     await ui.input('Remarks', 'Handed over'); await ui.input('Received by', 'x'.repeat(10));
-    assert.equal(ui.button('Complete transport')!.disabled, true, 'no saved photo yet');
+    assert.equal(dialogButton(ui, 'Mark as delivered', 'Mark as delivered')!.disabled, true, 'no saved photo yet');
     photos = [{ id: 'photo', original_name: 'pod.png', mime_type: 'image/png', is_photo: true }]; await act(async () => { await ui.client.invalidateQueries({ queryKey: ['pod-attachments', record.id] }); }); await ui.flush();
-    assert.equal(ui.button('Complete transport')!.disabled, false);
-    await act(async () => ui.button('Complete transport')!.click()); await ui.flush();
-    assert.equal((transport.mock.calls[1].arguments[1] as any).received_by, 'x'.repeat(10));
+    assert.equal(dialogButton(ui, 'Mark as delivered', 'Mark as delivered')!.disabled, false);
+    await act(async () => dialogButton(ui, 'Mark as delivered', 'Mark as delivered')!.click()); await ui.flush();
+    assert.deepEqual(transport.mock.calls[1].arguments[1], { expected_version: 1, remarks: 'Handed over', transport_status: 'COMPLETED', received_by: 'x'.repeat(10) });
+  } finally { await ui.close(); }
+});
+
+test('a stale RMA version keeps the dialog open with the message and refreshes the record', async () => {
+  const ui = await fixture(); const record = base({ delivery_date: '2020-01-01', rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'IN_TRANSIT', driver_id: 'driver-a', driver: 'Juan Driver' });
+  const { ApiError } = await import('../src/api');
+  const refetch = mock.method(api, 'getRecord', async () => record);
+  mock.method(api, 'getRecordAttachments', async () => [{ id: 'photo', original_name: 'pod.png', mime_type: 'image/png', is_photo: true }] as any);
+  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, transport: true, pod: true }));
+  mock.method(api, 'progressRmaTransport', async () => { throw new ApiError('conflict', 409); });
+  try {
+    await ui.render(record, 'Logistics');
+    await act(async () => ui.button('Mark as delivered')!.click()); await ui.flush();
+    await ui.input('Remarks', 'Handed over'); await ui.input('Received by', 'Guard');
+    const before = refetch.mock.callCount();
+    await act(async () => dialogButton(ui, 'Mark as delivered', 'Mark as delivered')!.click()); await ui.flush();
+    assert.ok(dialogButton(ui, 'Mark as delivered', 'Mark as delivered'), 'dialog stays open');
+    assert.match(ui.dom.window.document.body.textContent!, /This RMA changed in another session\. Close this and try again\./);
+    assert.equal((ui.field('Received by') as HTMLInputElement).value, 'Guard');
+    assert.ok(refetch.mock.callCount() > before, 'record refreshed');
   } finally { await ui.close(); }
 });
 
