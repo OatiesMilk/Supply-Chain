@@ -65,7 +65,7 @@ All record routes use `Auth` + `Res:records` + `Rec`. Responses use display stri
 | DELETE | `/records/:id/attachments/:attachmentId` | SC, LOG, ADM | Remove an attachment (audited) |
 | POST | `/records` | SC, LOG, ADM | Create. LOG cannot create RMA; SC cannot assign drivers. Required: `company_id`, `category`, `reference` (Drafts: `company_id`, `category`) |
 | PUT | `/records/:id` | SC, LOG, ADM, DRV, TASS | Edit fields; remarks required; field and category limits per role (TASS: RMA only; LOG: not RMA; DRV: own runs) |
-| POST | `/records/:id/time-in` | DRV, LOG, ADM | Record Time In (`{ "remarks": "..." }`); moves the run to In Transit |
+| POST | `/records/:id/time-in` | DRV, LOG, ADM | Record Time In (`{ "remarks": "..." }`); moves the run to In Transit. `remarks` is optional for DRV only: blank or missing is saved as `Transport started`; LOG and ADM still get 400 without remarks; a non-string value is 400 for every role. Also applies to `PATCH /records/:id/rma-transport` with `transport_status: IN_TRANSIT` (completion still requires remarks) |
 | PATCH | `/records/:id/status` | SC, LOG, ADM, DRV, TASS | Change status; transition and role rules in `deliveryLifecycle.ts` |
 | PATCH | `/records/:id/verify-collection` | TASS | Verify a delivered Accounting Collection once |
 | DELETE | `/records/:id` | SC | Soft delete |
