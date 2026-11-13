@@ -316,6 +316,21 @@ test('Logistics RMA assignment is bounded; internal/non-Logistics movements rema
   for (const action of ['UPDATE', 'POD', 'STATUS', 'RECEIVE', 'COMPLETE'] as const) assert.equal(canPerformPolicyRecordAction(snapshot, row, action, { rmaTransport: transport, targetStatus: 'Delivered' }), false);
 });
 
+test('Logistics with transport STATUS and POD may record transport only, never change RMA status', () => {
+  const snapshot = evaluatePermissions(withEffects(input(), { 'CATEGORY:RMA:WRITE': 'ALLOW', 'CATEGORY:RMA:ASSIGN': 'ALLOW', 'CATEGORY:RMA:STATUS': 'ALLOW', 'CATEGORY:RMA:POD': 'ALLOW' }));
+  const row = delivery({ category: 'RMA' });
+  const transport = { requiresLogistics: true, requiresInternalDriver: true, eligible: true, actionAllowed: true };
+  assert.equal(canPerformPolicyRecordAction(snapshot, row, 'STATUS', { rmaTransport: transport }), true);
+  assert.equal(canPerformPolicyRecordAction(snapshot, row, 'POD', { rmaTransport: transport }), true);
+  for (const targetStatus of ['Pending', 'On-Hold', 'Rescheduled', 'Delivered'] as const) assert.equal(canPerformPolicyRecordAction(snapshot, row, 'STATUS', { rmaTransport: transport, targetStatus }), false, targetStatus);
+  for (const action of ['STATUS', 'POD'] as const) {
+    assert.equal(canPerformPolicyRecordAction(snapshot, row, action, { rmaTransport: { ...transport, actionAllowed: false } }), false);
+    assert.equal(canPerformPolicyRecordAction(snapshot, row, action, { rmaTransport: { ...transport, eligible: false } }), false);
+    assert.equal(canPerformPolicyRecordAction(snapshot, row, action), false);
+  }
+  for (const action of ['UPDATE', 'RECEIVE', 'COMPLETE', 'TIME_IN'] as const) assert.equal(canPerformPolicyRecordAction(snapshot, row, action, { rmaTransport: transport }), false, action);
+});
+
 test('TASS alone may receive/finalize RMA; STATUS Delivered cannot bypass COMPLETE restriction', () => {
   const row = delivery({ category: 'RMA', driverId: null, driver: '', timeIn: null, timeOut: null });
   for (const role of ['ADMIN', 'LOGISTICS', 'SALES_COORDINATOR', 'DRIVER'] as const) {

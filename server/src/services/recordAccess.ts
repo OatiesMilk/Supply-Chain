@@ -226,6 +226,9 @@ export function canPerformPolicyRecordAction(
     // Assignment/transport may not manufacture driver clocks for internal or
     // non-Logistics movements. Physical receipt/final completion belong to TASS.
     if (action === 'ASSIGN' && !eligibleRmaTransport(options.rmaTransport)) return false;
+    // Logistics may record transport for the assigned Driver (Start, proof photo, Complete), never a status change.
+    if (role === 'LOGISTICS' && (action === 'STATUS' || action === 'POD')) return eligibleRmaTransport(options.rmaTransport)
+      && options.rmaTransport?.actionAllowed === true && (action !== 'STATUS' || options.targetStatus === undefined);
     if (role === 'DRIVER') return eligibleRmaTransport(options.rmaTransport) && options.rmaTransport?.actionAllowed === true
       && (action !== 'STATUS' || options.targetStatus === undefined);
   }
