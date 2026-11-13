@@ -197,6 +197,76 @@ test('Weekly report logs SKIPPED when there are no active Logistics or Admin rec
   assert.equal(createdLogs[0].status, 'SKIPPED');
 });
 
+test('Weekly report creates all in-app alerts before a slow email and continues after a log failure', async (t) => {
+  stubEnv(t);
+  const stub = installStubs(t);
+  const recipients = [
+    { id: 'u-log', email: 'log@example.test', name: 'Logistics User', role: 'LOGISTICS' },
+    { id: 'u-adm', email: 'admin@example.test', name: 'Admin User', role: 'ADMIN' },
+  ];
+  const notified: string[] = [];
+  const emailed: string[] = [];
+  const logs: any[] = [];
+  let releaseEmail!: () => void;
+  const emailGate = new Promise<void>(resolve => { releaseEmail = resolve; });
+  let emailStarted!: () => void;
+  const started = new Promise<void>(resolve => { emailStarted = resolve; });
+  stub(prisma.deliveryRecord, 'findMany', async () => []);
+  stub(prisma.user, 'findMany', async () => recipients);
+  stub(prisma.notification, 'create', async ({ data }: any) => { notified.push(data.userId); return data; });
+  stub(prisma.notificationLog, 'create', async ({ data }: any) => {
+    logs.push(data);
+    if (data.recipientName === recipients[0].name) throw new Error('Simulated log write failure');
+    return data;
+  });
+  stub(nodemailer, 'createTransport', () => ({
+    sendMail: async (message: mailer.MailMessage) => {
+      emailed.push(message.to);
+      if (message.to === recipients[0].email) { emailStarted(); await emailGate; }
+      return {};
+    },
+  }));
+  const job = notifyWeeklyReport(new Date('2026-11-13T08:00:00.000Z'));
+  try {
+    await started;
+    assert.deepEqual(notified, recipients.map(u => u.id), 'later alerts cannot wait on the first email');
+    assert.equal(logs.length, 0);
+  } finally {
+    releaseEmail();
+    await job;
+  }
+  assert.deepEqual(emailed, recipients.map(u => u.email));
+  assert.deepEqual(logs.map(log => log.recipientName), recipients.map(u => u.name));
+  assert.equal(logs[1].status, 'SENT');
+});
+
+test('Weekly report isolates a failed in-app alert and still attempts every recipient email', async (t) => {
+  stubEnv(t);
+  const stub = installStubs(t);
+  const recipients = [
+    { id: 'u-log', email: 'log@example.test', name: 'Logistics User', role: 'LOGISTICS' },
+    { id: 'u-adm', email: 'admin@example.test', name: 'Admin User', role: 'ADMIN' },
+  ];
+  const notified: string[] = [];
+  const emailed: string[] = [];
+  const logs: any[] = [];
+  stub(prisma.deliveryRecord, 'findMany', async () => []);
+  stub(prisma.user, 'findMany', async () => recipients);
+  stub(prisma.notification, 'create', async ({ data }: any) => {
+    notified.push(data.userId);
+    if (data.userId === recipients[0].id) throw new Error('Simulated in-app write failure');
+    return data;
+  });
+  stub(prisma.notificationLog, 'create', async ({ data }: any) => { logs.push(data); return data; });
+  stub(nodemailer, 'createTransport', () => ({
+    sendMail: async (message: mailer.MailMessage) => { emailed.push(message.to); return {}; },
+  }));
+  await notifyWeeklyReport(new Date('2026-11-13T08:00:00.000Z'));
+  assert.deepEqual(notified, recipients.map(u => u.id));
+  assert.deepEqual(emailed, recipients.map(u => u.email));
+  assert.deepEqual(logs.map(log => log.status), ['SENT', 'SENT']);
+});
+
 test('4 PM summary in LEGACY mode loads RMA policy/overrides and excludes explicitly denied RMA records', async (t) => {
   stubEnv(t, 'LEGACY');
   const stub = installStubs(t);
