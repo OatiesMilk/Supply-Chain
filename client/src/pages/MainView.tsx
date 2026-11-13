@@ -10,6 +10,7 @@ import AllOpsExportMenu from "@/components/AllOpsExportMenu";
 import { StatusHistoryCounts } from "@/utils/export";
 import { DateSortMode, sortRecordsByDate } from "@/utils/allOpsExport";
 import Pagination, { DEFAULT_PAGE_SIZE } from "@/components/Pagination";
+import { recordLabel } from '../utils/recordLabel';
 
 interface MainViewProps {
   records: DeliveryRecord[];
@@ -328,7 +329,7 @@ export default function MainView({
                           {record.company_name}
                         </span>
                         <span className="block text-[10px] text-slate-400 font-mono">
-                          {record.id}
+                          {recordLabel(record)}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-slate-600 whitespace-nowrap">

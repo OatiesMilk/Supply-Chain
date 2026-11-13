@@ -1,9 +1,15 @@
-import { CheckCircle2, Clock, PauseCircle, RefreshCw, Truck, UserX } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Clock, Navigation, PauseCircle, RefreshCw, Truck, UserX } from 'lucide-react';
 import type { ApiDashboardOverview, ApiDashboardStats } from '@/api';
-import type { DeliveryStatus } from '@/types';
+import type { DeliveryCategory, DeliveryRecord, DeliveryStatus } from '@/types';
+import { screenKeyForCategory } from '@/routes/screenRouting';
 import type { DashboardFilterId } from '@/utils/dashboardFilters';
+import { jobTypeLabel } from '@/utils/driverJobs';
 import DashboardStatusChart from './DashboardStatusChart';
-import { DashboardPage, DashboardPanel, KpiRow, KpiTile, PanelError, TileSkeleton } from './ui';
+import {
+  DashboardPage, DashboardPanel, EmptyState, KpiRow, KpiTile, PanelError, RecordTable, StatusPill, TileSkeleton, formatDate, formatDateTime,
+  type RecordColumn,
+} from './ui';
+import { recordLabel } from '../../utils/recordLabel';
 
 type SalesStats = Extract<ApiDashboardStats, { role: 'SALES_COORDINATOR' }>;
 
@@ -23,6 +29,26 @@ interface Props {
 
 const CHART_STATUSES: DeliveryStatus[] = ['Scheduled', 'Pending', 'In Transit', 'On-Hold', 'Rescheduled', 'Delivered'];
 
+/** The SC job types a Driver runs, in footer order, each opened on its own screen. */
+const IN_TRANSIT_TYPES: Array<{ category: DeliveryCategory; label: string }> = [
+  { category: 'Deliveries', label: 'Deliveries' },
+  { category: 'Procurement Pick-up', label: 'Procurement Pickups' },
+  { category: 'Sales Orders', label: 'Sales Orders' },
+];
+
+const linkClass = 'inline-flex items-center gap-1 rounded-sm text-sm font-semibold text-[#1F3864] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]';
+
+const inTransitColumns: RecordColumn<DeliveryRecord>[] = [
+  { key: 'id', header: 'Record', render: record => record.id },
+  { key: 'type', header: 'Type', render: record => jobTypeLabel(record.category) },
+  { key: 'company', header: 'Company', render: record => <span className="block max-w-[14rem] truncate md:max-w-[12rem]" title={record.company_name}>{record.company_name}</span> },
+  { key: 'area', header: 'Area', render: record => record.area || 'Not set' },
+  { key: 'date', header: 'Planned date', render: record => formatDate(record.delivery_date) },
+  { key: 'driver', header: 'Driver', render: record => record.driver || 'Not set' },
+  { key: 'started', header: 'Started', render: record => formatDateTime(record.time_in) },
+  { key: 'status', header: 'Status', render: record => <StatusPill record={record} />, hideLabelWhenStacked: true },
+];
+
 export default function SalesCoordinatorDashboard({ stats, overview, overviewStatus, onRetryOverview, skuCount = 0, onNavigate, onRefresh, refreshing, canAccess = () => true }: Props) {
   const status = overviewStatus ?? (overview ? 'success' : 'pending');
   const open = (filter: DashboardFilterId) => (canAccess('deliveries') ? () => onNavigate('deliveries', undefined, filter) : undefined);
@@ -30,6 +56,8 @@ export default function SalesCoordinatorDashboard({ stats, overview, overviewSta
   const chartData = CHART_STATUSES.map(name => ({ status: name, count: overview?.status_totals[name] ?? 0 }));
   const attention = counts?.['sc-attention-all'] ?? 0;
   const recordTotal = (overview?.record_total ?? 0) + skuCount;
+  const inTransit = overview?.record_previews.in_transit ?? [];
+  const inTransitTotal = counts?.['sc-in-transit'] ?? 0;
 
   const pending = stats?.pending_driver_assignment;
   const onHold = stats?.on_hold;
@@ -88,6 +116,33 @@ export default function SalesCoordinatorDashboard({ stats, overview, overviewSta
             )}
           </DashboardPanel>
         </div>
+      </div>
+
+      <div id="in-transit-panel">
+        <DashboardPanel title="In transit" count={status === 'success' ? `${inTransitTotal} in transit` : undefined}
+          footer={status === 'success' && inTransitTotal > 0 ? (
+            <>
+              <span>Showing {inTransit.length} of {inTransitTotal}</span>
+              <span className="flex flex-wrap gap-x-4 gap-y-1">
+                {IN_TRANSIT_TYPES.filter(type => canAccess(screenKeyForCategory(type.category))).map(type => (
+                  <button key={type.category} type="button" className={linkClass}
+                    onClick={() => onNavigate(screenKeyForCategory(type.category), undefined, 'sc-in-transit')}>
+                    View {type.label} in transit <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                ))}
+              </span>
+            </>
+          ) : undefined}>
+          {status === 'pending' && <TileSkeleton lines={4} />}
+          {status === 'error' && <PanelError message="In-transit jobs could not be loaded." onRetry={onRetryOverview} />}
+          {status === 'success' && (inTransitTotal === 0
+            ? <EmptyState icon={<Navigation className="h-9 w-9 text-slate-500" />} title="No jobs are in transit"
+                description="Deliveries, Pick-ups and Sales Orders appear here once the driver starts the run." />
+            : <RecordTable rows={inTransit} columns={inTransitColumns} rowKey={record => record.id} caption="Jobs in transit, oldest planned date first"
+                onOpen={record => onNavigate(screenKeyForCategory(record.category), record.id)}
+                canOpen={record => canAccess(screenKeyForCategory(record.category))}
+                openLabel={record => `Open ${jobTypeLabel(record.category)} ${recordLabel(record)} for ${record.company_name}`} />)}
+        </DashboardPanel>
       </div>
     </DashboardPage>
   );

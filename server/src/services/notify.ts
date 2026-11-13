@@ -26,7 +26,7 @@ export async function notifyAccomplished(record: {
   const recipientRole = billing ? 'BILLING' : 'ACCOUNT_MANAGER';
   const subject = `${billing ? 'Collection Collected' : 'Delivery Accomplished'} — ${record.companyName}`;
   const text = [
-    `Record: ${record.id}`,
+    `Record: ${source?.recordNo ?? record.id}`,
     `Company: ${record.companyName}`,
     `Delivery Date: ${record.deliveryDate}`,
     `Reference / SAP Number: ${record.reference}`,

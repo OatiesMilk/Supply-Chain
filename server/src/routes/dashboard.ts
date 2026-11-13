@@ -8,6 +8,7 @@ import { visibleAuditEntries, visibleAuditCount } from '../services/auditVisibil
 import { asyncRoute } from '../middleware/asyncRoute';
 import { dashboardOverview } from '../services/dashboardOverview';
 import { dashboardRecordFilter } from '../services/dashboardFilters';
+import { recordNumbersForAudit } from '../services/recordIds';
 
 const router = Router();
 
@@ -42,7 +43,8 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
   // ── LOGISTICS ─────────────────────────────────────────────────────────────────
   if (role === 'LOGISTICS') {
     const [assignedToday, unassignedCount, completedToday, onHoldRescheduled] = await Promise.all([
-      'log-assigned-today', 'log-unassigned', 'log-completed-today', 'log-on-hold-rescheduled',
+      // No driver assigned counts every driver job type, the same set as the Transport requests panel.
+      'log-assigned-today', 'log-transport-requests', 'log-completed-today', 'log-on-hold-rescheduled',
     ].map(count));
     return res.json({
       role: 'LOGISTICS',
@@ -100,6 +102,7 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
       userBreakdown[g.role] = g._count._all;
     }
 
+    const recordNumbers = await recordNumbersForAudit(prisma, recentAudit);
     return res.json({
       role: 'ADMIN',
       total_active_users: activeUsers,
@@ -113,6 +116,7 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
         action: e.action,
         changed_by: e.changedBy.name,
         record_id: e.recordId,
+        record_no: recordNumbers.get(e.recordId) ?? null,
         record_type: e.recordType,
         timestamp: e.timestamp
       }))

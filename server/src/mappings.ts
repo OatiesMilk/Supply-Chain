@@ -67,6 +67,7 @@ export function serializeRecord(r: any, user?: AuthUser) {
   );
   return {
     id: r.id,
+    record_no: r.recordNo ?? null,
     edit_version: recordEditVersion(r),
     company_name: r.company?.name ?? '',
     company_id: r.companyId,
@@ -123,6 +124,7 @@ export function serializeRecord(r: any, user?: AuthUser) {
     linked_collection_id: canViewLinked ? (r.linkedCollectionId ?? null) : null,
     linked_collection: (canViewLinked && r.linkedCollection && !r.linkedCollection.draft) ? {
       id: r.linkedCollection.id,
+      record_no: r.linkedCollection.recordNo ?? null,
       reference: r.linkedCollection.reference,
       company_name: r.linkedCollection.company?.name ?? '',
       status: STATUS_FROM_DB[r.linkedCollection.status] ?? r.linkedCollection.status,

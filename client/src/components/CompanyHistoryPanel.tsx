@@ -7,6 +7,7 @@ import { useAuthStore } from '@/store/authStore';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useCompanyRecordsQuery } from '@/api/queries/useCompanyRecordsQuery';
 import { companyRecords, historyCategories, recordScreen } from '@/utils/companyHistory';
+import { recordLabel } from '../utils/recordLabel';
 
 interface CompanyHistoryPanelProps {
   open: boolean;
@@ -35,7 +36,7 @@ function RowBody({ record, note }: { record: DeliveryRecord; note?: string }) {
       <span aria-hidden="true" className={`w-1 shrink-0 self-stretch rounded-full ${CATEGORY_RAIL[record.category] ?? 'bg-slate-300'}`} />
       <span className="min-w-0 flex-1">
         <span className="flex items-center justify-between gap-3">
-          <span className="font-mono text-sm font-bold text-slate-900">{record.id}</span>
+          <span className="font-mono text-sm font-bold text-slate-900">{recordLabel(record)}</span>
           <RecordStatus record={record} />
         </span>
         <span className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">

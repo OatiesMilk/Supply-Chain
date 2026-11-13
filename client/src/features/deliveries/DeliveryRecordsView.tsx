@@ -42,6 +42,7 @@ import DateRangePicker from '@/components/DateRangePicker';
 import { DashboardFilterId, matchesDashboardFilter } from '@/utils/dashboardFilters';
 import DashboardFilterChip from '@/components/DashboardFilterChip';
 import { DATA_SAMPLER_ENABLED } from '@/utils/developmentTools';
+import { recordLabel } from '../../utils/recordLabel';
 
 interface DeliveryRecordsViewProps {
   category: DeliveryCategory;
@@ -115,7 +116,7 @@ export default function DeliveryRecordsView({
     appliedDateTo,
   } = dateRangeState(dateFrom, dateTo);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [creationBanner, setCreationBanner] = useState<{ recordId: string; referenceLabel: string; lines: string[] } | null>(null);
+  const [creationBanner, setCreationBanner] = useState<{ recordId: string; recordNo: string; referenceLabel: string; lines: string[] } | null>(null);
 
 
   // Bulk selection (Logistics only)
@@ -511,7 +512,7 @@ export default function DeliveryRecordsView({
   const exportColumns = isAC ? [...DELIVERY_COLUMNS, ...AC_EXTRA_COLUMNS] : isRma ? [...baseExportColumns, ...RMA_EXTRA_COLUMNS] : DELIVERY_COLUMNS;
   const pdfCols = isAC ? PDF_AC_COLUMNS : isRma ? PDF_RMA_COLUMNS : PDF_DELIVERY_COLUMNS;
   const exportRows = sortedFiltered.map(r => ({
-    id: r.id,
+    id: recordLabel(r),
     company_name: r.company_name,
     reference: r.reference,
     rma_reference: r.rma_reference ?? '',
@@ -603,7 +604,7 @@ export default function DeliveryRecordsView({
     const sortedAll = sortRows(allRecords);
 
     const rows = sortedAll.map(r => ({
-      id: r.id,
+      id: recordLabel(r),
       company_name: r.company_name,
       reference: r.reference,
       rma_reference: r.rma_reference ?? '',
@@ -922,7 +923,7 @@ export default function DeliveryRecordsView({
         <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg p-3 flex items-start justify-between gap-3 print:hidden" id="record-created-banner">
           <div className="space-y-1">
             <p className="font-bold text-[11px] uppercase tracking-wider">Record Created</p>
-            <p className="text-xs font-semibold">{creationBanner.referenceLabel} · <span className="font-mono">{creationBanner.recordId}</span></p>
+            <p className="text-xs font-semibold">{creationBanner.referenceLabel} · <span className="font-mono">{creationBanner.recordNo}</span></p>
             {creationBanner.lines.map((line, i) => (
               <span key={i} className="flex items-center gap-1.5 font-semibold text-xs">
                 {outputLineIcon(line)} {line}
@@ -946,8 +947,8 @@ export default function DeliveryRecordsView({
           onCancel={() => setShowForm(false)}
           outputActionConfigs={outputActionConfigs}
           onUpdateOutputActionConfig={onUpdateOutputActionConfig}
-          onAfterSubmit={({ recordId, referenceLabel, lines }) =>
-            setCreationBanner({ recordId, referenceLabel, lines })
+          onAfterSubmit={({ recordId, recordNo, referenceLabel, lines }) =>
+            setCreationBanner({ recordId, recordNo, referenceLabel, lines })
           }
         />
       ) : selectedId && (selectedRecord.isError || !activeRecord || activeRecord.category !== category) ? (
@@ -1080,7 +1081,7 @@ export default function DeliveryRecordsView({
                         />
                       </th>
                     )}
-                    <th className="px-4 py-3" style={{ minWidth: colMinWidth.id }}>Record ID</th>
+                    <th className="px-4 py-3" style={{ minWidth: colMinWidth.id }}>Record No.</th>
                     <th className="px-4 py-3" style={{ minWidth: colMinWidth.company }}>Company</th>
                     <th className="px-4 py-3" style={{ minWidth: colMinWidth.area }}>Area</th>
                     <th className="px-4 py-3 text-center" style={{ minWidth: colMinWidth.date }}>Delivery Date</th>
@@ -1112,7 +1113,7 @@ export default function DeliveryRecordsView({
                             />
                           </td>
                         )}
-                        <td className="px-4 py-3.5 font-bold text-slate-400 truncate">{rec.id}</td>
+                        <td className="px-4 py-3.5 font-bold text-slate-400 truncate">{recordLabel(rec)}</td>
                         <td className="px-4 py-3.5">
                           <div className="font-semibold text-sm text-slate-900 truncate" title={rec.company_name}>{rec.company_name}</div>
                           {category === 'RMA' && <div className="text-[10px] text-slate-500 mt-0.5 truncate" title={rec.rma_reference ?? ''}>RMA document ref: {rec.rma_reference || 'Not assigned'}</div>}

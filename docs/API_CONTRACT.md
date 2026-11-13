@@ -65,7 +65,7 @@ All record routes use `Auth` + `Res:records` + `Rec`. Responses use display stri
 | DELETE | `/records/:id/attachments/:attachmentId` | SC, LOG, ADM | Remove an attachment (audited) |
 | POST | `/records` | SC, LOG, ADM | Create. LOG cannot create RMA; SC cannot assign drivers. Required: `company_id`, `category`, `reference` (Drafts: `company_id`, `category`) |
 | PUT | `/records/:id` | SC, LOG, ADM, DRV, TASS | Edit fields; remarks required; field and category limits per role (TASS: RMA only; LOG: not RMA; DRV: own runs) |
-| POST | `/records/:id/time-in` | DRV, LOG, ADM | Record Time In (`{ "remarks": "..." }`); moves the run to In Transit |
+| POST | `/records/:id/time-in` | DRV, LOG, ADM | Record Time In (`{ "remarks": "..." }`); moves the run to In Transit. `remarks` is optional for DRV only: blank or missing is saved as `Transport started`; LOG and ADM still get 400 without remarks; a non-string value is 400 for every role. Also applies to `PATCH /records/:id/rma-transport` with `transport_status: IN_TRANSIT` (completion still requires remarks) |
 | PATCH | `/records/:id/status` | SC, LOG, ADM, DRV, TASS | Change status; transition and role rules in `deliveryLifecycle.ts` |
 | PATCH | `/records/:id/verify-collection` | TASS | Verify a delivered Accounting Collection once |
 | DELETE | `/records/:id` | SC | Soft delete |
@@ -82,6 +82,8 @@ Create example:
 ```
 
 Record responses include `submitted_at` (ISO timestamp, or `null`). It is the time the record last left Draft: set when a record is created as submitted, set again on every Draft to submitted change, and cleared when a record is returned to Draft. Dashboards measure RMA age from it. Clients never send it.
+
+Record responses include `record_no`, the short number users see and type, for example `DEL-26-00042`. The format is `{PREFIX}-{YY}-{NNNNN}` with prefixes `DEL` (Deliveries), `RMA`, `PUP` (Procurement Pick-up), `SO` (Sales Orders) and `COL` (Accounting Collection); the counter restarts each Asia/Manila year per type and grows past five digits instead of failing. PostgreSQL assigns it on insert, drafts included, and it never changes or gets reused. Clients never send it (the field is rejected on writes). `id` stays the key for every API call. The record `search` parameter matches `record_no`, and `linked_collection_id` accepts either a record number or an internal id. `linked_collection.record_no` and the `record_no` of audit entries for records (`GET /admin/audit`, Admin dashboard `recent_audit`) carry the same number.
 
 Status example (`Delivered` also needs Time In, a saved JPG/PNG proof photo, recipient and remarks; otherwise `400`):
 

@@ -9,6 +9,7 @@ import { useClampRecordPage } from '@/api/queries/useOperationalViews';
 import RecordPageControls from '@/components/RecordPageControls';
 import { usePermissions } from '@/hooks/usePermissions';
 import { SupplierCategoryTags, SupplierCategoryEditor, useCanManageSupplierCategories } from './SupplierCategories';
+import { recordLabel } from '../../utils/recordLabel';
 
 function formatTs(ts: string) {
   return new Date(ts).toLocaleString('en-PH', {
@@ -187,7 +188,7 @@ export default function SupplierWorkspace({
                         <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[r.status] ?? 'bg-slate-300'}`} />
                         <div className="flex-1 min-w-0">
                           <div className="flex flex-wrap items-center gap-2 mb-0.5">
-                            <span className="font-mono font-black text-xs text-slate-900">{r.id}</span>
+                            <span className="font-mono font-black text-xs text-slate-900">{recordLabel(r)}</span>
                             <span className="text-[10px] text-slate-500">{r.status}</span>
                           </div>
                           <p className="text-xs font-semibold text-slate-700 truncate">{r.item_description}</p>

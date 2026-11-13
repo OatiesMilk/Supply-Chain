@@ -9,6 +9,7 @@ import { isDraftRecord } from '@/utils/recordLifecycle';
 import { usePagedRecordsQuery } from '@/api/queries/useRecordsQuery';
 import { useDriverOverviewQuery, useClampRecordPage } from '@/api/queries/useOperationalViews';
 import RecordPageControls from '@/components/RecordPageControls';
+import { recordLabel } from '../../utils/recordLabel';
 
 // Same coverage rules as the Dispatch dropdown: exact Area first, then explicit Subregion.
 function splitDriversByArea(recordArea: string): { matched: string[]; others: string[] } {
@@ -79,7 +80,7 @@ const RecordCard: React.FC<CardProps> = function RecordCard({ record, onNavigate
           className={`min-h-11 w-full text-left min-w-0 rounded cursor-pointer ${focusStyle}`}
         >
           <span className="block font-semibold text-sm text-slate-900 break-words [overflow-wrap:anywhere]">{record.company_name}</span>
-          <span className="mt-1 block font-mono text-xs text-slate-600 break-words [overflow-wrap:anywhere]">{record.reference || record.id}</span>
+          <span className="mt-1 block font-mono text-xs text-slate-600 break-words [overflow-wrap:anywhere]">{record.reference || recordLabel(record)}</span>
         </button>
         <div className="flex flex-wrap gap-2">
           <span className={`text-xs font-semibold border px-2.5 py-1 rounded-full ${record.priority === '3 - High' ? 'bg-red-50 text-red-800 border-red-200' : record.priority === '2 - Moderate' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-slate-50 text-slate-700 border-slate-200'}`}>Priority: {record.priority}</span>
@@ -136,7 +137,7 @@ const RecordCard: React.FC<CardProps> = function RecordCard({ record, onNavigate
             </span>
             <button
               type="button"
-              aria-label={`Reassign ${record.reference || record.id}`}
+              aria-label={`Reassign ${record.reference || recordLabel(record)}`}
               disabled={!canAssign}
               onClick={() => onEdit(record.id, true)}
               className={`min-h-11 shrink-0 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-blue-700 hover:bg-blue-50 ${focusStyle}`}

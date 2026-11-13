@@ -853,7 +853,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                       <th className="px-4 py-3">Timestamp</th>
                       <th className="px-4 py-3">User</th>
                       <th className="px-4 py-3 text-center">Action</th>
-                      <th className="px-4 py-3">Record ID</th>
+                      <th className="px-4 py-3">Record</th>
                       <th className="px-4 py-3">Record Type</th>
                     </tr>
                   </thead>
@@ -871,7 +871,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                             {e.action}
                           </span>
                         </td>
-                        <td className="px-4 py-3 font-mono text-[10px] text-slate-700">{e.record_id}</td>
+                        <td className="px-4 py-3 font-mono text-[10px] text-slate-700">{e.record_no ?? e.record_id}</td>
                         <td className="px-4 py-3 text-slate-600">{e.record_type}<PolicyAuditDiff recordType={e.record_type} previous={e.previous} next={e.next} /><BusinessAuditDiff recordType={e.record_type} previous={e.previous} next={e.next} /></td>
                       </tr>
                     ))}

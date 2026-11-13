@@ -44,6 +44,17 @@ export function driversWaitingFilter(today = manilaToday()): Prisma.DeliveryReco
   ] }] };
 }
 
+/** A driver job that still needs Logistics to assign a Driver profile: one of the
+ * four driver job types, not a draft, not finished (RMA: transport not completed
+ * either) and with no Driver profile. On-Hold and Rescheduled jobs stay in because
+ * Logistics has to re-dispatch them. Authorization scope is intersected by the caller. */
+export function transportRequestFilter(): Prisma.DeliveryRecordWhereInput {
+  return { draft: false, driverId: null, OR: [
+    { category: { in: DRIVER_RUN_CATEGORIES }, status: { not: 'ACCOMPLISHED' } },
+    { category: 'RMA', rmaMovement: 'LOGISTICS_TRANSPORT', status: { not: 'ACCOMPLISHED' }, rmaTransportStatus: { not: 'COMPLETED' } },
+  ] };
+}
+
 /** Shared by paginated drill-downs and aggregate counters; authorization scope
  * is intersected separately by every caller. */
 export function dashboardRecordFilter(id: string, today = manilaToday()): Prisma.DeliveryRecordWhereInput | null {
@@ -68,6 +79,9 @@ export function dashboardRecordFilter(id: string, today = manilaToday()): Prisma
     case 'sc-attention-all': return { ...delivery, OR: [due, held, pending] };
     case 'log-flags': return { ...delivery, OR: [unassigned, held] };
     case 'log-rma-requests': return { category: 'RMA', draft: false, rmaMovement: 'LOGISTICS_TRANSPORT', status: { not: 'ACCOMPLISHED' }, rmaTransportStatus: { not: 'COMPLETED' } };
+    case 'log-transport-requests': return transportRequestFilter();
+    case 'sc-in-transit': return { AND: [driversInTransitFilter(today), { category: { in: DRIVER_RUN_CATEGORIES } }] };
+    case 'tass-rma-in-transit': return { AND: [driversInTransitFilter(today), { category: 'RMA' }] };
     case 'tass-open-rma': return { category: 'RMA', draft: false, status: { in: OPEN_RMA_STATUSES } };
     case 'tass-rma-aging': {
       // Older than 7 Manila days: submitted on or before (today - 8 days). Rows the

@@ -4,6 +4,7 @@ import { prisma } from '../db';
 import { asyncRoute } from '../middleware/asyncRoute';
 import { requireAuth, requireResource, requireRole, requireAction, type AuthUser } from '../middleware/auth';
 import { serializeRecord } from '../mappings';
+import { resolveStartRemarks } from '../services/startRemarks';
 import { canPerformPolicyRecordAction, canReadRecord, canReadPolicyRecord, recordScope } from '../services/recordAccess';
 import { readRmaPermissions } from '../services/rmaDispatchPermissions';
 import { eligibleRmaTransport, rmaTransportContext, rmaTransportDateError, validRmaMovement } from '../services/rmaMovement';
@@ -83,9 +84,16 @@ async function savedAction(tx: Prisma.TransactionClient, row: Row, data: Prisma.
   await tx.remarkLog.create({ data: { recordId: row.id, body: remarks, context, authorId: user.id } });
   return saved;
 }
-function input(body: Record<string, unknown>, allowed: string[]) {
+const REMARKS_REQUIRED = 'Remarks are required for this RMA action.';
+function input(body: Record<string, unknown>, allowed: string[], user?: AuthUser) {
   if (Object.keys(body).some(key => !allowed.includes(key))) throw new RmaActionError(400, 'This action contains unsupported fields.');
-  if (typeof body.remarks !== 'string' || !body.remarks.trim()) throw new RmaActionError(400, 'Remarks are required for this RMA action.');
+  // Only a Driver starting transport may omit remarks; every other action keeps them required.
+  if (user && body.transport_status === 'IN_TRANSIT') {
+    const start = resolveStartRemarks(body.remarks, user.role, REMARKS_REQUIRED);
+    if (!start.ok) throw new RmaActionError(400, start.error);
+    return start.remarks;
+  }
+  if (typeof body.remarks !== 'string' || !body.remarks.trim()) throw new RmaActionError(400, REMARKS_REQUIRED);
   return body.remarks.trim();
 }
 function version(row: Row, expected: unknown) {
@@ -123,7 +131,7 @@ router.patch('/:id/rma-assignment', requireAuth, requireResource('records'), req
     const invalid = await assignmentError(tx, row, { driverAssistants });
     if (invalid) throw new RmaActionError(400, invalid);
     const updated = await savedAction(tx, row, { ...assignment, ...(body.vehicle !== undefined ? { vehicle: body.vehicle } : {}), driverAssistants }, req.user!, remarks, 'RMA_ASSIGNMENT');
-    await notifyRmaRecipients(tx, updated, ['TASS', 'DRIVER'], 'RMA driver assignment updated', `${updated.rmaReference || updated.id} · ${updated.driver || 'Unassigned'}${updated.deliveryDate ? ` on ${updated.deliveryDate}` : ''}`, req.user!.id);
+    await notifyRmaRecipients(tx, updated, ['TASS', 'DRIVER'], 'RMA driver assignment updated', `${updated.rmaReference || updated.recordNo} · ${updated.driver || 'Unassigned'}${updated.deliveryDate ? ` on ${updated.deliveryDate}` : ''}`, req.user!.id);
     return updated;
   });
   res.json(serializeRecord(saved, req.user));
@@ -131,7 +139,7 @@ router.patch('/:id/rma-assignment', requireAuth, requireResource('records'), req
 
 router.patch('/:id/rma-transport', requireAuth, requireResource('records'), requireRole('DRIVER'), requireAction('CATEGORY', 'RMA', 'STATUS'), action(async (req, res) => {
   const body = req.body ?? {};
-  const remarks = input(body, ['transport_status', 'expected_version', 'remarks', 'received_by']);
+  const remarks = input(body, ['transport_status', 'expected_version', 'remarks', 'received_by'], req.user!);
   if (!['IN_TRANSIT', 'COMPLETED'].includes(body.transport_status)) throw new RmaActionError(400, 'Choose a valid transport status.');
   if (body.transport_status === 'IN_TRANSIT' && body.received_by !== undefined) throw new RmaActionError(400, 'Received By is recorded when completing transport.');
   const receivedBy = body.transport_status === 'COMPLETED' ? receivedByError(body.received_by) : null;
@@ -150,7 +158,7 @@ router.patch('/:id/rma-transport', requireAuth, requireResource('records'), requ
     const updated = await savedAction(tx, row, { rmaTransportStatus: target,
       ...(target === 'IN_TRANSIT' ? { rmaTransportStartedAt: new Date() } : { rmaTransportCompletedAt: new Date(), rmaTransportReceivedBy: (body.received_by as string).trim() }),
     }, req.user!, remarks, 'RMA_TRANSPORT');
-    await notifyRmaRecipients(tx, updated, ['TASS', 'LOGISTICS'], 'RMA transport updated', `${updated.rmaReference || updated.id} · ${target === 'COMPLETED' ? 'Transport complete; physical receipt is still unconfirmed.' : 'In transit.'}`, req.user!.id);
+    await notifyRmaRecipients(tx, updated, ['TASS', 'LOGISTICS'], 'RMA transport updated', `${updated.rmaReference || updated.recordNo} · ${target === 'COMPLETED' ? 'Transport complete; physical receipt is still unconfirmed.' : 'In transit.'}`, req.user!.id);
     return updated;
   }, { timeout: 30_000 });
   res.json(serializeRecord(saved, req.user));
@@ -166,7 +174,7 @@ router.post('/:id/rma-receipt', requireAuth, requireResource('records'), require
     if (!rmaCapabilities(policy, row).receive) throw new RmaActionError(403, 'Physical receipt is not permitted before transport completion or after receipt.');
     version(row, body.expected_version);
     const updated = await savedAction(tx, row, { rmaReceivedAt: new Date(), rmaReceivedBy: req.user!.id, rmaRecipient: body.recipient.trim() }, req.user!, remarks, 'RMA_RECEIPT');
-    await notifyRmaRecipients(tx, updated, ['TASS', 'LOGISTICS'], 'RMA physical receipt confirmed', `${updated.rmaReference || updated.id} · ${updated.rmaRecipient}. Final RMA completion is a separate TASS action.`, req.user!.id);
+    await notifyRmaRecipients(tx, updated, ['TASS', 'LOGISTICS'], 'RMA physical receipt confirmed', `${updated.rmaReference || updated.recordNo} · ${updated.rmaRecipient}. Final RMA completion is a separate TASS action.`, req.user!.id);
     return updated;
   });
   res.json(serializeRecord(saved, req.user));

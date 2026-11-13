@@ -319,7 +319,19 @@ export interface ApiDashboardOverview {
   record_total: number;
   status_totals: Record<string, number>;
   counts: Record<string, number>;
-  record_previews: { rma_requests: import('../types').DeliveryRecord[]; rma_attention: import('../types').DeliveryRecord[] };
+  record_previews: {
+    /** Superseded by transport_requests; kept for one release. */
+    rma_requests: import('../types').DeliveryRecord[];
+    rma_attention: import('../types').DeliveryRecord[];
+    /** Logistics: up to 10 open driver jobs with no Driver profile, oldest date first. */
+    transport_requests?: import('../types').DeliveryRecord[];
+    /** Sales Coordinator: up to 10 Delivery, Pick-up and Sales Order jobs in transit. */
+    in_transit?: import('../types').DeliveryRecord[];
+    /** TASS: up to 10 Logistics-transport RMA in transit, oldest transport start first. */
+    rma_in_transit?: import('../types').DeliveryRecord[];
+  };
+  /** Logistics: transport requests per job type (database category). */
+  transport_requests_by_type?: Partial<Record<'DELIVERY' | 'RMA' | 'PROCUREMENT_PICKUP' | 'SALES_ORDERS', number>>;
   /** Up to 10 Driver profiles with an active job (Delivery, RMA transport, Procurement Pickup, Sales Order) today or already started. */
   drivers_out: Array<{ driver_id: string; driver: string; total: number; in_transit: number; records: import('../types').DeliveryRecord[] }>;
   /** Distinct drivers out for delivery. */
@@ -366,6 +378,7 @@ export type ApiDashboardStats =
         action: string;
         changed_by: string;
         record_id: string;
+        record_no?: string | null;
         record_type: string;
         timestamp: string;
       }[];
@@ -433,6 +446,7 @@ export interface ApiReportSummary {
 }
 
 export interface ApiAdminAuditEntry {
+  record_no?: string | null;
   previous?: PolicyAuditState & Record<string, unknown> | null;
   next?: PolicyAuditState & Record<string, unknown> | null;
   id: string;
@@ -628,7 +642,7 @@ export const api = {
   getRmaCapabilities: (id: string) => request<RmaCapabilities>(`/records/${id}/rma-capabilities`),
   assignRma: (id: string, data: { driver_id: string | null; vehicle?: string; driver_assistants?: string[]; expected_version: number; remarks: string }) =>
     request<any>(`/records/${id}/rma-assignment`, { method: 'PATCH', body: JSON.stringify(data) }),
-  progressRmaTransport: (id: string, data: { transport_status: 'IN_TRANSIT' | 'COMPLETED'; expected_version: number; remarks: string; received_by?: string }) =>
+  progressRmaTransport: (id: string, data: { transport_status: 'IN_TRANSIT' | 'COMPLETED'; expected_version: number; remarks?: string; received_by?: string }) =>
     request<any>(`/records/${id}/rma-transport`, { method: 'PATCH', body: JSON.stringify(data) }),
   receiveRma: (id: string, data: { recipient: string; expected_version: number; remarks: string }) =>
     request<any>(`/records/${id}/rma-receipt`, { method: 'POST', body: JSON.stringify(data) }),
@@ -637,7 +651,7 @@ export const api = {
     request<any>('/records', { method: 'POST', body: JSON.stringify(data) }),
   updateRecord: (id: string, data: Record<string, unknown>) =>
     request<any>(`/records/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  recordTimeIn: (id: string, remarks: string) =>
+  recordTimeIn: (id: string, remarks?: string) =>
     request<any>(`/records/${id}/time-in`, { method: 'POST', body: JSON.stringify({ remarks }) }),
   patchStatus: (id: string, status: string, remarks?: string, extra?: { time_out?: string; received_by?: string; priority?: string; delivery_date?: string; expected_version?: number; expected_edit_version?: string }) =>
     request<any>(`/records/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, remarks: remarks ?? '', ...extra }) }),

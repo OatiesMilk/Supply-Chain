@@ -4,6 +4,7 @@ import { DeliveryRecord } from '@/types';
 import { useAmSummaryQuery, usePagedRecordsQuery } from '@/api/queries/useRecordsQuery';
 import { useClampRecordPage } from '@/api/queries/useOperationalViews';
 import RecordPageControls from '@/components/RecordPageControls';
+import { recordLabel } from '../../utils/recordLabel';
 
 interface Props {
   records: DeliveryRecord[];
@@ -211,7 +212,7 @@ export default function AccountManagerDirectory({ records, onNavigate }: Props) 
                           onClick={() => onNavigate(CATEGORY_SCREEN[r.category] ?? 'deliveries', r.id)}
                           className="w-full text-left flex items-center gap-3 px-6 py-3 hover:bg-blue-50 transition-colors cursor-pointer"
                         >
-                          <span className="font-mono text-xs font-bold text-slate-500 w-28 shrink-0">{r.id}</span>
+                          <span className="font-mono text-xs font-bold text-slate-500 w-28 shrink-0">{recordLabel(r)}</span>
                           <span className="text-sm font-semibold text-slate-800 truncate flex-1">{r.company_name}</span>
                           <span className="text-xs text-slate-400 hidden sm:inline font-medium">{r.delivery_date}</span>
                           <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full shrink-0 ${

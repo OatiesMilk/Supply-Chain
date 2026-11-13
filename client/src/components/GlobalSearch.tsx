@@ -4,6 +4,7 @@ import { DeliveryRecord } from '../types';
 import { ApiCustomer, ApiDriver, ApiSku, ApiSupplier, api } from '../api';
 import { normalizeApiRecord } from '../api/queries/useRecordsQuery';
 import { DATA_SAMPLER_ENABLED } from '../utils/developmentTools';
+import { recordLabel } from '../utils/recordLabel';
 
 interface Props {
   isOpen: boolean;
@@ -308,7 +309,7 @@ export default function GlobalSearch({
                         <Truck className="w-4 h-4 text-slate-300 shrink-0" />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-xs text-slate-900">{r.id}</span>
+                            <span className="font-mono font-bold text-xs text-slate-900">{recordLabel(r)}</span>
                             <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[r.status] ?? 'bg-slate-300'}`} />
                             <span className="text-[10px] text-slate-500 truncate">{r.category}</span>
                           </div>

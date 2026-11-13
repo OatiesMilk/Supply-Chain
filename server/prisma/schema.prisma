@@ -269,6 +269,9 @@ model SupplierCategoryAssignment {
 
 model DeliveryRecord {
   id                   String     @id @default(cuid())
+  // Short user-facing number, e.g. DEL-26-00042. Assigned by a PostgreSQL
+  // BEFORE INSERT trigger from RecordSequence and never changed afterwards.
+  recordNo             String     @unique @default(dbgenerated())
   companyId            String
   company              Company    @relation(fields: [companyId], references: [id])
   priority             String // 1 - Low | 2 - Moderate | 3 - High
@@ -344,6 +347,16 @@ model DeliveryRecord {
   @@index([linkedCollectionId])
   @@index([category, rmaReference])
   @@index([category, rmaMovement, rmaTransportStatus])
+}
+
+// Last record number used per record type and Asia/Manila year.
+// Only the record_no trigger writes here; numbers are never reused.
+model RecordSequence {
+  category  String
+  year      Int
+  lastValue Int    @default(0)
+
+  @@id([category, year])
 }
 
 model PodAttachment {

@@ -20,6 +20,9 @@ export const DASHBOARD_FILTERS = {
   'log-on-hold-rescheduled': { label: 'On-Hold / Rescheduled', screen: 'deliveries' },
   'log-flags': { label: 'Flags', screen: 'deliveries' },
   'log-rma-requests': { label: 'RMA transport requests', screen: 'rma' },
+  'log-transport-requests': { label: 'Transport requests', screen: 'deliveries' },
+  'sc-in-transit': { label: 'In transit', screen: 'deliveries' },
+  'tass-rma-in-transit': { label: 'RMA in transit', screen: 'rma' },
   'tass-open-rma': { label: 'Open RMA', screen: 'rma' },
   'tass-rma-aging': { label: 'Open RMA over 7 days', screen: 'rma' },
   'tass-rma-on-hold': { label: 'RMA On-Hold', screen: 'rma' },
@@ -62,6 +65,38 @@ function isDelivery(record: DeliveryRecord): boolean {
 /** Every RMA that is neither completed nor a draft. Mirrors OPEN_RMA_STATUSES on the server. */
 function isOpenRma(record: DeliveryRecord): boolean {
   return record.category === 'RMA' && !isDraftRecord(record) && record.status !== 'Delivered';
+}
+
+/** Non-RMA job types a Driver runs. Mirrors DRIVER_RUN_CATEGORIES on the server. */
+const DRIVER_RUN_CATEGORIES: readonly string[] = ['Deliveries', 'Procurement Pick-up', 'Sales Orders'];
+const DRIVER_OUT_STATUSES: readonly string[] = ['Scheduled', 'In Transit', 'Pending'];
+const RMA_NOT_OUT_STATUSES: readonly string[] = ['Delivered', 'On-Hold', 'Rescheduled'];
+
+function isLogisticsRma(record: DeliveryRecord): boolean {
+  return record.category === 'RMA' && !isDraftRecord(record) && record.rma_movement === 'LOGISTICS_TRANSPORT';
+}
+
+function isDriverRun(record: DeliveryRecord): boolean {
+  return DRIVER_RUN_CATEGORIES.includes(record.category) && !isDraftRecord(record);
+}
+
+/** Mirrors transportRequestFilter: an open driver job with no Driver profile. */
+function isTransportRequest(record: DeliveryRecord): boolean {
+  if (record.driver_id || record.status === 'Delivered') return false;
+  if (isDriverRun(record)) return true;
+  return isLogisticsRma(record) && !!record.rma_transport_status && record.rma_transport_status !== 'COMPLETED';
+}
+
+/** Mirrors driversInTransitFilter for non-RMA runs: assigned, still out, and started. */
+function isRunInTransit(record: DeliveryRecord): boolean {
+  return isDriverRun(record) && !!record.driver_id && DRIVER_OUT_STATUSES.includes(record.status)
+    && (record.status === 'In Transit' || !!record.time_in);
+}
+
+/** Mirrors driversInTransitFilter for RMA: Logistics transport started and the RMA not held or done. */
+function isRmaInTransit(record: DeliveryRecord): boolean {
+  return isLogisticsRma(record) && !!record.driver_id && !RMA_NOT_OUT_STATUSES.includes(record.status)
+    && record.rma_transport_status === 'IN_TRANSIT';
 }
 
 function noDriver(record: DeliveryRecord): boolean {
@@ -124,6 +159,12 @@ export function matchesDashboardFilter(
     case 'log-rma-requests':
       return record.category === 'RMA' && !isDraftRecord(record) && record.rma_movement === 'LOGISTICS_TRANSPORT'
         && record.status !== 'Delivered' && !!record.rma_transport_status && record.rma_transport_status !== 'COMPLETED';
+    case 'log-transport-requests':
+      return isTransportRequest(record);
+    case 'sc-in-transit':
+      return isRunInTransit(record);
+    case 'tass-rma-in-transit':
+      return isRmaInTransit(record);
     case 'tass-open-rma':
       return isOpenRma(record);
     case 'tass-rma-aging': {

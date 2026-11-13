@@ -10,4 +10,4 @@ export { default as RecordTable } from './RecordTable';
 export type { RecordColumn } from './RecordTable';
 export { default as StatusPill } from './StatusPill';
 export { EmptyState, PanelError, TileSkeleton } from './states';
-export { formatCompact, formatDate, formatFull } from './format';
+export { formatCompact, formatDate, formatDateTime, formatFull } from './format';

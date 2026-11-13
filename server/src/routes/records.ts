@@ -7,6 +7,7 @@ import { recordAccountManager } from '../services/accountDirectory';
 import { asyncRoute } from '../middleware/asyncRoute';
 import { assignmentError, resolveDriverAssignment, withDriverDirectoryLock, type DriverChange } from '../services/driverDirectory';
 import { requireAuth, requireRole, requireResource } from '../middleware/auth';
+import { resolveStartRemarks } from '../services/startRemarks';
 import { visibleRecordAuditSnapshots } from '../services/recordAuditVisibility';
 import { notifyAccomplished } from '../services/notify';
 import { notifyRole, notifyUser } from '../services/inAppNotify';
@@ -33,7 +34,7 @@ import { readRmaPermissions } from '../services/rmaDispatchPermissions';
 import { recordOperationError, recordMutationInputError } from '../services/recordOperations';
 import { recordSubmissionError } from '../services/recordSubmission';
 import { recordEditError } from '../services/recordEditVersion';
-import { generateRecordId } from '../services/recordIds';
+import { generateRecordId, parseRecordNo } from '../services/recordIds';
 import { RECORD_VIEWS, runViewWhere, type RecordView } from '../services/recordViewFilters';
 import { dashboardRecordFilter } from '../services/dashboardFilters';
 import { submittedAtChange, submittedAtOnCreate } from '../services/submission';
@@ -233,6 +234,7 @@ function parseListQuery(query: express.Request['query']) {
       andConditions.push({
         OR: [
           { id: { contains: s, mode: 'insensitive' } },
+          { recordNo: { contains: s, mode: 'insensitive' } },
           { reference: { contains: s, mode: 'insensitive' } },
           { rmaReference: { contains: s, mode: 'insensitive' } },
           { legacySapReference: { contains: s, mode: 'insensitive' } },
@@ -1217,7 +1219,7 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
       } });
       if (typeof b.remarks === 'string' && b.remarks.trim()) await tx.remarkLog.create({ data: { recordId: created.id, body: b.remarks.trim(), context: 'CREATION', authorId: req.user!.id } });
       if (dbCategory !== 'RMA' && !created.draft) await notifyOrdinarySubmission(tx, created);
-      if (dbCategory === 'RMA' && needsLogisticsHandoff(created)) await notifyRmaRecipients(tx, created, ['LOGISTICS'], 'New RMA request — driver needed', `${created.rmaReference || created.id} · ${created.company.name}${created.deliveryDate ? ` on ${created.deliveryDate}` : ''} · ${created.address || created.area}`);
+      if (dbCategory === 'RMA' && needsLogisticsHandoff(created)) await notifyRmaRecipients(tx, created, ['LOGISTICS'], 'New RMA request — driver needed', `${created.rmaReference || created.recordNo} · ${created.company.name}${created.deliveryDate ? ` on ${created.deliveryDate}` : ''} · ${created.address || created.area}`);
       return created;
     });
   } catch (error) {
@@ -1352,9 +1354,11 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
       if (b.linked_collection_id === null || b.linked_collection_id === '') {
         data.linkedCollectionId = null;
       } else {
+        // Users type the record number; older links and API clients send the internal id.
+        const linkRecordNo = parseRecordNo(b.linked_collection_id);
         const target = await prisma.deliveryRecord.findFirst({
           where: {
-            id: b.linked_collection_id,
+            ...(linkRecordNo ? { recordNo: linkRecordNo } : { id: String(b.linked_collection_id) }),
             deletedAt: null,
             category: 'ACCOUNTING_COLLECTION',
             AND: [recordScope(req.user!)]
@@ -1363,7 +1367,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
         if (!target) {
           return res.status(400).json({ error: 'Linked record must be an existing Accounting Collection record' });
         }
-        data.linkedCollectionId = b.linked_collection_id;
+        data.linkedCollectionId = target.id;
       }
     }
   } else {
@@ -1543,7 +1547,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     } });
     if (current.draft && !updated.draft && current.category !== 'RMA') await notifyOrdinarySubmission(tx, updated);
     if (current.category === 'RMA' && needsLogisticsHandoff(updated) && (current.draft || !isLogisticsRma(current))) {
-      await notifyRmaRecipients(tx, updated, ['LOGISTICS'], 'RMA request — driver needed', `${updated.rmaReference || updated.id} · ${updated.company.name} on ${updated.deliveryDate} · ${updated.address || updated.area}`);
+      await notifyRmaRecipients(tx, updated, ['LOGISTICS'], 'RMA request — driver needed', `${updated.rmaReference || updated.recordNo} · ${updated.company.name} on ${updated.deliveryDate} · ${updated.address || updated.area}`);
     }
     return { error: null, updated, previousDraft: current.draft };
   }).catch(error => {
@@ -1580,8 +1584,9 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
 
 // Time In is the sole action that starts an assigned run.
 router.post('/:id/time-in', requireAuth, requireResource('records'), requireRecordAccess, requireRole('DRIVER', 'LOGISTICS', 'ADMIN'), asyncRoute(async (req, res) => {
-  const remarks = req.body?.remarks;
-  if (typeof remarks !== 'string' || !remarks.trim()) return res.status(400).json({ error: 'Remarks are required when recording Time In.' });
+  const start = resolveStartRemarks(req.body?.remarks, req.user!.role, 'Remarks are required when recording Time In.');
+  if (!start.ok) return res.status(400).json({ error: start.error });
+  const remarks = start.remarks;
   const result = await prisma.$transaction(async tx => {
     await lockPodRecord(tx, req.params.id);
     const current = await tx.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] }, include: recordInclude });
@@ -1591,13 +1596,13 @@ router.post('/:id/time-in', requireAuth, requireResource('records'), requireReco
     const error = timeInError(current);
     if (error) return { error, saved: null };
     const saved = await tx.deliveryRecord.update({ where: { id: current.id }, data: {
-      timeIn: new Date().toISOString(), timeOut: null, status: 'IN_TRANSIT', remarks: remarks.trim(), modifiedById: req.user!.id,
+      timeIn: new Date().toISOString(), timeOut: null, status: 'IN_TRANSIT', remarks, modifiedById: req.user!.id,
     }, include: recordInclude });
     await tx.auditLog.create({ data: {
       recordId: saved.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id,
       previousValue: JSON.stringify(serializeRecord(current)), newValue: JSON.stringify(serializeRecord(saved)),
     } });
-    await tx.remarkLog.create({ data: { recordId: saved.id, body: remarks.trim(), context: 'TIME_IN', authorId: req.user!.id } });
+    await tx.remarkLog.create({ data: { recordId: saved.id, body: remarks, context: 'TIME_IN', authorId: req.user!.id } });
     return { error: null, saved };
   });
   if (result.error) return res.status(400).json({ error: result.error });
@@ -1732,8 +1737,8 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     } });
     await tx.remarkLog.create({ data: { recordId: saved.id, body: remarks.trim(), context: 'STATUS_CHANGE', authorId: req.user!.id } });
     if (current.draft && !saved.draft && current.category !== 'RMA') await notifyOrdinarySubmission(tx, saved);
-    if (current.category === 'RMA' && current.draft && needsLogisticsHandoff(saved)) await notifyRmaRecipients(tx, saved, ['LOGISTICS'], 'RMA request — driver needed', `${saved.rmaReference || saved.id} · ${saved.company.name} on ${saved.deliveryDate} · ${saved.address || saved.area}`);
-    if (current.category === 'RMA' && status === 'Delivered') await notifyRmaRecipients(tx, saved, ['TASS', 'LOGISTICS'], 'RMA completed', `${saved.rmaReference || saved.id} · ${saved.company.name} · Final completion recorded by TASS.`, req.user!.id);
+    if (current.category === 'RMA' && current.draft && needsLogisticsHandoff(saved)) await notifyRmaRecipients(tx, saved, ['LOGISTICS'], 'RMA request — driver needed', `${saved.rmaReference || saved.recordNo} · ${saved.company.name} on ${saved.deliveryDate} · ${saved.address || saved.area}`);
+    if (current.category === 'RMA' && status === 'Delivered') await notifyRmaRecipients(tx, saved, ['TASS', 'LOGISTICS'], 'RMA completed', `${saved.rmaReference || saved.recordNo} · ${saved.company.name} · Final completion recorded by TASS.`, req.user!.id);
     return { error: null, saved, previous: current };
   }, { timeout: 30_000, maxWait: 10_000 }).catch(error => {
     if (error instanceof RmaActionError) return { error: error.message, saved: null, previous: null, rmaStatus: error.status };

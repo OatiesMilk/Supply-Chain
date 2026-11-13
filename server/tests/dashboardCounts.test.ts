@@ -49,7 +49,7 @@ test('every role stats tile counts with exactly the filter its drill-down list u
   context.mock.timers.enable({ apis: ['Date'], now: NOW });
   const expected: Record<string, string[]> = {
     SALES_COORDINATOR: ['sc-scheduled-today', 'sc-pending-assignment', 'sc-on-hold', 'sc-rescheduled', 'sc-completed-today'],
-    LOGISTICS: ['log-assigned-today', 'log-unassigned', 'log-completed-today', 'log-on-hold-rescheduled'],
+    LOGISTICS: ['log-assigned-today', 'log-transport-requests', 'log-completed-today', 'log-on-hold-rescheduled'],
     TASS: ['tass-open-rma', 'tass-rma-on-hold', 'tass-pending-pickups', 'tass-pending-verification', 'tass-verified-today'],
   };
   for (const [role, ids] of Object.entries(expected)) {
