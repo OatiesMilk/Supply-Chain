@@ -89,6 +89,22 @@ test('Completed Today uses Manila Time Out day boundaries', () => {
   assert.equal(matchesDashboardFilter(nextManilaDay, 'log-completed-today', '2026-10-06'), false);
 });
 
+test('Logistics includes every completed category and uses RMA final completion', () => {
+  const today = '2026-10-06';
+  const now = '2026-10-06T01:00:00.000Z';
+  const yesterday = '2026-10-05T01:00:00.000Z';
+  const ordinary = { status: 'Delivered', time_out: now } as const;
+  for (const category of ['Procurement Pick-up', 'Sales Orders', 'Accounting Collection'] as const) {
+    assert.equal(matchesDashboardFilter(record({ ...ordinary, category }), 'log-completed-today', today), true);
+    assert.equal(matchesDashboardFilter(record({ ...ordinary, category }), 'sc-completed-today', today), false);
+  }
+  const rma = { category: 'RMA', status: 'Delivered' } as const;
+  assert.equal(matchesDashboardFilter(record({ ...rma, rma_completed_at: now }), 'log-completed-today', today), true);
+  assert.equal(matchesDashboardFilter(record({ ...rma, time_out: now }), 'log-completed-today', today), true);
+  assert.equal(matchesDashboardFilter(record({ ...rma, rma_completed_at: yesterday, time_out: now }), 'log-completed-today', today), false);
+  assert.equal(matchesDashboardFilter(record({ ...rma, status: 'Scheduled', rma_transport_status: 'COMPLETED', rma_transport_completed_at: now }), 'log-completed-today', today), false);
+});
+
 test('TASS and Admin collection presets preserve category, lifecycle, and verification predicates', () => {
   const openRma = record({ category: 'RMA', status: 'Pending' });
   const heldRma = record({ category: 'RMA', status: 'On-Hold' });

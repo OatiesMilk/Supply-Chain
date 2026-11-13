@@ -1,4 +1,5 @@
 import { ArrowRight, CheckCircle2, Navigation, PauseCircle, RefreshCw, Truck, UserX } from 'lucide-react';
+import { useState } from 'react';
 import type { ApiDashboardOverview, ApiDashboardStats } from '@/api';
 import type { DeliveryCategory, DeliveryRecord } from '@/types';
 import { screenKeyForCategory } from '@/routes/screenRouting';
@@ -6,6 +7,7 @@ import { jobTypeLabel } from '@/utils/driverJobs';
 import type { DashboardFilterId } from '@/utils/dashboardFilters';
 import { DashboardPage, DashboardPanel, EmptyState, KpiRow, KpiTile, PanelError, RecordTable, StatusPill, TileSkeleton, formatDate, type RecordColumn } from './ui';
 import { recordLabel } from '../../utils/recordLabel';
+import CompletedTodayDialog from './CompletedTodayDialog';
 
 type LogisticsStats = Extract<ApiDashboardStats, { role: 'LOGISTICS' }>;
 
@@ -19,6 +21,7 @@ interface Props {
   onRefresh?: () => void;
   refreshing?: boolean;
   canAccess?: (screen: string) => boolean;
+  canReadRecords?: boolean;
 }
 
 const linkClass = 'inline-flex items-center gap-1 rounded-sm text-sm font-semibold text-[#1F3864] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]';
@@ -56,7 +59,8 @@ const requestColumns: RecordColumn<DeliveryRecord>[] = [
   { key: 'status', header: 'Status', render: record => <StatusPill record={record} />, hideLabelWhenStacked: true },
 ];
 
-export default function LogisticsDashboard({ stats, overview, overviewStatus, onRetryOverview, onNavigate, onRefresh, refreshing, canAccess = () => true }: Props) {
+export default function LogisticsDashboard({ stats, overview, overviewStatus, onRetryOverview, onNavigate, onRefresh, refreshing, canAccess = () => true, canReadRecords = true }: Props) {
+  const [showCompleted, setShowCompleted] = useState(false);
   const status = overviewStatus ?? (overview ? 'success' : 'pending');
   const open = (filter: DashboardFilterId) => (canAccess('deliveries') ? () => onNavigate('deliveries', undefined, filter) : undefined);
   const counts = overview?.counts ?? {};
@@ -78,11 +82,16 @@ export default function LogisticsDashboard({ stats, overview, overviewStatus, on
           context={stats ? 'Active today' : undefined} onOpen={open('log-assigned-today')} />
         <KpiTile label="No driver assigned" unit="jobs" icon={UserX} tone="warning" value={unassigned}
           context={stats ? (unassigned ? 'Needs a driver' : 'All assigned') : undefined} onOpen={showTransportRequests} actionLabel="Show transport requests" />
-        <KpiTile label="Completed today" unit="deliveries" icon={CheckCircle2} value={completed}
-          context={stats ? (completed ? 'Accomplished today' : 'None yet today') : undefined} onOpen={open('log-completed-today')} />
+        <KpiTile label="Completed today" unit={completed === 1 ? 'record' : 'records'} icon={CheckCircle2} value={completed}
+          context={stats ? (completed ? 'Across all record types' : 'None yet today') : undefined}
+          onOpen={canReadRecords ? () => setShowCompleted(true) : undefined} />
         <KpiTile label="On hold or rescheduled" unit="deliveries" icon={RefreshCw} tone="warning" value={heldMoved}
           context={stats ? (heldMoved ? 'Needs reassignment' : 'Nothing to reassign') : undefined} onOpen={open('log-on-hold-rescheduled')} />
       </KpiRow>
+      {showCompleted && canReadRecords && (
+        <CompletedTodayDialog canAccess={canAccess} onClose={() => setShowCompleted(false)}
+          onOpenRecord={(screen, id) => { setShowCompleted(false); onNavigate(screen, id); }} />
+      )}
 
       <div id={REQUESTS_PANEL_ID} tabIndex={-1} className="scroll-mt-4 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]">
       <DashboardPanel title="Transport requests" count={status === 'success' ? plural(requestTotal, 'request', 'requests') : undefined}

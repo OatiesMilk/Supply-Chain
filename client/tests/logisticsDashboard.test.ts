@@ -34,6 +34,7 @@ test('tiles use the shared contract with calm zero states', () => {
   assert.match(markup, /aria-label="Unassigned records, 6,001 jobs\. Show transport requests"/, 'the Needs attention tile equals the Transport requests count');
   assert.match(text(markup), /Jobs of every type with no driver yet/);
   assert.match(text(markup), /Needs a driver/); assert.match(text(markup), /None yet today/);
+  assert.match(html({ stats: { ...stats, completed_today: 5 } }), /aria-label="Completed today, 5 records\. View list"/);
   assert.match(html({ stats: { ...stats, unassigned_count: 0 } }), /All assigned/);
 });
 
@@ -105,7 +106,7 @@ test('without access to a screen its tiles and links have no button', () => {
   assert.match(markup, /aria-label="No driver assigned, 2/);
   assert.doesNotMatch(markup, /View 2000 RMA/); assert.match(markup, /View 4000 Deliveries/); assert.doesNotMatch(markup, /View all 6001 assigned Drivers/);
   assert.doesNotMatch(markup, /aria-label="Open RMA RMA-r1/); assert.match(markup, /aria-label="Open Delivery D-9 for Acme"/);
-  const none = html({ canAccess: () => false });
+  const none = html({ canAccess: () => false, canReadRecords: false });
   assert.doesNotMatch(none, /<button[^>]*aria-label="[^"]*View list/);
   assert.match(none, /<button[^>]*aria-label="No driver assigned, 2 jobs\. Show transport requests"/, 'scrolling to the panel needs no screen access');
 });
@@ -131,11 +132,10 @@ test('view-all and row actions pass the right filters', async () => {
   const buttons = [...dom.window.document.querySelectorAll('button')];
   await click(buttons.find(b => b.textContent?.includes('View 2000 RMA'))!);
   await click(buttons.find(b => b.textContent?.includes('View 1 Sales Order'))!);
-  await click(buttons.find(b => b.getAttribute('aria-label')?.startsWith('Completed today'))!);
   await click(buttons.find(b => b.textContent?.includes('View all 5 flags'))!);
   await click(buttons.find(b => b.getAttribute('aria-label') === 'Open RMA RMA-r1 for Client Co')!);
   await click(buttons.find(b => b.getAttribute('aria-label') === 'Open Delivery D-9 for Acme')!);
-  assert.deepEqual(calls, [['rma', undefined, 'log-transport-requests'], ['sales_orders', undefined, 'log-transport-requests'], ['deliveries', undefined, 'log-completed-today'], ['deliveries', undefined, 'log-flags'], ['rma', 'r1'], ['deliveries', 'D-9']]);
+  assert.deepEqual(calls, [['rma', undefined, 'log-transport-requests'], ['sales_orders', undefined, 'log-transport-requests'], ['deliveries', undefined, 'log-flags'], ['rma', 'r1'], ['deliveries', 'D-9']]);
   await act(async () => { root.unmount(); });
 });
 

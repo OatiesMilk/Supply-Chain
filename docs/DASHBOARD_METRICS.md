@@ -73,6 +73,13 @@ prints how many rows each rule would set.
 Active users, records this week and audit events today are not record filters. They keep their own
 queries.
 
+The Logistics **Completed today** tile includes every visible record type: Deliveries,
+Procurement Pickups, Sales Orders, Accounting Collections and RMAs. It uses Time Out in Manila,
+or the final completion time recorded by TASS for RMA (with Time Out for older completed RMAs).
+Finishing RMA transport or verifying a collection does not set the record's completion date.
+The tile opens a paginated list with the same filter across all categories. The Sales Coordinator
+tile counts Deliveries only.
+
 ## Design rules
 
 Dashboards are built only from `client/src/features/dashboard/ui/`: `DashboardPage`, `KpiRow`,

@@ -61,6 +61,8 @@ export function dashboardRecordFilter(id: string, today = manilaToday()): Prisma
   const delivery = { category: 'DELIVERY', draft: false };
   const date = new Date(`${today}T00:00:00+08:00`);
   const tomorrow = new Date(date.getTime() + 86_400_000);
+  const completed = { draft: false, status: 'ACCOMPLISHED' };
+  const timeOut = { gte: date.toISOString(), lt: tomorrow.toISOString() };
   const dueSoon = new Date(`${today}T00:00:00Z`); dueSoon.setUTCDate(dueSoon.getUTCDate() + 2);
   const unassigned = { driver: '', status: { not: 'ACCOMPLISHED' } };
   const held = { status: { in: ['ON_HOLD', 'RESCHEDULED'] } };
@@ -71,7 +73,13 @@ export function dashboardRecordFilter(id: string, today = manilaToday()): Prisma
     case 'sc-pending-assignment': case 'log-unassigned': return { ...delivery, ...unassigned };
     case 'sc-on-hold': case 'log-on-hold': return { ...delivery, status: 'ON_HOLD' };
     case 'sc-rescheduled': case 'log-rescheduled': return { ...delivery, status: 'RESCHEDULED' };
-    case 'sc-completed-today': case 'log-completed-today': return { ...delivery, status: 'ACCOMPLISHED', timeOut: { gte: date.toISOString(), lt: tomorrow.toISOString() } };
+    case 'sc-completed-today': return { ...delivery, ...completed, timeOut };
+    case 'log-completed-today': return { ...completed, OR: [
+      { category: { not: 'RMA' }, timeOut },
+      { category: 'RMA', rmaCompletedAt: { gte: date, lt: tomorrow } },
+      // RMAs completed before the separate RMA workflow stored final completion as Time Out.
+      { category: 'RMA', rmaCompletedAt: null, timeOut },
+    ] };
     case 'log-assigned-today': return { ...delivery, NOT: { driver: '' }, deliveryDate: today, status: { not: 'ACCOMPLISHED' } };
     case 'sc-attention-no-driver': return { ...delivery, ...due };
     case 'sc-attention-on-hold-rescheduled': case 'log-on-hold-rescheduled': return { ...delivery, ...held };

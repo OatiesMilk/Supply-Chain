@@ -28,7 +28,7 @@ export default function DashboardView({
   onRefresh,
 }: DashboardViewProps) {
   const overviewQuery = useQuery({ ...operationalSyncOptions, queryKey: ['dashboard-overview'], queryFn: api.getDashboardOverview });
-  const { canAccess } = usePermissions();
+  const { canAccess, canResource } = usePermissions();
   const [refreshing, setRefreshing] = useState(false);
   // One Refresh updates tiles, panels and the sidebar badges together, so the button waits for all of them.
   const refresh = onRefresh ? async () => { setRefreshing(true); try { await onRefresh(); } finally { setRefreshing(false); } } : undefined;
@@ -49,7 +49,7 @@ export default function DashboardView({
   }
 
   if (currentUserRole === "Logistics") {
-    return <LogisticsDashboard stats={dashboardStats?.role === "LOGISTICS" ? dashboardStats : null} {...shared} />;
+    return <LogisticsDashboard stats={dashboardStats?.role === "LOGISTICS" ? dashboardStats : null} canReadRecords={canResource('records')} {...shared} />;
   }
 
   if (currentUserRole === "Admin") {
