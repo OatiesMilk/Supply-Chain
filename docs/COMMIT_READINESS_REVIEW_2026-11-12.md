@@ -26,7 +26,7 @@ Individual tests also select V1 explicitly; this is not deployed V1 activation.
 | Post-merge (`40c14af`) + P2 fixes `npm run lint --workspace=client` & `server` | Passed | Current working tree; TypeScript only |
 | Post-merge (`40c14af`) + P2 fixes `npm run test:client` | 442 total: 441 passed, 0 failed, 1 skipped | Current working tree; 1 skipped test requires isolated PostgreSQL |
 | Post-merge (`40c14af`) + P2 fixes `PERMISSION_MODE=LEGACY npm run test:server` | 587 total: 575 passed, 0 failed, 12 skipped | Current working tree; doubles/router tests, 12 skipped checks require designated PostgreSQL |
-| Post-review LEGACY permission fixes (`lint`, `test:client`, `PERMISSION_MODE=LEGACY npm run test:server`, `build`) | Client 442 total (441 passed, 0 failed, 1 skipped); Server 590 total (578 passed, 0 failed, 12 skipped); lint & build passed | Working tree after `loadLegacySession` + `ScopedSummary` LEGACY fix; doubles/router tests, PostgreSQL/E2E/provider delivery unchanged |
+| Post-review LEGACY permission fixes (`lint`, `test:client`, `PERMISSION_MODE=LEGACY npm run test:server`, V1 notification checks, `build`) | Client 442 total (441 passed, 0 failed, 1 skipped); Server LEGACY 590 total (578 passed, 0 failed, 12 skipped); Server V1 targeted 24/24 passed; lint & build passed | Working tree after `loadLegacySession` + `scopedSummaryVersion` (`rolePolicyRevision`) fix; doubles/router tests, PostgreSQL/E2E/provider delivery unchanged |
 
 The eight skipped checks require designated PostgreSQL targets: permission
 conversion, permission management, attachment deletion, RMA activation, seeded
@@ -44,7 +44,7 @@ Aligned [DriverView](../client/src/features/drivers/DriverView.tsx) and [driverS
 
 ### P2 — 4 PM in-app summaries use a user ID as a DeliveryRecord ID (Resolved)
 
-Extracted scheduled notification jobs into [scheduledNotifications.ts](../server/src/services/scheduledNotifications.ts) and updated `notify4PM` to store `recordType: 'ScopedSummary'` and `recordId: session.permissionVersion` (matching [scopedSummaries.ts](../server/src/services/scopedSummaries.ts)). [notificationVisibility.ts](../server/src/services/notificationVisibility.ts) now checks `ScopedSummary` against `user.permissionVersion` in both `V1` and `LEGACY` modes while preserving generic non-summary alerts in `LEGACY`. Verified by [scheduledNotifications.test.ts](../server/tests/scheduledNotifications.test.ts) and [permissionVisibility.test.ts](../server/tests/permissionVisibility.test.ts).
+Extracted scheduled notification jobs into [scheduledNotifications.ts](../server/src/services/scheduledNotifications.ts) and updated `notify4PM` to store `recordType: 'ScopedSummary'` and `recordId: scopedSummaryVersion(session)` (matching [scopedSummaries.ts](../server/src/services/scopedSummaries.ts) in V1 while incorporating `rolePolicyRevision` alongside `permissionVersion` in LEGACY mode via [scopedSummaryVersion](../server/src/services/notificationVisibility.ts)). [notificationVisibility.ts](../server/src/services/notificationVisibility.ts) now checks `ScopedSummary` against `scopedSummaryVersion(user)` in both `V1` and `LEGACY` modes while preserving generic non-summary alerts in `LEGACY`. Verified by [scheduledNotifications.test.ts](../server/tests/scheduledNotifications.test.ts) and [permissionVisibility.test.ts](../server/tests/permissionVisibility.test.ts).
 
 ### P2 — 4 PM AM resolution bypasses directory identity rules (Resolved)
 

@@ -4,6 +4,7 @@ import { saveDailyStatusSnapshot as writeDailyStatusSnapshot } from './dailyStat
 import { manilaToday } from './deliveryLifecycle';
 import { notifyRole, notifyUser } from './inAppNotify';
 import { sendEmail, type SendResult } from './mailer';
+import { scopedSummaryVersion } from './notificationVisibility';
 import { permissionMode } from './permissionManagement';
 import { loadLegacySession } from './sessionPermissions';
 import { canReadRecord } from './recordAccess';
@@ -112,7 +113,7 @@ export async function notify4PM(now = new Date()) {
 
       // Store summary notifications with ScopedSummary so notificationVisibility exposes them
       // without joining a user ID against DeliveryRecord.
-      await notifyUser(session.id, title, message, session.permissionVersion, 'ScopedSummary');
+      await notifyUser(session.id, title, message, scopedSummaryVersion(session), 'ScopedSummary');
       const mailStatus = await sendLoggedEmail(session.email, title, message);
 
       await prisma.notificationLog.create({

@@ -4,7 +4,7 @@ import nodemailer from 'nodemailer';
 import { prisma } from '../src/db';
 import type * as mailer from '../src/services/mailer';
 import { notify4PM, notifyWeeklyReport } from '../src/services/scheduledNotifications';
-import { notificationVisibility } from '../src/services/notificationVisibility';
+import { notificationVisibility, scopedSummaryVersion } from '../src/services/notificationVisibility';
 import { sessionUser } from '../src/services/permissions';
 import type { AuthUser } from '../src/middleware/auth';
 import { rmaTestPolicy } from './rmaTestPolicy';
@@ -122,20 +122,21 @@ test('4 PM summary resolves AM via directory rules, filters by record access, an
 
   const notif = createdNotifications[0];
   const expectedSession = { ...sessionUser(activeAmUser), driverProfileId: null } as AuthUser;
+  const expectedSummaryVersion = scopedSummaryVersion(expectedSession);
   assert.equal(notif.userId, activeAmUser.id);
   assert.equal(notif.recordType, 'ScopedSummary');
-  assert.equal(notif.recordId, expectedSession.permissionVersion);
+  assert.equal(notif.recordId, expectedSummaryVersion);
   assert.notEqual(notif.recordType, 'DeliveryRecord');
   assert.ok(notif.title.includes('1 open record'), 'Sales Coordinator count excludes unauthorized RMA');
   assert.ok(notif.message.includes('DEL-26-00001'));
   assert.ok(!notif.message.includes('RMA-26-00001'));
 
   // Confirm ScopedSummary is not blocked by DeliveryRecord visibility in LEGACY mode
-  // and binds the summary check to the recipient's current permissionVersion.
+  // and binds the summary check to the recipient's current scopedSummaryVersion.
   const visibilitySql = notificationVisibility(expectedSession);
   assert.ok(visibilitySql.sql.includes("IS DISTINCT FROM 'DeliveryRecord'"));
   assert.match(visibilitySql.sql, /ScopedSummary/);
-  assert.ok(visibilitySql.values.includes(expectedSession.permissionVersion));
+  assert.ok(visibilitySql.values.includes(expectedSummaryVersion));
 
   assert.equal(sentEmails[0].to, 'alice@example.test');
   assert.equal(createdLogs[0].recipientName, 'Alice Mercado');
@@ -296,6 +297,13 @@ test('4 PM summary in LEGACY mode loads RMA policy/overrides and excludes explic
 
   const tobyNotif = createdNotifications.find(n => n.userId === tassAllowedRma.id);
   assert.ok(tobyNotif);
+  const expectedTobySession = {
+    ...sessionUser(tassAllowedRma),
+    driverProfileId: null,
+    rmaPermissions: { rolePolicyRevision: String(rmaTestPolicy('TASS').revision) } as any,
+  } as AuthUser;
+  assert.equal(tobyNotif.recordId, scopedSummaryVersion(expectedTobySession));
+  assert.notEqual(tobyNotif.recordId, scopedSummaryVersion(sessionUser(tassAllowedRma) as AuthUser));
   assert.ok(tobyNotif.message.includes('RMA-26-00012'));
   assert.ok(tobyNotif.message.includes('Visible RMA Co'));
 });
