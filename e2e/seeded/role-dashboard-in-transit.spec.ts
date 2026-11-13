@@ -42,6 +42,44 @@ async function openDrillDown(page: Page, panel: Locator, name: RegExp, screen: s
 /** DashboardPanel is a section labelled by its title, so it is a named region. */
 const panelFor = (page: Page, title: string) => page.getByRole('region', { name: title, exact: true });
 
+test('Logistics Completed today opens the same records the card counts', async ({ page }) => {
+  const session = await login(page, 'LOGISTICS');
+  const stats = await page.request.get(apiUrl('/dashboard/stats'));
+  await expectOk(stats, 'Dashboard stats');
+  const total: number = (await stats.json()).completed_today;
+  expect(typeof total).toBe('number');
+
+  await openScreen(page, 'dashboard', 'LOGISTICS');
+  const tile = page.getByRole('button', { name: `Completed today, ${total.toLocaleString('en-US')} ${total === 1 ? 'record' : 'records'}. View list`, exact: true });
+  const listResponse = page.waitForResponse(response => response.request().method() === 'GET'
+    && new URL(response.url()).searchParams.get('dashboard_filter') === 'log-completed-today');
+  await tile.click();
+  const dialog = page.getByRole('dialog', { name: 'Records completed today' });
+  await expect(dialog).toBeVisible();
+  const response = await listResponse;
+  expect(response.status()).toBe(200);
+  expect(new URL(response.url()).searchParams.has('category')).toBe(false);
+  const list = await response.json();
+  expect(list.total).toBe(total);
+  if (total) {
+    await expect(dialog.getByRole('table').getByRole('row')).toHaveCount(list.rows.length + 1);
+    const record = list.rows.find((row: { category: string }) => Object.values(CATEGORY_SCREENS)
+      .some(target => target.category === row.category && session.effectiveScreens.includes(target.screen)));
+    if (record) {
+      const target = Object.values(CATEGORY_SCREENS).find(target => target.category === record.category)!;
+      await dialog.getByRole('table').getByRole('button', { name: `Open ${target.category === 'Deliveries' ? 'Delivery' : target.link} ${record.record_no || record.id}` }).click();
+      await expect(page).toHaveURL(new RegExp(`/${target.screen}\\?item=`));
+      await expect(dialog).toHaveCount(0);
+      return;
+    }
+  } else {
+    await expect(dialog.getByText('No records completed today')).toBeVisible();
+  }
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(tile).toBeFocused();
+});
+
 test('Logistics Transport requests panel matches the per-type drill-downs (AC6)', async ({ page }) => {
   await login(page, 'LOGISTICS');
   const data = await overview(page);

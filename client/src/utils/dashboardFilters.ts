@@ -14,7 +14,7 @@ export const DASHBOARD_FILTERS = {
   'sc-attention-all': { label: 'Items Need Action', screen: 'deliveries' },
   'log-assigned-today': { label: 'Assigned to Drivers Today', screen: 'deliveries' },
   'log-unassigned': { label: 'No Driver Assigned', screen: 'deliveries' },
-  'log-completed-today': { label: 'Deliveries Completed Today', screen: 'deliveries' },
+  'log-completed-today': { label: 'Records Completed Today', screen: 'dashboard' },
   'log-on-hold': { label: 'On-Hold Items', screen: 'deliveries' },
   'log-rescheduled': { label: 'Rescheduled Items', screen: 'deliveries' },
   'log-on-hold-rescheduled': { label: 'On-Hold / Rescheduled', screen: 'deliveries' },
@@ -60,6 +60,11 @@ function isManilaDay(value: string | null | undefined, day: string): boolean {
 
 function isDelivery(record: DeliveryRecord): boolean {
   return record.category === 'Deliveries' && !isDraftRecord(record);
+}
+
+/** Older RMAs recorded final completion as Time Out. */
+export function recordCompletedAt(record: DeliveryRecord): string | null | undefined {
+  return record.category === 'RMA' ? record.rma_completed_at ?? record.time_out : record.time_out;
 }
 
 /** Every RMA that is neither completed nor a draft. Mirrors OPEN_RMA_STATUSES on the server. */
@@ -132,8 +137,9 @@ export function matchesDashboardFilter(
     case 'sc-rescheduled':
       return isDelivery(record) && record.status === 'Rescheduled';
     case 'sc-completed-today':
-    case 'log-completed-today':
       return isDelivery(record) && record.status === 'Delivered' && isManilaDay(record.time_out, today);
+    case 'log-completed-today':
+      return !isDraftRecord(record) && record.status === 'Delivered' && isManilaDay(recordCompletedAt(record), today);
     case 'sc-attention-no-driver': {
       if (!isDelivery(record) || !noDriver(record) || !record.delivery_date) return false;
       const dueDate = new Date(`${record.delivery_date}T00:00:00.000Z`);

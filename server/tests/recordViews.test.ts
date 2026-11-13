@@ -4,6 +4,7 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import { prisma } from '../src/db';
 import { signToken } from '../src/middleware/auth';
+import dashboard from '../src/routes/dashboard';
 import records from '../src/routes/records';
 import { runViewWhere } from '../src/services/recordViewFilters';
 import { manilaDateRange } from '../src/services/dateSemantics';
@@ -17,6 +18,7 @@ function matches(row: any, where: any): boolean {
     if (value && typeof value === 'object' && !(value instanceof Date)) {
       if ('in' in value) return value.in.includes(row[key]);
       if ('not' in value && row[key] === value.not) return false;
+      if (row[key] == null && Object.keys(value).some(k => ['gte', 'gt', 'lte', 'lt'].includes(k))) return false;
       if ('gte' in value && row[key] < value.gte || 'gt' in value && row[key] <= value.gt || 'lte' in value && row[key] > value.lte || 'lt' in value && row[key] >= value.lt) return false;
       if ('contains' in value) return String(row[key] ?? '').toLowerCase().includes(value.contains.toLowerCase());
       if (Object.keys(value).some(k => ['not', 'gte', 'gt', 'lte', 'lt'].includes(k))) return true;
@@ -45,13 +47,56 @@ async function fixture(t: TestContext, source: any[], role = 'ADMIN', permission
     for (const row of source.filter(row => matches(row, args.where))) { const key = JSON.stringify(args.by.map((field: string) => row[field] ?? null)); const group = grouped.get(key) ?? { ...Object.fromEntries(args.by.map((field: string) => [field, row[field] ?? null])), _count: { _all: 0 } }; group._count._all++; grouped.set(key, group); }
     return [...grouped.values()];
   });
-  const app = express(); app.use(express.json(), cookieParser()); app.use('/records', records);
+  const app = express(); app.use(express.json(), cookieParser()); app.use('/records', records); app.use('/dashboard', dashboard);
   app.use((error: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => res.status(500).json({ error: error.message }));
   const server = app.listen(0, '127.0.0.1'); await new Promise<void>(resolve => server.once('listening', resolve));
   t.after(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); while (undo.length) undo.pop()!(); if (mode === undefined) delete process.env.PERMISSION_MODE; else process.env.PERMISSION_MODE = mode; });
   const cookie = `mg_session=${signToken({ id: actor.id, name: actor.name, email: actor.email, role: actor.role as any })}`;
-  return { calls, get: (query: string, authenticated = true) => fetch(`http://127.0.0.1:${(server.address() as any).port}/records${query}`, { headers: authenticated ? { Cookie: cookie } : {} }) };
+  const get = (path: string, authenticated = true) => fetch(`http://127.0.0.1:${(server.address() as any).port}${path}`, { headers: authenticated ? { Cookie: cookie } : {} });
+  return { calls, getStats: () => get('/dashboard/stats'), get: (query: string, authenticated = true) => get(`/records${query}`, authenticated) };
 }
+
+test('Logistics Completed today counts all five completed record categories and matches its list', async t => {
+  const start = new Date('2026-11-12T16:00:00.000Z');
+  const end = new Date('2026-11-13T16:00:00.000Z');
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-13T02:00:00Z').getTime() });
+  const completed = { status: 'ACCOMPLISHED', timeOut: start.toISOString() };
+  const rma = { category: 'RMA', rmaMovement: 'INTERNAL_NO_DRIVER', status: 'ACCOMPLISHED' };
+  const rows = [
+    row(1, completed), // Scheduled on an earlier date, completed at today's Manila midnight.
+    row(2, { ...completed, category: 'PROCUREMENT_PICKUP' }),
+    row(3, { ...completed, category: 'SALES_ORDERS' }),
+    row(4, { ...completed, category: 'ACCOUNTING_COLLECTION', collectionVerified: false }),
+    row(5, { ...rma, rmaCompletedAt: start }),
+    row(6, { ...rma, rmaCompletedAt: null, timeOut: start.toISOString() }), // Legacy RMA finalization.
+    row(7, { ...rma, rmaMovement: 'LOGISTICS_TRANSPORT', status: 'SCHEDULED', rmaTransportStatus: 'COMPLETED', rmaTransportCompletedAt: start }),
+    row(8, { ...completed, timeOut: end.toISOString() }),
+    row(9, { ...rma, rmaCompletedAt: new Date(start.getTime() - 1), timeOut: start.toISOString() }),
+    row(10, { ...completed, draft: true }),
+    row(11, { ...completed, deletedAt: start }),
+    row(12, { ...completed, timeOut: null, deliveryDate: '2026-11-13' }),
+  ];
+  const state = await fixture(t, rows, 'LOGISTICS', [], true);
+  const statsResponse = await state.getStats();
+  assert.equal(statsResponse.status, 200);
+  assert.equal((await statsResponse.json() as any).completed_today, 6);
+  const listResponse = await state.get('?paged=true&dashboard_filter=log-completed-today&limit=25');
+  assert.equal(listResponse.status, 200);
+  const list: any = await listResponse.json();
+  assert.equal(list.total, 6);
+  assert.deepEqual(list.rows.map((record: any) => record.id).sort(), ['REC-1', 'REC-2', 'REC-3', 'REC-4', 'REC-5', 'REC-6']);
+});
+
+test('Logistics Completed today respects an explicit record category denial in both endpoints', async t => {
+  const timeOut = new Date().toISOString();
+  const state = await fixture(t, [
+    row(1, { status: 'ACCOMPLISHED', timeOut }),
+    row(2, { category: 'ACCOUNTING_COLLECTION', status: 'ACCOMPLISHED', timeOut }),
+  ], 'LOGISTICS', [{ screen: 'accounting_collection', granted: false }]);
+  assert.equal((await (await state.getStats()).json() as any).completed_today, 1);
+  const list: any = await (await state.get('?paged=true&dashboard_filter=log-completed-today')).json();
+  assert.deepEqual(list.rows.map((record: any) => record.id), ['REC-1']);
+});
 test('legacy reads are bounded while paginated history reaches beyond 5000 records', async t => {
   const state = await fixture(t, Array.from({ length: 6001 }, (_, i) => row(i)));
   const response = await state.get(''); assert.equal(response.status, 200); assert.equal((await response.json() as any[]).length, 100); assert.equal(state.calls[0].args.take, 100);
