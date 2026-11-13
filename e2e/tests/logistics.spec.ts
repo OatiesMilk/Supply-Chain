@@ -307,6 +307,47 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     await expect(page.getByText(/changes saved/i).first()).toBeVisible();
   });
 
+  test('B-2.5d Logistics starts and completes a Delivery through the Next step card and dialogs', async ({ page, browser }) => {
+    await openNewScheduledRecord(page, browser);
+    await page.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
+
+    // Assign a driver first; the card then offers Start transport.
+    const driverSelect = page.locator('select').filter({ has: page.locator('option', { hasText: '-- Unassigned --' }) });
+    const values = await driverSelect.locator('option').evaluateAll(options => options.map(option => (option as HTMLOptionElement).value));
+    const driver = values.find(value => value);
+    expect(driver, 'The UAT fixture must offer a Driver').toBeDefined();
+    await driverSelect.selectOption(driver!);
+    await page.getByPlaceholder(/Reason for the changes|Optional note/i).fill('Assign for mark as delivered test');
+    await page.getByRole('button', { name: 'Save Changes', exact: true }).click();
+    await expect(page.getByText(/changes saved/i).first()).toBeVisible();
+
+    const card = page.getByTestId('next-step-card');
+    await expect(page.getByRole('button', { name: 'Record Time In' })).toHaveCount(0);
+    await card.getByRole('button', { name: 'Start transport', exact: true }).click();
+    const start = page.getByRole('dialog', { name: 'Start transport' });
+    await start.getByLabel('Remarks').fill('Leaving the depot');
+    const timeIn = page.waitForResponse(r => /\/records\/[^/]+\/time-in$/.test(new URL(r.url()).pathname));
+    await start.getByRole('button', { name: 'Start transport', exact: true }).click();
+    expect((await timeIn).ok()).toBeTruthy();
+
+    // Completion is blocked until the photo, Received by and remarks are present.
+    await card.getByRole('button', { name: 'Mark as delivered', exact: true }).click();
+    const complete = page.getByRole('dialog', { name: 'Mark as delivered' });
+    const confirm = complete.getByRole('button', { name: 'Mark as delivered', exact: true });
+    await expect(confirm).toBeDisabled();
+    await complete.locator('input[type=file]').setInputFiles({ name: 'pod.png', mimeType: 'image/png',
+      buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64') });
+    await complete.getByLabel('Received by').fill('Warehouse guard');
+    await complete.getByLabel('Remarks').fill('Handed over');
+    await expect(confirm).toBeEnabled();
+    const status = page.waitForResponse(r => /\/records\/[^/]+\/status$/.test(new URL(r.url()).pathname) && r.request().method() === 'PATCH');
+    await confirm.click();
+    const response = await status;
+    expect(response.ok()).toBeTruthy();
+    expect((await response.json()).status).toBe('Delivered');
+    await expect(card).toContainText('Delivered');
+  });
+
   test('B-2.5a TSK-123 Rescheduled requires a new delivery date saved with the status', async ({ page, browser }) => {
     await openNewScheduledRecord(page, browser);
     await page.getByRole('tab', { name: 'Status & Actions', exact: true }).click();

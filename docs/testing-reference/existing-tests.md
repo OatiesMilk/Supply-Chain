@@ -392,6 +392,7 @@ Pinned source: `8660bdee15b502867716ca0c60683965c6cd87f6`. Presence in this inve
 - B-2.5a TSK-123 Rescheduled requires a new delivery date saved with the status
 - B-2.5b TSK-124 Priority is locked on Delivered records, including in bulk edit
 - B-2.5c TSK-125 Logistics has no Return to Draft action
+- B-2.5d Logistics starts and completes a Delivery through the Next step card and dialogs
 - B-2.6 Saving without changes shows feedback
 - B-2.7 Active Deliveries sidebar uses the existing discard guard for unsaved driver changes
 - B-2.8 Active Accounting Collection sidebar returns to the list and guards unsaved edits

@@ -147,7 +147,9 @@ is permitted only for a disposable loopback database.
 | B-2.4 | Add driver assistants | Type assistant names in the assistants field → Save with remarks | Assistants are saved and appear on the record | |
 | B-2.5 | Change Status | Select a different status (e.g. On-Hold) → enter remarks → click Confirm Status | Status updates on the record; badge color changes | |
 | B-2.6 | Cannot set same status twice | Set status to Pending → immediately try to set to Pending again | Error: "Choose a different status before saving." | |
-| B-2.7 | Record Time In | On a Scheduled or Rescheduled run with a driver assigned, enter remarks → click **Record Time In** | Status becomes In Transit and the server-stamped Time In is shown. Time Out is only set automatically on completion. A later correction of Time In requires remarks and is audited | |
+| B-2.7 | Start transport | On a Scheduled or Rescheduled run with a driver assigned, click **Start transport** in the Next step card → enter remarks → confirm | Status becomes In Transit and the server-stamped Time In is shown. Time Out is only set automatically on completion. A later correction of Time In requires remarks and is audited | |
+| B-2.7a | Mark as delivered | On an In Transit run, click **Mark as delivered** (**Mark as collected** on Accounting Collection) → add a proof photo, Received by and remarks → confirm | Confirm stays disabled with a "Still needed" line until all three are present. The run becomes Delivered and the card shows who received it. Cancel or Escape saves nothing | |
+| B-2.7b | Mark as delivered on RMA and Drivers > View | Repeat B-2.7a on an RMA Transport card and from Drivers > View | Same dialogs and rules. Pending and Reschedule still ask for a reason | |
 | B-2.8 | Set Priority | Change Priority to "3 - High" → Save with remarks | Priority badge changes on the record | |
 
 | Test ID | Test Case | Steps | Expected Result | Pass / Fail |
