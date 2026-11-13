@@ -2,6 +2,15 @@
 
 Reviewed 2026-11-11 on local `dev`, application revision `1e2b900`.
 
+> **2026-11-12 follow-up:** This remains the original source review, not a current
+> list of unchanged defects. The R1–R6 remediation was reviewed at `1218fcd` and
+> source-rechecked at `81214c5`; see the [readiness follow-up](COMMIT_READINESS_REVIEW_2026-11-12.md)
+> for partial resolutions, four remaining defects and revision-specific tests.
+> In particular, Driver mobile cards now have Start transport/Complete delivery
+> actions only, the local access-request modal reports clipboard failures, and
+> the server suite passed with an explicit LEGACY default. Historical findings
+> and counts below retain their original evidence and do not prove deployed state.
+
 ## Overall assessment
 
 The application has a substantial operational core: preparing records, coordinating dispatch, executing assigned runs, collecting evidence, receiving returns and verifying collections. Its strongest design choice is separating responsibilities between Sales Coordinator, Logistics, Driver and TASS, with Admin managing identities and access rather than bypassing every business boundary.
@@ -28,12 +37,12 @@ No application code, permissions, business data, deployment settings or tickets 
 | Driver | Standalone mobile-oriented assigned-work queue, overdue work, Time In/start, evidence upload, receiver and remarks, completion/pending/on-hold actions; eligible assigned RMA transport via its own workflow | “The action screen is focused and proof requirements are clear. For ordinary runs, I still need a proper job-details view with the exact destination and full manifest so I can execute without separate instructions.” |
 | Logistics handoff | Driver/assistant/vehicle assignment after submission, Drivers View/Board/Manager, calendar, dispatch status and rescheduling, route slips and reports, bounded RMA dispatch | “The dispatch tools are substantial, but Reschedule must work in every view, and assignment should not look unsuccessful after it has already saved.” |
 
-Default screens and actual authority are different. See [role defaults](../server/src/services/permissions.ts), [record access](../server/src/services/recordAccess.ts), [record operations](../server/src/services/recordOperations.ts) and [permission evaluation](../server/src/services/permissionEvaluator.ts). RMA dispatch also depends on initialized/provisioned permissions. The presence of V1 code does not establish deployed activation.
+Default screens and actual authority are different. See [role defaults](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/services/permissions.ts), [record access](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/services/recordAccess.ts), [record operations](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/services/recordOperations.ts) and [permission evaluation](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/services/permissionEvaluator.ts). RMA dispatch also depends on initialized/provisioned permissions. The presence of V1 code does not establish deployed activation.
 
 ## Strengths worth preserving
 
 - **Responsibility boundaries:** Sales cannot assign Drivers during preparation; linked Driver profile IDs determine ownership; collection verification belongs to TASS; RMA transport completion does not establish physical receipt or final completion.
-- **Current-account authorization:** Authentication reloads account state rather than trusting stale JWT role claims. Cookies are httpOnly and writes have CSRF protection. V1 includes explicit Deny, role ceilings and version-aware policy editing. See [auth](../server/src/middleware/auth.ts), [policy evaluator](../server/src/services/permissionEvaluator.ts) and [management](../server/src/services/permissionManagement.ts).
+- **Current-account authorization:** Authentication reloads account state rather than trusting stale JWT role claims. Cookies are httpOnly and writes have CSRF protection. V1 includes explicit Deny, role ceilings and version-aware policy editing. See [auth](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/middleware/auth.ts), [policy evaluator](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/services/permissionEvaluator.ts) and [management](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/services/permissionManagement.ts).
 - **Evidence and history:** Completion checks persisted proof, timestamps, receiver and remarks. Attachments have protected reads and content/format checks. Many operational writes include audit and remark entries in transactions; collection verification includes its notification atomically.
 - **Conflict and cache handling:** Operational queries are scoped/paged, poll and refresh on focus/reconnect; mutations invalidate related lists, details, evidence, dashboards and notifications. Session changes clear previous-user state. RMA has separate version and sync safeguards. These are valuable foundations, although they do not apply uniformly to every screen.
 - **Recent master-data work:** Companies and Account Managers have active/inactive handling and stale-edit protection. Supplier categories support an Admin-managed multi-category catalog, preserved historical assignments and atomic audits. These are implemented features, not outstanding versions of older findings.
@@ -47,7 +56,7 @@ Default screens and actual authority are different. See [role defaults](../serve
 
 The 4 PM LEGACY job fetches all unfinished records, including RMA, groups by the text Account Manager name, chooses an active user using `name contains`, and builds a preview containing business references and company names. It does not apply the recipient's record scope. The notification has no record type/ID, so the normal record-linked visibility filter cannot remove it. The same preview is passed to email.
 
-Evidence: [scheduler](../server/src/index.ts#L167), especially lines 191–205; [notification creation](../server/src/services/inAppNotify.ts#L28); [visibility filter](../server/src/services/notificationVisibility.ts); [notification reads](../server/src/routes/notifications.ts#L14). LEGACY is the code default in [permission management](../server/src/services/permissionManagement.ts#L18). V1 uses a different, scoped summary path; this finding is mode dependent and does not assert that the running deployment uses LEGACY.
+Evidence: [scheduler](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/index.ts#L167), especially lines 191–205; [notification creation](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/services/inAppNotify.ts#L28); [visibility filter](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/services/notificationVisibility.ts); [notification reads](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/routes/notifications.ts#L14). LEGACY is the code default in [permission management](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/services/permissionManagement.ts#L18). V1 uses a different, scoped summary path; this finding is mode dependent and does not assert that the running deployment uses LEGACY.
 
 **Remedy:** Use the linked Account Manager identity and current recipient scope for every summary; make already-stored summaries invalid when authority changes. Avoid fuzzy name resolution. Validate a recipient with denied RMA access and duplicate/overlapping names.
 
@@ -57,7 +66,7 @@ Evidence: [scheduler](../server/src/index.ts#L167), especially lines 191–205; 
 
 SKU GET/list/audit handlers and notification GET/read handlers await database calls in bare async callbacks. This is Express 4; rejected callbacks are not automatically forwarded to the global error handler. Users can receive an unanswered request, and the process can experience an unhandled rejection.
 
-Evidence: [SKU handlers](../server/src/routes/skus.ts#L52), lines 52, 62 and 78; [notification handlers](../server/src/routes/notifications.ts#L14), lines 14, 34, 43 and 51; existing [async wrapper](../server/src/middleware/asyncRoute.ts). An isolated Express listener with an injected async rejection produced `{forwardedToErrorHandler:false, unhandledRejectionObserved:true, responseReceived:false}`. This is framework-level evidence, not an induced production outage.
+Evidence: [SKU handlers](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/routes/skus.ts#L52), lines 52, 62 and 78; [notification handlers](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/routes/notifications.ts#L14), lines 14, 34, 43 and 51; existing [async wrapper](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/middleware/asyncRoute.ts). An isolated Express listener with an injected async rejection produced `{forwardedToErrorHandler:false, unhandledRejectionObserved:true, responseReceived:false}`. This is framework-level evidence, not an induced production outage.
 
 **Remedy:** Apply the established async wrapper consistently and check that injected query failures yield recoverable HTTP errors.
 
@@ -67,7 +76,7 @@ Evidence: [SKU handlers](../server/src/routes/skus.ts#L52), lines 52, 62 and 78;
 
 After committing an assignment and its audit, the route awaits a creator notification before responding. If that notification write fails, the API returns 500 although the Driver assignment remains saved. Completion similarly performs email-log and TASS notification work after the record transaction. A notification/log database failure can obscure a committed completion; the email trigger depends on entering the accomplished state, so an ordinary retry is not a reliable recovery mechanism. Provider-send failures caught by the mail service are a separate case; SMTP failure alone is not claimed to cause every 500.
 
-Evidence: [assignment response path](../server/src/routes/records.ts#L1551); [completion response path](../server/src/routes/records.ts#L1729); [completion notification service](../server/src/services/notify.ts). An isolated HTTP request using a transaction double confirmed a 500 with the Driver assignment and audit retained. No real database/provider was used.
+Evidence: [assignment response path](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/routes/records.ts#L1551); [completion response path](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/routes/records.ts#L1729); [completion notification service](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/services/notify.ts). An isolated HTTP request using a transaction double confirmed a 500 with the Driver assignment and audit retained. No real database/provider was used.
 
 **Remedy:** Persist the handoff intent atomically with the record, dispatch it through retryable work, and return the saved record with truthful notification status. Make retries idempotent.
 
@@ -77,7 +86,7 @@ Evidence: [assignment response path](../server/src/routes/records.ts#L1551); [co
 
 The action sends status and remarks but has no new-date input. The server requires a changed delivery date in the same reschedule request. Users must leave the view and reschedule in the category workspace.
 
-Evidence: [confirmation payload](../client/src/features/drivers/DriverView.tsx#L178), button around line 391; [server requirement](../server/src/routes/records.ts#L1645). This is a complete source trace; no live reschedule was performed.
+Evidence: [confirmation payload](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/features/drivers/DriverView.tsx#L178), button around line 391; [server requirement](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/routes/records.ts#L1645). This is a complete source trace; no live reschedule was performed.
 
 **Remedy:** Reuse the existing date input and validation from the operational workspace.
 
@@ -87,7 +96,7 @@ Evidence: [confirmation payload](../client/src/features/drivers/DriverView.tsx#L
 
 Submit only changes local component state and starts a timer. The success text says “Request Sent” and “Your admin has been notified”; no API request or persisted notification exists in that path.
 
-Evidence: [AccessRequestModal](../client/src/components/AccessRequestModal.tsx#L27), success text at lines 44–45; denied navigation opens it in [App](../client/src/App.tsx#L177).
+Evidence: [AccessRequestModal](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/components/AccessRequestModal.tsx#L27), success text at lines 44–45; denied navigation opens it in [App](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/App.tsx#L177).
 
 **Remedy:** Implement a persisted request/Admin queue, or provide an honest contact instruction until that workflow is available.
 
@@ -97,7 +106,7 @@ Evidence: [AccessRequestModal](../client/src/components/AccessRequestModal.tsx#L
 
 Daily/weekly tasks use process timers. Downtime across a firing time misses the notification run; multiple instances independently schedule the same work. There is no persisted run claim/catch-up mechanism. Separately, the LEGACY AM job ignores the returned send result and records SENT whenever a user exists; that row suppresses further daily attempts. Weekly reporting records SENT before mail is attempted. Mocked/failed delivery can therefore appear successful in these paths, although the newer manual email endpoint handles outcomes more accurately.
 
-Evidence: [daily timer](../server/src/index.ts#L138), [weekly timer](../server/src/index.ts#L258), [AM send/log](../server/src/index.ts#L203), [weekly log/send](../server/src/index.ts#L303), [mailer outcomes](../server/src/services/mailer.ts), [V1 summaries](../server/src/services/scopedSummaries.ts).
+Evidence: [daily timer](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/index.ts#L138), [weekly timer](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/index.ts#L258), [AM send/log](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/index.ts#L203), [weekly log/send](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/index.ts#L303), [mailer outcomes](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/services/mailer.ts), [V1 summaries](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/services/scopedSummaries.ts).
 
 **Remedy:** Define missed-run behavior, persist unique job claims and retry outcomes, and distinguish SENT/MOCKED/FAILED/SKIPPED. A provider accepting mail still does not prove inbox delivery.
 
@@ -107,7 +116,7 @@ Evidence: [daily timer](../server/src/index.ts#L138), [weekly timer](../server/s
 
 Selecting a customer, supplier or Driver result passes its ID into navigation, but navigation retains selections only for inventory and operational record screens. The directory pages receive no selected entity ID, so the user lands on the list and searches again.
 
-Evidence: [search navigation](../client/src/components/GlobalSearch.tsx#L176), [selection storage](../client/src/store/uiStore.ts#L105), [page wiring](../client/src/routes/AppRouter.tsx).
+Evidence: [search navigation](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/components/GlobalSearch.tsx#L176), [selection storage](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/store/uiStore.ts#L105), [page wiring](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/routes/AppRouter.tsx).
 
 **Remedy:** Preserve directory selection and open/focus the requested entity, including permission and missing/deactivated-item handling.
 
@@ -117,7 +126,7 @@ Evidence: [search navigation](../client/src/components/GlobalSearch.tsx#L176), [
 
 The API fetches every matching delivery/inventory row, builds a merged array, sorts it and only then slices the requested page. A 25-row page therefore does not bound database/network-to-server/memory work. Inventory date bounds also mix UTC parsing with host-local end-of-day adjustment, unlike the explicit Manila helpers elsewhere. The latter warrants a timezone fixture before asserting a particular missing-row incident.
 
-Evidence: [delivery fetch](../server/src/routes/transactions.ts#L64), [inventory bounds/fetch](../server/src/routes/transactions.ts#L94), [sort/slice](../server/src/routes/transactions.ts#L130).
+Evidence: [delivery fetch](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/routes/transactions.ts#L64), [inventory bounds/fetch](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/routes/transactions.ts#L94), [sort/slice](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/routes/transactions.ts#L130).
 
 **Remedy:** Page/count in the database with stable ordering and align inventory timestamp bounds with Manila semantics. Actual latency at production volume was not measured.
 
@@ -127,18 +136,18 @@ These should be scoped deliberately; they are not all regressions or approved ne
 
 | Gap | User impact and evidence | Suggested decision |
 | --- | --- | --- |
-| Ordinary Driver run details | Active cards show area/date and truncate item description to 40 characters; no full ordinary-run detail action exposes the exact address or manifest. [DriverDashboard](../client/src/features/dashboard/DriverDashboard.tsx#L293); Drivers use a standalone application in [App](../client/src/App.tsx#L224). | Add an assigned-job details view with existing destination fields/full items and appropriate map/contact actions; confirm which contact data exists for each category. |
-| Partial inventory scope | General, balance/manual adjustment and audit are implemented; eight SKU tabs are scaffolds. [SkuWorkspace](../client/src/features/inventory/SkuWorkspace.tsx#L543). Operational records do not automatically reserve, issue or reconcile stock/finance. | Clearly label unfinished tabs and agree movement/reconciliation rules before implementing automation. |
+| Ordinary Driver run details | Active cards show area/date and truncate item description to 40 characters; no full ordinary-run detail action exposes the exact address or manifest. [DriverDashboard](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/features/dashboard/DriverDashboard.tsx#L293); Drivers use a standalone application in [App](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/App.tsx#L224). | Add an assigned-job details view with existing destination fields/full items and appropriate map/contact actions; confirm which contact data exists for each category. |
+| Partial inventory scope | General, balance/manual adjustment and audit are implemented; eight SKU tabs are scaffolds. [SkuWorkspace](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/features/inventory/SkuWorkspace.tsx#L543). Operational records do not automatically reserve, issue or reconcile stock/finance. | Clearly label unfinished tabs and agree movement/reconciliation rules before implementing automation. |
 | Warehouse scope | Warehouse components exist but are not mounted through a registered screen; InventoryPage mounts InventoryView. | Decide whether a Warehouse module belongs in this release. |
-| Supplier maintenance | Creation and category management are implemented; supplier contact/name/address update and supplier retirement are absent from the route/UI workflow. [supplier routes](../server/src/routes/suppliers.ts), [workspace](../client/src/features/suppliers/SupplierWorkspace.tsx). | Define who maintains supplier details and add the corresponding audited lifecycle. |
-| Local account recovery | No password change/recovery workflow found; account settings are read-only and user edits exclude password. [users](../server/src/routes/users.ts#L174). | Define support/recovery for local accounts separately from the previously deferred password-strength policy. |
-| Shortcut destination | Admin dashboard “View Full Log” navigates to Admin, whose initial tab is Users. [AdminDashboard](../client/src/features/dashboard/AdminDashboard.tsx#L206), [AdminPanel](../client/src/features/admin/AdminPanel.tsx#L40). | Navigate directly to Audit. |
-| Calendar accessibility/identification | Clickable day divs lack keyboard activation; calendar/AM history emphasize internal IDs instead of the business reference. [DeliveryCalendar](../client/src/features/deliveries/DeliveryCalendar.tsx#L149). | Use accessible buttons and show business references prominently. |
+| Supplier maintenance | Creation and category management are implemented; supplier contact/name/address update and supplier retirement are absent from the route/UI workflow. [supplier routes](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/routes/suppliers.ts), [workspace](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/features/suppliers/SupplierWorkspace.tsx). | Define who maintains supplier details and add the corresponding audited lifecycle. |
+| Local account recovery | No password change/recovery workflow found; account settings are read-only and user edits exclude password. [users](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/routes/users.ts#L174). | Define support/recovery for local accounts separately from the previously deferred password-strength policy. |
+| Shortcut destination | Admin dashboard “View Full Log” navigates to Admin, whose initial tab is Users. [AdminDashboard](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/features/dashboard/AdminDashboard.tsx#L206), [AdminPanel](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/features/admin/AdminPanel.tsx#L40). | Navigate directly to Audit. |
+| Calendar accessibility/identification | Clickable day divs lack keyboard activation; calendar/AM history emphasize internal IDs instead of the business reference. [DeliveryCalendar](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/features/deliveries/DeliveryCalendar.tsx#L149). | Use accessible buttons and show business references prominently. |
 
 Additional concerns needing scoped validation:
 
-- Transaction Center uses uncancelled local asynchronous fetching. A slower older filter request can overwrite a newer result; ordinary operational Query invalidation does not refresh this local state. [TransactionCenter](../client/src/features/transactions/TransactionCenter.tsx#L149). Verify with controlled response ordering and migrate it to the shared query model.
-- Record APIs accept numeric line-item quantities `-2` and `0`; an isolated creation request returned 201 and retained both values in a database double. Creation/edit mappings pass numbers directly, while some string inputs are coerced/defaulted. See [mapping](../server/src/routes/records.ts#L1191) and corresponding edits at lines 1375, 1399 and 1422. Agree valid quantity semantics across categories, then enforce them consistently; no financial or return-sign rule is assumed here.
+- Transaction Center uses uncancelled local asynchronous fetching. A slower older filter request can overwrite a newer result; ordinary operational Query invalidation does not refresh this local state. [TransactionCenter](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/features/transactions/TransactionCenter.tsx#L149). Verify with controlled response ordering and migrate it to the shared query model.
+- Record APIs accept numeric line-item quantities `-2` and `0`; an isolated creation request returned 201 and retained both values in a database double. Creation/edit mappings pass numbers directly, while some string inputs are coerced/defaulted. See [mapping](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/routes/records.ts#L1191) and corresponding edits at lines 1375, 1399 and 1422. Agree valid quantity semantics across categories, then enforce them consistently; no financial or return-sign rule is assumed here.
 - Real deployment permission activation, provider delivery, storage failover, PostgreSQL races/rollback and missed-job behavior remain unverified in this review.
 
 ## Validation actually performed

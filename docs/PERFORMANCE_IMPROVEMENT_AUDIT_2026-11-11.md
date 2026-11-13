@@ -1,16 +1,25 @@
 # Performance Audit & Improvement Plan — Microgenesis Supply Chain Portal
 
-**Date:** November 11, 2026  
-**Auditor:** Application Architecture & Performance Audit  
-**Target Repository:** `Microgenesis Supply Chain Management System`  
-**Target Commit:** `1e2b900` (`dev`)  
+**Date:** November 11, 2026
+**Auditor:** Application Architecture & Performance Audit
+**Target Repository:** `Microgenesis Supply Chain Management System`
+**Target Commit:** `1e2b900` (`dev`)
 **Scope:** Backend API (Express + Prisma), Database (PostgreSQL 16), Frontend (React 19 + Vite 6), Network & Concurrency Boundaries.
+
+> **2026-11-12 documentation note:** The analysis and build figures below belong
+> to the original `1e2b900` report. They were not remeasured on `81214c5`; query
+> plans, production latency, React profiling and load behavior remain unverified.
+> Treat performance impacts as source-based hypotheses unless a measurement is
+> explicitly recorded. Reuse of a middleware record must not replace in-transaction
+> locking, mutable-state revalidation or version checks. Consult the
+> [readiness follow-up](COMMIT_READINESS_REVIEW_2026-11-12.md) for later test results
+> and outstanding workflow defects.
 
 ---
 
 ## 1. Executive Summary
 
-A comprehensive performance and resource profiling audit was conducted across the **Microgenesis Supply Chain Portal**. 
+A comprehensive performance and resource profiling audit was conducted across the **Microgenesis Supply Chain Portal**.
 
 While the system implements disciplined practices for file uploads (streaming disk quarantine, sharp pixel inspection, and disk outbox retry patterns), **critical performance bottlenecks** exist in:
 1. **Database Search Scans:** Sequential, unindexed full-table searches across 8 fields using PostgreSQL `ILIKE`.
@@ -24,7 +33,7 @@ While the system implements disciplined practices for file uploads (streaming di
 ## 2. Database & Query Performance Profiling
 
 ### PERF-01: Unindexed 8-Column Sequential Scans on Search (Critical)
-* **Location:** [`server/src/routes/records.ts#L228-L238`](../server/src/routes/records.ts#L228-L238)
+* **Location:** [`server/src/routes/records.ts#L228-L238`](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/routes/records.ts#L228-L238)
 * **Impact:** High CPU saturation, query timeout risks, connection pool exhaustion.
 * **Analysis:**
   When users search records, the server executes:
@@ -43,8 +52,8 @@ While the system implements disciplined practices for file uploads (streaming di
   });
   ```
   Prisma translates `{ contains: s, mode: 'insensitive' }` into PostgreSQL `ILIKE '%<query>%'`.
-  
-  In [`server/prisma/schema.prisma#L335-L344`](../server/prisma/schema.prisma#L335-L344), only standard B-Tree indexes exist:
+
+  In [`server/prisma/schema.prisma#L335-L344`](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/prisma/schema.prisma#L335-L344), only standard B-Tree indexes exist:
   ```prisma
   @@index([deletedAt, category, status])
   @@index([driver])
@@ -63,7 +72,7 @@ While the system implements disciplined practices for file uploads (streaming di
   2. Add trigram GIN indexes via raw SQL migration:
      ```sql
      CREATE EXTENSION IF NOT EXISTS pg_trgm;
-     CREATE INDEX idx_delivery_record_search_trgm ON "DeliveryRecord" 
+     CREATE INDEX idx_delivery_record_search_trgm ON "DeliveryRecord"
      USING gin (reference gin_trgm_ops, rma_reference gin_trgm_ops, area gin_trgm_ops, driver gin_trgm_ops, account_manager gin_trgm_ops);
      ```
   3. Narrow default search inputs or require at least 2 characters before executing queries.
@@ -71,7 +80,7 @@ While the system implements disciplined practices for file uploads (streaming di
 ---
 
 ### PERF-02: Redundant Database Round-Trips Per Route Handler (High)
-* **Location:** [`server/src/routes/records.ts#L49-L74`](../server/src/routes/records.ts#L49-L74)
+* **Location:** [`server/src/routes/records.ts#L49-L74`](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/routes/records.ts#L49-L74)
 * **Impact:** 2x unnecessary database latency on every record mutation.
 * **Analysis:**
   For all endpoints matching `/api/v1/records/:id/*`:
@@ -109,7 +118,7 @@ dist/assets/docx-preview-BzUvfjb2.js      174.81 kB │ gzip:  51.53 kB
 ```
 
 ### PERF-03: Dual Competing Spreadsheet Engines (High)
-* **Location:** [`client/src/utils/export.ts`](../client/src/utils/export.ts) vs [`client/src/components/PodAttachmentPreview.tsx#L50`](../client/src/components/PodAttachmentPreview.tsx#L50)
+* **Location:** [`client/src/utils/export.ts`](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/utils/export.ts) vs [`client/src/components/PodAttachmentPreview.tsx#L50`](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/components/PodAttachmentPreview.tsx#L50)
 * **Impact:** 429.53 kB wasted bundle weight; 2 competing libraries loaded in memory.
 * **Analysis:**
   * The portal loads `exceljs` (940.04 kB) for export generation.
@@ -118,7 +127,7 @@ dist/assets/docx-preview-BzUvfjb2.js      174.81 kB │ gzip:  51.53 kB
   * In addition, `xlsx` has unresolved npm audit security advisories (Prototype Pollution and ReDoS).
 
 * **Remediation Plan:**
-  * Refactor [`client/src/components/PodAttachmentPreview.tsx`](../client/src/components/PodAttachmentPreview.tsx) to render previews via `exceljs` (which is already used in [`client/src/components/ExcelWorkbookPreview.tsx`](../client/src/components/ExcelWorkbookPreview.tsx)).
+  * Refactor [`client/src/components/PodAttachmentPreview.tsx`](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/components/PodAttachmentPreview.tsx) to render previews via `exceljs` (which is already used in [`client/src/components/ExcelWorkbookPreview.tsx`](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/components/ExcelWorkbookPreview.tsx)).
   * Uninstall `xlsx` from `client/package.json`.
   * **Net Savings:** **429.53 kB minified (143 kB gzip)** and 2 vulnerability advisories removed.
 
@@ -128,14 +137,14 @@ dist/assets/docx-preview-BzUvfjb2.js      174.81 kB │ gzip:  51.53 kB
 * **Location:** `jspdf` (390 kB), `html2canvas` (202 kB), `docx` (174 kB).
 * **Impact:** Initial page interaction delay and memory pressure on lower-end mobile driver devices.
 * **Remediation Plan:**
-  Ensure all exports in [`client/src/utils/export.ts`](../client/src/utils/export.ts) and [`client/src/utils/routeSlip.ts`](../client/src/utils/routeSlip.ts) strictly use dynamic `await import(...)` chunks so that PDF/canvas libraries load only when a user actively clicks an Export button.
+  Ensure all exports in [`client/src/utils/export.ts`](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/utils/export.ts) and [`client/src/utils/routeSlip.ts`](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/utils/routeSlip.ts) strictly use dynamic `await import(...)` chunks so that PDF/canvas libraries load only when a user actively clicks an Export button.
 
 ---
 
 ## 4. Frontend Rendering & Component Architecture
 
 ### PERF-05: God Hook & Monolithic Prop-Drilling in Root App (High)
-* **Location:** [`client/src/App.tsx#L123-L156`](../client/src/App.tsx#L123-L156) and [`client/src/routes/AppRouter.tsx#L37-L68`](../client/src/routes/AppRouter.tsx#L37-L68)
+* **Location:** [`client/src/App.tsx#L123-L156`](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/App.tsx#L123-L156) and [`client/src/routes/AppRouter.tsx#L37-L68`](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/routes/AppRouter.tsx#L37-L68)
 * **Impact:** Excessive component tree re-renders across all active views.
 * **Analysis:**
   * `App.tsx` calls `useAppData()`, which centrally queries:
@@ -174,7 +183,7 @@ flowchart TD
 ---
 
 ### PERF-06: 2,370-Line Component Monolith in Record Workspace (Medium)
-* **Location:** [`client/src/features/deliveries/DeliveryRecordWorkspace.tsx`](../client/src/features/deliveries/DeliveryRecordWorkspace.tsx)
+* **Location:** [`client/src/features/deliveries/DeliveryRecordWorkspace.tsx`](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/client/src/features/deliveries/DeliveryRecordWorkspace.tsx)
 * **Impact:** Slow reconciliation, large closure memory footprint, difficult code splitting.
 * **Analysis:**
   `DeliveryRecordWorkspace.tsx` manages view rendering, inline editing, driver coverage ranking, comboboxes, manifest printing, document resizing, comments, POD attachments, status transitions, return-to-draft dialogs, and route slip generation in a single 2,370-line file.
@@ -190,7 +199,7 @@ flowchart TD
 ## 5. Backend Process & Concurrency Profiling
 
 ### PERF-07: In-Process Timer Scheduling & Duplicate Execution (Medium)
-* **Location:** [`server/src/index.ts#L138-L147`](../server/src/index.ts#L138-L147)
+* **Location:** [`server/src/index.ts#L138-L147`](https://github.com/OatiesMilk/Supply-Chain/blob/1e2b90067469e2720b4d22dd34e300e31b855dd9/server/src/index.ts#L138-L147)
 * **Impact:** Duplicate alert emails under multi-instance scaling; lost alerts on sleeping free dynos.
 * **Analysis:**
   ```typescript
@@ -214,17 +223,23 @@ flowchart TD
 
 ---
 
-### PERF-08: Test Concurrency Deadlock in Server Test Suite
-* **Location:** [`server/package.json#L6`](../server/package.json#L6)
-* **Impact:** CI test hangs exceeding 1 hour due to cross-test singleton mutation.
-* **Analysis:**
-  Concurrent test execution mutates the shared `prisma` singleton across test files, causing open socket deadlocks in `attachmentPreview.test.ts`.
-* **Remediation Plan:**
-  Update test script:
-  ```json
-  "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts"
-  ```
-  Reduces total server test execution to a deterministic **97 seconds** across 509 tests.
+### PERF-08: Server-suite hang attribution — unconfirmed historical concern
+
+The original report attributed an attachment-preview hang to concurrent mutation
+of the Prisma singleton and proposed `--test-concurrency=1`, claiming 97 seconds
+across 509 tests. That causal claim and timing were not established by the
+follow-up evidence and must not be treated as a confirmed repair or requirement.
+
+At `1218fcd`, local configuration/sandbox attempts failed or stalled; allowing
+isolated localhost listeners and selecting an explicit LEGACY default produced
+27 passing focused directory/preview checks and a full server result of 528
+passed, 8 PostgreSQL checks skipped, 0 failed. No test-script concurrency change
+was needed for that successful run. See the [readiness follow-up](COMMIT_READINESS_REVIEW_2026-11-12.md)
+for the command and revision limits.
+
+Keep test permission mode isolated from local dotenv configuration. Investigate
+any new hang with a minimal reproduction before changing concurrency or claiming
+a database deadlock. No fresh server suite was run for this documentation update.
 
 ---
 
@@ -232,14 +247,17 @@ flowchart TD
 
 | Milestone | Target Finding | Expected Benefit | Effort |
 | :--- | :--- | :--- | :---: |
-| **Phase 1** | PERF-02, PERF-08 | 50% fewer DB queries on records API; zero test suite hangs. | 1 day |
+| **Phase 1** | PERF-02, PERF-08 | Assess duplicate reads without removing transactional revalidation; isolate test configuration and reproduce remaining hangs. | Re-estimate after measurement |
 | **Phase 2** | PERF-03, PERF-04 | Cut client bundle by ~430 kB; remove 2 high-severity CVEs. | 1-2 days |
 | **Phase 3** | PERF-01 | Eliminate full-table sequential scans; sub-50ms search latency. | 2 days |
 | **Phase 4** | PERF-05, PERF-06 | Eliminate root re-render cascades; improve UI response times. | 3-5 days |
 | **Phase 5** | PERF-07 | Reliable multi-instance scheduling with zero duplicate alerts. | 2 days |
 
 ### Target Performance Metrics
+
+These are proposed targets from the original roadmap, not measured improvements.
+The quoted baseline latencies and deterministic duration are unverified.
 * **Total JavaScript Bundle Size:** < 1.8 MB uncompressed (down from 3.5 MB+).
 * **Search Query Execution Time (p95):** < 50ms (down from unbounded table scan).
 * **Route Mutation Latency (p95):** < 80ms (down from 160ms+ due to query deduplication).
-* **Test Suite Duration:** ~97s deterministic (0 hangs).
+* **Test Suite Duration:** Establish a repeatable baseline in an isolated test configuration before setting a duration target.
