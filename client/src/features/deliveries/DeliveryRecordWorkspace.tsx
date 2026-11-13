@@ -45,7 +45,7 @@ import { notify } from '@/utils/notify';
 
 import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
 import { ReturnToDraftDialog } from './ReturnToDraftDialog';
-import { selectableStatuses, canRecordTimeIn, isDraftRecord, manilaToday, manilaDateTimeInput, manilaInputToIso, rescheduleDateError, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
+import { selectableStatuses, canRecordTimeIn, isDraftRecord, manilaToday, manilaDateTimeInput, manilaInputToIso, rescheduleDateError, rescheduleNeedsNewDate, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
 import { formatManilaTime, formatManilaTimestamp as formatTs } from '@/utils/manilaTimestamp';
 import { recordLabel } from '../../utils/recordLabel';
 
@@ -1115,8 +1115,8 @@ function ActionsTab({
 
   const statusChanged = selectedStatus !== record.status;
   const photoError = statusChanged ? completionError(record, selectedStatus, receivedBy, podReadiness) : null;
-  const needsNewDate = statusChanged && selectedStatus === 'Rescheduled' && record.category === 'Deliveries'
-    && (currentUserRole === 'Logistics' || currentUserRole === 'Admin');
+  const needsNewDate = statusChanged && selectedStatus === 'Rescheduled'
+    && rescheduleNeedsNewDate(record.category, currentUserRole);
   const newDateError = needsNewDate ? rescheduleDateError(newDeliveryDate, record.delivery_date) : null;
   const driverFieldsChanged =
     selectedDriver !== (record.driver ?? '') ||

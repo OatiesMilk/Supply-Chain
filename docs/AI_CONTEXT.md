@@ -12,6 +12,33 @@ Historical reports explain previous decisions and findings; they do not grant
 permission to change application data, send notifications, publish, migrate a
 shared database or activate permission policies.
 
+## Branch readiness follow-up (2026-11-12)
+
+[The readiness review](COMMIT_READINESS_REVIEW_2026-11-12.md) distinguishes the
+original `1218fcd` validation from the targeted source/documentation recheck at
+`81214c5`. Both TypeScript checks and 79 client test files passed in the recorded
+working tree; the explicit LEGACY-default server run passed 528 tests with 8
+PostgreSQL checks skipped. Initial configuration/sandbox failures must not be
+presented as a remaining failed suite, or these older results as a new test run
+on `81214c5`.
+
+Four application defects remain: non-Delivery rescheduling in Drivers View,
+invalid record linkage on 4 PM summaries, AM identity fallback, and weekly mail
+logs masking partial failure. The local clipboard error-state fix is present;
+its interactive failure-path tests remain absent. Scheduled-job durability and
+notification retries are still separate work. No release/deployment sign-off
+follows from these tests.
+
+The [user manual](USER_MANUALS.md) now corrects Driver remarks/proof, RMA handoffs
+and actual Admin audit controls. The [component audit correction](COMPONENT_INTERACTABLE_AUDIT_2026-11-11.md)
+withdraws the functional-health claim and records a fresh static inventory at
+`81214c5`: 229 parsed files, 673 elements, 358 wired-but-unverified, 311 requiring
+review, 4 native-behavior entries and zero runtime-verified controls. The
+[revised skill](../.codex/skills/component-interactable-audit/SKILL.md) separates
+inventory, source tracing and behavioral evidence; its 17 fixture tests and six
+independent synthetic checks do not validate application workflows. Historical
+report baselines remain explicit, and unchanged sections were not fully re-audited.
+
 ## Supplier categories follow-up (2026-11-05)
 
 Implemented locally from clean dev `8adf405`, awaiting PR/merge/deployment:

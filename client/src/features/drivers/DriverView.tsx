@@ -17,7 +17,9 @@ import PodUploader from '@/components/PodUploader';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
 import { completionError } from '@/utils/podRequirement';
 
-import { canRecordTimeIn, isDraftRecord, manilaToday } from '@/utils/recordLifecycle';
+import { canRecordTimeIn, isDraftRecord, manilaToday, rescheduleNeedsNewDate } from '@/utils/recordLifecycle';
+import { useAuthStore } from '@/store/authStore';
+import { buildDriverStatusUpdates, driverStatusDateError } from './driverStatusRules';
 import { useRecordTimeInMutation, usePagedRecordsQuery } from '@/api/queries/useRecordsQuery';
 import { useDriverOverviewQuery, useClampRecordPage } from '@/api/queries/useOperationalViews';
 import RecordPageControls from '@/components/RecordPageControls';
@@ -64,6 +66,7 @@ function DriverViewContent({
   records, onUpdateRecord, outputActionConfigs, onNavigate, driverSummary, unassignedCount, onFiltersChange,
 }: DriverViewProps) {
   const access = usePermissions();
+  const currentUserRole = useAuthStore(state => state.authUser?.role);
   records = records.filter(record => access.canRecord(record.category) && !isDraftRecord(record) && (record.category !== 'RMA' || record.rma_movement === 'LOGISTICS_TRANSPORT' && record.rma_transport_status !== 'COMPLETED'));
   const timeInMutation = useRecordTimeInMutation();
   const [search, setSearch] = useState('');
@@ -163,19 +166,16 @@ function DriverViewContent({
       return;
     }
 
-    if (pendingStatus === 'Rescheduled') {
-      if (!rescheduleDate) {
-        setFeedback({ message: 'A new delivery date is required to reschedule.', type: 'error' });
-        return;
-      }
-      if (rescheduleDate === selectedRecord.delivery_date) {
-        setFeedback({ message: 'The new delivery date must be different from the current delivery date.', type: 'error' });
-        return;
-      }
-      if (rescheduleDate < manilaToday()) {
-        setFeedback({ message: 'The new delivery date cannot be in the past.', type: 'error' });
-        return;
-      }
+    const dateError = driverStatusDateError(
+      selectedRecord.category,
+      pendingStatus,
+      rescheduleDate,
+      selectedRecord.delivery_date,
+      currentUserRole,
+    );
+    if (dateError) {
+      setFeedback({ message: dateError, type: 'error' });
+      return;
     }
 
     setSaving(true);
@@ -192,12 +192,14 @@ function DriverViewContent({
       }
       const status = pendingStatus;
       const receivedBy = receiverInputs[selectedRecord.id]?.trim() || selectedRecord.received_by?.trim() || '';
-      const updates = {
+      const updates = buildDriverStatusUpdates({
+        category: selectedRecord.category,
         status,
-        status_remarks: remarks.trim(),
-        ...(status === 'Delivered' ? { received_by: receivedBy } : {}),
-        ...(status === 'Rescheduled' && rescheduleDate ? { delivery_date: rescheduleDate } : {}),
-      } as Partial<DeliveryRecord>;
+        remarks,
+        receivedBy,
+        rescheduleDate,
+        role: currentUserRole,
+      });
       const saved = await save(selectedRecord, updates, 'Could not update the run. Please try again.');
       if (!saved) return;
       closeStatus();
@@ -462,7 +464,7 @@ function DriverViewContent({
             </div>
             {pendingStatus === 'Delivered' && photoError && <p role="alert" className="text-sm text-red-800">{photoError}</p>}
             {feedback && <p role="alert" className={`rounded-lg p-3 text-sm ${feedback.type === 'success' ? 'bg-emerald-50 text-emerald-800' : feedback.type === 'info' ? 'bg-amber-50 text-amber-800' : 'bg-red-50 text-red-800'}`}>{feedback.message}</p>}
-            {pendingStatus === 'Rescheduled' && (
+            {pendingStatus === 'Rescheduled' && rescheduleNeedsNewDate(selectedRecord.category, currentUserRole) && (
               <div>
                 <label htmlFor="driver-reschedule-date" className="mb-1 block text-sm font-semibold text-slate-700">New Delivery Date *</label>
                 <input
@@ -484,7 +486,7 @@ function DriverViewContent({
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={closeStatus} disabled={saving} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700">Cancel</button>
-              <button type="button" onClick={() => void confirmStatus()} disabled={saving || !remarks.trim() || (pendingStatus === 'Rescheduled' && (!rescheduleDate || rescheduleDate === selectedRecord.delivery_date || rescheduleDate < manilaToday())) || !!completionError(selectedRecord, pendingStatus, receiverInputs[selectedRecord.id] ?? selectedRecord.received_by, podReadiness)}
+              <button type="button" onClick={() => void confirmStatus()} disabled={saving || !remarks.trim() || !!driverStatusDateError(selectedRecord.category, pendingStatus, rescheduleDate, selectedRecord.delivery_date, currentUserRole) || !!completionError(selectedRecord, pendingStatus, receiverInputs[selectedRecord.id] ?? selectedRecord.received_by, podReadiness)}
                 className="min-h-11 rounded-lg bg-blue-800 px-4 text-sm font-semibold text-white disabled:opacity-40">{saving ? 'Saving…' : 'Confirm'}</button>
             </div>
           </div>

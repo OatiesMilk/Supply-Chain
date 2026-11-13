@@ -1,9 +1,12 @@
 # Comprehensive Features & Capabilities Inventory — Microgenesis Supply Chain Portal
 
-**Document Version:** 2.0  
-**Last Updated:** November 11, 2026  
-**Target Baseline:** `dev` (HEAD @ commit `1e2b900`)  
-**Basis:** Source code implementation (`server/src/`, `client/src/`) and test suites (`server/tests/`, `client/tests/`, `e2e/tests/`).
+**Document Version:** 2.1
+**Last Updated:** November 12, 2026 (targeted corrections)
+**Original Baseline:** `dev` at `1e2b900`
+**Correction Baseline:** `81214c5` on `fix/fullstack-role-review-remediations`.
+**Basis:** Original source inventory with targeted rechecks of role boundaries, Driver cards, RMA endpoints and audit presentation. Unchanged sections have not received a new full-document audit. Source/test-file presence does not establish browser or deployed behavior.
+
+See the [readiness follow-up](COMMIT_READINESS_REVIEW_2026-11-12.md) for revision-specific checks and remaining defects. Role descriptions below remain subject to current account permissions, ownership and lifecycle rules.
 
 ---
 
@@ -47,10 +50,10 @@ All five categories share the unified [`DeliveryRecord`](../server/prisma/schema
 
 ### 2.2 Sales Orders Module
 * **Frontend Screen:** Deep-linkable operational view (`/sales_orders?item=<id>`)
-* **Authorized Roles:** `SALES_COORDINATOR`, `ADMIN`
+* **Role Boundaries:** Sales Coordinator creates/prepares; Logistics dispatches/manages saved runs; Admin views only; assigned Drivers execute runs.
 * **API Endpoints:** `GET /api/v1/records?category=SALES_ORDERS`
 * **Key Capabilities:**
-  * Captures client order line items without requiring immediate SAP reference numbers.
+  * Drafts may omit references; non-draft submission requires the reference under the shared submission rules.
   * Allows Sales Coordinators to build order manifests before delivery dispatch.
   * Explicit boundary: Does not perform automatic ERP inventory reservation or price/tax calculations.
 
@@ -69,14 +72,15 @@ All five categories share the unified [`DeliveryRecord`](../server/prisma/schema
 
 ### 2.4 Return Merchandise Authorization (RMA / TASS)
 * **Frontend Screen:** [`RmaWorkflowPanel.tsx`](../client/src/features/deliveries/RmaWorkflowPanel.tsx) (`/rma`)
-* **Authorized Roles:** `TASS` (Sole completion owner), `SALES_COORDINATOR`, `ADMIN`
+* **Role Boundaries:** TASS creates, records physical receipt and finalizes; Logistics assigns eligible transport; linked assigned Drivers execute transport; Admin views only. Sales Coordinator has no RMA access.
 * **API Routes:** [`server/src/routes/rmaDispatch.ts`](../server/src/routes/rmaDispatch.ts)
-  * `POST /api/v1/records/:id/rma-transport-start`
-  * `POST /api/v1/records/:id/rma-transport-complete`
-  * `POST /api/v1/records/:id/rma-receive` (Lab physical receipt)
-  * `POST /api/v1/records/:id/rma-complete` (Final repair completion)
+  * `GET /api/v1/records/:id/rma-capabilities`
+  * `PATCH /api/v1/records/:id/rma-assignment` (Logistics assignment)
+  * `PATCH /api/v1/records/:id/rma-transport` (`IN_TRANSIT` or `COMPLETED`; assigned Driver)
+  * `POST /api/v1/records/:id/rma-receipt` (TASS physical receipt)
+  * `PATCH /api/v1/records/:id/status` (Final `Delivered` transition; TASS, after receipt and any required transport)
 * **Key Capabilities:**
-  * Supports 3 movement scopes: `DRIVER_DISPATCH`, `SUPPLIER_DROP`, and `INTERNAL`.
+  * Supports `LOGISTICS_TRANSPORT` (Logistics transport), `SUPPLIER_COLLECTION` (Supplier collection), and `INTERNAL_NO_DRIVER` (Internal / no driver).
   * Enforces the two-step separation between driver warehouse drop-off and TASS lab unboxing.
   * Admin and Logistics are strictly forbidden from finalizing RMA completion (`RMA_COMPLETION_ROLE_ERROR`).
 
@@ -87,36 +91,34 @@ All five categories share the unified [`DeliveryRecord`](../server/prisma/schema
 * **Authorized Roles:** `TASS` (Verification owner), `SALES_COORDINATOR`, `ADMIN`
 * **API Endpoints:**
   * `GET /api/v1/records?category=ACCOUNTING_COLLECTION`
-  * `POST /api/v1/records/:id/verify-collection`
+  * `PATCH /api/v1/records/:id/verify-collection`
 * **Key Capabilities:**
   * Links collected payments to parent delivery shipments via `linkedCollectionId`.
   * Driver captures photo of cheque or payment receipt.
-  * TASS performs one-click verification, permanently stamping `collectionVerified = true` and `collectionVerifiedBy`.
+  * TASS verifies an accomplished, unverified collection, saving the acting account and verification timestamp. The UI action does not request separate verification remarks; Admin cannot perform this TASS-only action.
 
 ---
 
 ## 3. Driver & Logistics Execution Suite
 
 ### 3.1 Field Mobile Driver Dashboard
-* **Frontend Component:** [`DriverDashboard.tsx`](../client/src/features/drivers/DriverDashboard.tsx) (`/driver_dashboard`)
+* **Frontend Component:** [`DriverDashboard.tsx`](../client/src/features/dashboard/DriverDashboard.tsx) (`/driver_dashboard`)
 * **Target Device:** Mobile browsers (touch-first, no sidebar rail).
 * **Key Capabilities:**
-  * Filters runs by Asia/Manila current day.
-  * Groups active runs by geographical Area.
-  * Enforces 3-step ePOD flow:
-    1. Tap **Record Time In** (locks run to driver).
-    2. Tap **Upload Photo** (verified via `sharp` and magic bytes).
-    3. Enter **Received By** + remarks, then tap **Accomplish**.
-  * Supports field delay reporting (**Pending**) and customer postponement (**Reschedule**).
+  * Uses uniform job cards for Delivery, RMA, Procurement Pick-up, Sales Order and Accounting Collection, subject to assignment and lifecycle eligibility.
+  * Retains actionable overdue/started runs; future unstarted runs are read-only. Cards display company, area, reference, due date and expandable item text.
+  * Offers two actions: **Start transport** and **Complete delivery**, both with required remarks. After starting, select photo/documents and enter **Received by** before completion.
+  * Requires a verified persisted JPG/PNG photo; PDF/DOCX/XLSX are supporting documents. For ordinary runs completion stamps Time Out; for RMA it completes transport only, leaving physical receipt and final completion to TASS.
+  * Drivers contact Logistics for Pending/Rescheduled exceptions. The separate staff Drivers View has a known non-Delivery reschedule payload defect documented in the readiness review.
 
 ---
 
 ### 3.2 Driver Board & Dispatch Board
 * **Frontend Screens:** [`DriverBoardPage.tsx`](../client/src/pages/DriverBoardPage.tsx) & [`DispatchBoardSelector.tsx`](../client/src/features/deliveries/DispatchBoardSelector.tsx)
-* **Authorized Roles:** `LOGISTICS`, `ADMIN`
+* **Role Boundaries:** Logistics dispatches under granted actions; Admin remains view-only for the four restricted operational categories.
 * **Key Capabilities:**
-  * Visual Kanban columns displaying each driver's daily run load.
-  * Unassigned deliveries column with fast drag-and-drop or select-to-assign actions.
+  * Visual columns displaying each driver's daily run load.
+  * Unassigned-run visibility for dispatch coordination; saved assignment actions remain permission/lifecycle guarded.
   * Real-time driver status indicators (active vs accomplished counts).
 
 ---
@@ -124,9 +126,8 @@ All five categories share the unified [`DeliveryRecord`](../server/prisma/schema
 ### 3.3 Delivery Calendar
 * **Frontend Screen:** [`CalendarPage.tsx`](../client/src/pages/CalendarPage.tsx) & [`DeliveryCalendar.tsx`](../client/src/features/deliveries/DeliveryCalendar.tsx)
 * **Key Capabilities:**
-  * Interactive Month, Week, and Day calendar views.
-  * Visual markers highlighting daily delivery density and overdue shipments.
-  * Date click directly filters deliveries for that specific fulfillment day.
+  * Monthly calendar grid with previous/next navigation and daily status/record counts. Separate Week/Day view modes are not implemented.
+  * Clicking a populated day opens a paged list; selecting a record navigates to its category workspace.
 
 ---
 
@@ -165,7 +166,7 @@ All five categories share the unified [`DeliveryRecord`](../server/prisma/schema
 * **Key Capabilities:**
   * Merchant Customer Registry with full contact info and address records.
   * Supplier Registry with multi-category catalog assignment (`SupplierCategoryAssignment`).
-  * Full audit trail for customer/supplier edits including mandatory "Reason for Change".
+  * Customer edits require change reasons and produce audit history. Supplier creation and Admin category-assignment changes are audited; general supplier contact editing and retirement remain unavailable.
 
 ---
 
@@ -175,6 +176,7 @@ All five categories share the unified [`DeliveryRecord`](../server/prisma/schema
   * Product definitions (SKU Code, Category A/B/C, Unit Cost, Unit Price, Reorder Point).
   * Warehouse stock adjustments with atomic audit logging.
   * Prevents negative on-hand balances.
+  * Several SKU workspace tabs remain scaffolds. Operational deliveries do not automatically reserve, issue or reconcile inventory or financial balances.
 
 ---
 
@@ -185,7 +187,7 @@ All five categories share the unified [`DeliveryRecord`](../server/prisma/schema
 * **Key Capabilities:**
   * User provisioning with role assignment (`ADMIN`, `LOGISTICS`, `SALES_COORDINATOR`, `TASS`, `DRIVER`).
   * V1 Policy Matrix editor supporting granular screen, resource, and action-level overrides (`ALLOW` vs `DENY`).
-  * 30-second automated client session refresh syncing permission changes in real-time.
+  * Client permission refresh every 30 seconds and on focus; the server checks current account authority on requests. V1 availability depends on initialized policies, verified conversion and activation.
 
 ---
 
@@ -193,7 +195,7 @@ All five categories share the unified [`DeliveryRecord`](../server/prisma/schema
 * **Location:** [`BusinessAuditDiff.tsx`](../client/src/features/admin/BusinessAuditDiff.tsx) & [`server/src/routes/admin.ts`](../server/src/routes/admin.ts)
 * **Key Capabilities:**
   * Full system audit trail tracking `CREATE`, `UPDATE`, and `DELETE` actions.
-  * Visual side-by-side JSON diff viewer showing before and after states.
+  * Action and From/To date filters. Supported entries expand **Record changes (n)** or **Permission changes (n)** showing before/after values; category/actor filters and a general side-by-side JSON viewer are not present.
   * Audit entries are permanently linked to the actor's user ID and timestamp.
 
 ---
@@ -203,14 +205,14 @@ All five categories share the unified [`DeliveryRecord`](../server/prisma/schema
 * **Key Capabilities:**
   * Edge Content Security Policy (CSP), HSTS, and frame-ancestors allowlisting Microsoft Teams.
   * Shared secret verification (`x-mg-proxy-secret`) blocking raw traffic that bypasses Cloudflare.
-  * Fail-closed public readiness check returning 200 or 503 with zero information disclosure.
+  * Public readiness check returns an uncached minimal boolean with HTTP 200/503; detailed diagnostics require Admin access.
   * HMAC-signed `X-CSRF-Token` verifying cross-site POST/PUT/DELETE requests.
 
 ---
 
 ## 6. Document & Proof of Delivery (ePOD) Engine
 
-* **File Storage:** Local disk quarantine during development; Supabase Storage in production.
+* **File Storage:** Private local disk quarantine before validation for either storage backend; persisted storage uses the configured local or Supabase adapter. Verify hosted configuration separately.
 * **Format Allowlist:** `.jpg`, `.jpeg`, `.png`, `.pdf`, `.docx`, `.xlsx` (strictly verified by magic byte inspection, not file extensions).
 * **Quotas & Limits:**
   * Maximum 10 MiB per single file.

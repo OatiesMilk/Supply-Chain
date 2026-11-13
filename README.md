@@ -40,9 +40,11 @@ Frontend: <http://localhost:3000> · API: <http://localhost:4000>. Demo seeding 
 
 ## Documentation
 
-- [User Operating Manuals](./docs/USER_MANUALS.md): complete, role-by-role operating guides for Sales Coordinators, Logistics, Drivers, TASS and Admins.
-- [Features Inventory](./docs/FEATURES_INVENTORY.md): code-grounded catalogue of modules, UI components, routes and permissions.
-- [Performance Audit & Improvement Plan](./docs/PERFORMANCE_IMPROVEMENT_AUDIT_2026-11-11.md): profiling benchmarks and optimization roadmap.
+- [User Operating Manuals](./docs/USER_MANUALS.md) ([staff Word manual](./docs/USER_MANUALS.docx)): Microgenesis Business Systems role guides, current limitations and dated verification notes.
+- [Features Inventory](./docs/FEATURES_INVENTORY.md): source catalogue of modules, routes and permissions with dated baseline/correction notes.
+- [UI Interactable Audit (corrected)](./docs/COMPONENT_INTERACTABLE_AUDIT_2026-11-11.md): static inventory, historical-count corrections and behavioral verification limits.
+- [Performance Audit & Improvement Plan](./docs/PERFORMANCE_IMPROVEMENT_AUDIT_2026-11-11.md): historical source analysis, recorded bundle measurements and a proposed optimization roadmap.
+- [Branch Readiness Review (2026-11-12)](./docs/COMMIT_READINESS_REVIEW_2026-11-12.md): recorded `1218fcd` checks, source follow-up at `81214c5`, and remaining defects.
 - [Unified Deployment Runbook](./docs/DEPLOYMENT.md): Cloudflare Pages, Render API, database/storage, SSO, API v1 cutover, verification and rollback.
 - [Getting Started](./docs/GETTING_STARTED.md): local setup, database, seeds, tests.
 - [System Architecture](./docs/SYSTEM_ARCHITECTURE.md): stack, components, auth, data model, deployment.

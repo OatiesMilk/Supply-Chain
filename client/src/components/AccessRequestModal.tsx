@@ -8,6 +8,20 @@ export interface AccessRequestModalProps {
   currentUserRole: string;
 }
 
+/** Copy prepared access-request details via clipboard, returning false when unavailable or rejected. */
+export async function copyAccessRequestText(
+  text: string,
+  clipboard: { writeText?: (value: string) => Promise<void> } | null | undefined = typeof navigator !== 'undefined' ? navigator.clipboard : undefined,
+): Promise<boolean> {
+  if (!clipboard?.writeText) return false;
+  try {
+    await clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const AccessRequestModal: React.FC<AccessRequestModalProps> = ({
   isOpen,
   onClose,
@@ -17,24 +31,21 @@ export const AccessRequestModal: React.FC<AccessRequestModalProps> = ({
   const [screen, setScreen] = useState(screenName);
   const [note, setNote] = useState('');
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
 
   React.useEffect(() => {
     setScreen(screenName);
     setCopied(false);
+    setCopyError(false);
   }, [screenName, isOpen]);
 
   if (!isOpen) return null;
 
   const handleCopy = async () => {
     const text = `Access Request:\n- Role: ${currentUserRole}\n- Module/Screen: ${screen.trim()}\n- Justification: ${note.trim()}`;
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-      }
-    } catch {
-      // Fallback
-    }
-    setCopied(true);
+    const ok = await copyAccessRequestText(text);
+    setCopyError(!ok);
+    setCopied(ok);
   };
 
   return (
@@ -86,6 +97,11 @@ export const AccessRequestModal: React.FC<AccessRequestModalProps> = ({
                 Your current role is <strong>{currentUserRole}</strong>. Access is granted manually by an Administrator in the Admin Panel. Prepare your request details below to send to your administrator.
               </p>
             </div>
+            {copyError && (
+              <p role="alert" className="text-xs text-red-700">
+                Clipboard access failed. Copy the request details manually or allow clipboard access in your browser and try again.
+              </p>
+            )}
 
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-700">Module / Screen Needed</label>

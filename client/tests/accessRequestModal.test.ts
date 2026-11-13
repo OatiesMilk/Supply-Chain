@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToPipeableStream } from 'react-dom/server';
 import { PassThrough } from 'node:stream';
-import AccessRequestModal from '../src/components/AccessRequestModal';
+import AccessRequestModal, { copyAccessRequestText } from '../src/components/AccessRequestModal';
 
 function renderToString(element: React.ReactElement): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -31,4 +31,11 @@ test('AccessRequestModal renders honest request instructions and copy button wit
   assert.ok(html.includes('Request Temporary Access'), 'shows title');
   assert.ok(html.includes('Copy Request Details'), 'has honest copy button');
   assert.ok(!html.includes('Your admin has been notified.'), 'does not make false claims');
+});
+
+test('copyAccessRequestText reports clipboard success, rejection, and unavailability honestly', async () => {
+  assert.equal(await copyAccessRequestText('Access Request', { writeText: async () => {} }), true);
+  assert.equal(await copyAccessRequestText('Access Request', { writeText: async () => { throw new Error('Permission denied'); } }), false);
+  assert.equal(await copyAccessRequestText('Access Request', null), false);
+  assert.equal(await copyAccessRequestText('Access Request', {}), false);
 });
