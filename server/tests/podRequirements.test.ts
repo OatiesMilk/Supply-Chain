@@ -1566,3 +1566,49 @@ test('the quarantined upload is removed after success, refusal, storage failure 
     assert.equal(remove.mock.callCount(), outcome === 'database failure' ? 1 : 0, outcome);
   }
 });
+
+test('Driver Time In without a note records the default remark once; a typed note replaces it', async () => {
+  for (const [body, expected] of [[{}, 'Transport started'], [{ remarks: '' }, 'Transport started'], [{ remarks: '   ' }, 'Transport started'], [{ remarks: '  Using backup van ' }, 'Using backup van']] as const) {
+    resetFixtures();
+    const state = database(record({ status: 'SCHEDULED', timeIn: null }));
+    const result = await request('post', '/:id/time-in', { body });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.status, 'In Transit');
+    assert.ok(result.body.time_in);
+    assert.equal(state.remarks.length, 1);
+    assert.equal(state.remarks[0].body, expected);
+    assert.equal(state.remarks[0].context, 'TIME_IN');
+    assert.equal(state.remarks[0].authorId, 'test-user');
+    assert.equal(state.saved().remarks, expected);
+    assert.equal(state.audit.length, 1);
+  }
+});
+
+test('Logistics Time In still requires remarks, and non-string remarks are rejected for Driver and Logistics', async () => {
+  // Admin shares the same helper branch (startRemarks.test.ts); the route fixture grants Admin no Time In.
+  for (const role of ['LOGISTICS']) {
+    for (const body of [{}, { remarks: '' }, { remarks: '  ' }]) {
+      resetFixtures();
+      const state = database(record({ status: 'SCHEDULED', timeIn: null }));
+      const result = await request('post', '/:id/time-in', { role, body });
+      assert.equal(result.status, 400, `${role} ${JSON.stringify(body)} -> ${result.status}`);
+      assert.equal(result.body.error, 'Remarks are required when recording Time In.');
+      assert.equal(state.remarks.length, 0);
+      assert.equal(state.events.includes('update'), false);
+    }
+  }
+  for (const role of ['DRIVER', 'LOGISTICS']) {
+    resetFixtures();
+    const state = database(record({ status: 'SCHEDULED', timeIn: null }));
+    assert.equal((await request('post', '/:id/time-in', { role, body: { remarks: 5 } })).status, 400);
+    assert.equal(state.remarks.length, 0);
+  }
+});
+
+test('a blank Driver Time In keeps the date-window check', async () => {
+  const state = database(record({ status: 'SCHEDULED', timeIn: null, deliveryDate: shiftDate(manilaToday(), 3) }));
+  const result = await request('post', '/:id/time-in', { body: {} });
+  assert.equal(result.status, 400);
+  assert.match(result.body.error, /future date/);
+  assert.equal(state.remarks.length, 0);
+});
