@@ -26,6 +26,16 @@ action for Driver, vehicle and assistants. It cannot edit general RMA details,
 confirm physical receipt or complete the RMA. Admin retains approved existing
 metadata/assignment authority, with no physical-receipt or final-completion bypass.
 
+Once the Logistics transport switch below has run, Logistics can also **Start
+transport**, upload the transport proof photo and **Complete transport** on an
+assigned Logistics-transport RMA, for the assigned Driver, from the RMA record's
+Status & Actions tab and from Drivers > View. Logistics follows the same rules
+as the Driver (assigned Driver, planned date reached, verified JPG/PNG proof
+photo, Received By) and must also enter remarks on Start. Every remark, audit
+entry and notification names the Logistics user who acted. Logistics still
+cannot change RMA status, edit details, confirm physical receipt or complete the
+RMA, and Admin stays view-only.
+
 The assigned Driver records **Pending → In Transit → Transport Complete**.
 Transport cannot start before its planned date in Asia/Manila. Completion
 requires a persisted, verified JPG/PNG proof photo. Transport does not change
@@ -121,6 +131,36 @@ the planned date. TASS separately confirms physical receipt and completes the
 RMA. Drafts, supplier/internal movements and historical records without an
 explicit movement do not become dispatch work merely because permissions were
 activated. TASS must review and classify historical records individually.
+
+### Logistics transport switch
+
+The Logistics rights above are off until an explicit, audited switch runs once
+per environment. Run it from `server` with the reviewed target in `DATABASE_URL`
+and an active Admin in `RMA_DISPATCH_ADMIN_ID`. It is a dry run unless a flag is
+given:
+
+```bash
+npm run permissions:activate-rma-logistics-transport              # dry run, writes nothing
+npm run permissions:activate-rma-logistics-transport -- --apply   # grant STATUS and POD on RMA
+npm run permissions:activate-rma-logistics-transport -- --revoke  # set both back to DENY
+```
+
+The dry run prints the Logistics policy revision and the two rows it would change
+(`CATEGORY:RMA:STATUS`, `CATEGORY:RMA:POD`). `--apply` and `--revoke` only change
+a Logistics policy that exactly matches the state recorded by the #255 activation
+(or by the previous run of this switch) at the recorded revision. Anything else is
+reported as `skipped` with exit code 1 for an Admin to review. It is idempotent,
+takes the same advisory lock as the #255 activation, writes one audit entry
+(`source: RMA_LOGISTICS_TRANSPORT`) and leaves individual user overrides untouched.
+Staging and production: dry run first, review the output, then `--apply`.
+
+Until it runs nothing changes for Logistics (it fails closed). The server reads
+role policies on every request; the Logistics screen shows the buttons after its
+next session refresh (within 30 seconds or on focus) or a reload. In V1 mode an
+Admin can later switch the two rights off in Admin permissions; in LEGACY mode
+policy saves return 503, so this script is the only switch.
+
+Rollback order: `--revoke` first, then roll back the code.
 
 For rollback, retain the additive columns and audit evidence. Restore reviewed
 policy defaults through revision-checked administration, and roll back the app

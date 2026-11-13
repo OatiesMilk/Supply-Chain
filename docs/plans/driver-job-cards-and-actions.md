@@ -102,7 +102,7 @@ comes from `categoryLabelFor` ("RMA transport", "Delivery", otherwise the raw ca
 | Module | SC | Logistics | TASS | Admin | Driver |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | Deliveries | R C E | R A S | - | R | assigned runs only: Start, Complete |
-| RMA | - | R A | R C E S, receipt, final completion | R | assigned `LOGISTICS_TRANSPORT` runs only: Start, Complete transport |
+| RMA | - | R A, plus Start and Complete transport for the assigned driver after the Logistics transport switch (see logistics-rma-transport.md) | R C E S, receipt, final completion | R | assigned `LOGISTICS_TRANSPORT` runs only: Start, Complete transport |
 | Procurement Pick-up | R C E | R A S | - | R | assigned runs only: Start, Complete |
 | Sales Orders | R C E | R A S | - | R | assigned runs only: Start, Complete |
 

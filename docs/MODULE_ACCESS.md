@@ -57,7 +57,7 @@ cannot bypass them, and stored `RolePolicy` rows are not changed.
 | Module | Sales Coordinator | Logistics | TASS | Admin | Driver |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | Deliveries | Create, edit, submit | Assign driver, run, Pending/Reschedule | No access | View only | Assigned runs: Start, Complete |
-| RMA | No access | View, assign driver (Logistics transport only) | Create, edit, receipt, final completion | View only | Assigned Logistics-transport RMAs: Start, Complete transport |
+| RMA | No access | View, assign driver (Logistics transport only); for the assigned driver, Start and Complete transport and upload the proof photo (after the Logistics transport switch) | Create, edit, receipt, final completion | View only | Assigned Logistics-transport RMAs: Start, Complete transport |
 | Procurement Pick-up | Create, edit, submit | Assign driver, run, Pending/Reschedule | No access (screen removed) | View only | Assigned runs: Start, Complete |
 | Sales Orders | Create, edit, submit | Assign driver, run, Pending/Reschedule | No access | View only | Assigned runs: Start, Complete |
 
