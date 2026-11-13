@@ -8,7 +8,7 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 import { initializePermissionFoundation } from '../src/services/permissionBackfill';
-import { provisionRmaDispatchPermissions, RMA_DISPATCH_GRANTS } from '../src/services/rmaDispatchPermissions';
+import { provisionRmaDispatchPermissions, provisionRmaLogisticsTransport, RMA_DISPATCH_GRANTS, RMA_LOGISTICS_TRANSPORT_GRANTS } from '../src/services/rmaDispatchPermissions';
 import { PERMISSION_CATALOG } from '../src/services/permissionCatalog';
 import { hasActionPermission, loadEffectivePermissions } from '../src/services/permissionEvaluator';
 import { sessionUser } from '../src/services/permissions';
@@ -48,6 +48,34 @@ test('PostgreSQL activation respects trigger revisions, customized policies, use
     const auditCount = await db.auditLog.count();
     assert.deepEqual(await provisionRmaDispatchPermissions(db, 'admin'), { upgraded: [], skipped: [] });
     assert.equal(await db.auditLog.count(), auditCount, 'repeat activation is idempotent');
+
+    // Logistics transport switch: dry run writes nothing, apply changes two rows, repeat and revoke behave.
+    const effectOf = async (key: string) => (await db.rolePermission.findUniqueOrThrow({ where: { role_permissionKey: { role: 'LOGISTICS', permissionKey: key } } })).effect;
+    const beforeSwitch = await db.rolePolicy.findUniqueOrThrow({ where: { role: 'LOGISTICS' } });
+    const auditBeforeSwitch = await db.auditLog.count();
+    const dry = await provisionRmaLogisticsTransport(db, 'admin');
+    assert.equal(dry.status, 'would-change');
+    assert.deepEqual(dry.rows.map(r => [r.permissionKey, r.from, r.to]), RMA_LOGISTICS_TRANSPORT_GRANTS.map(k => [k, 'DENY', 'ALLOW']));
+    assert.equal((await db.rolePolicy.findUniqueOrThrow({ where: { role: 'LOGISTICS' } })).revision, beforeSwitch.revision, 'dry run leaves the revision alone');
+    assert.equal(await db.auditLog.count(), auditBeforeSwitch);
+    for (const key of RMA_LOGISTICS_TRANSPORT_GRANTS) assert.equal(await effectOf(key), 'DENY');
+    assert.equal((await provisionRmaLogisticsTransport(db, 'admin', 'apply')).status, 'changed');
+    for (const key of RMA_LOGISTICS_TRANSPORT_GRANTS) assert.equal(await effectOf(key), 'ALLOW');
+    assert.equal(await db.auditLog.count(), auditBeforeSwitch + 1, 'one audit entry');
+    const logisticsSnapshot = (await loadEffectivePermissions(db, 'logistics'))!;
+    assert.equal(hasActionPermission(logisticsSnapshot, 'CATEGORY', 'RMA', 'COMPLETE'), false);
+    assert.equal((await provisionRmaLogisticsTransport(db, 'admin', 'apply')).status, 'unchanged');
+    assert.equal(await db.auditLog.count(), auditBeforeSwitch + 1, 'repeat apply is idempotent');
+    assert.equal((await provisionRmaLogisticsTransport(db, 'admin', 'revoke')).status, 'changed');
+    for (const key of RMA_LOGISTICS_TRANSPORT_GRANTS) assert.equal(await effectOf(key), 'DENY');
+    assert.equal((await provisionRmaLogisticsTransport(db, 'admin', 'revoke')).status, 'unchanged');
+    await assert.rejects(provisionRmaLogisticsTransport(db, 'driver-a', 'apply'), /active Admin/);
+    // A customized Logistics policy is skipped, not overwritten.
+    await db.rolePermission.update({ where: { role_permissionKey: { role: 'LOGISTICS', permissionKey: 'CATEGORY:RMA:ASSIGN' } }, data: { effect: 'DENY' } });
+    const skippedRun = await provisionRmaLogisticsTransport(db, 'admin', 'apply');
+    assert.equal(skippedRun.status, 'skipped');
+    await db.rolePermission.update({ where: { role_permissionKey: { role: 'LOGISTICS', permissionKey: 'CATEGORY:RMA:ASSIGN' } }, data: { effect: 'ALLOW' } });
+    assert.equal((await provisionRmaLogisticsTransport(db, 'admin', 'apply')).status, 'skipped', 'a changed revision is skipped even when the rows look right again');
 
     for (const id of ['driver-a', 'driver-b']) await db.driver.create({ data: { id: `profile-${id}`, name: id, type: 'DRIVER', userId: id, createdBy: 'admin', modifiedBy: 'admin' } });
     await db.company.create({ data: { id: 'company', name: 'Company', normalizedName: 'company', sapNumber: '255', address: 'Carmona', contactPerson: 'Test contact' } });

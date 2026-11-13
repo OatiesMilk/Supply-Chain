@@ -80,7 +80,7 @@ export function roleActionCeiling(role: PolicyRole, p: CatalogEntry): boolean {
     if (role === 'TASS' && c === 'ACCOUNTING_COLLECTION') return ['WRITE', 'CREATE', 'COMMENT'].includes(p.action);
     if (c === 'RMA') {
       if (p.action === 'RECEIVE' || p.action === 'COMPLETE') return role === 'TASS';
-      if (role === 'LOGISTICS') return ['WRITE', 'ASSIGN'].includes(p.action);
+      if (role === 'LOGISTICS') return ['WRITE', 'ASSIGN', 'STATUS', 'POD'].includes(p.action);
       if (role === 'DRIVER') return ['WRITE', 'STATUS', 'TIME_IN', 'POD', 'COMMENT'].includes(p.action);
       if (p.action === 'ASSIGN') return role === 'ADMIN';
       return ['TASS', 'ADMIN'].includes(role) && p.action !== 'TIME_IN';
