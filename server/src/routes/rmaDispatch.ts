@@ -26,6 +26,8 @@ export function rmaVersionError(record: { rmaVersion?: number }, expected: unkno
   if (expected !== (record.rmaVersion ?? 0)) return 'This RMA changed in another session. Reload it before retrying your change.';
   return null;
 }
+/** Roles that record transport: the assigned Driver, or Logistics for the assigned Driver. */
+const TRANSPORT_ROLES = ['DRIVER', 'LOGISTICS'];
 const pathFor = (role: string) => role === 'DRIVER' ? 'driver_dashboard' as const : 'rma' as const;
 export function rmaCapabilities(policy: EffectivePermissionSnapshot | null, row: DeliveryRecord) {
   const denied = { assign: false, transport: false, receive: false, complete: false, pod: false, status: false };
@@ -38,14 +40,14 @@ export function rmaCapabilities(policy: EffectivePermissionSnapshot | null, row:
   return {
     assign: active && eligibleRmaTransport(row) && !row.rmaReceivedAt && row.rmaTransportStatus !== 'COMPLETED'
       && ['LOGISTICS', 'ADMIN'].includes(policy.role ?? '') && canPerformPolicyRecordAction(policy, row, 'ASSIGN', options),
-    transport: active && policy.role === 'DRIVER' && !!row.driverId && !row.rmaReceivedAt
+    transport: active && TRANSPORT_ROLES.includes(policy.role ?? '') && !!row.driverId && !row.rmaReceivedAt
       && ['PENDING', 'IN_TRANSIT'].includes(row.rmaTransportStatus ?? '') && canPerformPolicyRecordAction(policy, row, 'STATUS', options),
     receive: active && validRmaMovement(row.rmaMovement) && transportDone && !row.rmaReceivedAt
       && policy.role === 'TASS' && canPerformPolicyRecordAction(policy, row, 'RECEIVE', options),
     complete: active && transportDone && !!row.rmaReceivedAt && policy.role === 'TASS'
       && canPerformPolicyRecordAction(policy, row, 'COMPLETE', { ...options, targetStatus: 'Delivered' })
       && !transitionError(row, 'Delivered', 'TASS'),
-    pod: active && transportInProgress && policy.role === 'DRIVER' && !!row.driverId && !row.rmaReceivedAt
+    pod: active && transportInProgress && TRANSPORT_ROLES.includes(policy.role ?? '') && !!row.driverId && !row.rmaReceivedAt
       && canPerformPolicyRecordAction(policy, row, 'POD', options),
     status: active && ['TASS', 'ADMIN'].includes(policy.role ?? '')
       && ['Pending', 'On-Hold', 'Rescheduled'].some(targetStatus => canPerformPolicyRecordAction(policy, row, 'STATUS', { ...options, targetStatus: targetStatus as 'Pending' | 'On-Hold' | 'Rescheduled' })),
@@ -137,7 +139,7 @@ router.patch('/:id/rma-assignment', requireAuth, requireResource('records'), req
   res.json(serializeRecord(saved, req.user));
 }));
 
-router.patch('/:id/rma-transport', requireAuth, requireResource('records'), requireRole('DRIVER'), requireAction('CATEGORY', 'RMA', 'STATUS'), action(async (req, res) => {
+router.patch('/:id/rma-transport', requireAuth, requireResource('records'), requireRole('DRIVER', 'LOGISTICS'), requireAction('CATEGORY', 'RMA', 'STATUS'), action(async (req, res) => {
   const body = req.body ?? {};
   const remarks = input(body, ['transport_status', 'expected_version', 'remarks', 'received_by'], req.user!);
   if (!['IN_TRANSIT', 'COMPLETED'].includes(body.transport_status)) throw new RmaActionError(400, 'Choose a valid transport status.');
