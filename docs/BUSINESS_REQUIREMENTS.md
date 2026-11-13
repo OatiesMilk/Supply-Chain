@@ -47,7 +47,7 @@ Out of scope today: automatic stock movement from deliveries, customer signature
 | ID | Requirement | Status | Notes |
 | :--- | :--- | :--- | :--- |
 | BR-LIFE-01 | States: Draft, Scheduled, In Transit, Pending, On-Hold, Rescheduled, Delivered, with server-enforced transitions | Implemented | `services/deliveryLifecycle.ts` |
-| BR-LIFE-02 | In Transit only via a dedicated Time In action; needs an assigned driver and a Scheduled or Rescheduled run | Implemented | Driver, Logistics, Admin |
+| BR-LIFE-02 | In Transit only via a dedicated Time In action; needs an assigned driver and a Scheduled or Rescheduled run | Implemented | Driver, Logistics, Admin. RMA does not use Time In: it starts with Start transport (Driver, or Logistics for the assigned Driver once the Logistics transport switch has run) |
 | BR-LIFE-03 | Delivered requires Time In, recipient name, remarks and a verified JPG/PNG proof photo; the server stamps Time Out | Implemented | PDF/DOC are supporting files only |
 | BR-LIFE-04 | Status changes require remarks; Rescheduling clears the run timestamps | Implemented | Exception: a Driver starting an assigned run (Start transport, including RMA transport start) may leave the note blank; the server records `Transport started`. Logistics/Admin recording Time In and every completion still require remarks |
 | BR-LIFE-05 | Drivers may act only on their own assigned, non-draft runs; future-dated unstarted deliveries are read-only; overdue ones stay actionable and are flagged | Implemented | Ownership by Admin-linked `Driver` profile id |
@@ -185,7 +185,7 @@ The exact default screens per role are listed in [Module access](./MODULE_ACCESS
 
 1. **Delivery:** Sales Coordinator creates (or drafts) → submit notifies Logistics → Logistics assigns driver/vehicle → Driver records Time In → Driver uploads photo and names recipient → Delivered (server Time Out, Account Manager email) → audit trail.
 2. **Collection:** Collection record delivered → TASS notified → TASS verifies once.
-3. **RMA:** Created by Sales Coordinator/Admin; Logistics view-only; TASS edits and updates status.
+3. **RMA:** TASS creates, edits and updates status, confirms physical receipt and completes the RMA. Logistics assigns the driver and, for the assigned driver, can start and complete transport (after the Logistics transport switch). Admin is view-only.
 4. **Access change:** Admin edits module access → the user's session refreshes within 30 seconds (or on focus) → revoked access is denied by the API immediately.
 
 ## 9. Open questions and assumptions

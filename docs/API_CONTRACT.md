@@ -60,12 +60,13 @@ All record routes use `Auth` + `Res:records` + `Rec`. Responses use display stri
 | GET | `/records/:id/comments` | any with access | Comments |
 | POST | `/records/:id/comments` | SC, LOG, ADM, DRV, TASS | Add a comment `{ "body": "..." }` |
 | GET | `/records/:id/attachments` | any with access | POD attachment metadata |
-| POST | `/records/:id/attachments` | SC, LOG, ADM, DRV | Upload one file (multipart field `file`, 10 MB max). Content is verified and a per-record quota applies; see [Attachment rules](#11-attachment-rules-sec-07--sec-08). Drivers: assigned runs only |
+| POST | `/records/:id/attachments` | SC, LOG, ADM, DRV | Upload one file (multipart field `file`, 10 MB max). Content is verified and a per-record quota applies; see [Attachment rules](#11-attachment-rules-sec-07--sec-08). Drivers: assigned runs only. On an RMA, only the assigned Driver or Logistics (after the Logistics transport switch) may upload, and only while Logistics transport is In Transit |
 | GET | `/records/:id/attachments/:attachmentId/download` | any with access | Download through the API (streamed, always `Content-Disposition: attachment`) |
 | DELETE | `/records/:id/attachments/:attachmentId` | SC, LOG, ADM | Remove an attachment (audited) |
 | POST | `/records` | SC, LOG, ADM | Create. LOG cannot create RMA; SC cannot assign drivers. Required: `company_id`, `category`, `reference` (Drafts: `company_id`, `category`) |
 | PUT | `/records/:id` | SC, LOG, ADM, DRV, TASS | Edit fields; remarks required; field and category limits per role (TASS: RMA only; LOG: not RMA; DRV: own runs) |
 | POST | `/records/:id/time-in` | DRV, LOG, ADM | Record Time In (`{ "remarks": "..." }`); moves the run to In Transit. `remarks` is optional for DRV only: blank or missing is saved as `Transport started`; LOG and ADM still get 400 without remarks; a non-string value is 400 for every role. Also applies to `PATCH /records/:id/rma-transport` with `transport_status: IN_TRANSIT` (completion still requires remarks) |
+| PATCH | `/records/:id/rma-transport` | DRV, LOG | Start (`IN_TRANSIT`) or complete (`COMPLETED`) Logistics-transport RMA transport. `{ transport_status, expected_version, remarks, received_by }`; `received_by` (1-120 characters) is required for `COMPLETED` only. DRV: own assigned RMA. LOG: any RMA with an assigned Driver, once the Logistics transport switch has run (403 before), and `remarks` is required on start. Both need the planned date reached and, to complete, a saved JPG/PNG proof photo. 409 on a stale `expected_version` |
 | PATCH | `/records/:id/status` | SC, LOG, ADM, DRV, TASS | Change status; transition and role rules in `deliveryLifecycle.ts` |
 | PATCH | `/records/:id/verify-collection` | TASS | Verify a delivered Accounting Collection once |
 | DELETE | `/records/:id` | SC | Soft delete |
