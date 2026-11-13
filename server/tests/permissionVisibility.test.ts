@@ -7,10 +7,10 @@ import notifications from '../src/routes/notifications';
 import type { PolicyRole } from '../src/services/permissionCatalog';
 import { defaultRolePermissions } from '../src/services/permissionCatalog';
 import { evaluatePermissions } from '../src/services/permissionEvaluator';
-import { permissionSession } from '../src/services/sessionPermissions';
+import { loadLegacySession, permissionSession } from '../src/services/sessionPermissions';
 import { sessionUser } from '../src/services/permissions';
 import { auditVisibilitySql, visibleAuditCount, visibleAuditEntries } from '../src/services/auditVisibility';
-import { notificationVisibility } from '../src/services/notificationVisibility';
+import { notificationVisibility, scopedSummaryVersion } from '../src/services/notificationVisibility';
 import { mailInputError, recordMailRecipients } from '../src/services/mailPermissions';
 import { notifyScopedSummary } from '../src/services/scopedSummaries';
 import { recordMutationInputError } from '../src/services/recordOperations';
@@ -173,11 +173,23 @@ test('LEGACY notifications hide saved ScopedSummary rows once access is revoked 
   });
 
   const beforeAccount = account('TASS');
-  const beforeSession = sessionUser(beforeAccount) as AuthUser;
+  let currentAccount: any = beforeAccount;
+  let currentPolicy: any = policy('TASS');
+  const queries: Prisma.Sql[] = [];
+  const origFindUser = prisma.user.findUnique;
+  const origFindPolicy = prisma.rolePolicy.findUnique;
+  const origQueryRaw = prisma.$queryRaw;
+  prisma.user.findUnique = mock.fn(async () => currentAccount) as any;
+  prisma.rolePolicy.findUnique = mock.fn(async ({ where }: any) => (where.role === currentPolicy.role ? currentPolicy : policy(where.role))) as any;
+
+  const loadedBefore = await loadLegacySession(prisma as any, beforeAccount.id);
+  assert.ok(loadedBefore);
+  const beforeSession = loadedBefore.session;
+  const beforeSummaryVersion = scopedSummaryVersion(beforeSession);
   const beforeScope = notificationVisibility(beforeSession);
   assert.match(beforeScope.sql, /n\."recordType" = 'ScopedSummary' AND n\."recordId" = \?/);
   assert.match(beforeScope.sql, /n\."recordType" IS DISTINCT FROM 'DeliveryRecord' AND n\."recordType" IS DISTINCT FROM 'ScopedSummary'/);
-  assert.ok(beforeScope.values.includes(beforeSession.permissionVersion));
+  assert.ok(beforeScope.values.includes(beforeSummaryVersion));
 
   const storedSummary = {
     id: 'notif-summary-1',
@@ -185,7 +197,7 @@ test('LEGACY notifications hide saved ScopedSummary rows once access is revoked 
     title: '4 PM: 1 open record assigned to you',
     message: 'RMA-26-00001 (RMA) — Secret RMA Co',
     recordType: 'ScopedSummary',
-    recordId: beforeSession.permissionVersion,
+    recordId: beforeSummaryVersion,
     isRead: false,
     createdAt: new Date('2026-11-13T08:00:00.000Z'),
   };
@@ -201,13 +213,6 @@ test('LEGACY notifications hide saved ScopedSummary rows once access is revoked 
   };
   const rows = [storedSummary, genericAlert];
 
-  let currentAccount: any = beforeAccount;
-  const queries: Prisma.Sql[] = [];
-  const origFindUser = prisma.user.findUnique;
-  const origFindPolicy = prisma.rolePolicy.findUnique;
-  const origQueryRaw = prisma.$queryRaw;
-  prisma.user.findUnique = mock.fn(async () => currentAccount) as any;
-  prisma.rolePolicy.findUnique = mock.fn(async ({ where }: any) => policy(where.role)) as any;
   prisma.$queryRaw = mock.fn(async (strings: TemplateStringsArray, ...values: any[]) => {
     const query = Prisma.sql(strings, ...values);
     queries.push(query);
@@ -236,15 +241,34 @@ test('LEGACY notifications hide saved ScopedSummary rows once access is revoked 
   const baseUrl = `http://127.0.0.1:${(server.address() as any).port}/notifications`;
   const headers = { Cookie: `mg_session=${signToken({ id: beforeAccount.id, name: beforeAccount.name, email: beforeAccount.email, role: 'TASS' })}` };
 
-  // Before revocation: bound permissionVersion matches the saved ScopedSummary.
+  // Before revocation: bound scopedSummaryVersion matches the saved ScopedSummary.
   const beforeList = await (await fetch(baseUrl, { headers })).json() as any[];
   const beforeUnread = await (await fetch(`${baseUrl}/unread-count`, { headers })).json() as { count: number };
   assert.equal(beforeList.length, 2);
   assert.equal(beforeUnread.count, 2);
-  assert.ok(queries[0].values.includes(beforeSession.permissionVersion));
+  assert.ok(queries[0].values.includes(beforeSummaryVersion));
   assert.ok(queries[0].values.includes('RMA'));
 
-  // After revoking RMA access via foundation override (revision bump) or legacy screen denial:
+  // Changing ONLY RolePolicy (revoking RMA read on the role while leaving user.permissions,
+  // permissionOverrides, and user.authorizationRevision untouched) must still hide saved summaries.
+  currentPolicy = {
+    ...policy('TASS'),
+    revision: 2n,
+    permissions: policy('TASS').permissions.map(p => (
+      p.permissionKey === 'CATEGORY:RMA:READ' ? { ...p, effect: 'DENY' } : p
+    )),
+  };
+  assert.equal(sessionUser(currentAccount).permissionVersion, beforeSession.permissionVersion);
+  const policyRevokedList = await (await fetch(baseUrl, { headers })).json() as any[];
+  const policyRevokedUnread = await (await fetch(`${baseUrl}/unread-count`, { headers })).json() as { count: number };
+  assert.equal(policyRevokedList.some(n => n.id === storedSummary.id), false);
+  assert.equal(policyRevokedList.some(n => n.id === genericAlert.id), true);
+  assert.equal(policyRevokedUnread.count, 1);
+  assert.ok(!queries[2].values.includes(beforeSummaryVersion), 'role policy revision change invalidates summary version');
+  assert.ok(!queries[2].values.includes('RMA'), 'role policy RMA denial is enforced by loadLegacySession');
+
+  // Restore role policy and test individual override revocation (User.authorizationRevision bump).
+  currentPolicy = policy('TASS');
   currentAccount = {
     ...beforeAccount,
     authorizationRevision: 2n,
@@ -255,11 +279,11 @@ test('LEGACY notifications hide saved ScopedSummary rows once access is revoked 
   assert.equal(revokedList.some(n => n.id === storedSummary.id), false);
   assert.equal(revokedList.some(n => n.id === genericAlert.id), true);
   assert.equal(revokedUnread.count, 1);
-  assert.ok(!queries[2].values.includes(beforeSession.permissionVersion), 'stale summary version is no longer bound in LEGACY SQL');
-  assert.ok(!queries[2].values.includes('RMA'), 'revoked RMA category is excluded by loadLegacySession');
+  assert.ok(!queries[4].values.includes(beforeSummaryVersion), 'stale summary version is no longer bound in LEGACY SQL');
+  assert.ok(!queries[4].values.includes('RMA'), 'revoked RMA category is excluded by loadLegacySession');
 
   // Legacy boolean permission revocation also invalidates the saved ScopedSummary.
   currentAccount = { ...beforeAccount, permissions: [{ screen: 'rma', granted: false }], permissionOverrides: [] };
   const boolRevokedScope = notificationVisibility(sessionUser(currentAccount) as AuthUser);
-  assert.ok(!boolRevokedScope.values.includes(beforeSession.permissionVersion));
+  assert.ok(!boolRevokedScope.values.includes(beforeSummaryVersion));
 });
