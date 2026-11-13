@@ -235,8 +235,9 @@ export function useRecordTimeInMutation() {
   const queryClient = useQueryClient();
   const options = createUpdateRecordMutationOptions(queryClient);
   return useMutation({
-    mutationFn: async ({ id, remarks }: { id: string; remarks: string }) => {
-      if (!remarks.trim()) throw new Error('Remarks are required to record Time In.');
+    mutationFn: async ({ id, remarks, remarksOptional = false }: { id: string; remarks: string; remarksOptional?: boolean }) => {
+      // Only the Driver start sheet may send a blank note; the server records the default remark for a Driver.
+      if (!remarksOptional && !remarks.trim()) throw new Error('Remarks are required to record Time In.');
       return normalizeApiRecord(await api.recordTimeIn(id, remarks.trim()));
     },
     onSuccess: options.onSuccess,

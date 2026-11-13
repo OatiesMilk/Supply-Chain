@@ -224,3 +224,20 @@ test('confirm sheet is a labelled modal dialog with 44px controls that closes on
     assert.equal(doc.querySelector('[role="dialog"]'), null);
   });
 });
+
+test('Start transport is a confirmation: optional note, Confirm enabled at once and focus on Confirm', async () => {
+  await mount({ records: [run], dashboardCounts: counts }, async doc => {
+    const opener = doc.querySelector('button[aria-label="Start transport"]') as HTMLButtonElement;
+    await act(async () => { opener.focus(); opener.click(); });
+    const dialog = doc.querySelector('[role="dialog"]')!;
+    assert.ok(dialog, 'sheet opened');
+    assert.match(dialog.textContent ?? '', /Your start time is recorded when you confirm\./);
+    const note = doc.getElementById('driver-action-remarks') as HTMLTextAreaElement;
+    assert.equal(note.required, false);
+    assert.equal(doc.querySelector('label[for="driver-action-remarks"]')?.textContent?.trim(), 'Note (optional)');
+    assert.doesNotMatch(dialog.textContent ?? '', /reason for change/i);
+    const confirm = [...dialog.querySelectorAll('button')].find(node => node.textContent?.trim() === 'Confirm') as HTMLButtonElement;
+    assert.equal(confirm.disabled, false, 'Confirm is enabled with a blank note');
+    assert.equal(doc.activeElement, confirm, 'focus goes to Confirm so the phone keyboard stays closed');
+  });
+});
