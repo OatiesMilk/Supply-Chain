@@ -56,13 +56,13 @@ export const UNSAVED_HINT = 'Save or revert your changes below first.';
 /** The next step for a non-RMA run (Deliveries, Sales Orders, Procurement Pick-up, Accounting Collection).
  *  `canStart` and `canComplete` carry the caller's permission checks; the server still enforces every rule. */
 export function nextStepForRun(record: Pick<DeliveryRecord, 'status' | 'is_draft' | 'driver' | 'time_in' | 'time_out' | 'received_by' | 'allowed_statuses'>,
-  opts: { canStart: boolean; canComplete: boolean; dirty: boolean }): NextStep | null {
+  opts: { canStart: boolean; canComplete: boolean; dirty: boolean; collection?: boolean }): NextStep | null {
   if (record.status === 'Draft' || record.is_draft === 'Yes') return null;
   const blocked = opts.dirty ? { disabled: true, hint: UNSAVED_HINT } : {};
   if (record.status === 'Delivered') {
     const when = record.time_out ? ` ${formatManilaTimestamp(record.time_out)}` : '';
     const who = record.received_by?.trim() ? ` Received by ${record.received_by.trim()}.` : '';
-    return { kind: 'done', text: `Delivered${when}.${who}` };
+    return { kind: 'done', text: `${opts.collection ? 'Collected' : 'Delivered'}${when}.${who}` };
   }
   const started = !!record.time_in;
   if (!started && (record.status === 'Scheduled' || record.status === 'Rescheduled')) {

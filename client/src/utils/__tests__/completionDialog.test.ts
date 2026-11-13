@@ -48,6 +48,11 @@ test('next step follows the run: assign, start, complete, done', () => {
   assert.equal(done.kind, 'done'); assert.equal(done.action, undefined); assert.match(done.text, /Received by Guard\./);
 });
 
+test('a finished collection reads Collected', () => {
+  const done = nextStepForRun(run({ status: 'Delivered', received_by: 'Guard', time_out: '2026-11-13T03:00:00.000Z' }), { ...can, collection: true })!;
+  assert.match(done.text, /^Collected .*Received by Guard\./);
+});
+
 test('next step respects permissions, Delivered eligibility and unsaved edits', () => {
   assert.equal(nextStepForRun(run({ status: 'Scheduled', time_in: null }), { ...can, canStart: false }), null);
   assert.equal(nextStepForRun(run(), { ...can, canComplete: false }), null);

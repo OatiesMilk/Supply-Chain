@@ -1,13 +1,15 @@
 import { usePermissions } from '@/hooks/usePermissions';
 import { ReturnToDraftDialog } from '@/features/deliveries/ReturnToDraftDialog';
 import { selectableStatuses, canRecordTimeIn, isDraftRecord, isPriorityLocked, PRIORITY_LOCKED_NOTE } from '@/utils/recordLifecycle';
-import { completionError } from '@/utils/podRequirement';
-import { podAttachmentsKey, usePodAttachments } from '@/api/queries/usePodAttachments';
+import { podAttachmentsKey } from '@/api/queries/usePodAttachments';
 import { operationalSyncOptions } from '@/api/queries/operationalSync';
 import { useQuery } from '@tanstack/react-query';
 import { PodAttachmentList } from '@/components/PodAttachmentPreview';
 import { useRecordTimeInMutation, useUpdateRecordMutation } from '@/api/queries/useRecordsQuery';
-import PodUploader from '@/components/PodUploader';
+import NextStepCard from '@/features/deliveries/NextStepCard';
+import MarkDeliveredDialog, { type CompletionValues } from '@/features/deliveries/MarkDeliveredDialog';
+import StartTransportDialog from '@/features/deliveries/StartTransportDialog';
+import { START_LABEL, completionLabels, nextStepForRun } from '@/utils/completionDialog';
 import CommentComposer from '@/components/CommentComposer';
 import { CompanyHistoryButton } from '@/components/CompanyHistoryPanel';
 import { useUIStore } from '@/store/uiStore';
@@ -529,37 +531,50 @@ function OverviewTab({
   const navigate = useUIStore(s => s.handleNavigate);
   const [updating, setUpdating] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
-  const [receivedBy, setReceivedBy] = useState(record.received_by ?? '');
   const [draftReference, setDraftReference] = useState(record.reference);
   const [referenceEditVersion, setReferenceEditVersion] = useState(record.edit_version);
-  useEffect(() => { setReceivedBy(record.received_by ?? ''); setDraftReference(record.reference); setReferenceEditVersion(record.edit_version); setStatusError(null); }, [record.id]);
-  const { readiness, uploadStaged } = usePodAttachments(record.id);
+  useEffect(() => { setDraftReference(record.reference); setReferenceEditVersion(record.edit_version); setStatusError(null); }, [record.id]);
   const timeInMutation = useRecordTimeInMutation();
   const referenceMutation = useUpdateRecordMutation();
   const [statusRemarks, setStatusRemarks] = useState('');
   const [remarksError, setRemarksError] = useState(false);
   useWorkspaceDraft(
     'overview',
-    draftReference !== record.reference || !!statusRemarks || receivedBy !== (record.received_by ?? ''),
+    draftReference !== record.reference || !!statusRemarks,
     updating
   );
   const access = usePermissions();
   const canEdit = (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Logistics' || currentUserRole === 'Admin') && access.canRecord(record.category, 'WRITE');
 
   const [returnToDraftOpen, setReturnToDraftOpen] = useState(false);
+  const [dialog, setDialog] = useState<'start' | 'complete' | null>(null);
+  const [cardFocus, setCardFocus] = useState(0);
+  const recordsForDriver = currentUserRole === 'Logistics' || currentUserRole === 'Admin';
+  const nextStep = canEdit && recordsForDriver ? nextStepForRun(record, {
+    canStart: access.canRecord(record.category, 'TIME_IN') && canRecordTimeIn(record),
+    canComplete: access.canRecord(record.category, 'STATUS') && access.canRecord(record.category, 'COMPLETE'),
+    dirty: !!statusRemarks.trim() || draftReference !== record.reference,
+    collection: true,
+  }) : null;
+  const closeDialog = (reason: 'cancel' | 'success') => { setDialog(null); if (reason === 'success') setCardFocus(value => value + 1); };
+  const markCollected = async ({ receivedBy: receiver, remarks }: CompletionValues) => {
+    await onUpdateRecord(record.id, { status: 'Delivered', received_by: receiver, ...({ status_remarks: remarks } as any) });
+    notify.success(completionLabels(record.category).success);
+  };
+  const startRun = async (remarks: string) => {
+    await timeInMutation.mutateAsync({ id: record.id, remarks });
+    notify.success('Time In recorded');
+  };
 
   const handleStatusChange = async (newStatus: DeliveryStatus) => {
-    if (!canEdit || !access.canRecord(record.category, 'STATUS') || newStatus === 'Delivered' && !access.canRecord(record.category, 'COMPLETE') || newStatus === 'Draft' && !access.canRecord(record.category, 'SUBMIT') || newStatus === record.status || updating) return;
+    if (!canEdit || !access.canRecord(record.category, 'STATUS') || newStatus === 'Delivered' || newStatus === 'Draft' && !access.canRecord(record.category, 'SUBMIT') || newStatus === record.status || updating) return;
     if (newStatus === 'Draft') { setReturnToDraftOpen(true); return; }
-    const error = completionError(record, newStatus, receivedBy, readiness);
-    if (error) { setStatusError(error); return; }
     setStatusError(null);
     if (!statusRemarks.trim()) { setRemarksError(true); return; }
     setRemarksError(false);
     setUpdating(true);
     try {
-      await uploadStaged();
-      await onUpdateRecord(record.id, { status: newStatus, ...(newStatus === "Delivered" ? { received_by: receivedBy.trim() } : {}), ...({ status_remarks: statusRemarks.trim() } as any) });
+      await onUpdateRecord(record.id, { status: newStatus, ...({ status_remarks: statusRemarks.trim() } as any) });
       setStatusRemarks('');
       notify.success('Collection status updated');
     } catch (error) {
@@ -583,14 +598,14 @@ function OverviewTab({
               <button type="button" disabled={updating || !statusRemarks.trim() || !draftReference.trim() || draftReference === record.reference} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold disabled:opacity-50"
                 onClick={async () => { setUpdating(true); setStatusError(null); try { const saved = await referenceMutation.mutateAsync({ id: record.id, updates: { reference: draftReference.trim(), remarks: statusRemarks.trim(), expected_edit_version: referenceEditVersion } }); setReferenceEditVersion(saved.edit_version); setStatusRemarks(''); notify.success('Draft reference saved'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not save the draft.'); } finally { setUpdating(false); } }}>Save Draft Reference</button>
             </div>}
-            {record.status !== 'Delivered' && <>
-              <PodUploader recordId={record.id} required disabled={updating} />
-              <label className="block text-xs font-bold text-slate-700">Received By *</label>
-              <input value={receivedBy} onChange={e => setReceivedBy(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" />
-              {access.canRecord(record.category, 'TIME_IN') && canRecordTimeIn(record) && (currentUserRole === 'Logistics' || currentUserRole === 'Admin') && <button type="button" disabled={updating || !statusRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs text-white disabled:opacity-50"
-                onClick={async () => { setUpdating(true); setStatusError(null); try { await timeInMutation.mutateAsync({ id: record.id, remarks: statusRemarks.trim() }); setStatusRemarks(''); notify.success('Time In recorded'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not record Time In.'); } finally { setUpdating(false); } }}>Record Time In</button>}
-              {completionError(record, 'Delivered', receivedBy, readiness) && <p className="text-xs text-slate-600">{completionError(record, 'Delivered', receivedBy, readiness)}</p>}
-            </>}
+            {nextStep && <NextStepCard
+              text={nextStep.text} done={nextStep.kind === 'done'} focusSignal={cardFocus}
+              buttonLabel={nextStep.action === 'start' ? START_LABEL : nextStep.action === 'complete' ? completionLabels(record.category).button : undefined}
+              onAction={nextStep.action ? () => setDialog(nextStep.action!) : undefined}
+              disabled={nextStep.disabled || updating} hint={nextStep.hint}
+              actionHint={nextStep.action === 'start' ? 'Opens a short form for remarks.' : nextStep.action === 'complete' ? 'Opens a short form for the proof photo, Received by and remarks.' : undefined} />}
+            <StartTransportDialog open={dialog === 'start'} company={record.company_name} typeLabel={record.category} reference={record.reference} driver={record.driver} onConfirm={startRun} onClose={closeDialog} />
+            <MarkDeliveredDialog open={dialog === 'complete'} recordId={record.id} category={record.category} company={record.company_name} typeLabel={record.category} reference={record.reference} driver={record.driver} onConfirm={markCollected} onClose={closeDialog} />
             <div>
               <label htmlFor="accounting-change-remarks" className="mb-1 block text-sm font-medium text-slate-700">Remarks — reason for change (required)</label>
               <p id="accounting-change-remarks-help" className="mb-2 text-xs text-slate-600">Explain why you are making this change. The reason is saved with your name in the record history.</p>
@@ -607,13 +622,13 @@ function OverviewTab({
               {remarksError && <p className="text-[11px] text-red-600 font-semibold mt-1">Remarks are required to change status.</p>}
             </div>
             <div className="flex flex-wrap gap-2">
-              {selectableStatuses(record, currentUserRole).map(s => {
+              {selectableStatuses(record, currentUserRole).filter(s => s !== 'Delivered').map(s => {
                 const isActive = record.status === s;
                 return (
                   <button
                     key={s}
                     onClick={() => handleStatusChange(s)}
-                    disabled={isActive || updating || !access.canRecord(record.category, 'STATUS') || (s === 'Delivered' && !access.canRecord(record.category, 'COMPLETE')) || (s === 'Draft' && !access.canRecord(record.category, 'SUBMIT')) || !!completionError(record, s, receivedBy, readiness)}
+                    disabled={isActive || updating || !access.canRecord(record.category, 'STATUS') || (s === 'Draft' && !access.canRecord(record.category, 'SUBMIT'))}
                     className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all disabled:cursor-default ${
                       isActive
                         ? (STATUS_ACTIVE[s] ?? 'bg-slate-700 text-white border-slate-700')
