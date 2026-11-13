@@ -49,7 +49,7 @@ async function notifyOrdinarySubmission(tx: Prisma.TransactionClient, record: { 
     record.id, 'DeliveryRecord', tx);
 }
 
-const recordAccess = (allowDriverRmaPod = false) => Object.assign(asyncRoute(async (req, res, next) => {
+const recordAccess = (allowRmaPod = false) => Object.assign(asyncRoute(async (req, res, next) => {
   if (req.user!.activeMode === 'V1') {
     const inputError = recordMutationInputError(req.body ?? {}, String(req.route?.path ?? ''), req.method);
     if (inputError) return res.status(400).json({ error: inputError });
@@ -63,10 +63,11 @@ const recordAccess = (allowDriverRmaPod = false) => Object.assign(asyncRoute(asy
     if (operationError) return res.status(operationError === 'Category relocation is not supported' ? 400 : 403).json({ error: operationError });
     const restriction = req.method !== 'GET' ? categoryActionRestriction(req.user!.role, record.category, 'WRITE') : null;
     if (restriction) return res.status(403).json({ error: restriction });
-    if (req.method !== 'GET' && req.user!.role === 'LOGISTICS' && record.category === 'RMA') {
+    // Logistics may upload the transport proof photo for the assigned Driver; the upload handler re-checks state under the record lock.
+    if (req.method !== 'GET' && req.user!.role === 'LOGISTICS' && record.category === 'RMA' && !allowRmaPod) {
       return res.status(403).json({ error: 'Logistics has view-only access to RMA records' });
     }
-    if (req.method !== 'GET' && !canWriteCategory(req.user!, record.category) && !(allowDriverRmaPod && record.category === 'RMA' && req.user!.role === 'DRIVER')) {
+    if (req.method !== 'GET' && !canWriteCategory(req.user!, record.category) && !(allowRmaPod && record.category === 'RMA' && ['DRIVER', 'LOGISTICS'].includes(req.user!.role))) {
       return res.status(403).json({ error: req.user!.role === 'LOGISTICS' && record.category === 'RMA' ? 'Logistics has view-only access to RMA records' : 'Module access denied' });
     }
   } else if (req.method === 'POST' && req.body?.category) {
@@ -854,12 +855,12 @@ router.post(
         if (req.user!.role === 'DRIVER' && !isAssignedDriver(req.user!, record)) {
           return { status: 403, error: 'Drivers may only upload to their own assigned records', attachment: null };
         }
-        if (record.category === 'RMA' && req.user!.role === 'DRIVER') {
+        if (record.category === 'RMA' && ['DRIVER', 'LOGISTICS'].includes(req.user!.role)) {
           if (!await canUploadRmaPod(tx, req.user!, record)) return { status: 403, error: 'RMA transport proof upload is not permitted.', attachment: null };
         } else if (!canWriteCategory(req.user!, record.category) || (req.user!.role === 'LOGISTICS' && record.category === 'RMA')) {
           return { status: 403, error: 'Record access denied', attachment: null };
         }
-        if (record.category === 'RMA' && req.user!.role !== 'DRIVER') {
+        if (record.category === 'RMA' && !['DRIVER', 'LOGISTICS'].includes(req.user!.role)) {
           const policy = await readRmaPermissions(tx, req.user!.id);
           if (!policy || !canPerformPolicyRecordAction(policy, record, 'POD', { path: 'rma' })) return { status: 403, error: 'RMA document changes are not permitted.', attachment: null };
         }
