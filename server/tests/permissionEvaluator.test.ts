@@ -165,6 +165,17 @@ test('immutable ceilings defeat forged policy grants for Sales RMA, TASS scope, 
   }
 });
 
+test('Logistics RMA ceiling allows transport STATUS and POD only, never TIME_IN, CREATE, RECEIVE or COMPLETE', () => {
+  for (const key of ['CATEGORY:RMA:STATUS', 'CATEGORY:RMA:POD']) {
+    const source = withEffects(input('LOGISTICS'), { 'CATEGORY:RMA:READ': 'ALLOW', 'CATEGORY:RMA:WRITE': 'ALLOW', [key]: 'ALLOW' }, true);
+    assert.equal(actionPermissionInputError(source), null, key);
+  }
+  for (const action of ['TIME_IN', 'CREATE', 'UPDATE', 'RECEIVE', 'COMPLETE', 'SUBMIT', 'DELETE']) {
+    const source = withEffects(input('LOGISTICS'), { [`CATEGORY:RMA:${action}`]: 'ALLOW' }, true);
+    assert.match(actionPermissionInputError(source)!, /cannot allow/, action);
+  }
+});
+
 test('ADMIN management stays protected without providing a business-operation bypass', () => {
   const source = input('ADMIN');
   const keys = ['SCREEN:admin:READ', 'SCREEN:admin:WRITE', 'RESOURCE:admin:READ', 'RESOURCE:admin:WRITE', 'RESOURCE:users:READ', 'RESOURCE:users:WRITE', 'RESOURCE:users:UPDATE'];
