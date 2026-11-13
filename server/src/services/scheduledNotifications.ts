@@ -205,17 +205,29 @@ export async function notifyWeeklyReport(now = new Date()) {
     }
 
     for (const u of targetUsers) {
-      await notifyUser(u.id, title, message);
-      const status = await sendLoggedEmail(u.email, title, message);
-      await prisma.notificationLog.create({
-        data: {
-          triggerEvent: 'WEEKLY_REPORT',
-          recipientRole: u.role,
-          recipientName: u.name,
-          message,
-          status,
-        },
-      });
+      try {
+        await notifyUser(u.id, title, message);
+      } catch (err) {
+        console.error('[Weekly Report] In-app notification failed', u.id, err);
+      }
+    }
+
+    // Deliver every in-app alert before waiting on any recipient's email or log.
+    for (const u of targetUsers) {
+      try {
+        const status = await sendLoggedEmail(u.email, title, message);
+        await prisma.notificationLog.create({
+          data: {
+            triggerEvent: 'WEEKLY_REPORT',
+            recipientRole: u.role,
+            recipientName: u.name,
+            message,
+            status,
+          },
+        });
+      } catch (err) {
+        console.error('[Weekly Report] Email processing failed', u.id, err);
+      }
     }
 
     console.log(`[Weekly Report] Processed ${weekLabel} for ${targetUsers.length} users`);

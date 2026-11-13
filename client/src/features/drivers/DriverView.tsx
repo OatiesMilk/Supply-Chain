@@ -75,6 +75,7 @@ function DriverViewContent({
   const [tab, setTab] = useState<RunTab>('active');
   const [showUnassigned, setShowUnassigned] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<DeliveryStatus | null>(null);
+  const [pendingEditVersion, setPendingEditVersion] = useState('');
   const [remarks, setRemarks] = useState('');
   const [rescheduleDate, setRescheduleDate] = useState('');
   const [receiverInputs, setReceiverInputs] = useState<Record<string, string>>({});
@@ -123,6 +124,7 @@ function DriverViewContent({
   };
   const closeStatus = () => {
     setPendingStatus(null);
+    setPendingEditVersion('');
     setRemarks('');
     setRescheduleDate('');
   };
@@ -200,7 +202,8 @@ function DriverViewContent({
         rescheduleDate,
         role: currentUserRole,
       });
-      const saved = await save(selectedRecord, updates, 'Could not update the run. Please try again.');
+      // Keep the dialog's precondition even if a background refresh replaces the record.
+      const saved = await save(selectedRecord, { ...updates, expected_edit_version: pendingEditVersion }, 'Could not update the run. Please try again.');
       if (!saved) return;
       closeStatus();
       setFeedback({ message: 'Status updated successfully.', type: 'success' });
@@ -388,7 +391,7 @@ function DriverViewContent({
                         <div className="space-y-4 border-t border-slate-200 pt-4">
                           {!selectedRecord.time_in ? (
                             <button type="button" disabled={saving || !access.canRecord(selectedRecord.category, 'TIME_IN') || !canRecordTimeIn(selectedRecord)}
-                              onClick={event => { lastTrigger.current = event.currentTarget; setPendingStatus("In Transit"); setRemarks(""); setFeedback(null); }}
+                              onClick={event => { lastTrigger.current = event.currentTarget; setPendingEditVersion(selectedRecord.edit_version ?? ''); setPendingStatus("In Transit"); setRemarks(""); setFeedback(null); }}
                               className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white disabled:opacity-50">
                               <Clock3 aria-hidden="true" className="h-4 w-4" /> Record time in
                             </button>
@@ -410,7 +413,7 @@ function DriverViewContent({
                           <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
                             {(['Delivered', 'Pending', 'Rescheduled'] as const).map(status => (
                               <button key={status} type="button" disabled={saving || !access.canRecord(selectedRecord.category, 'STATUS') || (status === 'Delivered' && !access.canRecord(selectedRecord.category, 'COMPLETE')) || !(selectedRecord.allowed_statuses ?? []).includes(status) || (status === 'Delivered' && (!!photoError || !selectedRecord.time_in || !(receiverInputs[selectedRecord.id]?.trim() || selectedRecord.received_by?.trim())))}
-                                onClick={event => { lastTrigger.current = event.currentTarget; setPendingStatus(status); setRemarks(''); setRescheduleDate(''); setFeedback(null); }}
+                                onClick={event => { lastTrigger.current = event.currentTarget; setPendingEditVersion(selectedRecord.edit_version ?? ''); setPendingStatus(status); setRemarks(''); setRescheduleDate(''); setFeedback(null); }}
                                 className={`min-h-11 rounded-lg px-2 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${status === 'Delivered' ? 'bg-emerald-700 text-white' : status === 'Pending' ? 'bg-amber-100 text-amber-900' : 'bg-violet-100 text-violet-900'}`}>
                                 {status === 'Delivered' ? 'Accomplish' : status === 'Rescheduled' ? 'Reschedule' : status}
                               </button>

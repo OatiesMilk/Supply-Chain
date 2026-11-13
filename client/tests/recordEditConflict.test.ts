@@ -93,6 +93,57 @@ test('ordinary metadata editor preserves draft and original version across refre
  }finally{await ui.close();}
 });
 
+test('Drivers View retains the dialog edit version across cache refresh and conflict retries', async () => {
+  installLegacySession('LOGISTICS', 'driver');
+  const ui = await fixture();
+  const { default: DriverView } = await import('../src/features/drivers/DriverView');
+  let record = base({ id: 'driver-reschedule', category: 'Deliveries', reference: 'RUN-1',
+    driver: 'Driver One', rma_movement: null, edit_version: 'record:original',
+    delivery_date: '2099-01-01', allowed_statuses: ['Rescheduled'] });
+  mock.method(api, 'getRecordAttachments', async () => []);
+  const patch = mock.method(api, 'patchStatus', async (_id, _status, _remarks, _extra) => {
+    throw Object.assign(new Error('This record changed in another session.'), { status: 409 });
+  });
+  const options = createUpdateRecordMutationOptions(ui.client);
+  const render = () => ui.renderElement(React.createElement(DriverView, {
+    records: [record], currentUserName: 'Logistics', onNavigate() {},
+    driverSummary: [{ name: 'Driver One', active: 1, completed: 0 }],
+    outputActionConfigs: {} as React.ComponentProps<typeof DriverView>['outputActionConfigs'],
+    onUpdateRecord: async (id, updates) => { await options.mutationFn({ id, updates }); },
+  }));
+  try {
+    await render();
+    const run = [...ui.dom.window.document.querySelectorAll('button')].find(el => el.textContent?.includes('RUN-1'))!;
+    await act(async () => run.click()); await ui.flush();
+    await act(async () => ui.button('Reschedule')!.click());
+    await ui.input('New Delivery Date *', '2099-01-03');
+    await ui.input('Remarks — reason for change (required)', 'Customer requested a later date');
+
+    record = { ...record, delivery_date: '2099-01-02', edit_version: 'record:concurrent' };
+    await saveRecordToCache(ui.client, record);
+    await render();
+    assert.equal(ui.client.getQueryData<DeliveryRecord>(['records', 'detail', record.id])?.edit_version, 'record:concurrent');
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await act(async () => ui.button('Confirm')!.click()); await ui.flush();
+      const extra = patch.mock.calls.at(-1)!.arguments[3];
+      assert.equal(extra?.expected_edit_version, 'record:original');
+      assert.equal(extra?.delivery_date, '2099-01-03');
+      assert.match(ui.dom.window.document.querySelector('[role="dialog"]')!.textContent!, /changed in another session/);
+      assert.equal(ui.field('New Delivery Date *').value, '2099-01-03');
+      assert.equal(ui.field('Remarks — reason for change (required)').value, 'Customer requested a later date');
+    }
+    assert.equal(patch.mock.callCount(), 2);
+    assert.equal(record.delivery_date, '2099-01-02');
+
+    await act(async () => ui.dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Close status confirmation"]')!.click());
+    await act(async () => ui.button('Reschedule')!.click());
+    await ui.input('New Delivery Date *', '2099-01-04');
+    await ui.input('Remarks — reason for change (required)', 'Review the new schedule');
+    await act(async () => ui.button('Confirm')!.click()); await ui.flush();
+    assert.equal(patch.mock.calls.at(-1)!.arguments[3]?.expected_edit_version, 'record:concurrent');
+  } finally { await ui.close(); }
+});
+
 for (const competingEdit of [false, true]) test(`combined dispatch and reschedule uses its own save result${competingEdit ? ' and detects a competing edit' : ''}`, async () => {
   // Admin is view-only on Deliveries; Logistics owns dispatch and rescheduling.
   installLegacySession('LOGISTICS', 'deliveries');
