@@ -1,4 +1,3 @@
-import type { AuthUser } from '../middleware/auth';
 import { prisma } from '../db';
 import { accountManagerMailUsers } from './accountDirectory';
 import { saveDailyStatusSnapshot as writeDailyStatusSnapshot } from './dailyStatusSnapshot';
@@ -6,7 +5,7 @@ import { manilaToday } from './deliveryLifecycle';
 import { notifyRole, notifyUser } from './inAppNotify';
 import { sendEmail, type SendResult } from './mailer';
 import { permissionMode } from './permissionManagement';
-import { sessionUser } from './permissions';
+import { loadLegacySession } from './sessionPermissions';
 import { canReadRecord } from './recordAccess';
 import { dispatchMovementScope } from './rmaMovement';
 import { runScopedSummaries } from './scopedSummaries';
@@ -97,16 +96,9 @@ export async function notify4PM(now = new Date()) {
       const resolvedUsers = await accountManagerMailUsers(amName);
       if (resolvedUsers.length === 0) continue;
 
-      const amUser = await prisma.user.findUnique({
-        where: { id: resolvedUsers[0].id },
-        include: { permissions: true, driverProfile: true },
-      });
-      if (!amUser?.isActive) continue;
-
-      const session = {
-        ...sessionUser(amUser),
-        driverProfileId: amUser.driverProfile?.type === 'DRIVER' && amUser.driverProfile.isActive ? amUser.driverProfile.id : null,
-      } as AuthUser;
+      const loaded = await loadLegacySession(prisma, resolvedUsers[0].id);
+      if (!loaded?.isActive) continue;
+      const session = loaded.session;
 
       const scopedRecs = recs.filter(r => canReadRecord(session, r));
       if (scopedRecs.length === 0) continue;
