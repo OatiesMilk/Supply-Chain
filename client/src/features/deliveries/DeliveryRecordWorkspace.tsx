@@ -996,6 +996,8 @@ const CONTEXT_LABEL: Record<string, string> = {
   GENERAL_EDIT:  'General Edit',
   DRIVER_UPDATE: 'Driver/Delivery',
   STATUS_CHANGE: 'Status Change',
+  TIME_IN:       'Transport started',
+  RMA_TRANSPORT: 'RMA transport',
 };
 
 function RemarksTab({ recordId }: { recordId: string }) {
