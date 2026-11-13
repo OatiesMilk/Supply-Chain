@@ -3,7 +3,7 @@ import { usePermissions } from '@/hooks/usePermissions';
 import RmaWorkflowPanel from '@/features/deliveries/RmaWorkflowPanel';
 import { useEffect, useRef, useState } from 'react';
 import {
-  ArrowLeft, CheckCircle2, ChevronRight, Clock3, MapPin, Package,
+  ArrowLeft, CheckCircle2, ChevronRight, MapPin, Package,
   Search, Truck, UserRound, X,
 } from 'lucide-react';
 import type { DeliveryRecord, DeliveryStatus, OutputActionConfig, OutputActionTrigger } from '@/types';
@@ -13,9 +13,11 @@ import { getOutputTrigger, runOutputActions } from '@/outputActions';
 import { exportRecordOutputPDF } from '@/utils/recordOutputPdf';
 import { screenKeyForCategory } from '@/routes/screenRouting';
 import AssistantPicker from './AssistantPicker';
-import PodUploader from '@/components/PodUploader';
-import { usePodAttachments } from '@/api/queries/usePodAttachments';
-import { completionError } from '@/utils/podRequirement';
+import NextStepCard from '@/features/deliveries/NextStepCard';
+import MarkDeliveredDialog, { type CompletionValues } from '@/features/deliveries/MarkDeliveredDialog';
+import StartTransportDialog from '@/features/deliveries/StartTransportDialog';
+import { START_LABEL, completionLabels, nextStepForRun } from '@/utils/completionDialog';
+import { notify } from '@/utils/notify';
 
 import { canRecordTimeIn, isDraftRecord } from '@/utils/recordLifecycle';
 import { useRecordTimeInMutation, usePagedRecordsQuery } from '@/api/queries/useRecordsQuery';
@@ -73,10 +75,13 @@ function DriverViewContent({
   const [showUnassigned, setShowUnassigned] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<DeliveryStatus | null>(null);
   const [remarks, setRemarks] = useState('');
-  const [receiverInputs, setReceiverInputs] = useState<Record<string, string>>({});
+  const [runDialog, setRunDialog] = useState<'start' | 'complete' | null>(null);
+  const [cardFocus, setCardFocus] = useState(0);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{message: string, type: 'success'|'error'|'info'} | null>(null);
   const lastTrigger = useRef<HTMLButtonElement | null>(null);
+  const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (feedbackTimer.current) clearTimeout(feedbackTimer.current); }, []);
 
   const activeRecords = records.filter(isActive);
   const unassignedRecords = activeRecords.filter(record => !record.driver);
@@ -97,11 +102,15 @@ function DriverViewContent({
       ? a.delivery_date.localeCompare(b.delivery_date) || a.reference.localeCompare(b.reference)
       : b.delivery_date.localeCompare(a.delivery_date) || a.reference.localeCompare(b.reference));
   const selectedRecord = records.find(record => record.id === selectedRecordId && record.driver === driver) ?? null;
-  const { readiness: podReadiness, uploadStaged } = usePodAttachments(selectedRecord?.id ?? '');
-  const photoError = selectedRecord ? completionError(selectedRecord, 'Delivered', receiverInputs[selectedRecord.id] ?? selectedRecord.received_by, podReadiness) : null;
+  const nextStep = selectedRecord && selectedRecord.category !== 'RMA' ? nextStepForRun(selectedRecord, {
+    canStart: access.canRecord(selectedRecord.category, 'TIME_IN') && canRecordTimeIn(selectedRecord),
+    canComplete: access.canRecord(selectedRecord.category, 'STATUS') && access.canRecord(selectedRecord.category, 'COMPLETE'),
+    dirty: false, collection: selectedRecord.category === 'Accounting Collection',
+  }) : null;
   const activeForDriver = summaryByName.get(driver ?? '')?.active ?? driverRecords.filter(isActive).length;
   useEffect(() => { onFiltersChange?.({ driver: driver ?? '', search: term, queue: tab }); }, [driver, term, tab, onFiltersChange]);
 
+  useEffect(() => { setRunDialog(null); }, [selectedRecordId]);
   useEffect(() => {
     if (!pendingStatus) lastTrigger.current?.focus();
   }, [pendingStatus]);
@@ -152,59 +161,48 @@ function DriverViewContent({
       remarks: `Removed assistant: ${assistant}`,
     }, 'Could not remove the assistant. Please try again.');
 
+  const afterStatusSaved = async (record: DeliveryRecord, status: DeliveryStatus) => {
+    setFeedback({ message: 'Status updated successfully.', type: 'success' });
+    if (feedbackTimer.current) clearTimeout(feedbackTimer.current);
+    feedbackTimer.current = setTimeout(() => setFeedback(null), 3000);
+    if (status === 'Delivered' && tab === 'active') setSelectedRecordId(null);
+    const trigger = getOutputTrigger(record.category, status);
+    if (!trigger) return;
+    try {
+      const output = await runOutputActions(trigger, outputActionConfigs[trigger], {
+        amName: record.account_manager,
+        at: new Date().toISOString(),
+        recordId: record.id, category: record.category,
+        api, exportPDF: async () => exportRecordOutputPDF(await api.getRecord(record.id)),
+      });
+      setFeedback({ message: `Status saved. ${output.banners.join(' ')}`, type: output.email.failed || output.pdf === 'failed' ? 'error' : 'success' });
+    } catch {
+      setFeedback({ message: 'The status was saved, but an output action could not finish. Check notifications before retrying.', type: 'error' });
+    }
+  };
+  const closeRunDialog = (reason: 'cancel' | 'success') => { setRunDialog(null); if (reason === 'success') setCardFocus(value => value + 1); };
+  const startRun = async (note: string) => {
+    if (!selectedRecord) return;
+    await timeInMutation.mutateAsync({ id: selectedRecord.id, remarks: note });
+    notify.success('Time In recorded');
+  };
+  const markDelivered = async ({ receivedBy, remarks: note }: CompletionValues) => {
+    if (!selectedRecord || !access.canRecord(selectedRecord.category, 'COMPLETE')) return;
+    await onUpdateRecord(selectedRecord.id, { status: 'Delivered', status_remarks: note, received_by: receivedBy } as Partial<DeliveryRecord>);
+    notify.success(completionLabels(selectedRecord.category).success);
+    await afterStatusSaved(selectedRecord, 'Delivered');
+  };
   const confirmStatus = async () => {
-    if (!selectedRecord || !pendingStatus || !remarks.trim() || !access.canRecord(selectedRecord.category, pendingStatus === 'In Transit' ? 'TIME_IN' : 'STATUS') || pendingStatus === 'Delivered' && !access.canRecord(selectedRecord.category, 'COMPLETE')) return;
-    if (completionError(selectedRecord, pendingStatus, receiverInputs[selectedRecord.id] ?? selectedRecord.received_by, podReadiness)) return;
-    
+    if (!selectedRecord || !pendingStatus || pendingStatus === 'Delivered' || !remarks.trim() || !access.canRecord(selectedRecord.category, 'STATUS')) return;
     if (pendingStatus === selectedRecord.status) {
       setFeedback({ message: 'Choose a different status before saving.', type: 'info' });
       return;
     }
-
-    setSaving(true);
-    setFeedback(null);
-    try {
-      await uploadStaged();
-
-      if (pendingStatus === "In Transit") {
-        await timeInMutation.mutateAsync({ id: selectedRecord.id, remarks: remarks.trim() });
-        closeStatus();
-        setFeedback({ message: 'Status updated successfully.', type: 'success' });
-        setTimeout(() => setFeedback(null), 3000);
-        return;
-      }
-      const status = pendingStatus;
-      const receivedBy = receiverInputs[selectedRecord.id]?.trim() || selectedRecord.received_by?.trim() || '';
-      const updates = {
-        status,
-        status_remarks: remarks.trim(),
-        ...(status === 'Delivered' ? { received_by: receivedBy } : {}),
-      } as Partial<DeliveryRecord>;
-      const saved = await save(selectedRecord, updates, 'Could not update the run. Please try again.');
-      if (!saved) return;
-      closeStatus();
-      setFeedback({ message: 'Status updated successfully.', type: 'success' });
-      setTimeout(() => setFeedback(null), 3000);
-      if (status === 'Delivered' && tab === 'active') setSelectedRecordId(null);
-      const trigger = getOutputTrigger(selectedRecord.category, status);
-      if (trigger) {
-        try {
-          const output = await runOutputActions(trigger, outputActionConfigs[trigger], {
-            amName: selectedRecord.account_manager,
-            at: new Date().toISOString(),
-            recordId: selectedRecord.id, category: selectedRecord.category,
-            api, exportPDF: async () => exportRecordOutputPDF(await api.getRecord(selectedRecord.id)),
-          });
-          setFeedback({ message: `Status saved. ${output.banners.join(' ')}`, type: output.email.failed || output.pdf === 'failed' ? 'error' : 'success' });
-        } catch {
-          setFeedback({ message: 'The status was saved, but an output action could not finish. Check notifications before retrying.', type: 'error' });
-        }
-      }
-    } catch (error) {
-      setFeedback({ message: error instanceof Error ? error.message : "Could not update the run. Please try again.", type: 'error' });
-    } finally {
-      setSaving(false);
-    }
+    const status = pendingStatus;
+    const saved = await save(selectedRecord, { status, status_remarks: remarks.trim() } as Partial<DeliveryRecord>, 'Could not update the run. Please try again.');
+    if (!saved) return;
+    closeStatus();
+    await afterStatusSaved(selectedRecord, status);
   };
 
   return (
@@ -366,36 +364,23 @@ function DriverViewContent({
 
                       {selectedRecord.category !== 'RMA' && selectedRecord.status !== 'Delivered' && (
                         <div className="space-y-4 border-t border-slate-200 pt-4">
-                          {!selectedRecord.time_in ? (
-                            <button type="button" disabled={saving || !access.canRecord(selectedRecord.category, 'TIME_IN') || !canRecordTimeIn(selectedRecord)}
-                              onClick={event => { lastTrigger.current = event.currentTarget; setPendingStatus("In Transit"); setRemarks(""); setFeedback(null); }}
-                              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white disabled:opacity-50">
-                              <Clock3 aria-hidden="true" className="h-4 w-4" /> Record time in
-                            </button>
-                          ) : (
-                            <p className="flex items-center gap-2 text-sm text-blue-800"><Clock3 aria-hidden="true" className="h-4 w-4" />Time in: {new Date(selectedRecord.time_in).toLocaleTimeString('en-PH', { timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit' })}</p>
-                          )}
-
-                          {selectedRecord.time_in && (
-                            <div>
-                              <label htmlFor="driver-run-receiver" className="mb-1 block text-sm font-semibold text-slate-700">Received By *</label>
-                              <input id="driver-run-receiver" type="text" value={receiverInputs[selectedRecord.id] ?? selectedRecord.received_by ?? ''}
-                                onChange={event => setReceiverInputs(previous => ({ ...previous, [selectedRecord.id]: event.target.value }))}
-                                placeholder="Receiver name" className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-base" />
-                            </div>
-                          )}
-
-                          <PodUploader key={selectedRecord.id} recordId={selectedRecord.id} required disabled={saving} />
-                          {photoError && <p className="text-xs text-slate-600">{photoError}</p>}
-                          <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
-                            {(['Delivered', 'Pending', 'Rescheduled'] as const).map(status => (
-                              <button key={status} type="button" disabled={saving || !access.canRecord(selectedRecord.category, 'STATUS') || (status === 'Delivered' && !access.canRecord(selectedRecord.category, 'COMPLETE')) || !(selectedRecord.allowed_statuses ?? []).includes(status) || (status === 'Delivered' && (!!photoError || !selectedRecord.time_in || !(receiverInputs[selectedRecord.id]?.trim() || selectedRecord.received_by?.trim())))}
+                          {nextStep && <NextStepCard
+                            text={nextStep.text} done={nextStep.kind === 'done'} focusSignal={cardFocus}
+                            buttonLabel={nextStep.action === 'start' ? START_LABEL : nextStep.action === 'complete' ? completionLabels(selectedRecord.category).button : undefined}
+                            onAction={nextStep.action ? () => setRunDialog(nextStep.action!) : undefined}
+                            disabled={nextStep.disabled || saving} hint={nextStep.hint}
+                            actionHint={nextStep.action === 'start' ? 'Opens a short form for remarks.' : nextStep.action === 'complete' ? 'Opens a short form for the proof photo, Received by and remarks.' : undefined} />}
+                          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                            {(['Pending', 'Rescheduled'] as const).map(status => (
+                              <button key={status} type="button" disabled={saving || !access.canRecord(selectedRecord.category, 'STATUS') || !(selectedRecord.allowed_statuses ?? []).includes(status)}
                                 onClick={event => { lastTrigger.current = event.currentTarget; setPendingStatus(status); setRemarks(''); setFeedback(null); }}
-                                className={`min-h-11 rounded-lg px-2 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${status === 'Delivered' ? 'bg-emerald-700 text-white' : status === 'Pending' ? 'bg-amber-100 text-amber-900' : 'bg-violet-100 text-violet-900'}`}>
-                                {status === 'Delivered' ? 'Accomplish' : status === 'Rescheduled' ? 'Reschedule' : status}
+                                className={`min-h-11 rounded-lg px-2 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${status === 'Pending' ? 'bg-amber-100 text-amber-900' : 'bg-violet-100 text-violet-900'}`}>
+                                {status === 'Rescheduled' ? 'Reschedule' : status}
                               </button>
                             ))}
                           </div>
+                          <StartTransportDialog open={runDialog === 'start'} company={selectedRecord.company_name} typeLabel={selectedRecord.category} reference={selectedRecord.reference} driver={selectedRecord.driver} onConfirm={startRun} onClose={closeRunDialog} />
+                          <MarkDeliveredDialog open={runDialog === 'complete'} recordId={selectedRecord.id} category={selectedRecord.category} company={selectedRecord.company_name} typeLabel={selectedRecord.category} reference={selectedRecord.reference} driver={selectedRecord.driver} onConfirm={markDelivered} onClose={closeRunDialog} />
                         </div>
                       )}
 
@@ -437,12 +422,11 @@ function DriverViewContent({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 id="driver-status-title" className="text-lg font-bold text-slate-900">Confirm status</h2>
-                <p className="mt-1 text-sm text-slate-600">Mark {selectedRecord.reference} as {pendingStatus === 'Delivered' ? 'Accomplished' : pendingStatus}.</p>
+                <p className="mt-1 text-sm text-slate-600">Mark {selectedRecord.reference} as {pendingStatus}.</p>
               </div>
               <button type="button" onClick={closeStatus} disabled={saving} aria-label="Close status confirmation"
                 className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"><X aria-hidden="true" className="h-5 w-5" /></button>
             </div>
-            {pendingStatus === 'Delivered' && photoError && <p role="alert" className="text-sm text-red-800">{photoError}</p>}
             {feedback && <p role="alert" className={`rounded-lg p-3 text-sm ${feedback.type === 'success' ? 'bg-emerald-50 text-emerald-800' : feedback.type === 'info' ? 'bg-amber-50 text-amber-800' : 'bg-red-50 text-red-800'}`}>{feedback.message}</p>}
             <div>
               <label htmlFor="driver-status-remarks" className="mb-1 block text-sm font-semibold text-slate-700">Remarks — reason for change (required)</label>
@@ -452,7 +436,7 @@ function DriverViewContent({
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={closeStatus} disabled={saving} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700">Cancel</button>
-              <button type="button" onClick={() => void confirmStatus()} disabled={saving || !remarks.trim() || !!completionError(selectedRecord, pendingStatus, receiverInputs[selectedRecord.id] ?? selectedRecord.received_by, podReadiness)}
+              <button type="button" onClick={() => void confirmStatus()} disabled={saving || !remarks.trim()}
                 className="min-h-11 rounded-lg bg-blue-800 px-4 text-sm font-semibold text-white disabled:opacity-40">{saving ? 'Saving…' : 'Confirm'}</button>
             </div>
           </div>
