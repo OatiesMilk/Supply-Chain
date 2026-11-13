@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useId, useState } from 'react';
 import { CircleCheck } from 'lucide-react';
 import { ActionDialog } from '@/components/ActionDialog';
 import PodUploader from '@/components/PodUploader';
@@ -13,7 +13,7 @@ export type CompletionValues = { receivedBy: string; remarks: string };
 
 /** Completes a run: proof photo, Received by and remarks in one dialog. A rejected save keeps the dialog open with the
  *  server message and the typed values; Cancel and Escape save nothing and clear the form (staged photos stay staged). */
-export default function MarkDeliveredDialog({ open, recordId, category, company, typeLabel, reference, driver, showRecordingFor = true, rma = false, onConfirm, onClose }: {
+function MarkDeliveredForm({ open, recordId, category, company, typeLabel, reference, driver, showRecordingFor = true, rma = false, onConfirm, onClose }: {
   open: boolean;
   recordId: string;
   category: DeliveryCategory;
@@ -35,7 +35,6 @@ export default function MarkDeliveredDialog({ open, recordId, category, company,
   const [remarks, setRemarks] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { if (!open) { setReceivedBy(''); setRemarks(''); setError(null); setPending(false); } }, [open]);
 
   const needs = completionNeeds({ ...readiness, receivedBy, remarks });
   const description = `${company} · ${typeLabel} · Ref ${reference || '—'}${rma ? '\nThis completes the transport. TASS still confirms receipt and completes the RMA.' : ''}`;
@@ -68,4 +67,9 @@ export default function MarkDeliveredDialog({ open, recordId, category, company,
       </label>
     </div>
   </ActionDialog>;
+}
+
+/** Mounted only while open, so a closed dialog adds no requests, uploader or typed state to the page. */
+export default function MarkDeliveredDialog(props: React.ComponentProps<typeof MarkDeliveredForm>) {
+  return props.open ? <MarkDeliveredForm {...props} /> : null;
 }
