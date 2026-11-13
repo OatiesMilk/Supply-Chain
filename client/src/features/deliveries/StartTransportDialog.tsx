@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useId, useState } from 'react';
 import { Truck } from 'lucide-react';
 import { ActionDialog } from '@/components/ActionDialog';
 import { START_LABEL, recordingForLine } from '@/utils/completionDialog';
@@ -7,7 +7,7 @@ import { workflowFieldHintClass, workflowFieldLabelClass, workflowInputClass } f
 const field = workflowInputClass.replace('text-sm', 'text-base sm:text-sm');
 
 /** Starts a run: remarks only. A rejected save keeps the dialog open with the server message and the typed remarks. */
-export default function StartTransportDialog({ open, company, typeLabel, reference, driver, showRecordingFor = true, timeInNote = true, onConfirm, onClose }: {
+function StartTransportForm({ open, company, typeLabel, reference, driver, showRecordingFor = true, timeInNote = true, onConfirm, onClose }: {
   open: boolean;
   company: string;
   typeLabel: string;
@@ -23,7 +23,6 @@ export default function StartTransportDialog({ open, company, typeLabel, referen
   const [remarks, setRemarks] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { if (!open) { setRemarks(''); setError(null); setPending(false); } }, [open]);
   const missing = !remarks.trim();
   const confirm = async () => {
     if (missing || pending) return;
@@ -49,4 +48,8 @@ export default function StartTransportDialog({ open, company, typeLabel, referen
       </label>
     </div>
   </ActionDialog>;
+}
+
+export default function StartTransportDialog(props: React.ComponentProps<typeof StartTransportForm>) {
+  return props.open ? <StartTransportForm {...props} /> : null;
 }

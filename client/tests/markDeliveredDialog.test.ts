@@ -144,6 +144,6 @@ test('Next step card shows the button, explains a disabled state and moves focus
     assert.equal(ui.button('Mark as delivered')!.disabled, true);
     assert.match(ui.text(), /Save or revert your changes below first\./);
     await ui.render(React.createElement(Card, { text: 'Delivered.', done: true, focusSignal: 1 }));
-    assert.equal(ui.doc.activeElement, ui.doc.querySelector('h3'));
+    assert.ok(ui.doc.activeElement === ui.doc.querySelector('h3'), 'focus moved to the card heading');
   } finally { await ui.close(); }
 });

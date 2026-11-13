@@ -24,7 +24,10 @@ import { getOutputTrigger, runOutputActions } from '@/outputActions';
 import { exportRecordOutputPDF } from '@/utils/recordOutputPdf';
 import RecordStatus, { RecordStatusProgress } from '@/components/RecordStatus';
 import { POD_ATTACHMENT_ACCEPT, getPodAttachmentRejection } from '@/utils/attachmentValidation';
-import PodUploader from '@/components/PodUploader';
+import NextStepCard from './NextStepCard';
+import MarkDeliveredDialog, { type CompletionValues } from './MarkDeliveredDialog';
+import StartTransportDialog from './StartTransportDialog';
+import { START_LABEL, completionLabels, nextStepForRun } from '@/utils/completionDialog';
 import CommentComposer from '@/components/CommentComposer';
 import { PodAttachmentList } from '@/components/PodAttachmentPreview';
 import { usePodAttachments } from '@/api/queries/usePodAttachments';
@@ -1108,10 +1111,14 @@ function ActionsTab({
   const [receivedBy, setReceivedBy] = useState(record.received_by ?? '');
   const [newDeliveryDate, setNewDeliveryDate] = useState('');
   const [returnToDraftOpen, setReturnToDraftOpen] = useState(false);
+  const [dialog, setDialog] = useState<'start' | 'complete' | null>(null);
+  const [cardFocus, setCardFocus] = useState(0);
 
   const draftRecord = isDraftRecord(record);
   const isRma = record.category === 'RMA';
-  const statusOptions = selectableStatuses(record, currentUserRole).filter(status => access.canRecord(record.category, 'STATUS') && (status !== 'Delivered' || access.canRecord(record.category, 'COMPLETE')) && (status !== 'Draft' || access.canRecord(record.category, 'SUBMIT')));
+  // Delivered is recorded through the Mark as delivered dialog on every non-RMA type, never as a status option.
+  const statusOptions = selectableStatuses(record, currentUserRole).filter(status => access.canRecord(record.category, 'STATUS') && (isRma || status !== 'Delivered') && (status !== 'Draft' || access.canRecord(record.category, 'SUBMIT')));
+  const recordsForDriver = currentUserRole === 'Logistics' || currentUserRole === 'Admin';
 
   const statusChanged = selectedStatus !== record.status;
   const photoError = statusChanged ? completionError(record, selectedStatus, receivedBy, podReadiness) : null;
@@ -1128,6 +1135,12 @@ function ActionsTab({
     JSON.stringify(assistants.filter(a => a.trim())) !== JSON.stringify(record.driver_assistants ?? []);
 
   const hasChanges = statusChanged || driverFieldsChanged;
+  const unsavedEdits = hasChanges || !!actionRemarks.trim();
+  const nextStep = !isRma && recordsForDriver ? nextStepForRun(record, {
+    canStart: access.canRecord(record.category, 'TIME_IN') && canRecordTimeIn(record),
+    canComplete: access.canRecord(record.category, 'STATUS') && access.canRecord(record.category, 'COMPLETE'),
+    dirty: unsavedEdits,
+  }) : null;
   const [dispatchEditVersion, setDispatchEditVersion] = useState(record.edit_version);
   useEffect(() => { if (!hasChanges && !actionRemarks.trim()) setDispatchEditVersion(record.edit_version); }, [record.id, record.edit_version, hasChanges, actionRemarks]);
 
@@ -1146,6 +1159,31 @@ function ActionsTab({
   }, [record.id, record.time_in, record.time_out, record.status, record.delivery_date]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useWorkspaceDraft('dispatch', hasChanges || !!actionRemarks || podReadiness.hasStagedFiles, saving || podReadiness.uploading);
+
+  /** Output actions (Account Manager email, PDF) that follow a status change; shared by Save and Mark as delivered. */
+  const runAccomplishedOutputs = async (status: DeliveryStatus, at: string) => {
+    const trigger = getOutputTrigger(record.category, status);
+    if (!trigger) return;
+    const output = await runOutputActions(trigger, outputActionConfigs[trigger], {
+      amName: record.account_manager, at, recordId: record.id, category: record.category, api,
+      exportPDF: async () => exportRecordOutputPDF(await api.getRecord(record.id)),
+    });
+    if (output.email.failed || output.pdf === 'failed') notify.error(`Changes saved. ${output.banners.join(' ')}`);
+    else output.banners.forEach(message => notify.info(message));
+  };
+
+  const closeDialog = (reason: 'cancel' | 'success') => { setDialog(null); if (reason === 'success') setCardFocus(value => value + 1); };
+  const markDelivered = async ({ receivedBy: receiver, remarks }: CompletionValues) => {
+    const at = new Date().toISOString();
+    await onUpdateRecord(record.id, { status: 'Delivered', status_remarks: remarks, received_by: receiver, modified_by: `${currentUserName} (${currentUserRole})`, modified_at: at } as Partial<DeliveryRecord>);
+    notify.success(completionLabels(record.category).success);
+    try { await runAccomplishedOutputs('Delivered', at); }
+    catch (error) { notify.error(`Saved, but the follow-up actions failed: ${error instanceof Error ? error.message : 'unknown error'}`); }
+  };
+  const startRun = async (remarks: string) => {
+    await timeInMutation.mutateAsync({ id: record.id, remarks });
+    notify.success('Time In recorded');
+  };
 
   const handleSave = async () => {
     if (saving || photoError || newDateError || !access.canRecord(record.category, 'WRITE')) return;
@@ -1224,17 +1262,7 @@ function ActionsTab({
       setActionRemarks('');
       notify.success(isRma ? 'RMA changes saved' : 'Dispatch & Logistics changes saved');
 
-      if (statusChanged) {
-        const trigger = getOutputTrigger(record.category, selectedStatus);
-        if (trigger) {
-          const output = await runOutputActions(trigger, outputActionConfigs[trigger], {
-            amName: record.account_manager, at: now, recordId: record.id, category: record.category, api,
-            exportPDF: async () => exportRecordOutputPDF(await api.getRecord(record.id)),
-          });
-          if (output.email.failed || output.pdf === 'failed') notify.error(`Changes saved. ${output.banners.join(' ')}`);
-          else output.banners.forEach(message => notify.info(message));
-        }
-      }
+      if (statusChanged) await runAccomplishedOutputs(selectedStatus, now);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not save the changes. Please try again.';
       notify.error(
@@ -1253,14 +1281,16 @@ function ActionsTab({
 
   return (
     <div className="space-y-6">
-      {!isRma && record.status !== 'Delivered' && <PodUploader key={record.id} recordId={record.id} required disabled={saving} />}
-      {access.canRecord(record.category, 'TIME_IN') && canRecordTimeIn(record) && (currentUserRole === 'Logistics' || currentUserRole === 'Admin') && <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-2">
-        <p className="text-xs text-blue-900">Record Time In to start this run. Enter remarks below before starting.</p>
-        <button type="button" disabled={saving || !actionRemarks.trim()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
-          onClick={async () => { setSaving(true); setSaveFeedback(null); try { await timeInMutation.mutateAsync({ id: record.id, remarks: actionRemarks.trim() }); setActionRemarks(''); notify.success('Time In recorded'); } catch (error) { notify.error(error instanceof Error ? error.message : 'Could not record Time In.'); } finally { setSaving(false); } }}>
-          Record Time In
-        </button>
-      </div>}
+      {nextStep && <NextStepCard
+        text={nextStep.text} done={nextStep.kind === 'done'} focusSignal={cardFocus}
+        buttonLabel={nextStep.action === 'start' ? START_LABEL : nextStep.action === 'complete' ? completionLabels(record.category).button : undefined}
+        onAction={nextStep.action ? () => setDialog(nextStep.action!) : undefined}
+        disabled={nextStep.disabled || saving} hint={nextStep.hint}
+        actionHint={nextStep.action === 'start' ? 'Opens a short form for remarks.' : nextStep.action === 'complete' ? 'Opens a short form for the proof photo, Received by and remarks.' : undefined} />}
+      {!isRma && <>
+        <StartTransportDialog open={dialog === 'start'} company={record.company_name} typeLabel={record.category} reference={record.reference} driver={record.driver} onConfirm={startRun} onClose={closeDialog} />
+        <MarkDeliveredDialog open={dialog === 'complete'} recordId={record.id} category={record.category} company={record.company_name} typeLabel={record.category} reference={record.reference} driver={record.driver} onConfirm={markDelivered} onClose={closeDialog} />
+      </>}
       {/* Status update */}
       <WorkflowSection
         title={isRma ? 'RMA status' : 'Delivery status'}
@@ -1448,7 +1478,7 @@ function ActionsTab({
             </ul> : <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-sm text-slate-500">No driver assistants are available.</p>}
           </fieldset>
 
-          <div className="space-y-1.5 border-t border-slate-100 pt-3">
+          {record.status === 'Delivered' && <div className="space-y-1.5 border-t border-slate-100 pt-3">
             <label className={workflowFieldLabelClass}>Received By <span className="text-red-600">*</span></label>
             <input
               type="text"
@@ -1458,7 +1488,7 @@ function ActionsTab({
               placeholder="Name of receiver (if any)"
               className={inputCls}
             />
-          </div>
+          </div>}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className={workflowFieldLabelClass}>Time In (Manila)</label>
