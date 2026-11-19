@@ -98,7 +98,7 @@ for (const competingEdit of [false, true]) test(`combined dispatch and reschedul
   installLegacySession('LOGISTICS', 'deliveries');
   const ui = await fixture();
   let record = base({ id: 'dispatch-version', category: 'Deliveries', reference: 'REF', rma_movement: null,
-    edit_version: 'record:original', delivery_date: '2099-01-01', allowed_statuses: ['Rescheduled', 'On-Hold'] });
+    edit_version: 'record:original', delivery_date: '2099-01-01', time_in: '2026-10-28T01:00:00.000Z', allowed_statuses: ['Rescheduled', 'On-Hold'] });
   mock.method(api, 'getRecord', async () => record);
   mock.method(api, 'getRecordAttachments', async () => []);
   const put = mock.method(api, 'updateRecord', async (_id, updates: any) => {
@@ -126,7 +126,8 @@ for (const competingEdit of [false, true]) test(`combined dispatch and reschedul
     await act(async () => ui.button('Status & Actions')!.click()); await ui.flush();
     await act(async () => ui.button('Rescheduled')!.click());
     await ui.input('New delivery date', '2099-01-02');
-    await setInput(ui.dom.window.document.querySelector<HTMLInputElement>('input[placeholder="Name of receiver (if any)"]')!, 'Receiver');
+    // Received By now appears only after delivery, so a Time In correction stands in for the ordinary dispatch edit.
+    await setInput(ui.dom.window.document.querySelector<HTMLInputElement>('input[type="datetime-local"]:not([disabled])')!, '2026-10-28T10:30');
     await setInput(ui.dom.window.document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Reason for the changes above (required)…"]')!, 'Update dispatch and delivery date');
     const save = [...ui.dom.window.document.querySelectorAll('button')].find(button => button.textContent?.includes('Save Changes'))!;
     await act(async () => save.click()); await ui.flush();

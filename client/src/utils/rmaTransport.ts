@@ -1,6 +1,7 @@
 import type { DeliveryRecord } from '../types';
 import { formatManilaTimestamp } from './manilaTimestamp';
 import { deliveryScheduleState, manilaToday } from './recordLifecycle';
+import { recordingForLine } from './completionDialog';
 
 export const RMA_MOVEMENT_LABELS = {
   LOGISTICS_TRANSPORT: 'Logistics transport',
@@ -34,7 +35,7 @@ export function rmaReceivedByError(value: string): string | null {
  *  before the planned date it sees when transport can start instead of buttons. */
 export function rmaLogisticsTransportNotice(record: Pick<DeliveryRecord, 'driver' | 'driver_id' | 'delivery_date' | 'rma_transport_status'>,
   canRecord: boolean, today = manilaToday()): { kind: 'acting' | 'future'; text: string } | null {
-  if (canRecord) return { kind: 'acting', text: `Recording for ${record.driver || 'the assigned driver'}. This is saved under your name.` };
+  if (canRecord) return { kind: 'acting', text: recordingForLine(record.driver) };
   if (record.driver_id && record.rma_transport_status === 'PENDING' && deliveryScheduleState(record.delivery_date, today).future) {
     return { kind: 'future', text: `Transport can start on ${record.delivery_date}.` };
   }

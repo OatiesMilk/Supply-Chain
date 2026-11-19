@@ -1,4 +1,4 @@
-import { test, expect, type Browser, type BrowserContext, type Page, type APIResponse, type Response } from '@playwright/test';
+import { test, expect, type Browser, type Locator, type BrowserContext, type Page, type APIResponse, type Response } from '@playwright/test';
 
 type Rma = {
   id: string; record_no?: string | null; status: string; is_draft: string; rma_reference: string;
@@ -55,6 +55,13 @@ async function action(s: Session, id: string, path: string, data: Record<string,
 }
 
 const transport = (page: Page) => page.getByRole('region', { name: 'RMA transport', exact: true });
+/** Opens the Transport card's action, fills the dialog and returns its confirm button. */
+async function openDialog(card: Locator, page: Page, action: 'Start transport' | 'Mark as delivered') {
+  await card.getByRole('button', { name: action === 'Start transport' ? 'Start transport' : 'Mark as delivered', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: action });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
 const driverTransport = (page: Page, reference: string) => page
   .getByRole('heading', { name: `${reference} · RMA Dispatch Test Company`, exact: true })
   .locator('..').getByRole('region', { name: 'RMA transport', exact: true });
@@ -124,9 +131,10 @@ test('three online sessions synchronize submission, reassignment, transport/POD 
       driver_id: 'sc255-driver-3', expected_version: current.rma_version, remarks: 'Return assignment for transport verification',
     }));
     await expect(driver.page.getByRole('heading', { name: `${draft.rma_reference} · RMA Dispatch Test Company`, exact: true })).toBeVisible();
-    await driverTransport(driver.page, draft.rma_reference).getByLabel('Remarks', { exact: true }).fill('Begin local transport');
+    const startDialog = await openDialog(driverTransport(driver.page, draft.rma_reference), driver.page, 'Start transport');
+    await startDialog.getByLabel('Remarks').fill('Begin local transport');
     const startedResponse = driver.page.waitForResponse(r => r.url().endsWith(`/records/${draft.id}/rma-transport`));
-    await driverTransport(driver.page, draft.rma_reference).getByRole('button', { name: 'Start transport', exact: true }).click();
+    await startDialog.getByRole('button', { name: 'Start transport', exact: true }).click();
     current = await saved(await startedResponse);
     expect(current.rma_transport_status).toBe('IN_TRANSIT');
     expect(current.status).not.toBe('Delivered');
@@ -134,10 +142,11 @@ test('three online sessions synchronize submission, reassignment, transport/POD 
     since = Date.parse(current.rma_transport_started_at!);
     await propagated('transport start to TASS', since, () => expect(transport(tass.page)).toContainText('In Transit'), observations);
 
-    await driverTransport(driver.page, draft.rma_reference).locator('input[type=file]').setInputFiles({ name: 'sc255-pod.png', mimeType: 'image/png', buffer: png });
-    await driverTransport(driver.page, draft.rma_reference).getByLabel('Received by').fill('Warehouse guard');
-    await driverTransport(driver.page, draft.rma_reference).getByLabel('Remarks', { exact: true }).fill('Transport and POD complete');
-    const finish = driverTransport(driver.page, draft.rma_reference).getByRole('button', { name: 'Complete transport', exact: true });
+    const completeDialog = await openDialog(driverTransport(driver.page, draft.rma_reference), driver.page, 'Mark as delivered');
+    await completeDialog.locator('input[type=file]').setInputFiles({ name: 'sc255-pod.png', mimeType: 'image/png', buffer: png });
+    await completeDialog.getByLabel('Received by').fill('Warehouse guard');
+    await completeDialog.getByLabel('Remarks').fill('Transport and POD complete');
+    const finish = completeDialog.getByRole('button', { name: 'Mark as delivered', exact: true });
     await expect(finish).toBeEnabled();
     const [completedResponse] = await Promise.all([
       driver.page.waitForResponse(r => r.url().endsWith(`/records/${draft.id}/rma-transport`)),
@@ -266,18 +275,20 @@ test('Logistics starts and completes RMA transport for the assigned Driver under
 
     // Remarks are required for Logistics on start.
     expect((await action(logistics, created.id, 'rma-transport', { transport_status: 'IN_TRANSIT', expected_version: assigned.rma_version })).status()).toBe(400);
-    await transport(logistics.page).getByLabel('Remarks').fill('Driver phone is dead');
+    const startDialog = await openDialog(transport(logistics.page), logistics.page, 'Start transport');
+    await startDialog.getByLabel('Remarks').fill('Driver phone is dead');
     const startResponse = logistics.page.waitForResponse(r => r.url().endsWith(`/records/${created.id}/rma-transport`));
-    await transport(logistics.page).getByRole('button', { name: 'Start transport', exact: true }).click();
+    await startDialog.getByRole('button', { name: 'Start transport', exact: true }).click();
     const started = await saved(await startResponse);
     expect(started.rma_transport_status).toBe('IN_TRANSIT');
     expect(started.rma_transport_started_at).toBeTruthy();
 
     // Complete needs a saved photo, Received by and remarks.
-    await transport(logistics.page).locator('input[type=file]').setInputFiles({ name: 'sc255-pod.png', mimeType: 'image/png', buffer: png });
-    await transport(logistics.page).getByLabel('Received by').fill('Warehouse guard');
-    await transport(logistics.page).getByLabel('Remarks').fill('Handed over at warehouse');
-    const finish = transport(logistics.page).getByRole('button', { name: 'Complete transport', exact: true });
+    const completeDialog = await openDialog(transport(logistics.page), logistics.page, 'Mark as delivered');
+    await completeDialog.locator('input[type=file]').setInputFiles({ name: 'sc255-pod.png', mimeType: 'image/png', buffer: png });
+    await completeDialog.getByLabel('Received by').fill('Warehouse guard');
+    await completeDialog.getByLabel('Remarks').fill('Handed over at warehouse');
+    const finish = completeDialog.getByRole('button', { name: 'Mark as delivered', exact: true });
     await expect(finish).toBeEnabled();
     const [completeResponse] = await Promise.all([
       logistics.page.waitForResponse(r => r.url().endsWith(`/records/${created.id}/rma-transport`)),
