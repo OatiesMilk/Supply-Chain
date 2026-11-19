@@ -24,7 +24,8 @@ import { DeliveryRecord, UserRole, DeliveryStatus } from '@/types';
 import { acStatusLabel, DELIVERY_STATUSES } from '@/data';
 import { api, ApiAuditEntry, ApiComment } from '@/api';
 import ExportMenu from '@/components/ExportMenu';
-import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, fmtDate, fmtDatetime, fmtStatus } from '@/utils/export';
+import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS } from '@/utils/export';
+import { collectionRecordExportRow } from '@/utils/collectionExport';
 import { useWorkspaceDraft, useWorkspaceNavigation } from '@/features/deliveries/WorkspaceDrafts';
 import { notify } from '@/utils/notify';
 import { recordLabel } from '../../utils/recordLabel';
@@ -873,27 +874,7 @@ export default function AccountingCollectionWorkspace({
           </button>
           {(currentUserRole === 'TASS' || currentUserRole === 'Admin') && (
             <ExportMenu
-              rows={[{
-                id: recordLabel(record),
-                company_name: record.company_name,
-                reference: record.reference,
-                category: record.category,
-                priority: record.priority,
-                area: record.area,
-                delivery_date_fmt: fmtDate(record.delivery_date),
-                driver: record.driver || '',
-                driver_assistants: record.driver_assistants?.join(', ') || '',
-                account_manager: record.account_manager,
-                vehicle: record.vehicle,
-                item_type: record.item_type,
-                status_fmt: fmtStatus(record.status),
-                remarks: record.remarks || '',
-                created_by: record.created_by,
-                created_at_fmt: fmtDatetime(record.created_at),
-                collection_verified_fmt: record.collection_verified ? 'Verified' : 'Pending',
-                collection_verified_by: record.collection_verified_by || '',
-                collection_verified_at_fmt: record.collection_verified_at ? fmtDatetime(record.collection_verified_at) : '',
-              }]}
+              rows={[collectionRecordExportRow(record)]}
               columns={[...DELIVERY_COLUMNS, ...AC_EXTRA_COLUMNS]}
               sheetName="Accounting Collection"
               filename={`ac-record-${recordLabel(record)}`}
