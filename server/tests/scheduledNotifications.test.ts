@@ -181,6 +181,25 @@ test('Weekly report logs per-recipient outcomes instead of collapsing mixed fail
   );
 });
 
+test('Weekly report logs MOCKED, not SENT, when no mail transport is configured', async (t) => {
+  stubEnv(t, 'LEGACY');
+  delete process.env.SMTP_HOST;
+  const stub = installStubs(t);
+  const createdLogs: any[] = [];
+
+  stub(prisma.deliveryRecord, 'findMany', async () => [{ status: 'ACCOMPLISHED', category: 'DELIVERY' }]);
+  stub(prisma.user, 'findMany', async () => [
+    { id: 'u-log', email: 'log@example.test', name: 'Logistics User', role: 'LOGISTICS' },
+  ]);
+  stub(prisma.notification, 'create', async ({ data }: any) => data);
+  stub(prisma.notificationLog, 'create', async ({ data }: any) => { createdLogs.push(data); return data; });
+
+  await notifyWeeklyReport(new Date('2026-11-13T08:00:00.000Z'));
+
+  assert.equal(createdLogs.length, 1);
+  assert.equal(createdLogs[0].status, 'MOCKED');
+});
+
 test('Weekly report logs SKIPPED when there are no active Logistics or Admin recipients', async (t) => {
   stubEnv(t, 'LEGACY');
   const stub = installStubs(t);

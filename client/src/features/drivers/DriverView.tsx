@@ -199,6 +199,7 @@ function DriverViewContent({
     notify.success(completionLabels(selectedRecord.category).success);
     await afterStatusSaved(selectedRecord, 'Delivered');
   };
+  const rescheduleDateMessage = selectedRecord ? driverStatusDateError(selectedRecord.category, pendingStatus, rescheduleDate, selectedRecord.delivery_date, currentUserRole) : null;
   const confirmStatus = async () => {
     if (!selectedRecord || !pendingStatus || pendingStatus === 'Delivered' || !remarks.trim() || !access.canRecord(selectedRecord.category, 'STATUS')) return;
     if (pendingStatus === selectedRecord.status) {
@@ -459,8 +460,11 @@ function DriverViewContent({
                   min={manilaToday()}
                   value={rescheduleDate}
                   onChange={event => setRescheduleDate(event.target.value)}
+                  aria-describedby={rescheduleDate && rescheduleDateMessage ? 'driver-reschedule-date-error' : undefined}
+                  aria-invalid={rescheduleDate && rescheduleDateMessage ? true : undefined}
                   className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                {rescheduleDate && rescheduleDateMessage && <p id="driver-reschedule-date-error" role="alert" className="mt-1 text-sm text-red-800">{rescheduleDateMessage}</p>}
               </div>
             )}
             <div>
