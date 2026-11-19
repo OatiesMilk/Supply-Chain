@@ -7,6 +7,18 @@ async function accountAction(page: Page, row: Locator, action: string) {
   await page.getByRole('menu', { name: /^Actions for / }).getByRole('menuitem', { name: action, exact: true }).click();
 }
 
+/** Access opens the V1 policy editor, or the legacy module-access panel while the environment is still on LEGACY permissions. */
+async function openAccess(page: Page, row: Locator) {
+  const permissions = page.waitForResponse(response => /\/api\/v1\/users\/[^/]+\/permissions$/.test(new URL(response.url()).pathname));
+  await accountAction(page, row, 'Access');
+  expect((await permissions).status()).toBe(200);
+  const close = page.getByRole('button', { name: /^(Close editor|Close account permissions)$/ });
+  await expect(close).toBeVisible();
+  await expect(page.getByText(/Loading permissions|Loading policy/)).toHaveCount(0);
+  expect(await close.evaluate(element => element.closest('table') === null)).toBe(true);
+  return close;
+}
+
 const accountsRegion = (page: Page) => page.getByRole('region', { name: 'User accounts', exact: true });
 const salesRow = (page: Page) => accountsRegion(page).getByRole('row')
   .filter({ has: page.getByRole('cell', { name: accountFor('SALES_COORDINATOR').email, exact: true }) });
@@ -25,16 +37,9 @@ test('Admin account actions open and cancel their workflows without submitting c
   await editedRow.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(sales.locator('input')).toHaveCount(0);
 
-  // Access opens that account's policy editor on the Roles & Permissions tab.
-  const permissions = page.waitForResponse(response => /\/api\/v1\/users\/[^/]+\/permissions$/.test(new URL(response.url()).pathname));
-  await accountAction(page, sales, 'Access');
-  expect((await permissions).status()).toBe(200);
-  const access = page.getByRole('region', { name: `${salesName} permission editor`, exact: true });
-  await expect(access).toBeVisible();
-  await expect(access.getByText(/Loading permissions|Loading policy/)).toHaveCount(0);
-  await expect(access.getByRole('button', { name: 'Close editor', exact: true })).toBeVisible();
-  await access.getByRole('button', { name: 'Close editor', exact: true }).click();
-  await expect(access).toHaveCount(0);
+  const close = await openAccess(page, sales);
+  await close.click();
+  await expect(close).toHaveCount(0);
 
   await page.getByRole('button', { name: /User Management/ }).click();
   for (const [action, confirm] of [['Deactivate', 'Deactivate user'], ['Delete', 'Delete user']]) {
@@ -70,7 +75,7 @@ test('Admin tabs read audit, integrations and policy previews without mail or po
   await page.getByRole('button', { name: 'View Admin permissions', exact: true }).click();
   const policy = page.getByRole('region', { name: 'admin permission editor', exact: true });
   await expect(policy).toBeVisible();
-  await expect(policy.getByLabel('Users → Shared resource → Write', { exact: true })).toBeDisabled();
+  await expect(policy.getByLabel('User Management → Shared resource → Write', { exact: true })).toBeDisabled();
   await policy.getByRole('button', { name: 'Close editor', exact: true }).click();
   await expect(policy).toHaveCount(0);
 });
@@ -107,14 +112,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 
     await firstRow.scrollIntoViewIfNeeded();
     await table.evaluate(element => { element.scrollLeft = element.scrollWidth; });
     await expect(actions).toBeInViewport();
-    const permissions = page.waitForResponse(response => /\/api\/v1\/users\/[^/]+\/permissions$/.test(new URL(response.url()).pathname));
-    await accountAction(page, firstRow, 'Access');
-    expect((await permissions).status()).toBe(200);
-    const editor = page.getByRole('region', { name: / permission editor$/ });
-    await expect(editor).toBeVisible();
-    await expect(editor.getByText(/Loading permissions|Loading policy/)).toHaveCount(0);
-    await expect(editor.getByRole('button', { name: 'Close editor', exact: true })).toBeVisible();
-    expect(await editor.evaluate(element => element.closest('table') === null)).toBe(true);
+    await openAccess(page, firstRow);
     await page.evaluate(() => document.fonts.ready);
     const measure = () => page.evaluate(() => {
       const main = document.querySelector<HTMLElement>('#main-routed-view')!;
