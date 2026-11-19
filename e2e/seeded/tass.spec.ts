@@ -3,7 +3,7 @@ import { expect, login, openScreen, records, test } from './support';
 test('TASS dashboard hands off to RMA and collection verification lists without granting Admin navigation', async ({ page }) => {
   await login(page, 'TASS');
   await openScreen(page, 'dashboard', 'TASS');
-  await page.locator('#tass-dashboard').getByText('View RMA', { exact: false }).first().click();
+  await page.locator('#tass-dashboard').getByRole('button', { name: /^View all \d+ open RMA records$/ }).click();
   await expect(page).toHaveURL(/\/rma(?:\?|$)/);
   await expect(page.locator('#records-view-rma')).toBeVisible();
   await openScreen(page, 'accounting_collection', 'TASS');
