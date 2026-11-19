@@ -27,7 +27,7 @@ function matches(row: any, where: any): boolean {
     return row[key] === value;
   });
 }
-function fixture(overrides: Record<string, any> = {}) {
+function fixture(overrides: Record<string, any> = {}, options: { logisticsTransport?: boolean } = {}) {
   let actor: any;
   let row: any = { id: 'rma-test', category: 'RMA', draft: false, status: 'SCHEDULED', priority: '2 - Moderate',
     companyId: 'company', company: { name: 'Company' }, createdById: 'tass', modifiedById: 'tass', createdBy: { name: 'TASS' }, modifiedBy: { name: 'TASS' },
@@ -41,7 +41,7 @@ function fixture(overrides: Record<string, any> = {}) {
   const profiles = [{ id: 'driver-one', name: 'Driver One', type: 'DRIVER', isActive: true }, { id: 'driver-two', name: 'Driver Two', type: 'DRIVER', isActive: true }, { id: 'inactive', name: 'Inactive', type: 'DRIVER', isActive: false }];
   stub(prisma.user, 'findUnique', async () => actor);
   stub(prisma.user, 'findMany', async () => []);
-  stub(prisma.rolePolicy, 'findUnique', async ({ where }: any) => rmaTestPolicy(where.role));
+  stub(prisma.rolePolicy, 'findUnique', async ({ where }: any) => rmaTestPolicy(where.role, true, options.logisticsTransport));
   stub(prisma.rolePolicy, 'findMany', async () => []);
   stub(prisma.deliveryRecord, 'findUnique', async ({ where }: any) => row.id === where.id ? structuredClone(row) : null);
   stub(prisma.deliveryRecord, 'findFirst', async ({ where }: any) => matches(row, where) ? structuredClone(row) : null);
@@ -237,4 +237,75 @@ test('RMA actions other than a Driver transport start keep requiring remarks', a
   const body = { driver_id: 'driver-one', expected_version: 0 };
   assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-assignment', body)).status, 400);
   assert.equal((await state.request('TASS', 'post', '/:id/rma-receipt', { recipient: 'Recipient', expected_version: 0 })).status, 400);
+});
+
+test('before the switch Logistics cannot record RMA transport; Driver flow is unchanged', async () => {
+  const state = fixture();
+  const body = { transport_status: 'IN_TRANSIT', expected_version: 0, remarks: 'Office start' };
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport', body)).status, 403);
+  const caps = await state.request('LOGISTICS', 'get', '/:id/rma-capabilities');
+  assert.equal(caps.body.transport, false); assert.equal(caps.body.pod, false); assert.equal(caps.body.assign, true);
+  assert.equal(state.audits().length, 0);
+  assert.equal((await state.request('DRIVER', 'patch', '/:id/rma-transport', body)).status, 200);
+});
+
+test('with the switch applied Logistics starts and completes transport for the assigned Driver under its own name', async () => {
+  const state = fixture({}, { logisticsTransport: true });
+  const caps = await state.request('LOGISTICS', 'get', '/:id/rma-capabilities');
+  assert.equal(caps.body.transport, true); assert.equal(caps.body.pod, false);
+  // AC2: remarks are required for Logistics on Start
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 0 })).status, 400);
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 0, remarks: '  ' })).status, 400);
+  assert.equal(state.audits().length, 0);
+  // AC7: stale version
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 3, remarks: 'Office start' })).status, 409);
+  const started = await state.request('LOGISTICS', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 0, remarks: 'Driver phone is dead' });
+  assert.equal(started.status, 200);
+  assert.equal(started.body.rma_transport_status, 'IN_TRANSIT');
+  assert.ok(started.body.rma_transport_started_at);
+  assert.equal(state.remarks()[0].authorId, 'logistics'); assert.equal(state.remarks()[0].body, 'Driver phone is dead');
+  assert.equal(state.audits().length, 1); assert.equal(state.audits()[0].changedById, 'logistics');
+  assert.equal((await state.request('LOGISTICS', 'get', '/:id/rma-capabilities')).body.pod, true);
+  // AC6: Received By, remarks and a saved proof photo are all required
+  const finish = { transport_status: 'COMPLETED', expected_version: 1, remarks: 'Handed over', received_by: 'Warehouse guard' };
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport', finish)).status, 400, 'no proof photo');
+  state.proof();
+  const { received_by: _omit, ...withoutReceivedBy } = finish;
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport', withoutReceivedBy)).status, 400);
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport', { ...finish, received_by: 'x'.repeat(121) })).status, 400);
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport', { ...finish, remarks: undefined })).status, 400);
+  const completed = await state.request('LOGISTICS', 'patch', '/:id/rma-transport', finish);
+  assert.equal(completed.status, 200);
+  assert.equal(completed.body.rma_transport_status, 'COMPLETED');
+  assert.equal(state.saved().rmaTransportReceivedBy, 'Warehouse guard');
+  assert.ok(state.saved().rmaTransportCompletedAt);
+  assert.equal(state.saved().status, 'SCHEDULED', 'RMA status unchanged');
+  assert.equal(state.saved().rmaReceivedAt, null, 'physical receipt stays with TASS');
+});
+
+test('Logistics transport keeps the planned-date, assignment and movement rules', async () => {
+  const body = { transport_status: 'IN_TRANSIT', expected_version: 0, remarks: 'Office start' };
+  for (const overrides of [{ deliveryDate: '2999-01-01' }, { driverId: null, driver: '' }, { draft: true }, { rmaMovement: 'SUPPLIER_COLLECTION' },
+    { rmaMovement: 'INTERNAL_NO_DRIVER' }, { rmaReceivedAt: new Date() }, { rmaTransportStatus: 'COMPLETED' }]) {
+    const state = fixture(overrides, { logisticsTransport: true });
+    assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport', body)).status, 403, JSON.stringify(overrides));
+    assert.equal(state.audits().length, 0);
+  }
+});
+
+test('other roles still cannot use rma-transport; Logistics keeps no RMA status, edit, receipt or time-in rights', async () => {
+  const state = fixture({}, { logisticsTransport: true });
+  const body = { transport_status: 'IN_TRANSIT', expected_version: 0, remarks: 'Start' };
+  for (const role of ['TASS', 'ADMIN', 'SALES_COORDINATOR'] as const) assert.equal((await state.request(role, 'patch', '/:id/rma-transport', body)).status, 403, role);
+  for (const status of ['Pending', 'On-Hold', 'Rescheduled', 'Delivered']) {
+    assert.equal((await state.request('LOGISTICS', 'patch', '/:id/status', { status, remarks: 'x', expected_version: 0 })).status, 403, status);
+  }
+  assert.equal((await state.request('LOGISTICS', 'put', '/:id', { rma_reference: 'FORGED', remarks: 'Edit', expected_version: 0 })).status, 403);
+  assert.equal((await state.request('LOGISTICS', 'post', '/:id/rma-receipt', { recipient: 'Me', remarks: 'x', expected_version: 0 })).status, 403);
+  assert.equal(state.audits().length, 0);
+});
+
+test('a Driver cannot act on another Driver RMA even when Logistics may', async () => {
+  const state = fixture({}, { logisticsTransport: true });
+  assert.equal((await state.request('DRIVER', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 0 }, { profile: 'driver-two' })).status, 403);
 });

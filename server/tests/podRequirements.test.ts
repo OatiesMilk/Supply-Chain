@@ -132,7 +132,7 @@ function database(row = record(), files: any[] = []) {
     $executeRaw: async () => {},
     $queryRaw: async () => { events.push('lock'); return [{ id: saved.id }]; },
     user: { findUnique: async (query: any) => prisma.user.findUnique(query), findMany: async () => [] },
-    rolePolicy: { findUnique: async ({ where }: any) => rmaTestPolicy(where.role), findMany: async () => [] },
+    rolePolicy: { findUnique: async (query: any) => prisma.rolePolicy.findUnique(query), findMany: async () => [] },
     deliveryRecord: {
       create: async ({ data }: any) => {
         events.push('create');
@@ -1061,8 +1061,9 @@ test('Logistics RMA write restrictions remain enforced for status, edit and uplo
   for (const [method, path] of [['patch', '/:id/status'], ['put', '/:id'], ['post', '/:id/attachments']]) {
     resetFixtures();
     const state = database(record({ category: 'RMA' }));
-    assert.equal((await request(method, path, { role: 'LOGISTICS', body: { status: 'Delivered', remarks: 'Blocked' } })).status, 403);
-    assert.deepEqual(state.events, []);
+    // The upload path reaches its handler (Logistics may upload RMA proof after the switch), which refuses without the switch or an eligible In Transit run.
+    assert.equal((await request(method, path, { role: 'LOGISTICS', file: path.endsWith('/attachments') ? uploaded() : undefined, body: { status: 'Delivered', remarks: 'Blocked' } })).status, 403);
+    assert.deepEqual(state.events, path.endsWith('/attachments') ? ['lock'] : [], 'a refused upload only takes the record lock and writes nothing');
   }
 });
 
@@ -1611,4 +1612,24 @@ test('a blank Driver Time In keeps the date-window check', async () => {
   assert.equal(result.status, 400);
   assert.match(result.body.error, /future date/);
   assert.equal(state.remarks.length, 0);
+});
+
+test('Logistics may upload RMA transport proof only after the switch, while transport is In Transit, and cannot delete it', async () => {
+  const rma = (overrides: Record<string, unknown> = {}) => record({ category: 'RMA', rmaMovement: 'LOGISTICS_TRANSPORT', rmaTransportStatus: 'IN_TRANSIT', rmaReceivedAt: null, status: 'SCHEDULED', timeIn: null, ...overrides });
+  const withSwitch = (enabled: boolean) => stub(prisma.rolePolicy, 'findUnique', async ({ where }: any) => rmaTestPolicy(where.role, true, enabled));
+  const attempt = async (row: any, enabled: boolean) => {
+    resetFixtures(); database(row); withSwitch(enabled);
+    stub(podStorage, 'save', async () => 'photo.png');
+    stub(prisma.podAttachment, 'create', async () => attachment() as any);
+    return (await request('post', '/:id/attachments', { role: 'LOGISTICS', file: uploaded() })).status;
+  };
+  assert.equal(await attempt(rma(), false), 403, 'before the switch');
+  assert.equal(await attempt(rma(), true), 201, 'In Transit with the switch');
+  assert.equal(await attempt(rma({ rmaTransportStatus: 'PENDING' }), true), 403, 'Pending');
+  assert.equal(await attempt(rma({ rmaTransportStatus: 'COMPLETED' }), true), 403, 'already completed');
+  assert.equal(await attempt(rma({ driverId: null, driver: '' }), true), 403, 'no assigned driver');
+  assert.equal(await attempt(rma({ rmaMovement: 'SUPPLIER_COLLECTION' }), true), 403, 'other movement');
+  resetFixtures(); database(rma(), [attachment()]); withSwitch(true);
+  stub(podStorage, 'remove', async () => {});
+  assert.equal((await request('delete', '/:id/attachments/:attachmentId', { role: 'LOGISTICS' })).status, 403, 'delete stays denied');
 });

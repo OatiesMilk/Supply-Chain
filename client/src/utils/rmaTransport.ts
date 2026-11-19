@@ -1,5 +1,6 @@
 import type { DeliveryRecord } from '../types';
 import { formatManilaTimestamp } from './manilaTimestamp';
+import { deliveryScheduleState, manilaToday } from './recordLifecycle';
 
 export const RMA_MOVEMENT_LABELS = {
   LOGISTICS_TRANSPORT: 'Logistics transport',
@@ -18,4 +19,24 @@ export function rmaWorkflowExportFields(record: DeliveryRecord) {
     rma_received_at_fmt: record.rma_received_at ? formatManilaTimestamp(record.rma_received_at) : '',
     rma_completed_at_fmt: record.rma_completed_at ? formatManilaTimestamp(record.rma_completed_at) : '',
   };
+}
+
+export const RMA_RECEIVED_BY_MAX = 120;
+/** Mirrors the server rule for completing transport: Received By is required, 1 to 120 characters. */
+export function rmaReceivedByError(value: string): string | null {
+  const text = value.trim();
+  if (!text) return 'Received by is required before completing transport.';
+  if (text.length > RMA_RECEIVED_BY_MAX) return `Received by must be ${RMA_RECEIVED_BY_MAX} characters or fewer.`;
+  return null;
+}
+
+/** One line above the transport buttons. Logistics records transport for the assigned driver under its own name;
+ *  before the planned date it sees when transport can start instead of buttons. */
+export function rmaLogisticsTransportNotice(record: Pick<DeliveryRecord, 'driver' | 'driver_id' | 'delivery_date' | 'rma_transport_status'>,
+  canRecord: boolean, today = manilaToday()): { kind: 'acting' | 'future'; text: string } | null {
+  if (canRecord) return { kind: 'acting', text: `Recording for ${record.driver || 'the assigned driver'}. This is saved under your name.` };
+  if (record.driver_id && record.rma_transport_status === 'PENDING' && deliveryScheduleState(record.delivery_date, today).future) {
+    return { kind: 'future', text: `Transport can start on ${record.delivery_date}.` };
+  }
+  return null;
 }
