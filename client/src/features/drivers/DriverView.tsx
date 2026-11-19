@@ -19,7 +19,9 @@ import StartTransportDialog from '@/features/deliveries/StartTransportDialog';
 import { START_LABEL, completionLabels, nextStepForRun } from '@/utils/completionDialog';
 import { notify } from '@/utils/notify';
 
-import { canRecordTimeIn, isDraftRecord } from '@/utils/recordLifecycle';
+import { canRecordTimeIn, isDraftRecord, manilaToday, rescheduleNeedsNewDate } from '@/utils/recordLifecycle';
+import { useAuthStore } from '@/store/authStore';
+import { buildDriverStatusUpdates, driverStatusDateError } from './driverStatusRules';
 import { useRecordTimeInMutation, usePagedRecordsQuery } from '@/api/queries/useRecordsQuery';
 import { useDriverOverviewQuery, useClampRecordPage } from '@/api/queries/useOperationalViews';
 import RecordPageControls from '@/components/RecordPageControls';
@@ -66,6 +68,7 @@ function DriverViewContent({
   records, onUpdateRecord, outputActionConfigs, onNavigate, driverSummary, unassignedCount, onFiltersChange,
 }: DriverViewProps) {
   const access = usePermissions();
+  const currentUserRole = useAuthStore(state => state.authUser?.role);
   records = records.filter(record => access.canRecord(record.category) && !isDraftRecord(record) && (record.category !== 'RMA' || record.rma_movement === 'LOGISTICS_TRANSPORT' && record.rma_transport_status !== 'COMPLETED'));
   const timeInMutation = useRecordTimeInMutation();
   const [search, setSearch] = useState('');
@@ -74,7 +77,9 @@ function DriverViewContent({
   const [tab, setTab] = useState<RunTab>('active');
   const [showUnassigned, setShowUnassigned] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<DeliveryStatus | null>(null);
+  const [pendingEditVersion, setPendingEditVersion] = useState('');
   const [remarks, setRemarks] = useState('');
+  const [rescheduleDate, setRescheduleDate] = useState('');
   const [runDialog, setRunDialog] = useState<'start' | 'complete' | null>(null);
   const [cardFocus, setCardFocus] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -128,7 +133,9 @@ function DriverViewContent({
   };
   const closeStatus = () => {
     setPendingStatus(null);
+    setPendingEditVersion('');
     setRemarks('');
+    setRescheduleDate('');
   };
 
   const save = async (record: DeliveryRecord, updates: Partial<DeliveryRecord>, failureMessage: string) => {
@@ -198,8 +205,22 @@ function DriverViewContent({
       setFeedback({ message: 'Choose a different status before saving.', type: 'info' });
       return;
     }
+    const dateError = driverStatusDateError(selectedRecord.category, pendingStatus, rescheduleDate, selectedRecord.delivery_date, currentUserRole);
+    if (dateError) {
+      setFeedback({ message: dateError, type: 'error' });
+      return;
+    }
     const status = pendingStatus;
-    const saved = await save(selectedRecord, { status, status_remarks: remarks.trim() } as Partial<DeliveryRecord>, 'Could not update the run. Please try again.');
+    const updates = buildDriverStatusUpdates({
+      category: selectedRecord.category,
+      status,
+      remarks,
+      receivedBy: '',
+      rescheduleDate,
+      role: currentUserRole,
+    });
+    // Keep the dialog's precondition even if a background refresh replaces the record.
+    const saved = await save(selectedRecord, { ...updates, expected_edit_version: pendingEditVersion }, 'Could not update the run. Please try again.');
     if (!saved) return;
     closeStatus();
     await afterStatusSaved(selectedRecord, status);
@@ -373,7 +394,7 @@ function DriverViewContent({
                           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                             {(['Pending', 'Rescheduled'] as const).map(status => (
                               <button key={status} type="button" disabled={saving || !access.canRecord(selectedRecord.category, 'STATUS') || !(selectedRecord.allowed_statuses ?? []).includes(status)}
-                                onClick={event => { lastTrigger.current = event.currentTarget; setPendingStatus(status); setRemarks(''); setFeedback(null); }}
+                                onClick={event => { lastTrigger.current = event.currentTarget; setPendingEditVersion(selectedRecord.edit_version ?? ''); setPendingStatus(status); setRemarks(''); setRescheduleDate(''); setFeedback(null); }}
                                 className={`min-h-11 rounded-lg px-2 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${status === 'Pending' ? 'bg-amber-100 text-amber-900' : 'bg-violet-100 text-violet-900'}`}>
                                 {status === 'Rescheduled' ? 'Reschedule' : status}
                               </button>
@@ -428,6 +449,20 @@ function DriverViewContent({
                 className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"><X aria-hidden="true" className="h-5 w-5" /></button>
             </div>
             {feedback && <p role="alert" className={`rounded-lg p-3 text-sm ${feedback.type === 'success' ? 'bg-emerald-50 text-emerald-800' : feedback.type === 'info' ? 'bg-amber-50 text-amber-800' : 'bg-red-50 text-red-800'}`}>{feedback.message}</p>}
+            {pendingStatus === 'Rescheduled' && rescheduleNeedsNewDate(selectedRecord.category, currentUserRole) && (
+              <div>
+                <label htmlFor="driver-reschedule-date" className="mb-1 block text-sm font-semibold text-slate-700">New Delivery Date *</label>
+                <input
+                  id="driver-reschedule-date"
+                  type="date"
+                  required
+                  min={manilaToday()}
+                  value={rescheduleDate}
+                  onChange={event => setRescheduleDate(event.target.value)}
+                  className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            )}
             <div>
               <label htmlFor="driver-status-remarks" className="mb-1 block text-sm font-semibold text-slate-700">Remarks — reason for change (required)</label>
               <p id="driver-status-remarks-help" className="mb-2 text-sm text-slate-600">Explain why you are making this change. The reason is saved with your name in the record history.</p>
@@ -436,7 +471,7 @@ function DriverViewContent({
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={closeStatus} disabled={saving} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700">Cancel</button>
-              <button type="button" onClick={() => void confirmStatus()} disabled={saving || !remarks.trim()}
+              <button type="button" onClick={() => void confirmStatus()} disabled={saving || !remarks.trim() || !!driverStatusDateError(selectedRecord.category, pendingStatus, rescheduleDate, selectedRecord.delivery_date, currentUserRole)}
                 className="min-h-11 rounded-lg bg-blue-800 px-4 text-sm font-semibold text-white disabled:opacity-40">{saving ? 'Saving…' : 'Confirm'}</button>
             </div>
           </div>
