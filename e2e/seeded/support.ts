@@ -106,7 +106,7 @@ export async function openScreen(page: Page, screen: string, role: PolicyRole) {
     await expectOk(me, 'Driver session');
     const session = await me.json() as SeedSession;
     expect(session.role).toBe(role);
-    await expect(page.getByRole('heading', { name: session.name, exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Driver dashboard', exact: true })).toBeVisible();
   }
   else {
     const main = page.locator('#main-routed-view');
