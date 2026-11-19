@@ -31,8 +31,13 @@ export default function CompletedTodayDialog({ onClose, onOpenRecord, canAccess 
 
   useEffect(() => {
     const dialog = dialogRef.current;
+    // The dialog unmounts on close, so the browser has no attached dialog to hand focus back from.
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialog?.showModal();
-    return () => { if (dialog?.open) dialog.close(); };
+    return () => {
+      if (dialog?.open) dialog.close();
+      if (opener?.isConnected) opener.focus();
+    };
   }, []);
 
   useEffect(() => {
