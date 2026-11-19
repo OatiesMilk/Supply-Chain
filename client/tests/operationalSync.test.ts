@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { QueryClient, QueryObserver, focusManager, onlineManager } from '@tanstack/react-query';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { QueryClient, QueryObserver, environmentManager, focusManager, onlineManager } from '@tanstack/react-query';
 import { ApiError } from '../src/api';
 import { createQueryClient } from '../src/api/queryClient';
 import type { DeliveryRecord } from '../src/types';
@@ -137,5 +139,40 @@ test('query client does not retry 4xx rate limits but still retries a transient 
     assert.equal(serverAttempts, 2);
   } finally {
     client.clear();
+  }
+});
+
+test('an open Driver dashboard picks up a Logistics RMA start by polling, without a reload (RMA transport AC14)', async () => {
+  const source = readFileSync(resolve(import.meta.dirname, '../src/features/dashboard/DriverDashboard.tsx'), 'utf8');
+  assert.match(source, /usePagedRecordsQuery\(\{ view: 'driver_dashboard'/, 'the Driver card list uses the polled paged-records query');
+  assert.doesNotMatch(source, /refetchInterval:\s*false/, 'the Driver dashboard must not turn polling off');
+
+  const pending = record(1, { status: 'Scheduled', rma_transport_status: 'PENDING', rma_transport_started_at: null, modified_at: '2026-11-19T01:00:00.000Z' });
+  const started = { ...pending, rma_version: 2, rma_transport_status: 'IN_TRANSIT' as const, rma_transport_started_at: '2026-11-19T01:05:00.000Z', modified_at: '2026-11-19T01:05:00.000Z' };
+  let serverRecord: DeliveryRecord = pending;
+  let reads = 0;
+  // The 30s production interval is asserted above; a short one keeps this real-timer test fast.
+  const POLL_MS = 25;
+  // Query timers are disabled when `window` is absent (Node); the browser runs the Driver dashboard.
+  environmentManager.setIsServer(() => false);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.mount();
+  const key = ['records', 'paged', { view: 'driver_dashboard', queue: 'active', page: 1, limit: 25 }];
+  const observer = new QueryObserver<{ rows: DeliveryRecord[]; total: number }>(client, {
+    ...operationalSyncOptions, refetchInterval: POLL_MS, structuralSharing: shareOperationalRecords, queryKey: key,
+    queryFn: async () => { reads++; return { rows: [serverRecord], total: 1 }; },
+  });
+  const unsubscribe = observer.subscribe(() => {});
+  try {
+    await new Promise(resolve => setTimeout(resolve, 5));
+    assert.equal(observer.getCurrentResult().data?.rows[0].rma_transport_status, 'PENDING');
+    const initialReads = reads;
+    serverRecord = started; // Logistics starts the run from another session.
+    await new Promise(resolve => setTimeout(resolve, POLL_MS * 4));
+    assert.ok(reads > initialReads, 'the poll re-reads the Driver list');
+    assert.equal(observer.getCurrentResult().data?.rows[0].rma_transport_status, 'IN_TRANSIT');
+    assert.equal(observer.getCurrentResult().data?.rows[0].rma_transport_started_at, started.rma_transport_started_at);
+  } finally {
+    unsubscribe(); client.clear(); environmentManager.setIsServer(() => typeof window === 'undefined');
   }
 });
