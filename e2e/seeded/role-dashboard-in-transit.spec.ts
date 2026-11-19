@@ -10,10 +10,10 @@ import { apiUrl, expect, expectOk, login, openScreen, test } from './support';
 type Overview = { counts: Record<string, number>; transport_requests_by_type?: Record<string, number> };
 
 const CATEGORY_SCREENS = {
-  DELIVERY: { category: 'Deliveries', screen: 'deliveries', link: 'Deliveries' },
-  RMA: { category: 'RMA', screen: 'rma', link: 'RMA' },
-  PROCUREMENT_PICKUP: { category: 'Procurement Pick-up', screen: 'procurement_pickup', link: 'Procurement Pickup' },
-  SALES_ORDERS: { category: 'Sales Orders', screen: 'sales_orders', link: 'Sales Order' },
+  DELIVERY: { category: 'Deliveries', screen: 'deliveries', link: 'Deliveries', one: 'Delivery' },
+  RMA: { category: 'RMA', screen: 'rma', link: 'RMA', one: 'RMA' },
+  PROCUREMENT_PICKUP: { category: 'Procurement Pick-up', screen: 'procurement_pickup', link: 'Procurement Pickups', one: 'Procurement Pickup' },
+  SALES_ORDERS: { category: 'Sales Orders', screen: 'sales_orders', link: 'Sales Orders', one: 'Sales Order' },
 } as const;
 
 async function overview(page: Page): Promise<Overview> {
@@ -67,7 +67,7 @@ test('Logistics Completed today opens the same records the card counts', async (
       .some(target => target.category === row.category && session.effectiveScreens.includes(target.screen)));
     if (record) {
       const target = Object.values(CATEGORY_SCREENS).find(target => target.category === record.category)!;
-      await dialog.getByRole('table').getByRole('button', { name: `Open ${target.category === 'Deliveries' ? 'Delivery' : target.link} ${record.record_no || record.id}` }).click();
+      await dialog.getByRole('table').getByRole('button', { name: `Open ${target.one} ${record.record_no || record.id}` }).click();
       await expect(page).toHaveURL(new RegExp(`/${target.screen}\\?item=`));
       await expect(dialog).toHaveCount(0);
       return;
@@ -110,7 +110,7 @@ test('Logistics Transport requests panel matches the per-type drill-downs (AC6)'
   await expect(page.locator('#transport-requests-panel')).toBeFocused();
   const [key] = Object.entries(byType).find(([, count]) => count > 0)!;
   const target = CATEGORY_SCREENS[key as keyof typeof CATEGORY_SCREENS];
-  await openDrillDown(page, panel, new RegExp(`^View \\d+ ${target.link}`), target.screen, 'log-transport-requests');
+  await openDrillDown(page, panel, new RegExp(`^View \\d+ (?:${target.one}|${target.link})$`), target.screen, 'log-transport-requests');
 });
 
 test('Sales Coordinator In transit panel matches its drill-downs (AC10)', async ({ page }) => {
