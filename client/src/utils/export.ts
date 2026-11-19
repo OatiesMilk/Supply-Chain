@@ -651,7 +651,7 @@ export const DELIVERY_COLUMNS: ExportColumn[] = [
   { header: 'Area',              key: 'area',              width: 18 },
   { header: 'Delivery Date',     key: 'delivery_date_fmt', width: 18 },
   { header: 'Driver',            key: 'driver',            width: 24 },
-  { header: 'Driver Assistant',  key: 'driver_assistant',  width: 24 },
+  { header: 'Driver Assistant',  key: 'driver_assistants', width: 24 },
   { header: 'Account Manager',   key: 'account_manager',   width: 24 },
   { header: 'Vehicle',           key: 'vehicle',           width: 18 },
   { header: 'Item Type',         key: 'item_type',         width: 16 },
