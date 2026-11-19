@@ -86,6 +86,8 @@ export async function logout(page: Page, role: PolicyRole) {
     await page.getByRole('menuitem', { name: 'Log out', exact: true }).click();
   }
   await expect(page.locator('#app-root')).toHaveCount(0);
+  // The UI drops the session immediately; the server cookie is cleared only once POST /auth/logout completes.
+  await expect(page.getByRole('status').filter({ hasText: 'Signing out' })).toHaveCount(0);
   const me = await page.request.get(apiUrl('/auth/me'));
   expect(me.status(), 'Logout clears the authenticated cookie').toBe(401);
 }

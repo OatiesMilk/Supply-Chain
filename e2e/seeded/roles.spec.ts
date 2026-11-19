@@ -63,7 +63,8 @@ test('Admin logout followed by Driver and TASS email login isolates account data
   expect(driverSessionResponse.status()).toBe(200);
   const driverSession = await driverSessionResponse.json();
   expect(driverSession).toMatchObject({ role: 'DRIVER', email: accountFor('DRIVER').email });
-  await expect(page.getByRole('heading', { name: driverSession.name, exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Driver dashboard', exact: true })).toBeVisible();
+  await expect(page.getByRole('banner').getByText(driverSession.name, { exact: true })).toBeVisible();
   await expect(page.locator('#admin-panel')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Create User', exact: true })).toHaveCount(0);
   await logout(page, 'DRIVER');
