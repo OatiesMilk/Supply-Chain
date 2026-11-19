@@ -3,11 +3,10 @@ import jwt from 'jsonwebtoken';
 import { createHmac } from 'node:crypto';
 import { prisma } from '../db';
 import { asyncRoute } from './asyncRoute';
-import { sessionUser, type Screen, type Resource, type Permission } from '../services/permissions';
-import { evaluatePermissions, type EffectivePermissionSnapshot } from '../services/permissionEvaluator';
-import { hasActionPermission } from '../services/permissionEvaluator';
+import { type Screen, type Resource, type Permission } from '../services/permissions';
+import { hasActionPermission, type EffectivePermissionSnapshot } from '../services/permissionEvaluator';
 import { permissionMode } from '../services/permissionManagement';
-import { loadPermissionSession } from '../services/sessionPermissions';
+import { loadLegacySession, loadPermissionSession } from '../services/sessionPermissions';
 import type { PolicyAction, PolicyScope } from '../services/permissionCatalog';
 import { policyRoute } from './policyRoute';
 
@@ -122,27 +121,13 @@ export const requireAuth = policyRoute(async (req: Request, res: Response, next:
     res.setHeader(CSRF_HEADER, csrfToken(payload));
     return next();
   }
-  const user = await prisma.user.findUnique({ where: { id: payload.id }, include: { permissions: true, permissionOverrides: true, driverProfile: { select: { id: true, type: true, isActive: true } } } });
-  if (!user || !user.isActive) {
+  const loaded = await loadLegacySession(prisma, payload.id);
+  if (!loaded?.isActive) {
     clearSessionCookie(res);
     return res.status(401).json({ error: 'Session no longer valid — please log in again' });
   }
 
-  const session = sessionUser(user) as AuthUser;
-  req.user = user.role === 'DRIVER'
-    ? { ...session, driverProfileId: user.driverProfile?.type === 'DRIVER' ? user.driverProfile.id : null }
-    : session;
-  // Missing/incomplete policy never grants the new RMA workflow. Other category
-  // activation remains with the separate permission rollout (#247).
-  Object.defineProperty(req.user, 'rmaPermissions', { value: null, writable: true, enumerable: false });
-  if (Array.isArray(user.permissionOverrides)) {
-    const rolePolicy = await prisma.rolePolicy.findUnique({ where: { role: user.role }, include: { permissions: true } });
-    req.user.rmaPermissions = evaluatePermissions({
-      userId: user.id, role: user.role, isActive: user.isActive,
-      authorizationRevision: user.authorizationRevision, overrides: user.permissionOverrides,
-      driverProfile: user.driverProfile, rolePolicy,
-    });
-  }
+  req.user = loaded.session;
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader(CSRF_HEADER, csrfToken(payload));
   next();

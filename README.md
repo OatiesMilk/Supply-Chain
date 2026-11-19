@@ -41,6 +41,8 @@ Frontend: <http://localhost:3000> · API: <http://localhost:4000>. Demo seeding 
 ## Documentation
 
 - [User Operating Manuals](./docs/USER_MANUALS.md) ([staff Word manual](./docs/USER_MANUALS.docx)): role-by-role workflows, limits and known limitations synced with `dev`.
+- [Features Inventory](./docs/FEATURES_INVENTORY.md): code-grounded catalogue of modules, UI components, routes and permissions.
+- [Performance Audit & Improvement Plan](./docs/PERFORMANCE_IMPROVEMENT_AUDIT_2026-11-11.md): profiling benchmarks and optimization roadmap.
 - [Unified Deployment Runbook](./docs/DEPLOYMENT.md): Cloudflare Pages, Render API, database/storage, SSO, API v1 cutover, verification and rollback.
 - [Getting Started](./docs/GETTING_STARTED.md): local setup, database, seeds, tests.
 - [System Architecture](./docs/SYSTEM_ARCHITECTURE.md): stack, components, auth, data model, deployment.
