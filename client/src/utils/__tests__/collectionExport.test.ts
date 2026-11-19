@@ -39,9 +39,9 @@ function csvCells(line: string): string[] {
   return line.slice(1, -1).split('","').map(cell => cell.replace(/""/g, '"'));
 }
 
-test('record export row has a value for every Accounting Collection column', () => {
+test('record export row has a value for every export column', () => {
   const row = collectionRecordExportRow(record());
-  const missing = AC_EXTRA_COLUMNS.filter(c => !(c.key in row)).map(c => c.key);
+  const missing = COLUMNS.filter(c => !(c.key in row)).map(c => c.key);
   assert.deepEqual(missing, []);
 });
 
@@ -64,6 +64,7 @@ test('record CSV carries the amount and keeps the verification columns', async (
   const cells = csvCells(lines[headerIndex + 1]);
   const cell = (name: string) => cells[header.indexOf(name)];
   assert.equal(cell('Amount (₱)'), '₱1.00');
+  assert.equal(cell('Driver Assistant'), 'Ben Two, Cara Three');
   assert.equal(cell('Created By'), 'Julius Caesar Mendoza');
   assert.ok(cell('Created At'));
   assert.equal(cell('Collection Verified'), 'Verified');
