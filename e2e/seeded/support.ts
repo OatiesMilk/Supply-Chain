@@ -79,15 +79,13 @@ export async function uiLogin(page: Page, role: PolicyRole) {
   await expect(page.locator('#login-email')).not.toBeVisible();
 }
 
-export async function logout(page: Page, role: PolicyRole) {
-  if (role === 'DRIVER') await page.getByRole('button', { name: 'Log Out', exact: true }).click();
-  else {
-    await page.getByRole('button', { name: 'Account menu', exact: true }).click();
-    await page.getByRole('menuitem', { name: 'Log out', exact: true }).click();
-  }
+export async function logout(page: Page, _role: PolicyRole) {
+  await page.getByRole('button', { name: 'Account menu', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Log out', exact: true }).click();
   await expect(page.locator('#app-root')).toHaveCount(0);
   // The UI drops the session immediately; the server cookie is cleared only once POST /auth/logout completes.
   await expect(page.getByRole('status').filter({ hasText: 'Signing out' })).toHaveCount(0);
+  await expect(page.locator('#login-email').or(page.getByRole('button', { name: 'Sign in with email instead' }))).toBeVisible();
   const me = await page.request.get(apiUrl('/auth/me'));
   expect(me.status(), 'Logout clears the authenticated cookie').toBe(401);
 }
