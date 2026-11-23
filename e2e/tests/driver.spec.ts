@@ -250,13 +250,14 @@ test.describe('C-2 ePOD Flow', () => {
   });
 
   test('C-2.8 Full Accomplish flow with remarks', async ({ page }) => {
-    // 1. Upload Photo
-    const pngPath = path.join(os.tmpdir(), 'uat_pod.png');
-    fs.writeFileSync(pngPath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'));
+    // 1. Upload Photo (use an in-memory buffer so the staged File remains readable when Confirm uploads it)
     const fileInput = page.locator('input[type="file"]').first();
-    await fileInput.setInputFiles(pngPath);
+    await fileInput.setInputFiles({
+      name: 'uat_pod.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'),
+    });
     await expect(page.getByText('uat_pod.png')).toBeVisible({ timeout: 15_000 });
-    fs.unlinkSync(pngPath);
 
     // 2. Fill Received By
     await page.getByPlaceholder(/received.*item|name of person/i).first().fill('Juan dela Cruz (UAT)');
@@ -273,13 +274,15 @@ test.describe('C-2 ePOD Flow', () => {
     await accomplishBtn.click();
     await page.waitForTimeout(500);
 
-    // Enter remarks in modal
+    // Enter remarks in modal and confirm
     await page.getByPlaceholder(/remarks/i).fill('UAT - marked as delivered');
     await page.getByRole('button', { name: /^confirm$/i }).click();
-    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('dialog', { name: /complete transport/i })).not.toBeVisible({ timeout: 10_000 });
 
     // Record should move to the Done today section awaiting Sales verification
-    await expect(page.getByText(/transport complete|awaiting sales verification/i).first()).toBeVisible({ timeout: 10_000 });
+    await page.getByRole('navigation', { name: 'Run queues' })
+      .getByRole('button', { name: /^Done today/ }).click();
+    await expect(page.getByText(/awaiting sales verification/i).first()).toBeVisible({ timeout: 10_000 });
   });
 });
 
