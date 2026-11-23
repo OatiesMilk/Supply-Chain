@@ -1138,7 +1138,8 @@ export default function DeliveryRecordsView({
                           <button
                             type="button"
                             onClick={e => { e.stopPropagation(); setSelectedId(rec.id); setShowForm(false); }}
-                            aria-label={`Open ${category} record ${label}`}
+                            aria-label={label}
+                            title={`Open ${category} record ${label}`}
                             className={`${tableLeadButtonClass} text-xs max-w-full truncate block`}
                           >
                             {label}
