@@ -180,7 +180,7 @@ test.describe('C-2 ePOD Flow', () => {
     }
 
     const pngPath = path.join(os.tmpdir(), 'uat_pod.png');
-    const pngBuf = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
+    const pngBuf = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
     fs.writeFileSync(pngPath, pngBuf);
 
     const fileInput = page.locator('input[type="file"]').first();
@@ -224,7 +224,7 @@ test.describe('C-2 ePOD Flow', () => {
   test('C-2.10 Confirm button is disabled without remarks', async ({ page }) => {
     // 1. Upload Photo
     const pngPath = path.join(os.tmpdir(), 'uat_pod.png');
-    fs.writeFileSync(pngPath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'));
+    fs.writeFileSync(pngPath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
     const fileInput = page.locator('input[type="file"]').first();
     await fileInput.setInputFiles(pngPath);
     await expect(page.getByText('uat_pod.png')).toBeVisible({ timeout: 15_000 });
@@ -255,7 +255,7 @@ test.describe('C-2 ePOD Flow', () => {
     await fileInput.setInputFiles({
       name: 'uat_pod.png',
       mimeType: 'image/png',
-      buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'),
+      buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'),
     });
     await expect(page.getByText('uat_pod.png')).toBeVisible({ timeout: 15_000 });
 
