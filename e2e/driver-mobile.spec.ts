@@ -157,7 +157,7 @@ test.describe('Driver dashboard mobile redesign', () => {
     await saveScreenshot(page, 'active-393.png');
     await doneTab.click();
     await expect(page.locator('[data-queue-hint]')).toHaveText('Includes RMA items waiting for TASS receipt.');
-    const accomplishedHeading = page.getByRole('heading', { name: /^Accomplished \(\d+\)$/i });
+    const accomplishedHeading = page.getByRole('heading', { name: /^Done today \(\d+\)$/i });
     const emptyQueue = page.getByText('No records in this queue.');
     await expect(accomplishedHeading.or(emptyQueue).first()).toBeVisible({ timeout: 15_000 });
     await saveScreenshot(page, 'done-today-393.png');

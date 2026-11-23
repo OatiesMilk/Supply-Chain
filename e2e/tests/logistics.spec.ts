@@ -129,7 +129,7 @@ test.describe('B-1 Login & Access Control', () => {
     if (await sidebar.evaluate(element => getComputedStyle(element).width) === '72px') {
       await page.getByRole('button', { name: 'Expand menu' }).click();
     }
-    await expect(sidebar).toHaveCSS('width', '224px');
+    await expect(sidebar).toHaveCSS('width', '240px');
     await expect(toggle).toHaveAttribute('aria-label', 'Collapse menu');
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await expect(toggle).toHaveAttribute('aria-controls', 'sidebar-panel');
@@ -143,24 +143,27 @@ test.describe('B-1 Login & Access Control', () => {
     const collapsedToggleBox = await toggle.boundingBox();
     expect(Math.abs((expandedToggleBox?.y ?? 0) - (collapsedToggleBox?.y ?? 0))).toBeLessThanOrEqual(1);
     const collapsedMainLeft = (await mainContent.boundingBox())?.x ?? 0;
-    expect(expandedMainLeft - collapsedMainLeft).toBe(152);
+    expect(expandedMainLeft - collapsedMainLeft).toBe(168);
     await expect(page.locator('#sidebar-nav hr')).toHaveCount(4);
 
     const activeDashboard = page.getByRole('navigation').getByRole('button', { name: 'Dashboard' });
-    const activeAccent = await activeDashboard.evaluate(element => getComputedStyle(element, '::before').backgroundColor);
-    expect(activeAccent).toBe('rgb(0, 120, 193)');
+    await expect(activeDashboard).toHaveCSS('font-weight', '600');
+    const activeBg = await activeDashboard.evaluate(element => getComputedStyle(element).backgroundColor);
+    expect(activeBg).not.toBe('rgba(0, 0, 0, 0)');
 
     const deliveries = page.getByRole('navigation').getByRole('button', { name: /^Deliveries/ });
+    const inactiveBg = await deliveries.evaluate(element => getComputedStyle(element).backgroundColor);
+    expect(activeBg).not.toBe(inactiveBg);
     const deliveriesBox = await deliveries.boundingBox();
-    expect(deliveriesBox?.width).toBe(44);
-    expect(deliveriesBox?.height).toBe(44);
+    expect(deliveriesBox?.width).toBe(40);
+    expect(deliveriesBox?.height).toBe(40);
     await deliveries.focus();
     const tooltip = page.getByRole('tooltip');
     await expect(tooltip).toContainText('Deliveries');
     expect((await tooltip.boundingBox())?.x).toBeGreaterThan(72);
 
     await page.keyboard.press('Control+b');
-    await expect(sidebar).toHaveCSS('width', '224px');
+    await expect(sidebar).toHaveCSS('width', '240px');
     await toggle.click();
     await expect(sidebar).toHaveCSS('width', '72px');
 
@@ -344,8 +347,8 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     await confirm.click();
     const response = await status;
     expect(response.ok()).toBeTruthy();
-    expect((await response.json()).status).toBe('Delivered');
-    await expect(card).toContainText('Delivered');
+    expect((await response.json()).status).toBe('Transport Complete');
+    await expect(page.getByText(/Transport handoff is complete and awaiting Sales verification/i)).toBeVisible();
   });
 
   test('B-2.5a TSK-123 Rescheduled requires a new delivery date saved with the status', async ({ page, browser }) => {
@@ -395,15 +398,15 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     // Bulk: a Delivered-only selection disables the Priority select with the explanation.
     await delivered.getByRole('checkbox').check();
     await expect(page.locator('#bulk-priority-select')).toBeDisabled();
-    await expect(page.locator('#bulk-action-bar')).toContainText('Priority is locked after delivery.');
+    await expect(page.locator('#bulk-action-bar')).toContainText('Priority is locked after transport completion.');
     await delivered.getByRole('checkbox').uncheck();
 
     // Overview: Priority is plain text with the note, even while editing; Area/Address stay editable.
     await delivered.click();
-    await expect(page.getByText('Priority is locked after delivery.')).toBeVisible();
+    await expect(page.getByText('Priority is locked after transport completion.')).toBeVisible();
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await expect(page.locator('select').filter({ has: page.locator('option[value="3 - High"]') })).toHaveCount(0);
-    await expect(page.getByText('Priority is locked after delivery.')).toBeVisible();
+    await expect(page.getByText('Priority is locked after transport completion.')).toBeVisible();
   });
 
   test('B-2.5c TSK-125 Logistics has no Return to Draft action', async ({ page }) => {
