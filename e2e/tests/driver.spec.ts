@@ -97,7 +97,7 @@ test.describe('C-1 Driver Dashboard', () => {
     const summary = page.getByRole('region', { name: 'Driver summary' });
     await expect(summary).toBeVisible();
     await expect(summary).toContainText("Today's runs");
-    await expect(summary).toContainText('Accomplished');
+    await expect(summary).toContainText('Done today');
     await expect(summary).toContainText('Remaining');
   });
 
@@ -233,8 +233,8 @@ test.describe('C-2 ePOD Flow', () => {
     // 2. Fill Received By
     await page.getByPlaceholder(/received.*item|name of person/i).first().fill('Juan dela Cruz (UAT)');
 
-    // 3. Click Complete delivery
-    const accomplishBtn = page.getByRole('button', { name: /^complete delivery$/i }).first();
+    // 3. Click Complete transport
+    const accomplishBtn = page.getByRole('button', { name: /^complete transport$/i }).first();
     try {
       await accomplishBtn.waitFor({ state: 'visible', timeout: 3000 });
     } catch (e) {
@@ -261,8 +261,8 @@ test.describe('C-2 ePOD Flow', () => {
     // 2. Fill Received By
     await page.getByPlaceholder(/received.*item|name of person/i).first().fill('Juan dela Cruz (UAT)');
 
-    // 3. Click Complete delivery
-    const accomplishBtn = page.getByRole('button', { name: /^complete delivery$/i }).first();
+    // 3. Click Complete transport
+    const accomplishBtn = page.getByRole('button', { name: /^complete transport$/i }).first();
     try {
       await accomplishBtn.waitFor({ state: 'visible', timeout: 3000 });
     } catch (e) {
@@ -278,8 +278,8 @@ test.describe('C-2 ePOD Flow', () => {
     await page.getByRole('button', { name: /^confirm$/i }).click();
     await page.waitForLoadState('networkidle');
 
-    // Record should move to the Accomplished section
-    await expect(page.getByText(/accomplished/i).first()).toBeVisible({ timeout: 10_000 });
+    // Record should move to the Done today section awaiting Sales verification
+    await expect(page.getByText(/transport complete|awaiting sales verification/i).first()).toBeVisible({ timeout: 10_000 });
   });
 });
 
@@ -289,7 +289,7 @@ test.describe('C-3 Accomplished Records View', () => {
     await page.waitForLoadState('networkidle');
     await page.getByRole('navigation', { name: 'Run queues' })
       .getByRole('button', { name: /^Done today/ }).click();
-    await expect(page.getByText(/^Accomplished \(\d+\)$/i)).toBeVisible();
+    await expect(page.getByText(/^Done today \(\d+\)$/i)).toBeVisible();
   });
 
   test('C-3.2 POD photo opens in a lightbox and Escape closes it', async ({ page }) => {

@@ -910,7 +910,8 @@ export default function AccountingCollectionView({
                         <button
                           type="button"
                           onClick={e => { e.stopPropagation(); setSelectedRecordId(rec.id); }}
-                          aria-label={`Open Accounting Collection record ${label}`}
+                          aria-label={label}
+                          title={`Open Accounting Collection record ${label}`}
                           className={`${tableLeadButtonClass} text-xs max-w-full truncate block`}
                         >
                           {label}

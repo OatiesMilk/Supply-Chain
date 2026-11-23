@@ -409,7 +409,7 @@ test.describe('A-3 Edit a Record', () => {
     await expect(delivered, 'The UAT seed must provide its completed delivery fixture').toBeVisible();
     await delivered.click();
 
-    await expect(page.getByText('Priority is locked after delivery.')).toBeVisible();
+    await expect(page.getByText('Priority is locked after transport completion.')).toBeVisible();
     // Sales Coordinator cannot edit a Delivered record, so there is no Edit button or Priority dropdown.
     await expect(page.locator('select').filter({ has: page.locator('option[value="3 - High"]') })).toHaveCount(0);
   });

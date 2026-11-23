@@ -344,8 +344,8 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     await confirm.click();
     const response = await status;
     expect(response.ok()).toBeTruthy();
-    expect((await response.json()).status).toBe('Delivered');
-    await expect(card).toContainText('Delivered');
+    expect((await response.json()).status).toBe('Transport Complete');
+    await expect(page.getByText(/Transport handoff is complete and awaiting Sales verification/i)).toBeVisible();
   });
 
   test('B-2.5a TSK-123 Rescheduled requires a new delivery date saved with the status', async ({ page, browser }) => {
@@ -395,15 +395,15 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     // Bulk: a Delivered-only selection disables the Priority select with the explanation.
     await delivered.getByRole('checkbox').check();
     await expect(page.locator('#bulk-priority-select')).toBeDisabled();
-    await expect(page.locator('#bulk-action-bar')).toContainText('Priority is locked after delivery.');
+    await expect(page.locator('#bulk-action-bar')).toContainText('Priority is locked after transport completion.');
     await delivered.getByRole('checkbox').uncheck();
 
     // Overview: Priority is plain text with the note, even while editing; Area/Address stay editable.
     await delivered.click();
-    await expect(page.getByText('Priority is locked after delivery.')).toBeVisible();
+    await expect(page.getByText('Priority is locked after transport completion.')).toBeVisible();
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await expect(page.locator('select').filter({ has: page.locator('option[value="3 - High"]') })).toHaveCount(0);
-    await expect(page.getByText('Priority is locked after delivery.')).toBeVisible();
+    await expect(page.getByText('Priority is locked after transport completion.')).toBeVisible();
   });
 
   test('B-2.5c TSK-125 Logistics has no Return to Draft action', async ({ page }) => {
