@@ -280,7 +280,10 @@ test.describe('X Cross-Role Integration', () => {
         has: verifyPage.getByRole('cell', { name: recordNo, exact: true }),
       }).click();
       await verifyPage.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
-      await expect(verifyPage.getByRole('tabpanel').locator('input[type="datetime-local"]').first()).not.toHaveValue('');
+      const verifyPanel = verifyPage.getByRole('tabpanel');
+      await expect(verifyPanel.getByText(/^Time In:\s+\S/)).toBeVisible();
+      await verifyPanel.getByRole('button', { name: 'Edit driver completion details', exact: true }).click();
+      await expect(verifyPanel.locator('input[type="datetime-local"]').first()).not.toHaveValue('');
     } finally {
       await browser.close();
     }
