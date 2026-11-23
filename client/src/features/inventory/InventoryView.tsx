@@ -145,10 +145,10 @@ export default function InventoryView({
                 placeholder="Search SKU code, product name, or description..."
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-[#1F3864] focus:bg-white transition-all font-mono"
+                className="w-full h-9 pl-9 pr-4 py-2 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/20 transition-colors"
               />
             </div>
-            {currentUserRole === 'Admin' && access.canResource('skus', 'CREATE') && !creating && <button type="button" onClick={() => { setCreating(true); setCreatedCode(null); }} className="rounded-lg bg-[#0078C1] px-4 py-2 text-xs font-semibold text-white">Create SKU</button>}
+            {currentUserRole === 'Admin' && access.canResource('skus', 'CREATE') && !creating && <button type="button" onClick={() => { setCreating(true); setCreatedCode(null); }} className="inline-flex h-9 items-center justify-center rounded-lg bg-brand-navy hover:bg-brand-blue px-3.5 text-xs font-semibold text-white shadow-xs transition-colors cursor-pointer">Create SKU</button>}
             {(currentUserRole === 'Admin' || currentUserRole === 'Logistics') && access.canResource('skus') && (
               <ExportMenu
                 rows={filteredSkus.map(sku => ({
@@ -182,14 +182,14 @@ export default function InventoryView({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-slate-400 font-bold uppercase tracking-widest text-[9px] flex items-center gap-1 mr-1">
+            <span className="text-slate-600 font-semibold uppercase tracking-wide text-xs flex items-center gap-1 mr-1">
               <Filter className="w-3.5 h-3.5" /> Filters:
             </span>
 
             <select
               value={categoryFilter}
               onChange={e => { setCategoryFilter(e.target.value); setPage(1); }}
-              className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none text-xs font-medium"
+              className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25 text-xs font-medium cursor-pointer"
             >
               <option value="ALL">All Categories (A / B / C)</option>
               <option value="A">Category A (High Cost)</option>
@@ -200,7 +200,7 @@ export default function InventoryView({
             <select
               value={warehouseFilter}
               onChange={e => { setWarehouseFilter(e.target.value); setPage(1); }}
-              className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none text-xs font-medium"
+              className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25 text-xs font-medium cursor-pointer"
             >
               <option value="ALL">All Bins</option>
               {uniqueBins.map(bin => (
@@ -211,7 +211,7 @@ export default function InventoryView({
             <select
               value={statusFilter}
               onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
-              className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none text-xs font-medium"
+              className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25 text-xs font-medium cursor-pointer"
             >
               <option value="ALL">All Stock Statuses</option>
               <option value="In Stock">In Stock</option>
@@ -221,6 +221,7 @@ export default function InventoryView({
 
             {(searchTerm || appliedSearchTerm || categoryFilter !== 'ALL' || warehouseFilter !== 'ALL' || statusFilter !== 'ALL') && (
               <button
+                type="button"
                 onClick={() => {
                   if (searchTimeoutRef.current !== null) {
                     clearTimeout(searchTimeoutRef.current);
@@ -233,7 +234,7 @@ export default function InventoryView({
                   setStatusFilter('ALL');
                   setPage(1);
                 }}
-                className="text-[#1F3864] hover:underline font-bold uppercase text-[10px]"
+                className="text-brand-navy hover:underline font-semibold text-xs cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue rounded-sm"
               >
                 Clear All
               </button>
@@ -245,7 +246,7 @@ export default function InventoryView({
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-sm">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-black text-slate-400 uppercase tracking-widest">
+              <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-400 uppercase tracking-widest">
                 <th className="px-4 py-3">SKU Code</th>
                 <th className="px-4 py-3">Product Name</th>
                 <th className="px-4 py-3 text-right">On Hand</th>
@@ -286,16 +287,16 @@ export default function InventoryView({
                       className="hover:bg-blue-50/40 cursor-pointer transition-all"
                       onClick={() => setSelectedSkuId(sku.id)}
                     >
-                      <td className="px-4 py-3.5 font-mono text-slate-500 tracking-tight">{sku.sku_code}</td>
+                      <td className="px-4 py-3.5 tabular-nums text-slate-500 tracking-tight">{sku.sku_code}</td>
                       <td className="px-4 py-3.5 font-bold text-slate-800 max-w-[160px] sm:max-w-xs truncate">{sku.name}</td>
                       <td className="px-4 py-3.5 text-right text-slate-800 font-semibold tabular-nums">{onHand}</td>
                       <td className="px-4 py-3.5 text-right text-amber-600 font-semibold tabular-nums">{inv?.allocated_qty ?? 0}</td>
                       <td className="px-4 py-3.5 text-right text-slate-800 font-semibold tabular-nums">{atp}</td>
                       <td className="px-4 py-3.5 text-right text-slate-500 tabular-nums">{sku.reorder_point}</td>
                       <td className="px-4 py-3.5 text-right text-slate-600 tabular-nums">₱{sku.unit_cost.toLocaleString()}</td>
-                      <td className="px-4 py-3.5 text-center font-mono text-slate-500 text-xs tracking-tight">{inv?.warehouse_location ?? '—'}</td>
+                      <td className="px-4 py-3.5 text-center tabular-nums text-slate-500 text-xs tracking-tight">{inv?.warehouse_location ?? '—'}</td>
                       <td className="px-4 py-3.5 text-center">
-                        <span className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold tracking-wide inline-block ${statusColor}`}>
+                        <span className={`px-2 py-0.5 rounded-full border text-xs font-semibold tracking-wide inline-block ${statusColor}`}>
                           {statusLabel}
                         </span>
                       </td>
@@ -317,7 +318,7 @@ export default function InventoryView({
             onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
             pageSizeOptions={[10, 25, 50, 100]}
           />
-          <div className="p-3 bg-slate-50 border-t border-slate-100 text-[11px] text-slate-400 flex justify-end">
+          <div className="p-3 bg-slate-50 border-t border-slate-100 text-xs text-slate-400 flex justify-end">
             <span>Available to Promise (ATP) = On-Hand − Allocated</span>
           </div>
         </div>

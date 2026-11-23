@@ -70,7 +70,7 @@ export function WorkspaceDraftProvider({ children }: { children: ReactNode }) {
             <h2 id={`${dialogId}-title`} className="text-base font-bold text-slate-800">Discard unfinished changes?</h2>
             <p id={`${dialogId}-description`} className="mt-2 text-sm text-slate-600">This record has unfinished edits. Stay to keep working, or discard them and leave the record.</p>
             <div className="mt-5 flex justify-end gap-2">
-              <button ref={cancelRef} type="button" onClick={() => setLeaveAction(null)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0078C1]">Keep editing</button>
+              <button ref={cancelRef} type="button" onClick={() => setLeaveAction(null)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-blue">Keep editing</button>
               <button ref={discardRef} type="button" disabled={pending} onClick={() => { const navigate = leaveAction; setLeaveAction(null); navigate(); }} className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-700 disabled:opacity-50">Discard and leave</button>
             </div>
           </div>

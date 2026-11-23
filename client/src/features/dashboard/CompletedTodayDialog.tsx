@@ -51,7 +51,7 @@ export default function CompletedTodayDialog({ onClose, onOpenRecord, canAccess 
       <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
         <h2 id={titleId} className="text-lg font-semibold text-slate-900">Records completed today</h2>
         <button type="button" onClick={onClose} aria-label="Close completed records"
-          className="rounded-md p-2 text-slate-600 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-[#1F3864]">
+          className="rounded-md p-2 text-slate-600 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-brand-navy">
           <X aria-hidden="true" className="h-5 w-5" />
         </button>
       </header>

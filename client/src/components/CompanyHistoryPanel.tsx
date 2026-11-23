@@ -36,7 +36,7 @@ function RowBody({ record, note }: { record: DeliveryRecord; note?: string }) {
       <span aria-hidden="true" className={`w-1 shrink-0 self-stretch rounded-full ${CATEGORY_RAIL[record.category] ?? 'bg-slate-300'}`} />
       <span className="min-w-0 flex-1">
         <span className="flex items-center justify-between gap-3">
-          <span className="font-mono text-sm font-bold text-slate-900">{recordLabel(record)}</span>
+          <span className="tabular-nums text-sm font-bold text-slate-900">{recordLabel(record)}</span>
           <RecordStatus record={record} />
         </span>
         <span className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">
@@ -45,7 +45,7 @@ function RowBody({ record, note }: { record: DeliveryRecord; note?: string }) {
           {record.delivery_date && <span>{record.delivery_date}</span>}
         </span>
         {note && (
-          <span className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-slate-500">
+          <span className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-slate-500">
             {note === 'No access to this module' && <Lock aria-hidden="true" className="h-3 w-3" />}
             {note}
           </span>
@@ -79,7 +79,7 @@ export function CompanyHistoryButton({
         disabled={disabled}
         aria-haspopup="dialog"
         title="View company history"
-        className={`inline-flex items-center gap-1 rounded text-left underline decoration-slate-300 decoration-dotted underline-offset-4 transition-colors hover:text-[#0078C1] hover:decoration-[#0078C1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:no-underline ${className}`}
+        className={`inline-flex items-center gap-1 rounded text-left underline decoration-slate-300 decoration-dotted underline-offset-4 transition-colors hover:text-brand-blue hover:decoration-brand-blue focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:no-underline ${className}`}
       >
         {companyName}
         <History aria-hidden="true" className="h-3.5 w-3.5 shrink-0 opacity-60" />
@@ -144,11 +144,11 @@ export default function CompanyHistoryPanel({
     >
       <div className="flex h-full flex-col">
         <header className="flex items-start gap-3 border-b border-slate-200 px-5 py-4">
-          <span aria-hidden="true" className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#1F3864] text-white">
+          <span aria-hidden="true" className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-navy text-white">
             <History className="h-4.5 w-4.5" />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 id={titleId} className="truncate text-base font-bold leading-6 text-[#1F3864]">{companyName || 'Company'}</h2>
+            <h2 id={titleId} className="truncate text-base font-bold leading-6 text-brand-navy">{companyName || 'Company'}</h2>
             <p id={descriptionId} className="text-xs leading-5 text-slate-500">Company history, newest first. Only records you have access to are shown.</p>
           </div>
           <button
@@ -171,8 +171,8 @@ export default function CompanyHistoryPanel({
                 onClick={() => setCategory(option)}
                 className={`shrink-0 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${
                   category === option
-                    ? 'border-[#0078C1] bg-[#0078C1] text-white'
-                    : 'border-slate-200 bg-white text-slate-600 hover:border-[#0078C1] hover:text-[#0078C1]'
+                    ? 'border-brand-blue bg-brand-blue text-white'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-brand-blue hover:text-brand-blue'
                 }`}
               >
                 {option}
@@ -212,14 +212,14 @@ export default function CompanyHistoryPanel({
                 return (
                   <li key={record.id}>
                     {isCurrent ? (
-                      <div aria-current="true" className={`${rowClass} border-[#0078C1]/40 bg-blue-50/60`}>
+                      <div aria-current="true" className={`${rowClass} border-brand-blue/40 bg-blue-50/60`}>
                         <RowBody record={record} note="You are viewing this record" />
                       </div>
                     ) : screen ? (
                       <button
                         type="button"
                         onClick={() => onOpenRecord(screen, record.id)}
-                        className={`${rowClass} history-row border-slate-200 bg-white hover:border-[#0078C1]/50 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700`}
+                        className={`${rowClass} history-row border-slate-200 bg-white hover:border-brand-blue/50 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700`}
                       >
                         <RowBody record={record} />
                       </button>

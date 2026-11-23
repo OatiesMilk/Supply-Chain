@@ -6,6 +6,10 @@ import { prisma } from '../src/db';
 import { signToken, type Role } from '../src/middleware/auth';
 import recordsRoutes from '../src/routes/records';
 import { recordEditVersion } from '../src/services/recordEditVersion';
+import { podStorage } from '../src/services/podStorage';
+import { rmaTestPolicy } from './rmaTestPolicy';
+
+const reviewedPhotoBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWMwTpsJAAICATMDms/iAAAAAElFTkSuQmCC', 'base64');
 
 function record(extra: Record<string, unknown> = {}) {
   return { id: 'REC-legacy', category: 'DELIVERY', draft: true, status: 'SCHEDULED', deletedAt: null,
@@ -38,15 +42,39 @@ async function fixture(t: TestContext, role: Role = 'SALES_COORDINATOR') {
   const updates: unknown[] = [];
   let failAudit = false;
   let failNotification = false;
+  let hasEligibleSalesApprover = true;
+  let photoVisibleUnderLock = true;
+  let serializeTransactions = false;
+  let transactionTail = Promise.resolve();
   let onRead: (() => Promise<void>) | undefined;
-  const actor = { id: 'actor', role, name: 'Verifier', email: 'actor@example.test', permissions: [], isActive: true };
+  const actor = { id: 'actor', role, name: 'Verifier', email: 'actor@example.test', permissions: [], isActive: true,
+    driverProfile: role === 'DRIVER' ? { id: 'driver-profile', type: 'DRIVER', isActive: true } : null };
   stub(prisma.user, 'findUnique', async () => actor);
   stub(prisma.user, 'findMany', async () => []);
   stub(prisma.company, 'findUnique', async () => ({ id: 'company-one', isActive: true }));
   stub(prisma.deliveryRecord, 'findFirst', async () => structuredClone(row));
+  stub(prisma.podAttachment, 'findMany', async () => structuredClone(row.podAttachments ?? []));
+  stub(prisma.podAttachment, 'findFirst', async ({ where }: any) => {
+    const attachment = (row.podAttachments as any[]).find(file => file.id === where.id && file.recordId === where.recordId);
+    return attachment ? structuredClone(attachment) : null;
+  });
+  stub(podStorage, 'read', async (key: string) => key === 'reviewed-photo.png' ? reviewedPhotoBytes : Buffer.alloc(0));
   const tx = {
-    user: { findMany: async () => [{ id: 'logistics-user' }] },
+    user: { findMany: async ({ where }: any = {}) => where?.role === 'SALES_COORDINATOR'
+      ? hasEligibleSalesApprover ? [{ id: 'sc-eligible', role: 'SALES_COORDINATOR', isActive: true, authorizationRevision: 1n,
+        permissions: [], permissionOverrides: [], permissionConversion: null, driverProfile: null }] : []
+      : where?.role === 'LOGISTICS' ? [{ id: 'logistics-user', role: 'LOGISTICS', name: 'Logistics', email: 'logistics@example.test', isActive: true,
+        authorizationRevision: 1n, permissions: [], permissionOverrides: [], permissionConversion: null, driverProfile: null }]
+      : where?.role?.in?.includes('TASS') ? [{ id: 'tass-eligible', role: 'TASS', name: 'TASS Reviewer', email: 'tass@example.test', isActive: true,
+        authorizationRevision: 1n, permissions: [], permissionOverrides: [], permissionConversion: null, driverProfile: null }] : [] },
+    rolePolicy: { findUnique: async ({ where }: any) => rmaTestPolicy(where.role), findMany: async ({ where }: any) => (where?.role?.in ?? []).map((role: any) => rmaTestPolicy(role)) },
     $queryRaw: async () => [], $executeRaw: async () => 1,
+    podAttachment: { findFirst: async ({ where }: any) => {
+      if (!photoVisibleUnderLock) return null;
+      const attachment = (row.podAttachments as any[]).find(file => file.id === where.id && file.recordId === where.recordId
+        && file.storageKey === where.storageKey && file.mimeType === where.mimeType && file.size === where.size);
+      return attachment ? structuredClone(attachment) : null;
+    } },
     deliveryRecord: {
       findFirst: async () => { const current = structuredClone(row); await onRead?.(); return current; },
       findUnique: async () => structuredClone(row),
@@ -69,12 +97,18 @@ async function fixture(t: TestContext, role: Role = 'SALES_COORDINATOR') {
     notification: { create: async ({ data }: any) => { if (failNotification) throw new Error('Notification unavailable'); notifications.push(data); }, createMany: async ({ data }: any) => { if (failNotification) throw new Error('Notification unavailable'); notifications.push(...data); return { count: data.length }; } },
   };
   stub(prisma, '$transaction', async (work: any) => {
+    let release: (() => void) | undefined;
+    if (serializeTransactions) {
+      const previous = transactionTail;
+      transactionTail = new Promise<void>(resolve => { release = resolve; });
+      await previous;
+    }
     const before = structuredClone(row);
     const auditCount = audits.length;
     const notificationCount = notifications.length;
     try { return await work(tx); } catch (error) {
       row = before; audits.length = auditCount; notifications.length = notificationCount; throw error;
-    }
+    } finally { release?.(); }
   });
   const app = express();
   app.use(express.json(), cookieParser());
@@ -90,6 +124,9 @@ async function fixture(t: TestContext, role: Role = 'SALES_COORDINATOR') {
   });
   return { stub, audits, notifications, updates, row: () => row, setRow(extra: Record<string, unknown>) { row = record(extra); },
     failAudit() { failAudit = true; }, failNotification() { failNotification = true; },
+    noEligibleSalesApprover() { hasEligibleSalesApprover = false; },
+    removePhotoUnderLock() { photoVisibleUnderLock = false; },
+    serializeTransactions() { serializeTransactions = true; },
     interleaveReads() {
       let reads = 0; let release!: () => void;
       const barrier = new Promise<void>(resolve => { release = resolve; });
@@ -97,10 +134,162 @@ async function fixture(t: TestContext, role: Role = 'SALES_COORDINATOR') {
     },
     request(path: string, method: string, body: unknown, withPrecondition = true) {
       if (method === 'PUT' && row.category !== 'RMA' && withPrecondition) body = { expected_edit_version: recordEditVersion(row), ...(body as any) };
+      if (path.endsWith('/complete') && withPrecondition) body = { expected_edit_version: recordEditVersion(row), ...(body as any) };
       return fetch(origin + path, { method, headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     },
   };
 }
+
+const transportPhoto = {
+  id: 'photo-1', recordId: 'REC-legacy', storageKey: 'reviewed-photo.png',
+  mimeType: 'image/png', size: reviewedPhotoBytes.length, name: 'receipt.png', isPhoto: true,
+};
+
+for (const category of ['DELIVERY', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS']) {
+  test(`${category} Logistics handoff records Time Out and waits for Sales sign-off`, async t => {
+    const state = await fixture(t, 'LOGISTICS');
+    state.setRow({ category, draft: false, status: 'IN_TRANSIT', deliveryDate: '2026-10-30',
+      timeIn: '2026-10-30T01:00:00.000Z', receivedBy: 'Receiver', driver: 'Assigned Driver', podAttachments: [transportPhoto] });
+    const response = await state.request('/records/REC-legacy/status', 'PATCH', { status: 'Delivered', remarks: 'Transport proof saved' });
+    const responseBody = await response.json() as any;
+    assert.equal(response.status, 200, JSON.stringify(responseBody));
+    assert.equal(responseBody.status, 'Transport Complete');
+    assert.equal(state.row().status, 'TRANSPORT_COMPLETE');
+    assert.equal(state.row().receivedBy, 'Receiver');
+    assert.ok(typeof state.row().timeOut === 'string' && Number.isFinite(Date.parse(state.row().timeOut as string)));
+    if (category === 'DELIVERY') {
+      assert.equal(state.row().completedLate, true, 'lateness is calculated at transport handoff');
+      assert.ok(Number(state.row().daysLate) > 0);
+    }
+    assert.equal(state.audits.length, 1);
+    assert.equal(state.notifications.length, 1);
+    assert.equal((state.notifications[0] as any).userId, 'sc-eligible');
+    if (category === 'ACCOUNTING_COLLECTION') assert.equal(state.row().collectionVerified, false, 'transport does not finalize collection verification');
+
+    assert.equal((await state.request('/records/REC-legacy/status', 'PATCH', { status: 'Delivered', remarks: 'Retry handoff' })).status, 409);
+    const edit = await state.request('/records/REC-legacy', 'PUT', { driver: 'Replacement Driver', remarks: 'Try reassignment' });
+    assert.equal(edit.status, 409);
+    assert.equal(state.row().driver, 'Assigned Driver');
+  });
+}
+
+test('an assigned Driver can submit transport proof, while missing Sales coverage blocks handoff', async t => {
+  const driver = await fixture(t, 'DRIVER');
+  driver.setRow({ category: 'PROCUREMENT_PICKUP', draft: false, status: 'IN_TRANSIT', deliveryDate: '2026-10-30',
+    timeIn: '2026-10-30T01:00:00.000Z', receivedBy: 'Receiver', driver: 'Assigned Driver', driverId: 'driver-profile', podAttachments: [transportPhoto] });
+  const handedOff = await driver.request('/records/REC-legacy/status', 'PATCH', { status: 'Delivered', remarks: 'Driver proof saved' });
+  assert.equal(handedOff.status, 200, await handedOff.text());
+  assert.equal(driver.row().status, 'TRANSPORT_COMPLETE');
+  assert.equal(driver.notifications.length, 1);
+
+  const uncovered = await fixture(t, 'LOGISTICS');
+  uncovered.noEligibleSalesApprover();
+  uncovered.setRow({ category: 'SALES_ORDERS', draft: false, status: 'IN_TRANSIT', deliveryDate: '2026-10-30',
+    timeIn: '2026-10-30T01:00:00.000Z', receivedBy: 'Receiver', podAttachments: [transportPhoto] });
+  const rejected = await uncovered.request('/records/REC-legacy/status', 'PATCH', { status: 'Delivered', remarks: 'No reviewer available' });
+  assert.equal(rejected.status, 409, await rejected.text());
+  assert.equal(uncovered.row().status, 'IN_TRANSIT');
+  assert.equal(uncovered.row().timeOut, null);
+  assert.equal(uncovered.audits.length, 0);
+  assert.equal(uncovered.notifications.length, 0);
+
+  const notificationFailure = await fixture(t, 'LOGISTICS');
+  notificationFailure.failNotification();
+  notificationFailure.setRow({ category: 'DELIVERY', draft: false, status: 'IN_TRANSIT', deliveryDate: '2026-10-30',
+    timeIn: '2026-10-30T01:00:00.000Z', receivedBy: 'Receiver', podAttachments: [transportPhoto] });
+  const failed = await notificationFailure.request('/records/REC-legacy/status', 'PATCH', { status: 'Delivered', remarks: 'Alert failure' });
+  assert.equal(failed.status, 500);
+  assert.equal(notificationFailure.row().status, 'IN_TRANSIT');
+  assert.equal(notificationFailure.row().timeOut, null);
+  assert.equal(notificationFailure.audits.length, 0);
+  assert.equal(notificationFailure.notifications.length, 0);
+});
+
+test('Sales sign-off records reviewer and exact photo, then alerts TASS without verifying the collection', async t => {
+  const state = await fixture(t, 'SALES_COORDINATOR');
+  state.setRow({ category: 'ACCOUNTING_COLLECTION', draft: false, status: 'TRANSPORT_COMPLETE', deliveryDate: '2026-10-30',
+    timeIn: '2026-10-30T01:00:00.000Z', timeOut: '2026-10-30T03:00:00.000Z', receivedBy: 'Receiver',
+    amount: 1450, podAttachments: [transportPhoto] });
+  const response = await state.request('/records/REC-legacy/complete', 'PATCH', {
+    remarks: 'Verified recipient and saved receipt.', reviewed_photo_id: transportPhoto.id,
+  });
+  const responseBody = await response.json() as any;
+  assert.equal(response.status, 200, JSON.stringify(responseBody));
+  assert.equal(responseBody.status, 'Delivered');
+  assert.equal(state.row().status, 'ACCOMPLISHED');
+  assert.equal((state.row() as any).completionSignedOffBy.connect.id, 'actor');
+  assert.ok((state.row() as any).completionSignedOffAt instanceof Date);
+  assert.equal((state.row() as any).completionRemarks, 'Verified recipient and saved receipt.');
+  assert.equal((state.row() as any).completionReviewedPhotoId, transportPhoto.id);
+  assert.equal(state.row().collectionVerified, false, 'only TASS can verify collection');
+  assert.equal(state.row().collectionVerifiedBy, undefined);
+  assert.equal(state.row().collectionVerifiedAt, undefined);
+  assert.equal(state.notifications.length, 1);
+  assert.equal((state.notifications[0] as any).userId, 'tass-eligible');
+  assert.equal((state.notifications[0] as any).title, 'Collection ready for verification');
+  assert.equal(state.audits.length, 1);
+  assert.equal(JSON.parse((state.audits[0] as any).newValue).completion_reviewed_photo_id, transportPhoto.id);
+});
+
+test('Accounting Collection sign-off rolls back when its TASS notification cannot be saved', async t => {
+  const state = await fixture(t, 'SALES_COORDINATOR');
+  state.setRow({ category: 'ACCOUNTING_COLLECTION', draft: false, status: 'TRANSPORT_COMPLETE', deliveryDate: '2026-10-30',
+    timeIn: '2026-10-30T01:00:00.000Z', timeOut: '2026-10-30T03:00:00.000Z', receivedBy: 'Receiver', podAttachments: [transportPhoto] });
+  state.failNotification();
+  const response = await state.request('/records/REC-legacy/complete', 'PATCH', {
+    remarks: 'Reviewed collection evidence.', reviewed_photo_id: transportPhoto.id,
+  });
+  assert.equal(response.status, 500);
+  assert.equal(state.row().status, 'TRANSPORT_COMPLETE');
+  assert.equal(state.audits.length, 0);
+  assert.equal(state.notifications.length, 0);
+});
+
+test('sign-off rejects a changed photo, stale lifecycle, failed audit, and concurrent duplicate', async t => {
+  const changed = await fixture(t, 'SALES_COORDINATOR');
+  changed.setRow({ draft: false, status: 'TRANSPORT_COMPLETE', timeIn: '2026-10-30T01:00:00.000Z',
+    timeOut: '2026-10-30T03:00:00.000Z', receivedBy: 'Receiver', podAttachments: [transportPhoto] });
+  const badPhoto = await changed.request('/records/REC-legacy/complete', 'PATCH', { remarks: 'Reviewed', reviewed_photo_id: 'missing-photo' });
+  assert.equal(badPhoto.status, 400);
+  assert.equal(changed.updates.length, 0);
+
+  const removed = await fixture(t, 'SALES_COORDINATOR');
+  removed.setRow({ draft: false, status: 'TRANSPORT_COMPLETE', timeIn: '2026-10-30T01:00:00.000Z',
+    timeOut: '2026-10-30T03:00:00.000Z', receivedBy: 'Receiver', podAttachments: [transportPhoto] });
+  removed.removePhotoUnderLock();
+  const removedResponse = await removed.request('/records/REC-legacy/complete', 'PATCH', { remarks: 'Review', reviewed_photo_id: transportPhoto.id });
+  assert.equal(removedResponse.status, 409);
+  assert.equal(removed.updates.length, 0);
+
+  const stale = await fixture(t, 'SALES_COORDINATOR');
+  stale.setRow({ draft: false, status: 'TRANSPORT_COMPLETE', timeIn: '2026-10-30T01:00:00.000Z',
+    timeOut: '2026-10-30T03:00:00.000Z', receivedBy: 'Receiver', podAttachments: [transportPhoto] });
+  stale.setRow({ draft: false, status: 'ACCOMPLISHED', timeIn: '2026-10-30T01:00:00.000Z',
+    timeOut: '2026-10-30T03:00:00.000Z', receivedBy: 'Receiver', podAttachments: [transportPhoto] });
+  assert.equal((await stale.request('/records/REC-legacy/complete', 'PATCH', { remarks: 'Repeat', reviewed_photo_id: transportPhoto.id })).status, 409);
+
+  const failed = await fixture(t, 'SALES_COORDINATOR');
+  failed.setRow({ draft: false, status: 'TRANSPORT_COMPLETE', timeIn: '2026-10-30T01:00:00.000Z',
+    timeOut: '2026-10-30T03:00:00.000Z', receivedBy: 'Receiver', podAttachments: [transportPhoto] });
+  failed.failAudit();
+  const failure = await failed.request('/records/REC-legacy/complete', 'PATCH', { remarks: 'Reviewed', reviewed_photo_id: transportPhoto.id });
+  assert.equal(failure.status, 500);
+  assert.equal(failed.row().status, 'TRANSPORT_COMPLETE');
+  assert.equal(failed.audits.length, 0);
+
+  const raced = await fixture(t, 'SALES_COORDINATOR');
+  raced.setRow({ draft: false, status: 'TRANSPORT_COMPLETE', timeIn: '2026-10-30T01:00:00.000Z',
+    timeOut: '2026-10-30T03:00:00.000Z', receivedBy: 'Receiver', podAttachments: [transportPhoto] });
+  raced.serializeTransactions();
+  const responses = await Promise.all([
+    raced.request('/records/REC-legacy/complete', 'PATCH', { remarks: 'Review one', reviewed_photo_id: transportPhoto.id }),
+    raced.request('/records/REC-legacy/complete', 'PATCH', { remarks: 'Review two', reviewed_photo_id: transportPhoto.id }),
+  ]);
+  assert.deepEqual(responses.map(result => result.status).sort(), [200, 409]);
+  assert.equal(raced.row().status, 'ACCOMPLISHED');
+  assert.equal(raced.updates.length, 1);
+  assert.equal(raced.audits.length, 1);
+});
 
 for (const category of ['DELIVERY', 'PROCUREMENT_PICKUP', 'ACCOUNTING_COLLECTION', 'SALES_ORDERS']) {
   test(`${category} draft submission rejects missing and malformed dates through both PUT and PATCH`, async t => {

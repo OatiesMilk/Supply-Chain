@@ -19,7 +19,8 @@ interface TransactionDetailProps {
 
 const STATUS_LABEL: Record<string, string> = {
   SCHEDULED:   'Scheduled',
-  ACCOMPLISHED: 'Accomplished',
+  TRANSPORT_COMPLETE: 'Transport Complete',
+  ACCOMPLISHED: 'Complete',
   ON_HOLD:     'On-Hold',
   RESCHEDULED: 'Rescheduled',
   PENDING:     'Pending'
@@ -27,6 +28,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 const STATUS_BADGE: Record<string, string> = {
   SCHEDULED:   'bg-blue-50 text-blue-700 border-blue-200',
+  TRANSPORT_COMPLETE: 'bg-blue-50 text-blue-800 border-blue-200',
   ACCOMPLISHED: 'bg-green-50 text-green-700 border-green-200',
   ON_HOLD:     'bg-red-50 text-red-700 border-red-200',
   RESCHEDULED: 'bg-violet-50 text-violet-700 border-violet-200',
@@ -68,7 +70,7 @@ function formatDate(ts: string | Date): string {
 function InfoRow({ label, value }: { label: string; value?: string | null }) {
   return (
     <div>
-      <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mb-0.5">{label}</p>
+      <p className="text-xs text-slate-400 uppercase tracking-widest font-bold mb-0.5">{label}</p>
       <p className="text-sm font-semibold text-slate-800">{value || '—'}</p>
     </div>
   );
@@ -86,20 +88,20 @@ export function DeliveryDetail({ detail }: { detail: ApiTransactionDetail }) {
     <div className="space-y-6">
       {/* Summary Card */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="px-6 py-4 bg-[#1F3864] text-white flex flex-wrap items-center gap-3">
+        <div className="px-6 py-4 bg-brand-navy text-white flex flex-wrap items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center shrink-0">
             <Truck className="w-5 h-5 text-white" />
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-white/60">Delivery Record</p>
-            <p className="font-mono font-black text-white text-base leading-tight truncate">{detail.reference}</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-white/60">Delivery Record</p>
+            <p className="tabular-nums font-bold text-white text-base leading-tight truncate">{detail.reference}</p>
           </div>
           <div className="ml-auto flex items-center gap-2 flex-wrap">
-            <span className="px-2.5 py-1 rounded-full bg-white/10 border border-white/20 text-white text-[11px] font-bold">
+            <span className="px-2.5 py-1 rounded-full bg-white/10 border border-white/20 text-white text-xs font-bold">
               {detail.type}
             </span>
             {detail.status && (
-              <span className={`px-2.5 py-1 rounded-full border text-[11px] font-black uppercase tracking-wide ${statusStyle}`}>
+              <span className={`px-2.5 py-1 rounded-full border text-xs font-bold uppercase tracking-wide ${statusStyle}`}>
                 {statusLabel}
               </span>
             )}
@@ -127,7 +129,7 @@ export function DeliveryDetail({ detail }: { detail: ApiTransactionDetail }) {
       {/* Enterprise Timeline */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 bg-slate-50">
-          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">
             Audit Timeline
           </h3>
           {timeline.length > 0 && (
@@ -160,16 +162,16 @@ export function DeliveryDetail({ detail }: { detail: ApiTransactionDetail }) {
                     <div className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-4 min-w-0">
                       <div className="flex flex-wrap items-center gap-2 mb-1">
                         <span
-                          className={`px-2 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-wider ${ACTION_BADGE[event.action] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}
+                          className={`px-2 py-0.5 rounded-full border text-xs font-bold uppercase tracking-wider ${ACTION_BADGE[event.action] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}
                         >
                           {event.action}
                         </span>
                         <span className="text-xs font-bold text-slate-700">{event.label}</span>
-                        <span className="text-[11px] text-slate-400 ml-auto">
+                        <span className="text-xs text-slate-400 ml-auto">
                           {formatTs(event.timestamp)}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-500">
+                      <p className="text-xs text-slate-500">
                         by <span className="font-semibold">{event.changed_by}</span>
                       </p>
                     </div>
@@ -200,11 +202,11 @@ function InventoryDetail({ detail }: { detail: ApiTransactionDetail }) {
             <Package className="w-5 h-5 text-white" />
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-white/60">Inventory Transaction</p>
-            <p className="font-mono font-black text-white text-base leading-tight truncate">{detail.reference}</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-white/60">Inventory Transaction</p>
+            <p className="tabular-nums font-bold text-white text-base leading-tight truncate">{detail.reference}</p>
           </div>
           <div className="ml-auto">
-            <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold bg-white/15 border border-white/25 text-white`}>
+            <span className={`px-2.5 py-1 rounded-full text-xs font-bold bg-white/15 border border-white/25 text-white`}>
               {detail.type}
             </span>
           </div>
@@ -213,14 +215,14 @@ function InventoryDetail({ detail }: { detail: ApiTransactionDetail }) {
         <div className="p-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
           {/* KPI tiles */}
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center">
-            <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mb-1">Qty Change</p>
-            <p className={`text-2xl font-black ${qty >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+            <p className="text-xs text-slate-400 uppercase tracking-widest font-bold mb-1">Qty Change</p>
+            <p className={`text-2xl font-bold ${qty >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
               {qty >= 0 ? '+' : ''}{qty}
             </p>
           </div>
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center">
-            <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mb-1">Resulting Balance</p>
-            <p className="text-2xl font-black text-slate-900">{detail.resulting_balance}</p>
+            <p className="text-xs text-slate-400 uppercase tracking-widest font-bold mb-1">Resulting Balance</p>
+            <p className="text-2xl font-bold text-slate-900">{detail.resulting_balance}</p>
           </div>
 
           <div className="col-span-2 sm:col-span-1 lg:col-span-2 flex flex-col justify-center">
@@ -248,14 +250,14 @@ function InventoryDetail({ detail }: { detail: ApiTransactionDetail }) {
       {related.length > 0 && (
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-100 bg-slate-50">
-            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">
               Other Recent Transactions — Same Product (last {related.length})
             </h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-slate-100 text-[10px] text-slate-400 uppercase tracking-widest font-bold">
+                <tr className="border-b border-slate-100 text-xs text-slate-400 uppercase tracking-widest font-bold">
                   <th className="px-5 py-3 text-left">Date</th>
                   <th className="px-5 py-3 text-left">Type</th>
                   <th className="px-5 py-3 text-right">Qty Change</th>
@@ -268,15 +270,15 @@ function InventoryDetail({ detail }: { detail: ApiTransactionDetail }) {
                   <tr key={r.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-5 py-3 text-slate-500">{formatDate(r.date)}</td>
                     <td className="px-5 py-3">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${TXN_TYPE_BADGE[r.type] ?? 'bg-slate-50 text-slate-700'}`}>
+                      <span className={`px-2 py-0.5 rounded text-xs font-semibold ${TXN_TYPE_BADGE[r.type] ?? 'bg-slate-50 text-slate-700'}`}>
                         {r.type}
                       </span>
                     </td>
                     <td className={`px-5 py-3 text-right font-bold ${r.qty_change >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                       {r.qty_change >= 0 ? '+' : ''}{r.qty_change}
                     </td>
-                    <td className="px-5 py-3 text-right font-mono font-semibold text-slate-800">{r.resulting_balance}</td>
-                    <td className="px-5 py-3 font-mono text-slate-500 text-[11px]">{r.reference}</td>
+                    <td className="px-5 py-3 text-right tabular-nums font-semibold text-slate-800">{r.resulting_balance}</td>
+                    <td className="px-5 py-3 tabular-nums text-slate-500 text-xs">{r.reference}</td>
                   </tr>
                 ))}
               </tbody>
@@ -313,19 +315,19 @@ export default function TransactionDetail({ source, id, onBack }: TransactionDet
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={onBack}
-            className="flex items-center gap-1.5 text-[#0078C1] hover:text-[#1F3864] text-xs font-semibold transition-colors shrink-0"
+            className="flex items-center gap-1.5 text-brand-blue hover:text-brand-navy text-xs font-semibold transition-colors shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
             Transaction Center
           </button>
           <span className="text-slate-300">/</span>
-          <span className="font-mono font-bold text-slate-700 text-sm truncate">{breadcrumbId}</span>
+          <span className="tabular-nums font-bold text-slate-700 text-sm truncate">{breadcrumbId}</span>
         </div>
       </div>
 
       {loading && (
         <div className="flex flex-col items-center justify-center py-32 text-slate-400">
-          <Loader2 className="w-8 h-8 animate-spin mb-3 text-[#0078C1]" />
+          <Loader2 className="w-8 h-8 animate-spin mb-3 text-brand-blue" />
           <span className="text-sm">Loading transaction…</span>
         </div>
       )}
@@ -334,7 +336,7 @@ export default function TransactionDetail({ source, id, onBack }: TransactionDet
         <div className="flex flex-col items-center justify-center py-32 text-red-500 space-y-3">
           <AlertTriangle className="w-8 h-8" />
           <p className="text-sm">{error}</p>
-          <button onClick={onBack} className="text-sm text-[#0078C1] hover:underline">
+          <button onClick={onBack} className="text-sm text-brand-blue hover:underline">
             ← Back to Transaction Center
           </button>
         </div>

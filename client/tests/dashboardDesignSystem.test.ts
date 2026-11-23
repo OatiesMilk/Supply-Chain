@@ -70,8 +70,9 @@ test('KpiTile shows a skeleton while loading and never a number', () => {
 
 test('KpiTile only uses warning and critical tones when the value is above zero', () => {
   const tone = (value: number, t: 'warning' | 'critical') => html(h(KpiTile, { label: 'X', value, tone: t, context: 'Context' }));
-  assert.match(tone(3, 'critical'), /border-l-red-600/); assert.match(tone(3, 'warning'), /border-l-amber-500/);
-  assert.match(tone(0, 'critical'), /border-l-slate-300/); assert.doesNotMatch(tone(0, 'warning'), /border-l-amber-500/);
+  assert.match(tone(3, 'critical'), /data-tone="critical"/); assert.match(tone(3, 'critical'), /bg-red-500/);
+  assert.match(tone(3, 'warning'), /data-tone="warning"/); assert.match(tone(3, 'warning'), /bg-amber-400/);
+  assert.match(tone(0, 'critical'), /data-tone="neutral"/); assert.doesNotMatch(tone(0, 'warning'), /bg-amber-400/);
   assert.match(tone(3, 'critical'), /<svg/); // status carried by an icon as well as colour
 });
 
@@ -123,7 +124,7 @@ test('RecordTable puts a real button in the first cell and keeps row click', () 
 
 test('RecordTable switches to a stacked list below md', () => {
   const markup = html(h(RecordTable<Row>, { rows, columns, rowKey: row => row.id, caption: 'Open RMA' }));
-  assert.match(markup, /class="hidden overflow-x-auto md:block"/);
+  assert.match(markup, /class="relative hidden overflow-x-auto md:block"/);
   assert.match(markup, /<ul class="divide-y divide-slate-100 md:hidden"/);
   const list = markup.slice(markup.indexOf('<ul'));
   assert.match(list, /<dt[^>]*>Company<\/dt><dd[^>]*>Acme/);

@@ -104,14 +104,14 @@ export default function AccountManagerDirectory({ records, onNavigate }: Props) 
       {summaryQuery.error && <p role="alert" className="text-sm text-red-700">Could not load account manager totals. <button type="button" className="underline" onClick={() => void summaryQuery.refetch()}>Retry</button></p>}
       {/* Sort Controls */}
       <div className="flex items-center justify-end gap-2 flex-wrap">
-          <span className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">Sort by:</span>
+          <span className="text-xs text-slate-500 font-bold uppercase tracking-wider">Sort by:</span>
           {(['total', 'delivered', 'name'] as const).map(s => (
             <button
               key={s}
               onClick={() => setSortBy(s)}
-              className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-all cursor-pointer ${
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider border transition-all cursor-pointer ${
                 sortBy === s
-                  ? 'bg-[#0078C1] text-white border-[#0078C1]'
+                  ? 'bg-brand-blue text-white border-brand-blue'
                   : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
               }`}
             >
@@ -123,17 +123,17 @@ export default function AccountManagerDirectory({ records, onNavigate }: Props) 
       {/* Summary KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: 'Account Managers', value: totalAMs, icon: Users, color: 'text-[#0078C1]', bg: 'bg-blue-50' },
+          { label: 'Account Managers', value: totalAMs, icon: Users, color: 'text-brand-blue', bg: 'bg-blue-50' },
           { label: 'Delivered', value: totalDelivered, icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
           { label: 'Pending', value: totalPending, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
           { label: 'On-Hold', value: totalOnHold, icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-50' }
         ].map(kpi => (
           <div key={kpi.label} className={`${kpi.bg} rounded-xl p-4 border border-white shadow-sm`}>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{kpi.label}</span>
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">{kpi.label}</span>
               <kpi.icon className={`w-4 h-4 ${kpi.color}`} />
             </div>
-            <p className={`text-2xl font-black ${kpi.color}`}>{kpi.value}</p>
+            <p className={`text-2xl font-bold ${kpi.color}`}>{kpi.value}</p>
           </div>
         ))}
       </div>
@@ -150,32 +150,32 @@ export default function AccountManagerDirectory({ records, onNavigate }: Props) 
                 onClick={() => (() => { setRecordPage(1); setExpanded(isExpanded ? null : am.name); })()}
                 className="w-full flex items-center gap-4 px-6 py-5 hover:bg-slate-50 transition-colors cursor-pointer text-left"
               >
-                <div className="w-12 h-12 rounded-xl bg-[#1F3864] text-white font-black text-base flex items-center justify-center shrink-0">
+                <div className="w-12 h-12 rounded-xl bg-brand-navy text-white font-bold text-base flex items-center justify-center shrink-0">
                   {initials(am.name)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-black text-slate-900 text-base">{am.name}</p>
+                  <p className="font-bold text-slate-900 text-base">{am.name}</p>
                   <p className="text-xs text-slate-500 mt-0.5">{am.companyCount} compan{am.companyCount === 1 ? 'y' : 'ies'} · {am.total} records</p>
                 </div>
 
                 {/* Mini stats — always visible */}
                 <div className="flex items-center gap-5 text-center shrink-0">
                   <div>
-                    <p className="text-xl font-black text-slate-900">{am.total}</p>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase">Total</p>
+                    <p className="text-xl font-bold text-slate-900">{am.total}</p>
+                    <p className="text-xs text-slate-400 font-bold uppercase">Total</p>
                   </div>
                   <div>
-                    <p className="text-xl font-black text-emerald-600">{am.delivered}</p>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase">Done</p>
+                    <p className="text-xl font-bold text-emerald-600">{am.delivered}</p>
+                    <p className="text-xs text-slate-400 font-bold uppercase">Done</p>
                   </div>
                   <div>
-                    <p className="text-xl font-black text-amber-600">{am.pending + am.scheduled}</p>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase">Active</p>
+                    <p className="text-xl font-bold text-amber-600">{am.pending + am.scheduled}</p>
+                    <p className="text-xs text-slate-400 font-bold uppercase">Active</p>
                   </div>
                   {am.onHold > 0 && (
                     <div>
-                      <p className="text-xl font-black text-red-600">{am.onHold}</p>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase">On-Hold</p>
+                      <p className="text-xl font-bold text-red-600">{am.onHold}</p>
+                      <p className="text-xs text-slate-400 font-bold uppercase">On-Hold</p>
                     </div>
                   )}
                 </div>
@@ -201,7 +201,7 @@ export default function AccountManagerDirectory({ records, onNavigate }: Props) 
                 <div className="border-t border-slate-100 bg-slate-50">
                   <div className="px-6 py-2.5 flex items-center gap-2 border-b border-slate-100">
                     <TrendingUp className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="text-xs font-black text-slate-500 uppercase tracking-widest">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
                       All Records ({am.total})
                     </span>
                   </div>
@@ -212,17 +212,18 @@ export default function AccountManagerDirectory({ records, onNavigate }: Props) 
                           onClick={() => onNavigate(CATEGORY_SCREEN[r.category] ?? 'deliveries', r.id)}
                           className="w-full text-left flex items-center gap-3 px-6 py-3 hover:bg-blue-50 transition-colors cursor-pointer"
                         >
-                          <span className="font-mono text-xs font-bold text-slate-500 w-28 shrink-0">{recordLabel(r)}</span>
+                          <span className="tabular-nums text-xs font-bold text-slate-500 w-28 shrink-0">{recordLabel(r)}</span>
                           <span className="text-sm font-semibold text-slate-800 truncate flex-1">{r.company_name}</span>
                           <span className="text-xs text-slate-400 hidden sm:inline font-medium">{r.delivery_date}</span>
-                          <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full shrink-0 ${
+                          <span className={`text-xs font-bold border px-2 py-0.5 rounded-full shrink-0 ${
                             r.status === 'Delivered'   ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
+                            r.status === 'Transport Complete' ? 'bg-blue-100 text-blue-800 border-blue-200' :
                             r.status === 'Pending'     ? 'bg-amber-100 text-amber-700 border-amber-200' :
                             r.status === 'On-Hold'     ? 'bg-red-100 text-red-700 border-red-200' :
                             r.status === 'Rescheduled' ? 'bg-purple-100 text-purple-700 border-purple-200' :
                             'bg-blue-100 text-blue-700 border-blue-200'
                           }`}>
-                            {r.status}
+                            {r.status === 'Delivered' ? 'Complete' : r.status}
                           </span>
                         </button>
                       ))}

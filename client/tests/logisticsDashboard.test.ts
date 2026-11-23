@@ -13,8 +13,8 @@ const stats = { role: 'LOGISTICS', assigned_today: 5, unassigned_count: 2, compl
 const request = (id: string, extra: Partial<DeliveryRecord> = {}) => ({ id, category: 'RMA', status: 'Scheduled', is_draft: 'No', company_name: 'Client Co', area: 'Makati',
   delivery_date: '2026-10-30', rma_reference: `RMA-${id}`, driver: '', rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'PENDING', ...extra }) as DeliveryRecord;
 const overview: ApiDashboardOverview = { role: 'LOGISTICS', generated_at: '2026-11-10T00:27:00Z', record_total: 50, status_totals: {},
-  counts: { rma_requests: 6001, 'log-transport-requests': 6001, 'log-flags': 5, 'log-unassigned': 2, 'log-on-hold': 1, 'log-rescheduled': 2 },
-  transport_requests_by_type: { DELIVERY: 4000, RMA: 2000, SALES_ORDERS: 1 },
+  counts: { rma_requests: 6001, 'log-transport-requests': 6007, 'log-flags': 5, 'log-unassigned': 2, 'log-on-hold': 1, 'log-rescheduled': 2 },
+  transport_requests_by_type: { DELIVERY: 4000, RMA: 2000, ACCOUNTING_COLLECTION: 6, SALES_ORDERS: 1 },
   record_previews: { rma_requests: [request('r1'), request('r2', { driver: 'Ana Cruz' })], rma_attention: [], transport_requests: [
     request('r1'), { id: 'D-9', category: 'Deliveries', status: 'On-Hold', company_name: 'Acme', area: 'Pasig', delivery_date: '2026-10-29', driver: 'Old Name', driver_id: null } as DeliveryRecord,
     { id: 'S-9', category: 'Sales Orders', status: 'Scheduled', company_name: 'Gamma', area: '', delivery_date: '2026-10-31', driver: '' } as DeliveryRecord,
@@ -29,10 +29,9 @@ const text = (markup: string) => markup.replace(/<[^>]*>/g, ' ').replace(/\s+/g,
 
 test('tiles use the shared contract with calm zero states', () => {
   const markup = html();
-  assert.equal(markup.split('data-kpi-tile').length - 1, 4 + 3);
+  assert.equal(markup.split('data-kpi-tile').length - 1, 4);
   assert.match(markup, /aria-label="No driver assigned, 2 jobs\. Show transport requests"/);
-  assert.match(markup, /aria-label="Unassigned records, 6,001 jobs\. Show transport requests"/, 'the Needs attention tile equals the Transport requests count');
-  assert.match(text(markup), /Jobs of every type with no driver yet/);
+  assert.doesNotMatch(text(markup), /Needs attention/, 'redundant Needs attention section is removed');
   assert.match(text(markup), /Needs a driver/); assert.match(text(markup), /None yet today/);
   assert.match(html({ stats: { ...stats, completed_today: 5 } }), /aria-label="Completed today, 5 records\. View list"/);
   assert.match(html({ stats: { ...stats, unassigned_count: 0 } }), /All assigned/);
@@ -46,8 +45,8 @@ test('tiles show skeletons while stats load and never fall back to guessed count
 
 test('transport requests panel lists every job type with full totals and per-type links (AC6)', () => {
   const markup = html(); const t = text(markup);
-  assert.match(t, /Transport requests 6001 requests/); assert.match(t, /Showing 3 of 6001 requests/);
-  assert.match(t, /View 4000 Deliveries/); assert.match(t, /View 2000 RMA/); assert.match(t, /View 1 Sales Order/);
+  assert.match(t, /Transport requests 6007 requests/); assert.match(t, /Showing 3 of 6007 requests/);
+  assert.match(t, /View 4000 Deliveries/); assert.match(t, /View 2000 RMA/); assert.match(t, /View 6 Accounting Collections/); assert.match(t, /View 1 Sales Order/);
   assert.doesNotMatch(t, /View \d+ Procurement Pickups?/, 'types with no requests get no link');
   assert.match(t, /RMA-r1 RMA Client Co/); assert.match(t, /D-9 Delivery Acme/); assert.match(t, /S-9 Sales Order Gamma/);
   assert.doesNotMatch(markup, /<th[^>]*>Driver<\/th>/, 'every row has no driver, so there is no Driver column');
@@ -97,8 +96,8 @@ test('empty states are calm', () => {
 
 test('overview failure keeps tiles and shows retry in each panel', () => {
   const markup = html({ overview: undefined, overviewStatus: 'error', onRetryOverview() {} });
-  assert.match(markup, /aria-label="Assigned to drivers today, 5 deliveries/);
-  assert.equal((markup.match(/role="alert"/g) ?? []).length, 3);
+  assert.match(markup, /aria-label="Assigned to drivers today, 5 records/);
+  assert.equal((markup.match(/role="alert"/g) ?? []).length, 2);
 });
 
 test('without access to a screen its tiles and links have no button', () => {
@@ -131,11 +130,11 @@ test('view-all and row actions pass the right filters', async () => {
   const click = (el: Element) => act(async () => { el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
   const buttons = [...dom.window.document.querySelectorAll('button')];
   await click(buttons.find(b => b.textContent?.includes('View 2000 RMA'))!);
+  await click(buttons.find(b => b.textContent?.includes('View 6 Accounting Collections'))!);
   await click(buttons.find(b => b.textContent?.includes('View 1 Sales Order'))!);
-  await click(buttons.find(b => b.textContent?.includes('View all 5 flags'))!);
   await click(buttons.find(b => b.getAttribute('aria-label') === 'Open RMA RMA-r1 for Client Co')!);
   await click(buttons.find(b => b.getAttribute('aria-label') === 'Open Delivery D-9 for Acme')!);
-  assert.deepEqual(calls, [['rma', undefined, 'log-transport-requests'], ['sales_orders', undefined, 'log-transport-requests'], ['deliveries', undefined, 'log-flags'], ['rma', 'r1'], ['deliveries', 'D-9']]);
+  assert.deepEqual(calls, [['rma', undefined, 'log-transport-requests'], ['accounting_collection', undefined, 'log-transport-requests'], ['sales_orders', undefined, 'log-transport-requests'], ['rma', 'r1'], ['deliveries', 'D-9']]);
   await act(async () => { root.unmount(); });
 });
 
@@ -162,11 +161,11 @@ test('no-driver tiles bring the Transport requests panel into view instead of op
   const click = (el: Element) => act(async () => { el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
   const panel = dom.window.document.getElementById('transport-requests-panel')!;
   assert.equal(panel.getAttribute('tabindex'), '-1');
-  for (const name of ['No driver assigned, 2 jobs. Show transport requests', 'Unassigned records, 6,001 jobs. Show transport requests']) {
+  for (const name of ['No driver assigned, 2 jobs. Show transport requests']) {
     await click([...dom.window.document.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === name)!);
     assert.equal(dom.window.document.activeElement, panel, name);
   }
-  assert.deepEqual(scrolled.map(([id]) => id), ['transport-requests-panel', 'transport-requests-panel']);
+  assert.deepEqual(scrolled.map(([id]) => id), ['transport-requests-panel']);
   assert.deepEqual(calls, [], 'no list screen is opened');
   await act(async () => { root.unmount(); });
 });

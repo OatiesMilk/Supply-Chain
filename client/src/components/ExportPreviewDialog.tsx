@@ -45,7 +45,7 @@ function CsvArtifactPreview({ text }: { text: string }) {
       <tbody>{rows.map((row, rowIndex) => {
         const isSectionHeading = row.length === 1 && row[0].length > 0;
         const isColumnHeading = rowIndex > 0 && row.length === columnCount && rows[rowIndex - 1].length < columnCount;
-        return <tr key={rowIndex} className={isColumnHeading ? 'bg-[#1F3864] font-semibold text-white' : isSectionHeading ? 'bg-slate-50 font-semibold text-[#1F3864]' : rowIndex % 2 ? 'bg-white' : 'bg-slate-50'}>
+        return <tr key={rowIndex} className={isColumnHeading ? 'bg-brand-navy font-semibold text-white' : isSectionHeading ? 'bg-slate-50 font-semibold text-brand-navy' : rowIndex % 2 ? 'bg-white' : 'bg-slate-50'}>
           {Array.from({ length: columnCount }, (_, columnIndex) => <td key={columnIndex} className={`max-w-72 whitespace-pre-wrap break-words border-b border-slate-100 px-3 py-2 align-top ${isColumnHeading ? 'text-white' : ''}`}>{row[columnIndex] ?? ''}</td>)}
         </tr>;
       })}</tbody>
@@ -164,7 +164,7 @@ export default function ExportPreviewDialog({
         </header>
 
         <div className="border-b border-slate-100 bg-slate-50 px-5 py-3">
-          <p className="text-sm font-bold text-[#1F3864]">{meta.reportName}{meta.dateRange ? ` — ${meta.dateRange}` : ''}</p>
+          <p className="text-sm font-bold text-brand-navy">{meta.reportName}{meta.dateRange ? ` — ${meta.dateRange}` : ''}</p>
           {meta.dateBasis && <p className="mt-1 text-xs text-slate-500">Date basis: {meta.dateBasis}</p>}
           <p className="mt-1 text-xs text-slate-500">Prepared by {meta.generatedByName}{meta.generatedByRole ? ` (${meta.generatedByRole})` : ''}</p>
           {variant === 'trail' && statusHistoryCounts && (
@@ -181,9 +181,9 @@ export default function ExportPreviewDialog({
         </div>
 
         {variant === 'trail' && statusHistoryCounts && <div className="shrink-0 border-b border-slate-100 px-5 py-2">
-          <p className="mb-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">Lifetime status summary</p>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] sm:grid-cols-4">
-            {['Draft', 'Scheduled', 'In Transit', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'].map(status => <div key={status} className="flex min-w-0 items-center justify-between gap-2">
+          <p className="mb-1.5 text-xs font-bold uppercase tracking-widest text-slate-400">Lifetime status summary</p>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs sm:grid-cols-4">
+            {['Draft', 'Scheduled', 'In Transit', 'Transport Complete', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'].map(status => <div key={status} className="flex min-w-0 items-center justify-between gap-2">
               <span className="truncate font-medium text-slate-700">{status}</span>
               <span className="shrink-0 text-slate-500">{statusHistoryCounts.ever_held[status] ?? 0} ever · {statusHistoryCounts.current[status] ?? 0} now</span>
             </div>)}
@@ -201,7 +201,7 @@ export default function ExportPreviewDialog({
           ) : (
             <div className="overflow-auto rounded-xl border border-slate-200">
               <table className="w-full min-w-max border-collapse text-left text-xs">
-                <thead className="sticky top-0 z-10 bg-[#1F3864] text-white">
+                <thead className="sticky top-0 z-10 bg-brand-navy text-white">
                   <tr>{columns.map(column => <th key={column.key} scope="col" className="whitespace-nowrap px-3 py-3 font-bold">{column.header}</th>)}</tr>
                 </thead>
                 <tbody>
@@ -228,7 +228,7 @@ export default function ExportPreviewDialog({
           <div className="flex items-center gap-2">
             {downloadError && <p role="alert" className="mr-2 max-w-xs text-xs text-red-700">{downloadError}</p>}
             <button type="button" disabled={downloading} onClick={onClose} className="min-h-11 rounded-lg px-4 text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50">Cancel</button>
-            <button type="button" disabled={downloading} onClick={download} className="flex min-h-11 items-center gap-2 rounded-lg bg-[#1F3864] px-5 text-sm font-bold text-white hover:bg-[#172b4d] disabled:opacity-60">
+            <button type="button" disabled={downloading} onClick={download} className="flex min-h-11 items-center gap-2 rounded-lg bg-brand-navy px-5 text-sm font-bold text-white hover:bg-[#172b4d] disabled:opacity-60">
               {downloading ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Download aria-hidden="true" className="h-4 w-4" />}
               {downloading ? 'Preparing download…' : `Download ${FORMAT_LABEL[format]}`}
             </button>

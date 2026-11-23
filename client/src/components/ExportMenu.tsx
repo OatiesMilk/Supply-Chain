@@ -177,7 +177,7 @@ export default function ExportMenu({
       key={`${fmt}-${variant}`}
       onClick={() => run(fmt, variant)}
       disabled={fmt !== 'csv' && Boolean(periodError)}
-      className={`w-full flex items-center gap-2.5 px-3.5 py-1.5 text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${color}`}
+      className={`w-full flex items-center gap-2.5 px-3.5 py-1.5 text-xs font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${color}`}
     >
       {icon} {label}
     </button>
@@ -202,7 +202,7 @@ export default function ExportMenu({
         aria-expanded={open}
         onClick={() => !isLoading && setOpen(o => !o)}
         disabled={isLoading}
-        className="flex items-center gap-1.5 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-600 text-[11px] font-bold uppercase tracking-wider px-3 py-2 rounded-lg transition-all cursor-pointer disabled:opacity-60 shadow-xs"
+        className="flex items-center gap-1.5 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-600 text-xs font-bold uppercase tracking-wider px-3 py-2 rounded-lg transition-all cursor-pointer disabled:opacity-60 shadow-xs"
       >
         {isLoading
           ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -221,7 +221,7 @@ export default function ExportMenu({
               <>
               {/* ── Current Status ── */}
               <div className="px-3.5 pt-2 pb-1">
-                <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-slate-400">
+                <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-slate-400">
                   <Clock className="w-3 h-3" /> Current Status
                 </div>
               </div>
@@ -234,7 +234,7 @@ export default function ExportMenu({
 
               {/* ── Status Trail ── */}
               <div className="px-3.5 pb-1">
-                <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-slate-400">
+                <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-slate-400">
                   <History className="w-3 h-3" /> Status Trail
                 </div>
               </div>
@@ -252,7 +252,7 @@ export default function ExportMenu({
             </>
           )}
           </div>
-          <div className="mx-3 mt-1 pt-1 border-t border-slate-100 text-[9px] text-slate-400 pb-1">
+          <div className="mx-3 mt-1 pt-1 border-t border-slate-100 text-xs text-slate-400 pb-1">
             {totalCount !== undefined ? totalCount : rows.length} record{(totalCount !== undefined ? totalCount : rows.length) !== 1 ? 's' : ''} will be exported
           </div>
         </div>

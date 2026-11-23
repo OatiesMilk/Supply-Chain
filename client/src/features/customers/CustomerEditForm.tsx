@@ -27,8 +27,8 @@ const LAYOUT: Array<{ field: CustomerEditableField; wide?: boolean; type?: strin
 ];
 
 const inputClass = (invalid: boolean) =>
-  `w-full rounded-lg border px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 ${
-    invalid ? 'border-red-500 focus:border-red-500' : 'border-slate-300 focus:border-[#0078C1]'
+  `w-full rounded-lg border px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 ${
+    invalid ? 'border-red-500 focus:border-red-500' : 'border-slate-300 focus:border-brand-blue'
   }`;
 
 export default function CustomerEditForm({ customer, onCancel, onSaved, onDirtyChange, onReloadLatest }: CustomerEditFormProps) {
@@ -96,7 +96,7 @@ export default function CustomerEditForm({ customer, onCancel, onSaved, onDirtyC
   return (
     <form id={formId} onSubmit={handleSubmit} noValidate className="space-y-5">
       <section aria-labelledby={`${formId}-title`} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h3 id={`${formId}-title`} className="text-sm font-bold text-[#1F3864]">Edit customer details</h3>
+        <h3 id={`${formId}-title`} className="text-sm font-bold text-brand-navy">Edit customer details</h3>
         <p className="mt-0.5 text-xs text-slate-500">Fields marked * are required.</p>
 
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -108,7 +108,7 @@ export default function CustomerEditForm({ customer, onCancel, onSaved, onDirtyC
               <div key={field} className={wide ? 'sm:col-span-2' : undefined}>
                 <label htmlFor={inputId} className="mb-1.5 flex items-center gap-2 text-xs font-bold text-slate-700">
                   {label}{field === 'name' && <span className="text-red-600" aria-hidden="true">*</span>}
-                  {isChanged && <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-[#0078C1]">Edited</span>}
+                  {isChanged && <span className="rounded bg-blue-50 px-1.5 py-0.5 text-xs font-semibold text-brand-blue">Edited</span>}
                 </label>
                 <input
                   ref={el => { fieldRefs.current[field] = el; }}
@@ -217,7 +217,7 @@ export default function CustomerEditForm({ customer, onCancel, onSaved, onDirtyC
           <button
             type="submit"
             disabled={mutation.isPending}
-            className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#1F3864] px-4 text-sm font-semibold text-white hover:bg-[#0078C1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:opacity-60 active:scale-[0.98] transition-[background-color,transform] duration-150"
+            className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-brand-navy px-4 text-sm font-semibold text-white hover:bg-brand-blue focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:opacity-60 active:scale-[0.98] transition-[background-color,transform] duration-150"
           >
             {mutation.isPending && <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />}
             {mutation.isPending ? 'Saving...' : 'Save changes'}

@@ -40,6 +40,7 @@ export const STATUS_TO_DB: Record<string, string> = {
 export const STATUS_FROM_DB: Record<string, string> = {
   DRAFT: 'Draft',
   IN_TRANSIT: 'In Transit',
+  TRANSPORT_COMPLETE: 'Transport Complete',
   SCHEDULED: 'Scheduled',
   ACCOMPLISHED: 'Delivered',
   ON_HOLD: 'On-Hold',
@@ -59,7 +60,8 @@ export function parseDriverAssistants(value: unknown): string[] {
 export function serializeRecord(r: any, user?: AuthUser) {
   const state = r.category === 'DELIVERY' ? deliveryScheduleState(r.deliveryDate) : null;
   const completed = runState(r) === 'Delivered';
-  const completedLate = r.category === 'DELIVERY' && completed && Boolean(r.completedLate);
+  const transportFinished = completed || runState(r) === 'Transport Complete';
+  const completedLate = r.category === 'DELIVERY' && transportFinished && Boolean(r.completedLate);
   const canViewLinked = !user || (
     r.linkedCollection
       ? canReadRecord(user, r.linkedCollection)
@@ -90,8 +92,8 @@ export function serializeRecord(r: any, user?: AuthUser) {
     account_manager: r.accountManager,
     delivery_date: r.deliveryDate,
     ...(state ? {
-      overdue: completed ? completedLate : state.overdue,
-      days_late: completed ? (completedLate ? Number(r.daysLate ?? 0) : 0) : state.daysLate,
+      overdue: transportFinished ? completedLate : state.overdue,
+      days_late: transportFinished ? (completedLate ? Number(r.daysLate ?? 0) : 0) : state.daysLate,
       completed_late: completedLate,
     } : {}),
     category: CATEGORY_FROM_DB[r.category] ?? r.category,
@@ -120,6 +122,10 @@ export function serializeRecord(r: any, user?: AuthUser) {
     collection_verified: r.collectionVerified ?? false,
     collection_verified_by: r.collectionVerifiedBy ?? null,
     collection_verified_at: r.collectionVerifiedAt ?? null,
+    completion_signed_off_by: r.completionSignedOffBy?.name ?? null,
+    completion_signed_off_at: r.completionSignedOffAt ?? null,
+    completion_remarks: r.completionRemarks ?? null,
+    completion_reviewed_photo_id: r.completionReviewedPhotoId ?? null,
     amount: r.amount ?? null,
     linked_collection_id: canViewLinked ? (r.linkedCollectionId ?? null) : null,
     linked_collection: (canViewLinked && r.linkedCollection && !r.linkedCollection.draft) ? {

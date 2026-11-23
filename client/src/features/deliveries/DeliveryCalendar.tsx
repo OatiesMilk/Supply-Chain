@@ -9,37 +9,12 @@ import { useCalendarCountsQuery } from '@/api/queries/useOperationalViews';
 import { useClampRecordPage } from '@/api/queries/useOperationalViews';
 import RecordPageControls from '@/components/RecordPageControls';
 import { recordLabel } from '../../utils/recordLabel';
+import { CALENDAR_LEGEND_STATUSES, statusChipClass, statusDotClass } from '@/utils/statusTheme';
 
 interface Props {
   records: DeliveryRecord[];
   onNavigate: (screen: string, item_id?: string) => void;
 }
-
-// Solid dot color (used only for the small legend/day dots — fine at full saturation
-// since they're tiny). Separate from the chip background below.
-const STATUS_COLOR: Record<string, string> = {
-  Draft: 'bg-slate-400',
-  'In Transit': 'bg-cyan-500',
-  Delivered:   'bg-emerald-500',
-  Scheduled:   'bg-blue-500',
-  Pending:     'bg-amber-500',
-  'On-Hold':   'bg-red-500',
-  Rescheduled: 'bg-purple-500'
-};
-
-// Soft chip background for the per-day event rows. Written as literal
-// Tailwind classes (not `${color}-500 bg-opacity-10`, a Tailwind v3 utility
-// that no longer exists in v4 — it silently did nothing, leaving every chip
-// rendered as a fully solid, saturated block instead of a soft tint).
-const STATUS_CHIP: Record<string, string> = {
-  Draft: 'bg-slate-100 text-slate-700',
-  'In Transit': 'bg-cyan-50 text-cyan-700',
-  Delivered:   'bg-emerald-50 text-emerald-700',
-  Scheduled:   'bg-blue-50 text-blue-700',
-  Pending:     'bg-amber-50 text-amber-700',
-  'On-Hold':   'bg-red-50 text-red-700',
-  Rescheduled: 'bg-purple-50 text-purple-700'
-};
 
 const CATEGORY_SCREEN: Record<string, string> = {
   'Deliveries':            'deliveries',
@@ -85,6 +60,11 @@ export default function DeliveryCalendar({ records, onNavigate }: Props) {
   };
 
 
+  const goToToday = () => {
+    setYear(todayYear);
+    setMonth(todayMonth - 1);
+  };
+
   const monthLabel = new Date(year, month, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
 
   // Total cells (leading blanks + days)
@@ -98,23 +78,34 @@ export default function DeliveryCalendar({ records, onNavigate }: Props) {
       {/* Month Navigation & Legend */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-3">
-          {Object.entries(STATUS_COLOR).map(([s, c]) => (
-            <div key={s} className="flex items-center gap-1.5 text-[10px] font-bold text-slate-600">
-              <span className={`w-2.5 h-2.5 rounded-full ${c}`} /> {s}
+          {CALENDAR_LEGEND_STATUSES.map(({ key, label }) => (
+            <div key={key} className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+              <span className={`w-2.5 h-2.5 rounded-full ${statusDotClass(key)}`} /> {label}
             </div>
           ))}
         </div>
         <div className="flex items-center gap-2">
           <button
+            type="button"
+            onClick={goToToday}
+            className="h-9 px-3 rounded-lg bg-white hover:bg-slate-50 border border-slate-200 text-xs font-medium text-slate-700 transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"
+          >
+            Today
+          </button>
+          <button
+            type="button"
             onClick={prevMonth}
-            className="p-2 rounded-lg hover:bg-slate-100 border border-slate-200 text-slate-600 transition-all cursor-pointer"
+            aria-label="Previous month"
+            className="h-9 w-9 inline-flex items-center justify-center rounded-lg bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
-          <span className="text-sm font-bold text-slate-800 min-w-[160px] text-center">{monthLabel}</span>
+          <span className="text-sm font-semibold text-slate-900 min-w-[150px] text-center">{monthLabel}</span>
           <button
+            type="button"
             onClick={nextMonth}
-            className="p-2 rounded-lg hover:bg-slate-100 border border-slate-200 text-slate-600 transition-all cursor-pointer"
+            aria-label="Next month"
+            className="h-9 w-9 inline-flex items-center justify-center rounded-lg bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
@@ -128,7 +119,7 @@ export default function DeliveryCalendar({ records, onNavigate }: Props) {
         {/* Day-of-week header */}
         <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
           {DOW.map(d => (
-            <div key={d} className="py-2 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">
+            <div key={d} className="py-2 text-center text-xs font-semibold text-slate-600 uppercase tracking-wide">
               {d}
             </div>
           ))}
@@ -153,18 +144,18 @@ export default function DeliveryCalendar({ records, onNavigate }: Props) {
                 onClick={() => { if (dayTotal > 0) { setDayPage(1); setDayPopup({ date: dateStr }); } }}
                 className={`min-h-[80px] p-1.5 transition-colors ${dayTotal > 0 ? 'hover:bg-blue-50 cursor-pointer' : ''} ${isToday ? 'bg-blue-50/60' : ''}`}
               >
-                <div className={`text-[11px] font-bold mb-1 w-5 h-5 flex items-center justify-center rounded-full ${
-                  isToday ? 'bg-[#0078C1] text-white' : 'text-slate-500'
+                <div className={`text-xs font-bold mb-1 w-6 h-6 flex items-center justify-center rounded-full ${
+                  isToday ? 'bg-brand-blue text-white' : 'text-slate-600'
                 }`}>
                   {day}
                 </div>
                 <div className="space-y-0.5">
                   {dayStatuses.slice(0, MAX_SHOW).map(([status, count]) => <div key={status}
-                    className={`flex items-center gap-1 rounded px-1 py-0.5 ${STATUS_CHIP[status] ?? 'bg-slate-100 text-slate-600'}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLOR[status] ?? 'bg-slate-400'}`} />
-                    <span className="text-[9px] font-semibold truncate">{status}: {count}</span>
+                    className={`flex items-center gap-1 rounded px-1 py-0.5 ${statusChipClass(status)}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDotClass(status)}`} />
+                    <span className="text-xs font-medium tabular-nums truncate">{status}: {count}</span>
                   </div>)}
-                  {dayTotal > 0 && <div className="text-[9px] text-slate-500 font-bold pl-1">{dayTotal} records · View all</div>}
+                  {dayTotal > 0 && <div className="text-xs text-slate-500 font-medium tabular-nums pl-1">{dayTotal} records · View all</div>}
 
                 </div>
               </div>
@@ -182,13 +173,13 @@ export default function DeliveryCalendar({ records, onNavigate }: Props) {
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md max-h-[70vh] flex flex-col">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
               <div className="flex items-center gap-2">
-                <Truck className="w-4 h-4 text-[#0078C1]" />
+                <Truck className="w-4 h-4 text-brand-blue" />
                 <span className="font-bold text-slate-900 text-sm">{dayPopup.date}</span>
-                <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-bold">
+                <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-semibold">
                   {dayQuery.data?.total ?? 0} record{dayQuery.data?.total !== 1 ? 's' : ''}
                 </span>
               </div>
-              <button onClick={() => setDayPopup(null)} className="text-slate-400 hover:text-slate-700 p-1 rounded cursor-pointer">
+              <button type="button" onClick={() => setDayPopup(null)} aria-label="Close day summary" className="text-slate-500 hover:text-slate-800 p-1 rounded cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -196,17 +187,18 @@ export default function DeliveryCalendar({ records, onNavigate }: Props) {
               {(dayQuery.data?.rows ?? []).map(r => (
                 <button
                   key={r.id}
+                  type="button"
                   onClick={() => { onNavigate(CATEGORY_SCREEN[r.category] ?? 'deliveries', r.id); setDayPopup(null); }}
-                  className="w-full text-left flex items-start gap-3 px-5 py-3.5 hover:bg-blue-50 transition-colors cursor-pointer"
+                  className="w-full text-left flex items-start gap-3 px-5 py-3.5 hover:bg-blue-50 transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-brand-blue"
                 >
-                  <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${STATUS_COLOR[r.status] ?? 'bg-slate-400'}`} />
+                  <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${statusDotClass(r.status)}`} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-[10px] font-bold text-slate-500">{recordLabel(r)}</span>
-                      <span className="text-[10px] text-slate-400">{r.category}</span>
+                      <span className="tabular-nums text-xs font-semibold text-brand-navy">{recordLabel(r)}</span>
+                      <span className="text-xs text-slate-500">{r.category}</span>
                     </div>
-                    <p className="text-xs font-bold text-slate-800 truncate">{r.company_name}</p>
-                    <p className="text-[10px] text-slate-500">
+                    <p className="text-sm font-semibold text-slate-900 truncate">{r.company_name}</p>
+                    <p className="text-xs text-slate-600 mt-0.5">
                       {r.driver || 'No driver'} · {r.area} · <RecordStatus record={r} />
                     </p>
                   </div>

@@ -28,9 +28,10 @@ test('Sales dashboard counts the complete scoped data set without fetching recor
   const result = await dashboardOverview(db, user);
   assert.equal(result.record_total, 6001); assert.equal(result.status_totals.Delivered, 6001);
   assert.equal(result.counts['sc-attention-all'], 6001);
-  // The only rows read are the bounded in-transit preview.
+  // Both the in-transit and awaiting-signoff previews are bounded.
   const rows = reads.filter(read => read.operation === 'records');
-  assert.equal(rows.length, 1); assert.equal(rows[0].take, 10);
+  assert.equal(rows.length, 2); assert.ok(rows.every(read => read.take === 10));
+  assert.ok(JSON.stringify(rows[1].where).includes('TRANSPORT_COMPLETE'));
   assert.equal(result.counts['sc-in-transit'], 6001); assert.equal(result.record_previews.in_transit.length, 10);
   for (const read of reads) assert.deepEqual(read.where.AND[0], recordScope(user));
   assert.deepEqual(dashboardRecordFilter('sc-scheduled-today', '2026-10-30'), { category: 'DELIVERY', draft: false, status: 'SCHEDULED', timeIn: null, deliveryDate: '2026-10-30' });

@@ -254,21 +254,21 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
   return (
     <div className="space-y-6 max-w-5xl">
       {/* Header */}
-      <div className="bg-gradient-to-r from-[#1F3864] to-[#122B4F] text-white p-6 rounded-xl shadow-md border-l-8 border-l-violet-500">
+      <div className="bg-gradient-to-r from-brand-navy to-brand-navy-dark text-white p-6 rounded-xl shadow-md border-l-8 border-l-violet-500">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-[10px] bg-violet-600 text-white font-extrabold px-2 py-0.5 rounded tracking-widest uppercase">ADMIN TOOL</span>
+              <span className="text-xs bg-violet-600 text-white font-bold px-2 py-0.5 rounded tracking-widest uppercase">ADMIN TOOL</span>
               <span className="text-sm text-slate-200 font-bold tracking-wider uppercase">Data Sampler</span>
             </div>
-            <h1 className="text-2xl font-black tracking-tight">Generate Sample Records</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Generate Sample Records</h1>
             <p className="text-slate-300 text-sm mt-1">
               Populate modules with realistic test data for demos and development. Admin only.
             </p>
           </div>
           {canReset && <button
             onClick={() => { setShowResetModal(true); setResetMode('full'); }}
-            className="flex items-center gap-1.5 px-3 py-2 bg-red-600 hover:bg-red-500 text-white text-[11px] font-bold rounded-lg transition-colors cursor-pointer shrink-0 mt-1"
+            className="flex items-center gap-1.5 px-3 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shrink-0 mt-1"
           >
             <Trash2 className="w-3.5 h-3.5" /> Reset All Data
           </button>}
@@ -279,7 +279,7 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
       <div className="bg-amber-50 border border-amber-300 rounded-lg px-4 py-3 flex items-start gap-3">
         <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
         <div>
-          <p className="text-xs font-black text-amber-800 uppercase tracking-wide">Generates real DB records</p>
+          <p className="text-xs font-bold text-amber-800 uppercase tracking-wide">Generates real DB records</p>
           <p className="text-xs text-amber-700 mt-0.5">
             All generated records are written to the live database, appear in audit logs attributed to <strong>{currentUserName}</strong>, and are fully visible to all roles. Local Admin can reset only an explicitly approved disposable demo database. Hosted staging/production resets are disabled.
           </p>
@@ -313,11 +313,11 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
       {/* Module grid */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-xs font-black text-slate-600 uppercase tracking-wider">Select Module</h2>
+          <h2 className="text-xs font-bold text-slate-600 uppercase tracking-wider">Select Module</h2>
           <button
             onClick={loadCounts}
             disabled={countsLoading}
-            className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-600 font-bold cursor-pointer transition-colors"
+            className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 font-bold cursor-pointer transition-colors"
           >
             <RefreshCw className={`w-3 h-3 ${countsLoading ? 'animate-spin' : ''}`} />
             Refresh counts
@@ -339,8 +339,8 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
                   }`}
                 >
                   <div className="text-xl mb-2">{MODULE_ICONS[m.key] ?? '📋'}</div>
-                  <p className="text-[11px] font-black text-slate-800 leading-tight">{m.label}</p>
-                  <p className="text-[10px] text-slate-500 mt-1 font-bold tabular-nums">
+                  <p className="text-xs font-bold text-slate-800 leading-tight">{m.label}</p>
+                  <p className="text-xs text-slate-500 mt-1 font-bold tabular-nums">
                     {countsLoading ? '…' : `${m.count} record${m.count !== 1 ? 's' : ''}`}
                   </p>
                   {selectedModule === m.key && (
@@ -355,9 +355,9 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
       {/* Action panel */}
       {selectedModule && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
-          <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
             {MODULE_ICONS[selectedModule]} {modules.find(m => m.key === selectedModule)?.label ?? selectedModule}
-            <span className="text-[10px] font-bold text-slate-400 normal-case tracking-normal">
+            <span className="text-xs font-bold text-slate-400 normal-case tracking-normal">
               — {mode === 'random' ? 'Fully Randomized' : 'Manual with Suggestions'}
             </span>
           </h3>
@@ -366,7 +366,7 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
             <div className="space-y-4">
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-2">
-                  Number of records to generate: <span className="text-[#0078C1] font-black">{bulkCount}</span>
+                  Number of records to generate: <span className="text-brand-blue font-bold">{bulkCount}</span>
                 </label>
                 <input
                   type="range"
@@ -374,19 +374,19 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
                   max={50}
                   value={bulkCount}
                   onChange={e => setBulkCount(Number(e.target.value))}
-                  className="w-full accent-[#0078C1] cursor-pointer"
+                  className="w-full accent-brand-blue cursor-pointer"
                 />
-                <div className="flex justify-between text-[9px] text-slate-400 font-bold mt-1">
+                <div className="flex justify-between text-xs text-slate-400 font-bold mt-1">
                   <span>1</span><span>10</span><span>20</span><span>30</span><span>40</span><span>50</span>
                 </div>
               </div>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-xs text-slate-500">
                 Records start Scheduled. Use the delivery workflow to record Time In and complete them with proof of delivery. Dates span the last 30 days to 14 days ahead.
               </p>
               <button
                 onClick={() => handleGenerate(false)}
                 disabled={generating}
-                className="flex items-center gap-2 px-6 py-2.5 bg-[#1F3864] hover:bg-[#0078C1] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                className="flex items-center gap-2 px-6 py-2.5 bg-brand-navy hover:bg-brand-blue text-white text-xs font-bold rounded-lg transition-colors cursor-pointer disabled:opacity-50"
               >
                 {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Shuffle className="w-3.5 h-3.5" />}
                 Generate {bulkCount} Record{bulkCount !== 1 ? 's' : ''}
@@ -397,11 +397,11 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {/* Company */}
                 <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Company</label>
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">Company</label>
                   <select
                     value={manualFields.company_id ?? ''}
                     onChange={e => patch('company_id', e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
                   >
                     {companies.map(c => (
                       <option key={c.id} value={c.id}>{c.name}</option>
@@ -411,21 +411,21 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
 
                 {/* Reference */}
                 <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Reference{isRma ? ' (optional)' : ' *'}</label>
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">Reference{isRma ? ' (optional)' : ' *'}</label>
                   <input
                     type="text"
                     required={!isRma}
                     value={manualFields.reference ?? ''}
                     onChange={e => patch('reference', e.target.value)}
                     placeholder={isRma ? 'Enter document reference (optional)' : undefined}
-                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
                   />
                 </div>
 
                 {isRma && <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Category (optional)</label>
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">Category (optional)</label>
                   <select value={manualFields.rma_type ?? ''} onChange={e => patch('rma_type', e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]">
+                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue">
                     <option value="">— Select —</option>
                     {RMA_CATEGORIES.map(value => <option key={value}>{value}</option>)}
                   </select>
@@ -433,11 +433,11 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
 
                 {/* Status */}
                 <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Status</label>
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">Status</label>
                   <select
                     value={manualFields.status ?? 'Scheduled'}
                     onChange={e => patch('status', e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
                   >
                     {DEFAULT_STATUSES.map(s => <option key={s}>{s}</option>)}
                   </select>
@@ -445,11 +445,11 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
 
                 {/* Priority */}
                 <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Priority</label>
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">Priority</label>
                   <select
                     value={manualFields.priority ?? '2 - Moderate'}
                     onChange={e => patch('priority', e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
                   >
                     {PRIORITIES.map(p => <option key={p}>{p}</option>)}
                   </select>
@@ -457,23 +457,23 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
 
                 {/* Delivery Date */}
                 <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Delivery Date{isRma ? ' (optional)' : ' *'}</label>
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">Delivery Date{isRma ? ' (optional)' : ' *'}</label>
                   <input
                     type="date"
                     required={!isRma}
                     value={manualFields.delivery_date ?? ''}
                     onChange={e => patch('delivery_date', e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
                   />
                 </div>
 
                 {/* Area */}
                 <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Area</label>
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">Area</label>
                   <select
                     value={manualFields.area ?? ''}
                     onChange={e => patch('area', e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
                   >
                     {AREAS.map(a => <option key={a}>{a}</option>)}
                   </select>
@@ -481,11 +481,11 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
 
                 {/* Vehicle */}
                 <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Vehicle</label>
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">Vehicle</label>
                   <select
                     value={manualFields.vehicle ?? '(None)'}
                     onChange={e => patch('vehicle', e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
                   >
                     {VEHICLES.map(v => <option key={v}>{v}</option>)}
                   </select>
@@ -493,11 +493,11 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
 
                 {/* Driver */}
                 <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Driver</label>
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">Driver</label>
                   <select
                     value={manualFields.driver ?? ''}
                     onChange={e => patch('driver', e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
                   >
                     <option value="">(Unassigned)</option>
                     {DRIVERS.map(d => <option key={d}>{d}</option>)}
@@ -506,11 +506,11 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
 
                 {/* Account Manager */}
                 <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Account Manager</label>
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">Account Manager</label>
                   <select
                     value={manualFields.account_manager ?? ''}
                     onChange={e => patch('account_manager', e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
                   >
                     {amNames.map(a => <option key={a}>{a}</option>)}
                   </select>
@@ -518,11 +518,11 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
 
                 {/* Item Type */}
                 <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Item Type</label>
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">Item Type</label>
                   <select
                     value={manualFields.item_type ?? 'Small Item'}
                     onChange={e => patch('item_type', e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
                   >
                     {(isRma ? RMA_ITEM_TYPES : ITEM_TYPES).map(t => <option key={t}>{t}</option>)}
                   </select>
@@ -534,15 +534,15 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
                   ['customer_contact_email', 'Customer Contact Email', 'email'],
                   ['customer_contact_phone', 'Customer Contact Phone', 'tel'],
                 ] as const).map(([field, label, type]) => <div key={field}>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">{label} (optional)</label>
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">{label} (optional)</label>
                   <input type={type} value={manualFields[field] ?? ''} onChange={e => patch(field, e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]" />
+                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue" />
                 </div>)}
 
                 {/* Amount — AC only */}
                 {isAC && (
                   <div>
-                    <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Amount (₱)</label>
+                    <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">Amount (₱)</label>
                     <input
                       type="number"
                       min={5000}
@@ -550,31 +550,31 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
                       step={1000}
                       value={manualFields.amount ?? ''}
                       onChange={e => patch('amount', e.target.value)}
-                      className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                      className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
                     />
                   </div>
                 )}
 
                 {/* Item Description */}
                 <div className={isAC ? '' : 'sm:col-span-2'}>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Item Description</label>
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">Item Description</label>
                   <input
                     type="text"
                     value={manualFields.item_description ?? ''}
                     onChange={e => patch('item_description', e.target.value)}
                     placeholder="Leave blank for auto-generated description"
-                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
                   />
                 </div>
 
                 {/* Remarks */}
                 <div className="sm:col-span-2">
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide block mb-1">Remarks</label>
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">Remarks</label>
                   <input
                     type="text"
                     value={manualFields.remarks ?? ''}
                     onChange={e => patch('remarks', e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
                   />
                 </div>
               </div>
@@ -589,7 +589,7 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
                 <button
                   onClick={() => handleGenerate(false)}
                   disabled={savingManual}
-                  className="flex items-center gap-2 px-4 py-2 bg-[#1F3864] hover:bg-[#0078C1] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 bg-brand-navy hover:bg-brand-blue text-white text-xs font-bold rounded-lg transition-colors cursor-pointer disabled:opacity-50"
                 >
                   {savingManual ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                   Save Record
@@ -651,7 +651,7 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
             {/* Modal header */}
             <div className="bg-red-600 px-6 py-4 flex items-center gap-3">
               <Trash2 className="w-5 h-5 text-white shrink-0" />
-              <h2 className="text-white font-black text-base">Reset All Data</h2>
+              <h2 className="text-white font-bold text-base">Reset All Data</h2>
             </div>
 
             {/* Modal body */}
@@ -672,8 +672,8 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
                     className="mt-0.5 accent-red-600 cursor-pointer"
                   />
                   <div>
-                    <p className="text-xs font-black text-slate-800">Full Reset <span className="text-red-600">(default)</span></p>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Deletes all transactional records. Leaves an empty database. Users, companies, and inventory are preserved.</p>
+                    <p className="text-xs font-bold text-slate-800">Full Reset <span className="text-red-600">(default)</span></p>
+                    <p className="text-xs text-slate-500 mt-0.5">Deletes all transactional records. Leaves an empty database. Users, companies, and inventory are preserved.</p>
                   </div>
                 </label>
 
@@ -687,14 +687,14 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
                     className="mt-0.5 accent-amber-600 cursor-pointer"
                   />
                   <div>
-                    <p className="text-xs font-black text-slate-800">Reset to Seed Data</p>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Wipes everything and re-runs the original seed. Restores all demo records, users, and companies to their initial state. <span className="font-bold text-amber-700">You will be logged out.</span></p>
+                    <p className="text-xs font-bold text-slate-800">Reset to Seed Data</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Wipes everything and re-runs the original seed. Restores all demo records, users, and companies to their initial state. <span className="font-bold text-amber-700">You will be logged out.</span></p>
                   </div>
                 </label>
               </div>
 
               <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                <p className="text-[11px] text-amber-800 font-bold">This cannot be undone.</p>
+                <p className="text-xs text-amber-800 font-bold">This cannot be undone.</p>
               </div>
             </div>
 

@@ -38,7 +38,7 @@ export default function CreateSupplierForm({ onSave, onClose }: { onSave: (data:
         {error && <p role="alert" className="text-red-700">{error}</p>}
         <div className="flex justify-end gap-2 border-t border-slate-200 pt-3">
           <button type="button" disabled={saving} onClick={onClose} className="px-4 py-2 border border-slate-300 rounded-lg disabled:opacity-50">Cancel</button>
-          <button type="submit" disabled={saving || !query.data} className="px-4 py-2 bg-[#1F3864] text-white rounded-lg disabled:opacity-50">{saving ? 'Creating…' : 'Create Supplier'}</button>
+          <button type="submit" disabled={saving || !query.data} className="px-4 py-2 bg-brand-navy text-white rounded-lg disabled:opacity-50">{saving ? 'Creating…' : 'Create Supplier'}</button>
         </div>
       </form>
   </SupplierDialog>;

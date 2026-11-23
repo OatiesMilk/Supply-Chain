@@ -13,7 +13,7 @@ import { useRecordTimeInMutation, usePagedRecordsQuery } from '@/api/queries/use
 import { confirmDisabled } from './driverSheetRules';
 import { useDriverOverviewQuery, useClampRecordPage } from '@/api/queries/useOperationalViews';
 import RecordPageControls from '@/components/RecordPageControls';
-import { deliveryScheduleState, hasValidRunTimeIn, isDashboardRunActionable, isDraftRecord, manilaToday } from '@/utils/recordLifecycle';
+import { deliveryScheduleState, isDashboardRunActionable, isDraftRecord, manilaToday } from '@/utils/recordLifecycle';
 import DoneRecordModal from "./DoneRecordModal";
 import DriverQueueSwitch, { type DriverQueue } from './DriverQueueSwitch';
 import { uploadStagedFiles } from '@/api/queries/usePodAttachments';
@@ -44,7 +44,7 @@ interface DriverDashboardProps {
 const RUN_LIST_ID = 'driver-run-list';
 
 type DriverAction = 'start' | 'complete';
-const ACTION_TITLE: Record<DriverAction, string> = { start: 'Start transport', complete: 'Complete delivery' };
+const ACTION_TITLE: Record<DriverAction, string> = { start: 'Start transport', complete: 'Complete transport' };
 
 function isManilaDate(iso: string | null | undefined, targetDate: string): boolean {
   if (!iso) return false;
@@ -151,14 +151,12 @@ function DriverDashboardContent({
   // non-RMA category keeps overdue and started runs active across Manila midnight.
   const todayRecs = accessibleRecords.filter((r) => r.delivery_date === today);
   const actionableRecs = records.filter(record => isDashboardRunActionable(record, today));
-  const activeRecs = actionableRecs.filter((r) => r.status !== "Delivered");
+  const activeRecs = actionableRecs.filter((r) => !['Delivered', 'Transport Complete'].includes(r.status));
   const activeWorkRecords = [...activeRecs, ...activeRmaRecords]
     .sort((a, b) => a.delivery_date.localeCompare(b.delivery_date));
   const accomplishedRecords = records.filter(r => r.category === 'RMA'
     ? completedRmaIds.has(r.id)
-    : r.status === 'Delivered' && (dashboardCounts ? true : r.category === 'Deliveries'
-      ? r.delivery_date === today || !!r.completed_late || (deliveryScheduleState(r.delivery_date, today).future && hasValidRunTimeIn(r.time_in))
-      : r.delivery_date === today));
+    : ['Delivered', 'Transport Complete'].includes(r.status) && (dashboardCounts ? true : isManilaDate(r.time_out, today)));
   const recordsInScope = activeWorkRecords.length + accomplishedRecords.length;
   // While the first load is in flight there is nothing trustworthy to count.
   const summaryLoading = dataLoading && records.length === 0 && !dashboardCounts;
@@ -214,7 +212,7 @@ function DriverDashboardContent({
   };
 
   return (
-    <div className="min-h-screen bg-[#F8F9FB] font-sans text-slate-800">
+    <div className="min-h-screen bg-surface-canvas font-sans text-slate-800">
       <header className="h-16 border-b border-slate-200 bg-white">
         <div className="mx-auto flex h-full max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <div className="min-w-0">
@@ -232,7 +230,7 @@ function DriverDashboardContent({
         <DashboardPage title="Driver dashboard" subtitle={todayLabel} id="driver-dashboard" onRefresh={refresh} refreshing={refreshing} touchFriendly>
         <KpiStrip label="Driver summary" items={[
           { label: "Today's runs", shortLabel: 'Today', value: summaryLoading ? null : dashboardCounts?.today ?? todayRecs.length },
-          { label: 'Accomplished', shortLabel: 'Done', value: summaryLoading ? null : dashboardCounts ? dashboardCounts.completed + dashboardCounts.rma_completed : accomplishedRecords.length },
+          { label: 'Done today', shortLabel: 'Done', value: summaryLoading ? null : dashboardCounts ? dashboardCounts.completed + dashboardCounts.rma_completed : accomplishedRecords.length },
           { label: 'Remaining', shortLabel: 'Left', value: summaryLoading ? null : dashboardCounts ? dashboardCounts.remaining + dashboardCounts.rma_active : activeWorkRecords.length },
         ]} />
 
@@ -276,7 +274,7 @@ function DriverDashboardContent({
 
         {/* Completed records */}
         {accomplishedRecords.length > 0 && (
-          <DashboardPanel title={`Accomplished (${accomplishedRecords.length})`}>
+          <DashboardPanel title={`Done today (${accomplishedRecords.length})`}>
             <div className="space-y-3">
             {accomplishedRecords.map(rec => {
               const isRma = rec.category === 'RMA';
@@ -284,18 +282,19 @@ function DriverDashboardContent({
               const startedAt = isRma ? rec.rma_transport_started_at : rec.time_in;
               const finishedAt = isRma ? rec.rma_transport_completed_at ?? rec.rma_completed_at : rec.time_out;
               const waitingTass = isRma && rec.status !== 'Delivered';
+              const waitingSales = !isRma && rec.status === 'Transport Complete';
               const completionBadge = waitingTass
                 ? rec.rma_received_at ? 'Awaiting TASS completion' : 'Awaiting TASS receipt'
-                : isRma ? 'RMA complete' : 'Done';
+                : waitingSales ? 'Awaiting Sales verification' : isRma ? 'RMA complete' : 'Complete';
               return <button
                 type="button"
                 key={rec.id}
                 onClick={() => setSelectedDoneRecord(rec)}
-                className="block w-full space-y-1.5 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] cursor-pointer"
+                className="block w-full space-y-1.5 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-navy cursor-pointer"
               >
                 <span className="flex flex-wrap items-center gap-1.5" data-card-badges>
                   <JobTypeBadge category={rec.category} />
-                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">{completionBadge}</span>
+                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800">{completionBadge}</span>
                 </span>
                 <CustomerName name={rec.company_name} />
                 <RecordReference value={recordLabel} />
@@ -317,7 +316,7 @@ function DriverDashboardContent({
                     )}
                     {finishedAt && (
                       <span className="flex items-center gap-1">
-                        <Clock aria-hidden="true" className="h-3 w-3 text-emerald-400" />{isRma && rec.rma_transport_completed_at ? 'Transport complete:' : isRma ? 'RMA complete:' : 'Completed:'} {fmtTime(finishedAt)}
+                      <Clock aria-hidden="true" className="h-3 w-3 text-emerald-400" />{isRma && rec.rma_transport_completed_at ? 'Transport complete:' : isRma ? 'RMA complete:' : waitingSales ? 'Time Out:' : 'Completed:'} {fmtTime(finishedAt)}
                       </span>
                     )}
                   </div>
@@ -335,19 +334,19 @@ function DriverDashboardContent({
 
         {/* Upcoming and other-date records stay visible without execution controls. */}
         {records.filter(
-          (r) => r.category !== 'RMA' && !isDashboardRunActionable(r, today) && r.status !== "Delivered",
+          (r) => r.category !== 'RMA' && !isDashboardRunActionable(r, today) && !['Delivered', 'Transport Complete'].includes(r.status),
         ).length > 0 && (
           <DashboardPanel title="Upcoming and other dates">
             <div className="space-y-3">
             {records
-              .filter((r) => r.category !== 'RMA' && !isDashboardRunActionable(r, today) && r.status !== "Delivered")
+              .filter((r) => r.category !== 'RMA' && !isDashboardRunActionable(r, today) && !['Delivered', 'Transport Complete'].includes(r.status))
               .map((rec) => (
                 <div
                   key={rec.id}
                   className="space-y-1.5 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm"
                 >
                   <div className="flex flex-wrap items-center gap-1.5" data-card-badges>
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-600">
                       {rec.category === 'Deliveries'
                         ? deliveryScheduleState(rec.delivery_date, today).valid ? 'Upcoming · read-only' : 'Delivery Date needed · read-only'
                         : 'Other date · read-only'}
@@ -396,7 +395,7 @@ function DriverDashboardContent({
                 aria-label="Close"
                 disabled={saving}
                 onClick={closeSheet}
-                className="-mr-2 -mt-2 inline-flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] disabled:opacity-50"
+                className="-mr-2 -mt-2 inline-flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-navy disabled:opacity-50"
               >
                 <X aria-hidden="true" className="h-5 w-5" />
               </button>
@@ -419,7 +418,7 @@ function DriverDashboardContent({
                 rows={3}
                 placeholder={startSheet ? 'Add a note…' : 'Enter remarks…'}
                 autoFocus={!startSheet}
-                className="w-full resize-none rounded-xl border border-slate-300 px-3 py-2 text-base focus:border-[#0078C1] focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 sm:text-sm"
+                className="w-full resize-none rounded-xl border border-slate-300 px-3 py-2 text-base focus:border-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/30 sm:text-sm"
               />
             </div>
 
@@ -447,7 +446,7 @@ function DriverDashboardContent({
                     if (action === 'start') await startTransport(rec, remarksInput.trim());
                     else await completeJob(rec, remarksInput.trim());
                     closeSheet();
-                    notify.success(action === 'start' ? 'Transport started' : rec.category === 'RMA' ? 'Transport complete. Waiting for TASS receipt.' : 'Delivery completed');
+                    notify.success(action === 'start' ? 'Transport started' : rec.category === 'RMA' ? 'Transport complete. Waiting for TASS receipt.' : 'Transport complete. Awaiting Sales verification.');
                   } catch (error) {
                     const message = error instanceof Error ? error.message : 'Could not save. Please try again.';
                     setSaveFeedback({ message, type: 'error' });
@@ -456,7 +455,7 @@ function DriverDashboardContent({
                     setSaving(false);
                   }
                 }}
-                className="min-h-11 cursor-pointer rounded-xl bg-[#1F3864] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#0078C1] disabled:cursor-not-allowed disabled:opacity-40"
+                className="min-h-11 cursor-pointer rounded-xl bg-brand-navy px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-blue disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {saving ? "Saving…" : "Confirm"}
               </button>

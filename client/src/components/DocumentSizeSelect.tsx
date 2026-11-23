@@ -13,7 +13,7 @@ export default function DocumentSizeSelect({ value, onChange, disabled, inline }
   if (inline) {
     return (
       <div className="flex items-center gap-2">
-        <label htmlFor={id} className="text-[11px] font-semibold text-slate-600 whitespace-nowrap">
+        <label htmlFor={id} className="text-xs font-semibold text-slate-600 whitespace-nowrap">
           Document size:
         </label>
         <select
@@ -21,7 +21,7 @@ export default function DocumentSizeSelect({ value, onChange, disabled, inline }
           value={value}
           onChange={(e) => onChange(e.target.value as DocumentSize)}
           disabled={disabled}
-          className="border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#1F3864] disabled:opacity-50"
+          className="border border-slate-200 rounded-lg px-2 py-1 text-xs font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-brand-navy disabled:opacity-50"
         >
           <option value="a4">A4</option>
           <option value="letter">Letter</option>

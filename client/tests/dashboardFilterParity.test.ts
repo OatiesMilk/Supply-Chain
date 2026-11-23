@@ -54,7 +54,17 @@ for (const category of ['DELIVERY', 'PROCUREMENT_PICKUP', 'SALES_ORDERS', 'RMA',
   }
 }
 
-for (const id of ['log-transport-requests', 'sc-in-transit', 'tass-rma-in-transit'] as DashboardFilterId[]) {
+for (const id of [
+  'log-transport-requests',
+  'log-assigned-today',
+  'log-on-hold',
+  'log-rescheduled',
+  'log-on-hold-rescheduled',
+  'log-flags',
+  'log-unassigned',
+  'sc-in-transit',
+  'tass-rma-in-transit',
+] as DashboardFilterId[]) {
   test(`client and server select the same records for ${id} (AC15)`, () => {
     const where = dashboardRecordFilter(id, TODAY)!;
     const server = rows.filter(row => matches(row, where)).map(row => row.id);

@@ -36,6 +36,7 @@ model User {
 
   createdRecords         DeliveryRecord[] @relation("CreatedByUser")
   modifiedRecords        DeliveryRecord[] @relation("ModifiedByUser")
+  completionSignoffs     DeliveryRecord[] @relation("CompletionSignedOffByUser")
   auditEntries           AuditLog[]
   productCreated         Product[]        @relation("ProductCreatedBy")
   productModified        Product[]        @relation("ProductModifiedBy")
@@ -322,6 +323,11 @@ model DeliveryRecord {
   collectionVerified   Boolean   @default(false)
   collectionVerifiedBy String?
   collectionVerifiedAt DateTime?
+  completionSignedOffById String?
+  completionSignedOffBy   User?     @relation("CompletionSignedOffByUser", fields: [completionSignedOffById], references: [id], onDelete: SetNull)
+  completionSignedOffAt   DateTime?
+  completionRemarks       String?
+  completionReviewedPhotoId String?
   amount               Float?
 
   createdById  String
@@ -347,6 +353,7 @@ model DeliveryRecord {
   @@index([linkedCollectionId])
   @@index([category, rmaReference])
   @@index([category, rmaMovement, rmaTransportStatus])
+  @@index([category, status, completionSignedOffAt])
 }
 
 // Last record number used per record type and Asia/Manila year.

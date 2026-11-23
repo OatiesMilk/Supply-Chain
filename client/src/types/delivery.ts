@@ -18,7 +18,7 @@ export interface DriverActions {
   start_blocked_reason: string | null;
 }
 
-export type DeliveryStatus = 'Draft' | 'Scheduled' | 'In Transit' | 'Delivered' | 'On-Hold' | 'Rescheduled' | 'Pending';
+export type DeliveryStatus = 'Draft' | 'Scheduled' | 'In Transit' | 'Transport Complete' | 'Delivered' | 'On-Hold' | 'Rescheduled' | 'Pending';
 
 export type RmaMovement = 'LOGISTICS_TRANSPORT' | 'SUPPLIER_COLLECTION' | 'INTERNAL_NO_DRIVER';
 export type RmaTransportStatus = 'PENDING' | 'IN_TRANSIT' | 'COMPLETED';
@@ -111,6 +111,10 @@ export interface DeliveryRecord extends AuditFields {
   collection_verified?: boolean;
   collection_verified_by?: string | null;
   collection_verified_at?: string | null;
+  completion_signed_off_by?: string | null;
+  completion_signed_off_at?: string | null;
+  completion_remarks?: string | null;
+  completion_reviewed_photo_id?: string | null;
   amount?: number | null; // Philippine Peso — required for Accounting Collection, null for others
   address?: string;
   linked_collection_id?: string | null;

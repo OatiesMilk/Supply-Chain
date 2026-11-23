@@ -7,9 +7,9 @@ export const OPEN_RMA_STATUSES = ['SCHEDULED', 'PENDING', 'IN_TRANSIT', 'ON_HOLD
 /** RMA open longer than this many Manila days are "aging" (red on the dashboard). */
 export const RMA_AGING_DAYS = 7;
 
-/** Non-RMA job types a Driver runs. Accounting Collection is not a driver job. */
-export const DRIVER_RUN_CATEGORIES = ['DELIVERY', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'];
-/** Run statuses that keep a driver on the road. On-Hold, Rescheduled and Accomplished do not. */
+/** Non-RMA job types a Driver runs, including Accounting Collection transport. */
+export const DRIVER_RUN_CATEGORIES = ['DELIVERY', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'];
+/** Run statuses that keep a driver on the road. A transport handoff is finished even while Sales review is pending. */
 export const DRIVER_OUT_STATUSES = ['SCHEDULED', 'IN_TRANSIT', 'PENDING'];
 const RMA_NOT_OUT_STATUSES = ['ACCOMPLISHED', 'ON_HOLD', 'RESCHEDULED'];
 
@@ -50,7 +50,7 @@ export function driversWaitingFilter(today = manilaToday()): Prisma.DeliveryReco
  * Logistics has to re-dispatch them. Authorization scope is intersected by the caller. */
 export function transportRequestFilter(): Prisma.DeliveryRecordWhereInput {
   return { draft: false, driverId: null, OR: [
-    { category: { in: DRIVER_RUN_CATEGORIES }, status: { not: 'ACCOMPLISHED' } },
+    { category: { in: DRIVER_RUN_CATEGORIES }, status: { notIn: ['ACCOMPLISHED', 'TRANSPORT_COMPLETE'] } },
     { category: 'RMA', rmaMovement: 'LOGISTICS_TRANSPORT', status: { not: 'ACCOMPLISHED' }, rmaTransportStatus: { not: 'COMPLETED' } },
   ] };
 }
@@ -64,28 +64,54 @@ export function dashboardRecordFilter(id: string, today = manilaToday()): Prisma
   const completed = { draft: false, status: 'ACCOMPLISHED' };
   const timeOut = { gte: date.toISOString(), lt: tomorrow.toISOString() };
   const dueSoon = new Date(`${today}T00:00:00Z`); dueSoon.setUTCDate(dueSoon.getUTCDate() + 2);
-  const unassigned = { driver: '', status: { not: 'ACCOMPLISHED' } };
+  const unassigned = { driver: '', status: { notIn: ['ACCOMPLISHED', 'TRANSPORT_COMPLETE'] } };
   const held = { status: { in: ['ON_HOLD', 'RESCHEDULED'] } };
   const pending: Prisma.DeliveryRecordWhereInput = { OR: [{ status: 'PENDING' }, { status: 'SCHEDULED', timeIn: null }] };
   const due: Prisma.DeliveryRecordWhereInput = { ...unassigned, deliveryDate: { gt: '', lte: dueSoon.toISOString().slice(0, 10) } };
   switch (id) {
     case 'sc-scheduled-today': return { ...delivery, status: 'SCHEDULED', timeIn: null, deliveryDate: today };
-    case 'sc-pending-assignment': case 'log-unassigned': return { ...delivery, ...unassigned };
-    case 'sc-on-hold': case 'log-on-hold': return { ...delivery, status: 'ON_HOLD' };
-    case 'sc-rescheduled': case 'log-rescheduled': return { ...delivery, status: 'RESCHEDULED' };
-    case 'sc-completed-today': return { ...delivery, ...completed, timeOut };
+    case 'sc-pending-assignment': return { ...delivery, ...unassigned };
+    case 'log-unassigned': return transportRequestFilter();
+    case 'sc-on-hold': return { ...delivery, status: 'ON_HOLD' };
+    case 'log-on-hold': return { draft: false, status: 'ON_HOLD' };
+    case 'sc-rescheduled': return { ...delivery, status: 'RESCHEDULED' };
+    case 'log-rescheduled': return { draft: false, status: 'RESCHEDULED' };
+    case 'sc-completed-today': return { ...delivery, ...completed, OR: [
+      { completionSignedOffAt: timeOut }, { completionSignedOffAt: null, timeOut },
+    ] };
     case 'log-completed-today': return { ...completed, OR: [
-      { category: { not: 'RMA' }, timeOut },
+      { category: { not: 'RMA' }, completionSignedOffAt: timeOut },
+      { category: { not: 'RMA' }, completionSignedOffAt: null, timeOut },
       { category: 'RMA', rmaCompletedAt: { gte: date, lt: tomorrow } },
       // RMAs completed before the separate RMA workflow stored final completion as Time Out.
       { category: 'RMA', rmaCompletedAt: null, timeOut },
     ] };
-    case 'log-assigned-today': return { ...delivery, NOT: { driver: '' }, deliveryDate: today, status: { not: 'ACCOMPLISHED' } };
+    case 'sc-awaiting-verification-delivery': return { category: 'DELIVERY', draft: false, status: 'TRANSPORT_COMPLETE' };
+    case 'sc-awaiting-verification-collection': return { category: 'ACCOUNTING_COLLECTION', draft: false, status: 'TRANSPORT_COMPLETE' };
+    case 'sc-awaiting-verification-pickup': return { category: 'PROCUREMENT_PICKUP', draft: false, status: 'TRANSPORT_COMPLETE' };
+    case 'sc-awaiting-verification-sales-order': return { category: 'SALES_ORDERS', draft: false, status: 'TRANSPORT_COMPLETE' };
+    case 'sc-awaiting-verification': return { category: { in: ['DELIVERY', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'] }, draft: false, status: 'TRANSPORT_COMPLETE' };
+    case 'log-assigned-today': return {
+      draft: false,
+      deliveryDate: today,
+      NOT: { driverId: null },
+      OR: [
+        { category: { in: DRIVER_RUN_CATEGORIES }, status: { notIn: ['ACCOMPLISHED', 'TRANSPORT_COMPLETE'] } },
+        { category: 'RMA', rmaMovement: 'LOGISTICS_TRANSPORT', status: { not: 'ACCOMPLISHED' }, rmaTransportStatus: { not: 'COMPLETED' } },
+      ],
+    };
     case 'sc-attention-no-driver': return { ...delivery, ...due };
-    case 'sc-attention-on-hold-rescheduled': case 'log-on-hold-rescheduled': return { ...delivery, ...held };
+    case 'sc-attention-on-hold-rescheduled': return { ...delivery, ...held };
+    case 'log-on-hold-rescheduled': return { draft: false, ...held };
     case 'sc-attention-pending-confirmation': return { ...delivery, ...pending };
     case 'sc-attention-all': return { ...delivery, OR: [due, held, pending] };
-    case 'log-flags': return { ...delivery, OR: [unassigned, held] };
+    case 'log-flags': return {
+      draft: false,
+      OR: [
+        transportRequestFilter(),
+        held,
+      ],
+    };
     case 'log-rma-requests': return { category: 'RMA', draft: false, rmaMovement: 'LOGISTICS_TRANSPORT', status: { not: 'ACCOMPLISHED' }, rmaTransportStatus: { not: 'COMPLETED' } };
     case 'log-transport-requests': return transportRequestFilter();
     case 'sc-in-transit': return { AND: [driversInTransitFilter(today), { category: { in: DRIVER_RUN_CATEGORIES } }] };

@@ -15,16 +15,18 @@ function matches(row: any, where: any): boolean {
     if (key === 'AND') return (Array.isArray(value) ? value : [value]).every(condition => matches(row, condition));
     if (key === 'OR') return value.some((condition: any) => matches(row, condition));
     if (key === 'NOT') return !(Array.isArray(value) ? value : [value]).some(condition => matches(row, condition));
+    const actual = row[key] ?? null;
     if (value && typeof value === 'object' && !(value instanceof Date)) {
-      if ('in' in value) return value.in.includes(row[key]);
-      if ('not' in value && row[key] === value.not) return false;
-      if (row[key] == null && Object.keys(value).some(k => ['gte', 'gt', 'lte', 'lt'].includes(k))) return false;
-      if ('gte' in value && row[key] < value.gte || 'gt' in value && row[key] <= value.gt || 'lte' in value && row[key] > value.lte || 'lt' in value && row[key] >= value.lt) return false;
-      if ('contains' in value) return String(row[key] ?? '').toLowerCase().includes(value.contains.toLowerCase());
+      if ('in' in value) return value.in.includes(actual);
+      if ('notIn' in value) return !value.notIn.includes(actual);
+      if ('not' in value && actual === value.not) return false;
+      if (actual == null && Object.keys(value).some(k => ['gte', 'gt', 'lte', 'lt'].includes(k))) return false;
+      if ('gte' in value && actual < value.gte || 'gt' in value && actual <= value.gt || 'lte' in value && actual > value.lte || 'lt' in value && actual >= value.lt) return false;
+      if ('contains' in value) return String(actual ?? '').toLowerCase().includes(value.contains.toLowerCase());
       if (Object.keys(value).some(k => ['not', 'gte', 'gt', 'lte', 'lt'].includes(k))) return true;
-      return matches(row[key], value);
+      return matches(actual, value);
     }
-    return row[key] === value;
+    return actual === value;
   });
 }
 const row = (index: number, extra = {}) => ({ id: `REC-${index}`, category: 'DELIVERY', status: 'SCHEDULED', draft: false, deletedAt: null,
@@ -204,5 +206,43 @@ test('Driver completed queue includes logistics RMAs finalized today and keeps r
   assert.equal(overview.dashboard.completed, 2, 'Accomplished counts the completed Delivery and TASS-finalized RMA, but not receipt follow-up');
 });
 test('unknown views and oversized calendar requests reject before queries', async t => {
-  const state = await fixture(t, []); for (const path of ['?view=everything', '?queue=active', '/calendar-counts?dateFrom=2026-01-01&dateTo=2026-12-31']) assert.equal((await state.get(path)).status, 400); assert.equal(state.calls.length, 0);
+  const state = await fixture(t, []); for (const path of ['?view=everything', '?queue=active', '?view=dispatch&assignment=invalid', '/calendar-counts?dateFrom=2026-01-01&dateTo=2026-12-31']) assert.equal((await state.get(path)).status, 400); assert.equal(state.calls.length, 0);
+});
+
+test('driver-overview unassigned count matches Logistics dashboard unassigned_count and supports area & assignment filters', async t => {
+  const unassignedRows = Array.from({ length: 28 }, (_, i) => row(i + 1, {
+    driver: i === 0 ? 'Legacy Unlinked Name' : '',
+    driverId: null,
+    area: i < 12 ? 'Makati' : 'Ortigas',
+  }));
+  const assignedRows = Array.from({ length: 7 }, (_, i) => row(100 + i, {
+    driver: 'Driver One',
+    driverId: 'profile-one',
+    area: i < 4 ? 'Makati' : 'Ortigas',
+  }));
+  const completedUnassigned = row(200, { status: 'ACCOMPLISHED', driver: '', driverId: null, area: 'Makati' });
+  const draftUnassigned = row(201, { draft: true, driver: '', driverId: null, area: 'Makati' });
+
+  const state = await fixture(t, [...unassignedRows, ...assignedRows, completedUnassigned, draftUnassigned], 'LOGISTICS', [], true);
+
+  const stats: any = await (await state.getStats()).json();
+  const overview: any = await (await state.get('/driver-overview')).json();
+  assert.equal(stats.unassigned_count, 28);
+  assert.equal(overview.unassigned, 28, 'driver-overview unassigned matches dashboard unassigned_count (including legacy driverId=null)');
+  assert.equal(overview.dispatch_total, 35);
+  assert.equal(overview.drivers.length, 1);
+  assert.equal(overview.drivers[0].active, 7);
+
+  const makatiOverview: any = await (await state.get('/driver-overview?area=Makati')).json();
+  assert.equal(makatiOverview.unassigned, 12);
+  assert.equal(makatiOverview.dispatch_total, 16);
+  assert.deepEqual(makatiOverview.areas, ['Makati', 'Ortigas'], 'area options stay complete across dispatch scope');
+
+  const unassignedPage: any = await (await state.get('?paged=true&view=dispatch&assignment=unassigned&limit=25&page=1')).json();
+  assert.equal(unassignedPage.total, 28);
+  assert.equal(unassignedPage.rows.length, 25);
+
+  const assignedPage: any = await (await state.get('?paged=true&view=dispatch&assignment=assigned&limit=25&page=1')).json();
+  assert.equal(assignedPage.total, 7);
+  assert.equal(assignedPage.rows.length, 7);
 });

@@ -9,8 +9,8 @@ export interface CompletionNotificationResult {
   skipped: number;
 }
 
-// Completion email is an automatic workflow notification. Optional client output
-// preferences govern additional output only; they do not suppress this handoff.
+// Completion email is sent only after the final status commit. Optional client
+// output preferences govern additional output, not this sign-off notification.
 export async function notifyAccomplished(record: {
   id: string;
   companyName: string;

@@ -20,7 +20,7 @@ export default function DriverQueueSwitch({ queue, onChange, counts, controls }:
         const selected = queue === value;
         return <button key={value} type="button" aria-pressed={selected} aria-controls={controls}
           onClick={() => { if (!selected) onChange(value); }}
-          className={`min-h-11 rounded-lg px-3 py-2 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] ${selected ? 'bg-[#1F3864] text-white shadow-sm' : 'text-slate-700 hover:bg-white hover:text-slate-900'}`}>
+          className={`min-h-11 rounded-lg px-3 py-2 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-navy ${selected ? 'bg-brand-navy text-white shadow-sm' : 'text-slate-700 hover:bg-white hover:text-slate-900'}`}>
           {LABELS[value]}{count !== null && <span className={`ml-1 tabular-nums ${selected ? 'text-white/80' : 'text-slate-500'}`}>({count})</span>}
         </button>;
       })}

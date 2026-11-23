@@ -9,7 +9,7 @@ import { ExportColumn, ExportMeta, StatusHistoryCounts, fmtDate, fmtTime, fmtSta
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE, getExcelPageSetup, getPdfFormat, fitColumnWidths } from './documentSize';
 import { recordLabel } from './recordLabel';
 
-const STATUS_ORDER = ['Draft', 'Scheduled', 'In Transit', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'] as const;
+const STATUS_ORDER = ['Draft', 'Scheduled', 'In Transit', 'Transport Complete', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'] as const;
 
 // ─── Sort ────────────────────────────────────────────────────────────────────
 

@@ -64,7 +64,7 @@ test('every job type uses the same card and only the type label differs (not sta
   });
 });
 
-test('started jobs of every type show the POD uploader, Received by and Complete delivery', async () => {
+test('started jobs of every type show the POD uploader, Received by and Complete transport', async () => {
   const started = '2026-11-11T01:00:00.000Z';
   const records = [
     job('d', 'Deliveries', { status: 'In Transit', time_in: started }),
@@ -80,8 +80,8 @@ test('started jobs of every type show the POD uploader, Received by and Complete
     for (const card of cards) {
       assert.match(card.textContent ?? '', /Transport started:/);
       assert.match(card.textContent ?? '', /Received by \*/);
-      const complete = [...card.querySelectorAll('button')].find(node => node.textContent?.trim() === 'Complete delivery') as HTMLButtonElement;
-      assert.ok(complete, 'Complete delivery button');
+      const complete = [...card.querySelectorAll('button')].find(node => node.textContent?.trim() === 'Complete transport') as HTMLButtonElement;
+      assert.ok(complete, 'Complete transport button');
       assert.equal(complete.disabled, true, 'disabled until a photo and Received By are provided');
       assert.ok(card.querySelector('input[type="text"]'), 'Received by input on every type, RMA included');
     }

@@ -93,7 +93,7 @@ export function fmtCurrency(n: number | null | undefined): string {
 
 // ─── CSV Export ───────────────────────────────────────────────────────────────
 
-const STATUS_ORDER = ['Draft', 'Scheduled', 'In Transit', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'] as const;
+const STATUS_ORDER = ['Draft', 'Scheduled', 'In Transit', 'Transport Complete', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'] as const;
 
 export function downloadCSV(
   rows: Record<string, string | number | null | undefined>[],
@@ -169,6 +169,7 @@ const WHITE = 'FFFFFFFF';
 const GRAY_ROW = 'FFF8F9FA';
 
 const STATUS_EXCEL_COLORS: Record<string, string> = {
+  'Transport Complete': 'FF0369A1',
   'Scheduled':   'FF2563EB',
   'Delivered':   'FF059669',
   'Pending':     'FFD97706',

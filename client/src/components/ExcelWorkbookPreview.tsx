@@ -96,7 +96,7 @@ function ExcelSheet({ worksheet, workbook }: { worksheet: any; workbook: any }) 
   return (
     <div className="h-full overflow-auto rounded-lg border border-slate-300 bg-white">
       <div className="relative w-max min-w-full">
-      <table className="border-separate border-spacing-0 text-left text-[11px] text-slate-800" style={{ tableLayout: 'fixed', width: 'max-content', minWidth: '100%' }}>
+      <table className="border-separate border-spacing-0 text-left text-xs text-slate-800" style={{ tableLayout: 'fixed', width: 'max-content', minWidth: '100%' }}>
         <colgroup>{Array.from({ length: columnCount }, (_, index) => {
           return <col key={index} style={{ width: columnWidth(index) }} />;
         })}</colgroup>
@@ -141,7 +141,7 @@ export default function ExcelWorkbookPreview({ blob }: { blob: Blob }) {
   const worksheet = sheets[activeSheet];
   return <div className="flex h-full min-h-0 flex-col gap-2">
     {sheets.length > 1 && <div role="tablist" aria-label="Workbook sheets" className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-200">
-      {sheets.map((sheet: any, index: number) => <button key={sheet.id} type="button" role="tab" aria-selected={activeSheet === index} onClick={() => setActiveSheet(index)} className={`min-h-10 whitespace-nowrap border-b-2 px-3 text-xs font-semibold ${activeSheet === index ? 'border-[#1F3864] text-[#1F3864]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>{sheet.name}</button>)}
+      {sheets.map((sheet: any, index: number) => <button key={sheet.id} type="button" role="tab" aria-selected={activeSheet === index} onClick={() => setActiveSheet(index)} className={`min-h-10 whitespace-nowrap border-b-2 px-3 text-xs font-semibold ${activeSheet === index ? 'border-brand-navy text-brand-navy' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>{sheet.name}</button>)}
     </div>}
     {worksheet ? <ExcelSheet worksheet={worksheet} workbook={state.workbook} /> : <div className="flex h-full items-center justify-center text-sm text-slate-500">No worksheets in this workbook.</div>}
   </div>;

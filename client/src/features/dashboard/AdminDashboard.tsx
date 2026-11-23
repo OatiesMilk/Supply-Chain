@@ -3,7 +3,7 @@ import type { ApiDashboardOverview, ApiDashboardStats } from '@/api';
 import type { DashboardFilterId } from '@/utils/dashboardFilters';
 import { formatManilaTimestamp } from '@/utils/manilaTimestamp';
 import DashboardStatusChart from './DashboardStatusChart';
-import { DashboardPage, DashboardPanel, EmptyState, KpiRow, KpiTile, TileSkeleton } from './ui';
+import { ActionPill, DashboardPage, DashboardPanel, EmptyState, KpiRow, KpiTile, TileSkeleton } from './ui';
 
 type AdminStats = Extract<ApiDashboardStats, { role: 'ADMIN' }>;
 
@@ -30,8 +30,6 @@ const ROLE_LABELS: Record<string, string> = {
   TASS: 'TASS',
   ADMIN: 'Admin',
 };
-
-const linkClass = 'rounded-sm text-sm font-semibold text-[#1F3864] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]';
 
 export default function AdminDashboard({ stats, overview, onNavigate, onRefresh, refreshing, canAccess = () => true }: Props) {
   const open = (screen: string, filter?: DashboardFilterId) => (canAccess(screen) ? () => onNavigate(screen, undefined, filter) : undefined);
@@ -72,7 +70,7 @@ export default function AdminDashboard({ stats, overview, onNavigate, onRefresh,
 
         <div className="lg:col-span-2">
           <DashboardPanel title="Recent system activity"
-            actions={canAccess('admin') ? <button type="button" className={linkClass} onClick={() => onNavigate('admin')}>View full log</button> : undefined}>
+            actions={canAccess('admin') ? <ActionPill label="View full log" arrow="forward" onClick={() => onNavigate('admin')} /> : undefined}>
             {!stats ? <TileSkeleton lines={4} /> : recentAudit.length === 0
               ? <EmptyState title="No activity recorded today" />
               : (
@@ -80,13 +78,13 @@ export default function AdminDashboard({ stats, overview, onNavigate, onRefresh,
                   {recentAudit.map(entry => (
                     <li key={entry.id}>
                       <button type="button" onClick={canAccess('admin') ? () => onNavigate('admin') : undefined} disabled={!canAccess('admin')}
-                        className="flex w-full items-center gap-3 rounded-md px-1 py-2.5 text-left hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864] disabled:cursor-default disabled:hover:bg-transparent">
+                        className="flex w-full items-center gap-3 rounded-md px-1 py-2.5 text-left hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-navy disabled:cursor-default disabled:hover:bg-transparent">
                         <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${ACTION_BADGE[entry.action] ?? 'border-slate-200 bg-slate-50 text-slate-700'}`}>{entry.action}</span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm text-slate-800">
                             <span className="font-semibold">{entry.changed_by}</span>
                             <span className="text-slate-600"> · {entry.record_type} </span>
-                            <span className="font-mono">{entry.record_no ?? `${entry.record_id.slice(0, 12)}${entry.record_id.length > 12 ? '…' : ''}`}</span>
+                            <span className="tabular-nums">{entry.record_no ?? `${entry.record_id.slice(0, 12)}${entry.record_id.length > 12 ? '…' : ''}`}</span>
                           </span>
                           <span className="block text-xs text-slate-600">{formatManilaTimestamp(entry.timestamp)}</span>
                         </span>

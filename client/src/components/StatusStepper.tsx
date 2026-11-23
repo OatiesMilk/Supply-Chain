@@ -1,25 +1,26 @@
 import { CheckCircle2, AlertTriangle, RefreshCw, PauseCircle } from 'lucide-react';
+import { statusBadgeClass } from '@/utils/statusTheme';
 
 interface Props {
   status: string;
 }
 
-const MAIN_STEPS = ['Draft', 'Scheduled', 'In Transit', 'Delivered'];
+const MAIN_STEPS = ['Draft', 'Scheduled', 'In Transit', 'Transport Complete', 'Complete'];
 
 const STEP_STYLE: Record<string, string> = {
   done:    'bg-emerald-500 text-white border-emerald-500',
-  active:  'bg-[#0078C1] text-white border-[#0078C1]',
-  pending: 'bg-white text-slate-300 border-slate-300'
+  active:  'bg-brand-blue text-white border-brand-blue',
+  pending: 'bg-white text-slate-500 border-slate-300'
 };
 
 const SIDE_STATES: Record<string, { icon: typeof AlertTriangle; color: string; label: string }> = {
-  'Pending': { icon: AlertTriangle, color: 'text-amber-700 bg-amber-50 border-amber-200', label: 'Pending' },
-  'On-Hold':     { icon: PauseCircle, color: 'text-red-600 bg-red-50 border-red-200',    label: 'On-Hold'     },
-  'Rescheduled': { icon: RefreshCw,   color: 'text-purple-600 bg-purple-50 border-purple-200', label: 'Rescheduled' }
+  'Pending':     { icon: AlertTriangle, color: statusBadgeClass('Pending'),     label: 'Pending'     },
+  'On-Hold':     { icon: PauseCircle,   color: statusBadgeClass('On-Hold'),     label: 'On-Hold'     },
+  'Rescheduled': { icon: RefreshCw,     color: statusBadgeClass('Rescheduled'), label: 'Rescheduled' }
 };
 
 export default function StatusStepper({ status }: Props) {
-  const mainIdx = MAIN_STEPS.indexOf(status);
+  const mainIdx = MAIN_STEPS.indexOf(status === 'Delivered' ? 'Complete' : status);
   const sideState = SIDE_STATES[status];
 
   return (
@@ -32,9 +33,9 @@ export default function StatusStepper({ status }: Props) {
 
         return (
           <div key={step} className="flex items-center gap-1">
-            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-black transition-all ${style}`}>
+            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold transition-all ${style}`}>
               {isDone
-                ? <CheckCircle2 className="w-3 h-3 shrink-0" />
+                ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                 : isActive
                   ? <span className="w-3 h-3 rounded-full border-2 border-white bg-transparent inline-block" />
                   : <span className="w-3 h-3 rounded-full border border-current inline-block" />
@@ -51,8 +52,8 @@ export default function StatusStepper({ status }: Props) {
       {sideState && (() => {
         const { icon: Icon, color, label } = sideState;
         return (
-          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-black ml-2 ${color}`}>
-            <Icon className="w-3 h-3 shrink-0" /> {label}
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold ml-2 ${color}`}>
+            <Icon className="w-3.5 h-3.5 shrink-0" /> {label}
           </div>
         );
       })()}

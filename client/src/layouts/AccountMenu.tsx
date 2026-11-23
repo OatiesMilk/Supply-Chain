@@ -31,24 +31,24 @@ export default function AccountMenu({ name, email, role, canManageAdmin, onNavig
     useClick(context), useDismiss(context), useRole(context, { role: 'menu' }),
     useListNavigation(context, { listRef: items, activeIndex, onNavigate: setActiveIndex, loop: true }),
   ]);
-  const itemClass = 'flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-blue-700';
+  const itemClass = 'flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-brand-blue';
 
   return <>
     <button
       ref={refs.setReference} {...getReferenceProps()} type="button"
       aria-label="Account menu" title="Account menu" id="account-menu-button"
       aria-haspopup="menu" aria-expanded={open}
-      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#1F3864] text-white transition-colors hover:bg-[#0078C1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 sm:h-8 sm:w-8"
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-navy text-white transition-colors hover:bg-brand-blue cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue sm:h-8 sm:w-8"
     >
       <UserRound className="h-4 w-4" aria-hidden="true" />
     </button>
     {open && <FloatingPortal>
       <FloatingFocusManager context={context} modal={false} returnFocus>
         <div ref={refs.setFloating} style={floatingStyles} {...getFloatingProps()} aria-label="Account"
-          className="z-50 w-64 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 text-slate-700 shadow-xl">
-          <div role="presentation" className="mb-1 border-b border-slate-100 px-3 py-3">
+          className="z-50 w-64 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-slate-200/90 bg-white p-1.5 text-slate-700 shadow-xl">
+          <div role="presentation" className="mb-1 border-b border-slate-100 px-3 py-2.5">
             <p className="break-words text-sm font-semibold text-slate-900">{name}</p>
-            <p className="mt-1 text-xs text-slate-500">{role}</p>
+            <p className="mt-0.5 text-xs font-medium text-slate-500">{role}</p>
           </div>
           <button ref={element => { items.current[0] = element; }} {...getItemProps({ onClick: () => { setOpen(false); setSettingsOpen(true); } })}
             type="button" role="menuitem" tabIndex={activeIndex === 0 ? 0 : -1}
