@@ -9,6 +9,7 @@ import { canReadRecord, readableCategories } from './services/recordAccess';
 import type { AuthUser } from './middleware/auth';
 import { recordEditVersion } from './services/recordEditVersion';
 import { normalizeRmaCategory } from './services/rmaRules';
+import { driverActions } from './services/driverActions';
 
 export const CATEGORY_TO_DB: Record<string, string> = {
   'Sales Orders': 'SALES_ORDERS',
@@ -39,6 +40,7 @@ export const STATUS_TO_DB: Record<string, string> = {
 export const STATUS_FROM_DB: Record<string, string> = {
   DRAFT: 'Draft',
   IN_TRANSIT: 'In Transit',
+  TRANSPORT_COMPLETE: 'Transport Complete',
   SCHEDULED: 'Scheduled',
   ACCOMPLISHED: 'Delivered',
   ON_HOLD: 'On-Hold',
@@ -58,7 +60,8 @@ export function parseDriverAssistants(value: unknown): string[] {
 export function serializeRecord(r: any, user?: AuthUser) {
   const state = r.category === 'DELIVERY' ? deliveryScheduleState(r.deliveryDate) : null;
   const completed = runState(r) === 'Delivered';
-  const completedLate = r.category === 'DELIVERY' && completed && Boolean(r.completedLate);
+  const transportFinished = completed || runState(r) === 'Transport Complete';
+  const completedLate = r.category === 'DELIVERY' && transportFinished && Boolean(r.completedLate);
   const canViewLinked = !user || (
     r.linkedCollection
       ? canReadRecord(user, r.linkedCollection)
@@ -66,6 +69,7 @@ export function serializeRecord(r: any, user?: AuthUser) {
   );
   return {
     id: r.id,
+    record_no: r.recordNo ?? null,
     edit_version: recordEditVersion(r),
     company_name: r.company?.name ?? '',
     company_id: r.companyId,
@@ -76,6 +80,7 @@ export function serializeRecord(r: any, user?: AuthUser) {
     remarks: r.remarks,
     status: runState(r),
     allowed_statuses: allowedStatuses(r),
+    ...(user?.role === 'DRIVER' ? { driver_actions: driverActions(r) } : {}),
     vehicle: r.vehicle,
     area: r.area,
     driver: r.driver,
@@ -87,8 +92,8 @@ export function serializeRecord(r: any, user?: AuthUser) {
     account_manager: r.accountManager,
     delivery_date: r.deliveryDate,
     ...(state ? {
-      overdue: completed ? completedLate : state.overdue,
-      days_late: completed ? (completedLate ? Number(r.daysLate ?? 0) : 0) : state.daysLate,
+      overdue: transportFinished ? completedLate : state.overdue,
+      days_late: transportFinished ? (completedLate ? Number(r.daysLate ?? 0) : 0) : state.daysLate,
       completed_late: completedLate,
     } : {}),
     category: CATEGORY_FROM_DB[r.category] ?? r.category,
@@ -103,6 +108,7 @@ export function serializeRecord(r: any, user?: AuthUser) {
     rma_transport_status: r.rmaTransportStatus ?? null,
     rma_transport_started_at: r.rmaTransportStartedAt ?? null,
     rma_transport_completed_at: r.rmaTransportCompletedAt ?? null,
+    rma_transport_received_by: r.rmaTransportReceivedBy ?? null,
     rma_received_at: r.rmaReceivedAt ?? null,
     rma_received_by: r.rmaReceivedBy ?? null,
     rma_recipient: r.rmaRecipient ?? null,
@@ -116,10 +122,15 @@ export function serializeRecord(r: any, user?: AuthUser) {
     collection_verified: r.collectionVerified ?? false,
     collection_verified_by: r.collectionVerifiedBy ?? null,
     collection_verified_at: r.collectionVerifiedAt ?? null,
+    completion_signed_off_by: r.completionSignedOffBy?.name ?? null,
+    completion_signed_off_at: r.completionSignedOffAt ?? null,
+    completion_remarks: r.completionRemarks ?? null,
+    completion_reviewed_photo_id: r.completionReviewedPhotoId ?? null,
     amount: r.amount ?? null,
     linked_collection_id: canViewLinked ? (r.linkedCollectionId ?? null) : null,
     linked_collection: (canViewLinked && r.linkedCollection && !r.linkedCollection.draft) ? {
       id: r.linkedCollection.id,
+      record_no: r.linkedCollection.recordNo ?? null,
       reference: r.linkedCollection.reference,
       company_name: r.linkedCollection.company?.name ?? '',
       status: STATUS_FROM_DB[r.linkedCollection.status] ?? r.linkedCollection.status,
@@ -128,6 +139,7 @@ export function serializeRecord(r: any, user?: AuthUser) {
     created_by: r.createdBy?.name ?? '',
     created_by_id: r.createdById,
     created_at: r.createdAt,
+    submitted_at: r.submittedAt ?? null,
     modified_by: r.modifiedBy?.name ?? '',
     modified_by_id: r.modifiedById,
     modified_at: r.updatedAt,

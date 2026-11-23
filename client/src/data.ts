@@ -88,16 +88,14 @@ export const VEHICLES = ['(None)', 'Truck-A (6-Wheeler)', 'Truck-B (10-Wheeler)'
 export const PRIORITIES = ['1 - Low', '2 - Moderate', '3 - High'] as const;
 export const ITEM_TYPES = ['Small Item', 'Medium Item', 'Large / Pallet'] as const;
 export const RMA_ITEM_TYPES = ['Small Item', 'Unit'] as const;
-export const DELIVERY_STATUSES = ['Draft', 'Scheduled', 'In Transit', 'Delivered', 'On-Hold', 'Rescheduled', 'Pending'] as const;
+export const DELIVERY_STATUSES = ['Draft', 'Scheduled', 'In Transit', 'Transport Complete', 'Delivered', 'On-Hold', 'Rescheduled', 'Pending'] as const;
 
-// Accounting Collection displays collection-domain vocabulary in its UI while
-// the underlying DeliveryStatus value stays the same shared enum used by
-// Deliveries/RMA/Procurement Pick-up/Sales Orders (Scheduled/Delivered/
-// On-Hold/Rescheduled/Pending) — only the label shown to the user differs
-// for Accounting Collection records. This keeps status transitions, output
-// action triggers, and server-side STATUS_TO_DB mapping untouched.
+// Accounting Collection keeps collection vocabulary for the waiting states;
+// final records use the shared Complete display label while API status remains
+// Delivered.
 export function acStatusLabel(status: string): string {
-  if (status === 'Delivered') return 'Collected';
+  if (status === 'Delivered') return 'Complete';
+  if (status === 'Transport Complete') return 'Transport Complete · Awaiting Sales';
   if (status === 'Pending') return 'Awaiting Collection';
   return status;
 }

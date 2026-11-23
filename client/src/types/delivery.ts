@@ -12,7 +12,13 @@ export type DeliveryCategory =
   | 'Accounting Collection'
   | 'Procurement Pick-up';
 
-export type DeliveryStatus = 'Draft' | 'Scheduled' | 'In Transit' | 'Delivered' | 'On-Hold' | 'Rescheduled' | 'Pending';
+export interface DriverActions {
+  start: boolean;
+  complete: boolean;
+  start_blocked_reason: string | null;
+}
+
+export type DeliveryStatus = 'Draft' | 'Scheduled' | 'In Transit' | 'Transport Complete' | 'Delivered' | 'On-Hold' | 'Rescheduled' | 'Pending';
 
 export type RmaMovement = 'LOGISTICS_TRANSPORT' | 'SUPPLIER_COLLECTION' | 'INTERNAL_NO_DRIVER';
 export type RmaTransportStatus = 'PENDING' | 'IN_TRANSIT' | 'COMPLETED';
@@ -44,7 +50,8 @@ export interface OutputActionLogEntry {
 }
 
 export interface DeliveryRecord extends AuditFields {
-  id: string; // e.g., REC-4001
+  id: string; // internal key used for API calls; never shown to users
+  record_no?: string | null; // short user-facing number, e.g. DEL-26-00042
   edit_version?: string; // Server-issued metadata editor precondition.
   expected_edit_version?: string;
   company_name: string; // display name of the record's Company
@@ -72,6 +79,7 @@ export interface DeliveryRecord extends AuditFields {
   category: DeliveryCategory;
   item_type: ItemType;
   is_draft: 'Yes' | 'No';
+  submitted_at?: string | null; // ISO; when the record last left Draft
   created_by_id?: string;
   modified_by_id?: string;
   deleted_at?: string | null;
@@ -82,6 +90,10 @@ export interface DeliveryRecord extends AuditFields {
   rma_version?: number;
   expected_version?: number; // Mutation precondition; never substitutes for the server version.
   rma_transport_started_at?: string | null;
+  /** Who took the items from the driver when the RMA transport was completed. */
+  rma_transport_received_by?: string | null;
+  /** Server-computed actions for the assigned Driver (only sent to Drivers). */
+  driver_actions?: DriverActions;
   rma_transport_completed_at?: string | null;
   rma_received_at?: string | null;
   rma_received_by?: string | null;
@@ -99,11 +111,16 @@ export interface DeliveryRecord extends AuditFields {
   collection_verified?: boolean;
   collection_verified_by?: string | null;
   collection_verified_at?: string | null;
+  completion_signed_off_by?: string | null;
+  completion_signed_off_at?: string | null;
+  completion_remarks?: string | null;
+  completion_reviewed_photo_id?: string | null;
   amount?: number | null; // Philippine Peso — required for Accounting Collection, null for others
   address?: string;
   linked_collection_id?: string | null;
   linked_collection?: {
     id: string;
+    record_no?: string | null;
     reference: string;
     company_name: string;
     status: string;

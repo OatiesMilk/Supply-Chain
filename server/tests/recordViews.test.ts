@@ -4,6 +4,7 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import { prisma } from '../src/db';
 import { signToken } from '../src/middleware/auth';
+import dashboard from '../src/routes/dashboard';
 import records from '../src/routes/records';
 import { runViewWhere } from '../src/services/recordViewFilters';
 import { manilaDateRange } from '../src/services/dateSemantics';
@@ -14,15 +15,18 @@ function matches(row: any, where: any): boolean {
     if (key === 'AND') return (Array.isArray(value) ? value : [value]).every(condition => matches(row, condition));
     if (key === 'OR') return value.some((condition: any) => matches(row, condition));
     if (key === 'NOT') return !(Array.isArray(value) ? value : [value]).some(condition => matches(row, condition));
+    const actual = row[key] ?? null;
     if (value && typeof value === 'object' && !(value instanceof Date)) {
-      if ('in' in value) return value.in.includes(row[key]);
-      if ('not' in value && row[key] === value.not) return false;
-      if ('gte' in value && row[key] < value.gte || 'gt' in value && row[key] <= value.gt || 'lte' in value && row[key] > value.lte || 'lt' in value && row[key] >= value.lt) return false;
-      if ('contains' in value) return String(row[key] ?? '').toLowerCase().includes(value.contains.toLowerCase());
+      if ('in' in value) return value.in.includes(actual);
+      if ('notIn' in value) return !value.notIn.includes(actual);
+      if ('not' in value && actual === value.not) return false;
+      if (actual == null && Object.keys(value).some(k => ['gte', 'gt', 'lte', 'lt'].includes(k))) return false;
+      if ('gte' in value && actual < value.gte || 'gt' in value && actual <= value.gt || 'lte' in value && actual > value.lte || 'lt' in value && actual >= value.lt) return false;
+      if ('contains' in value) return String(actual ?? '').toLowerCase().includes(value.contains.toLowerCase());
       if (Object.keys(value).some(k => ['not', 'gte', 'gt', 'lte', 'lt'].includes(k))) return true;
-      return matches(row[key], value);
+      return matches(actual, value);
     }
-    return row[key] === value;
+    return actual === value;
   });
 }
 const row = (index: number, extra = {}) => ({ id: `REC-${index}`, category: 'DELIVERY', status: 'SCHEDULED', draft: false, deletedAt: null,
@@ -45,13 +49,56 @@ async function fixture(t: TestContext, source: any[], role = 'ADMIN', permission
     for (const row of source.filter(row => matches(row, args.where))) { const key = JSON.stringify(args.by.map((field: string) => row[field] ?? null)); const group = grouped.get(key) ?? { ...Object.fromEntries(args.by.map((field: string) => [field, row[field] ?? null])), _count: { _all: 0 } }; group._count._all++; grouped.set(key, group); }
     return [...grouped.values()];
   });
-  const app = express(); app.use(express.json(), cookieParser()); app.use('/records', records);
+  const app = express(); app.use(express.json(), cookieParser()); app.use('/records', records); app.use('/dashboard', dashboard);
   app.use((error: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => res.status(500).json({ error: error.message }));
   const server = app.listen(0, '127.0.0.1'); await new Promise<void>(resolve => server.once('listening', resolve));
   t.after(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); while (undo.length) undo.pop()!(); if (mode === undefined) delete process.env.PERMISSION_MODE; else process.env.PERMISSION_MODE = mode; });
   const cookie = `mg_session=${signToken({ id: actor.id, name: actor.name, email: actor.email, role: actor.role as any })}`;
-  return { calls, get: (query: string, authenticated = true) => fetch(`http://127.0.0.1:${(server.address() as any).port}/records${query}`, { headers: authenticated ? { Cookie: cookie } : {} }) };
+  const get = (path: string, authenticated = true) => fetch(`http://127.0.0.1:${(server.address() as any).port}${path}`, { headers: authenticated ? { Cookie: cookie } : {} });
+  return { calls, getStats: () => get('/dashboard/stats'), get: (query: string, authenticated = true) => get(`/records${query}`, authenticated) };
 }
+
+test('Logistics Completed today counts all five completed record categories and matches its list', async t => {
+  const start = new Date('2026-11-12T16:00:00.000Z');
+  const end = new Date('2026-11-13T16:00:00.000Z');
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-13T02:00:00Z').getTime() });
+  const completed = { status: 'ACCOMPLISHED', timeOut: start.toISOString() };
+  const rma = { category: 'RMA', rmaMovement: 'INTERNAL_NO_DRIVER', status: 'ACCOMPLISHED' };
+  const rows = [
+    row(1, completed), // Scheduled on an earlier date, completed at today's Manila midnight.
+    row(2, { ...completed, category: 'PROCUREMENT_PICKUP' }),
+    row(3, { ...completed, category: 'SALES_ORDERS' }),
+    row(4, { ...completed, category: 'ACCOUNTING_COLLECTION', collectionVerified: false }),
+    row(5, { ...rma, rmaCompletedAt: start }),
+    row(6, { ...rma, rmaCompletedAt: null, timeOut: start.toISOString() }), // Legacy RMA finalization.
+    row(7, { ...rma, rmaMovement: 'LOGISTICS_TRANSPORT', status: 'SCHEDULED', rmaTransportStatus: 'COMPLETED', rmaTransportCompletedAt: start }),
+    row(8, { ...completed, timeOut: end.toISOString() }),
+    row(9, { ...rma, rmaCompletedAt: new Date(start.getTime() - 1), timeOut: start.toISOString() }),
+    row(10, { ...completed, draft: true }),
+    row(11, { ...completed, deletedAt: start }),
+    row(12, { ...completed, timeOut: null, deliveryDate: '2026-11-13' }),
+  ];
+  const state = await fixture(t, rows, 'LOGISTICS', [], true);
+  const statsResponse = await state.getStats();
+  assert.equal(statsResponse.status, 200);
+  assert.equal((await statsResponse.json() as any).completed_today, 6);
+  const listResponse = await state.get('?paged=true&dashboard_filter=log-completed-today&limit=25');
+  assert.equal(listResponse.status, 200);
+  const list: any = await listResponse.json();
+  assert.equal(list.total, 6);
+  assert.deepEqual(list.rows.map((record: any) => record.id).sort(), ['REC-1', 'REC-2', 'REC-3', 'REC-4', 'REC-5', 'REC-6']);
+});
+
+test('Logistics Completed today respects an explicit record category denial in both endpoints', async t => {
+  const timeOut = new Date().toISOString();
+  const state = await fixture(t, [
+    row(1, { status: 'ACCOMPLISHED', timeOut }),
+    row(2, { category: 'ACCOUNTING_COLLECTION', status: 'ACCOMPLISHED', timeOut }),
+  ], 'LOGISTICS', [{ screen: 'accounting_collection', granted: false }]);
+  assert.equal((await (await state.getStats()).json() as any).completed_today, 1);
+  const list: any = await (await state.get('?paged=true&dashboard_filter=log-completed-today')).json();
+  assert.deepEqual(list.rows.map((record: any) => record.id), ['REC-1']);
+});
 test('legacy reads are bounded while paginated history reaches beyond 5000 records', async t => {
   const state = await fixture(t, Array.from({ length: 6001 }, (_, i) => row(i)));
   const response = await state.get(''); assert.equal(response.status, 200); assert.equal((await response.json() as any[]).length, 100); assert.equal(state.calls[0].args.take, 100);
@@ -159,5 +206,43 @@ test('Driver completed queue includes logistics RMAs finalized today and keeps r
   assert.equal(overview.dashboard.completed, 2, 'Accomplished counts the completed Delivery and TASS-finalized RMA, but not receipt follow-up');
 });
 test('unknown views and oversized calendar requests reject before queries', async t => {
-  const state = await fixture(t, []); for (const path of ['?view=everything', '?queue=active', '/calendar-counts?dateFrom=2026-01-01&dateTo=2026-12-31']) assert.equal((await state.get(path)).status, 400); assert.equal(state.calls.length, 0);
+  const state = await fixture(t, []); for (const path of ['?view=everything', '?queue=active', '?view=dispatch&assignment=invalid', '/calendar-counts?dateFrom=2026-01-01&dateTo=2026-12-31']) assert.equal((await state.get(path)).status, 400); assert.equal(state.calls.length, 0);
+});
+
+test('driver-overview unassigned count matches Logistics dashboard unassigned_count and supports area & assignment filters', async t => {
+  const unassignedRows = Array.from({ length: 28 }, (_, i) => row(i + 1, {
+    driver: i === 0 ? 'Legacy Unlinked Name' : '',
+    driverId: null,
+    area: i < 12 ? 'Makati' : 'Ortigas',
+  }));
+  const assignedRows = Array.from({ length: 7 }, (_, i) => row(100 + i, {
+    driver: 'Driver One',
+    driverId: 'profile-one',
+    area: i < 4 ? 'Makati' : 'Ortigas',
+  }));
+  const completedUnassigned = row(200, { status: 'ACCOMPLISHED', driver: '', driverId: null, area: 'Makati' });
+  const draftUnassigned = row(201, { draft: true, driver: '', driverId: null, area: 'Makati' });
+
+  const state = await fixture(t, [...unassignedRows, ...assignedRows, completedUnassigned, draftUnassigned], 'LOGISTICS', [], true);
+
+  const stats: any = await (await state.getStats()).json();
+  const overview: any = await (await state.get('/driver-overview')).json();
+  assert.equal(stats.unassigned_count, 28);
+  assert.equal(overview.unassigned, 28, 'driver-overview unassigned matches dashboard unassigned_count (including legacy driverId=null)');
+  assert.equal(overview.dispatch_total, 35);
+  assert.equal(overview.drivers.length, 1);
+  assert.equal(overview.drivers[0].active, 7);
+
+  const makatiOverview: any = await (await state.get('/driver-overview?area=Makati')).json();
+  assert.equal(makatiOverview.unassigned, 12);
+  assert.equal(makatiOverview.dispatch_total, 16);
+  assert.deepEqual(makatiOverview.areas, ['Makati', 'Ortigas'], 'area options stay complete across dispatch scope');
+
+  const unassignedPage: any = await (await state.get('?paged=true&view=dispatch&assignment=unassigned&limit=25&page=1')).json();
+  assert.equal(unassignedPage.total, 28);
+  assert.equal(unassignedPage.rows.length, 25);
+
+  const assignedPage: any = await (await state.get('?paged=true&view=dispatch&assignment=assigned&limit=25&page=1')).json();
+  assert.equal(assignedPage.total, 7);
+  assert.equal(assignedPage.rows.length, 7);
 });

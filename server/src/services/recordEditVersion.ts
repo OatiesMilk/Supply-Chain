@@ -7,7 +7,8 @@ const fields = [
   'remarks', 'vehicle', 'area', 'address', 'driver', 'driverId', 'driverAssistants',
   'timeIn', 'timeOut', 'receivedBy', 'accountManager', 'deliveryDate', 'itemType',
   'itemDescription', 'documentAttachment', 'amount', 'linkedCollectionId',
-  'collectionVerified', 'collectionVerifiedBy', 'collectionVerifiedAt', 'modifiedById',
+  'collectionVerified', 'collectionVerifiedBy', 'collectionVerifiedAt',
+  'completionSignedOffById', 'completionSignedOffAt', 'completionRemarks', 'completionReviewedPhotoId', 'modifiedById',
   'updatedAt', 'deletedAt',
 ] as const;
 export function recordEditVersion(record: Record<string, any>): string {

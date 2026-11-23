@@ -368,10 +368,10 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
   };
 
   const tabClass = (t: Tab) =>
-    `px-5 py-2 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer border-b-2 ${
+    `px-4 py-2.5 text-sm transition-colors cursor-pointer border-b-2 whitespace-nowrap ${
       tab === t
-        ? 'border-[#0078C1] text-[#0078C1]'
-        : 'border-transparent text-slate-500 hover:text-slate-700'
+        ? 'border-brand-navy text-brand-navy font-semibold'
+        : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300 font-medium'
     }`;
 
   return (
@@ -407,10 +407,11 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
       {tab === 'users' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-xs text-slate-500 font-semibold">{visibleUsers.length} {dashboardFilterId === 'admin-active-users' ? 'active account' : 'registered account'}{visibleUsers.length !== 1 ? 's' : ''}</p>
+            <p className="text-xs text-slate-600 font-semibold">{visibleUsers.length} {dashboardFilterId === 'admin-active-users' ? 'active account' : 'registered account'}{visibleUsers.length !== 1 ? 's' : ''}</p>
             <button
+              type="button"
               onClick={() => setShowCreateForm(v => !v)}
-              className="bg-[#1F3864] hover:bg-blue-900 text-white text-[11px] font-bold uppercase tracking-wider px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer"
+              className="bg-brand-navy hover:bg-brand-blue text-white text-xs font-semibold px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"
             >
               <Plus className="w-4 h-4" /> Create User
             </button>
@@ -422,80 +423,80 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
               <h4 className="text-sm font-bold text-slate-800">New User Account</h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="font-bold text-slate-700">Full Name</label>
+                  <label className="font-semibold text-slate-700">Full Name</label>
                   <input
                     type="text" required value={createForm.name}
                     onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
                     placeholder="e.g., Maria Santos"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="font-bold text-slate-700">Email</label>
+                  <label className="font-semibold text-slate-700">Email</label>
                   <input
                     type="email" required value={createForm.email}
                     onChange={e => setCreateForm(f => ({ ...f, email: e.target.value }))}
                     placeholder="user@microgenesis.com"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="font-bold text-slate-700">Password</label>
+                  <label className="font-semibold text-slate-700">Password</label>
                   <input
                     type="password" required value={createForm.password}
                     onChange={e => setCreateForm(f => ({ ...f, password: e.target.value }))}
                     placeholder="••••••••"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="font-bold text-slate-700">Role</label>
+                  <label className="font-semibold text-slate-700">Role</label>
                   <select
                     value={createForm.role}
                     onChange={e => setCreateForm(f => ({ ...f, role: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25 cursor-pointer"
                   >
                     {ROLE_OPTIONS.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1.5 sm:col-span-2">
-                  <label htmlFor="create-microsoft-oid" className="font-bold text-slate-700">Microsoft user Object ID (optional)</label>
+                  <label htmlFor="create-microsoft-oid" className="font-semibold text-slate-700">Microsoft user Object ID (optional)</label>
                   <input
                     id="create-microsoft-oid" type="text" value={createForm.microsoft_oid}
                     onChange={e => setCreateForm(f => ({ ...f, microsoft_oid: e.target.value }))}
                     placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                     aria-describedby="create-microsoft-oid-help"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25"
                   />
-                  <p id="create-microsoft-oid-help" className="text-[11px] text-slate-500">Copy the user's Object ID from their Microsoft Entra profile in the configured tenant. Providing it approves Microsoft sign-in; the email must match their Microsoft email or username. Leave blank for email and password login only.</p>
+                  <p id="create-microsoft-oid-help" className="text-xs text-slate-600">Copy the user's Object ID from their Microsoft Entra profile in the configured tenant. Providing it approves Microsoft sign-in; the email must match their Microsoft email or username. Leave blank for email and password login only.</p>
                 </div>
                 {createForm.role === 'DRIVER' && (
                   <div className="space-y-1.5 sm:col-span-2">
-                    <label htmlFor="create-driver-profile" className="font-bold text-slate-700">Driver profile</label>
+                    <label htmlFor="create-driver-profile" className="font-semibold text-slate-700">Driver profile</label>
                     <select
                       id="create-driver-profile"
                       value={createForm.driver_profile_id}
                       disabled={profilesLoading || !!profilesError}
                       onChange={e => setCreateForm(f => ({ ...f, driver_profile_id: e.target.value }))}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25 cursor-pointer"
                     >
                       <option value="">Create a new profile named after this login</option>
                       {linkableProfiles().map(p => <option key={p.id} value={p.id}>{p.name}{p.is_active ? '' : ' (inactive)'}</option>)}
                     </select>
-                    <p className="text-[11px] text-slate-500">This login sees only runs assigned to the profile it is linked to.</p>
+                    <p className="text-xs text-slate-600">This login sees only runs assigned to the profile it is linked to.</p>
                   </div>
                 )}
               </div>
               {createError && (
-                <p className="text-red-600 text-[11px] font-semibold bg-red-50 border border-red-200 rounded px-3 py-2">{createError}</p>
+                <p className="text-red-700 text-xs font-semibold bg-red-50 border border-red-200 rounded px-3 py-2">{createError}</p>
               )}
               <div className="flex gap-2 justify-end">
                 <button type="button" onClick={() => setShowCreateForm(false)}
-                  className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg text-[11px] uppercase cursor-pointer">
+                  className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-lg text-xs cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">
                   Cancel
                 </button>
                 <button type="submit" disabled={createLoading}
-                  className="px-5 py-2 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg text-[11px] uppercase flex items-center gap-1.5 disabled:opacity-60 cursor-pointer">
+                  className="px-5 py-2 bg-brand-blue hover:bg-brand-navy text-white font-semibold rounded-lg text-xs flex items-center gap-1.5 disabled:opacity-60 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">
                   {createLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                   Create
                 </button>
@@ -515,7 +516,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
             </div>
           )}
           {usersLoading ? (
-            <div className="flex items-center justify-center py-12 text-slate-400">
+            <div className="flex items-center justify-center py-12 text-slate-500">
               <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading users...
             </div>
           ) : (
@@ -523,7 +524,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
               <div className="relative max-w-full overflow-x-auto" role="region" aria-label="User accounts" tabIndex={0}>
               <table className="w-full min-w-[56rem] text-xs text-left border-collapse">
                 <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                  <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase tracking-wide">
                     <th className="px-4 py-3">Name</th>
                     <th className="px-4 py-3">Email</th>
                     <th className="px-4 py-3">Role</th>
@@ -534,33 +535,33 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {visibleUsers.length === 0 ? (
-                    <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">No users found.</td></tr>
+                    <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">No users found.</td></tr>
                   ) : pagedUsers.map(u => (
                       <tr key={u.id} className="hover:bg-slate-50 transition-all">
                         <td className="px-4 py-3">
                           {editingUserId === u.id ? (
                             <input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
-                              className="w-full px-2 py-1 border border-slate-300 rounded text-xs" />
+                              className="w-full px-2 py-1 border border-slate-300 rounded text-xs focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25" />
                           ) : (
-                            <span className="font-bold text-slate-900">{u.name}</span>
+                            <span className="font-semibold text-slate-900">{u.name}</span>
                           )}
                         </td>
                         <td className="px-4 py-3">
                           {editingUserId === u.id ? (
                             <input value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))}
-                              className="w-full px-2 py-1 border border-slate-300 rounded text-[10px] font-mono" />
+                              className="w-full px-2 py-1 border border-slate-300 rounded text-xs tabular-nums focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25" />
                           ) : (
-                            <span className="text-slate-600 font-mono text-[10px]">{u.email}</span>
+                            <span className="text-slate-600 tabular-nums text-xs">{u.email}</span>
                           )}
                         </td>
                         <td className="px-4 py-3">
                           {editingUserId === u.id ? (
                             <select value={editForm.role} onChange={e => setEditForm(f => ({ ...f, role: e.target.value }))}
-                              className="px-2 py-1 border border-slate-300 rounded text-[10px] bg-white">
+                              className="px-2 py-1 border border-slate-300 rounded text-xs bg-white focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25">
                               {ROLE_OPTIONS.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
                             </select>
                           ) : (
-                            <span className="bg-blue-50 text-blue-700 border border-blue-100 text-[10px] px-2 py-0.5 rounded-full font-semibold">
+                            <span className="bg-blue-50 text-blue-700 border border-blue-100 text-xs px-2 py-0.5 rounded-full font-semibold">
                               {ROLE_LABELS[u.role] ?? u.role}
                             </span>
                           )}
@@ -572,7 +573,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                                 value={u.driver_profile?.id ?? ''}
                                 disabled={linkingUserId === u.id || profilesLoading || !!profilesError}
                                 onChange={e => { void handleDriverLink(u, e.target.value); }}
-                                className={`w-full max-w-[12rem] px-2 py-1 border rounded text-[10px] bg-white disabled:opacity-50 ${u.driver_profile ? 'border-slate-300' : 'border-amber-400 bg-amber-50'}`}
+                                className={`w-full max-w-[12rem] px-2 py-1 border rounded text-xs bg-white disabled:opacity-50 ${u.driver_profile ? 'border-slate-300' : 'border-amber-400 bg-amber-50'}`}
                               >
                                 <option value="">No Driver profile</option>
                                 {u.driver_profile && !driverProfiles.some(p => p.id === u.driver_profile!.id) && (
@@ -580,23 +581,23 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                                 )}
                                 {linkableProfiles(u.driver_profile?.id).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                               </select>
-                              {!u.driver_profile && <p className="text-[10px] text-amber-700">Sees no runs until linked.</p>}
+                              {!u.driver_profile && <p className="text-xs text-amber-700">Sees no runs until linked.</p>}
                             </div>
                           )}
                         </td>
                         <td className="px-4 py-3 text-center">
                           {u.microsoft_linked ? (
-                            <span className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 border border-indigo-200 text-[10px] px-2 py-0.5 rounded-full font-semibold">
+                            <span className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs px-2 py-0.5 rounded-full font-semibold">
                               <Link2 className="w-3 h-3" /> Microsoft
                             </span>
                           ) : (
-                            <span className="text-[10px] text-slate-400 font-semibold">Email only</span>
+                            <span className="text-xs text-slate-400 font-semibold">Email only</span>
                           )}
                         </td>
                         <td className="px-4 py-3 text-center">
                           {u.is_active
-                            ? <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] px-2 py-0.5 rounded-full font-semibold">Active</span>
-                            : <span className="bg-slate-100 text-slate-500 border border-slate-200 text-[10px] px-2 py-0.5 rounded-full font-semibold">Deactivated</span>
+                            ? <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs px-2 py-0.5 rounded-full font-semibold">Active</span>
+                            : <span className="bg-slate-100 text-slate-500 border border-slate-200 text-xs px-2 py-0.5 rounded-full font-semibold">Deactivated</span>
                           }
                         </td>
                         <td className="px-4 py-3">
@@ -605,23 +606,23 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                               <>
                                 {metadataConflict && <button onClick={() => void loadLatestEditedAccount()} disabled={editLoading} className="text-xs underline">Load latest account</button>}
                                 <button onClick={() => handleEditSave(u.id)} disabled={editLoading || metadataConflict}
-                                  className="flex items-center gap-1 text-emerald-600 hover:text-emerald-800 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer">
+                                  className="flex items-center gap-1 text-emerald-600 hover:text-emerald-800 font-bold text-xs uppercase tracking-wide disabled:opacity-50 cursor-pointer">
                                   {editLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Save
                                 </button>
                                 <button onClick={() => setEditingUserId(null)}
-                                  className="flex items-center gap-1 text-slate-500 hover:text-slate-700 font-bold text-[10px] uppercase tracking-wide cursor-pointer">
+                                  className="flex items-center gap-1 text-slate-500 hover:text-slate-700 font-bold text-xs uppercase tracking-wide cursor-pointer">
                                   <X className="w-3 h-3" /> Cancel
                                 </button>
                               </>
                             ) : (
                               <AccountActionsMenu label={`Actions for ${u.name}`}>
                                 <button onClick={() => startEdit(u)}
-                                  className="flex items-center gap-1 text-slate-500 hover:text-[#0078C1] font-bold text-[10px] uppercase tracking-wide cursor-pointer">
+                                  className="flex items-center gap-1 text-slate-500 hover:text-brand-blue font-bold text-xs uppercase tracking-wide cursor-pointer">
                                   <Pencil className="w-3 h-3" /> Edit
                                 </button>
                                 <button
                                   onClick={() => { setOpenPermissionsUserId(u.id); setTab('permissions'); }}
-                                  className="flex items-center gap-1 font-bold text-[10px] uppercase tracking-wide cursor-pointer text-slate-500 hover:text-[#0078C1]"
+                                  className="flex items-center gap-1 font-bold text-xs uppercase tracking-wide cursor-pointer text-slate-500 hover:text-brand-blue"
                                 >
                                   <ShieldCheck className="w-3 h-3" /> Access
                                 </button>
@@ -629,7 +630,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                                   <button
                                     onClick={() => requestUserAction('deactivate', u)}
                                     disabled={userActionLoading}
-                                    className="flex items-center gap-1 text-red-600 hover:text-red-800 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer"
+                                    className="flex items-center gap-1 text-red-600 hover:text-red-800 font-bold text-xs uppercase tracking-wide disabled:opacity-50 cursor-pointer"
                                   >
                                     {userActionLoading && userAction?.user.id === u.id && userAction.kind === 'deactivate'
                                       ? <Loader2 className="w-3 h-3 animate-spin" />
@@ -641,7 +642,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                                   <button
                                     onClick={() => requestUserAction('activate', u)}
                                     disabled={userActionLoading}
-                                    className="flex items-center gap-1 text-emerald-600 hover:text-emerald-800 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer"
+                                    className="flex items-center gap-1 text-emerald-600 hover:text-emerald-800 font-bold text-xs uppercase tracking-wide disabled:opacity-50 cursor-pointer"
                                   >
                                     {userActionLoading && userAction?.user.id === u.id && userAction.kind === 'activate'
                                       ? <Loader2 className="w-3 h-3 animate-spin" />
@@ -653,7 +654,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                                 <button
                                   onClick={() => requestUserAction('delete', u)}
                                   disabled={userActionLoading}
-                                  className="flex items-center gap-1 text-red-500 hover:text-red-700 font-bold text-[10px] uppercase tracking-wide disabled:opacity-50 cursor-pointer"
+                                  className="flex items-center gap-1 text-red-500 hover:text-red-700 font-bold text-xs uppercase tracking-wide disabled:opacity-50 cursor-pointer"
                                 >
                                   {userActionLoading && userAction?.user.id === u.id && userAction.kind === 'delete'
                                     ? <Loader2 className="w-3 h-3 animate-spin" />
@@ -749,14 +750,14 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                 <h4 className="text-sm font-bold text-slate-800 mb-3">Environment</h4>
                 <div className="flex flex-wrap gap-4 text-xs text-slate-600">
                   <p><span className="font-semibold text-slate-700">App URL:</span> {integrationStatus.app_url}</p>
-                  <p><span className="font-semibold text-slate-700">NODE_ENV:</span> <span className="font-mono bg-slate-200 px-1.5 py-0.5 rounded">{integrationStatus.node_env}</span></p>
+                  <p><span className="font-semibold text-slate-700">NODE_ENV:</span> <span className="tabular-nums bg-slate-200 px-1.5 py-0.5 rounded">{integrationStatus.node_env}</span></p>
                 </div>
               </div>
 
               {/* Test Email */}
               <div className="bg-white border border-slate-200 rounded-xl p-5">
                 <h4 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
-                  <Send className="w-4 h-4 text-[#0078C1]" /> Send Test Email
+                  <Send className="w-4 h-4 text-brand-blue" /> Send Test Email
                 </h4>
                 <form onSubmit={handleTestEmail} className="flex items-end gap-3">
                   <div className="flex-1 space-y-1">
@@ -765,11 +766,11 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                       type="email" required value={testEmailAddr}
                       onChange={e => setTestEmailAddr(e.target.value)}
                       placeholder="your-email@example.com"
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#0078C1]"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-brand-blue"
                     />
                   </div>
                   <button type="submit" disabled={testEmailLoading}
-                    className="px-5 py-2 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg text-[11px] uppercase flex items-center gap-1.5 disabled:opacity-60 cursor-pointer whitespace-nowrap">
+                    className="px-5 py-2 bg-brand-blue hover:bg-brand-navy text-white font-bold rounded-lg text-xs uppercase flex items-center gap-1.5 disabled:opacity-60 cursor-pointer whitespace-nowrap">
                     {testEmailLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                     Send Test
                   </button>
@@ -822,7 +823,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
             </div>
             <button
               onClick={() => loadAudit(1)}
-              className="px-4 py-2 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold text-[11px] uppercase rounded-lg flex items-center gap-1.5 cursor-pointer"
+              className="px-4 py-2 bg-brand-blue hover:bg-brand-navy text-white font-bold text-xs uppercase rounded-lg flex items-center gap-1.5 cursor-pointer"
             >
               {auditLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
               Apply Filters
@@ -835,10 +836,10 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
 
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
             <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
                 {auditTotal} total entries
               </span>
-              <span className="text-[10px] text-slate-400">Page {auditPage} of {auditPages || 1}</span>
+              <span className="text-xs text-slate-400">Page {auditPage} of {auditPages || 1}</span>
             </div>
 
             {auditLoading ? (
@@ -849,11 +850,11 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
               <div className="overflow-x-auto">
                 <table className="w-full text-xs text-left border-collapse">
                   <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                    <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-400 uppercase tracking-widest">
                       <th className="px-4 py-3">Timestamp</th>
                       <th className="px-4 py-3">User</th>
                       <th className="px-4 py-3 text-center">Action</th>
-                      <th className="px-4 py-3">Record ID</th>
+                      <th className="px-4 py-3">Record</th>
                       <th className="px-4 py-3">Record Type</th>
                     </tr>
                   </thead>
@@ -862,16 +863,16 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                       <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">No audit entries found.</td></tr>
                     ) : auditEntries.map(e => (
                       <tr key={e.id} className="hover:bg-slate-50 transition-all">
-                        <td className="px-4 py-3 font-mono text-[10px] text-slate-500">
+                        <td className="px-4 py-3 tabular-nums text-xs text-slate-500">
                           {new Date(e.timestamp).toLocaleString()}
                         </td>
                         <td className="px-4 py-3 font-semibold text-slate-800">{e.changed_by}</td>
                         <td className="px-4 py-3 text-center">
-                          <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold tracking-wide ${actionBadge(e.action)}`}>
+                          <span className={`px-2 py-0.5 rounded-full border text-xs font-bold tracking-wide ${actionBadge(e.action)}`}>
                             {e.action}
                           </span>
                         </td>
-                        <td className="px-4 py-3 font-mono text-[10px] text-slate-700">{e.record_id}</td>
+                        <td className="px-4 py-3 tabular-nums text-xs text-slate-700">{e.record_no ?? e.record_id}</td>
                         <td className="px-4 py-3 text-slate-600">{e.record_type}<PolicyAuditDiff recordType={e.record_type} previous={e.previous} next={e.next} /><BusinessAuditDiff recordType={e.record_type} previous={e.previous} next={e.next} /></td>
                       </tr>
                     ))}

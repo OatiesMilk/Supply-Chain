@@ -65,16 +65,25 @@ test('SC needs-attention union counts each matching Delivery once and includes o
   assert.equal(matchesDashboardFilter(dueInThreeDays, 'sc-attention-no-driver', '2026-10-06'), false);
 });
 
-test('Logistics Flags union counts unique unassigned and blocked Delivery rows', () => {
-  const unassignedOnHold = record({ status: 'On-Hold' });
-  const assignedRescheduled = record({ id: 'REC-2', status: 'Rescheduled', driver: 'Driver One' });
-  const completedUnassigned = record({ id: 'REC-3', status: 'Delivered', driver: '' });
-  const rmaOnHold = record({ id: 'REC-4', category: 'RMA', status: 'On-Hold' });
+test('Logistics Flags union counts unique unassigned and blocked records across all operation types', () => {
+  const unassignedOnHold = record({ status: 'On-Hold', driver_id: null });
+  const assignedRescheduled = record({ id: 'REC-2', status: 'Rescheduled', driver: 'Driver One', driver_id: 'drv-1' });
+  const completedUnassigned = record({ id: 'REC-3', status: 'Delivered', driver: '', driver_id: null });
+  const rmaOnHold = record({ id: 'REC-4', category: 'RMA', status: 'On-Hold', driver_id: 'drv-2' });
+  const unassignedPickup = record({ id: 'REC-5', category: 'Procurement Pick-up', status: 'Scheduled', driver_id: null });
+  const unassignedCollection = record({ id: 'REC-6', category: 'Accounting Collection', status: 'Scheduled', driver_id: null });
+  const unassignedSalesOrder = record({ id: 'REC-7', category: 'Sales Orders', status: 'Pending', driver_id: null });
 
   assert.deepEqual(
-    filterRecordsForDashboard([unassignedOnHold, assignedRescheduled, completedUnassigned, rmaOnHold], 'log-flags').map(item => item.id),
-    ['REC-1', 'REC-2'],
+    filterRecordsForDashboard(
+      [unassignedOnHold, assignedRescheduled, completedUnassigned, rmaOnHold, unassignedPickup, unassignedCollection, unassignedSalesOrder],
+      'log-flags',
+    ).map(item => item.id),
+    ['REC-1', 'REC-2', 'REC-4', 'REC-5', 'REC-6', 'REC-7'],
   );
+  assert.equal(matchesDashboardFilter(rmaOnHold, 'log-on-hold'), true);
+  assert.equal(matchesDashboardFilter(assignedRescheduled, 'log-rescheduled'), true);
+  assert.equal(matchesDashboardFilter(unassignedPickup, 'log-unassigned'), true);
 });
 
 test('Completed Today uses Manila Time Out day boundaries', () => {
@@ -87,6 +96,56 @@ test('Completed Today uses Manila Time Out day boundaries', () => {
   assert.equal(matchesDashboardFilter(atManilaMidnight, 'log-completed-today', '2026-10-06'), true);
   assert.equal(matchesDashboardFilter(lastMillisecondOfManilaDay, 'sc-completed-today', '2026-10-06'), true);
   assert.equal(matchesDashboardFilter(nextManilaDay, 'log-completed-today', '2026-10-06'), false);
+});
+
+test('finalized run dashboards use Sales sign-off time, with Time Out as the historical fallback', () => {
+  const today = '2026-10-06';
+  const signedOffAtManilaMidnight = record({
+    status: 'Delivered', time_out: '2026-10-05T15:59:59.999Z',
+    completion_signed_off_at: '2026-10-05T16:00:00.000Z',
+  });
+  const signedOffAtNextManilaDay = record({
+    status: 'Delivered', time_out: '2026-10-05T16:00:00.000Z',
+    completion_signed_off_at: '2026-10-06T16:00:00.000Z',
+  });
+  const historical = record({ status: 'Delivered', time_out: '2026-10-06T15:59:59.999Z' });
+
+  assert.equal(matchesDashboardFilter(signedOffAtManilaMidnight, 'sc-completed-today', today), true);
+  assert.equal(matchesDashboardFilter(signedOffAtManilaMidnight, 'log-completed-today', today), true);
+  assert.equal(matchesDashboardFilter(signedOffAtNextManilaDay, 'sc-completed-today', today), false);
+  assert.equal(matchesDashboardFilter(signedOffAtNextManilaDay, 'log-completed-today', today), false);
+  assert.equal(matchesDashboardFilter(historical, 'sc-completed-today', today), true);
+  assert.equal(matchesDashboardFilter(historical, 'log-completed-today', today), true);
+});
+
+test('Sales verification queues include all four transport categories and leave RMA on its existing path', () => {
+  const categories = ['Deliveries', 'Accounting Collection', 'Procurement Pick-up', 'Sales Orders'] as const;
+  for (const category of categories) {
+    const awaiting = record({ category, status: 'Transport Complete' });
+    assert.equal(matchesDashboardFilter(awaiting, 'sc-awaiting-verification'), true, category);
+    assert.equal(matchesDashboardFilter(awaiting, 'sc-awaiting-verification-delivery'), category === 'Deliveries', category);
+    assert.equal(matchesDashboardFilter(awaiting, 'sc-awaiting-verification-collection'), category === 'Accounting Collection', category);
+    assert.equal(matchesDashboardFilter(awaiting, 'sc-awaiting-verification-pickup'), category === 'Procurement Pick-up', category);
+    assert.equal(matchesDashboardFilter(awaiting, 'sc-awaiting-verification-sales-order'), category === 'Sales Orders', category);
+  }
+  assert.equal(matchesDashboardFilter(record({ category: 'RMA', status: 'Transport Complete' }), 'sc-awaiting-verification'), false);
+  assert.equal(matchesDashboardFilter(record({ category: 'Sales Orders', status: 'Delivered' }), 'sc-awaiting-verification'), false);
+});
+
+test('Logistics includes every completed category and uses RMA final completion', () => {
+  const today = '2026-10-06';
+  const now = '2026-10-06T01:00:00.000Z';
+  const yesterday = '2026-10-05T01:00:00.000Z';
+  const ordinary = { status: 'Delivered', time_out: now } as const;
+  for (const category of ['Procurement Pick-up', 'Sales Orders', 'Accounting Collection'] as const) {
+    assert.equal(matchesDashboardFilter(record({ ...ordinary, category }), 'log-completed-today', today), true);
+    assert.equal(matchesDashboardFilter(record({ ...ordinary, category }), 'sc-completed-today', today), false);
+  }
+  const rma = { category: 'RMA', status: 'Delivered' } as const;
+  assert.equal(matchesDashboardFilter(record({ ...rma, rma_completed_at: now }), 'log-completed-today', today), true);
+  assert.equal(matchesDashboardFilter(record({ ...rma, time_out: now }), 'log-completed-today', today), true);
+  assert.equal(matchesDashboardFilter(record({ ...rma, rma_completed_at: yesterday, time_out: now }), 'log-completed-today', today), false);
+  assert.equal(matchesDashboardFilter(record({ ...rma, status: 'Scheduled', rma_transport_status: 'COMPLETED', rma_transport_completed_at: now }), 'log-completed-today', today), false);
 });
 
 test('TASS and Admin collection presets preserve category, lifecycle, and verification predicates', () => {

@@ -1,6 +1,6 @@
 import type { Role } from '../middleware/auth';
 
-export type RunState = 'Draft' | 'Scheduled' | 'In Transit' | 'Delivered' | 'Pending' | 'On-Hold' | 'Rescheduled';
+export type RunState = 'Draft' | 'Scheduled' | 'In Transit' | 'Transport Complete' | 'Delivered' | 'Pending' | 'On-Hold' | 'Rescheduled';
 export const RMA_COMPLETION_ROLE_ERROR = 'Only TASS may confirm receipt or complete an RMA.';
 export interface RunRecord {
   draft?: boolean; status: string; timeIn?: string | null; timeOut?: string | null;
@@ -51,6 +51,7 @@ export const RUN_TRANSITIONS: Record<RunState, readonly RunState[]> = {
   Draft: ['Scheduled'],
   Scheduled: ['On-Hold', 'Rescheduled', 'Draft'],
   'In Transit': ['Delivered', 'Pending', 'On-Hold', 'Rescheduled'],
+  'Transport Complete': [],
   Pending: ['Delivered', 'On-Hold', 'Rescheduled'],
   'On-Hold': ['Scheduled', 'Delivered', 'Pending', 'Rescheduled', 'Draft'],
   Rescheduled: ['Scheduled', 'On-Hold', 'Draft'],
@@ -66,11 +67,12 @@ export const RMA_TRANSITIONS: Record<RunState, readonly RunState[]> = {
   Rescheduled: ['Scheduled', 'On-Hold', 'Draft'],
   // Existing started RMAs can finish without erasing their historical clocks.
   'In Transit': ['Pending', 'On-Hold', 'Rescheduled', 'Delivered'],
+  'Transport Complete': [],
   Delivered: [],
 };
 
 const STATES: Record<string, RunState> = {
-  SCHEDULED: 'Scheduled', IN_TRANSIT: 'In Transit', ACCOMPLISHED: 'Delivered',
+  SCHEDULED: 'Scheduled', IN_TRANSIT: 'In Transit', TRANSPORT_COMPLETE: 'Transport Complete', ACCOMPLISHED: 'Delivered',
   ON_HOLD: 'On-Hold', RESCHEDULED: 'Rescheduled', PENDING: 'Pending',
 };
 export function runState(record: RunRecord): RunState {
@@ -99,6 +101,12 @@ export function transitionError(record: RunRecord, target: RunState, role: Role)
   if (target === 'Draft' && record.timeIn) return 'A started run cannot be returned to Draft.';
   if (!allowedStatuses(record).includes(target)) return `Cannot change ${runState(record)} to ${target}.`;
   return null;
+}
+// Drivers only start transport (Time In / RMA transport) and complete runs. Pending, On-Hold and
+// Reschedule belong to Logistics, whatever the category or permission mode.
+export const DRIVER_STATUS_ERROR = 'Drivers can only start transport or complete a run. Ask Logistics to mark it Pending or Rescheduled.';
+export function driverStatusError(role: Role, target: string): string | null {
+  return role === 'DRIVER' && target !== 'Delivered' ? DRIVER_STATUS_ERROR : null;
 }
 export function timeInError(record: RunRecord): string | null {
   if (record.category === 'RMA') return 'RMA records use status updates instead of delivery Time In.';

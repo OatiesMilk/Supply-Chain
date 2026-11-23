@@ -16,9 +16,9 @@ const CATEGORIES = ['Deliveries', 'RMA', 'Accounting Collection', 'Procurement P
 function SummaryCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{label}</p>
-      <p className="text-2xl font-black text-slate-800">{value}</p>
-      {sub && <p className="text-[11px] text-slate-400 mt-0.5">{sub}</p>}
+      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">{label}</p>
+      <p className="text-2xl font-bold text-slate-800">{value}</p>
+      {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
     </div>
   );
 }
@@ -29,7 +29,7 @@ function BreakdownTable({ title, rows, colA, colB }: { title: string; rows: { la
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
       <div className="px-4 py-3 border-b border-slate-100">
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{title}</p>
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{title}</p>
       </div>
       <div className="divide-y divide-slate-50">
         {rows.map(r => (
@@ -37,12 +37,12 @@ function BreakdownTable({ title, rows, colA, colB }: { title: string; rows: { la
             <span className="text-xs text-slate-700 flex-1 truncate">{r.label}</span>
             <div className="w-24 bg-slate-100 rounded-full h-1.5 shrink-0">
               <div
-                className="bg-[#0078C1] h-1.5 rounded-full"
+                className="bg-brand-blue h-1.5 rounded-full"
                 style={{ width: `${total > 0 ? Math.round((r.count / total) * 100) : 0}%` }}
               />
             </div>
             <span className="text-xs font-bold text-slate-800 w-8 text-right">{r.count}</span>
-            <span className="text-[10px] text-slate-400 w-8 text-right">{total > 0 ? Math.round((r.count / total) * 100) : 0}%</span>
+            <span className="text-xs text-slate-400 w-8 text-right">{total > 0 ? Math.round((r.count / total) * 100) : 0}%</span>
           </div>
         ))}
       </div>
@@ -59,11 +59,11 @@ const REPORT_COLUMNS: ExportColumn[] = [
 function buildReportRows(data: ApiReportSummary): Record<string, string>[] {
   const rows: Record<string, string>[] = [];
   rows.push({ section: 'Summary', label: 'Delivery Date Cohort — Total Records', value: String(data.total) });
-  rows.push({ section: 'Summary', label: 'Delivered in Delivery Date Cohort', value: String(data.accomplished) });
+  rows.push({ section: 'Summary', label: 'Complete in Delivery Date Cohort', value: String(data.accomplished) });
   rows.push({ section: 'Summary', label: 'Completed by Time Out in Range (independent of Status filter)', value: String(data.completed_in_range) });
   rows.push({ section: 'Summary', label: 'On-Hold',          value: String(data.on_hold) });
   rows.push({ section: 'Summary', label: 'Pending',          value: String(data.pending) });
-  rows.push({ section: 'Summary', label: 'Delivered Rate in Delivery Date Cohort', value: `${data.completion_rate}%` });
+  rows.push({ section: 'Summary', label: 'Complete Rate in Delivery Date Cohort', value: `${data.completion_rate}%` });
   data.by_status.forEach(r   => rows.push({ section: 'By Status',   label: r.status,   value: String(r.count) }));
   data.by_category.forEach(r => rows.push({ section: 'By Category', label: r.category, value: String(r.count) }));
   data.by_area.forEach(r     => rows.push({ section: 'By Area',     label: r.area,     value: String(r.count) }));
@@ -160,7 +160,7 @@ function StatReportExportMenu({
       <button
         onClick={() => !isLoading && setOpen(o => !o)}
         disabled={isLoading}
-        className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 text-[11px] font-bold uppercase tracking-wider px-3 py-2 rounded-lg transition-all cursor-pointer disabled:opacity-60 shadow-xs"
+        className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs font-bold uppercase tracking-wider px-3 py-2 rounded-lg transition-all cursor-pointer disabled:opacity-60 shadow-xs"
       >
         {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
         {isLoading ? `Exporting ${loading?.toUpperCase()}…` : 'Export'}
@@ -174,7 +174,7 @@ function StatReportExportMenu({
               <button
                 key={opt.fmt}
                 onClick={() => run(opt.fmt)}
-                className={`w-full flex items-center gap-2.5 px-3.5 py-2 text-[11px] font-bold transition-colors cursor-pointer ${opt.color}`}
+                className={`w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-bold transition-colors cursor-pointer ${opt.color}`}
               >
                 {opt.icon} {opt.label}
               </button>
@@ -224,8 +224,8 @@ export default function StatisticalReportView({ currentUserName = '', currentUse
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
 
-  const inputCls = 'w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] bg-white';
-  const labelCls = 'text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1';
+  const inputCls = 'w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue bg-white';
+  const labelCls = 'text-xs font-bold text-slate-400 uppercase tracking-widest block mb-1';
 
   const handleFetch = async () => {
     setLoading(true);
@@ -257,7 +257,7 @@ export default function StatisticalReportView({ currentUserName = '', currentUse
       {/* Filter bar */}
       <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-sm">
         <div className="flex items-center justify-between mb-3.5 flex-wrap gap-2">
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Filters</p>
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Filters</p>
           {data && (
             <StatReportExportMenu
               data={data}
@@ -312,7 +312,7 @@ export default function StatisticalReportView({ currentUserName = '', currentUse
           <button
             onClick={handleFetch}
             disabled={loading}
-            className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-[#0078C1] hover:bg-[#1F3864] rounded-lg transition-colors cursor-pointer disabled:opacity-60"
+            className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-brand-blue hover:bg-brand-navy rounded-lg transition-colors cursor-pointer disabled:opacity-60"
           >
             {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BarChart2 className="w-3.5 h-3.5" />}
             {loading ? 'Loading…' : 'Generate Report'}
@@ -337,7 +337,7 @@ export default function StatisticalReportView({ currentUserName = '', currentUse
           {/* Summary cards */}
           <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4">
             <SummaryCard label="Delivery Date Cohort" value={data.total} sub="Records scheduled in range" />
-            <SummaryCard label="Delivered in Cohort" value={data.accomplished} sub="Current Delivered status" />
+            <SummaryCard label="Complete in Cohort" value={data.accomplished} sub="Final Complete status" />
             <SummaryCard
               label="Completed by Time Out"
               value={data.completed_in_range}
@@ -345,7 +345,7 @@ export default function StatisticalReportView({ currentUserName = '', currentUse
             />
             <SummaryCard label="On-Hold"           value={data.on_hold}     />
             <SummaryCard label="Pending"           value={data.pending}   />
-            <SummaryCard label="Delivered Rate" value={`${data.completion_rate}%`} sub="Within Delivery Date cohort" />
+            <SummaryCard label="Complete Rate" value={`${data.completion_rate}%`} sub="Within Delivery Date cohort" />
           </div>
 
           {/* Breakdown tables */}

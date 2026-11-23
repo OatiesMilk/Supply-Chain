@@ -28,18 +28,19 @@ async function invoke(router: any, method: string, path: string, role: string, b
   return { status, body: response };
 }
 
-test('existing Draft submission refuses Logistics without writes and permits Sales/Admin', async () => {
+test('existing Draft submission refuses Logistics and Admin without writes and permits Sales', async () => {
   const update = mock.fn(async ({ data }: any) => ({ ...row, ...data }));
   const audit = mock.fn(async () => ({}));
   stub(prisma.user, 'findMany', async () => []);
   stub(prisma, '$transaction', async (fn: any) => fn({ user: { findMany: async () => [] }, $queryRaw: async () => [], deliveryRecord: { findUnique: async () => row, update }, auditLog: { create: audit }, remarkLog: { create: async () => ({}) } }));
   const denied = await invoke(records, 'patch', '/:id/status', 'LOGISTICS', { status: 'Scheduled', remarks: 'Submit' });
   assert.equal(denied.status, 403); assert.equal(update.mock.callCount(), 0); assert.equal(audit.mock.callCount(), 0);
-  for (const role of ['SALES_COORDINATOR', 'ADMIN']) {
-    const result = await invoke(records, 'patch', '/:id/status', role, { status: 'Scheduled', remarks: 'Submit' });
-    assert.equal(result.status, 200); assert.equal(result.body.is_draft, 'No');
-  }
-  assert.equal(update.mock.callCount(), 2);
+  const submitted = await invoke(records, 'patch', '/:id/status', 'SALES_COORDINATOR', { status: 'Scheduled', remarks: 'Submit' });
+  assert.equal(submitted.status, 200); assert.equal(submitted.body.is_draft, 'No');
+  // Admin is view-only on Deliveries.
+  const admin = await invoke(records, 'patch', '/:id/status', 'ADMIN', { status: 'Scheduled', remarks: 'Submit' });
+  assert.equal(admin.status, 403);
+  assert.equal(update.mock.callCount(), 1);
 });
 
 test('record deletion is forbidden for every role without record or audit mutation', async () => {
@@ -92,10 +93,9 @@ test('editing a record to an unknown company is a 400 without writes, including 
     deliveryRecord: { findUnique: async () => row, update }, company: { findUnique: async () => companyExists ? { id: 'missing-company', isActive: true } : null },
     auditLog: { create: audit }, remarkLog: { create: async () => ({}) }, driver: { findMany: async () => [] },
   }));
-  for (const role of ['SALES_COORDINATOR', 'ADMIN']) {
-    const result = await invoke(records, 'put', '/:id', role, editBody);
-    assert.equal(result.status, 400); assert.equal(result.body.error, 'Select an existing Company.');
-  }
+  const result = await invoke(records, 'put', '/:id', 'SALES_COORDINATOR', editBody);
+  assert.equal(result.status, 400); assert.equal(result.body.error, 'Select an existing Company.');
+  assert.equal((await invoke(records, 'put', '/:id', 'ADMIN', editBody)).status, 403, 'Admin is view-only on Deliveries');
   assert.equal(update.mock.callCount(), 0); assert.equal(audit.mock.callCount(), 0);
   assert.equal((await invoke(records, 'put', '/:id', 'SALES_COORDINATOR', { ...editBody, company_id: '' })).status, 400);
   // The company exists at lookup time but is gone by the write: the rolled-back FK failure is still a 400.

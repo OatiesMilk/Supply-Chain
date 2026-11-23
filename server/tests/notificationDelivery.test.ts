@@ -132,7 +132,8 @@ async function endpoint(t: TestContext) {
 }
 
 test('email endpoint reports real, mocked, failed and skipped outcomes and deduplicates destinations', async t => {
-  const state = fixture(t); state.setRecord(record({ category: 'DELIVERY' }));
+  // Admin keeps write access on Accounting Collection; it is view-only on Deliveries.
+  const state = fixture(t); state.setRecord(record({ category: 'ACCOUNTING_COLLECTION' }));
   const post = await endpoint(t);
   state.setUsers([account('actor', 'ADMIN'), account('am', 'LOGISTICS')]);
   state.setResult('mock');

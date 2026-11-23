@@ -21,6 +21,8 @@
     "lint": "tsc --noEmit",
     "db:reset": "prisma migrate reset --force",
     "seed:accounts": "tsx prisma/seed-accounts-only.ts",
+    "records:submitted-at-dry-run": "tsx prisma/dry-run-submitted-at-backfill.ts",
+    "records:record-no-dry-run": "tsx prisma/dry-run-record-no-backfill.ts",
     "suppliers:category-report": "tsx prisma/report-supplier-categories.ts",
     "pod:reconcile": "tsx prisma/reconcile-pod-files.ts",
     "drivers:import": "tsx prisma/import-historical-drivers.ts",
@@ -30,6 +32,7 @@
     "permissions:backfill": "tsx prisma/backfill-permissions.ts",
     "permissions:provision-local": "tsx prisma/provision-local-permissions.ts",
     "permissions:activate-rma-dispatch": "tsx prisma/activate-rma-dispatch.ts",
+    "permissions:activate-rma-logistics-transport": "tsx prisma/activate-rma-logistics-transport.ts",
     "permissions:rehearse": "tsx prisma/rehearse-permissions.ts",
     "permissions:provision-staging": "tsx prisma/provision-staging-permissions.ts"
   },

@@ -27,7 +27,10 @@ async function fixture(t: TestContext, mode: 'LEGACY' | 'V1') {
   for (const key of envKeys) delete process.env[key];
   process.env.PERMISSION_MODE = mode;
   const accounts = USERS.map(seed => ({ ...seed, id: `seed-${seed.role}`, password: bcrypt.hashSync(seed.password, 4),
-    authorizationRevision: 1n, permissions: [], permissionOverrides: [], permissionConversion: { catalogVersion: 1 },
+    authorizationRevision: 1n, permissions: [], permissionOverrides: seed.role === 'SALES_COORDINATOR'
+      ? ['DELIVERY', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'].map(category => ({
+        userId: `seed-${seed.role}`, permissionKey: `CATEGORY:${category}:RECEIVE`, effect: 'ALLOW',
+      })) : [], permissionConversion: { catalogVersion: 1 },
     driverProfile: seed.role === 'DRIVER' ? { id: 'seed-driver-profile', name: seed.name, type: 'DRIVER', isActive: true } : null,
   }));
   const account = (role: PolicyRole) => accounts.find(user => user.id === `seed-${role}`)!;
@@ -57,15 +60,19 @@ async function fixture(t: TestContext, mode: 'LEGACY' | 'V1') {
   stub(prisma, '$executeRaw', async () => 1);
   const hydrate = (row: any) => row ? structuredClone({ ...row, company: { id: 'seed-company', name: 'Seed Workflow Company' },
     createdBy: accounts.find(user => user.id === row.createdById), modifiedBy: accounts.find(user => user.id === row.modifiedById),
+    completionSignedOffBy: accounts.find(user => user.id === row.completionSignedOffById) ?? null,
     podAttachments: files.filter(file => file.recordId === row.id), lineItems: [],
   }) : null;
   const matching = (where: any) => [...rows.values()].filter(row => matchesRecordWhere(row, where));
   stub(prisma.user, 'findUnique', async ({ where }: any) => structuredClone(accounts.find(user => where.id ? user.id === where.id : user.email === where.email) ?? null));
   stub(prisma.user, 'findMany', async ({ where = {} }: any = {}) => structuredClone(accounts.filter(user =>
-    (where.role === undefined || user.role === where.role) && (where.isActive === undefined || user.isActive === where.isActive)
+    (where.role === undefined || user.role === where.role || where.role?.in?.includes(user.role)) && (where.isActive === undefined || user.isActive === where.isActive)
     && (!where.name || user.name.toLowerCase() === String(where.name.equals).toLowerCase()))));
   stub(prisma.rolePolicy, 'findUnique', async ({ where }: any) => ({ role: where.role, revision: 1n, catalogVersion: 1,
     permissions: [...defaultRolePermissions(where.role)].map(([permissionKey, effect]) => ({ permissionKey, effect })) }));
+  stub(prisma.rolePolicy, 'findMany', async ({ where }: any) => (where.role?.in ?? [where.role]).map((role: PolicyRole) => ({
+    role, revision: 1n, catalogVersion: 1, permissions: [...defaultRolePermissions(role)].map(([permissionKey, effect]) => ({ permissionKey, effect })),
+  })));
   stub(prisma.company, 'findUnique', async ({ where }: any) => where.id === 'seed-company' ? { id: 'seed-company', isActive: true } : null);
   // 'Seed AM' is an active, unlinked directory entry; AM mail keeps the exact-name rule.
   stub(prisma.accountManager, 'findMany', async ({ where }: any) => where?.normalizedName === 'seed am' ? [{ name: 'Seed AM' }] : []);
@@ -80,7 +87,9 @@ async function fixture(t: TestContext, mode: 'LEGACY' | 'V1') {
   });
   stub(prisma.deliveryRecord, 'update', async ({ where, data }: any) => {
     const previous = rows.get(where.id);
-    const row = { ...previous, ...data, ...(data.rmaVersion?.increment ? { rmaVersion: previous.rmaVersion + data.rmaVersion.increment } : {}), updatedAt: new Date() };
+    const row = { ...previous, ...data,
+      ...(data.completionSignedOffBy?.connect?.id ? { completionSignedOffById: data.completionSignedOffBy.connect.id } : {}),
+      ...(data.rmaVersion?.increment ? { rmaVersion: previous.rmaVersion + data.rmaVersion.increment } : {}), updatedAt: new Date() };
     rows.set(row.id, row); return hydrate(row);
   });
   stub(prisma.deliveryRecord, 'updateMany', async ({ where, data }: any) => {
@@ -171,9 +180,14 @@ for (const mode of ['LEGACY', 'V1'] as const) {
     assert.equal(f.files.find(file => file.id === proof.id).uploadedById, f.account('DRIVER').id);
     const download = await f.send('DRIVER', `/records/${id}/attachments/${proof.id}/download`);
     assert.equal(download.status, 200); assert.deepEqual(Buffer.from(await download.arrayBuffer()), photo);
-    const completed = await f.expect(f.send('DRIVER', `/records/${id}/status`, 'PATCH', completion), 200);
-    assert.equal(completed.status, 'Delivered'); assert.ok(completed.time_in); assert.ok(completed.time_out);
-    assert.equal((await f.expect(f.send('SALES_COORDINATOR', `/records/${id}`), 200)).received_by, 'Seed Recipient');
+    const handedOff = await f.expect(f.send('DRIVER', `/records/${id}/status`, 'PATCH', completion), 200);
+    assert.equal(handedOff.status, 'Transport Complete'); assert.ok(handedOff.time_in); assert.ok(handedOff.time_out);
+    const completed = await f.expect(f.send('SALES_COORDINATOR', `/records/${id}/complete`, 'PATCH', {
+      remarks: 'Reviewed the saved transport proof.', reviewed_photo_id: proof.id, expected_edit_version: handedOff.edit_version,
+    }), 200);
+    assert.equal(completed.status, 'Delivered'); assert.equal(completed.completion_reviewed_photo_id, proof.id);
+    const signedOff = await f.expect(f.send('SALES_COORDINATOR', `/records/${id}`), 200);
+    assert.equal(signedOff.received_by, 'Seed Recipient'); assert.equal(signedOff.completion_signed_off_by, f.account('SALES_COORDINATOR').name);
     assert.equal(f.mailLogs.at(-1).status, 'SKIPPED', 'No recipient mapping is not email delivery');
     assert.deepEqual(new Set(f.audits.filter(audit => audit.recordId === id).map(audit => audit.changedById)),
       new Set(['SALES_COORDINATOR', 'LOGISTICS', 'DRIVER'].map(role => f.account(role as PolicyRole).id)));
@@ -182,8 +196,15 @@ for (const mode of ['LEGACY', 'V1'] as const) {
     await f.expect(f.send('TASS', `/records/${collection.id}/verify-collection`, 'PATCH', {}), 400);
     await f.expect(f.send('LOGISTICS', `/records/${collection.id}`, 'PUT', { driver_id: 'seed-driver-profile', remarks: 'Dispatch collection', expected_edit_version: collection.edit_version }), 200);
     await f.expect(f.send('DRIVER', `/records/${collection.id}/time-in`, 'POST', { remarks: 'Arrived for collection' }), 200);
-    await f.expect(f.upload(collection.id), 201);
-    await f.expect(f.send('DRIVER', `/records/${collection.id}/status`, 'PATCH', completion), 200);
+    const collectionProof = await f.expect(f.upload(collection.id), 201);
+    const collectionHandoff = await f.expect(f.send('DRIVER', `/records/${collection.id}/status`, 'PATCH', completion), 200);
+    assert.equal(collectionHandoff.status, 'Transport Complete');
+    await f.expect(f.send('TASS', `/records/${collection.id}/verify-collection`, 'PATCH', {}), 400);
+    const collectionSignoff = await f.expect(f.send('SALES_COORDINATOR', `/records/${collection.id}/complete`, 'PATCH', {
+      remarks: 'Reviewed the collected payment proof.', reviewed_photo_id: collectionProof.id, expected_edit_version: collectionHandoff.edit_version,
+    }), 200);
+    assert.equal(collectionSignoff.status, 'Delivered');
+    assert.equal(collectionSignoff.collection_verified, false, 'Sales sign-off does not replace TASS verification');
     assert.ok(f.notices.some(notice => notice.userId === f.account('TASS').id && notice.recordId === collection.id && notice.title === 'Collection ready for verification'));
     const beforeVerification = structuredClone(f.rows.get(collection.id));
     await f.expect(f.send('ADMIN', `/records/${collection.id}/verify-collection`, 'PATCH', {}), 403);
@@ -226,7 +247,9 @@ for (const mode of ['LEGACY', 'V1'] as const) {
     f.account('SALES_COORDINATOR').isActive = false;
     await f.expect(f.send('SALES_COORDINATOR', '/auth/me'), 401);
 
-    const delivery = await f.expect(f.send('LOGISTICS', '/records', 'POST', { category: 'Sales Orders', company_id: 'seed-company',
+    // Logistics may still create Accounting Collection runs; Sales Orders belong to Sales Coordinator.
+    await f.expect(f.send('LOGISTICS', '/records', 'POST', { category: 'Sales Orders', company_id: 'seed-company', reference: 'SEED-DENIED', delivery_date: manilaToday() }), 403);
+    const delivery = await f.expect(f.send('LOGISTICS', '/records', 'POST', { category: 'Accounting Collection', company_id: 'seed-company',
       reference: 'SEED-OWNERSHIP', delivery_date: manilaToday() }), 201);
     await f.expect(f.send('LOGISTICS', `/records/${delivery.id}`, 'PUT', { driver_id: 'seed-driver-profile', remarks: 'Assign original linked profile', expected_edit_version: delivery.edit_version }), 200);
     await f.expect(f.send('DRIVER', `/records/${delivery.id}`), 200);

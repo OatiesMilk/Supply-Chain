@@ -35,17 +35,21 @@ test('dashboard today uses Manila midnight and excludes drafts from assignment c
   const { queries, response } = await stats('LOGISTICS');
   assert.equal(response.role, 'LOGISTICS');
   assert.equal(queries[0].deliveryDate, '2026-10-06');
-  assert.equal(queries[0].category, 'DELIVERY');
+  assert.equal(queries[0].category, undefined);
   assert.equal(queries[0].draft, false);
-  assert.equal(queries[1].category, 'DELIVERY');
+  assert.deepEqual(queries[0].NOT, { driverId: null });
+  assert.deepEqual(queries[0].OR.map((part: any) => part.category), [{ in: ['DELIVERY', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'] }, 'RMA']);
+  // No driver assigned: every driver job type with no Driver profile, drafts excluded.
   assert.equal(queries[1].draft, false);
-  assert.equal(queries[2].category, 'DELIVERY');
-  assert.equal(queries[2].timeOut.gte, '2026-10-05T16:00:00.000Z');
-  assert.equal(queries[2].timeOut.lt, '2026-10-06T16:00:00.000Z');
-  assert.equal(queries[3].category, 'DELIVERY');
+  assert.equal(queries[1].driverId, null);
+  assert.deepEqual(queries[1].OR.map((part: any) => part.category), [{ in: ['DELIVERY', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'] }, 'RMA']);
+  // On hold or rescheduled: spans all operational record types, drafts excluded.
+  assert.equal(queries[3].category, undefined);
+  assert.equal(queries[3].draft, false);
+  assert.deepEqual(queries[3].status, { in: ['ON_HOLD', 'RESCHEDULED'] });
 });
 
-test('Sales Coordinator dashboard counts only Delivery records and completes by Time Out', async context => {
+test('Sales Coordinator dashboard counts only Delivery records and completes by sign-off time with a Time Out fallback', async context => {
   context.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-05T16:01:00Z').getTime() });
   const { queries, response } = await stats('SALES_COORDINATOR');
   assert.equal(response.role, 'SALES_COORDINATOR');
@@ -53,8 +57,10 @@ test('Sales Coordinator dashboard counts only Delivery records and completes by 
     assert.equal(query.category, 'DELIVERY');
     assert.equal(query.draft, false);
   }
-  assert.equal(queries[4].timeOut.gte, '2026-10-05T16:00:00.000Z');
-  assert.equal(queries[4].timeOut.lt, '2026-10-06T16:00:00.000Z');
+  assert.deepEqual(queries[4].OR, [
+    { completionSignedOffAt: { gte: '2026-10-05T16:00:00.000Z', lt: '2026-10-06T16:00:00.000Z' } },
+    { completionSignedOffAt: null, timeOut: { gte: '2026-10-05T16:00:00.000Z', lt: '2026-10-06T16:00:00.000Z' } },
+  ]);
   assert.equal(queries[4].updatedAt, undefined);
 });
 

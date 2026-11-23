@@ -1,5 +1,8 @@
-// Sidebar badges count DB statuses. A legacy SCHEDULED row with Time In
+// Sidebar badges count DB statuses; RMA uses the shared open-RMA definition.
+// A legacy SCHEDULED row with Time In
 // renders as "In Transit", and is still active; drafts are filtered upstream.
+import { OPEN_RMA_STATUSES } from './dashboardFilters';
+
 export interface ActiveCountRow { category: string; status: string; _count: { _all: number } }
 export interface ActiveCounts {
   deliveries: number;
@@ -17,8 +20,10 @@ export function recordActiveCounts(rows: readonly ActiveCountRow[]): ActiveCount
   };
   for (const row of rows) {
     const key = categoryKeys[row.category];
-    if (key && (['SCHEDULED','IN_TRANSIT','PENDING'].includes(row.status) ||
-      (row.status === 'ON_HOLD' && row.category === 'RMA'))) result[key] += row._count._all;
+    if (!key) continue;
+    // RMA badge equals the dashboard Open RMA tile: every status except completed.
+    const active = row.category === 'RMA' ? OPEN_RMA_STATUSES : ['SCHEDULED', 'IN_TRANSIT', 'PENDING'];
+    if (active.includes(row.status)) result[key] += row._count._all;
   }
   return result;
 }

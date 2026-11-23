@@ -7,6 +7,7 @@ import { Pool } from 'pg';
 import type { AuthUser } from '../src/middleware/auth';
 import { permissionSnapshot, ROLE_DEFAULTS, SCREEN_LABELS, RESOURCE_SCREENS } from '../src/services/permissions';
 import { readableCategories, recordScope } from '../src/services/recordAccess';
+import { screenRestricted } from '../src/services/moduleAccessRules';
 import { assertPermissionBackfillTarget, convertPermissionAccount, initializePermissionFoundation, planPermissionConversion } from '../src/services/permissionBackfill';
 import { PERMISSION_CATALOG, POLICY_ROLES, POLICY_SCREENS, POLICY_CATEGORIES, defaultRolePermissions, LEGACY_POLICY_DEFAULT_SCREENS, legacyCapabilities, legacyPolicyScreens, policyKey, roleActionCeiling, type LegacyGrant, type PolicyRole } from '../src/services/permissionCatalog';
 
@@ -47,6 +48,16 @@ test('five role baselines preserve operation-specific ceilings and revised RMA b
   assert.equal(value('TASS', 'RESOURCE:suppliers:READ'), 'ALLOW');
   assert.equal(value('TASS', 'RESOURCE:suppliers:CREATE'), 'DENY');
   assert.equal(value('SALES_COORDINATOR', 'CATEGORY:RMA:READ'), 'DENY');
+  for (const category of ['DELIVERY', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS']) {
+    assert.equal(roleActionCeiling('SALES_COORDINATOR', PERMISSION_CATALOG.find(p => p.key === `CATEGORY:${category}:RECEIVE`)!), true,
+      `${category} receive is within the SC role ceiling`);
+    assert.equal(value('SALES_COORDINATOR', `CATEGORY:${category}:RECEIVE`), 'DENY',
+      `${category} receive still requires an explicit V1 grant`);
+  }
+  assert.equal(roleActionCeiling('SALES_COORDINATOR', PERMISSION_CATALOG.find(p => p.key === 'CATEGORY:RMA:RECEIVE')!), false,
+    'Sales Coordinators cannot receive RMAs');
+  assert.equal(roleActionCeiling('LOGISTICS', PERMISSION_CATALOG.find(p => p.key === 'CATEGORY:DELIVERY:RECEIVE')!), false,
+    'Logistics cannot sign off Sales completion');
   assert.equal(value('LOGISTICS', 'RESOURCE:skus:READ'), 'ALLOW');
   assert.equal(value('LOGISTICS', 'RESOURCE:skus:ADJUST'), 'DENY', 'lookup does not imply SKU Master adjustment');
 });
@@ -64,7 +75,8 @@ test('conversion matches independent legacy navigation/category oracle for 4005 
       const restored = defaultRolePermissions(role);
       for (const p of plan.overrides) restored.set(p.permissionKey, p.effect);
       assert.deepEqual(restored, legacy);
-      assert.deepEqual(POLICY_SCREENS.filter(s => restored.get(policyKey('SCREEN', s, 'READ')) === 'ALLOW'), snapshot.effectiveScreens);
+      // Stored baselines are frozen; module rules (TASS has no Procurement Pick-up) apply on top.
+      assert.deepEqual(POLICY_SCREENS.filter(s => restored.get(policyKey('SCREEN', s, 'READ')) === 'ALLOW' && !screenRestricted(role, s)), snapshot.effectiveScreens);
       const categories = readableCategories({ ...snapshot, id: 'test', name: 'Fixture', email: 'fixture@example.test', role } as AuthUser);
       assert.deepEqual(POLICY_CATEGORIES.filter(c => restored.get(policyKey('CATEGORY', c, 'READ')) === 'ALLOW'), categories);
       for (const p of PERMISSION_CATALOG) if (restored.get(p.key) === 'ALLOW') assert.equal(roleActionCeiling(role, p), true, `${role} ${p.key}`);

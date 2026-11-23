@@ -62,7 +62,7 @@ export default function PodUploader({ recordId, required = false, disabled = fal
       
       {stagedFiles.length > 0 && (
         <div className="mt-2 space-y-1">
-          <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">Staged for Upload</p>
+          <p className="text-xs font-bold text-amber-600 uppercase tracking-widest">Staged for Upload</p>
           {stagedFiles.map(staged => (
             <div key={staged.id} className="flex items-center justify-between gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-900">
               <div className="flex items-center gap-2 min-w-0">
@@ -80,7 +80,7 @@ export default function PodUploader({ recordId, required = false, disabled = fal
 
       {files.length > 0 && (
         <div className="mt-2 space-y-1">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Saved Attachments</p>
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Saved Attachments</p>
           {files.map(file => (
             <div key={file.id} className="flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-700">
               <FileText aria-hidden="true" className="h-4 w-4 shrink-0" />

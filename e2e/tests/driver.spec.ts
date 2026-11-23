@@ -2,7 +2,7 @@
  * driver.spec.ts
  *
  * UAT Part C — Driver role E2E tests.
- * Covers: Field Mobile Dashboard, ePOD flow (Time In → POD Upload → Received By → Accomplish).
+ * Covers: Field Mobile Dashboard, ePOD flow (Start transport → POD Upload → Received By → Complete delivery).
  *
  * Test IDs match the UAT_PLAN.md document (C-1.x, C-2.x, C-3.x).
  *
@@ -21,7 +21,7 @@ const BASE_URL = 'http://localhost:3000';
 
 async function getFirstActiveCard(page: Page) {
   // Driver run cards expose the Time In action with a stable accessible name.
-  return page.getByRole('button', { name: /record time in/i }).first();
+  return page.getByRole('button', { name: /^start transport$/i }).first();
 }
 
 function manilaDateOffset(offset: number) {
@@ -80,21 +80,25 @@ test.describe('C-1 Driver Dashboard', () => {
     // Driver-specific header text
     await expect(page.getByText(/microgenesis field mobile/i)).toBeVisible();
 
-    // Field Mobile has its own queue and pagination navigation, without the
+    // Field Mobile has its own queue switch and, under the run list, its record
+    // count (page buttons only appear with more than one page), without the
     // desktop application's sidebar.
     await expect(page.locator('#sidebar-panel')).toHaveCount(0);
     await expect(page.locator('#sidebar-nav')).toHaveCount(0);
     await expect(page.getByRole('navigation', { name: 'Run queues' })).toBeVisible();
-    await expect(page.getByRole('navigation', { name: 'Pagination Navigation' })).toBeVisible();
+    await expect(page.locator('#driver-run-list').getByTestId('pagination-records-info')).toBeVisible();
   });
 
   test('C-1.2 Stats strip shows correct counters', async ({ page }) => {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByText(/today.*runs|runs.*today/i).first()).toBeVisible();
-    await expect(page.getByText(/accomplished/i).first()).toBeVisible();
-    await expect(page.getByText(/remaining/i).first()).toBeVisible();
+    // Phones show short labels; the full names stay available to screen readers.
+    const summary = page.getByRole('region', { name: 'Driver summary' });
+    await expect(summary).toBeVisible();
+    await expect(summary).toContainText("Today's runs");
+    await expect(summary).toContainText('Accomplished');
+    await expect(summary).toContainText('Remaining');
   });
 
   test('C-1.3 Future assigned Delivery stays visible and read-only', async ({ page }) => {
@@ -102,17 +106,18 @@ test.describe('C-1 Driver Dashboard', () => {
     await expect(page.getByText('TSK99-DATE')).toBeVisible();
     await expect(page.getByText('Upcoming · read-only')).toBeVisible();
     await expect(page.getByText('Date actionability fixture')).toBeVisible();
-    await expect(page.getByRole('button', { name: /record time in/i })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^start transport$/i })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /upload photo|upload.*doc|select photo/i })).toHaveCount(0);
   });
 
   test('C-1.4 Overdue assigned Delivery shows lateness and execution controls', async ({ page }) => {
     await showAssignedRecord(page, manilaDateOffset(-2));
-    await expect(page.getByText(/overdue · 2 days late/i)).toBeVisible();
-    await expect(page.getByRole('button', { name: /record time in/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /upload photo|upload.*doc|select photo/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Pending$/i })).toBeDisabled();
-    await expect(page.getByRole('button', { name: /^Reschedule$/i })).toBeEnabled();
+    await expect(page.getByText(/· 2 days late/i)).toBeVisible();
+    await expect(page.getByRole('button', { name: /^start transport$/i })).toBeVisible();
+    // The POD uploader and Received by appear after Start transport.
+    await expect(page.getByRole('button', { name: /upload photo|upload.*doc|select photo/i })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Pending$/i })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Reschedule$/i })).toHaveCount(0);
   });
 
   test('C-1.5 Logout works', async ({ page }) => {
@@ -145,8 +150,8 @@ test.describe('C-2 ePOD Flow', () => {
     await timeInBtn.click();
     await page.waitForTimeout(1000);
 
-    // Enter remarks in modal
-    await page.getByPlaceholder(/remarks/i).fill('Started run via mobile app');
+    // The start sheet only asks for an optional note; add one to cover the typed-note path
+    await page.getByPlaceholder(/note/i).fill('Started run via mobile app');
     await page.getByRole('button', { name: /^confirm$/i }).click();
 
     // Starting transport should persist and show its timestamp in the active-run card.
@@ -228,8 +233,8 @@ test.describe('C-2 ePOD Flow', () => {
     // 2. Fill Received By
     await page.getByPlaceholder(/received.*item|name of person/i).first().fill('Juan dela Cruz (UAT)');
 
-    // 3. Click Accomplish
-    const accomplishBtn = page.getByRole('button', { name: /accomplish/i }).first();
+    // 3. Click Complete delivery
+    const accomplishBtn = page.getByRole('button', { name: /^complete delivery$/i }).first();
     try {
       await accomplishBtn.waitFor({ state: 'visible', timeout: 3000 });
     } catch (e) {
@@ -256,8 +261,8 @@ test.describe('C-2 ePOD Flow', () => {
     // 2. Fill Received By
     await page.getByPlaceholder(/received.*item|name of person/i).first().fill('Juan dela Cruz (UAT)');
 
-    // 3. Click Accomplish
-    const accomplishBtn = page.getByRole('button', { name: /accomplish/i }).first();
+    // 3. Click Complete delivery
+    const accomplishBtn = page.getByRole('button', { name: /^complete delivery$/i }).first();
     try {
       await accomplishBtn.waitFor({ state: 'visible', timeout: 3000 });
     } catch (e) {
@@ -283,7 +288,7 @@ test.describe('C-3 Accomplished Records View', () => {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
     await page.getByRole('navigation', { name: 'Run queues' })
-      .getByRole('button', { name: 'Completed today / RMA awaiting receipt' }).click();
+      .getByRole('button', { name: /^Done today/ }).click();
     await expect(page.getByText(/^Accomplished \(\d+\)$/i)).toBeVisible();
   });
 
@@ -292,7 +297,7 @@ test.describe('C-3 Accomplished Records View', () => {
     await page.waitForLoadState('networkidle');
 
     await page.getByRole('navigation', { name: 'Run queues' })
-      .getByRole('button', { name: 'Completed today / RMA awaiting receipt' }).click();
+      .getByRole('button', { name: /^Done today/ }).click();
     const accomplishedRun = page.getByRole('button').filter({ hasText: 'SAP-UAT-DELIVERED-PRIORITY' });
     await expect(accomplishedRun).toBeVisible();
     await accomplishedRun.click();

@@ -165,6 +165,17 @@ test('immutable ceilings defeat forged policy grants for Sales RMA, TASS scope, 
   }
 });
 
+test('Logistics RMA ceiling allows transport STATUS and POD only, never TIME_IN, CREATE, RECEIVE or COMPLETE', () => {
+  for (const key of ['CATEGORY:RMA:STATUS', 'CATEGORY:RMA:POD']) {
+    const source = withEffects(input('LOGISTICS'), { 'CATEGORY:RMA:READ': 'ALLOW', 'CATEGORY:RMA:WRITE': 'ALLOW', [key]: 'ALLOW' }, true);
+    assert.equal(actionPermissionInputError(source), null, key);
+  }
+  for (const action of ['TIME_IN', 'CREATE', 'UPDATE', 'RECEIVE', 'COMPLETE', 'SUBMIT', 'DELETE']) {
+    const source = withEffects(input('LOGISTICS'), { [`CATEGORY:RMA:${action}`]: 'ALLOW' }, true);
+    assert.match(actionPermissionInputError(source)!, /cannot allow/, action);
+  }
+});
+
 test('ADMIN management stays protected without providing a business-operation bypass', () => {
   const source = input('ADMIN');
   const keys = ['SCREEN:admin:READ', 'SCREEN:admin:WRITE', 'RESOURCE:admin:READ', 'RESOURCE:admin:WRITE', 'RESOURCE:users:READ', 'RESOURCE:users:WRITE', 'RESOURCE:users:UPDATE'];
@@ -181,7 +192,7 @@ test('ADMIN management stays protected without providing a business-operation by
 });
 
 test('navigation and category access remain independent without synthesizing new screens', () => {
-  const source = withEffects(input('ADMIN'), { 'SCREEN:deliveries:READ': 'DENY', 'SCREEN:deliveries:WRITE': 'DENY' });
+  const source = withEffects(input('LOGISTICS'), { 'SCREEN:deliveries:READ': 'DENY', 'SCREEN:deliveries:WRITE': 'DENY' });
   const snapshot = evaluatePermissions(source);
   assert.equal(snapshot.effectiveScreens.includes('deliveries'), false);
   assert.equal(canReadPolicyRecord(snapshot, delivery(), { path: 'calendar' }), true);
@@ -303,6 +314,21 @@ test('Logistics RMA assignment is bounded; internal/non-Logistics movements rema
     assert.equal(canPerformPolicyRecordAction(snapshot, row, 'ASSIGN', { rmaTransport: context }), false);
   }
   for (const action of ['UPDATE', 'POD', 'STATUS', 'RECEIVE', 'COMPLETE'] as const) assert.equal(canPerformPolicyRecordAction(snapshot, row, action, { rmaTransport: transport, targetStatus: 'Delivered' }), false);
+});
+
+test('Logistics with transport STATUS and POD may record transport only, never change RMA status', () => {
+  const snapshot = evaluatePermissions(withEffects(input(), { 'CATEGORY:RMA:WRITE': 'ALLOW', 'CATEGORY:RMA:ASSIGN': 'ALLOW', 'CATEGORY:RMA:STATUS': 'ALLOW', 'CATEGORY:RMA:POD': 'ALLOW' }));
+  const row = delivery({ category: 'RMA' });
+  const transport = { requiresLogistics: true, requiresInternalDriver: true, eligible: true, actionAllowed: true };
+  assert.equal(canPerformPolicyRecordAction(snapshot, row, 'STATUS', { rmaTransport: transport }), true);
+  assert.equal(canPerformPolicyRecordAction(snapshot, row, 'POD', { rmaTransport: transport }), true);
+  for (const targetStatus of ['Pending', 'On-Hold', 'Rescheduled', 'Delivered'] as const) assert.equal(canPerformPolicyRecordAction(snapshot, row, 'STATUS', { rmaTransport: transport, targetStatus }), false, targetStatus);
+  for (const action of ['STATUS', 'POD'] as const) {
+    assert.equal(canPerformPolicyRecordAction(snapshot, row, action, { rmaTransport: { ...transport, actionAllowed: false } }), false);
+    assert.equal(canPerformPolicyRecordAction(snapshot, row, action, { rmaTransport: { ...transport, eligible: false } }), false);
+    assert.equal(canPerformPolicyRecordAction(snapshot, row, action), false);
+  }
+  for (const action of ['UPDATE', 'RECEIVE', 'COMPLETE', 'TIME_IN'] as const) assert.equal(canPerformPolicyRecordAction(snapshot, row, action, { rmaTransport: transport }), false, action);
 });
 
 test('TASS alone may receive/finalize RMA; STATUS Delivered cannot bypass COMPLETE restriction', () => {

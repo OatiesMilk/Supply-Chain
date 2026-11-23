@@ -11,6 +11,8 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import { DEMO_LOCATION_FIXTURES } from '../../client/src/utils/demoLocations';
+import { kpiTile } from '../support/kpiTile';
+import { RECORD_NO_PATTERN, deliveredFixtureRow } from '../support/recordRows';
 
 const BASE_URL = 'http://localhost:3000';
 
@@ -56,9 +58,7 @@ test.describe('TSK-126 dashboard card filters', () => {
   test('SC On-Hold card opens the matching list, wraps at supported widths, and clears', async ({ page }) => {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
-    const card = page.locator('#kpi-on-hold');
-    await expect(card).toBeVisible();
-    const cardCount = Number((await card.locator('h3').innerText()).trim());
+    const { tile: card, count: cardCount } = await kpiTile(page, 'On hold');
     await card.click();
 
     const chip = page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true });
@@ -86,7 +86,7 @@ test.describe('TSK-126 dashboard card filters', () => {
     expect(unfilteredCount).toBeGreaterThanOrEqual(cardCount);
 
     await page.getByRole('navigation').getByRole('button', { name: /^Dashboard/ }).click();
-    await page.locator('#kpi-on-hold').click();
+    await (await kpiTile(page, 'On hold')).tile.click();
     await expect(page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true })).toBeVisible();
     await page.getByRole('navigation').getByRole('button', { name: /^Deliveries/ }).click();
     await expect(page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true })).not.toBeVisible();
@@ -181,16 +181,17 @@ test.describe('A-2 Create a Delivery Record', () => {
     expect(createdResponse.status(), 'creating the Delivery must succeed').toBe(201);
     const saved = await createdResponse.json();
     expect(saved.id).toBeTruthy();
+    expect(saved.record_no).toMatch(RECORD_NO_PATTERN);
     expect(saved.reference).toBe(reference);
     expect(saved.status).toBe('Scheduled');
     expect(saved.is_draft).toBe('No');
-    await expect(page.getByText(`${reference} · ${saved.id}`, { exact: true })).toBeVisible();
+    await expect(page.getByText(`${reference} · ${saved.record_no}`, { exact: true })).toBeVisible();
 
     // Reload and inspect only the newly saved row, never a filter option or seed row.
     await page.reload();
-    await page.getByRole('textbox', { name: 'Search delivery records' }).fill(saved.id);
+    await page.getByRole('textbox', { name: 'Search delivery records' }).fill(saved.record_no);
     const createdRow = page.getByRole('row').filter({
-      has: page.getByRole('cell', { name: saved.id, exact: true }),
+      has: page.getByRole('cell', { name: saved.record_no, exact: true }),
     });
     await expect(createdRow).toHaveCount(1);
     await expect(createdRow.getByText('Scheduled', { exact: true })).toBeVisible();
@@ -404,7 +405,7 @@ test.describe('A-3 Edit a Record', () => {
   test('A-3.9 TSK-124 Priority is read-only on a Delivered record', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
-    const delivered = page.getByRole('row').filter({ hasText: 'REC-UAT-DELIVERED-' }).first();
+    const delivered = await deliveredFixtureRow(page);
     await expect(delivered, 'The UAT seed must provide its completed delivery fixture').toBeVisible();
     await delivered.click();
 

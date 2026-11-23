@@ -13,7 +13,8 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import * as XLSX from 'xlsx';
-import { recordRows } from '../support/recordRows';
+import { RECORD_NO_PATTERN, deliveredFixtureRow, recordRows } from '../support/recordRows';
+import { kpiTile } from '../support/kpiTile';
 
 const BASE_URL = 'http://localhost:3000';
 
@@ -33,7 +34,7 @@ async function openFirstRecord(page: Page, status?: string) {
 // These records live in the disposable CI database (record deletion is disabled).
 async function openNewScheduledRecord(page: Page, browser: Browser) {
   const sales = await browser.newContext({ storageState: './helpers/auth-sc.json' });
-  let recordId: string;
+  let recordNo: string;
   try {
     const session = await sales.request.get(`${BASE_URL}/api/v1/auth/me`);
     expect(session.ok()).toBeTruthy();
@@ -63,15 +64,15 @@ async function openNewScheduledRecord(page: Page, browser: Browser) {
     expect(response.status(), 'Sales Coordinator must create the test fixture').toBe(201);
     const saved = await response.json();
     expect(saved.status).toBe('Scheduled');
-    expect(saved.id).toBeTruthy();
-    recordId = saved.id;
+    expect(saved.record_no).toMatch(RECORD_NO_PATTERN);
+    recordNo = saved.record_no;
   } finally {
     await sales.close();
   }
   await page.goto(`${BASE_URL}/deliveries`);
-  await page.getByRole('textbox', { name: 'Search delivery records' }).fill(recordId);
+  await page.getByRole('textbox', { name: 'Search delivery records' }).fill(recordNo);
   await page.getByRole('row').filter({
-    has: page.getByRole('cell', { name: recordId, exact: true }),
+    has: page.getByRole('cell', { name: recordNo, exact: true }),
   }).click();
 }
 
@@ -143,7 +144,7 @@ test.describe('B-1 Login & Access Control', () => {
     expect(Math.abs((expandedToggleBox?.y ?? 0) - (collapsedToggleBox?.y ?? 0))).toBeLessThanOrEqual(1);
     const collapsedMainLeft = (await mainContent.boundingBox())?.x ?? 0;
     expect(expandedMainLeft - collapsedMainLeft).toBe(152);
-    await expect(page.locator('#sidebar-nav hr')).toHaveCount(2);
+    await expect(page.locator('#sidebar-nav hr')).toHaveCount(4);
 
     const activeDashboard = page.getByRole('navigation').getByRole('button', { name: 'Dashboard' });
     const activeAccent = await activeDashboard.evaluate(element => getComputedStyle(element, '::before').backgroundColor);
@@ -190,21 +191,30 @@ test.describe('B-1 Login & Access Control', () => {
 });
 
 test.describe('TSK-126 dashboard card filters', () => {
-  test('Logistics unassigned card opens the matching Delivery list', async ({ page }) => {
+  // Since the transport requests panel (#314) the card shows that panel instead of opening a list;
+  // the panel's per-type links open the matching lists.
+  test('Logistics unassigned card shows transport requests and its Delivery link opens the matching list', async ({ page }) => {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
-    const card = page.locator('#kpi-log-unassigned');
-    await expect(card).toBeVisible();
-    const cardCount = Number((await card.locator('h3').innerText()).trim());
+    const { tile: card, count: cardCount } = await kpiTile(page, 'No driver assigned', 'Show transport requests');
     await card.click();
 
-    await expect(page.getByText('Showing: No Driver Assigned (from Dashboard)', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Clear dashboard filter: No Driver Assigned' })).toBeVisible();
+    const panel = page.locator('#transport-requests-panel');
+    await expect(panel).toBeFocused();
+    await expect(panel.getByText(`${cardCount} ${cardCount === 1 ? 'request' : 'requests'}`, { exact: true })).toBeVisible();
+
+    const deliveriesLink = panel.getByRole('button', { name: /^View (\d+) Deliver(y|ies)$/ });
+    test.skip(await deliveriesLink.count() === 0, 'The seed has no unassigned Delivery to open');
+    const deliveryCount = Number((await deliveriesLink.innerText()).match(/\d+/)![0]);
+    await deliveriesLink.click();
+
+    await expect(page.getByText('Showing: Transport requests (from Dashboard)', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Clear dashboard filter: Transport requests' })).toBeVisible();
     const recordsInfo = page.getByTestId('pagination-records-info');
     await expect(recordsInfo).toContainText(/of\s+\d+\s+records/i);
     await expect.poll(async () =>
       Number((await recordsInfo.innerText()).match(/of\s+(\d+)\s+records/i)?.[1])
-    ).toBe(cardCount);
+    ).toBe(deliveryCount);
   });
 });
 
@@ -297,6 +307,47 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     await expect(page.getByText(/changes saved/i).first()).toBeVisible();
   });
 
+  test('B-2.5d Logistics starts and completes a Delivery through the Next step card and dialogs', async ({ page, browser }) => {
+    await openNewScheduledRecord(page, browser);
+    await page.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
+
+    // Assign a driver first; the card then offers Start transport.
+    const driverSelect = page.locator('select').filter({ has: page.locator('option', { hasText: '-- Unassigned --' }) });
+    const values = await driverSelect.locator('option').evaluateAll(options => options.map(option => (option as HTMLOptionElement).value));
+    const driver = values.find(value => value);
+    expect(driver, 'The UAT fixture must offer a Driver').toBeDefined();
+    await driverSelect.selectOption(driver!);
+    await page.getByPlaceholder(/Reason for the changes|Optional note/i).fill('Assign for mark as delivered test');
+    await page.getByRole('button', { name: 'Save Changes', exact: true }).click();
+    await expect(page.getByText(/changes saved/i).first()).toBeVisible();
+
+    const card = page.getByTestId('next-step-card');
+    await expect(page.getByRole('button', { name: 'Record Time In' })).toHaveCount(0);
+    await card.getByRole('button', { name: 'Start transport', exact: true }).click();
+    const start = page.getByRole('dialog', { name: 'Start transport' });
+    await start.getByLabel('Remarks').fill('Leaving the depot');
+    const timeIn = page.waitForResponse(r => /\/records\/[^/]+\/time-in$/.test(new URL(r.url()).pathname));
+    await start.getByRole('button', { name: 'Start transport', exact: true }).click();
+    expect((await timeIn).ok()).toBeTruthy();
+
+    // Completion is blocked until the photo, Received by and remarks are present.
+    await card.getByRole('button', { name: 'Mark as delivered', exact: true }).click();
+    const complete = page.getByRole('dialog', { name: 'Mark as delivered' });
+    const confirm = complete.getByRole('button', { name: 'Mark as delivered', exact: true });
+    await expect(confirm).toBeDisabled();
+    await complete.locator('input[type=file]').setInputFiles({ name: 'pod.png', mimeType: 'image/png',
+      buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64') });
+    await complete.getByLabel('Received by').fill('Warehouse guard');
+    await complete.getByLabel('Remarks').fill('Handed over');
+    await expect(confirm).toBeEnabled();
+    const status = page.waitForResponse(r => /\/records\/[^/]+\/status$/.test(new URL(r.url()).pathname) && r.request().method() === 'PATCH');
+    await confirm.click();
+    const response = await status;
+    expect(response.ok()).toBeTruthy();
+    expect((await response.json()).status).toBe('Delivered');
+    await expect(card).toContainText('Delivered');
+  });
+
   test('B-2.5a TSK-123 Rescheduled requires a new delivery date saved with the status', async ({ page, browser }) => {
     await openNewScheduledRecord(page, browser);
     await page.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
@@ -338,7 +389,7 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
   test('B-2.5b TSK-124 Priority is locked on Delivered records, including in bulk edit', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
-    const delivered = page.getByRole('row').filter({ hasText: 'REC-UAT-DELIVERED-' }).first();
+    const delivered = await deliveredFixtureRow(page);
     await expect(delivered, 'The UAT seed must provide its completed delivery fixture').toBeVisible();
 
     // Bulk: a Delivered-only selection disables the Priority select with the explanation.
@@ -417,14 +468,15 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     const firstRow = recordRows(page).first();
     await expect(firstRow).toBeVisible();
     const recordId = (await firstRow.getByRole('cell').first().innerText()).trim();
-    expect(recordId).toMatch(/^REC-[\w-]+$/);
+    expect(recordId).toMatch(RECORD_NO_PATTERN);
     const search = page.getByRole('textbox', { name: 'Search accounting collection records' });
     await search.fill(recordId);
     const filteredRow = recordRows(page).filter({ hasText: recordId }).first();
     await expect(filteredRow).toBeVisible();
     await filteredRow.click();
     await expect(page.locator('#accounting-collection-workspace')).toBeVisible();
-    await page.locator('#accounting-change-remarks').fill('Unsubmitted navigation guard check');
+    await page.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
+    await page.locator('#accounting-action-remarks').fill('Unsubmitted navigation guard check');
 
     const accountingLink = page.getByRole('navigation').getByRole('button', { name: /accounting collection/i });
     await accountingLink.click();

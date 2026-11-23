@@ -1,360 +1,189 @@
-import RecordStatus from '@/components/RecordStatus';
-import { manilaToday } from '@/utils/recordLifecycle';
-import {
-  Truck,
-  UserX,
-  CheckCircle2,
-  PauseCircle,
-  RefreshCw,
-  ArrowRight,
-  AlertTriangle,
-  Navigation,
-} from "lucide-react";
-import { DeliveryRecord } from "@/types";
-import { ApiDashboardStats, ApiDashboardOverview } from "@/api";
-import { screenKeyForCategory } from "@/routes/screenRouting";
-import { DashboardFilterId, filterRecordsForDashboard } from '@/utils/dashboardFilters';
+import { CheckCircle2, Navigation, RefreshCw, Truck, UserX } from 'lucide-react';
+import { useState } from 'react';
+import type { ApiDashboardOverview, ApiDashboardStats } from '@/api';
+import type { DeliveryCategory, DeliveryRecord } from '@/types';
+import { screenKeyForCategory } from '@/routes/screenRouting';
+import { jobTypeLabel } from '@/utils/driverJobs';
+import type { DashboardFilterId } from '@/utils/dashboardFilters';
+import { ActionPill, ActionPillGroup, DashboardPage, DashboardPanel, EmptyState, KpiRow, KpiTile, PanelError, RecordTable, StatusPill, TileSkeleton, formatDate, type RecordColumn } from './ui';
+import { recordLabel } from '../../utils/recordLabel';
+import CompletedTodayDialog from './CompletedTodayDialog';
+
+type LogisticsStats = Extract<ApiDashboardStats, { role: 'LOGISTICS' }>;
 
 interface Props {
-  stats: Extract<ApiDashboardStats, { role: "LOGISTICS" }> | null;
-  deliveryRecords: DeliveryRecord[];
-  overview: ApiDashboardOverview;
+  /** null while the server numbers load. Tiles show skeletons, never locally counted guesses. */
+  stats: LogisticsStats | null;
+  overview?: ApiDashboardOverview;
+  overviewStatus?: 'pending' | 'error' | 'success';
+  onRetryOverview?: () => void;
   onNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
   onRefresh?: () => void;
+  refreshing?: boolean;
+  canAccess?: (screen: string) => boolean;
+  canReadRecords?: boolean;
 }
 
-export default function LogisticsDashboard({
-  stats,
-  overview,
-  deliveryRecords,
-  onNavigate,
-  onRefresh,
-}: Props) {
-  const rmaRequests = overview.record_previews.rma_requests;
-  const rmaRequestTotal = overview.counts.rma_requests ?? 0;
-  const flagsCount = overview.counts['log-flags'] ?? 0;
-  const onHoldCount = overview.counts['log-on-hold'] ?? 0;
-  const rescheduledCount = overview.counts['log-rescheduled'] ?? 0;
-  const driversOut = overview.drivers_out;
-  const assignedToday = stats?.assigned_today ?? 0;
-  const unassignedCount = stats?.unassigned_count ?? overview.counts['log-unassigned'] ?? 0;
-  const completedToday = stats?.completed_today ?? 0;
-  const onHoldRescheduled = stats?.on_hold_rescheduled ?? 0;
+const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+/** Same started rule as the server: RMA by transport status, other jobs once Time In is recorded. */
+const inTransit = (record: DeliveryRecord) => (record.category === 'RMA' ? record.rma_transport_status === 'IN_TRANSIT' : record.status === 'In Transit' || !!record.time_in);
+
+/** Transport request types in footer order, keyed by the server's category. */
+const REQUEST_TYPES: Array<{ key: 'DELIVERY' | 'RMA' | 'ACCOUNTING_COLLECTION' | 'PROCUREMENT_PICKUP' | 'SALES_ORDERS'; category: DeliveryCategory; one: string; many: string }> = [
+  { key: 'DELIVERY', category: 'Deliveries', one: 'Delivery', many: 'Deliveries' },
+  { key: 'RMA', category: 'RMA', one: 'RMA', many: 'RMA' },
+  { key: 'ACCOUNTING_COLLECTION', category: 'Accounting Collection', one: 'Accounting Collection', many: 'Accounting Collections' },
+  { key: 'PROCUREMENT_PICKUP', category: 'Procurement Pick-up', one: 'Procurement Pickup', many: 'Procurement Pickups' },
+  { key: 'SALES_ORDERS', category: 'Sales Orders', one: 'Sales Order', many: 'Sales Orders' },
+];
+
+const REQUESTS_PANEL_ID = 'transport-requests-panel';
+/** Brings the Transport requests panel into view and moves focus to it; it holds the per-type links. */
+function showTransportRequests() {
+  const panel = document.getElementById(REQUESTS_PANEL_ID);
+  if (!panel) return;
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  panel.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  panel.focus({ preventScroll: true });
+}
+
+const recordRef = (record: DeliveryRecord) => (record.category === 'RMA' && record.rma_reference) || recordLabel(record);
+
+const requestColumns: RecordColumn<DeliveryRecord>[] = [
+  { key: 'id', header: 'Record', render: recordRef },
+  { key: 'type', header: 'Type', render: record => jobTypeLabel(record.category) },
+  { key: 'company', header: 'Company', render: record => <span className="block max-w-[14rem] truncate md:max-w-[12rem]" title={record.company_name}>{record.company_name}</span> },
+  { key: 'area', header: 'Area', render: record => record.area || 'Not set' },
+  { key: 'date', header: 'Date', render: record => formatDate(record.delivery_date) },
+  { key: 'status', header: 'Status', render: record => <StatusPill record={record} />, hideLabelWhenStacked: true },
+];
+
+export default function LogisticsDashboard({ stats, overview, overviewStatus, onRetryOverview, onNavigate, onRefresh, refreshing, canAccess = () => true, canReadRecords = true }: Props) {
+  const [showCompleted, setShowCompleted] = useState(false);
+  const status = overviewStatus ?? (overview ? 'success' : 'pending');
+  const open = (filter: DashboardFilterId) => (canAccess('main') ? () => onNavigate('main', undefined, filter) : undefined);
+  const counts = overview?.counts ?? {};
+  const requests = overview?.record_previews.transport_requests ?? [];
+  const requestTotal = counts['log-transport-requests'] ?? 0;
+  const byType = overview?.transport_requests_by_type ?? {};
+  const driversOut = overview?.drivers_out ?? [];
+  const driversTotal = overview?.drivers_out_total ?? 0;
+
+  const unassigned = stats?.unassigned_count;
+  const completed = stats?.completed_today;
+  const heldMoved = stats?.on_hold_rescheduled;
 
   return (
-    <div className="space-y-6" id="logistics-dashboard">
-      <section aria-label="RMA transport requests" className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <header className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-[#1F3864]">
-              <RefreshCw aria-hidden="true" className="h-5 w-5" />
-            </span>
-            <div className="min-w-0">
-              <h2 className="text-base font-bold text-[#1F3864]">RMA transport requests</h2>
-              <p className="mt-0.5 text-xs leading-5 text-slate-500">Returns waiting for Logistics dispatch.</p>
-            </div>
-          </div>
-          <span className="inline-flex min-h-8 items-center self-start rounded-full border border-blue-200 bg-blue-50 px-3 text-xs font-semibold text-[#1F3864] sm:self-auto">
-            {rmaRequestTotal} {rmaRequestTotal === 1 ? 'request' : 'requests'}
-          </span>
-        </header>
+    <DashboardPage title="Logistics dashboard" id="logistics-dashboard" updatedAt={overview?.generated_at} onRefresh={onRefresh} refreshing={refreshing}>
+      <KpiRow count={4}>
+        <KpiTile label="Assigned to drivers today" unit="records" icon={Truck} value={stats?.assigned_today}
+          context={stats ? 'Active today across all types' : undefined} onOpen={open('log-assigned-today')} />
+        <KpiTile label="No driver assigned" unit="jobs" icon={UserX} tone="warning" value={unassigned}
+          context={stats ? (unassigned ? 'Needs a driver' : 'All assigned') : undefined} onOpen={showTransportRequests} actionLabel="Show transport requests" />
+        <KpiTile label="Completed today" unit={completed === 1 ? 'record' : 'records'} icon={CheckCircle2} value={completed}
+          context={stats ? (completed ? 'Across all record types' : 'None yet today') : undefined}
+          onOpen={canReadRecords ? () => setShowCompleted(true) : undefined} />
+        <KpiTile label="On hold or rescheduled" unit="records" icon={RefreshCw} tone="warning" value={heldMoved}
+          context={stats ? (heldMoved ? 'Needs reassignment' : 'Nothing to reassign') : undefined} onOpen={open('log-on-hold-rescheduled')} />
+      </KpiRow>
+      {showCompleted && canReadRecords && (
+        <CompletedTodayDialog canAccess={canAccess} onClose={() => setShowCompleted(false)}
+          onOpenRecord={(screen, id) => { setShowCompleted(false); onNavigate(screen, id); }} />
+      )}
 
-        {rmaRequestTotal === 0 ? (
-          <div className="p-4 sm:p-5">
-            <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-center text-sm text-slate-600">
-              No RMA transport requests need dispatch.
-            </p>
-          </div>
-        ) : (
+      <div id={REQUESTS_PANEL_ID} tabIndex={-1} className="scroll-mt-4 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-navy">
+      <DashboardPanel title="Transport requests" count={status === 'success' ? plural(requestTotal, 'request', 'requests') : undefined}
+        footer={status === 'success' && requestTotal > 0 ? (
           <>
-            <ul className="grid gap-3 p-4 sm:p-5">
-              {rmaRequests.map(record => (
-                <li key={record.id}>
-                  <button
-                    type="button"
-                    onClick={() => onNavigate('rma', record.id)}
-                    aria-label={`Open RMA ${record.rma_reference || record.id} for ${record.company_name}`}
-                    className="group w-full rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition-colors hover:border-[#0078C1]/50 hover:bg-blue-50/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] motion-reduce:transition-none"
-                  >
-                    <span className="flex flex-wrap items-center gap-2">
-                      <span className="font-bold text-[#1F3864]">{record.rma_reference || record.id}</span>
-                      <RecordStatus record={record} />
+            <span className="tabular-nums">Showing {requests.length} of {requestTotal} requests</span>
+            <ActionPillGroup label="Open queue:">
+              {REQUEST_TYPES.filter(type => (byType[type.key] ?? 0) > 0).map(type => {
+                const total = byType[type.key] ?? 0;
+                const screen = screenKeyForCategory(type.category);
+                const accessibleLabel = `View ${plural(total, type.one, type.many)}`;
+                return canAccess(screen)
+                  ? (
+                    <ActionPill
+                      key={type.key}
+                      label={total === 1 ? type.one : type.many}
+                      accessibleLabel={accessibleLabel}
+                      count={total}
+                      onClick={() => onNavigate(screen, undefined, 'log-transport-requests')}
+                    />
+                  )
+                  : (
+                    <span
+                      key={type.key}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200/80 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-500 tabular-nums"
+                    >
+                      {plural(total, type.one, type.many)}
                     </span>
-                    <span className="mt-3 grid gap-x-4 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">
-                      <span className="min-w-0">
-                        <span className="block text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Company</span>
-                        <span className="mt-1 block truncate text-sm font-semibold text-slate-800">{record.company_name}</span>
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Area</span>
-                        <span className="mt-1 block truncate text-sm font-medium text-slate-700">{record.area}</span>
-                      </span>
-                      <span>
-                        <span className="block text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Transport date</span>
-                        <span className="mt-1 block text-sm font-medium text-slate-700">{record.delivery_date}</span>
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Driver</span>
-                        <span className={`mt-1 block truncate text-sm font-semibold ${record.driver ? 'text-slate-800' : 'text-amber-700'}`}>
-                          {record.driver || 'Needs driver'}
-                        </span>
-                      </span>
-                    </span>
-                    <span className="mt-3 flex items-center justify-end gap-1 text-xs font-semibold text-[#0078C1] group-hover:text-[#1F3864]">
-                      Open RMA <ArrowRight aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
-                    </span>
-                  </button>
+                  );
+              })}
+            </ActionPillGroup>
+          </>
+        ) : undefined}>
+        {status === 'pending' && <TileSkeleton lines={4} />}
+        {status === 'error' && <PanelError message="Transport requests could not be loaded." onRetry={onRetryOverview} />}
+        {status === 'success' && (requestTotal === 0
+          ? <EmptyState title="No transport requests need dispatch" description="Deliveries, RMA, Pick-ups and Sales Orders waiting for a driver will appear here." />
+          : <RecordTable rows={requests} columns={requestColumns} rowKey={record => record.id} caption="Driver jobs waiting for a driver, oldest date first"
+              onOpen={record => onNavigate(screenKeyForCategory(record.category), record.id)}
+              canOpen={record => canAccess(screenKeyForCategory(record.category))}
+              openLabel={record => `Open ${jobTypeLabel(record.category)} ${recordRef(record)} for ${record.company_name}`} />)}
+      </DashboardPanel>
+      </div>
+
+      <DashboardPanel title="Drivers out for delivery" count={status === 'success' ? `${driversTotal} driver${driversTotal === 1 ? '' : 's'}` : undefined}
+        footer={status === 'success' && driversTotal > driversOut.length ? (
+          <>
+            <span className="tabular-nums">Showing {driversOut.length} of {driversTotal} drivers</span>
+            {canAccess('driver_board') && (
+              <ActionPill
+                label={`View all ${driversTotal} assigned Drivers`}
+                arrow="forward"
+                onClick={() => onNavigate('driver_board')}
+              />
+            )}
+          </>
+        ) : undefined}>
+        {status === 'pending' && <TileSkeleton lines={3} />}
+        {status === 'error' && <PanelError message="Drivers out for delivery could not be loaded." onRetry={onRetryOverview} />}
+        {status === 'success' && (driversOut.length === 0
+          ? <EmptyState icon={<Navigation className="h-9 w-9 text-slate-500" />} title="No drivers are out for delivery today" />
+          : (
+            <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {driversOut.map(({ driver_id, driver, records, total, in_transit }) => (
+                <li key={driver_id} className="rounded-lg border border-slate-200 p-3">
+                  <p className="truncate font-semibold text-slate-900" title={driver}>{driver}</p>
+                  <p className="mb-2 text-sm text-slate-600">
+                    {plural(total, 'active job', 'active jobs')}{in_transit > 0 && <> · <span className="font-semibold text-brand-navy">{in_transit} in transit</span></>}
+                  </p>
+                  <ul className="space-y-1">
+                    {records.slice(0, 3).map(record => {
+                      const screen = screenKeyForCategory(record.category);
+                      const label = <>{recordLabel(record)} · {record.company_name}</>;
+                      return (
+                        <li key={record.id} className="flex min-w-0 items-center gap-2 text-sm">
+                          <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-700">{jobTypeLabel(record.category)}</span>
+                          {canAccess(screen)
+                            ? <button type="button" onClick={() => onNavigate(screen, record.id)}
+                                className="block min-w-0 truncate rounded-sm text-left tabular-nums text-brand-navy hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-navy"
+                                aria-label={`Open ${jobTypeLabel(record.category)} ${recordLabel(record)} for ${record.company_name}${inTransit(record) ? ', in transit' : ''}`}>
+                                {label}
+                              </button>
+                            : <span className="block min-w-0 truncate tabular-nums text-slate-700">{label}</span>}
+                          {inTransit(record) && <span className="shrink-0 text-xs font-semibold text-brand-navy">In transit</span>}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {total > records.length && <p className="mt-1 text-sm text-slate-600">+{plural(total - records.length, 'more job', 'more jobs')}</p>}
                 </li>
               ))}
             </ul>
-            {rmaRequestTotal > 0 && <footer className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-              <p className="text-xs text-slate-500">Showing {rmaRequests.length} of {rmaRequestTotal} requests</p>
-              <button
-                type="button"
-                onClick={() => onNavigate('rma')}
-                className="inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-[#1F3864] transition-colors hover:border-[#0078C1]/50 hover:bg-blue-50/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] sm:self-auto motion-reduce:transition-none"
-              >
-                View all requests <ArrowRight aria-hidden="true" className="h-4 w-4" />
-              </button>
-            </footer>}
-          </>
-        )}
-      </section>
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Assigned Today */}
-        <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-[#1F3864] transition-all cursor-pointer"
-          onClick={() => onNavigate("deliveries", undefined, 'log-assigned-today')}
-        >
-          <div className="min-w-0">
-            <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
-              Assigned to Drivers Today
-            </p>
-            <h3 className="text-3xl font-black text-slate-900 mt-1">
-              {assignedToday}
-            </h3>
-            <span className="text-xs text-slate-600 font-extrabold flex items-center gap-1 mt-2">
-              Active today <ArrowRight className="w-3.5 h-3.5 shrink-0" />
-            </span>
-          </div>
-          <div className="bg-blue-50 p-3 rounded-lg text-[#1F3864] shrink-0">
-            <Truck className="w-6 h-6" />
-          </div>
-        </div>
-
-        {/* Unassigned (orange — needs attention) */}
-        <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-amber-400 transition-all cursor-pointer"
-          id="kpi-log-unassigned"
-          onClick={() => onNavigate("deliveries", undefined, 'log-unassigned')}
-        >
-          <div className="min-w-0">
-            <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
-              No Driver Assigned
-            </p>
-            <h3 className="text-3xl font-black text-slate-900 mt-1">
-              {unassignedCount}
-            </h3>
-            <span className="text-xs text-amber-600 font-extrabold flex items-center gap-1 mt-2">
-              Needs driver
-            </span>
-          </div>
-          <div
-            className={`p-3 rounded-lg shrink-0 ${unassignedCount > 0 ? "bg-amber-50 text-amber-600 animate-pulse" : "bg-gray-50 text-gray-400"}`}
-          >
-            <UserX className="w-6 h-6" />
-          </div>
-        </div>
-
-        {/* Completed Today */}
-        <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-emerald-400 transition-all cursor-pointer"
-          onClick={() => onNavigate("deliveries", undefined, 'log-completed-today')}
-        >
-          <div className="min-w-0">
-            <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
-              Deliveries Completed Today
-            </p>
-            <h3 className="text-3xl font-black text-slate-900 mt-1">
-              {completedToday}
-            </h3>
-            <span className="text-xs text-emerald-600 font-extrabold flex items-center gap-1 mt-2">
-              Accomplished
-            </span>
-          </div>
-          <div className="bg-emerald-50 p-3 rounded-lg text-emerald-600 shrink-0">
-            <CheckCircle2 className="w-6 h-6" />
-          </div>
-        </div>
-
-        {/* On-Hold / Rescheduled */}
-        <div
-          className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between gap-3 hover:border-purple-400 transition-all cursor-pointer"
-          onClick={() => onNavigate("deliveries", undefined, 'log-on-hold-rescheduled')}
-        >
-          <div className="min-w-0">
-            <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">
-              On-Hold / Rescheduled
-            </p>
-            <h3 className="text-3xl font-black text-slate-900 mt-1">
-              {onHoldRescheduled}
-            </h3>
-            <span className="text-xs text-purple-600 font-extrabold flex items-center gap-1 mt-2">
-              Needs reassignment
-            </span>
-          </div>
-          <div className="bg-purple-50 p-3 rounded-lg text-purple-600 shrink-0">
-            <RefreshCw className="w-6 h-6" />
-          </div>
-        </div>
-      </div>
-
-      {/* Drivers Currently Out Card */}
-      <div className="bg-[#1F3864] rounded-xl shadow-md p-5 border border-[#1F3864]">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Navigation className="w-5 h-5 text-[#0078C1]" />
-            <h4 className="text-sm font-black text-white uppercase tracking-wider">
-              Drivers Currently Out for Delivery
-            </h4>
-          </div>
-          <span className="bg-[#0078C1] text-white text-[10px] font-bold px-2.5 py-1 rounded-full">
-            {overview.drivers_out_total} driver{overview.drivers_out_total !== 1 ? "s" : ""}{" "}
-            active
-          </span>
-        </div>
-
-        {driversOut.length === 0 ? (
-          <p className="text-white/50 text-sm font-semibold text-center py-4">
-            No drivers currently assigned to today's deliveries.
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {driversOut.map(({ driver, records, total }) => (
-              <div
-                key={driver}
-                className="bg-white/10 rounded-lg p-3 border border-white/10"
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-7 h-7 rounded-full bg-[#0078C1] flex items-center justify-center text-white text-[10px] font-black shrink-0">
-                    {driver
-                      .split(" ")
-                      .map((p) => p[0])
-                      .join("")
-                      .slice(0, 2)
-                      .toUpperCase()}
-                  </div>
-                  <span className="text-white font-bold text-xs truncate">
-                    {driver}
-                  </span>
-                </div>
-                <p className="text-white/60 text-[10px] font-bold uppercase tracking-wide mb-1.5">
-                  {total} active deliver
-                  {total !== 1 ? "ies" : "y"}
-                </p>
-                <div className="space-y-1">
-                  {records.slice(0, 3).map((r) => (
-                    <button
-                      key={r.id}
-                      onClick={() =>
-                        onNavigate(screenKeyForCategory(r.category), r.id)
-                      }
-                      className="block w-full text-left text-[10px] text-white/70 hover:text-white font-mono truncate cursor-pointer"
-                    >
-                      {r.id} · {r.company_name}
-                    </button>
-                  ))}
-                  {total > records.length && (
-                    <p className="text-[10px] text-white/40 font-semibold">
-                      +{total - records.length} more records
-                    </p>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {overview.drivers_out_total > driversOut.length && <button type="button" onClick={() => onNavigate('driver_board')} className="text-sm text-blue-800 underline">View all {overview.drivers_out_total} assigned Drivers</button>}
-      {/* Needs Attention Panel */}
-      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
-          <h4 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-500" /> Needs Attention
-          </h4>
-          <button
-            onClick={() => onNavigate("deliveries", undefined, 'log-flags')}
-            className="bg-amber-100 hover:bg-amber-200 text-amber-800 text-xs px-2.5 py-0.5 rounded font-extrabold uppercase tracking-wide cursor-pointer hover:underline transition-colors"
-          >
-            {flagsCount}{" "}
-            Flags
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Unassigned */}
-          <div className="border border-slate-200 rounded-lg p-3 space-y-2 flex flex-col">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
-              <UserX className="w-3.5 h-3.5 text-amber-500 shrink-0" />{" "}
-              Unassigned Records
-            </span>
-            <p className="text-2xl font-black text-slate-900">
-              {unassignedCount}
-            </p>
-            <p className="text-[11px] text-slate-400 font-medium flex-1">
-              Records with no driver assigned yet.
-            </p>
-            <button
-              onClick={() => onNavigate("deliveries", undefined, 'log-unassigned')}
-              className="text-[10px] text-[#0078C1] hover:underline font-bold uppercase tracking-wide cursor-pointer text-left"
-            >
-              View records →
-            </button>
-          </div>
-
-          {/* On-Hold */}
-          <div className="border border-slate-200 rounded-lg p-3 space-y-2 flex flex-col">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
-              <PauseCircle className="w-3.5 h-3.5 text-red-500 shrink-0" />{" "}
-              On-Hold Items
-            </span>
-            <p className="text-2xl font-black text-slate-900">
-              {onHoldCount}
-            </p>
-            <p className="text-[11px] text-slate-400 font-medium flex-1">
-              Deliveries currently blocked.
-            </p>
-            <button
-              onClick={() => onNavigate("deliveries", undefined, 'log-on-hold')}
-              className="text-[10px] text-[#0078C1] hover:underline font-bold uppercase tracking-wide cursor-pointer text-left"
-            >
-              View records →
-            </button>
-          </div>
-
-          {/* Rescheduled */}
-          <div className="border border-slate-200 rounded-lg p-3 space-y-2 flex flex-col">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
-              <RefreshCw className="w-3.5 h-3.5 text-purple-500 shrink-0" />{" "}
-              Rescheduled Items
-            </span>
-            <p className="text-2xl font-black text-slate-900">
-              {rescheduledCount}
-            </p>
-            <p className="text-[11px] text-slate-400 font-medium flex-1">
-              Bumped to a new delivery date.
-            </p>
-            <button
-              onClick={() => onNavigate("deliveries", undefined, 'log-rescheduled')}
-              className="text-[10px] text-[#0078C1] hover:underline font-bold uppercase tracking-wide cursor-pointer text-left"
-            >
-              View records →
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+          ))}
+      </DashboardPanel>
+    </DashboardPage>
   );
 }

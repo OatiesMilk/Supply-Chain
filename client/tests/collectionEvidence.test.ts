@@ -132,10 +132,13 @@ test('V1 collection evidence reads remain independent of verification permission
   } finally { await ui.close(); }
 });
 
-test('overview distinguishes unverified collected records from verified collections', async () => {
+test('verification tab distinguishes unverified collected records from verified collections while overview focuses on record details', async () => {
   mock.method(api, 'getRecordAttachments', async () => [attachment('receipt.pdf')]);
   const unverifiedUi = await fixture();
   try {
+    assert.match(unverifiedUi.dom.window.document.body.textContent!, /Pending TASS Verification/);
+    assert.doesNotMatch(unverifiedUi.dom.window.document.body.textContent!, /Collection confirmed\. Verification is now available\./);
+    await act(async () => unverifiedUi.button('Verification').click()); await unverifiedUi.flush();
     assert.match(unverifiedUi.dom.window.document.body.textContent!, /Collection confirmed\. Verification is now available\./);
   } finally {
     await unverifiedUi.close();
@@ -148,7 +151,10 @@ test('overview distinguishes unverified collected records from verified collecti
     collection_verified_at: '2026-11-03T04:55:00Z',
   });
   try {
-    assert.match(verifiedUi.dom.window.document.body.textContent!, /Collection Status: Collected · Collection Verified/);
+    assert.match(verifiedUi.dom.window.document.body.textContent!, /TASS Verified/);
+    assert.doesNotMatch(verifiedUi.dom.window.document.body.textContent!, /Collection Status: Complete · Collection Verified/);
+    await act(async () => verifiedUi.button('Verification').click()); await verifiedUi.flush();
+    assert.match(verifiedUi.dom.window.document.body.textContent!, /Collection Status: Complete · Collection Verified/);
     assert.match(verifiedUi.dom.window.document.body.textContent!, /Collection verified by Ana Cruz at /);
     assert.doesNotMatch(verifiedUi.dom.window.document.body.textContent!, /Verification is now available\./);
   } finally {

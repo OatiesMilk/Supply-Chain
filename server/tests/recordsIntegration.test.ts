@@ -57,7 +57,7 @@ test('Logistics cannot create a Delivery but retains access to existing Delivery
       body: JSON.stringify({ company_id: 'comp-1', reference: 'SAP-1', category: 'Deliveries' }),
     });
     assert.equal(response.status, 403);
-    assert.match((await response.json() as any).error, /Only Sales Coordinator or Admin may create Deliveries/);
+    assert.match((await response.json() as any).error, /Only Sales Coordinator can create Deliveries records/);
   } finally {
     prisma.user.findUnique = originalUserLookup;
     await close();

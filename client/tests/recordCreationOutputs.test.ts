@@ -40,9 +40,9 @@ test('creation outputs wait for persistence and report failure without creating 
     const submitter = dom.window.document.querySelector<HTMLButtonElement>('button[value="submit"]')!;
     await act(async () => { form.dispatchEvent(new dom.window.SubmitEvent('submit', { bubbles: true, cancelable: true, submitter })); });
     assert.equal(calls, 1); assert.equal(dispatch.mock.callCount(), 0, 'email cannot be requested before a record exists');
-    await act(async () => resolveCreate({ ...submitted, id: 'persisted-record', created_by: 'Sales', modified_by: 'Sales' }));
+    await act(async () => resolveCreate({ ...submitted, id: 'persisted-record', record_no: 'DEL-26-00042', created_by: 'Sales', modified_by: 'Sales' }));
     assert.equal(dispatch.mock.callCount(), 1);
-    assert.match(dom.window.document.body.textContent!, /Record ID: persisted-record/, 'saved identity remains visible while outputs are pending');
+    assert.match(dom.window.document.body.textContent!, /Record No\.: DEL-26-00042/, 'saved record number remains visible while outputs are pending');
     assert.equal(dom.window.document.querySelector('button[value="submit"]'), null);
     await act(async () => resolveDispatch({ ok: false, sent: 0, failed: 1, mocked: 0, skipped: 0 }));
     assert.deepEqual(dispatch.mock.calls[0].arguments[0], { recordId: 'persisted-record', trigger: 'Record Created', recipients: ['AM', 'LOGISTICS', 'TASS'] });

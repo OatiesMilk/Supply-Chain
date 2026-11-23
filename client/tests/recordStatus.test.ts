@@ -29,10 +29,10 @@ test('draft, supplier and internal RMAs do not imply an active Driver transport'
   }
 });
 
-test('Sales, Logistics and Driver ordinary record labels keep the saved lifecycle status', () => {
+test('ordinary final status renders as Complete while other saved lifecycle labels stay unchanged', () => {
   for (const category of ['Sales Orders', 'Deliveries', 'Procurement Pick-up', 'Accounting Collection'] as const) {
-    for (const status of ['Draft', 'Scheduled', 'In Transit', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'] as const) {
-      assert.equal(text(rma({ category, status })), status, `${category}: ${status}`);
+    for (const status of ['Draft', 'Scheduled', 'In Transit', 'Transport Complete', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'] as const) {
+      assert.equal(text(rma({ category, status })), status === 'Delivered' ? 'Complete' : status, `${category}: ${status}`);
       assert.doesNotMatch(text(rma({ category, status }), true), /Transport:|RMA:|Awaiting physical/);
     }
   }
@@ -53,8 +53,9 @@ test('status cells show exactly one unprefixed status through RMA transport and 
   assert.equal(compact(received), 'Received');
   assert.equal(compact({ ...received, status: 'Delivered' }), 'Complete');
   for (const status of ['On-Hold', 'Rescheduled'] as const) assert.equal(compact({ ...transported, status }), status);
-  for (const status of ['Draft', 'Scheduled', 'In Transit', 'Delivered'] as const) {
-    assert.equal(compact(rma({ category: 'Deliveries', status })), status);
-    assert.equal(compact(rma({ category: 'Sales Orders', status })), status);
+  for (const status of ['Draft', 'Scheduled', 'In Transit', 'Transport Complete', 'Delivered'] as const) {
+    const expected = status === 'Delivered' ? 'Complete' : status;
+    assert.equal(compact(rma({ category: 'Deliveries', status })), expected);
+    assert.equal(compact(rma({ category: 'Sales Orders', status })), expected);
   }
 });

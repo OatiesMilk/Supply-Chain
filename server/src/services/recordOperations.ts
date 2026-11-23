@@ -13,7 +13,7 @@ export function recordMutationInputError(body: unknown, route: string, method: s
   if (!body || typeof body !== 'object' || Array.isArray(body)) return 'Record mutation must be an object';
   const allowed = route.endsWith('/status') ? ['status', 'remarks', 'priority', 'received_by', 'delivery_date', 'expected_version', 'expected_edit_version']
     : route.endsWith('/comments') ? ['body'] : route.endsWith('/time-in') ? ['remarks']
-    : route.endsWith('/verify-collection') ? [] : route.includes('/attachments') ? ['remarks']
+    : route.endsWith('/verify-collection') ? [] : route.endsWith('/complete') ? ['remarks', 'reviewed_photo_id', 'expected_edit_version'] : route.includes('/attachments') ? ['remarks']
     : method === 'POST' ? [...detailFields, 'status', 'company_name', 'output_actions_log'] : detailFields;
   return Object.keys(body).some(key => !allowed.includes(key)) ? 'Unsupported record mutation fields' : null;
 }
@@ -27,6 +27,7 @@ export function recordOperationError(user: AuthUser, record: RecordContext, body
   // Authorize the action independently of mutable verification state. The
   // handler rechecks lifecycle under its lock and returns a conflict on repeats.
   if (route.endsWith('/verify-collection')) return allowed('VERIFY_COLLECTION', undefined, true) ? null : 'Collection verification denied';
+  if (route.endsWith('/complete')) return allowed('RECEIVE', undefined, true) ? null : 'Completion sign-off denied';
   if (route.endsWith('/time-in')) return allowed('TIME_IN') ? null : 'Time In denied';
   if (route.endsWith('/status')) {
     const target = body.status as RunState;

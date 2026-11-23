@@ -16,6 +16,7 @@ import { POD_ATTACHMENT_ACCEPT, getPodAttachmentRejection } from '@/utils/attach
 import { selectDemoLocation } from '@/utils/demoLocations';
 import { notify } from '@/utils/notify';
 import { uploadPendingRecordAttachments, type StagedRecordAttachment } from '@/utils/recordAttachments';
+import { recordLabel } from '../../utils/recordLabel';
 
 // ── Sample-data tables (moved here from DeliveryRecordsView) ──────────────────
 
@@ -165,7 +166,7 @@ export interface RecordCreateFormProps {
   // Optional: output action integration — only provided by DeliveryRecordsView
   outputActionConfigs?: Record<OutputActionTrigger, OutputActionConfig>;
   onUpdateOutputActionConfig?: (trigger: OutputActionTrigger, patch: Partial<OutputActionConfig>) => void;
-  onAfterSubmit?: (bannerData: { recordId: string; referenceLabel: string; lines: string[] }) => void;
+  onAfterSubmit?: (bannerData: { recordId: string; recordNo: string; referenceLabel: string; lines: string[] }) => void;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -191,7 +192,7 @@ export default function RecordCreateForm({
   const [saving, setSaving] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [stagedAttachments, setStagedAttachments] = useState<StagedRecordAttachment[]>([]);
-  const [createdRecordInfo, setCreatedRecordInfo] = useState<{ id: string; referenceLabel: string; lines: string[]; isDraft: boolean } | null>(null);
+  const [createdRecordInfo, setCreatedRecordInfo] = useState<{ id: string; recordNo: string; referenceLabel: string; lines: string[]; isDraft: boolean } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -291,7 +292,7 @@ export default function RecordCreateForm({
     uploadPendingRecordAttachments(recordId, attachments, api, updateAttachmentStatus);
 
   const finishCreatedRecord = (info: NonNullable<typeof createdRecordInfo>) => {
-    onAfterSubmit?.({ recordId: info.id, referenceLabel: info.referenceLabel, lines: info.lines });
+    onAfterSubmit?.({ recordId: info.id, recordNo: info.recordNo, referenceLabel: info.referenceLabel, lines: info.lines });
     setForm(buildEmptyForm(form.category));
     setStagedAttachments([]);
     setCreatedRecordInfo(null);
@@ -304,7 +305,7 @@ export default function RecordCreateForm({
     try {
       const complete = await uploadAttachments(createdRecordInfo.id);
       if (!complete) {
-        notify.error(`Record ${createdRecordInfo.id} is saved. Some attachments still need to be uploaded; retry them here.`);
+        notify.error(`Record ${createdRecordInfo.recordNo} is saved. Some attachments still need to be uploaded; retry them here.`);
         return;
       }
       notify.success('All record attachments uploaded');
@@ -339,7 +340,7 @@ export default function RecordCreateForm({
 
     setSaving(true);
     let createdRecord: DeliveryRecord;
-    let createdInfo: { id: string; referenceLabel: string; lines: string[]; isDraft: boolean };
+    let createdInfo: { id: string; recordNo: string; referenceLabel: string; lines: string[]; isDraft: boolean };
     try {
       createdRecord = await onSubmit({
         ...form,
@@ -360,6 +361,7 @@ export default function RecordCreateForm({
       // Retain the saved identity before any optional output can fail.
       createdInfo = {
         id: createdRecord.id,
+        recordNo: recordLabel(createdRecord),
         referenceLabel: form.reference || form.company_name,
         lines: bannerLines,
         isDraft,
@@ -372,10 +374,10 @@ export default function RecordCreateForm({
             exportPDF: () => exportRecordOutputPDF(createdRecord),
           });
           bannerLines = output.banners;
-          if (output.email.failed || output.pdf === 'failed') notify.error(`Record ${createdRecord.id} is saved. ${output.banners.join(' ')}`);
+          if (output.email.failed || output.pdf === 'failed') notify.error(`Record ${recordLabel(createdRecord)} is saved. ${output.banners.join(' ')}`);
         } catch (error) {
           bannerLines = [`Additional outputs could not finish: ${error instanceof Error ? error.message : 'Please check notification status.'}`];
-          notify.error(`Record ${createdRecord.id} is saved. ${bannerLines[0]}`);
+          notify.error(`Record ${recordLabel(createdRecord)} is saved. ${bannerLines[0]}`);
         }
         createdInfo = { ...createdInfo, lines: bannerLines };
         setCreatedRecordInfo(createdInfo);
@@ -383,7 +385,7 @@ export default function RecordCreateForm({
 
       const allUploaded = await uploadAttachments(createdRecord.id);
       if (!allUploaded) {
-        notify.error(`Record ${createdRecord.id} was created. Some attachments still need to be uploaded; retry them below.`);
+        notify.error(`Record ${recordLabel(createdRecord)} was created. Some attachments still need to be uploaded; retry them below.`);
         return;
       }
       notify.success(isDraft ? 'Draft saved' : 'Record submitted');
@@ -404,23 +406,23 @@ export default function RecordCreateForm({
       <div className="bg-white border border-amber-200 shadow-sm rounded-xl p-5 sm:p-7 space-y-4 print:hidden" role="status">
         <div>
           <h3 className="text-base font-bold text-slate-900">Record created: {createdRecordInfo.referenceLabel}</h3>
-          <p className="text-xs text-slate-600 mt-1">Record ID: <span className="font-mono font-bold">{createdRecordInfo.id}</span></p>
+          <p className="text-xs text-slate-600 mt-1">Record No.: <span className="tabular-nums font-bold">{createdRecordInfo.recordNo}</span></p>
           <p className="text-xs text-amber-800 mt-2">The record is saved. Retry the remaining file uploads here; this will not create another record.</p>
         </div>
         <div className="space-y-2">
           {stagedAttachments.map(attachment => (
             <div key={attachment.id} className="flex items-start gap-2 bg-slate-50 border border-slate-200 rounded px-3 py-2">
-              <FileText className="w-4 h-4 text-[#1F3864] mt-0.5" />
+              <FileText className="w-4 h-4 text-brand-navy mt-0.5" />
               <div className="min-w-0 flex-1">
-                <p className="font-mono text-xs text-slate-700 break-all">{attachment.file.name}</p>
-                <p className={`text-[10px] font-semibold ${attachment.status === 'uploaded' ? 'text-emerald-700' : attachment.status === 'failed' ? 'text-red-600' : 'text-amber-700'}`}>
+                <p className="tabular-nums text-xs text-slate-700 break-all">{attachment.file.name}</p>
+                <p className={`text-xs font-semibold ${attachment.status === 'uploaded' ? 'text-emerald-700' : attachment.status === 'failed' ? 'text-red-600' : 'text-amber-700'}`}>
                   {attachment.status === 'uploaded' ? 'Uploaded' : attachment.status === 'uploading' ? 'Uploading…' : attachment.status === 'failed' ? `Upload failed: ${attachment.error ?? 'Please retry.'}` : 'Waiting to upload'}
                 </p>
               </div>
             </div>
           ))}
         </div>
-        <button type="button" onClick={handleRetryAttachments} disabled={saving} className="px-5 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg disabled:opacity-50">
+        <button type="button" onClick={handleRetryAttachments} disabled={saving} className="px-5 py-2.5 bg-brand-blue hover:bg-brand-navy text-white font-bold rounded-lg disabled:opacity-50">
           {saving ? 'Uploading…' : 'Retry incomplete uploads'}
         </button>
       </div>
@@ -432,16 +434,16 @@ export default function RecordCreateForm({
       <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
         <div>
           <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-            <Plus className="w-5 h-5 text-[#0078C1]" />
+            <Plus className="w-5 h-5 text-brand-blue" />
             {categoryLocked ? `Create New ${cat} Record` : 'Create New Record'}
           </h3>
-          <p className="text-[11.5px] text-slate-500 font-medium">{cat === 'RMA' ? 'Company Name, Priority, Area and Account Manager are required. Choose a movement method to submit; Logistics transport also needs a Delivery Date.' : 'Submit requires a company, reference and delivery date. Drafts may be incomplete.'}</p>
+          <p className="text-xs text-slate-500 font-medium">{cat === 'RMA' ? 'Company Name, Priority, Area and Account Manager are required. Choose a movement method to submit; Logistics transport also needs a Delivery Date.' : 'Submit requires a company, reference and delivery date. Drafts may be incomplete.'}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={handleAutoFill}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg transition-colors cursor-pointer"
           >
             <Wand2 className="w-3.5 h-3.5" /> Auto Fill
           </button>
@@ -489,19 +491,19 @@ export default function RecordCreateForm({
             <select value={form.priority} onChange={e => updateField('priority', e.target.value)} aria-invalid={!!formErrors.priority} className={`w-full px-3 py-2 border rounded-lg bg-white ${formErrors.priority ? 'border-red-500' : 'border-slate-300'}`}>
               {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
-            {formErrors.priority && <p className="text-red-500 text-[10px] font-semibold">{formErrors.priority}</p>}
+            {formErrors.priority && <p className="text-red-500 text-xs font-semibold">{formErrors.priority}</p>}
           </div>
 
           {/* Reference * (not required when Draft) */}
           <div className="space-y-1.5 md:col-span-2">
             <label className="font-bold text-slate-700">
-              {cat === 'RMA' ? 'Reference' : 'Reference (SAP Number)'}{cat !== 'RMA' && form.is_draft !== 'Yes' && <span className="text-red-500"> *</span>}{cat === 'RMA' && <span className="text-[10px] font-normal text-slate-400"> (optional)</span>}
+              {cat === 'RMA' ? 'Reference' : 'Reference (SAP Number)'}{cat !== 'RMA' && form.is_draft !== 'Yes' && <span className="text-red-500"> *</span>}{cat === 'RMA' && <span className="text-xs font-normal text-slate-400"> (optional)</span>}
             </label>
             <input type="text" value={form.reference} onChange={e => updateField('reference', e.target.value)}
               aria-invalid={!!formErrors.reference}
               placeholder={cat === 'RMA' ? 'Enter document reference (optional)' : 'e.g., SAP-88231'}
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-hidden ${formErrors.reference ? 'border-red-500' : 'border-slate-300'}`} />
-            {formErrors.reference && <p className="text-red-500 text-[10px] font-semibold">{formErrors.reference}</p>}
+              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25 ${formErrors.reference ? 'border-red-500' : 'border-slate-300'}`} />
+            {formErrors.reference && <p className="text-red-500 text-xs font-semibold">{formErrors.reference}</p>}
           </div>
 
           {cat === 'RMA' && <>
@@ -516,30 +518,30 @@ export default function RecordCreateForm({
               {formErrors.rma_movement && <p role="alert" className="text-red-600 text-xs">{formErrors.rma_movement}</p>}
             </div>
             <div className="space-y-1.5">
-              <label className="font-bold text-slate-700">Category <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+              <label className="font-bold text-slate-700">Category <span className="text-xs font-normal text-slate-400">(optional)</span></label>
               <select value={form.rma_type} onChange={e => updateField('rma_type', e.target.value as RecordFormState['rma_type'])} aria-invalid={!!formErrors.rma_type} className={`w-full px-3 py-2 border rounded-lg bg-white ${formErrors.rma_type ? 'border-red-500' : 'border-slate-300'}`}>
                 <option value="">— Select —</option>
                 {RMA_CATEGORIES.map(value => <option key={value} value={value}>{value}</option>)}
               </select>
-              {formErrors.rma_type && <p className="text-red-500 text-[10px] font-semibold">{formErrors.rma_type}</p>}
+              {formErrors.rma_type && <p className="text-red-500 text-xs font-semibold">{formErrors.rma_type}</p>}
             </div>
             <div className="space-y-1.5">
-              <label className="font-bold text-slate-700">Purchase Date <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+              <label className="font-bold text-slate-700">Purchase Date <span className="text-xs font-normal text-slate-400">(optional)</span></label>
               <input type="date" value={form.purchase_date} onChange={e => updateField('purchase_date', e.target.value)} aria-invalid={!!formErrors.purchase_date} className={`w-full px-3 py-2 border rounded-lg ${formErrors.purchase_date ? 'border-red-500' : 'border-slate-300'}`} />
-              {formErrors.purchase_date && <p className="text-red-500 text-[10px] font-semibold">{formErrors.purchase_date}</p>}
+              {formErrors.purchase_date && <p className="text-red-500 text-xs font-semibold">{formErrors.purchase_date}</p>}
             </div>
             <div className="space-y-1.5">
-              <label className="font-bold text-slate-700">Customer Contact Name <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+              <label className="font-bold text-slate-700">Customer Contact Name <span className="text-xs font-normal text-slate-400">(optional)</span></label>
               <input type="text" value={form.customer_contact_name} onChange={e => updateField('customer_contact_name', e.target.value)} aria-invalid={!!formErrors.customer_contact_name} className={`w-full px-3 py-2 border rounded-lg ${formErrors.customer_contact_name ? 'border-red-500' : 'border-slate-300'}`} />
-              {formErrors.customer_contact_name && <p className="text-red-500 text-[10px] font-semibold">{formErrors.customer_contact_name}</p>}
+              {formErrors.customer_contact_name && <p className="text-red-500 text-xs font-semibold">{formErrors.customer_contact_name}</p>}
             </div>
             <div className="space-y-1.5">
-              <label className="font-bold text-slate-700">Customer Contact Email <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+              <label className="font-bold text-slate-700">Customer Contact Email <span className="text-xs font-normal text-slate-400">(optional)</span></label>
               <input type="email" value={form.customer_contact_email} onChange={e => updateField('customer_contact_email', e.target.value)} aria-invalid={!!formErrors.customer_contact_email} className={`w-full px-3 py-2 border rounded-lg ${formErrors.customer_contact_email ? 'border-red-500' : 'border-slate-300'}`} />
-              {formErrors.customer_contact_email && <p className="text-red-500 text-[10px] font-semibold">{formErrors.customer_contact_email}</p>}
+              {formErrors.customer_contact_email && <p className="text-red-500 text-xs font-semibold">{formErrors.customer_contact_email}</p>}
             </div>
             <div className="space-y-1.5">
-              <label className="font-bold text-slate-700">Customer Contact Phone <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+              <label className="font-bold text-slate-700">Customer Contact Phone <span className="text-xs font-normal text-slate-400">(optional)</span></label>
               <input type="tel" value={form.customer_contact_phone} onChange={e => updateField('customer_contact_phone', e.target.value)} aria-invalid={!!formErrors.customer_contact_email && !form.customer_contact_phone.trim()} className={`w-full px-3 py-2 border rounded-lg ${formErrors.customer_contact_email && !form.customer_contact_phone.trim() ? 'border-red-500' : 'border-slate-300'}`} />
             </div>
           </>}
@@ -563,13 +565,13 @@ export default function RecordCreateForm({
 
           {/* Address */}
           <div className="space-y-1.5 md:col-span-2">
-            <label className="font-bold text-slate-700">Address <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+            <label className="font-bold text-slate-700">Address <span className="text-xs font-normal text-slate-400">(optional)</span></label>
             <input
               type="text"
               value={form.address}
               onChange={e => updateField('address', e.target.value)}
               placeholder="Street, building, floor, or additional location detail (optional)"
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
             />
           </div>
 
@@ -587,16 +589,16 @@ export default function RecordCreateForm({
 
           {/* Delivery Date */}
           <div className="space-y-1.5">
-            <label htmlFor={deliveryDateId} className="font-bold text-slate-700">Delivery Date {(cat !== 'RMA' || form.rma_movement === 'LOGISTICS_TRANSPORT') && form.is_draft !== 'Yes' ? <span className="text-red-500">*</span> : <span className="text-[10px] font-normal text-slate-400">(optional)</span>}</label>
+            <label htmlFor={deliveryDateId} className="font-bold text-slate-700">Delivery Date {(cat !== 'RMA' || form.rma_movement === 'LOGISTICS_TRANSPORT') && form.is_draft !== 'Yes' ? <span className="text-red-500">*</span> : <span className="text-xs font-normal text-slate-400">(optional)</span>}</label>
             <input id={deliveryDateId} type="date" value={form.delivery_date} onChange={e => updateField('delivery_date', e.target.value)}
               aria-invalid={!!formErrors.delivery_date}
               className={`w-full px-3 py-2 border rounded-lg ${formErrors.delivery_date ? 'border-red-500' : 'border-slate-300'}`} />
-            {formErrors.delivery_date && <p className="text-red-500 text-[10px] font-semibold">{formErrors.delivery_date}</p>}
+            {formErrors.delivery_date && <p className="text-red-500 text-xs font-semibold">{formErrors.delivery_date}</p>}
           </div>
 
           {/* Item Type */}
           <div className="space-y-1.5">
-            <label className="font-bold text-slate-700">Item Type <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+            <label className="font-bold text-slate-700">Item Type <span className="text-xs font-normal text-slate-400">(optional)</span></label>
             <select value={form.item_type} onChange={e => updateField('item_type', e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">
               {(cat === 'RMA' ? RMA_ITEM_TYPES : ITEM_TYPES).map(it => <option key={it} value={it}>{it}</option>)}
             </select>
@@ -604,7 +606,7 @@ export default function RecordCreateForm({
 
           {/* Remarks */}
           <div className="space-y-1.5 md:col-span-2">
-            <label className="font-bold text-slate-700">Remarks <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+            <label className="font-bold text-slate-700">Remarks <span className="text-xs font-normal text-slate-400">(optional)</span></label>
             <textarea value={form.remarks} onChange={e => updateField('remarks', e.target.value)} rows={3}
               placeholder="Special instructions or notes..." className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
           </div>
@@ -612,11 +614,11 @@ export default function RecordCreateForm({
           {/* Line Items */}
           <div className="space-y-1.5 md:col-span-2">
             <div className="flex justify-between items-center mb-1.5">
-              <label className="font-bold text-slate-700">Line Items <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+              <label className="font-bold text-slate-700">Line Items <span className="text-xs font-normal text-slate-400">(optional)</span></label>
               <button
                 type="button"
                 onClick={() => updateField('line_items', [...(form.line_items || []), { sku: '', quantity: 1 }])}
-                className="flex items-center gap-1 text-[11px] font-bold text-[#0078C1] hover:text-[#1F3864] cursor-pointer"
+                className="flex items-center gap-1 text-xs font-bold text-brand-blue hover:text-brand-navy cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" /> Add Item
               </button>
@@ -658,29 +660,29 @@ export default function RecordCreateForm({
               </div>
             ))}
             {(!form.line_items || form.line_items.length === 0) && (
-              <p className="text-[11px] text-slate-400 italic">No line items added. Use the description box above if preferred.</p>
+              <p className="text-xs text-slate-400 italic">No line items added. Use the description box above if preferred.</p>
             )}
           </div>
 
           {/* Document Attachments */}
           <div className="space-y-1.5 md:col-span-2">
-            <label className="font-bold text-slate-700">Document Attachments <span className="text-[10px] font-normal text-slate-400">(optional)</span></label>
+            <label className="font-bold text-slate-700">Document Attachments <span className="text-xs font-normal text-slate-400">(optional)</span></label>
             <div
               onClick={() => { if (access.canRecord(form.category, 'POD')) fileInputRef.current?.click(); }}
               className="border-2 border-dashed border-slate-300 rounded-xl p-5 text-center flex flex-col items-center justify-center gap-2 cursor-pointer bg-slate-50/50 hover:bg-slate-50 transition-all"
             >
               <UploadCloud className="w-8 h-8 text-slate-400" />
               <p className="font-bold text-slate-600">Click to select files</p>
-              <p className="text-[10px] text-slate-400">PDF, JPG/JPEG, PNG, DOCX or XLSX — previewable without downloading, up to 10 MB each</p>
+              <p className="text-xs text-slate-400">PDF, JPG/JPEG, PNG, DOCX or XLSX — previewable without downloading, up to 10 MB each</p>
               <input type="file" disabled={!access.canRecord(form.category, 'POD')} ref={fileInputRef} onChange={handleFileSelect} accept={POD_ATTACHMENT_ACCEPT} multiple className="hidden" />
             </div>
             {stagedAttachments.length > 0 && (
               <div className="mt-2 space-y-1">
                 {stagedAttachments.map(attachment => (
                   <div key={attachment.id} className="flex items-center gap-2 bg-slate-100 border border-slate-200 rounded px-2 py-1">
-                    <FileText className="w-3.5 h-3.5 text-[#1F3864]" />
-                    <span className="font-mono text-[10px] text-slate-700">{attachment.file.name}</span>
-                    <span className="ml-auto text-[10px] text-slate-500">Ready to upload</span>
+                    <FileText className="w-3.5 h-3.5 text-brand-navy" />
+                    <span className="tabular-nums text-xs text-slate-700">{attachment.file.name}</span>
+                    <span className="ml-auto text-xs text-slate-500">Ready to upload</span>
                   </div>
                 ))}
               </div>
@@ -698,11 +700,11 @@ export default function RecordCreateForm({
         )}
 
         <div className="flex gap-2 justify-end pt-2 border-t border-slate-100">
-          <button type="button" onClick={onCancel} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors text-[11px] uppercase">
+          <button type="button" onClick={onCancel} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors text-xs uppercase">
             Cancel
           </button>
           <button type="submit" value="draft" disabled={saving || !access.canRecord(form.category, 'CREATE')} className="px-5 py-2.5 border border-slate-300 text-slate-700 font-bold rounded-lg disabled:opacity-50">Save as Draft</button>
-          <button type="submit" value="submit" disabled={saving || !access.canRecord(form.category, 'CREATE') || !access.canRecord(form.category, 'SUBMIT')} className="px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5">
+          <button type="submit" value="submit" disabled={saving || !access.canRecord(form.category, 'CREATE') || !access.canRecord(form.category, 'SUBMIT')} className="px-6 py-2.5 bg-brand-blue hover:bg-brand-navy text-white font-bold rounded-lg transition-colors text-xs uppercase flex items-center gap-1.5">
             <Check className="w-4 h-4" /> {saving ? "Saving…" : "Submit"}
           </button>
         </div>

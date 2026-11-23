@@ -84,7 +84,7 @@ export function hasValidRunTimeIn(value: unknown): boolean {
 }
 
 export function isDashboardRunActionable(record: DeliveryRecord, today = manilaToday()): boolean {
-  if (record.category === 'RMA' || isDraftRecord(record) || record.status === 'Delivered' || !record.driver) return false;
+  if (record.category === 'RMA' || isDraftRecord(record) || ['Delivered', 'Transport Complete'].includes(record.status) || !record.driver) return false;
   const schedule = deliveryScheduleState(record.delivery_date, today);
   const started = hasValidRunTimeIn(record.time_in);
   return started || (schedule.valid && !schedule.future);
@@ -92,19 +92,24 @@ export function isDashboardRunActionable(record: DeliveryRecord, today = manilaT
 
 export function dashboardRunDaysLate(record: DeliveryRecord, today = manilaToday()): number {
   if (record.category !== 'Deliveries') return 0;
-  if (record.status === 'Delivered') return record.completed_late ? Math.max(0, record.days_late ?? 0) : 0;
+  if (['Delivered', 'Transport Complete'].includes(record.status)) return record.completed_late ? Math.max(0, record.days_late ?? 0) : 0;
   return deliveryScheduleState(record.delivery_date, today).daysLate;
 }
 
-export const PRIORITY_LOCKED_NOTE = 'Priority is locked after delivery.';
+export const PRIORITY_LOCKED_NOTE = 'Priority is locked after transport completion.';
 
 /** Delivered is the only state with no further transitions, so its Priority is read-only for every role. */
 export function isPriorityLocked(record: Pick<DeliveryRecord, 'status'>): boolean {
-  return record.status === 'Delivered';
+  return record.status === 'Delivered' || record.status === 'Transport Complete';
 }
 
 export function manilaToday(now = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+}
+
+/** Logistics and Admin rescheduling a Delivery must set the new date in the same action (TSK-123). */
+export function rescheduleNeedsNewDate(category: string, role?: string | null): boolean {
+  return category === 'Deliveries' && ['LOGISTICS', 'ADMIN', 'Logistics', 'Admin'].includes(role ?? '');
 }
 
 /** Validation message for the "New delivery date" entered when rescheduling a Delivery, or null when valid. */

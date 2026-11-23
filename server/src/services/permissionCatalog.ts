@@ -3,6 +3,7 @@
  * recordAccess.ts, transactionAccess.ts and route guards at GH-243.
  * These rows are data, not a replacement for role/ownership/field/state guards.
  */
+import { policyEntryRestricted } from './moduleAccessRules';
 export const POLICY_ROLES = ['SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'ADMIN', 'DRIVER'] as const;
 export type PolicyRole = typeof POLICY_ROLES[number];
 export const POLICY_SCREENS = ['main', 'dashboard', 'deliveries', 'rma', 'accounting_collection', 'procurement_pickup', 'sales_orders', 'customers', 'suppliers', 'driver', 'driver_manager', 'calendar', 'driver_board', 'am_directory', 'transactions', 'inventory', 'statistical_reports', 'driver_dashboard', 'data_sampler', 'admin'] as const;
@@ -79,12 +80,14 @@ export function roleActionCeiling(role: PolicyRole, p: CatalogEntry): boolean {
     if (role === 'TASS' && c === 'ACCOUNTING_COLLECTION') return ['WRITE', 'CREATE', 'COMMENT'].includes(p.action);
     if (c === 'RMA') {
       if (p.action === 'RECEIVE' || p.action === 'COMPLETE') return role === 'TASS';
-      if (role === 'LOGISTICS') return ['WRITE', 'ASSIGN'].includes(p.action);
+      if (role === 'LOGISTICS') return ['WRITE', 'ASSIGN', 'STATUS', 'POD'].includes(p.action);
       if (role === 'DRIVER') return ['WRITE', 'STATUS', 'TIME_IN', 'POD', 'COMMENT'].includes(p.action);
       if (p.action === 'ASSIGN') return role === 'ADMIN';
       return ['TASS', 'ADMIN'].includes(role) && p.action !== 'TIME_IN';
     }
-    if (p.action === 'RECEIVE') return false;
+    // Sales Coordinator receives the driver's completed transport handoff and
+    // performs final sign-off for the four non-RMA operational categories.
+    if (p.action === 'RECEIVE') return role === 'SALES_COORDINATOR';
     if (p.action === 'CREATE') return role !== 'DRIVER' && role !== 'TASS' && !(role === 'LOGISTICS' && c === 'DELIVERY');
     if (p.action === 'ASSIGN' || p.action === 'TIME_IN') return ['ADMIN', 'LOGISTICS', ...(p.action === 'TIME_IN' ? ['DRIVER'] : [])].includes(role);
     if (p.action === 'SUBMIT') return ['ADMIN', 'SALES_COORDINATOR'].includes(role);
@@ -104,9 +107,13 @@ export function roleActionCeiling(role: PolicyRole, p: CatalogEntry): boolean {
 }
 /** Snapshot of existing route-permitted operations. Driver rows are always
  * conditional on linked profile, matching assignment, non-draft and state. */
-export function legacyCapabilities(role: PolicyRole, screens: readonly string[], grants: readonly LegacyGrant[], ceilingProbe = false): Map<string, PolicyEffect> {
+export function legacyCapabilities(role: PolicyRole, screens: readonly string[], grants: readonly LegacyGrant[], ceilingProbe = false, applyModuleRules = false): Map<string, PolicyEffect> {
   const allowed = new Set<string>();
-  const add = (scope: PolicyScope, module: string, action: PolicyAction) => allowed.add(policyKey(scope, module, action));
+  // Stored baselines stay frozen; `applyModuleRules` gives the current effective legacy behaviour.
+  const add = (scope: PolicyScope, module: string, action: PolicyAction) => {
+    if (applyModuleRules && policyEntryRestricted(role, { scope, module, action })) return;
+    allowed.add(policyKey(scope, module, action));
+  };
   const has = (...choices: string[]) => choices.some(s => screens.includes(s));
   for (const screen of screens) add('SCREEN', screen, 'READ');
   for (const [resource, deps] of Object.entries(resourceScreens)) if (has(...deps)) add('RESOURCE', resource, 'READ');

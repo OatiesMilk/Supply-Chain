@@ -4,6 +4,7 @@ import {
   type PolicyAction, type PolicyCategory, type PolicyEffect, type PolicyRole, type PolicyScope,
 } from './permissionCatalog';
 import type { Resource, Screen } from './permissions';
+import { policyEntryRestricted } from './moduleAccessRules';
 
 export const PERMISSION_CATALOG_VERSION = 1;
 export type PermissionRevision = bigint | string;
@@ -152,6 +153,8 @@ export function evaluatePermissions(input: PermissionEvaluationInput): Effective
     const decision = decisions[entry.key];
     if (decision.allowed) { decision.allowed = false; decision.reasons.push(reason); }
   };
+  // Module business rules narrow any stored Allow (see moduleAccessRules.ts).
+  if (role) for (const entry of PERMISSION_CATALOG) if (policyEntryRestricted(role, entry)) deny(entry, 'ROLE_RESTRICTION');
   // Resolve READ first, then WRITE, then specific operations: a missing/denied
   // parent capability can never be bypassed by an explicit operation Allow.
   for (const entry of PERMISSION_CATALOG) if (entry.action !== 'READ'

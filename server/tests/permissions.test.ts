@@ -40,9 +40,13 @@ test('editor, login and restored sessions share defaults, overrides, catalog and
   assert.ok(!effectiveScreens('LOGISTICS', [{ screen: 'admin', granted: true }]).includes('admin'));
   assert.ok(effectiveScreens('ADMIN', [{ screen: 'admin', granted: false }]).includes('admin'));
   assert.deepEqual(effectiveScreens('DRIVER', [{ screen: 'driver_dashboard', granted: false }]), []);
-  for (const screen of ['rma', 'procurement_pickup', 'suppliers', 'transactions']) {
+  for (const screen of ['rma', 'suppliers', 'transactions']) {
     assert.ok(permissionEditor(account('TASS')).roleDefaults.includes(screen as any));
   }
+  // TASS has no Procurement Pick-up module, even with an old explicit grant.
+  assert.ok(!permissionEditor(account('TASS')).roleDefaults.includes('procurement_pickup'));
+  assert.ok(!permissionEditor(account('TASS')).editableScreens.includes('procurement_pickup'));
+  assert.ok(!effectiveScreens('TASS', [{ screen: 'procurement_pickup', granted: true }]).includes('procurement_pickup'));
   // TSK-118: SKU Master is an Admin default only; others keep read-only SKU lookup via Transaction Center.
   for (const role of ['SALES_COORDINATOR', 'LOGISTICS', 'TASS']) {
     const session = sessionUser(account(role));
@@ -55,7 +59,7 @@ test('editor, login and restored sessions share defaults, overrides, catalog and
   assert.ok(!sessionUser(account('LOGISTICS', [{ screen: 'transactions', granted: false }])).resources.includes('skus'));
 });
 
-test('RMA access defaults keep Sales out, TASS as owner, Logistics read-only, and Admin unchanged', () => {
+test('RMA access defaults keep Sales out, TASS as owner, Logistics read-only, and Admin view-only', () => {
   const sales = permissionEditor(account('SALES_COORDINATOR'));
   assert.ok(!sales.roleDefaults.includes('rma'));
   assert.ok(!sales.effectiveScreens.includes('rma'));
@@ -85,8 +89,9 @@ test('RMA access defaults keep Sales out, TASS as owner, Logistics read-only, an
 
   const admin = permissionEditor(account('ADMIN'));
   assert.ok(admin.roleDefaults.includes('rma'));
-  assert.ok(canWriteCategory(sessionUser(account('ADMIN')) as AuthUser, 'RMA'));
-  assert.ok(canCreateCategory(sessionUser(account('ADMIN')) as AuthUser, 'DELIVERY'));
+  assert.ok(recordScope(sessionUser(account('ADMIN')) as AuthUser).category.in.includes('RMA'), 'Admin still reads RMA');
+  assert.equal(canWriteCategory(sessionUser(account('ADMIN')) as AuthUser, 'RMA'), false);
+  assert.equal(canCreateCategory(sessionUser(account('ADMIN')) as AuthUser, 'DELIVERY'), false);
 });
 
 test('invalid, unknown and duplicate permission inputs fail validation', () => {

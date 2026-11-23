@@ -88,12 +88,12 @@ function PhotoThumbnail({ file, onOpen, onRemove, removeDisabled = false }: {
       {failed ? (
         <div className="flex h-full flex-col items-center justify-center gap-1 px-2 text-center text-slate-500">
           <ImageOff aria-hidden="true" className="h-6 w-6" />
-          <span className="text-[10px] font-semibold">Preview unavailable</span>
+          <span className="text-xs font-semibold">Preview unavailable</span>
           <a
             href={file.download_url}
             download={file.name}
             aria-label={`Download ${file.name}`}
-            className="text-[10px] font-bold text-blue-700 underline"
+            className="text-xs font-bold text-blue-700 underline"
           >
             Download
           </a>
@@ -453,7 +453,7 @@ function PodDocumentPreview({
                     </button>
                   ))}
                   {spreadsheet.totalSheetCount > spreadsheet.sheets.length && (
-                    <span className="self-center px-2 text-[10px] text-slate-400">Showing first {spreadsheet.sheets.length} sheets</span>
+                    <span className="self-center px-2 text-xs text-slate-400">Showing first {spreadsheet.sheets.length} sheets</span>
                   )}
                 </div>
               )}
@@ -465,7 +465,7 @@ function PodDocumentPreview({
                     <tbody>
                       {spreadsheet.sheets[activeSheetIndex]?.rows.map((row, rowIndex) => (
                         <tr key={rowIndex}>
-                          <th scope="row" className="sticky left-0 border border-slate-200 bg-slate-100 px-2 py-1 text-right font-mono text-[10px] text-slate-400">{rowIndex + 1}</th>
+                          <th scope="row" className="sticky left-0 border border-slate-200 bg-slate-100 px-2 py-1 text-right tabular-nums text-xs text-slate-400">{rowIndex + 1}</th>
                           {row.map((value, columnIndex) => (
                             <td key={columnIndex} className="max-w-64 whitespace-pre-wrap break-words border border-slate-200 px-2 py-1 align-top">{value}</td>
                           ))}
@@ -476,7 +476,7 @@ function PodDocumentPreview({
                 </div>
               )}
               {spreadsheet.sheets[activeSheetIndex]?.truncated && (
-                <p className="shrink-0 border-t border-slate-200 bg-slate-50 px-3 py-2 text-[10px] text-slate-500">Preview limited to the first {SPREADSHEET_PREVIEW_ROWS} rows and {SPREADSHEET_PREVIEW_COLUMNS} columns.</p>
+                <p className="shrink-0 border-t border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">Preview limited to the first {SPREADSHEET_PREVIEW_ROWS} rows and {SPREADSHEET_PREVIEW_COLUMNS} columns.</p>
               )}
             </div>
           ) : isSpreadsheet ? null : previewUrl ? (
@@ -544,7 +544,7 @@ export function PodAttachmentList({ files, onRemove, removeDisabled = false }: {
                 <Icon aria-hidden="true" className="h-5 w-5 shrink-0 text-slate-500" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-xs font-semibold text-slate-800">{file.name}</p>
-                  <p className="mt-0.5 font-mono text-[10px] text-slate-400">
+                  <p className="mt-0.5 tabular-nums text-xs text-slate-400">
                     {kind}{file.size ? ` · ${formatSize(file.size)}` : ''} · {formatUploadedAt(file.uploaded_at)}
                   </p>
                 </div>
@@ -569,7 +569,7 @@ export function PodAttachmentList({ files, onRemove, removeDisabled = false }: {
                   <span className="hidden sm:inline">Download</span>
                 </a>
                 {!isPreviewable(file) && (
-                  <span className="hidden max-w-52 text-[10px] text-slate-500 md:inline">
+                  <span className="hidden max-w-52 text-xs text-slate-500 md:inline">
                     {kind === 'DOC' ? 'Legacy .doc cannot be previewed. Convert to DOCX or PDF, or download to open locally.' : 'Preview is unavailable for this format.'}
                   </span>
                 )}

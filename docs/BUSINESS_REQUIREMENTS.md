@@ -1,9 +1,9 @@
 # Business System Requirements: Microgenesis Supply Chain Portal
 
-> Last full-document verification: 2026-10-09 against commit `ccbf192` (`dev`).
+> Last full-document verification: 2026-11-11 against commit `1e2b900` (`dev`).
 > Status tags: **Implemented** (verified in code), **Partial** (works with a stated gap), **Planned** (not built), **Open question** (needs a stakeholder decision).
-> This document describes what the system does today. It is not a signed-off specification; items marked *Open question* have not been confirmed with the owning department.
-> Targeted update (2026-11-05): Supplier creation now records the initial details and actor in a central `Supplier` CREATE audit event in the same transaction. This update does not replace the full-document verification above.
+> Companion documents: [User Operating Manuals](./USER_MANUALS.md), [Features Inventory](./FEATURES_INVENTORY.md), [Admin Master Data](./ADMIN_MASTER_DATA.md), [Performance Audit](./PERFORMANCE_IMPROVEMENT_AUDIT_2026-11-11.md).
+> Updated (2026-11-11): Master Data directories (Companies and Account Managers) are fully Admin-managed with unique normalization; Supplier multi-category catalog and atomic audit events are implemented.
 
 ## 1. Purpose and scope
 
@@ -40,15 +40,16 @@ Out of scope today: automatic stock movement from deliveries, customer signature
 | BR-REC-10 | Priority (1 Low, 2 Moderate, 3 High) editable from the Overview tab | Implemented | Sales Coordinator, Logistics |
 | BR-REC-11 | Company history panel listing the company's accessible records | Implemented | Respects role/category limits (TASS sees RMA and Accounting Collection only) |
 | BR-REC-12 | Stage document uploads and save with the record; save feedback and "unchanged status" explanations | Implemented | Sonner toasts, unified save actions |
+| BR-REC-13 | Every record has a short, unique record number users can read, search and quote (e.g. DEL-26-00042) | Implemented | Assigned by PostgreSQL on insert; prefix per type, yearly counter in Asia/Manila; the internal id is never shown. Plan: `docs/plans/short-record-ids.md` |
 
 ### 3.2 Status lifecycle and dispatch
 
 | ID | Requirement | Status | Notes |
 | :--- | :--- | :--- | :--- |
 | BR-LIFE-01 | States: Draft, Scheduled, In Transit, Pending, On-Hold, Rescheduled, Delivered, with server-enforced transitions | Implemented | `services/deliveryLifecycle.ts` |
-| BR-LIFE-02 | In Transit only via a dedicated Time In action; needs an assigned driver and a Scheduled or Rescheduled run | Implemented | Driver, Logistics, Admin |
+| BR-LIFE-02 | In Transit only via a dedicated Time In action; needs an assigned driver and a Scheduled or Rescheduled run | Implemented | Driver, Logistics, Admin. RMA does not use Time In: it starts with Start transport (Driver, or Logistics for the assigned Driver once the Logistics transport switch has run) |
 | BR-LIFE-03 | Delivered requires Time In, recipient name, remarks and a verified JPG/PNG proof photo; the server stamps Time Out | Implemented | PDF/DOC are supporting files only |
-| BR-LIFE-04 | Status changes require remarks; Rescheduling clears the run timestamps | Implemented | |
+| BR-LIFE-04 | Status changes require remarks; Rescheduling clears the run timestamps | Implemented | Exception: a Driver starting an assigned run (Start transport, including RMA transport start) may leave the note blank; the server records `Transport started`. Logistics/Admin recording Time In and every completion still require remarks |
 | BR-LIFE-05 | Drivers may act only on their own assigned, non-draft runs; future-dated unstarted deliveries are read-only; overdue ones stay actionable and are flagged | Implemented | Ownership by Admin-linked `Driver` profile id |
 | BR-LIFE-06 | Late completion is recorded (`completedLate`, `daysLate`) | Implemented | |
 | BR-LIFE-07 | Assign driver, vehicle, assistants; coverage areas guide driver matching | Implemented | Logistics, Admin |
@@ -77,13 +78,13 @@ Out of scope today: automatic stock movement from deliveries, customer signature
 
 | ID | Requirement | Status | Roles |
 | :--- | :--- | :--- | :--- |
-| BR-DIR-01 | Companies (SAP number, address, contact) used on records | Implemented | Read: any permitted record screen. Create: Sales Coordinator, Admin |
+| BR-DIR-01 | Companies (SAP number, address, contact, default AM) used on records | Implemented | Read: any permitted record screen. Create/Edit: Admin only (normalized name, unique SAP) |
 | BR-DIR-02 | Customers directory with edit, validation, reason-for-change and audit trail | Implemented | Edit: Sales Coordinator, Logistics, Admin. Create also open to Driver |
 | BR-DIR-03 | Suppliers directory | Implemented | Create: SC, Logistics, Admin, Driver under applicable supplier permissions. Creation records a central `Supplier` CREATE audit event atomically. Existing category assignments may be edited by Admin only; general contact editing/deletion remains unavailable. See BR-DIR-07 |
 | BR-DIR-04 | Driver and assistant directory with coverage areas, active flag and Admin-linked login | Implemented | Admin adds Drivers; Logistics adds Assistants and edits coverage/status; type changes and Driver renames are Admin only (TSK-119) |
-| BR-DIR-05 | Account Manager directory | Implemented | Sales Coordinator, Admin (screen) |
+| BR-DIR-05 | Account Manager directory | Implemented | Admin-managed directory tab with case-normalized unique names and optional linked User logins |
 | BR-DIR-06 | Single unified Company/Customer directory | Planned | Two directories remain |
-| BR-DIR-07 | Admin-managed supplier category catalog with multiple categories per supplier | Implemented locally — awaiting PR/deployment | Admin creates/renames/deactivates/reactivates categories and edits existing assignments; supplier creators select active categories under their existing authority. Relations, API/UI/filter/export/audit, conflict handling and additive legacy mapping are implemented. See [contract and verification](SUPPLIER_CATEGORIES.md). Supersedes the fixed-five-only proposal |
+| BR-DIR-07 | Admin-managed supplier category catalog with multiple categories per supplier | Implemented | Admin creates/renames/deactivates/reactivates categories and edits existing assignments; supplier creators select active categories under their existing authority. Relations, API/UI/filter/export/audit, conflict handling and additive legacy mapping are implemented. See [contract and verification](SUPPLIER_CATEGORIES.md) |
 
 ### 3.6 SKU Master and stock
 
@@ -148,7 +149,7 @@ The exact default screens per role are listed in [Module access](./MODULE_ACCESS
 
 1. A record has exactly one category; category determines which module, role limits and TASS visibility apply.
 2. Reference/SAP number is required unless the record is a Draft.
-3. Remarks are mandatory for any substantive edit and for every status change.
+3. Remarks are mandatory for any substantive edit and for every status change. Exception (BR-LIFE-04): a Driver starting transport may omit the note and the server writes `Transport started`.
 4. A started run (Time In recorded) cannot return to Draft or Scheduled.
 5. Proof of delivery means a verified JPG/PNG saved on the server; client claims are never trusted.
 6. A Driver sees and writes only runs assigned to their linked profile; an unlinked Driver account sees nothing.
@@ -184,7 +185,7 @@ The exact default screens per role are listed in [Module access](./MODULE_ACCESS
 
 1. **Delivery:** Sales Coordinator creates (or drafts) → submit notifies Logistics → Logistics assigns driver/vehicle → Driver records Time In → Driver uploads photo and names recipient → Delivered (server Time Out, Account Manager email) → audit trail.
 2. **Collection:** Collection record delivered → TASS notified → TASS verifies once.
-3. **RMA:** Created by Sales Coordinator/Admin; Logistics view-only; TASS edits and updates status.
+3. **RMA:** TASS creates, edits and updates status, confirms physical receipt and completes the RMA. Logistics assigns the driver and, for the assigned driver, can start and complete transport (after the Logistics transport switch). Admin is view-only.
 4. **Access change:** Admin edits module access → the user's session refreshes within 30 seconds (or on focus) → revoked access is denied by the API immediately.
 
 ## 9. Open questions and assumptions
