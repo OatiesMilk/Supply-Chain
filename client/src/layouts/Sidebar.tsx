@@ -211,15 +211,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const navItemClass = (screen: string, special = false, active = currentScreen === screen) => {
-    const base = 'w-full px-4 py-2.5 flex items-center justify-between text-left transition-colors relative cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white';
-    const compact = isCollapsed ? ' lg:h-11 lg:w-11 lg:mx-auto lg:justify-center lg:px-0 lg:py-0 lg:rounded-lg' : '';
-    const activeStyle = isCollapsed
-      ? ' bg-white/10 text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-r before:bg-[#0078C1]'
-      : ' bg-white/10 text-white font-semibold before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:bg-[#0078C1]';
+    const base = 'w-full px-3 py-2 flex items-center justify-between text-left rounded-lg transition-colors relative cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white';
+    const compact = isCollapsed ? ' lg:h-10 lg:w-10 lg:mx-auto lg:justify-center lg:px-0 lg:py-0' : '';
+    const activeStyle = ' bg-white/12 text-white font-semibold shadow-2xs ring-1 ring-inset ring-white/10';
     const normalStyle = special
-      ? ' text-amber-300/60 hover:text-amber-200 hover:bg-amber-400/10'
-      : ' text-white/70 hover:bg-white/5 hover:text-white';
-    const specialActiveStyle = ' bg-amber-400/20 text-amber-300 font-semibold border-l-2 border-amber-400';
+      ? ' text-amber-300/75 hover:text-amber-200 hover:bg-amber-400/10'
+      : ' text-white/70 hover:bg-white/6 hover:text-white';
+    const specialActiveStyle = ' bg-amber-400/15 text-amber-200 font-semibold ring-1 ring-inset ring-amber-400/30';
     return base + compact + (active ? (special && !isCollapsed ? specialActiveStyle : activeStyle) : normalStyle);
   };
 
@@ -243,9 +241,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const badge = activeCount && activeCount > 0 ? (
       <span
         aria-hidden="true"
-        className={'bg-red-500 text-white font-bold text-[9px] px-1.5 py-0.5 rounded-full' + (isCollapsed
-          ? ' lg:absolute lg:-top-1 lg:-right-1 lg:min-w-4 lg:h-4 lg:px-1 lg:flex lg:items-center lg:justify-center lg:leading-none lg:z-10'
-          : '')}
+        className={'tabular-nums font-medium text-xs px-1.5 py-0.5 rounded-full leading-none ' + (isCollapsed
+          ? 'bg-brand-blue text-white lg:absolute lg:-top-1 lg:-right-1 lg:min-w-4 lg:h-4 lg:px-1 lg:flex lg:items-center lg:justify-center lg:z-10'
+          : (active ? 'bg-white/20 text-white' : 'bg-white/10 text-white/85'))}
       >
         {activeCount > 99 ? '99+' : activeCount}
       </span>
@@ -261,9 +259,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         data-sidebar-tooltip={accessibleLabel}
         className={navItemClass(screen, special, active)}
       >
-        <span className={'flex items-center space-x-3' + (isCollapsed ? ' lg:space-x-0' : '')}>
-          <Icon className={'w-5 h-5 shrink-0' + (special ? ' text-amber-400' : '')} />
-          <span className={'text-xs font-medium truncate' + (isCollapsed ? ' lg:hidden' : '')}>{label}</span>
+        <span className={'flex items-center gap-3 min-w-0' + (isCollapsed ? ' lg:gap-0' : '')}>
+          <Icon className={'w-[18px] h-[18px] shrink-0' + (special ? ' text-amber-300' : active ? ' text-sky-300' : ' text-white/75')} />
+          <span className={'text-[13px] truncate' + (isCollapsed ? ' lg:hidden' : '')}>{label}</span>
         </span>
         {badge}
       </button>
@@ -274,7 +272,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <>
       {isSidebarOpen && (
         <div
-          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-40 lg:hidden"
+          className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 lg:hidden"
           onClick={() => setIsSidebarOpen(false)}
           id="mobile-sidebar-backdrop"
         />
@@ -287,84 +285,109 @@ export const Sidebar: React.FC<SidebarProps> = ({
         onMouseLeave={handleMouseLeave}
         onFocusCapture={handleFocus}
         onBlurCapture={handleBlur}
-        className={'fixed inset-y-0 left-0 z-50 bg-[#1F3864] text-white flex flex-col justify-between transition-transform duration-300 ease-out lg:transition-[width] lg:duration-200 lg:ease-out motion-reduce:transition-none lg:relative lg:translate-x-0 lg:z-auto shrink-0 ' +
-          (isSidebarCollapsed ? 'lg:w-[72px]' : 'lg:w-56') +
+        className={'fixed inset-y-0 left-0 z-50 bg-brand-navy-dark text-white border-r border-white/10 flex flex-col justify-between transition-transform duration-300 ease-out lg:transition-[width] lg:duration-200 lg:ease-out motion-reduce:transition-none lg:relative lg:translate-x-0 lg:z-30 shrink-0 ' +
+          (isSidebarCollapsed ? 'lg:w-[72px]' : 'lg:w-60') +
           ' ' + (isSidebarOpen ? 'w-64 translate-x-0' : 'w-64 -translate-x-full lg:translate-x-0')}
         id="sidebar-panel"
       >
-        <div className="p-4 min-h-[88px] border-b border-white/10 relative">
+        <div className="px-4 py-3 h-15 border-b border-white/10 relative flex items-center">
           <button
             type="button"
             onClick={() => setIsSidebarOpen(false)}
-            className="absolute top-4 right-4 lg:hidden p-1 bg-white/10 hover:bg-white/20 text-white rounded transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            className="absolute top-4 right-4 lg:hidden p-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             id="close-sidebar-button"
             aria-label="Close menu"
             title="Close menu"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
 
-          <div className="relative h-14 w-full flex items-center justify-center" role="img" aria-label="Microgenesis">
+          <div className="relative h-10 w-full flex items-center justify-center" role="img" aria-label="Microgenesis">
             <img
               src="/microgenesis_mark_white.png"
               alt=""
-              className={'absolute h-8 w-8 object-contain transition-opacity duration-200 ease-out motion-reduce:transition-none' + (isCollapsed ? ' opacity-100' : ' opacity-0')}
+              className={'absolute h-7 w-7 object-contain transition-opacity duration-200 ease-out motion-reduce:transition-none' + (isCollapsed ? ' opacity-100' : ' opacity-0')}
             />
             <img
               src="/microgenesis_logo_white.png"
               alt=""
-              className={'absolute w-full h-auto max-h-14 object-contain transition-opacity duration-200 ease-out motion-reduce:transition-none' + (isCollapsed ? ' opacity-0' : ' opacity-100')}
+              className={'absolute w-full h-auto max-h-10 object-contain transition-opacity duration-200 ease-out motion-reduce:transition-none' + (isCollapsed ? ' opacity-0' : ' opacity-100')}
             />
           </div>
         </div>
 
         <nav
-          className="flex-1 py-3 space-y-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+          className="flex-1 py-4 px-2.5 space-y-5 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
           id="sidebar-nav"
           onScrollCapture={repositionTooltip}
         >
-          <div className="space-y-1">
-            {renderNavItem('main', 'Main', Layers)}
-          </div>
+          {(() => {
+            const topItems = [
+              renderNavItem('main', 'Main', Layers),
+              renderNavItem('dashboard', 'Dashboard', LayoutDashboard),
+            ].filter(Boolean);
 
-          <div className="space-y-1">
-            {renderNavItem('dashboard', 'Dashboard', LayoutDashboard)}
-          </div>
+            const groups = [
+              {
+                title: 'Operations',
+                items: [
+                  renderNavItem('deliveries', 'Deliveries', Truck, deliveriesActiveCount),
+                  renderNavItem('rma', 'RMA', RotateCcw, rmaActiveCount),
+                  renderNavItem('accounting_collection', 'Accounting Collection', Banknote, accountingActiveCount),
+                  renderNavItem('procurement_pickup', 'Procurement Pick-up', PackageSearch, procurementActiveCount),
+                  renderNavItem('sales_orders', 'Sales Orders', ShoppingCart, salesOrdersActiveCount),
+                ].filter(Boolean),
+              },
+              {
+                title: 'Fleet & Activity',
+                items: [
+                  driversScreen ? renderNavItem(driversScreen, 'Drivers', ContactRound, undefined, false, isDriverScreen(currentScreen)) : null,
+                  renderNavItem('calendar', 'Delivery Calendar', Calendar),
+                  renderNavItem('transactions', 'Transaction Center', ArrowLeftRight),
+                ].filter(Boolean),
+              },
+              {
+                title: 'Master Data',
+                items: [
+                  renderNavItem('customers', 'Customers', Users),
+                  renderNavItem('suppliers', 'Suppliers', Building2),
+                  renderNavItem('inventory', 'SKU Master', Boxes),
+                  renderNavItem('am_directory', 'AM Directory', BookOpen),
+                ].filter(Boolean),
+              },
+              {
+                title: 'Reports & Admin',
+                items: [
+                  renderNavItem('statistical_reports', 'Reports', BarChart3),
+                  renderNavItem('admin', 'Admin Panel', ShieldCheck),
+                  DATA_SAMPLER_ENABLED ? renderNavItem('data_sampler', 'Data Sampler', Database, undefined, true) : null,
+                ].filter(Boolean),
+              },
+            ].filter(group => group.items.length > 0);
 
-          <div className="space-y-1">
-            <span className={'text-[10px] uppercase tracking-wider text-white/40 font-bold px-4 block' + (isCollapsed ? ' lg:hidden' : '')}>Operations</span>
-            {isCollapsed && <hr aria-hidden="true" className="hidden lg:block w-6 border-0 border-t border-white/10 my-3 mx-auto" />}
-
-            {renderNavItem('deliveries', 'Deliveries', Truck, deliveriesActiveCount)}
-            {renderNavItem('rma', 'RMA', RotateCcw, rmaActiveCount)}
-            {renderNavItem('accounting_collection', 'Accounting Collection', Banknote, accountingActiveCount)}
-            {renderNavItem('procurement_pickup', 'Procurement Pick-up', PackageSearch, procurementActiveCount)}
-            {renderNavItem('sales_orders', 'Sales Orders', ShoppingCart, salesOrdersActiveCount)}
-          </div>
-
-          <div className="space-y-1">
-            <span className={'text-[10px] uppercase tracking-wider text-white/40 font-bold px-4 block' + (isCollapsed ? ' lg:hidden' : '')}>Master Data</span>
-            {isCollapsed && <hr aria-hidden="true" className="hidden lg:block w-6 border-0 border-t border-white/10 my-3 mx-auto" />}
-
-            {renderNavItem('customers', 'Customers', Users)}
-            {renderNavItem('suppliers', 'Suppliers', Building2)}
-            {driversScreen && renderNavItem(driversScreen, 'Drivers', ContactRound, undefined, false, isDriverScreen(currentScreen))}
-            {renderNavItem('admin', 'Admin Panel', ShieldCheck)}
-            {renderNavItem('calendar', 'Delivery Calendar', Calendar)}
-            {renderNavItem('statistical_reports', 'Reports', BarChart3)}
-            {renderNavItem('am_directory', 'AM Directory', BookOpen)}
-            {renderNavItem('transactions', 'Transaction Center', ArrowLeftRight)}
-            {renderNavItem('inventory', 'SKU Master', Boxes)}
-            {DATA_SAMPLER_ENABLED && renderNavItem('data_sampler', 'Data Sampler', Database, undefined, true)}
-          </div>
+            return (
+              <>
+                {topItems.length > 0 && <div className="space-y-0.5">{topItems}</div>}
+                {groups.map(group => (
+                  <div key={group.title} className="space-y-0.5">
+                    <span className={'text-xs font-medium tracking-wide text-white/45 px-3 pb-1 block' + (isCollapsed ? ' lg:hidden' : '')}>
+                      {group.title}
+                    </span>
+                    {isCollapsed && <hr aria-hidden="true" className="hidden lg:block w-6 border-0 border-t border-white/15 my-3 mx-auto" />}
+                    {group.items}
+                  </div>
+                ))}
+              </>
+            );
+          })()}
         </nav>
 
-        {/* Desktop collapse toggle: straddles the rail's right edge at mid-height and
-            follows the edge as the width animates between collapsed and expanded. */}
+        {/* Desktop collapse toggle: anchored at the header/rail seam (top-15 = 60px)
+            so it aligns with the top navbar divider and stays cleanly above main content. */}
         <button
           type="button"
           onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-          className="hidden lg:flex absolute top-1/2 right-0 z-20 h-8 w-8 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-[#1F3864] shadow-md transition-colors hover:bg-slate-50 hover:text-[#0078C1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] cursor-pointer"
+          className="hidden lg:flex absolute top-15 right-0 z-30 h-8 w-8 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full border border-slate-300 bg-white text-brand-navy shadow-md transition-all hover:border-brand-navy hover:bg-brand-navy hover:text-white hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue cursor-pointer"
           id="desktop-sidebar-toggle"
           aria-label={isSidebarCollapsed ? 'Expand menu' : 'Collapse menu'}
           aria-expanded={!isSidebarCollapsed}
@@ -382,7 +405,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           role="tooltip"
           aria-hidden={!tooltip}
           hidden={!tooltip}
-          className="fixed z-[100] max-w-[240px] -translate-y-1/2 rounded-md border border-white/10 bg-[#122B4F] px-2.5 py-1.5 text-xs font-medium leading-5 text-white shadow-xl pointer-events-none"
+          className="fixed z-[100] max-w-[240px] -translate-y-1/2 rounded-md border border-white/10 bg-brand-navy-dark px-2.5 py-1.5 text-xs font-medium leading-5 text-white shadow-xl pointer-events-none"
           style={tooltip ? { left: tooltip.left, top: tooltip.top } : undefined}
         >
           {tooltip?.text}

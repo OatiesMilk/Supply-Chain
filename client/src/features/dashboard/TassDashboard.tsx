@@ -1,14 +1,12 @@
-import { AlertTriangle, ArrowRight, Clock, Navigation, PackageSearch, RotateCcw } from 'lucide-react';
+import { AlertTriangle, Clock, Navigation, PackageSearch, RotateCcw } from 'lucide-react';
 import type { ApiDashboardOverview, ApiDashboardStats } from '@/api';
 import type { DeliveryRecord } from '@/types';
 import type { DashboardFilterId } from '@/utils/dashboardFilters';
 import {
-  AgeIndicator, DashboardPage, DashboardPanel, EmptyState, KpiRow, KpiTile, PanelError, RecordTable, StatusPill, TileSkeleton, formatDate, formatDateTime,
+  ActionPill, AgeIndicator, DashboardPage, DashboardPanel, EmptyState, KpiRow, KpiTile, PanelError, RecordTable, StatusPill, TileSkeleton, formatDate, formatDateTime,
   type RecordColumn,
 } from './ui';
 import { recordLabel } from '../../utils/recordLabel';
-
-const linkClass = 'inline-flex items-center gap-1 rounded-sm font-semibold text-[#1F3864] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]';
 
 const inTransitColumns: RecordColumn<DeliveryRecord>[] = [
   { key: 'id', header: 'RMA', render: record => (
@@ -67,7 +65,7 @@ export default function TassDashboard({ stats, overview, overviewStatus, onRetry
   const movingTotal = overview?.counts['tass-rma-in-transit'] ?? 0;
 
   return (
-    <DashboardPage title="Command dashboard" id="tass-dashboard" updatedAt={overview?.generated_at} onRefresh={onRefresh} refreshing={refreshing}>
+    <DashboardPage title="TASS dashboard" id="tass-dashboard" updatedAt={overview?.generated_at} onRefresh={onRefresh} refreshing={refreshing}>
       <KpiRow count={4}>
         <KpiTile label="Open RMA" unit="records" icon={RotateCcw} value={stats?.open_rma} context={openContext}
           tone={aging ? 'critical' : 'warning'} onOpen={open('rma', 'tass-open-rma')} />
@@ -87,12 +85,13 @@ export default function TassDashboard({ stats, overview, overviewStatus, onRetry
         count={status === 'success' ? `${total} open` : undefined}
         footer={status === 'success' && total > 0 ? (
           <>
-            <span>Showing {previews.length} of {total}</span>
+            <span className="tabular-nums">Showing {previews.length} of {total}</span>
             {canAccess('rma') && (
-              <button type="button" onClick={() => onNavigate('rma', undefined, 'tass-open-rma')}
-                className="inline-flex items-center gap-1 rounded-sm font-semibold text-[#1F3864] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]">
-                View all {total} open RMA records <ArrowRight className="h-4 w-4" aria-hidden="true" />
-              </button>
+              <ActionPill
+                label={`View all ${total} open RMA records`}
+                arrow="forward"
+                onClick={() => onNavigate('rma', undefined, 'tass-open-rma')}
+              />
             )}
           </>
         ) : undefined}
@@ -110,11 +109,13 @@ export default function TassDashboard({ stats, overview, overviewStatus, onRetry
         count={status === 'success' ? `${movingTotal} in transit` : undefined}
         footer={status === 'success' && movingTotal > 0 ? (
           <>
-            <span>Showing {moving.length} of {movingTotal}</span>
+            <span className="tabular-nums">Showing {moving.length} of {movingTotal}</span>
             {canAccess('rma') && (
-              <button type="button" onClick={() => onNavigate('rma', undefined, 'tass-rma-in-transit')} className={linkClass}>
-                View all {movingTotal} in transit <ArrowRight className="h-4 w-4" aria-hidden="true" />
-              </button>
+              <ActionPill
+                label={`View all ${movingTotal} in transit`}
+                arrow="forward"
+                onClick={() => onNavigate('rma', undefined, 'tass-rma-in-transit')}
+              />
             )}
           </>
         ) : undefined}

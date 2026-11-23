@@ -31,7 +31,7 @@ export function driverActions(record: DriverRecord, now = new Date()): DriverAct
     return { start: record.rmaTransportStatus === 'PENDING', complete: record.rmaTransportStatus === 'IN_TRANSIT', start_blocked_reason: null };
   }
   const state = runState(record);
-  if (state === 'Delivered') return blocked(null);
+  if (state === 'Delivered' || state === 'Transport Complete') return blocked(null);
   if (isoTimestamp(record.timeIn)) return { start: false, complete: state === 'In Transit' || state === 'Pending', start_blocked_reason: null };
   if (state === 'On-Hold') return blocked('On hold. Contact Logistics.');
   const reason = driverDeliveryDateError(record, 'DRIVER', now) ?? timeInError(record);

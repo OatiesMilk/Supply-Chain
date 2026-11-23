@@ -27,7 +27,7 @@ export function driverJobActions(record: DeliveryRecord): DriverActions {
     const active = record.rma_movement === 'LOGISTICS_TRANSPORT' && !record.rma_received_at && record.status !== 'Delivered';
     return { start: active && record.rma_transport_status === 'PENDING', complete: active && record.rma_transport_status === 'IN_TRANSIT', start_blocked_reason: null };
   }
-  if (record.status === 'Delivered') return { start: false, complete: false, start_blocked_reason: null };
+  if (record.status === 'Delivered' || record.status === 'Transport Complete') return { start: false, complete: false, start_blocked_reason: null };
   if (hasValidRunTimeIn(record.time_in)) return { start: false, complete: record.status === 'In Transit' || record.status === 'Pending', start_blocked_reason: null };
   if (record.status === 'On-Hold') return { start: false, complete: false, start_blocked_reason: 'On hold. Contact Logistics.' };
   return { start: canRecordTimeIn(record), complete: false, start_blocked_reason: null };

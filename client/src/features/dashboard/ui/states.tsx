@@ -18,7 +18,7 @@ export function PanelError({ message = 'This section could not be loaded.', onRe
       <p className="text-sm font-medium text-slate-800">{message}</p>
       {onRetry && (
         <button type="button" onClick={onRetry}
-          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]">
+          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-navy">
           Try again
         </button>
       )}

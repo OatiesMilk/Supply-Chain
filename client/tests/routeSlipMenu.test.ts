@@ -171,7 +171,7 @@ test('the actual DeliveryRecordsView fetches every page with its selected filter
     const setSelect = async (select: HTMLSelectElement, value: string) => {
       await act(async () => { select.value = value; select.dispatchEvent(new dom.window.Event('change', { bubbles: true })); });
     };
-    await setSelect(dom.window.document.getElementById('recordStatusFilter') as HTMLSelectElement, 'Scheduled');
+    await click(button(dom, 'Scheduled'));
     await setInput(dom.window.document.querySelector<HTMLInputElement>('[aria-label="Search delivery records"]')!, 'matching');
     await click(dom.window.document.querySelector<HTMLButtonElement>('[aria-label^="Advanced filters"]')!);
     const locationSelect = (label: string) => [...dom.window.document.querySelectorAll('label')].find(node => node.textContent?.trim().startsWith(label))!.querySelector('select')!;

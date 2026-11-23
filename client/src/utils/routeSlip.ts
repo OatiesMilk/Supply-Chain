@@ -9,6 +9,100 @@ import { filterRouteSlipRecords, routeSlipDriverNames, routeSlipPeriodLabel, typ
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE, getExcelPageSetup, getPdfFormat, fitColumnWidths, getDocxDimensions, getDocxLandscapeContentWidth } from './documentSize';
 import { recordLabel } from './recordLabel';
 
+const MANILA_TZ = 'Asia/Manila';
+const BLANK_LINE = '___________';
+
+function parseValidDate(value: string | null | undefined): Date | null {
+  if (!value?.trim()) return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
+/** Normalize ICU narrow/non-breaking spaces so PDF Helvetica renders clean ASCII spaces. */
+function normalizeSpaces(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function manilaDateKey(date: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: MANILA_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(date);
+}
+
+function formatManilaClock(date: Date, includeDate = false): string {
+  const formatted = includeDate
+    ? date.toLocaleString('en-PH', {
+        timeZone: MANILA_TZ, month: 'short', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', hour12: true,
+      })
+    : date.toLocaleTimeString('en-PH', {
+        timeZone: MANILA_TZ, hour: '2-digit', minute: '2-digit', hour12: true,
+      });
+  return normalizeSpaces(formatted);
+}
+
+/** Driver transit start timestamp across all operational categories (RMA uses transport start). */
+export function recordTransportStart(r: DeliveryRecord): string | null {
+  return (r.category === 'RMA' ? r.rma_transport_started_at ?? r.time_in : r.time_in) || null;
+}
+
+/** Driver transit end timestamp across all operational categories (RMA uses transport completion). */
+export function recordTransportEnd(r: DeliveryRecord): string | null {
+  return (r.category === 'RMA' ? r.rma_transport_completed_at ?? r.time_out : r.time_out) || null;
+}
+
+/** Client/recipient signature name recorded when the driver completed the stop. */
+export function recordSignedBy(r: DeliveryRecord): string {
+  const raw = r.category === 'RMA' ? r.rma_transport_received_by ?? r.received_by : r.received_by;
+  return raw?.trim() ?? '';
+}
+
+function formatRouteSlipTime(value: string | null | undefined): string {
+  const date = parseValidDate(value);
+  return date ? formatManilaClock(date, false) : '';
+}
+
+/**
+ * Compute driver-level Time of Departure (earliest transit start) and Time of Arrival
+ * (latest transit end) across a driver's route slip records. Falls back to printable
+ * blank lines when no timestamps have been recorded yet.
+ */
+export function computeRouteSlipTimes(records: readonly DeliveryRecord[]): { departure: string; arrival: string } {
+  const starts: Date[] = [];
+  const ends: Date[] = [];
+  for (const r of records) {
+    const s = parseValidDate(recordTransportStart(r));
+    if (s) starts.push(s);
+    const e = parseValidDate(recordTransportEnd(r));
+    if (e) ends.push(e);
+  }
+  const earliest = starts.length ? starts.reduce((a, b) => (a.getTime() <= b.getTime() ? a : b)) : null;
+  const latest = ends.length ? ends.reduce((a, b) => (a.getTime() >= b.getTime() ? a : b)) : null;
+  const multiDay = new Set([...starts, ...ends].map(manilaDateKey)).size > 1;
+  return {
+    departure: earliest ? formatManilaClock(earliest, multiDay) : BLANK_LINE,
+    arrival: latest ? formatManilaClock(latest, multiDay) : BLANK_LINE,
+  };
+}
+
+/** Build the 12-column row values for Excel, PDF, and DOCX route slip tables. */
+export function routeSlipRowValues(r: DeliveryRecord): string[] {
+  return [
+    r.priority || '',
+    r.company_name || '',
+    recordLabel(r),
+    r.reference || '',
+    '', // Waybill # — filled manually when applicable
+    r.remarks || '',
+    r.area || '',
+    '', // Type / Mode — filled manually when applicable
+    formatRouteSlipTime(recordTransportStart(r)),
+    formatRouteSlipTime(recordTransportEnd(r)),
+    recordSignedBy(r),
+    '', // Post-delivery remarks — filled manually
+  ];
+}
+
 export interface RouteSlipParams {
   records: DeliveryRecord[];
   driverName: string;
@@ -141,6 +235,7 @@ export async function downloadRouteSlipExcel({
 
   const sorted = sortedRecords(records);
   const counts = auditSets ? computeHistoricCounts(records, auditSets) : computeCounts(records);
+  const times  = computeRouteSlipTimes(records);
 
   // 12 data columns: A–L
   const NCOLS = 12;
@@ -240,20 +335,7 @@ export async function downloadRouteSlipExcel({
 
   // ── Data rows ───────────────────────────────────────────────────────────────
   sorted.forEach((r, idx) => {
-    const dr = next([
-      r.priority      || '',
-      r.company_name  || '',
-      recordLabel(r),
-      r.reference     || '',
-      '',   // Waybill # — blank
-      r.remarks       || '',
-      r.area          || '',
-      '',   // Type/Mode — blank
-      '',   // TIME-IN — blank
-      '',   // TIME-OUT — blank
-      '',   // Signed by Client — blank
-      '',   // Remarks — blank
-    ]);
+    const dr = next(routeSlipRowValues(r));
     const isAlt = idx % 2 === 1;
     dr.eachCell({ includeEmpty: true }, cell => {
       if (isAlt) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GRAY_ARGB } };
@@ -334,14 +416,14 @@ export async function downloadRouteSlipExcel({
   c0.getCell(1).font = { size: 9 };
   c0.height = 16;
 
-  const c1 = next([`No. of Pending: ${counts.pending}`, ...E(5), 'Time of Departure: ___________', ...E(NCOLS - 8)]);
+  const c1 = next([`No. of Pending: ${counts.pending}`, ...E(5), `Time of Departure: ${times.departure}`, ...E(NCOLS - 8)]);
   ws.mergeCells(rn, 1, rn, 6);
   ws.mergeCells(rn, 7, rn, NCOLS);
   c1.getCell(1).font = { size: 9 };
   c1.getCell(7).font = { size: 9 };
   c1.height = 16;
 
-  const c2 = next([`No. of Rescheduled / Hold: ${counts.reschedHold}`, ...E(5), 'Time of Arrival: ___________', ...E(NCOLS - 8)]);
+  const c2 = next([`No. of Rescheduled / Hold: ${counts.reschedHold}`, ...E(5), `Time of Arrival: ${times.arrival}`, ...E(NCOLS - 8)]);
   ws.mergeCells(rn, 1, rn, 6);
   ws.mergeCells(rn, 7, rn, NCOLS);
   c2.getCell(1).font = { size: 9 };
@@ -452,6 +534,7 @@ export async function downloadRouteSlipPDF({
 
   const sorted = sortedRecords(records);
   const counts = auditSets ? computeHistoricCounts(records, auditSets) : computeCounts(records);
+  const times  = computeRouteSlipTimes(records);
 
   // ── Logo ────────────────────────────────────────────────────────────────────
   const logo = await loadLogoBase64();
@@ -516,20 +599,7 @@ export async function downloadRouteSlipPDF({
       'Waybill #', 'Remarks', 'Area', 'Type /\nMode',
       'TIME-IN', 'TIME-OUT', 'Signed by\nClient', 'Remarks',
     ]],
-    body: sorted.map(r => [
-      r.priority     || '',
-      r.company_name || '',
-      recordLabel(r),
-      r.reference    || '',
-      '',  // Waybill #
-      r.remarks      || '',
-      r.area         || '',
-      '',  // Type/Mode
-      '',  // TIME-IN
-      '',  // TIME-OUT
-      '',  // Signed by Client
-      '',  // Remarks
-    ]),
+    body: sorted.map(routeSlipRowValues),
     startY: 33,
     margin: { left: MARGIN, right: MARGIN },
     styles: {
@@ -662,8 +732,8 @@ export async function downloadRouteSlipPDF({
   });
 
   doc.setFont('helvetica', 'normal');
-  doc.text('Time of Departure: ___________', MARGIN + colW + 10, fy);
-  doc.text('Time of Arrival: ___________',   MARGIN + colW + 10, fy + 5.5);
+  doc.text(`Time of Departure: ${times.departure}`, MARGIN + colW + 10, fy);
+  doc.text(`Time of Arrival: ${times.arrival}`,     MARGIN + colW + 10, fy + 5.5);
   fy += leftCounts.length * 5.5 + 1;
 
   if (auditSets) {
@@ -753,6 +823,7 @@ export async function downloadAllDriversRouteSlipExcel({
     const vehicle = driverRecords.find(r => r.vehicle)?.vehicle ?? '';
     const helper  = driverRecords.find(r => r.driver_assistants?.length)?.driver_assistants.join(', ') ?? '';
     const counts  = auditSets ? computeHistoricCounts(driverRecords, auditSets) : computeCounts(driverRecords);
+    const times   = computeRouteSlipTimes(driverRecords);
 
     const sheetName = driverName.replace(/[:\\/?*[\]]/g, '-').slice(0, 31);
     const ws = wb.addWorksheet(sheetName, {
@@ -829,10 +900,7 @@ export async function downloadAllDriversRouteSlipExcel({
 
     // Data rows
     driverRecords.forEach((r, idx) => {
-      const dr = next([
-        r.priority || '', r.company_name || '', recordLabel(r), r.reference || '',
-        '', r.remarks || '', r.area || '', '', '', '', '', '',
-      ]);
+      const dr = next(routeSlipRowValues(r));
       const isAlt = idx % 2 === 1;
       dr.eachCell({ includeEmpty: true }, cell => {
         if (isAlt) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GRAY_ARGB } };
@@ -891,11 +959,11 @@ export async function downloadAllDriversRouteSlipExcel({
     const c0 = next([`No. of Scheduled: ${counts.scheduled}`, ...E(NCOLS - 1)]);
     ws.mergeCells(rn, 1, rn, NCOLS); c0.getCell(1).font = { size: 9 }; c0.height = 16;
 
-    const c1 = next([`No. of Pending: ${counts.pending}`, ...E(5), 'Time of Departure: ___________', ...E(NCOLS - 8)]);
+    const c1 = next([`No. of Pending: ${counts.pending}`, ...E(5), `Time of Departure: ${times.departure}`, ...E(NCOLS - 8)]);
     ws.mergeCells(rn, 1, rn, 6); ws.mergeCells(rn, 7, rn, NCOLS);
     c1.getCell(1).font = { size: 9 }; c1.getCell(7).font = { size: 9 }; c1.height = 16;
 
-    const c2 = next([`No. of Rescheduled / Hold: ${counts.reschedHold}`, ...E(5), 'Time of Arrival: ___________', ...E(NCOLS - 8)]);
+    const c2 = next([`No. of Rescheduled / Hold: ${counts.reschedHold}`, ...E(5), `Time of Arrival: ${times.arrival}`, ...E(NCOLS - 8)]);
     ws.mergeCells(rn, 1, rn, 6); ws.mergeCells(rn, 7, rn, NCOLS);
     c2.getCell(1).font = { size: 9 }; c2.getCell(7).font = { size: 9 }; c2.height = 16;
 
@@ -1020,6 +1088,7 @@ export async function downloadAllDriversRouteSlipPDF({
 
   const renderFooter = (driverRecords: DeliveryRecord[], startY: number) => {
     const counts = auditSets ? computeHistoricCounts(driverRecords, auditSets) : computeCounts(driverRecords);
+    const times  = computeRouteSlipTimes(driverRecords);
     let fy = startY;
     if (fy + 120 > pageH - 8) { doc.addPage(); fy = 15; }
 
@@ -1072,8 +1141,8 @@ export async function downloadAllDriversRouteSlipPDF({
       doc.text(txt, MARGIN, fy + i * 5.5);
     });
     doc.setFont('helvetica', 'normal');
-    doc.text('Time of Departure: ___________', MARGIN + colW + 10, fy);
-    doc.text('Time of Arrival: ___________',   MARGIN + colW + 10, fy + 5.5);
+    doc.text(`Time of Departure: ${times.departure}`, MARGIN + colW + 10, fy);
+    doc.text(`Time of Arrival: ${times.arrival}`,     MARGIN + colW + 10, fy + 5.5);
     fy += 7 * 5.5 + 1;
 
     if (auditSets) {
@@ -1115,10 +1184,7 @@ export async function downloadAllDriversRouteSlipPDF({
           'Waybill #', 'Remarks', 'Area', 'Type /\nMode',
           'TIME-IN', 'TIME-OUT', 'Signed by\nClient', 'Remarks',
         ]],
-        body: driverRecords.map(r => [
-          r.priority || '', r.company_name || '', recordLabel(r), r.reference || '',
-          '', r.remarks || '', r.area || '', '', '', '', '', '',
-        ]),
+        body: driverRecords.map(routeSlipRowValues),
         startY: 33,
         margin: { left: MARGIN, right: MARGIN },
         styles: {
@@ -1183,6 +1249,7 @@ export async function downloadRouteSlipDocx({
   const helper      = records.find(r => r.driver_assistants?.length)?.driver_assistants.join(', ') ?? '';
   const sorted = sortedRecords(records);
   const counts = auditSets ? computeHistoricCounts(records, auditSets) : computeCounts(records);
+  const times  = computeRouteSlipTimes(records);
 
   // Logo as Uint8Array for DOCX image embedding
   const logoDataUrl = await loadLogoBase64();
@@ -1269,10 +1336,7 @@ export async function downloadRouteSlipDocx({
         width: { size: colWidths[i], type: WidthType.DXA },
         children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: h, bold: true, color: 'FFFFFF', size: 16 })] })],
       })) }),
-      ...sorted.map((r, idx) => new TableRow({ children: [
-        r.priority || '', r.company_name || '', recordLabel(r), r.reference || '',
-        '', r.remarks || '', r.area || '', '', '', '', '', '',
-      ].map((val, i) => new TableCell({
+      ...sorted.map((r, idx) => new TableRow({ children: routeSlipRowValues(r).map((val, i) => new TableCell({
         shading: idx % 2 === 1 ? { fill: 'F8F9FA' } : undefined,
         borders: thinBorders, width: { size: colWidths[i], type: WidthType.DXA },
         children: [new Paragraph({ children: [new TextRun({ text: val, size: 16 })] })],
@@ -1306,8 +1370,8 @@ export async function downloadRouteSlipDocx({
         colorBar(MUST_READ_NOTE, 'FEFCE8', '1E293B', false, 16),
         gap(),
         new Paragraph({ children: [new TextRun({ text: `No. of Scheduled: ${counts.scheduled}`, size: 17 })] }),
-        twoCol(`No. of Pending: ${counts.pending}`, 'Time of Departure: ___________'),
-        twoCol(`No. of Rescheduled / Hold: ${counts.reschedHold}`, 'Time of Arrival: ___________'),
+        twoCol(`No. of Pending: ${counts.pending}`, `Time of Departure: ${times.departure}`),
+        twoCol(`No. of Rescheduled / Hold: ${counts.reschedHold}`, `Time of Arrival: ${times.arrival}`),
         new Paragraph({ children: [new TextRun({ text: `No. of Accomplished: ${counts.accomplished}`, size: 17 })] }),
         new Paragraph({ children: [new TextRun({ text: `No. of Shipment: ${counts.total}`, bold: true, size: 17 })] }),
         new Paragraph({ children: [new TextRun({ text: 'No. of Transfer out / Txo: ___________', size: 17 })] }),
@@ -1398,6 +1462,7 @@ export async function downloadAllDriversRouteSlipDocx({
     const vehicle = driverRecords.find(r => r.vehicle)?.vehicle ?? '';
     const helper  = driverRecords.find(r => r.driver_assistants?.length)?.driver_assistants.join(', ') ?? '';
     const counts  = auditSets ? computeHistoricCounts(driverRecords, auditSets) : computeCounts(driverRecords);
+    const times   = computeRouteSlipTimes(driverRecords);
     const sorted  = sortedRecords(driverRecords);
 
     const leftW   = Math.round(CONTENT_W * 0.28);
@@ -1435,10 +1500,7 @@ export async function downloadAllDriversRouteSlipDocx({
           width: { size: colWidths[i], type: WidthType.DXA },
           children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: h, bold: true, color: 'FFFFFF', size: 16 })] })],
         })) }),
-        ...sorted.map((r, idx) => new TableRow({ children: [
-          r.priority || '', r.company_name || '', recordLabel(r), r.reference || '',
-          '', r.remarks || '', r.area || '', '', '', '', '', '',
-        ].map((val, i) => new TableCell({
+        ...sorted.map((r, idx) => new TableRow({ children: routeSlipRowValues(r).map((val, i) => new TableCell({
           shading: idx % 2 === 1 ? { fill: 'F8F9FA' } : undefined,
           borders: thinBorders, width: { size: colWidths[i], type: WidthType.DXA },
           children: [new Paragraph({ children: [new TextRun({ text: val, size: 16 })] })],
@@ -1462,8 +1524,8 @@ export async function downloadAllDriversRouteSlipDocx({
       colorBar(MUST_READ_NOTE, 'FEFCE8', '1E293B', false, 16),
       gap(),
       new Paragraph({ children: [new TextRun({ text: `No. of Scheduled: ${counts.scheduled}`, size: 17 })] }),
-      twoCol(`No. of Pending: ${counts.pending}`, 'Time of Departure: ___________'),
-      twoCol(`No. of Rescheduled / Hold: ${counts.reschedHold}`, 'Time of Arrival: ___________'),
+      twoCol(`No. of Pending: ${counts.pending}`, `Time of Departure: ${times.departure}`),
+      twoCol(`No. of Rescheduled / Hold: ${counts.reschedHold}`, `Time of Arrival: ${times.arrival}`),
       new Paragraph({ children: [new TextRun({ text: `No. of Accomplished: ${counts.accomplished}`, size: 17 })] }),
       new Paragraph({ children: [new TextRun({ text: `No. of Shipment: ${counts.total}`, bold: true, size: 17 })] }),
       new Paragraph({ children: [new TextRun({ text: 'No. of Transfer out / Txo: ___________', size: 17 })] }),

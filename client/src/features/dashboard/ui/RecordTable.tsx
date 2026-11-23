@@ -22,7 +22,7 @@ interface Props<T> {
   caption: string;
 }
 
-const focus = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]';
+const focus = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue';
 
 /**
  * Table from `md` up and a stacked list below it, so phones never scroll sideways.
@@ -34,15 +34,15 @@ export default function RecordTable<T>({ rows, columns, rowKey, onOpen, canOpen,
   const rowClick = (row: T) => (openable(row) ? () => onOpen?.(row) : undefined);
   const lead = (row: T) => openable(row)
     ? <button type="button" onClick={event => { event.stopPropagation(); onOpen?.(row); }} aria-label={openLabel?.(row)}
-        className={`text-left font-mono font-semibold text-[#1F3864] underline-offset-2 hover:underline ${focus} rounded-sm`}>{first.render(row)}</button>
+        className={`text-left tabular-nums font-semibold text-brand-navy underline-offset-2 hover:text-brand-blue hover:underline cursor-pointer ${focus} rounded-sm`}>{first.render(row)}</button>
     : first.render(row);
   return (
     <>
-      <div className="hidden overflow-x-auto md:block">
+      <div className="relative hidden overflow-x-auto md:block">
         <table className="w-full border-collapse text-left text-sm">
           <caption className="sr-only">{caption}</caption>
           <thead>
-            <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
+            <tr className="border-b border-slate-200/90 bg-slate-50/80 text-xs font-semibold text-slate-600">
               {columns.map(column => <th key={column.key} scope="col" className={`px-3 py-2.5 ${column.align === 'center' ? 'text-center' : ''}`}>{column.header}</th>)}
             </tr>
           </thead>

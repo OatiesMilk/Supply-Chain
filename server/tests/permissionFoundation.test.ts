@@ -48,6 +48,16 @@ test('five role baselines preserve operation-specific ceilings and revised RMA b
   assert.equal(value('TASS', 'RESOURCE:suppliers:READ'), 'ALLOW');
   assert.equal(value('TASS', 'RESOURCE:suppliers:CREATE'), 'DENY');
   assert.equal(value('SALES_COORDINATOR', 'CATEGORY:RMA:READ'), 'DENY');
+  for (const category of ['DELIVERY', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS']) {
+    assert.equal(roleActionCeiling('SALES_COORDINATOR', PERMISSION_CATALOG.find(p => p.key === `CATEGORY:${category}:RECEIVE`)!), true,
+      `${category} receive is within the SC role ceiling`);
+    assert.equal(value('SALES_COORDINATOR', `CATEGORY:${category}:RECEIVE`), 'DENY',
+      `${category} receive still requires an explicit V1 grant`);
+  }
+  assert.equal(roleActionCeiling('SALES_COORDINATOR', PERMISSION_CATALOG.find(p => p.key === 'CATEGORY:RMA:RECEIVE')!), false,
+    'Sales Coordinators cannot receive RMAs');
+  assert.equal(roleActionCeiling('LOGISTICS', PERMISSION_CATALOG.find(p => p.key === 'CATEGORY:DELIVERY:RECEIVE')!), false,
+    'Logistics cannot sign off Sales completion');
   assert.equal(value('LOGISTICS', 'RESOURCE:skus:READ'), 'ALLOW');
   assert.equal(value('LOGISTICS', 'RESOURCE:skus:ADJUST'), 'DENY', 'lookup does not imply SKU Master adjustment');
 });

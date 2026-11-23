@@ -51,8 +51,8 @@ test('status chart panel footer carries the record count', () => {
 test('overview failure keeps tiles and shows retries in every panel', () => {
   const markup = html({ overview: undefined, overviewStatus: 'error', onRetryOverview() {} });
   assert.match(markup, /aria-label="Scheduled today, 6 deliveries/);
-  assert.equal((markup.match(/role="alert"/g) ?? []).length, 3);
-  assert.equal((text(markup).match(/Try again/g) ?? []).length, 3);
+  assert.equal((markup.match(/role="alert"/g) ?? []).length, 4);
+  assert.equal((text(markup).match(/Try again/g) ?? []).length, 4);
 });
 
 test('no access to deliveries removes every tile button and link', () => {

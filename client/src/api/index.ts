@@ -1,4 +1,4 @@
-export interface RmaCapabilities { assign: boolean; transport: boolean; receive: boolean; complete: boolean; pod: boolean; status?: boolean; }
+export interface RmaCapabilities { assign: boolean; transport: boolean; receive: boolean; complete: boolean; pod: boolean; status?: boolean; correctTransport?: boolean; }
 
 /**
  * Thin fetch wrapper for the real Express + Prisma backend (server/). All
@@ -144,6 +144,7 @@ export interface RecordListFilters {
   paged?: boolean;
   view?: 'dispatch' | 'runs' | 'driver_dashboard';
   queue?: 'active' | 'completed';
+  assignment?: 'unassigned' | 'assigned';
   driver_exact?: string;
   account_manager_exact?: string;
   supplier_name?: string;
@@ -327,11 +328,13 @@ export interface ApiDashboardOverview {
     transport_requests?: import('../types').DeliveryRecord[];
     /** Sales Coordinator: up to 10 Delivery, Pick-up and Sales Order jobs in transit. */
     in_transit?: import('../types').DeliveryRecord[];
+    /** Sales Coordinator: up to 10 oldest transport handoffs awaiting sign-off. */
+    awaiting_verification?: import('../types').DeliveryRecord[];
     /** TASS: up to 10 Logistics-transport RMA in transit, oldest transport start first. */
     rma_in_transit?: import('../types').DeliveryRecord[];
   };
   /** Logistics: transport requests per job type (database category). */
-  transport_requests_by_type?: Partial<Record<'DELIVERY' | 'RMA' | 'PROCUREMENT_PICKUP' | 'SALES_ORDERS', number>>;
+  transport_requests_by_type?: Partial<Record<'DELIVERY' | 'RMA' | 'ACCOUNTING_COLLECTION' | 'PROCUREMENT_PICKUP' | 'SALES_ORDERS', number>>;
   /** Up to 10 Driver profiles with an active job (Delivery, RMA transport, Procurement Pickup, Sales Order) today or already started. */
   drivers_out: Array<{ driver_id: string; driver: string; total: number; in_transit: number; records: import('../types').DeliveryRecord[] }>;
   /** Distinct drivers out for delivery. */
@@ -592,7 +595,13 @@ export const api = {
   },
   getRecordActiveCounts: () => request<RecordActiveCounts>('/records/active-counts'),
   getRecordFilterOptions: (category: string) => request<{ accountManagers: string[]; drivers: string[]; areas: string[] }>(`/records/filter-options?${new URLSearchParams({ category })}`),
-  getDriverOverview: (search = '') => request<{ drivers: Array<{ name: string; active: number; completed: number }>; unassigned: number; areas: string[]; dashboard: { today: number; remaining: number; completed: number; rma_active: number; rma_completed: number } }>(`/records/driver-overview${search ? `?${new URLSearchParams({ search })}` : ''}`),
+  getDriverOverview: (search = '', area = '') => {
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (area && area !== 'All' && area !== 'All Areas') params.set('area', area);
+    const query = params.toString();
+    return request<{ drivers: Array<{ name: string; active: number; completed: number }>; unassigned: number; dispatch_total?: number; areas: string[]; dashboard: { today: number; remaining: number; completed: number; rma_active: number; rma_completed: number } }>(`/records/driver-overview${query ? `?${query}` : ''}`);
+  },
   getCalendarCounts: (dateFrom: string, dateTo: string) => request<Array<{ date: string; total: number; statuses: Record<string, number> }>>(`/records/calendar-counts?${new URLSearchParams({ dateFrom, dateTo })}`),
   getSupplierPickupCounts: (ids: string[]) => request<Array<{ id: string; count: number }>>(`/records/supplier-pickup-counts?${new URLSearchParams({ ids: ids.join(',') })}`),
   getStatusHistoryCounts: (params: URLSearchParams) => request<import('../utils/export').StatusHistoryCounts>(`/records/status-history-counts?${params}`),
@@ -646,6 +655,8 @@ export const api = {
     request<any>(`/records/${id}/rma-transport`, { method: 'PATCH', body: JSON.stringify(data) }),
   receiveRma: (id: string, data: { recipient: string; expected_version: number; remarks: string }) =>
     request<any>(`/records/${id}/rma-receipt`, { method: 'POST', body: JSON.stringify(data) }),
+  correctRmaTransport: (id: string, data: { transport_received_by?: string; transport_started_at?: string; transport_completed_at?: string; expected_version: number; remarks: string }) =>
+    request<any>(`/records/${id}/rma-transport-correction`, { method: 'PATCH', body: JSON.stringify(data) }),
   getRecordAudit: (id: string) => request<ApiAuditEntry[]>(`/records/${id}/audit`),
   createRecord: (data: Record<string, unknown>) =>
     request<any>('/records', { method: 'POST', body: JSON.stringify(data) }),
@@ -655,6 +666,8 @@ export const api = {
     request<any>(`/records/${id}/time-in`, { method: 'POST', body: JSON.stringify({ remarks }) }),
   patchStatus: (id: string, status: string, remarks?: string, extra?: { time_out?: string; received_by?: string; priority?: string; delivery_date?: string; expected_version?: number; expected_edit_version?: string }) =>
     request<any>(`/records/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, remarks: remarks ?? '', ...extra }) }),
+  completeRecord: (id: string, data: { remarks: string; reviewed_photo_id: string; expected_edit_version: string }) =>
+    request<any>(`/records/${id}/complete`, { method: 'PATCH', body: JSON.stringify(data) }),
   verifyCollection: (id: string) =>
     request<any>(`/records/${id}/verify-collection`, { method: 'PATCH' }),
   getRecordAttachments: (id: string) => request<ApiPodAttachment[]>(`/records/${id}/attachments`),

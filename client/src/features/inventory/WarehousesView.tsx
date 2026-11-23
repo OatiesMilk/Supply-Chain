@@ -102,8 +102,8 @@ export default function WarehousesView({ skus, currentUserRole = '', currentUser
           { label: 'Low Stock Alerts',    value: totalLowStock },
         ].map(stat => (
           <div key={stat.label} className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm">
-            <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mb-0.5">{stat.label}</p>
-            <p className={`text-2xl font-black ${stat.label === 'Low Stock Alerts' && stat.value > 0 ? 'text-red-600' : 'text-slate-800'}`}>
+            <p className="text-xs text-slate-400 uppercase tracking-widest font-bold mb-0.5">{stat.label}</p>
+            <p className={`text-2xl font-bold ${stat.label === 'Low Stock Alerts' && stat.value > 0 ? 'text-red-600' : 'text-slate-800'}`}>
               {stat.value}
             </p>
           </div>
@@ -116,7 +116,7 @@ export default function WarehousesView({ skus, currentUserRole = '', currentUser
         return (
           <div key={zone} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-slate-200 flex items-center gap-2">
-              <span className="w-7 h-7 rounded-lg bg-[#1F3864] text-white flex items-center justify-center text-xs font-black">{zone}</span>
+              <span className="w-7 h-7 rounded-lg bg-brand-navy text-white flex items-center justify-center text-xs font-bold">{zone}</span>
               <div>
                 <h4 className="text-sm font-bold text-slate-800">Zone {zone}</h4>
                 <p className="text-xs text-slate-500">{zoneBins.length} bin location{zoneBins.length !== 1 ? 's' : ''}</p>
@@ -125,7 +125,7 @@ export default function WarehousesView({ skus, currentUserRole = '', currentUser
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-sm">
                 <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-black text-slate-500 uppercase tracking-wider">
+                  <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
                     <th className="px-4 py-3">Bin Code</th>
                     <th className="px-4 py-3 text-center">SKUs</th>
                     <th className="px-4 py-3 text-right">On Hand</th>
@@ -146,14 +146,14 @@ export default function WarehousesView({ skus, currentUserRole = '', currentUser
                         onClick={() => setSelectedBin(bin.bin_code)}
                         className={`cursor-pointer transition-all hover:bg-blue-50/40 ${lowCount > 0 ? 'bg-red-50/20' : ''}`}
                       >
-                        <td className="px-4 py-3.5 font-mono font-black text-slate-900 text-sm tracking-tight">{bin.bin_code}</td>
+                        <td className="px-4 py-3.5 tabular-nums font-bold text-slate-900 text-sm tracking-tight">{bin.bin_code}</td>
                         <td className="px-4 py-3.5 text-center font-bold text-slate-700 text-sm">{bin.skus.length}</td>
-                        <td className="px-4 py-3.5 text-right font-black text-slate-900 tabular-nums">{totalOnHand}</td>
-                        <td className="px-4 py-3.5 text-right font-black text-amber-600 tabular-nums">{totalAlloc}</td>
-                        <td className={`px-4 py-3.5 text-right font-black tabular-nums text-base ${lowCount > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{totalAtp}</td>
+                        <td className="px-4 py-3.5 text-right font-bold text-slate-900 tabular-nums">{totalOnHand}</td>
+                        <td className="px-4 py-3.5 text-right font-bold text-amber-600 tabular-nums">{totalAlloc}</td>
+                        <td className={`px-4 py-3.5 text-right font-bold tabular-nums text-base ${lowCount > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{totalAtp}</td>
                         <td className="px-4 py-3.5 text-center">
                           {lowCount > 0 ? (
-                            <span className="inline-flex items-center gap-1 bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full text-[11px] font-black">
+                            <span className="inline-flex items-center gap-1 bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full text-xs font-bold">
                               <AlertTriangle className="w-3 h-3" /> {lowCount}
                             </span>
                           ) : (

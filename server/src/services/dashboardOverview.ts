@@ -26,6 +26,7 @@ export async function dashboardOverview(db: PrismaClient, user: AuthUser) {
     record_previews: {
       rma_requests: [] as ReturnType<typeof serializeRecord>[], rma_attention: [] as ReturnType<typeof serializeRecord>[],
       transport_requests: [] as ReturnType<typeof serializeRecord>[], in_transit: [] as ReturnType<typeof serializeRecord>[],
+      awaiting_verification: [] as ReturnType<typeof serializeRecord>[],
       rma_in_transit: [] as ReturnType<typeof serializeRecord>[],
     },
     transport_requests_by_type: {} as Record<string, number>,
@@ -40,7 +41,7 @@ export async function dashboardOverview(db: PrismaClient, user: AuthUser) {
       ['Scheduled', { status: 'SCHEDULED', timeIn: null }],
       ['In Transit', { OR: [{ status: 'IN_TRANSIT' }, { status: 'SCHEDULED', NOT: { timeIn: null } }] }],
       ['Pending', { status: 'PENDING' }], ['On-Hold', { status: 'ON_HOLD' }],
-      ['Rescheduled', { status: 'RESCHEDULED' }], ['Delivered', { status: 'ACCOMPLISHED' }],
+      ['Rescheduled', { status: 'RESCHEDULED' }], ['Transport Complete', { status: 'TRANSPORT_COMPLETE' }], ['Delivered', { status: 'ACCOMPLISHED' }],
     ];
     const totals = await Promise.all(states.map(([, where]) => db.deliveryRecord.count({ where: scoped({ category: 'DELIVERY', draft: false, ...where }) })));
     states.forEach(([status], i) => { result.status_totals[status] = totals[i]; });
@@ -48,6 +49,19 @@ export async function dashboardOverview(db: PrismaClient, user: AuthUser) {
     [result.counts['sc-in-transit'], result.record_previews.in_transit] = await Promise.all([
       count('sc-in-transit'), preview(inTransit, [{ deliveryDate: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }]),
     ]);
+    const awaiting = dashboardRecordFilter('sc-awaiting-verification', today)!;
+    const awaitingIds = [
+      'sc-awaiting-verification-delivery', 'sc-awaiting-verification-collection',
+      'sc-awaiting-verification-pickup', 'sc-awaiting-verification-sales-order',
+    ];
+    const [awaitingCount, awaitingPreview, categoryCounts] = await Promise.all([
+      db.deliveryRecord.count({ where: scoped(awaiting) }),
+      preview(awaiting, [{ timeOut: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }]),
+      Promise.all(awaitingIds.map(count)),
+    ]);
+    result.counts['sc-awaiting-verification'] = awaitingCount;
+    awaitingIds.forEach((id, i) => { result.counts[id] = categoryCounts[i]; });
+    result.record_previews.awaiting_verification = awaitingPreview;
   }
   if (user.role === 'LOGISTICS') {
     const ids = ['log-flags', 'log-unassigned', 'log-on-hold', 'log-rescheduled'];

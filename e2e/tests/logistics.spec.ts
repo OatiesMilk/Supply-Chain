@@ -144,7 +144,7 @@ test.describe('B-1 Login & Access Control', () => {
     expect(Math.abs((expandedToggleBox?.y ?? 0) - (collapsedToggleBox?.y ?? 0))).toBeLessThanOrEqual(1);
     const collapsedMainLeft = (await mainContent.boundingBox())?.x ?? 0;
     expect(expandedMainLeft - collapsedMainLeft).toBe(152);
-    await expect(page.locator('#sidebar-nav hr')).toHaveCount(2);
+    await expect(page.locator('#sidebar-nav hr')).toHaveCount(4);
 
     const activeDashboard = page.getByRole('navigation').getByRole('button', { name: 'Dashboard' });
     const activeAccent = await activeDashboard.evaluate(element => getComputedStyle(element, '::before').backgroundColor);
@@ -475,7 +475,8 @@ test.describe('B-2 Dispatch & Assign Driver', () => {
     await expect(filteredRow).toBeVisible();
     await filteredRow.click();
     await expect(page.locator('#accounting-collection-workspace')).toBeVisible();
-    await page.locator('#accounting-change-remarks').fill('Unsubmitted navigation guard check');
+    await page.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
+    await page.locator('#accounting-action-remarks').fill('Unsubmitted navigation guard check');
 
     const accountingLink = page.getByRole('navigation').getByRole('button', { name: /accounting collection/i });
     await accountingLink.click();

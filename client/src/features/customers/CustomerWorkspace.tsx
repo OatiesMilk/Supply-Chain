@@ -107,7 +107,7 @@ export default function CustomerWorkspace({
     return (
       <div className="flex flex-col items-center justify-center py-32 text-slate-400 space-y-2">
         <p className="text-sm">Customer not found.</p>
-        <button onClick={onBack} className="text-sm text-[#0078C1] hover:underline">← Back to Customers</button>
+        <button onClick={onBack} className="text-sm text-brand-blue hover:underline">← Back to Customers</button>
       </div>
     );
   }
@@ -122,13 +122,13 @@ export default function CustomerWorkspace({
             {/* Hero card */}
             <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
               <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-[#1F3864] to-[#0078C1] flex items-center justify-center shrink-0">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-navy to-brand-blue flex items-center justify-center shrink-0">
                   <Building2 className="w-7 h-7 text-white" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2 mb-1">
-                    <span className="text-xl font-black text-slate-900">{customer.name}</span>
-                    <span className="px-2.5 py-1 rounded-md font-black text-xs border bg-slate-100 text-slate-700 border-slate-200">{customer.id}</span>
+                    <span className="text-xl font-bold text-slate-900">{customer.name}</span>
+                    <span className="px-2.5 py-1 rounded-md font-bold text-xs border bg-slate-100 text-slate-700 border-slate-200">{customer.id}</span>
                   </div>
                   <p className="text-xs text-slate-500">{customer.city}</p>
                 </div>
@@ -136,7 +136,7 @@ export default function CustomerWorkspace({
                   <button
                     type="button"
                     onClick={() => { setSavedNotice(false); setEditing(true); }}
-                    className="inline-flex min-h-9 shrink-0 items-center gap-1.5 self-start rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:border-[#0078C1] hover:text-[#0078C1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+                    className="inline-flex min-h-9 shrink-0 items-center gap-1.5 self-start rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:border-brand-blue hover:text-brand-blue focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
                   >
                     <Pencil aria-hidden="true" className="h-3.5 w-3.5" /> Edit customer
                   </button>
@@ -182,7 +182,7 @@ export default function CustomerWorkspace({
                 <div key={row.label} className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm flex items-start gap-3">
                   <row.Icon className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
                   <div>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mb-0.5">{row.label}</p>
+                    <p className="text-xs text-slate-400 uppercase tracking-widest font-bold mb-0.5">{row.label}</p>
                     <p className="text-sm font-semibold text-slate-800">{row.value}</p>
                   </div>
                 </div>
@@ -191,7 +191,7 @@ export default function CustomerWorkspace({
               <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm flex items-start gap-3 sm:col-span-2">
                 <MapPin className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mb-0.5">Address</p>
+                  <p className="text-xs text-slate-400 uppercase tracking-widest font-bold mb-0.5">Address</p>
                   <p className="text-sm font-semibold text-slate-800">{customer.address}, {customer.city}</p>
                 </div>
               </div>
@@ -206,7 +206,7 @@ export default function CustomerWorkspace({
                 { label: 'Modified At',  value: formatTs(customer.modified_at) },
               ].map(row => (
                 <div key={row.label} className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm">
-                  <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mb-0.5">{row.label}</p>
+                  <p className="text-xs text-slate-400 uppercase tracking-widest font-bold mb-0.5">{row.label}</p>
                   <p className="text-sm font-semibold text-slate-800">{row.value}</p>
                 </div>
               ))}
@@ -241,7 +241,7 @@ export default function CustomerWorkspace({
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={() => guard(onBack)}
-            className="flex items-center gap-1.5 text-[#0078C1] hover:text-[#1F3864] text-xs font-semibold transition-colors shrink-0"
+            className="flex items-center gap-1.5 text-brand-blue hover:text-brand-navy text-xs font-semibold transition-colors shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
             Customers
@@ -260,7 +260,7 @@ export default function CustomerWorkspace({
             <ChevronLeft className="w-3.5 h-3.5" />
             Prev
           </button>
-          <span className="text-[11px] text-slate-400 px-1 hidden sm:inline">
+          <span className="text-xs text-slate-400 px-1 hidden sm:inline">
             {currentIndex + 1} / {allCustomerIds.length}
           </span>
           <button
@@ -289,7 +289,7 @@ export default function CustomerWorkspace({
                   onClick={() => { if (tab.id !== activeTab) guard(() => setActiveTab(tab.id)); }}
                   className={`flex items-center gap-2 px-5 py-4 text-sm whitespace-nowrap border-b-[3px] transition-all ${
                     isActive
-                      ? 'border-[#1F3864] text-[#1F3864] bg-blue-50/70 font-semibold'
+                      ? 'border-brand-navy text-brand-navy bg-blue-50/70 font-semibold'
                       : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100 font-medium'
                   }`}
                 >

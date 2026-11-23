@@ -1,3 +1,5 @@
+export { ActionPill, ActionPillGroup } from './ActionPill';
+export type { ActionPillProps } from './ActionPill';
 export { default as AgeIndicator } from './AgeIndicator';
 export { default as DashboardPage } from './DashboardPage';
 export { default as DashboardPanel } from './DashboardPanel';

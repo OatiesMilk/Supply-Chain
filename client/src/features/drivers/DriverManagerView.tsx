@@ -113,8 +113,8 @@ export default function DriverManagerView({
             onClick={() => setTab('drivers')}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all border-2 ${
               tab === 'drivers'
-                ? 'bg-[#1F3864] text-white border-white/30 ring-2 ring-white/40 ring-offset-1 ring-offset-[#1F3864]'
-                : 'bg-[#0078C1] text-white border-transparent hover:bg-[#1F3864]'
+                ? 'bg-brand-navy text-white border-white/30 ring-2 ring-white/40 ring-offset-1 ring-offset-brand-navy'
+                : 'bg-brand-blue text-white border-transparent hover:bg-brand-navy'
             }`}
           >
             <Truck className="w-3.5 h-3.5" />
@@ -124,8 +124,8 @@ export default function DriverManagerView({
             onClick={() => setTab('assistants')}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all border-2 ${
               tab === 'assistants'
-                ? 'bg-[#1F3864] text-white border-white/30 ring-2 ring-white/40 ring-offset-1 ring-offset-[#1F3864]'
-                : 'bg-[#0078C1] text-white border-transparent hover:bg-[#1F3864]'
+                ? 'bg-brand-navy text-white border-white/30 ring-2 ring-white/40 ring-offset-1 ring-offset-brand-navy'
+                : 'bg-brand-blue text-white border-transparent hover:bg-brand-navy'
             }`}
           >
             <UserCheck className="w-3.5 h-3.5" />
@@ -142,7 +142,7 @@ export default function DriverManagerView({
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search..."
-              className="pl-8 pr-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] w-48"
+              className="pl-8 pr-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue w-48"
             />
           </div>
 
@@ -152,10 +152,10 @@ export default function DriverManagerView({
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
             title={showInactive ? 'Showing active + inactive' : 'Showing active only'}
           >
-            {showInactive ? <ToggleRight className="w-4 h-4 text-[#0078C1]" /> : <ToggleLeft className="w-4 h-4" />}
+            {showInactive ? <ToggleRight className="w-4 h-4 text-brand-blue" /> : <ToggleLeft className="w-4 h-4" />}
             {showInactive ? 'All' : 'Active'}
             {inactiveCount > 0 && !showInactive && (
-              <span className="text-[10px] text-slate-400">+{inactiveCount} inactive</span>
+              <span className="text-xs text-slate-400">+{inactiveCount} inactive</span>
             )}
           </button>
 
@@ -163,7 +163,7 @@ export default function DriverManagerView({
           {canManage && access.canResource('drivers', 'CREATE') && (
             <button
               onClick={() => { setForm({ ...EMPTY_FORM, type: isAdmin ? typeFilter : 'ASSISTANT' }); setShowCreate(true); }}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-[#0078C1] text-white hover:bg-[#1F3864] transition-all border-2 border-transparent"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-brand-blue text-white hover:bg-brand-navy transition-all border-2 border-transparent"
             >
               <Plus className="w-3.5 h-3.5" />
               Add {isAdmin && tab === 'drivers' ? 'Driver' : 'Assistant'}
@@ -189,15 +189,15 @@ export default function DriverManagerView({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full table-auto text-xs">
+            <table className="w-full table-auto lg:table-fixed text-xs">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left">
-                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">Name</th>
-                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">Coverage Areas</th>
-                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">Added By</th>
+                  <th className="px-4 py-3 lg:w-52 text-xs font-bold text-slate-500 uppercase tracking-wider">Name</th>
+                  <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Coverage Areas</th>
+                  <th className="px-4 py-3 lg:w-28 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 lg:w-44 text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Added By</th>
                   {canManage && (
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                    <th className="px-4 py-3 lg:w-40 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                   )}
                 </tr>
               </thead>
@@ -210,7 +210,7 @@ export default function DriverManagerView({
                           type="text"
                           value={editForm.name}
                           onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
-                          className="px-2 py-1 border border-slate-300 rounded text-xs w-full focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30"
+                          className="px-2 py-1 border border-slate-300 rounded text-xs w-full focus:outline-none focus:ring-2 focus:ring-brand-blue/30"
                           autoFocus
                         />
                       ) : (
@@ -219,7 +219,7 @@ export default function DriverManagerView({
                       {/* Logins are linked by Admin in Admin Panel → Users; this is visibility only. */}
                       {d.type === 'DRIVER' && (
                         <span
-                          className={`mt-1 block w-max rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${
+                          className={`mt-1 block w-max rounded-full border px-1.5 py-0.5 text-xs font-semibold ${
                             d.is_linked ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'
                           }`}
                           title={d.is_linked ? 'This profile has a Driver login' : 'No Driver login yet — Admin links logins in Admin Panel → Users'}
@@ -240,7 +240,7 @@ export default function DriverManagerView({
                         <div className="flex flex-wrap gap-1">
                           {d.coverage_areas.map((a, i) => (
                             <span key={i} title={legacyCoverage([a]).length ? 'Not in the area list — edit to replace it' : undefined}
-                              className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] border ${legacyCoverage([a]).length ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
+                              className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-xs border ${legacyCoverage([a]).length ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
                               <MapPin className="w-2.5 h-2.5" />{a}
                             </span>
                           ))}
@@ -250,7 +250,7 @@ export default function DriverManagerView({
                       )}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold ${
+                      <span className={`px-2 py-0.5 rounded-full border text-xs font-semibold ${
                         d.is_active
                           ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                           : 'bg-red-50 text-red-700 border-red-200'
@@ -304,13 +304,13 @@ export default function DriverManagerView({
                                 <div className="flex items-center gap-1">
                                   <button
                                     onClick={() => handleDelete(d.id)}
-                                    className="px-2 py-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-200 rounded hover:bg-red-100 transition-colors"
+                                    className="px-2 py-1 text-xs font-bold text-red-600 bg-red-50 border border-red-200 rounded hover:bg-red-100 transition-colors"
                                   >
                                     Deactivate
                                   </button>
                                   <button
                                     onClick={() => setConfirmDeleteId(null)}
-                                    className="px-2 py-1 text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100 transition-colors"
+                                    className="px-2 py-1 text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100 transition-colors"
                                   >
                                     Cancel
                                   </button>
@@ -345,7 +345,7 @@ export default function DriverManagerView({
         >
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto m-4">
             <div className="px-6 pt-5 pb-0 flex items-center justify-between">
-              <h2 className="text-sm font-black text-slate-900">
+              <h2 className="text-sm font-bold text-slate-900">
                 Add {form.type === 'DRIVER' ? 'Driver' : 'Assistant'}
               </h2>
               <button
@@ -363,7 +363,7 @@ export default function DriverManagerView({
                   type="text"
                   value={form.name}
                   onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
                   autoFocus
                 />
               </div>
@@ -376,12 +376,12 @@ export default function DriverManagerView({
                   disabled={!isAdmin}
                   aria-describedby="create-type-help"
                   onChange={e => setForm(f => ({ ...f, type: e.target.value as 'DRIVER' | 'ASSISTANT' }))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] disabled:bg-slate-50 disabled:text-slate-500"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue disabled:bg-slate-50 disabled:text-slate-500"
                 >
                   {isAdmin && <option value="DRIVER">Driver</option>}
                   <option value="ASSISTANT">Assistant</option>
                 </select>
-                <p id="create-type-help" className="text-[10px] text-slate-400 mt-1">
+                <p id="create-type-help" className="text-xs text-slate-400 mt-1">
                   {isAdmin
                     ? form.type === 'DRIVER' && 'To let this Driver sign in, create a Driver login in Admin Panel → Users and link it to this profile.'
                     : 'Only Admin can add drivers.'}
@@ -396,7 +396,7 @@ export default function DriverManagerView({
                   onChange={coverage_areas => setForm(f => ({ ...f, coverage_areas }))}
                   disabled={saving}
                 />
-                <p className="text-[10px] text-slate-400 mt-1">
+                <p className="text-xs text-slate-400 mt-1">
                   Drivers covering a record's exact area are suggested first, then drivers covering its whole subregion.
                 </p>
               </div>
@@ -417,7 +417,7 @@ export default function DriverManagerView({
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-4 py-2 bg-[#1F3864] hover:bg-[#162952] text-white text-sm font-bold rounded-lg transition-colors"
+                  className="px-4 py-2 bg-brand-navy hover:bg-[#162952] text-white text-sm font-bold rounded-lg transition-colors"
                 >
                   Add {form.type === 'DRIVER' ? 'Driver' : 'Assistant'}
                 </button>

@@ -43,7 +43,7 @@ test('Driver accomplished list includes finalized logistics RMAs with completed 
         dashboardCounts: { today: 1, remaining: 0, completed: 2, rma_active: 0, rma_completed: 0 },
       }))));
     const html = dom.window.document.body.innerHTML;
-    assert.match(html, /Accomplished \(2\)/);
+    assert.match(html, /Done today \(2\)/);
     assert.match(html, /REC-14836/);
     assert.match(html, /Octagon Computer Superstore/);
     assert.match(html, /Transport complete:/);

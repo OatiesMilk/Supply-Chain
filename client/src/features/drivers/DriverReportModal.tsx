@@ -149,7 +149,7 @@ export default function DriverReportModal({ records, serverPaging = false, onClo
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 bg-[#1F3864]">
+        <div className="flex items-center justify-between px-5 py-4 bg-brand-navy">
           <div className="flex items-center gap-2">
             <FileBarChart2 className="w-4 h-4 text-[#FFC000]" />
             <span className="text-white font-bold text-sm">Monthly Driver Report</span>
@@ -173,7 +173,7 @@ export default function DriverReportModal({ records, serverPaging = false, onClo
               value={month}
               disabled={loading}
               onChange={e => setMonth(Number(e.target.value))}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1F3864]/30 focus:border-[#1F3864]"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-navy/30 focus:border-brand-navy"
             >
               {MONTHS.map((m, i) => (
                 <option key={m} value={i + 1}>{m}</option>
@@ -191,7 +191,7 @@ export default function DriverReportModal({ records, serverPaging = false, onClo
               value={year}
               disabled={loading}
               onChange={e => setYear(Number(e.target.value))}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1F3864]/30 focus:border-[#1F3864]"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-navy/30 focus:border-brand-navy"
             />
           </div>
 
@@ -202,7 +202,7 @@ export default function DriverReportModal({ records, serverPaging = false, onClo
               value={format}
               disabled={loading}
               onChange={e => setFormat(e.target.value as 'excel' | 'pdf' | 'docx' | 'csv')}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1F3864]/30 focus:border-[#1F3864]"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-navy/30 focus:border-brand-navy"
             >
               <option value="excel">Excel (.xlsx)</option>
               <option value="pdf">PDF (.pdf)</option>
@@ -224,7 +224,7 @@ export default function DriverReportModal({ records, serverPaging = false, onClo
                 onClick={() => setStatusMode('current')}
                 className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
                   statusMode === 'current'
-                    ? 'bg-[#1F3864] text-white border-[#1F3864]'
+                    ? 'bg-brand-navy text-white border-brand-navy'
                     : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
                 }`}
               >
@@ -235,14 +235,14 @@ export default function DriverReportModal({ records, serverPaging = false, onClo
                 onClick={() => setStatusMode('trail')}
                 className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
                   statusMode === 'trail'
-                    ? 'bg-[#1F3864] text-white border-[#1F3864]'
+                    ? 'bg-brand-navy text-white border-brand-navy'
                     : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
                 }`}
               >
                 <History className="w-3 h-3" /> Status Trail
               </button>
             </div>
-            <p className="text-[10px] text-slate-400 leading-relaxed">
+            <p className="text-xs text-slate-400 leading-relaxed">
               {statusMode === 'current'
                 ? 'Counts each record once based on its current status.'
                 : 'Counts every status each record has passed through. Totals may exceed record count.'}
@@ -279,7 +279,7 @@ export default function DriverReportModal({ records, serverPaging = false, onClo
           <button
             onClick={handleGenerate}
             disabled={loading || !validPeriod || filteredCount === 0 || (serverPaging && (preview.isLoading || preview.isError))}
-            className="flex items-center gap-1.5 px-4 py-2 bg-[#1F3864] hover:bg-[#162952] text-white text-sm font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-1.5 px-4 py-2 bg-brand-navy hover:bg-[#162952] text-white text-sm font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading
               ? <Loader2 className="w-3.5 h-3.5 animate-spin" />

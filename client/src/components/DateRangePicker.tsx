@@ -31,7 +31,7 @@ const dayLabel = (day: string) => new Intl.DateTimeFormat('en-US', {
 const monthLabel = (month: string) => new Intl.DateTimeFormat('en-US', {
   month: 'long', year: 'numeric', timeZone: 'UTC',
 }).format(calendarDate(month));
-const focusClass = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1]';
+const focusClass = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue';
 
 /** Draft selection stays local until Apply; closing the popover cancels it. */
 export default function DateRangePicker({ dateFrom, dateTo, open, onOpenChange, onChange }: Props) {
@@ -172,7 +172,7 @@ export default function DateRangePicker({ dateFrom, dateTo, open, onOpenChange, 
     <h3 className="mb-3 text-center text-sm font-bold text-slate-800">{monthLabel(value)}</h3>
     <div role="grid" aria-label={monthLabel(value)} aria-multiselectable="true">
       <div role="row" className="grid grid-cols-7">
-        {weekdays.map(day => <div role="columnheader" key={day} className="pb-2 text-center text-[10px] font-semibold text-slate-500">{day}</div>)}
+        {weekdays.map(day => <div role="columnheader" key={day} className="pb-2 text-center text-xs font-semibold text-slate-500">{day}</div>)}
       </div>
       {calendarCells(value).map((week, index) => <div role="row" className="grid grid-cols-7" key={index}>
         {week.map((day, column) => {
@@ -188,7 +188,7 @@ export default function DateRangePicker({ dateFrom, dateTo, open, onOpenChange, 
               onMouseEnter={() => { if (!drag.current && selectingEnd && draft.from) setPreview(orderedCalendarRange(draft.from, day)); }}
               onKeyDown={event => handleDayKey(event, day)}
               onClick={event => { if (event.detail === 0 || pointerType.current === 'touch') chooseDay(day); }}
-              className={`relative flex min-h-10 w-full touch-manipulation select-none items-center justify-center rounded-lg text-xs font-semibold ${focusClass} ${endpoint && inRange ? 'bg-[#1F3864] text-white' : inRange ? 'text-blue-900' : 'text-slate-700 hover:bg-slate-100'} ${day === today && !inRange ? 'underline decoration-[#0078C1] underline-offset-4' : ''}`}>
+              className={`relative flex min-h-10 w-full touch-manipulation select-none items-center justify-center rounded-lg text-xs font-semibold ${focusClass} ${endpoint && inRange ? 'bg-brand-navy text-white' : inRange ? 'text-blue-900' : 'text-slate-700 hover:bg-slate-100'} ${day === today && !inRange ? 'underline decoration-brand-blue underline-offset-4' : ''}`}>
               {Number(day.slice(8))}
             </button>
           </div>;
@@ -246,7 +246,7 @@ export default function DateRangePicker({ dateFrom, dateTo, open, onOpenChange, 
             <button type="button" onClick={() => { onChange({ from: '', to: '' }); onOpenChange(false); }} className={`min-h-10 rounded-lg px-2 text-xs font-semibold text-red-600 ${focusClass}`}>Clear dates</button>
             <div className="flex gap-2">
               <button type="button" onClick={() => onOpenChange(false)} className={`min-h-10 rounded-lg border border-slate-200 px-4 text-xs font-semibold text-slate-600 hover:bg-slate-50 ${focusClass}`}>Cancel</button>
-              <button type="button" onClick={() => { onChange(draft.from ? orderedCalendarRange(draft.from, draft.to || draft.from) : { from: '', to: '' }); onOpenChange(false); }} className={`min-h-10 rounded-lg bg-[#1F3864] px-4 text-xs font-bold text-white hover:bg-blue-900 ${focusClass}`}>Apply dates</button>
+              <button type="button" onClick={() => { onChange(draft.from ? orderedCalendarRange(draft.from, draft.to || draft.from) : { from: '', to: '' }); onOpenChange(false); }} className={`min-h-10 rounded-lg bg-brand-navy px-4 text-xs font-bold text-white hover:bg-blue-900 ${focusClass}`}>Apply dates</button>
             </div>
           </div>
         </div>

@@ -92,9 +92,9 @@ test('copy has no em dash, no uppercase headings and nothing pulses', () => {
   assert.equal(text(markup).includes('Needs Attention'), false);
 });
 
-test('Command dashboard heading, Manila update stamp and refresh', () => {
+test('TASS dashboard heading, Manila update stamp and refresh', () => {
   const markup = html({ onRefresh() {} });
-  assert.match(markup, /<h1[^>]*>Command dashboard/); assert.match(text(markup), /Updated 08:27 AM/i); assert.match(markup, /aria-label="Refresh dashboard"/);
+  assert.match(markup, /<h1[^>]*>TASS dashboard/); assert.match(text(markup), /Updated 08:27 AM/i); assert.match(markup, /aria-label="Refresh dashboard"/);
 });
 
 test('tiles and links for screens the viewer cannot open have no button', () => {

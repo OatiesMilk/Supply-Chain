@@ -128,10 +128,14 @@ test('activated Logistics RMA assignment stays separate from general edits and T
   assert.equal(p.canRecord('RMA', 'COMPLETE', 'rma'), false);
   const network = mock.method(globalThis, 'fetch', async () => Response.json({ id: 'record-1', category: 'RMA' }));
   await api.assignRma('record-1', { driver_id: 'driver-1', expected_version: 1, remarks: 'Assign transport' });
+  await api.correctRmaTransport('record-1', { transport_received_by: 'Guard', expected_version: 2, remarks: 'Correct transport' });
   await assert.rejects(api.updateRecord('record-1', { reference: 'changed' }), ClientPermissionError);
   await assert.rejects(api.receiveRma('record-1', { recipient: 'Receiver', expected_version: 1, remarks: 'Denied' }), ClientPermissionError);
   await assert.rejects(api.patchStatus('record-1', 'Delivered', 'Denied'), ClientPermissionError);
-  assert.equal(network.mock.callCount(), 1);
+  assert.equal(network.mock.callCount(), 2);
+  install(account('ADMIN'), 'rma');
+  await assert.rejects(api.correctRmaTransport('record-1', { transport_received_by: 'Guard', expected_version: 2, remarks: 'Admin denied' }), ClientPermissionError);
+  assert.equal(network.mock.callCount(), 2);
 });
 
 test('shared SKU lookup does not grant inventory writes, and denied routes/categories do not load', async () => {

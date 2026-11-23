@@ -15,9 +15,12 @@ async function mount(props: Record<string, unknown>, run: (doc: Document) => voi
   const queryClient = new QueryClient();
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost' });
   const original = Object.getOwnPropertyDescriptors(globalThis);
+  const requestAnimationFrame = (callback: FrameRequestCallback) => dom.window.setTimeout(() => callback(dom.window.performance.now()), 0);
+  const cancelAnimationFrame = (id: number) => dom.window.clearTimeout(id);
+  Object.assign(dom.window, { requestAnimationFrame, cancelAnimationFrame });
   const globals = { window: dom.window, document: dom.window.document, navigator: dom.window.navigator,
     Element: dom.window.Element, HTMLElement: dom.window.HTMLElement, Node: dom.window.Node,
-    getComputedStyle: dom.window.getComputedStyle.bind(dom.window), IS_REACT_ACT_ENVIRONMENT: true };
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window), requestAnimationFrame, cancelAnimationFrame, IS_REACT_ACT_ENVIRONMENT: true };
   for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true });
   dom.window.matchMedia = (() => ({ matches: false, addEventListener() {}, removeEventListener() {} })) as any;
   const { createRoot } = await import('react-dom/client');
@@ -43,7 +46,7 @@ test('summary counters use the shared tile and the page the shared heading', asy
   await mount({ records: [run], dashboardCounts: { today: 1, remaining: 1, completed: 0, rma_active: 0, rma_completed: 0 } }, doc => {
     assert.equal(doc.querySelectorAll('[data-kpi-tile]').length, 3);
     const text = doc.body.textContent ?? '';
-    assert.match(text, /Today's runs/); assert.match(text, /Accomplished/); assert.match(text, /Remaining/);
+    assert.match(text, /Today's runs/); assert.match(text, /Done today/); assert.match(text, /Remaining/);
     assert.equal(doc.querySelectorAll('h1').length, 1);
     assert.equal(doc.querySelector('h1')?.textContent, 'Driver dashboard');
   });
@@ -195,7 +198,7 @@ test('counters share one compact strip with short phone labels and full accessib
     assert.match(strip.className, /divide-x/);
     const cells = strip.querySelectorAll('[data-kpi-tile]');
     assert.equal(cells.length, 3);
-    for (const [short, full] of [['Today', "Today's runs"], ['Done', 'Accomplished'], ['Left', 'Remaining']]) {
+    for (const [short, full] of [['Today', "Today's runs"], ['Done', 'Done today'], ['Left', 'Remaining']]) {
       const cell = [...cells].find(node => node.textContent?.includes(full))!;
       assert.ok(cell, full);
       assert.equal(cell.querySelector('[aria-hidden="true"]')?.textContent, short);

@@ -222,6 +222,8 @@ export function canPerformPolicyRecordAction(
   const role = snapshot.role!;
   if (action === 'VERIFY_COLLECTION') return role === 'TASS' && record.category === 'ACCOUNTING_COLLECTION'
     && record.status === 'ACCOMPLISHED' && record.draft === false && record.collectionVerified === false;
+  if (action === 'RECEIVE' && record.category !== 'RMA') return role === 'SALES_COORDINATOR'
+    && record.status === 'TRANSPORT_COMPLETE' && record.draft === false;
   if (record.category === 'RMA') {
     // Assignment/transport may not manufacture driver clocks for internal or
     // non-Logistics movements. Physical receipt/final completion belong to TASS.
@@ -249,5 +251,5 @@ export function canPerformPolicyRecordAction(
   }
   // Unknown stored states must not grant operational writes. COMMENT/POD remain
   // available on completed runs, as in the current routes.
-  return ['Draft', 'Scheduled', 'In Transit', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'].includes(runState(record));
+  return ['Draft', 'Scheduled', 'In Transit', 'Transport Complete', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'].includes(runState(record));
 }

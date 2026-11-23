@@ -103,13 +103,13 @@ export default function DispatchBoardSelector({ records, onUpdateRecord, current
 
       {/* Record selector */}
       <div>
-        <label className="text-[10px] font-black text-slate-600 uppercase tracking-wider block mb-1.5">
+        <label className="text-xs font-bold text-slate-600 uppercase tracking-wider block mb-1.5">
           Select Record
         </label>
         <select
           value={selectedId}
           onChange={handleSelect}
-          className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] bg-white"
+          className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue bg-white"
         >
           <option value="">— choose a record —</option>
           {groups.map(g => (
@@ -131,8 +131,8 @@ export default function DispatchBoardSelector({ records, onUpdateRecord, current
           {/* Header row */}
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Record</p>
-              <p className="text-base font-black text-slate-800">{selected.record_id ?? selected.id}</p>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-0.5">Record</p>
+              <p className="text-base font-bold text-slate-800">{selected.record_id ?? selected.id}</p>
             </div>
             <button
               onClick={handleClear}
@@ -145,41 +145,41 @@ export default function DispatchBoardSelector({ records, onUpdateRecord, current
 
           <div className="grid grid-cols-2 gap-3 text-xs">
             <div>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Customer</p>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-0.5">Customer</p>
               <p className="font-bold text-slate-700">{selected.company_name ?? '—'}</p>
             </div>
             <div>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Type</p>
-              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black border ${catBadge(selected.category)}`}>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-0.5">Type</p>
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold border ${catBadge(selected.category)}`}>
                 {selected.category}
               </span>
             </div>
             <div>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Delivery Date</p>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-0.5">Delivery Date</p>
               <p className="font-bold text-slate-700">{selected.delivery_date ?? '—'}</p>
             </div>
             <div>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Area</p>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-0.5">Area</p>
               <p className="font-bold text-slate-700">{selected.area ?? '—'}</p>
             </div>
             <div>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Driver Assigned</p>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-0.5">Driver Assigned</p>
               {hasDriver
                 ? <p className="font-bold text-slate-700">{selected.driver}</p>
-                : <span className="inline-flex items-center gap-1 text-amber-700 font-black">
+                : <span className="inline-flex items-center gap-1 text-amber-700 font-bold">
                     <AlertTriangle className="w-3 h-3" /> None
                   </span>
               }
             </div>
             <div>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Status</p>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-0.5">Status</p>
               <p className="font-bold text-slate-700">{selected.status ?? '—'}</p>
             </div>
           </div>
 
           {/* Assign driver */}
           <div className="border-t border-slate-100 pt-4 space-y-3">
-            <label className="text-[10px] font-black text-slate-600 uppercase tracking-wider block">
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider block">
               Assign Driver
             </label>
             {(() => {
@@ -190,7 +190,7 @@ export default function DispatchBoardSelector({ records, onUpdateRecord, current
                 <select
                   value={assignDriver}
                   onChange={e => setAssignDriver(e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] bg-white"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue bg-white"
                 >
                   <option value="">— select driver —</option>
                   {matched.length > 0 && (
@@ -211,7 +211,7 @@ export default function DispatchBoardSelector({ records, onUpdateRecord, current
               <button
                 onClick={handleAssign}
                 disabled={!assignDriver.trim() || assigning}
-                className="flex items-center gap-1.5 px-4 py-2 bg-[#1F3864] hover:bg-[#0078C1] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex items-center gap-1.5 px-4 py-2 bg-brand-navy hover:bg-brand-blue text-white text-xs font-bold rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {assigning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Truck className="w-3.5 h-3.5" />}
                 Assign Driver
@@ -236,7 +236,7 @@ export default function DispatchBoardSelector({ records, onUpdateRecord, current
                 ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                 : <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0" />
               }
-              <p className="text-[11px] font-bold">{banner.msg}</p>
+              <p className="text-xs font-bold">{banner.msg}</p>
             </div>
           )}
         </div>

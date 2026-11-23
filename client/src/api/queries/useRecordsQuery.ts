@@ -1,5 +1,5 @@
 import { rememberPermissionRecord } from '../permissionRuntime';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type RecordActiveCounts } from '@/api';
 import { DeliveryRecord } from '@/types';
 import { completionError, hasSavedPodPhoto } from '@/utils/podRequirement';
@@ -82,6 +82,7 @@ export interface PagedRecordResult {
 export function usePagedRecordsQuery(filters: import('@/api').RecordListFilters = {}, enabled = true) {
   return useQuery<PagedRecordResult, Error>({
     ...operationalSyncOptions,
+    placeholderData: keepPreviousData,
     structuralSharing: shareOperationalRecords,
     queryKey: ['records', 'paged', filters] as const,
     queryFn: async () => {
@@ -252,6 +253,21 @@ export function useVerifyCollectionMutation(currentUser: { name: string }) {
       const saved = await api.verifyCollection(id);
       return saved ? normalizeApiRecord(saved) : undefined;
     },
+    onSuccess: async (saved: DeliveryRecord | undefined) => {
+      if (saved) await saveRecordToCache(queryClient, saved);
+      await invalidateOperationalQueries(queryClient);
+    },
+  });
+}
+
+export function useCompleteRecordMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, remarks, reviewedPhotoId, expectedEditVersion }: {
+      id: string; remarks: string; reviewedPhotoId: string; expectedEditVersion: string;
+    }) => normalizeApiRecord(await api.completeRecord(id, {
+      remarks, reviewed_photo_id: reviewedPhotoId, expected_edit_version: expectedEditVersion,
+    })),
     onSuccess: async (saved: DeliveryRecord | undefined) => {
       if (saved) await saveRecordToCache(queryClient, saved);
       await invalidateOperationalQueries(queryClient);

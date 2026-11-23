@@ -35,7 +35,7 @@ test('Pagination renders active page with bold brand styling and touch-friendly 
 
   // Active page has aria-current and brand styling
   assert.match(html, /aria-current="page"/);
-  assert.match(html, /bg-\[#1F3864\]/);
+  assert.match(html, /bg-brand-navy/);
 
   // Showing range indicator
   assert.match(html, /Showing.*11.*20.*of.*50.*records/);

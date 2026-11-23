@@ -16,16 +16,17 @@ import { invalidateOperationalQueries, normalizeApiRecord, saveRecordToCache, us
 import { operationalSyncOptions } from '@/api/queries/operationalSync';
 import { RMA_MOVEMENT_LABELS, rmaLogisticsTransportNotice } from '@/utils/rmaTransport';
 import { formatManilaTimestamp } from '@/utils/manilaTimestamp';
+import { manilaDateTimeInput, manilaInputToIso } from '@/utils/recordLifecycle';
 import { rankDriversByCoverage } from '@/utils/driverCoverage';
 import { notify } from '@/utils/notify';
-import { Check, ChevronDown, CircleAlert, CircleCheck, Loader2 } from 'lucide-react';
-import { WorkflowSection, workflowFieldHintClass, workflowFieldLabelClass, workflowInputClass, workflowPrimaryButtonClass, workflowSelectClass } from './WorkflowSection';
+import { Check, ChevronDown, ChevronUp, CircleAlert, CircleCheck, ClipboardEdit, Loader2, Save } from 'lucide-react';
+import { WorkflowSection, workflowFieldHintClass, workflowFieldLabelClass, workflowInputClass, workflowPrimaryButtonClass, workflowSecondaryButtonClass, workflowSelectClass } from './WorkflowSection';
 
-type Action = 'assign' | 'receive' | 'complete' | 'status';
+type Action = 'assign' | 'receive' | 'complete' | 'status' | 'correct-transport';
 
 function SummaryItem({ label, value }: { label: string; value: string }) {
   return <div className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
-    <dt className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">{label}</dt>
+    <dt className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">{label}</dt>
     <dd className="mt-1 break-words text-sm font-semibold text-slate-800">{value}</dd>
   </div>;
 }
@@ -58,6 +59,11 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
     pod: access.canRecord('RMA', 'POD') && allowed.pod && submitted && !finished && internalTransport
       && record.rma_transport_status === 'IN_TRANSIT' && (currentUserRole === 'Driver' || currentUserRole === 'Logistics'),
     status: access.canRecord('RMA', 'STATUS') && allowed.status && !finished && (currentUserRole === 'TASS' || currentUserRole === 'Admin'),
+    correctTransport: access.canRecord('RMA', 'ASSIGN')
+      && Boolean(allowed.correctTransport)
+      && submitted && finished && internalTransport
+      && record.rma_transport_status === 'COMPLETED'
+      && currentUserRole === 'Logistics',
   } : undefined;
   const directory = useDriversQuery(caps?.assign === true);
   const { readiness } = usePodAttachments(record.id);
@@ -69,6 +75,10 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
   const [dialogVersion, setDialogVersion] = useState(0);
   const [cardFocus, setCardFocus] = useState(0);
   const [nextStatus, setNextStatus] = useState<DeliveryStatus | ''>('');
+  const [transportReceivedBy, setTransportReceivedBy] = useState(record.rma_transport_received_by ?? '');
+  const [transportStartedAt, setTransportStartedAt] = useState(manilaDateTimeInput(record.rma_transport_started_at));
+  const [transportCompletedAt, setTransportCompletedAt] = useState(manilaDateTimeInput(record.rma_transport_completed_at));
+  const [correctionOpen, setCorrectionOpen] = useState(false);
   const [remarks, setRemarks] = useState('');
   const [dirty, setDirty] = useState(false);
   const [editVersion, setEditVersion] = useState(record.rma_version ?? 0);
@@ -76,13 +86,40 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
   const version = record.rma_version ?? 0;
   const staleForm = dirty && editVersion !== version;
 
+  const savedTransportReceivedBy = record.rma_transport_received_by ?? '';
+  const savedTransportStartedAt = manilaDateTimeInput(record.rma_transport_started_at);
+  const savedTransportCompletedAt = manilaDateTimeInput(record.rma_transport_completed_at);
+  const receivedByChanged = transportReceivedBy.trim() !== savedTransportReceivedBy.trim();
+  const startedAtChanged = Boolean(record.rma_transport_started_at) && transportStartedAt !== savedTransportStartedAt;
+  const completedAtChanged = Boolean(record.rma_transport_completed_at) && transportCompletedAt !== savedTransportCompletedAt;
+  const hasCorrectionChanges = receivedByChanged || startedAtChanged || completedAtChanged;
+  const correctionValidationError = (() => {
+    if (receivedByChanged && !transportReceivedBy.trim()) return 'Transport Received By is required.';
+    if (receivedByChanged && transportReceivedBy.trim().length > 120) return 'Transport Received By must be 120 characters or fewer.';
+    if (startedAtChanged && !transportStartedAt) return 'Transport Started is required.';
+    if (completedAtChanged && !transportCompletedAt) return 'Transport Completed is required.';
+    const nextStartIso = startedAtChanged && transportStartedAt ? manilaInputToIso(transportStartedAt) : record.rma_transport_started_at;
+    const nextEndIso = completedAtChanged && transportCompletedAt ? manilaInputToIso(transportCompletedAt) : record.rma_transport_completed_at;
+    if (nextStartIso && nextEndIso && Date.parse(nextEndIso) < Date.parse(nextStartIso)) {
+      return 'Transport Completed must be after Transport Started.';
+    }
+    return null;
+  })();
+
+  useEffect(() => {
+    setCorrectionOpen(false);
+  }, [record.id]);
+
   useEffect(() => {
     if (dirty) return;
     setDriverId(record.driver_id ?? '');
     setVehicle(record.vehicle || '(None)');
     setAssistants(record.driver_assistants ?? []);
+    setTransportReceivedBy(record.rma_transport_received_by ?? '');
+    setTransportStartedAt(manilaDateTimeInput(record.rma_transport_started_at));
+    setTransportCompletedAt(manilaDateTimeInput(record.rma_transport_completed_at));
     setEditVersion(version);
-  }, [record.id, version, record.driver_id, record.vehicle, record.driver_assistants, dirty]);
+  }, [record.id, version, record.driver_id, record.vehicle, record.driver_assistants, record.rma_transport_received_by, record.rma_transport_started_at, record.rma_transport_completed_at, dirty]);
   const beginEdit = () => {
     if (!dirty) setEditVersion(version);
     setDirty(true);
@@ -90,7 +127,7 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
   };
   const mutation = useMutation({
     mutationFn: async (action: Action) => {
-      const permission = action === 'assign' ? caps?.assign : action === 'receive' ? caps?.receive : action === 'status' ? caps?.status : caps?.complete;
+      const permission = action === 'assign' ? caps?.assign : action === 'receive' ? caps?.receive : action === 'status' ? caps?.status : action === 'correct-transport' ? caps?.correctTransport : caps?.complete;
       if (!permission) throw new Error('This action is no longer available for your account.');
       const precondition = { expected_version: dirty ? editVersion : version, remarks: remarks.trim() };
       if (!precondition.remarks) throw new Error('Enter remarks before saving.');
@@ -98,6 +135,17 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
         ...precondition, driver_id: driverId || null, vehicle,
         driver_assistants: assistants,
       });
+      if (action === 'correct-transport') {
+        if (correctionValidationError) throw new Error(correctionValidationError);
+        const payload: Parameters<typeof api.correctRmaTransport>[1] = { ...precondition };
+        if (receivedByChanged) payload.transport_received_by = transportReceivedBy.trim();
+        if (startedAtChanged) payload.transport_started_at = manilaInputToIso(transportStartedAt);
+        if (completedAtChanged) payload.transport_completed_at = manilaInputToIso(transportCompletedAt);
+        if (payload.transport_received_by === undefined && payload.transport_started_at === undefined && payload.transport_completed_at === undefined) {
+          throw new Error('Change at least one transport detail before saving.');
+        }
+        return api.correctRmaTransport(record.id, payload);
+      }
       if (action === 'status') {
         if (!nextStatus) throw new Error('Select an RMA status.');
         return api.patchStatus(record.id, nextStatus, precondition.remarks, { expected_version: precondition.expected_version });
@@ -114,8 +162,12 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
       setRemarks('');
       setRecipient('');
       setNextStatus('');
-      const message = action === 'assign' ? 'Driver assignment saved.' : 'Workflow update saved.';
+      if (action === 'correct-transport') setCorrectionOpen(false);
+      const message = action === 'assign' ? 'Driver assignment saved.'
+        : action === 'correct-transport' ? 'Driver completion details updated'
+          : 'Workflow update saved.';
       setFeedback(message);
+      if (action === 'correct-transport') notify.success(message);
       await invalidateOperationalQueries(client);
     },
     onError: async error => {
@@ -177,13 +229,203 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
   const fieldHint = workflowFieldHintClass;
   const button = workflowPrimaryButtonClass;
 
+  if (!embedded && currentUserRole === 'Logistics' && finished) {
+    const completionParts: string[] = [];
+    const transportReceiver = record.rma_transport_received_by?.trim();
+    const recipientName = record.rma_recipient?.trim() || record.received_by?.trim();
+    if (transportReceiver) completionParts.push(`Transport received by: ${transportReceiver}`);
+    if (record.rma_transport_started_at) completionParts.push(`Transport started: ${formatManilaTimestamp(record.rma_transport_started_at)}`);
+    if (record.rma_transport_completed_at) completionParts.push(`Transport completed: ${formatManilaTimestamp(record.rma_transport_completed_at)}`);
+    if (recipientName) completionParts.push(`Physical receipt: ${recipientName}`);
+    if (record.rma_completed_at) completionParts.push(`RMA completed: ${formatManilaTimestamp(record.rma_completed_at)}`);
+
+    const canCorrect = Boolean(caps?.correctTransport);
+    const isCorrectionExpanded = canCorrect && (correctionOpen || hasCorrectionChanges);
+    const canCollapse = !hasCorrectionChanges && !remarks.trim();
+    const resetCorrection = (collapse = false) => {
+      setTransportReceivedBy(savedTransportReceivedBy);
+      setTransportStartedAt(savedTransportStartedAt);
+      setTransportCompletedAt(savedTransportCompletedAt);
+      setRemarks('');
+      setDirty(false);
+      setEditVersion(version);
+      setFeedback('');
+      if (collapse) setCorrectionOpen(false);
+    };
+
+    return (
+      <section role="region" aria-label="RMA transport" data-record-id={record.id} className="space-y-4">
+        {(detail.isError || capabilities.isError) && <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800">
+          <CircleAlert aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>Updates could not sync. Your saved view is shown; actions are paused. <button type="button" className="min-h-11 font-semibold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700" onClick={() => { void detail.refetch(); void capabilities.refetch(); }}>Retry sync</button></p>
+        </div>}
+        <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-medium text-emerald-900">
+          This RMA is completed. Status and driver assignment are locked.
+        </p>
+
+        {!isCorrectionExpanded ? (
+          <div className="border-t border-slate-100 pt-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3.5 py-2.5">
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <p className="text-xs font-semibold text-slate-700">Driver completion details</p>
+                <p className="text-xs text-slate-600">
+                  {completionParts.length > 0
+                    ? completionParts.join(' · ')
+                    : 'No driver transport details were recorded for this RMA.'}
+                </p>
+              </div>
+              {canCorrect && (
+                <button
+                  type="button"
+                  aria-expanded="false"
+                  disabled={busy}
+                  onClick={() => { setFeedback(''); setCorrectionOpen(true); }}
+                  className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-brand-blue hover:text-brand-blue focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <ClipboardEdit aria-hidden="true" className="h-3.5 w-3.5" />
+                  Edit driver completion details
+                  <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 text-slate-400" />
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="border-t border-slate-100 pt-3">
+              <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/60 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-bold text-slate-800">Driver completion details</p>
+                    <p className={fieldHint}>
+                      Correct the driver&apos;s transport receiver or timestamps with remarks, using Manila time.
+                    </p>
+                  </div>
+                  {canCollapse && (
+                    <button
+                      type="button"
+                      aria-expanded="true"
+                      disabled={busy}
+                      onClick={() => setCorrectionOpen(false)}
+                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-200/70 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue disabled:opacity-50"
+                    >
+                      Hide
+                      <ChevronUp aria-hidden="true" className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <label htmlFor={`${id}-transport-received-by`} className={fieldLabel}>
+                    Transport Received By <span className="text-red-600">*</span>
+                  </label>
+                  <input
+                    id={`${id}-transport-received-by`}
+                    type="text"
+                    value={transportReceivedBy}
+                    disabled={busy}
+                    onChange={event => { beginEdit(); setTransportReceivedBy(event.target.value); }}
+                    placeholder="Name of person who received items from the driver"
+                    className={input}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label htmlFor={`${id}-transport-started`} className={fieldLabel}>Transport Started (Manila)</label>
+                    <input
+                      id={`${id}-transport-started`}
+                      type="datetime-local"
+                      value={transportStartedAt}
+                      disabled={!record.rma_transport_started_at || busy}
+                      onChange={event => { beginEdit(); setTransportStartedAt(event.target.value); }}
+                      className={input}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor={`${id}-transport-completed`} className={fieldLabel}>Transport Completed (Manila)</label>
+                    <input
+                      id={`${id}-transport-completed`}
+                      type="datetime-local"
+                      value={transportCompletedAt}
+                      disabled={!record.rma_transport_completed_at || busy}
+                      onChange={event => { beginEdit(); setTransportCompletedAt(event.target.value); }}
+                      className={input}
+                    />
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-500">
+                  TASS physical receipt{recipientName ? ` (${recipientName})` : ''} and final RMA completion{record.rma_completed_at ? ` (${formatManilaTimestamp(record.rma_completed_at)})` : ''} remain read-only.
+                </p>
+              </div>
+            </div>
+
+            {staleForm && <div role="alert" className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+              <CircleAlert aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>This RMA changed while you were editing. Review the latest saved state before retrying. <button type="button" className="min-h-11 font-semibold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-800" onClick={() => resetCorrection(false)}>Use latest saved values</button></p>
+            </div>}
+
+            {correctionValidationError && <p role="alert" className="text-xs font-semibold text-red-700">{correctionValidationError}</p>}
+
+            <WorkflowSection title="Save RMA transport correction" description="Add a reason for correcting the driver's transport completion details.">
+              <div className="space-y-1.5">
+                <label htmlFor={`${id}-correction-remarks`} className={fieldLabel}>
+                  Change Reason / Remarks{' '}
+                  {hasCorrectionChanges
+                    ? <span className="text-red-500">*</span>
+                    : <span className="font-normal text-slate-400">(required when saving changes)</span>}
+                </label>
+                <textarea
+                  id={`${id}-correction-remarks`}
+                  required
+                  value={remarks}
+                  rows={3}
+                  disabled={busy}
+                  onChange={event => { beginEdit(); setRemarks(event.target.value); }}
+                  placeholder="Reason for correcting transport completion details (required)…"
+                  className={`${input} resize-y`}
+                />
+              </div>
+
+              <div className="mt-6 flex justify-end gap-2 border-t border-slate-200 pt-4">
+                <button
+                  type="button"
+                  disabled={busy || (!hasCorrectionChanges && !remarks.trim())}
+                  onClick={() => resetCorrection(true)}
+                  className={workflowSecondaryButtonClass}
+                >
+                  Revert
+                </button>
+                <button
+                  type="button"
+                  disabled={!canSave || !hasCorrectionChanges || !!correctionValidationError}
+                  onClick={() => mutation.mutate('correct-transport')}
+                  className={button}
+                >
+                  {busy && mutation.variables === 'correct-transport'
+                    ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Saving…</>
+                    : <><Save aria-hidden="true" className="h-4 w-4" />Save Changes</>}
+                </button>
+              </div>
+            </WorkflowSection>
+          </div>
+        )}
+
+        {feedback && <div role={mutation.isError ? 'alert' : 'status'} className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium ${mutation.isError ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+          {mutation.isError ? <CircleAlert aria-hidden="true" className="h-4 w-4 shrink-0" /> : <CircleCheck aria-hidden="true" className="h-4 w-4 shrink-0" />}
+          <span>{feedback}</span>
+        </div>}
+      </section>
+    );
+  }
+
   return <section role="region" aria-label="RMA transport" data-record-id={record.id} className={embedded ? 'space-y-4' : 'overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm'}>
     {!embedded && <header className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50/80 px-4 py-4 sm:px-5 sm:py-5 md:flex-row md:items-start md:justify-between">
       <div className="min-w-0 space-y-2">
-        <h3 className="text-base font-bold text-[#1F3864]">RMA transport</h3>
+        <h3 className="text-base font-bold text-brand-navy">RMA transport</h3>
         <RecordStatusProgress record={record} />
       </div>
-      <span className="inline-flex max-w-full items-center gap-2 self-start rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-[#1F3864]">
+      <span className="inline-flex max-w-full items-center gap-2 self-start rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-brand-navy">
         <span className="shrink-0 text-slate-500">Movement</span>
         <span className="truncate">{record.rma_movement ? RMA_MOVEMENT_LABELS[record.rma_movement] : 'Choose in Overview'}</span>
       </span>
@@ -269,13 +511,13 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
           {availableAssistantNames.map(name => {
             const selected = assistants.includes(name);
             return <li key={name}>
-              <label className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-sm transition-[border-color,background-color,box-shadow] duration-150 focus-within:ring-2 focus-within:ring-[#0078C1]/25 ${selected ? 'border-[#0078C1]/40 bg-blue-50/70 font-semibold text-[#1F3864]' : 'border-slate-200 bg-white text-slate-700'}`}>
-                <input type="checkbox" checked={selected} disabled={busy} className="h-4 w-4 shrink-0 accent-[#0078C1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0078C1] disabled:cursor-not-allowed" onChange={event => {
+              <label className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-sm transition-[border-color,background-color,box-shadow] duration-150 focus-within:ring-2 focus-within:ring-brand-blue/25 ${selected ? 'border-brand-blue/40 bg-blue-50/70 font-semibold text-brand-navy' : 'border-slate-200 bg-white text-slate-700'}`}>
+                <input type="checkbox" checked={selected} disabled={busy} className="h-4 w-4 shrink-0 accent-brand-blue focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue disabled:cursor-not-allowed" onChange={event => {
                   beginEdit();
                   setAssistants(current => event.target.checked ? [...current, name] : current.filter(value => value !== name));
                 }} />
                 <span className="min-w-0 flex-1 truncate">{name}</span>
-                {selected && <Check aria-hidden="true" className="h-4 w-4 shrink-0 text-[#0078C1]" />}
+                {selected && <Check aria-hidden="true" className="h-4 w-4 shrink-0 text-brand-blue" />}
               </label>
             </li>;
           })}

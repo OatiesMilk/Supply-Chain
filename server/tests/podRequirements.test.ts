@@ -131,8 +131,15 @@ function database(row = record(), files: any[] = []) {
   const tx = {
     $executeRaw: async () => {},
     $queryRaw: async () => { events.push('lock'); return [{ id: saved.id }]; },
-    user: { findUnique: async (query: any) => prisma.user.findUnique(query), findMany: async () => [] },
+    user: { findUnique: async (query: any) => prisma.user.findUnique(query), findMany: async ({ where }: any = {}) => where?.role === 'SALES_COORDINATOR' ? [{
+      id: 'eligible-sales', role: 'SALES_COORDINATOR', isActive: true, authorizationRevision: 1n,
+      permissions: [{ screen: 'deliveries', granted: true }],
+      permissionOverrides: ['DELIVERY', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS']
+        .map(category => ({ userId: 'eligible-sales', permissionKey: `CATEGORY:${category}:RECEIVE`, effect: 'ALLOW' })),
+      permissionConversion: { catalogVersion: 1 }, driverProfile: null,
+    }] : [] },
     rolePolicy: { findUnique: async (query: any) => prisma.rolePolicy.findUnique(query), findMany: async () => [] },
+    notification: { createMany: async ({ data }: any) => { events.push('notification'); return { count: data.length }; } },
     deliveryRecord: {
       create: async ({ data }: any) => {
         events.push('create');
@@ -348,7 +355,7 @@ test('a persisted photo enables delivery completion after taking the record lock
   const state = database(record(), [attachment()]);
   const result = await request('patch', '/:id/status', { body: { status: 'Delivered', remarks: 'Completed' } });
   assert.equal(result.status, 200);
-  assert.equal(result.body.status, 'Delivered');
+  assert.equal(result.body.status, 'Transport Complete');
   assert.deepEqual(state.events.slice(0, 5), ['photos', 'lock', 'update', 'audit', 'remark']);
 });
 
@@ -469,14 +476,15 @@ test('completion enforces receiver and remarks for every role and Time In for in
   }
 });
 
-test('ordinary Delivery completion roles persist Delivered with automatic server Time Out', async () => {
+test('ordinary Delivery handoffs persist Transport Complete with automatic server Time Out', async () => {
   for (const role of ['DRIVER', 'LOGISTICS']) {
     resetFixtures();
     const state = database(record(role === 'TASS' ? { category: 'RMA' } : {}), [attachment()]);
     const before = Date.now();
     const result = await request('patch', '/:id/status', { role, body: { status: 'Delivered', remarks: 'Completed', received_by: ' Receiver ' } });
     assert.equal(result.status, 200, role);
-    assert.equal(result.body.status, 'Delivered');
+    assert.equal(result.body.status, 'Transport Complete');
+    assert.equal(state.saved().status, 'TRANSPORT_COMPLETE');
     assert.equal(result.body.received_by, 'Receiver');
     assert.ok(new Date(result.body.time_out).getTime() >= before);
     assert.equal(state.audit[0].changedById, 'test-user');
@@ -513,6 +521,13 @@ test('RMA status graph is independent of Time In and preserves the approved resc
   }
   assert.match(transitionError(record({ category: 'RMA', status: 'Rescheduled', timeIn: null }), 'Delivered', 'TASS')!, /Cannot change/);
   assert.ok(!allowedStatuses(record({ category: 'RMA', status: 'ON_HOLD' })).includes('Draft'), 'legacy started RMA cannot return to Draft');
+});
+
+test('Transport Complete is terminal for ordinary runs until Sales signs off, without changing RMA transitions', () => {
+  const handoff = record({ status: 'TRANSPORT_COMPLETE', draft: false, timeIn: '2026-10-06T01:00:00.000Z', timeOut: '2026-10-06T02:00:00.000Z' });
+  assert.deepEqual(allowedStatuses(handoff), []);
+  assert.match(transitionError(handoff, 'Delivered', 'LOGISTICS') ?? '', /Cannot change/);
+  assert.deepEqual(allowedStatuses(record({ category: 'RMA', status: 'IN_TRANSIT', timeIn: null })), ['Pending', 'On-Hold', 'Rescheduled', 'Delivered']);
 });
 
 test('TASS completes received unassigned RMA without manufacturing Driver clocks', async () => {
@@ -943,14 +958,14 @@ test('completion prerequisites are enforced independently for Driver, Logistics 
   }
 });
 
-test('owner positive controls stamp server Time Out and authenticated audit actor for all roles', async () => {
+test('owner handoff controls stamp server Time Out and authenticated audit actor for all roles', async () => {
   for (const role of ['DRIVER', 'LOGISTICS']) {
     resetFixtures();
     const state = database(record(), [attachment()]);
     const start = Date.now();
     const response = await request('patch', '/:id/status', { role, body: { status: 'Delivered', remarks: ' Completed ', received_by: ' Named recipient ' } });
     assert.equal(response.status, 200);
-    assert.equal(state.saved().status, 'ACCOMPLISHED');
+    assert.equal(state.saved().status, 'TRANSPORT_COMPLETE');
     assert.ok(Date.parse(state.saved().timeOut!) >= start && Date.parse(state.saved().timeOut!) <= Date.now());
     assert.equal(state.saved().receivedBy, 'Named recipient');
     assert.equal(state.audit[0].changedById, 'test-user');
@@ -986,8 +1001,8 @@ test('a priority-only save on an accomplished record is rejected and preserves i
   const timeOut = '2026-10-07T02:00:00.000Z';
   const state = database(record({ status: 'ACCOMPLISHED', timeOut }), [attachment()]);
   const response = await request('patch', '/:id/status', { role: 'LOGISTICS', body: { status: 'Delivered', priority: '3 - High', remarks: 'Priority corrected' } });
-  assert.equal(response.status, 400);
-  assert.equal(response.body.error, "Priority can't be changed after a record is Delivered.");
+  assert.equal(response.status, 409);
+  assert.equal(response.body.error, 'Transport handoff has already been submitted.');
   assert.equal(state.saved().timeOut, timeOut);
   assert.equal(state.saved().priority, '2 - Moderate');
   assert.equal(state.events.includes('update'), false);
@@ -1005,8 +1020,9 @@ test('TSK-124: a changed Priority on a Delivered record is rejected for every ro
     const state = database(record({ status: 'ACCOMPLISHED', timeOut: '2026-10-07T02:00:00.000Z' }), [attachment()]);
     const before = { ...state.saved() };
     const response = await request(method, path, { role, body });
-    assert.equal(response.status, 400, `${method} ${role}`);
-    assert.equal(response.body.error, "Priority can't be changed after a record is Delivered.");
+    const statusRoute = method === 'patch';
+    assert.equal(response.status, statusRoute ? 409 : 400, `${method} ${role}`);
+    assert.equal(response.body.error, statusRoute ? 'Transport handoff has already been submitted.' : "Priority can't be changed after a record is Delivered.");
     assert.deepEqual(state.saved(), before);
     assert.equal(state.events.includes('update'), false);
     assert.equal(state.audit.length, 0);

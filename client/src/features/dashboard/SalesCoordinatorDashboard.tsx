@@ -1,4 +1,4 @@
-import { ArrowRight, CheckCircle2, Clock, Navigation, PauseCircle, RefreshCw, Truck, UserX } from 'lucide-react';
+import { CheckCircle2, Clock, Navigation, PauseCircle, RefreshCw, Truck, UserX } from 'lucide-react';
 import type { ApiDashboardOverview, ApiDashboardStats } from '@/api';
 import type { DeliveryCategory, DeliveryRecord, DeliveryStatus } from '@/types';
 import { screenKeyForCategory } from '@/routes/screenRouting';
@@ -6,7 +6,7 @@ import type { DashboardFilterId } from '@/utils/dashboardFilters';
 import { jobTypeLabel } from '@/utils/driverJobs';
 import DashboardStatusChart from './DashboardStatusChart';
 import {
-  DashboardPage, DashboardPanel, EmptyState, KpiRow, KpiTile, PanelError, RecordTable, StatusPill, TileSkeleton, formatDate, formatDateTime,
+  ActionPill, ActionPillGroup, DashboardPage, DashboardPanel, EmptyState, KpiRow, KpiTile, PanelError, RecordTable, StatusPill, TileSkeleton, formatDate, formatDateTime,
   type RecordColumn,
 } from './ui';
 import { recordLabel } from '../../utils/recordLabel';
@@ -27,16 +27,22 @@ interface Props {
   canAccess?: (screen: string) => boolean;
 }
 
-const CHART_STATUSES: DeliveryStatus[] = ['Scheduled', 'Pending', 'In Transit', 'On-Hold', 'Rescheduled', 'Delivered'];
+const CHART_STATUSES: DeliveryStatus[] = ['Scheduled', 'Pending', 'In Transit', 'Transport Complete', 'On-Hold', 'Rescheduled', 'Delivered'];
 
 /** The SC job types a Driver runs, in footer order, each opened on its own screen. */
 const IN_TRANSIT_TYPES: Array<{ category: DeliveryCategory; label: string }> = [
   { category: 'Deliveries', label: 'Deliveries' },
+  { category: 'Accounting Collection', label: 'Collections' },
   { category: 'Procurement Pick-up', label: 'Procurement Pickups' },
   { category: 'Sales Orders', label: 'Sales Orders' },
 ];
 
-const linkClass = 'inline-flex items-center gap-1 rounded-sm text-sm font-semibold text-[#1F3864] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]';
+const VERIFICATION_TYPES: Array<{ category: DeliveryCategory; label: string; filter: DashboardFilterId; count: string }> = [
+  { category: 'Deliveries', label: 'Deliveries', filter: 'sc-awaiting-verification-delivery', count: 'sc-awaiting-verification-delivery' },
+  { category: 'Accounting Collection', label: 'Collections', filter: 'sc-awaiting-verification-collection', count: 'sc-awaiting-verification-collection' },
+  { category: 'Procurement Pick-up', label: 'Pick-ups', filter: 'sc-awaiting-verification-pickup', count: 'sc-awaiting-verification-pickup' },
+  { category: 'Sales Orders', label: 'Sales Orders', filter: 'sc-awaiting-verification-sales-order', count: 'sc-awaiting-verification-sales-order' },
+];
 
 const inTransitColumns: RecordColumn<DeliveryRecord>[] = [
   { key: 'id', header: 'Record', render: record => record.id },
@@ -49,6 +55,15 @@ const inTransitColumns: RecordColumn<DeliveryRecord>[] = [
   { key: 'status', header: 'Status', render: record => <StatusPill record={record} />, hideLabelWhenStacked: true },
 ];
 
+const awaitingColumns: RecordColumn<DeliveryRecord>[] = [
+  { key: 'type', header: 'Type', render: record => jobTypeLabel(record.category) },
+  { key: 'company', header: 'Company', render: record => <span className="block max-w-[14rem] truncate" title={record.company_name}>{record.company_name}</span> },
+  { key: 'reference', header: 'Record', render: record => recordLabel(record) },
+  { key: 'received-by', header: 'Received by', render: record => record.received_by || 'Not recorded' },
+  { key: 'timeout', header: 'Time Out', render: record => formatDateTime(record.time_out) },
+  { key: 'amount', header: 'Amount', render: record => record.category === 'Accounting Collection' && record.amount != null ? `₱${Number(record.amount).toLocaleString('en-PH', { minimumFractionDigits: 2 })}` : '—' },
+];
+
 export default function SalesCoordinatorDashboard({ stats, overview, overviewStatus, onRetryOverview, skuCount = 0, onNavigate, onRefresh, refreshing, canAccess = () => true }: Props) {
   const status = overviewStatus ?? (overview ? 'success' : 'pending');
   const open = (filter: DashboardFilterId) => (canAccess('deliveries') ? () => onNavigate('deliveries', undefined, filter) : undefined);
@@ -58,6 +73,8 @@ export default function SalesCoordinatorDashboard({ stats, overview, overviewSta
   const recordTotal = (overview?.record_total ?? 0) + skuCount;
   const inTransit = overview?.record_previews.in_transit ?? [];
   const inTransitTotal = counts?.['sc-in-transit'] ?? 0;
+  const awaiting = overview?.record_previews.awaiting_verification ?? [];
+  const awaitingTotal = counts?.['sc-awaiting-verification'] ?? 0;
 
   const pending = stats?.pending_driver_assignment;
   const onHold = stats?.on_hold;
@@ -97,10 +114,11 @@ export default function SalesCoordinatorDashboard({ stats, overview, overviewSta
         <div className="lg:col-span-3" id="needs-attention-panel">
           <DashboardPanel title="Needs attention" count={status === 'success' ? `${attention} need action` : undefined}
             actions={status === 'success' && canAccess('deliveries') ? (
-              <button type="button" onClick={() => onNavigate('deliveries', undefined, 'sc-attention-all')}
-                className="rounded-sm text-sm font-semibold text-[#1F3864] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]">
-                View all {attention} items needing action
-              </button>
+              <ActionPill
+                label={`View all ${attention} items needing action`}
+                arrow="forward"
+                onClick={() => onNavigate('deliveries', undefined, 'sc-attention-all')}
+              />
             ) : undefined}>
             {status === 'pending' && <TileSkeleton lines={3} />}
             {status === 'error' && <PanelError message="Attention counts could not be loaded." onRetry={onRetryOverview} />}
@@ -122,15 +140,17 @@ export default function SalesCoordinatorDashboard({ stats, overview, overviewSta
         <DashboardPanel title="In transit" count={status === 'success' ? `${inTransitTotal} in transit` : undefined}
           footer={status === 'success' && inTransitTotal > 0 ? (
             <>
-              <span>Showing {inTransit.length} of {inTransitTotal}</span>
-              <span className="flex flex-wrap gap-x-4 gap-y-1">
+              <span className="tabular-nums">Showing {inTransit.length} of {inTransitTotal}</span>
+              <ActionPillGroup label="Open in transit:">
                 {IN_TRANSIT_TYPES.filter(type => canAccess(screenKeyForCategory(type.category))).map(type => (
-                  <button key={type.category} type="button" className={linkClass}
-                    onClick={() => onNavigate(screenKeyForCategory(type.category), undefined, 'sc-in-transit')}>
-                    View {type.label} in transit <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                  </button>
+                  <ActionPill
+                    key={type.category}
+                    label={type.label}
+                    accessibleLabel={`View ${type.label} in transit`}
+                    onClick={() => onNavigate(screenKeyForCategory(type.category), undefined, 'sc-in-transit')}
+                  />
                 ))}
-              </span>
+              </ActionPillGroup>
             </>
           ) : undefined}>
           {status === 'pending' && <TileSkeleton lines={4} />}
@@ -142,6 +162,38 @@ export default function SalesCoordinatorDashboard({ stats, overview, overviewSta
                 onOpen={record => onNavigate(screenKeyForCategory(record.category), record.id)}
                 canOpen={record => canAccess(screenKeyForCategory(record.category))}
                 openLabel={record => `Open ${jobTypeLabel(record.category)} ${recordLabel(record)} for ${record.company_name}`} />)}
+        </DashboardPanel>
+      </div>
+
+      <div id="awaiting-verification-panel">
+        <DashboardPanel title="Awaiting verification" count={status === 'success' ? `${awaitingTotal} awaiting sign-off` : undefined}
+          actions={status === 'success' ? (
+            <ActionPillGroup>
+              {VERIFICATION_TYPES.filter(type => canAccess(screenKeyForCategory(type.category))).map(type => {
+                const count = counts?.[type.count] ?? 0;
+                return (
+                  <ActionPill
+                    key={type.category}
+                    label={type.label}
+                    accessibleLabel={`${type.label} (${count})`}
+                    count={count}
+                    emphasis={count > 0 ? 'active' : 'muted'}
+                    arrow={count > 0 ? 'external' : 'none'}
+                    onClick={() => onNavigate(screenKeyForCategory(type.category), undefined, type.filter)}
+                  />
+                );
+              })}
+            </ActionPillGroup>
+          ) : undefined}>
+          {status === 'pending' && <TileSkeleton lines={3} />}
+          {status === 'error' && <PanelError message="Pending verification could not be loaded." onRetry={onRetryOverview} />}
+          {status === 'success' && (awaitingTotal === 0
+            ? <EmptyState icon={<CheckCircle2 className="h-9 w-9 text-emerald-600" />} title="No handoffs need sign-off"
+                description="Transport proofs appear here after a Driver or Logistics submits them." />
+            : <RecordTable rows={awaiting} columns={awaitingColumns} rowKey={record => record.id} caption="Oldest transport handoffs awaiting Sales sign-off"
+                onOpen={record => onNavigate(screenKeyForCategory(record.category), record.id)}
+                canOpen={record => canAccess(screenKeyForCategory(record.category))}
+                openLabel={record => `Review ${jobTypeLabel(record.category)} ${recordLabel(record)} for ${record.company_name}`} />)}
         </DashboardPanel>
       </div>
     </DashboardPage>

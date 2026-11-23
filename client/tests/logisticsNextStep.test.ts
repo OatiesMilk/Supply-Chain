@@ -71,7 +71,7 @@ test('Mark as delivered sends the completion, runs output actions and closes (AC
     assert.equal(calls[0].id, 'run-1');
     assert.equal(calls[0].updates.status, 'Delivered'); assert.equal(calls[0].updates.received_by, 'Warehouse guard'); assert.equal(calls[0].updates.status_remarks, 'Handed over');
     assert.equal(success.mock.calls[0].arguments[0], 'Marked as delivered');
-    assert.ok(info.mock.callCount() >= 1, 'Accomplished output actions ran');
+    assert.equal(info.mock.callCount(), 0, 'transport handoff defers completion output actions until Sales sign-off');
     assert.ok(!dialogTitled(ui, 'Mark as delivered'), 'dialog closed');
   } finally { await ui.close(); }
 });
@@ -130,6 +130,7 @@ test('Delivered runs show who received them and no button; Received By stays for
     const card = ui.doc.querySelector('[data-testid="next-step-card"]')!;
     assert.match(card.textContent!, /Delivered .*Received by Guard\./);
     assert.equal(card.querySelectorAll('button').length, 0);
+    await ui.click('Edit driver completion details');
     assert.ok(ui.doc.querySelector('input[placeholder="Name of receiver (if any)"]'), 'correction field remains after delivery');
   } finally { await ui.close(); }
 });

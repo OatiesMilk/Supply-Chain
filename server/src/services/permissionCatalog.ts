@@ -85,7 +85,9 @@ export function roleActionCeiling(role: PolicyRole, p: CatalogEntry): boolean {
       if (p.action === 'ASSIGN') return role === 'ADMIN';
       return ['TASS', 'ADMIN'].includes(role) && p.action !== 'TIME_IN';
     }
-    if (p.action === 'RECEIVE') return false;
+    // Sales Coordinator receives the driver's completed transport handoff and
+    // performs final sign-off for the four non-RMA operational categories.
+    if (p.action === 'RECEIVE') return role === 'SALES_COORDINATOR';
     if (p.action === 'CREATE') return role !== 'DRIVER' && role !== 'TASS' && !(role === 'LOGISTICS' && c === 'DELIVERY');
     if (p.action === 'ASSIGN' || p.action === 'TIME_IN') return ['ADMIN', 'LOGISTICS', ...(p.action === 'TIME_IN' ? ['DRIVER'] : [])].includes(role);
     if (p.action === 'SUBMIT') return ['ADMIN', 'SALES_COORDINATOR'].includes(role);

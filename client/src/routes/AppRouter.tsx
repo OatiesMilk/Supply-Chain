@@ -15,7 +15,7 @@ import {
   ApiDriver,
   ApiDashboardStats,
 } from '@/api';
-import { CATEGORY_SCREENS } from './screenRouting';
+import { CATEGORY_SCREENS, isDriverScreen } from './screenRouting';
 import { DashboardFilterId } from '@/utils/dashboardFilters';
 import { DATA_SAMPLER_ENABLED } from '@/utils/developmentTools';
 
@@ -238,6 +238,8 @@ export const AppRouter: React.FC<AppRouterProps> = ({
           companies={companies}
           onCreateRecord={handleCreateRecord}
           effectiveScreens={effectiveScreens}
+          dashboardFilterId={dashboardFilterId}
+          clearDashboardFilter={clearDashboardFilter}
         />
       );
 
@@ -282,7 +284,7 @@ export const AppRouter: React.FC<AppRouterProps> = ({
   };
 
   return (
-    <Suspense key={currentScreen}
+    <Suspense key={isDriverScreen(currentScreen) ? 'drivers' : currentScreen}
       fallback={
         <div role="status" aria-live="polite" className="flex items-center justify-center py-24 text-slate-500">
           <div className="flex flex-col items-center gap-3">

@@ -76,8 +76,8 @@ export const AccessRequestModal: React.FC<AccessRequestModalProps> = ({
                   <Lock className="w-4 h-4 text-amber-600" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-black text-slate-800">Request Temporary Access</h3>
-                  <p className="text-[11px] text-slate-500">
+                  <h3 className="text-sm font-bold text-slate-800">Request Temporary Access</h3>
+                  <p className="text-xs text-slate-500">
                     {screen ? `For: ${screen}` : 'Prepare access request for administrator'}
                   </p>
                 </div>
@@ -93,7 +93,7 @@ export const AccessRequestModal: React.FC<AccessRequestModalProps> = ({
 
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-2">
               <Info className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-              <p className="text-[11px] text-amber-800">
+              <p className="text-xs text-amber-800">
                 Your current role is <strong>{currentUserRole}</strong>. Access is granted manually by an Administrator in the Admin Panel. Prepare your request details below to send to your administrator.
               </p>
             </div>
@@ -110,7 +110,7 @@ export const AccessRequestModal: React.FC<AccessRequestModalProps> = ({
                 value={screen}
                 onChange={e => setScreen(e.target.value)}
                 placeholder="e.g. RMA, Deliveries, Admin Panel…"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
               />
             </div>
 
@@ -121,7 +121,7 @@ export const AccessRequestModal: React.FC<AccessRequestModalProps> = ({
                 onChange={e => setNote(e.target.value)}
                 placeholder="Briefly explain why you need access to this module…"
                 rows={3}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs resize-none focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs resize-none focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
               />
             </div>
 
@@ -135,7 +135,7 @@ export const AccessRequestModal: React.FC<AccessRequestModalProps> = ({
               <button
                 onClick={handleCopy}
                 disabled={!screen.trim() || !note.trim()}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-[#1F3864] hover:bg-[#0078C1] rounded-lg transition-colors cursor-pointer disabled:opacity-40"
+                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-brand-navy hover:bg-brand-blue rounded-lg transition-colors cursor-pointer disabled:opacity-40"
               >
                 <Copy className="w-3.5 h-3.5" />
                 Copy Request Details

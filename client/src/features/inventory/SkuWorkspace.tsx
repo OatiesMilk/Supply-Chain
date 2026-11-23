@@ -117,7 +117,7 @@ function AuditTrailTab({ skuId }: { skuId: string }) {
   if (loading) {
     return (
       <div className="flex justify-center py-20">
-        <Loader2 className="w-6 h-6 animate-spin text-[#0078C1]" />
+        <Loader2 className="w-6 h-6 animate-spin text-brand-blue" />
       </div>
     );
   }
@@ -165,14 +165,14 @@ function AuditTrailTab({ skuId }: { skuId: string }) {
               </div>
               <div className="flex-1 bg-white border border-slate-200 rounded-xl p-4 shadow-sm min-w-0">
                 <div className="flex flex-wrap items-center gap-2 mb-1">
-                  <span className={`px-2 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-wider ${actionColor[entry.action] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                  <span className={`px-2 py-0.5 rounded-full border text-xs font-bold uppercase tracking-wider ${actionColor[entry.action] ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}>
                     {entry.action}
                   </span>
                   <span className="text-xs font-semibold text-slate-700">{entry.changed_by}</span>
-                  <span className="text-[11px] text-slate-400 ml-auto">{formatTs(entry.timestamp)}</span>
+                  <span className="text-xs text-slate-400 ml-auto">{formatTs(entry.timestamp)}</span>
                 </div>
                 {entry.new_value && (
-                  <pre className="text-[11px] text-slate-500 bg-slate-50 rounded-lg p-2 mt-2 overflow-x-auto whitespace-pre-wrap break-all">
+                  <pre className="text-xs text-slate-500 bg-slate-50 rounded-lg p-2 mt-2 overflow-x-auto whitespace-pre-wrap break-all">
                     {JSON.stringify(entry.new_value, null, 2)}
                   </pre>
                 )}
@@ -259,37 +259,37 @@ function InventoryTab({
           { label: 'Available to Promise (ATP)', value: atp, color: atp <= sku.reorder_point && atp > 0 ? 'text-amber-600' : atp <= 0 ? 'text-red-600' : 'text-emerald-600' }
         ].map(kpi => (
           <div key={kpi.label} className="bg-white border border-slate-200 rounded-xl p-4 text-center shadow-sm">
-            <p className="text-[11px] text-slate-400 uppercase tracking-widest font-bold mb-1">{kpi.label}</p>
-            <p className={`text-3xl font-black ${kpi.color}`}>{kpi.value}</p>
+            <p className="text-xs text-slate-400 uppercase tracking-widest font-bold mb-1">{kpi.label}</p>
+            <p className={`text-3xl font-bold ${kpi.color}`}>{kpi.value}</p>
           </div>
         ))}
       </div>
 
       {/* Details Row */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Inventory Details</h4>
+        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Inventory Details</h4>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div>
-            <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold mb-0.5">Stock Status</p>
-            <span className={`px-2.5 py-1 rounded-full border text-[10px] font-black uppercase tracking-wider inline-block ${stockColor}`}>
+            <p className="text-xs text-slate-400 uppercase tracking-wider font-bold mb-0.5">Stock Status</p>
+            <span className={`px-2.5 py-1 rounded-full border text-xs font-bold uppercase tracking-wider inline-block ${stockColor}`}>
               {stockLabel}
             </span>
           </div>
           <div>
-            <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold mb-0.5">Warehouse Bin</p>
-            <p className="font-mono font-bold text-sm text-slate-800">{inv?.warehouse_location ?? '—'}</p>
+            <p className="text-xs text-slate-400 uppercase tracking-wider font-bold mb-0.5">Warehouse Bin</p>
+            <p className="tabular-nums font-bold text-sm text-slate-800">{inv?.warehouse_location ?? '—'}</p>
           </div>
           <div>
-            <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold mb-0.5">Unit Cost</p>
+            <p className="text-xs text-slate-400 uppercase tracking-wider font-bold mb-0.5">Unit Cost</p>
             <p className="font-semibold text-sm text-slate-800">₱{sku.unit_cost.toLocaleString()}</p>
           </div>
           <div>
-            <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold mb-0.5">Unit Price</p>
+            <p className="text-xs text-slate-400 uppercase tracking-wider font-bold mb-0.5">Unit Price</p>
             <p className="font-semibold text-sm text-slate-800">₱{sku.unit_price.toLocaleString()}</p>
           </div>
           <div>
-            <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold mb-0.5">Reorder Threshold</p>
-            <p className="font-mono font-bold text-sm text-slate-800">{sku.reorder_point} units</p>
+            <p className="text-xs text-slate-400 uppercase tracking-wider font-bold mb-0.5">Reorder Threshold</p>
+            <p className="tabular-nums font-bold text-sm text-slate-800">{sku.reorder_point} units</p>
           </div>
         </div>
       </div>
@@ -298,12 +298,12 @@ function InventoryTab({
       {sku.recent_transactions && sku.recent_transactions.length > 0 && (
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
           <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recent Inventory Transactions (last {sku.recent_transactions.length})</p>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Recent Inventory Transactions (last {sku.recent_transactions.length})</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-slate-100 text-[10px] text-slate-400 uppercase tracking-widest font-bold">
+                <tr className="border-b border-slate-100 text-xs text-slate-400 uppercase tracking-widest font-bold">
                   <th className="px-4 py-2 text-left">Date</th>
                   <th className="px-4 py-2 text-left">Type</th>
                   <th className="px-4 py-2 text-right">Qty Change</th>
@@ -316,7 +316,7 @@ function InventoryTab({
                   <tr key={t.id} className="hover:bg-slate-50">
                     <td className="px-4 py-2.5 text-slate-500">{formatDate(t.date)}</td>
                     <td className="px-4 py-2.5">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                      <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
                         t.type === 'Goods Receipt' ? 'bg-green-50 text-green-700' :
                         t.type === 'Sale'          ? 'bg-blue-50 text-blue-700' :
                         t.type === 'Transfer'      ? 'bg-violet-50 text-violet-700' :
@@ -326,8 +326,8 @@ function InventoryTab({
                     <td className={`px-4 py-2.5 text-right font-bold ${t.qty_change > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                       {t.qty_change > 0 ? '+' : ''}{t.qty_change}
                     </td>
-                    <td className="px-4 py-2.5 text-right font-mono font-semibold text-slate-800">{t.resulting_balance}</td>
-                    <td className="px-4 py-2.5 font-mono text-slate-500 text-[11px]">{t.reference}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-slate-800">{t.resulting_balance}</td>
+                    <td className="px-4 py-2.5 tabular-nums text-slate-500 text-xs">{t.reference}</td>
                   </tr>
                 ))}
               </tbody>
@@ -339,14 +339,14 @@ function InventoryTab({
       {/* Stock Adjustment Form */}
       {canAdjust && (
         <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Stock Adjustment</h4>
+          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Stock Adjustment</h4>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="text-[11px] font-semibold text-slate-600 block mb-1">Adjustment Type</label>
+              <label className="text-xs font-semibold text-slate-600 block mb-1">Adjustment Type</label>
               <select
                 value={adjType}
                 onChange={e => setAdjType(e.target.value)}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#1F3864] bg-slate-50"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-navy bg-slate-50"
               >
                 <option>Goods Receipt</option>
                 <option>Sale</option>
@@ -355,7 +355,7 @@ function InventoryTab({
               </select>
             </div>
             <div>
-              <label className="text-[11px] font-semibold text-slate-600 block mb-1">
+              <label className="text-xs font-semibold text-slate-600 block mb-1">
                 Qty Change <span className="text-slate-400 font-normal">(+ for in, − for out)</span>
               </label>
               <input
@@ -363,17 +363,17 @@ function InventoryTab({
                 value={adjQty}
                 onChange={e => setAdjQty(e.target.value)}
                 placeholder="e.g. 10 or -5"
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#1F3864] bg-slate-50"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:border-brand-navy bg-slate-50"
               />
             </div>
             <div>
-              <label className="text-[11px] font-semibold text-slate-600 block mb-1">Reference</label>
+              <label className="text-xs font-semibold text-slate-600 block mb-1">Reference</label>
               <input
                 type="text"
                 value={adjRef}
                 onChange={e => setAdjRef(e.target.value)}
                 placeholder="e.g. GRN-1010 or ADJ-883"
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#1F3864] bg-slate-50"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:border-brand-navy bg-slate-50"
               />
             </div>
           </div>
@@ -390,7 +390,7 @@ function InventoryTab({
           <button
             onClick={handleAdjust}
             disabled={adjusting}
-            className="mt-4 px-5 py-2 bg-[#1F3864] hover:bg-[#0078C1] text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+            className="mt-4 px-5 py-2 bg-brand-navy hover:bg-brand-blue text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
           >
             {adjusting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
             Post Adjustment
@@ -408,13 +408,13 @@ function GeneralTab({ sku }: { sku: ApiSku }) {
       {/* Hero row */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-          <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-[#1F3864] to-[#0078C1] flex items-center justify-center shrink-0">
+          <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-navy to-brand-blue flex items-center justify-center shrink-0">
             <Package className="w-7 h-7 text-white" />
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 mb-1">
-              <span className="font-mono text-2xl font-black text-slate-900">{sku.sku_code}</span>
-              <span className={`px-2.5 py-1 rounded-md font-black text-xs shadow-sm border ${CATEGORY_BADGE[sku.category] ?? 'bg-slate-100 text-slate-800 border-slate-200'}`}>
+              <span className="tabular-nums text-2xl font-bold text-slate-900">{sku.sku_code}</span>
+              <span className={`px-2.5 py-1 rounded-md font-bold text-xs shadow-sm border ${CATEGORY_BADGE[sku.category] ?? 'bg-slate-100 text-slate-800 border-slate-200'}`}>
                 {sku.category}
               </span>
             </div>
@@ -425,7 +425,7 @@ function GeneralTab({ sku }: { sku: ApiSku }) {
 
         {sku.description && (
           <div className="mt-4 pt-4 border-t border-slate-100">
-            <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mb-1.5">Description</p>
+            <p className="text-xs text-slate-400 uppercase tracking-widest font-bold mb-1.5">Description</p>
             <p className="text-sm text-slate-600 leading-relaxed">{sku.description}</p>
           </div>
         )}
@@ -444,7 +444,7 @@ function GeneralTab({ sku }: { sku: ApiSku }) {
           { label: 'Last Updated At',  value: formatTs(sku.updated_at) }
         ].map(row => (
           <div key={row.label} className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm">
-            <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mb-0.5">{row.label}</p>
+            <p className="text-xs text-slate-400 uppercase tracking-widest font-bold mb-0.5">{row.label}</p>
             <p className="text-sm font-semibold text-slate-800">{row.value}</p>
           </div>
         ))}
@@ -500,7 +500,7 @@ export default function SkuWorkspace({
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-32 text-slate-400">
-        <Loader2 className="w-8 h-8 animate-spin mb-3 text-[#0078C1]" />
+        <Loader2 className="w-8 h-8 animate-spin mb-3 text-brand-blue" />
         <span className="text-sm">Loading SKU workspace…</span>
       </div>
     );
@@ -511,7 +511,7 @@ export default function SkuWorkspace({
       <div className="flex flex-col items-center justify-center py-32 text-red-500 space-y-3">
         <AlertTriangle className="w-8 h-8" />
         <p className="text-sm">{error ?? 'SKU not found.'}</p>
-        <button onClick={onBack} className="text-sm text-[#0078C1] hover:underline">← Back to SKU Master</button>
+        <button onClick={onBack} className="text-sm text-brand-blue hover:underline">← Back to SKU Master</button>
       </div>
     );
   }
@@ -583,13 +583,13 @@ export default function SkuWorkspace({
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={onBack}
-            className="flex items-center gap-1.5 text-[#0078C1] hover:text-[#1F3864] text-xs font-semibold transition-colors shrink-0"
+            className="flex items-center gap-1.5 text-brand-blue hover:text-brand-navy text-xs font-semibold transition-colors shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
             SKU Master
           </button>
           <span className="text-slate-300">/</span>
-          <span className="font-mono font-black text-slate-700 text-sm truncate">{sku.sku_code}</span>
+          <span className="tabular-nums font-bold text-slate-700 text-sm truncate">{sku.sku_code}</span>
           <span className="text-slate-400 text-xs truncate hidden sm:inline">— {sku.name}</span>
         </div>
 
@@ -612,7 +612,7 @@ export default function SkuWorkspace({
               <ChevronLeft className="w-3.5 h-3.5" />
               Prev
             </button>
-            <span className="text-[11px] text-slate-400 px-1 hidden sm:inline">
+            <span className="text-xs text-slate-400 px-1 hidden sm:inline">
               {currentIndex + 1} / {allSkuIds.length}
             </span>
             <button
@@ -641,13 +641,13 @@ export default function SkuWorkspace({
                   onClick={() => setActiveTab(tab.id)}
                   className={`flex items-center gap-2 px-5 py-4 text-sm whitespace-nowrap border-b-[3px] transition-all ${
                     isActive
-                      ? 'border-[#1F3864] text-[#1F3864] bg-blue-50/70 font-semibold'
+                      ? 'border-brand-navy text-brand-navy bg-blue-50/70 font-semibold'
                       : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100 font-medium'
                   }`}
                 >
                   <Icon className="w-[18px] h-[18px] shrink-0" />
                   {tab.label}
-                  {tab.id === 'audit' && <span className="text-[9px] font-black text-slate-400 uppercase ml-1">ADMIN</span>}
+                  {tab.id === 'audit' && <span className="text-xs font-bold text-slate-400 uppercase ml-1">ADMIN</span>}
                 </button>
               );
             })}

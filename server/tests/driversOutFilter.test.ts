@@ -27,8 +27,7 @@ const out = (row: Record<string, unknown>) => matches(row, driversOutFilter(TODA
 const inTransit = (row: Record<string, unknown>) => matches(row, driversInTransitFilter(TODAY));
 
 test('every driver job type scheduled for today counts as out', () => {
-  for (const category of ['DELIVERY', 'PROCUREMENT_PICKUP', 'SALES_ORDERS']) assert.equal(out(job({ category })), true, category);
-  assert.equal(out(job({ category: 'ACCOUNTING_COLLECTION' })), false);
+  for (const category of ['DELIVERY', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS']) assert.equal(out(job({ category })), true, category);
 });
 
 test('only Logistics-transport RMAs that are not completed count', () => {

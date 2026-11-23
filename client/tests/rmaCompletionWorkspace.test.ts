@@ -72,7 +72,7 @@ const dialogButton = (ui: { dom: JSDOM }, title: string, label: string) => {
   const dialog = [...ui.dom.window.document.querySelectorAll('dialog')].find(item => item.querySelector('h2')?.textContent === title);
   return [...(dialog?.querySelectorAll('button') ?? [])].find(item => item.textContent?.trim() === label) as HTMLButtonElement | undefined;
 };
-const none = { assign: false, transport: false, receive: false, complete: false, pod: false };
+const none = { assign: false, transport: false, receive: false, complete: false, pod: false, correctTransport: false };
 
 test('TASS confirms physical receipt separately before final completion without a metadata PUT or driver clocks', async () => {
   const ui = await fixture(); let record = base();
@@ -108,6 +108,9 @@ test('Logistics reuses coverage-ranked assignment in its read-only workspace and
   try {
     await ui.render(record, 'Logistics', true); assert.equal(ui.button('Edit'), undefined);
     await act(async () => ui.button('Status & Actions')!.click()); await ui.flush();
+    for (let attempt = 0; attempt < 10 && (ui.field('Driver') as HTMLSelectElement).disabled; attempt++) {
+      await ui.flush();
+    }
     const driverSelect = ui.field('Driver') as HTMLSelectElement;
     assert.deepEqual([...driverSelect.querySelectorAll('optgroup')].map(group => group.label), ['Covers Imus, Cavite', 'Covers Cavite (subregion)', 'Other drivers']);
     assert.deepEqual([...driverSelect.options].map(option => option.value), ['', 'driver-a', 'driver-subregion', 'driver-other']);
@@ -164,6 +167,111 @@ test('a TASS-finalized RMA is read-only and displays its completed state to its 
     assert.equal(ui.button('Complete transport'), undefined);
     assert.doesNotMatch(ui.dom.window.document.body.textContent!, /No workflow action is available/);
   } finally { await ui.close(); }
+});
+
+test('completed RMA for Logistics supports bounded driver transport correction when permitted', async () => {
+  installLegacySession('LOGISTICS', 'rma');
+  const ui = await fixture();
+  let record = base({
+    status: 'Delivered',
+    rma_movement: 'LOGISTICS_TRANSPORT',
+    rma_transport_status: 'COMPLETED',
+    rma_transport_started_at: '2026-11-03T03:00:00.000Z',
+    rma_transport_completed_at: '2026-11-03T04:00:00.000Z',
+    rma_transport_received_by: 'Warehouse Guard',
+    rma_received_at: '2026-11-03T04:50:00.000Z',
+    rma_recipient: 'Warehouse Receiver',
+    rma_completed_at: '2026-11-03T04:51:00.000Z',
+    rma_version: 4,
+    driver_id: 'driver-a',
+    driver: 'Driver A',
+  });
+  mock.method(api, 'getRecord', async () => record);
+  mock.method(api, 'getRecordAttachments', async () => []);
+  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, correctTransport: true }));
+  const correct = mock.method(api, 'correctRmaTransport', async (_id, data) => {
+    record = {
+      ...record,
+      rma_version: 5,
+      rma_transport_received_by: data.transport_received_by ?? record.rma_transport_received_by,
+      rma_transport_started_at: data.transport_started_at ?? record.rma_transport_started_at,
+      rma_transport_completed_at: data.transport_completed_at ?? record.rma_transport_completed_at,
+    };
+    return record;
+  });
+  try {
+    await ui.render(record, 'Logistics', true);
+    await act(async () => ui.button('Status & Actions')!.click());
+    await ui.flush();
+
+    const workflow = ui.dom.window.document.querySelector('[role="region"][aria-label="RMA transport"]')!;
+    assert.ok(workflow, 'RMA transport landmark should remain present for accessibility and E2E');
+    const text = workflow.textContent ?? '';
+    assert.match(text, /This RMA is completed\. Status and driver assignment are locked\./);
+    assert.match(text, /Driver completion details/);
+    assert.match(text, /Transport received by: Warehouse Guard/);
+    assert.match(text, /Transport started:/);
+    assert.match(text, /Transport completed:/);
+    assert.match(text, /Physical receipt: Warehouse Receiver/);
+    assert.match(text, /RMA completed:/);
+    assert.equal(ui.button('Confirm physical receipt'), undefined);
+    assert.equal(ui.button('Complete RMA'), undefined);
+
+    const editBtn = ui.button('Edit driver completion details');
+    assert.ok(editBtn, 'Logistics should see Edit driver completion details on completed LOGISTICS_TRANSPORT RMAs');
+    await act(async () => editBtn.click());
+    await ui.flush();
+
+    assert.equal(ui.field('Transport Received By').value, 'Warehouse Guard');
+    assert.equal(ui.field('Transport Started (Manila)').disabled, false);
+    assert.equal(ui.field('Transport Completed (Manila)').disabled, false);
+    // TASS receipt / completion fields are never editable by Logistics
+    assert.equal(workflow.querySelector('select'), null);
+    assert.equal([...workflow.querySelectorAll('label')].some(el => /Recipient|RMA completed/i.test(el.textContent ?? '')), false);
+
+    await ui.input('Transport Received By', 'Updated Receiver');
+    await ui.input('Transport Completed (Manila)', '2026-11-03T12:30');
+    await ui.input('Change Reason / Remarks', 'Corrected handover receiver and time');
+    await act(async () => ui.button('Save Changes')!.click());
+    await ui.flush();
+
+    assert.equal(correct.mock.callCount(), 1);
+    assert.deepEqual(correct.mock.calls[0].arguments, [record.id, {
+      expected_version: 4,
+      remarks: 'Corrected handover receiver and time',
+      transport_received_by: 'Updated Receiver',
+      transport_completed_at: '2026-11-03T04:30:00.000Z',
+    }]);
+    assert.match(workflow.textContent ?? '', /Transport received by: Updated Receiver/);
+    assert.match(workflow.textContent ?? '', /Physical receipt: Warehouse Receiver/);
+  } finally { await ui.close(); }
+});
+
+test('completed RMA for Logistics stays read-only when correctTransport is false', async () => {
+  installLegacySession('LOGISTICS', 'rma');
+  const roUi = await fixture();
+  const supplierRecord = base({
+    status: 'Delivered',
+    rma_movement: 'SUPPLIER_COLLECTION',
+    rma_transport_status: null,
+    rma_received_at: '2026-11-03T04:50:00.000Z',
+    rma_recipient: 'Warehouse Receiver',
+    rma_completed_at: '2026-11-03T04:51:00.000Z',
+  });
+  mock.method(api, 'getRecord', async () => supplierRecord);
+  mock.method(api, 'getRecordAttachments', async () => []);
+  mock.method(api, 'getRmaCapabilities', async () => none);
+  try {
+    await roUi.render(supplierRecord, 'Logistics', true);
+    await act(async () => roUi.button('Status & Actions')!.click());
+    await roUi.flush();
+    const workflow = roUi.dom.window.document.querySelector('[role="region"][aria-label="RMA transport"]')!;
+    assert.match(workflow.textContent ?? '', /This RMA is completed\. Status and driver assignment are locked\./);
+    assert.match(workflow.textContent ?? '', /Physical receipt: Warehouse Receiver/);
+    assert.equal(roUi.button('Edit driver completion details'), undefined);
+    assert.equal(workflow.querySelector('select'), null);
+    assert.equal(workflow.querySelector('textarea'), null);
+  } finally { await roUi.close(); }
 });
 
 test('RMA proof uploader stays out of the page; transport steps open dialogs, even if capabilities are stale', async () => {
@@ -278,7 +386,7 @@ test('record rows update from saved transport and ordinary status changes across
           ? { ...record, rma_version: index + 1, rma_transport_status: index === 0 ? 'IN_TRANSIT' : 'COMPLETED' }
           : { ...record, status: status as DeliveryRecord['status'], modified_at: `2026-10-30T01:00:0${index + 1}Z` };
         await act(async () => { await saveRecordToCache(ui.client, record); }); await ui.flush();
-        assert.equal(statusCell().textContent, category === 'RMA' && index === 1 ? 'Transport Complete' : status);
+        assert.equal(statusCell().textContent, category === 'RMA' && index === 1 ? 'Transport Complete' : status === 'Delivered' ? 'Complete' : status);
         assert.equal(statusCell().querySelectorAll('span').length, 1);
       }
       if (category === 'RMA') {

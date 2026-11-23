@@ -37,7 +37,7 @@ export async function runScopedSummaries(kind: '4PM' | '6PM' | 'WEEKLY', now = n
       }
       const amName = amNames.get(candidate.id);
       if (!amName) continue;
-      const where: Prisma.DeliveryRecordWhereInput = { deletedAt: null, draft: false, status: { not: 'ACCOMPLISHED' },
+      const where: Prisma.DeliveryRecordWhereInput = { deletedAt: null, draft: false, status: { notIn: ['ACCOMPLISHED', 'TRANSPORT_COMPLETE'] },
         accountManager: { equals: amName, mode: 'insensitive' }, AND: [recordScope(user)] };
       const count = await prisma.deliveryRecord.count({ where });
       if (!count) continue;

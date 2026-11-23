@@ -56,13 +56,21 @@ function AppContent() {
 
   if (status === 'checking' || !sessionReady || !authChecked) {
     return (
-      <div className="min-h-screen bg-[#F8F9FB] flex items-center justify-center" id="auth-check-loading" role="status">
-        Checking your session…
+      <div className="min-h-screen bg-surface-canvas flex flex-col items-center justify-center gap-3 text-sm font-medium text-slate-600" id="auth-check-loading" role="status">
+        <span className="h-6 w-6 rounded-full border-2 border-slate-200 border-t-brand-blue animate-spin" aria-hidden="true" />
+        <span>Checking your session…</span>
       </div>
     );
   }
 
-  if (logoutPending) return <div role="status" className="min-h-screen flex items-center justify-center">Signing out...</div>;
+  if (logoutPending) {
+    return (
+      <div role="status" className="min-h-screen bg-surface-canvas flex flex-col items-center justify-center gap-3 text-sm font-medium text-slate-600">
+        <span className="h-6 w-6 rounded-full border-2 border-slate-200 border-t-brand-navy animate-spin" aria-hidden="true" />
+        <span>Signing out…</span>
+      </div>
+    );
+  }
   if (!authUser) return <LoginView onLoggedIn={login} />;
 
   return <SessionApp key={`${authUser.name}:${permissionSessionKey(authUser)}`} />;
@@ -81,18 +89,19 @@ function SessionApp() {
         closeButton
         duration={5000}
         style={{
+          fontFamily: 'var(--font-sans)',
           '--normal-bg': '#FFFFFF',
-          '--normal-text': '#1F3864',
-          '--normal-border': '#0078C1',
-          '--success-bg': '#1F3864',
-          '--success-text': '#FFFFFF',
-          '--success-border': '#0078C1',
+          '--normal-text': '#0F172A',
+          '--normal-border': '#E2E8F0',
+          '--success-bg': '#FFFFFF',
+          '--success-text': '#065F46',
+          '--success-border': '#A7F3D0',
           '--error-bg': '#FFFFFF',
           '--error-text': '#991B1B',
-          '--error-border': '#0078C1',
-          '--info-bg': '#E6F4FB',
+          '--error-border': '#FECACA',
+          '--info-bg': '#EBF5FC',
           '--info-text': '#1F3864',
-          '--info-border': '#0078C1',
+          '--info-border': '#BAE6FD',
         } as CSSProperties}
       />
     </QueryClientProvider>
@@ -225,7 +234,7 @@ function AuthenticatedApp() {
     return (
       <Suspense
         fallback={
-          <div className="min-h-screen bg-[#F8F9FB] flex items-center justify-center text-slate-500" role="status">
+          <div className="min-h-screen bg-surface-canvas flex items-center justify-center text-slate-500" role="status">
             <div className="flex flex-col items-center gap-3">
               <div className="w-8 h-8 border-3 border-sky-600 border-t-transparent rounded-full animate-spin" />
               <span className="text-sm font-medium text-slate-600">Loading driver dashboard…</span>

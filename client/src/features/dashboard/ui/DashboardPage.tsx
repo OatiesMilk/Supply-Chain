@@ -23,14 +23,14 @@ export default function DashboardPage({ title, subtitle, updatedAt, onRefresh, r
     <div className={touchFriendly ? 'space-y-4 sm:space-y-6' : 'space-y-6'} id={id}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold text-slate-900">{title}</h1>
-          {subtitle && <p className="mt-0.5 text-sm text-slate-600" data-page-subtitle>{subtitle}</p>}
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900">{title}</h1>
+          {subtitle && <p className="mt-0.5 text-sm text-slate-500" data-page-subtitle>{subtitle}</p>}
         </div>
         <div className="flex items-center gap-3">
-          {stamp && /\d/.test(stamp) && <span className="text-sm text-slate-600" data-updated-at>Updated {stamp}</span>}
+          {stamp && /\d/.test(stamp) && <span className="text-xs font-medium text-slate-500 tabular-nums" data-updated-at>Updated {stamp}</span>}
           {onRefresh && (
             <button type="button" onClick={onRefresh} disabled={refreshing} aria-label={refreshing ? 'Refreshing dashboard' : 'Refresh dashboard'}
-              className={`inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white ${refreshSize} text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F3864]`}>
+              className={`inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white ${refreshSize} text-xs font-semibold text-slate-700 shadow-2xs transition-colors hover:bg-slate-50 hover:border-slate-300 cursor-pointer disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue`}>
               <RotateCw className={`h-4 w-4 ${refreshing ? 'motion-safe:animate-spin' : ''}`} aria-hidden="true" />
               <span className={touchFriendly ? 'hidden sm:inline' : undefined}>Refresh</span>
             </button>

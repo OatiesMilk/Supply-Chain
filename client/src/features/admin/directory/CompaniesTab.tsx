@@ -43,12 +43,12 @@ export default function CompaniesTab({ canManage }: { canManage: boolean }) {
             <tr key={row.id} className="hover:bg-slate-50">
               <td className="max-w-[18rem] px-4 py-3">
                 <span className="block font-bold text-slate-900">{row.name}</span>
-                {row.address && <span className="block truncate text-[11px] text-slate-500" title={row.address}>{row.address}</span>}
+                {row.address && <span className="block truncate text-xs text-slate-500" title={row.address}>{row.address}</span>}
               </td>
-              <td className="px-4 py-3 font-mono text-[11px] text-slate-700">{row.sap_number || <span className="font-sans text-amber-700">Missing</span>}</td>
+              <td className="px-4 py-3 tabular-nums text-xs text-slate-700">{row.sap_number || <span className="font-sans text-amber-700">Missing</span>}</td>
               <td className="px-4 py-3 text-slate-700">{row.contact_person || <span className="text-slate-400">None</span>}</td>
               <td className="px-4 py-3 text-slate-700">
-                {row.default_account_manager ? <>{row.default_account_manager.name}{!row.default_account_manager.is_active && <span className="ml-1 text-[10px] font-semibold text-amber-700">(inactive)</span>}</> : <span className="text-slate-400">None</span>}
+                {row.default_account_manager ? <>{row.default_account_manager.name}{!row.default_account_manager.is_active && <span className="ml-1 text-xs font-semibold text-amber-700">(inactive)</span>}</> : <span className="text-slate-400">None</span>}
               </td>
               <td className="px-4 py-3"><StatusBadge active={row.is_active} /></td>
               <td className="px-4 py-3 text-slate-500">{formatUpdated(row.updated_at)}</td>
@@ -107,7 +107,7 @@ function CompanyDialog({ row, onClose }: { row?: ApiCompany; onClose: (saved?: s
           <input id={ids.name} value={form.name} maxLength={200} autoFocus autoComplete="organization" className={inputClass} onChange={set('name')} {...describedBy(ids.name, errors.name)} />
         </Field>
         <Field id={ids.sap} label="SAP number" required error={errors.sap_number} hint="Must be unique across companies.">
-          <input id={ids.sap} value={form.sap_number} maxLength={50} autoComplete="off" className={`${inputClass} font-mono`} onChange={set('sap_number')} {...describedBy(ids.sap, errors.sap_number, 'hint')} />
+          <input id={ids.sap} value={form.sap_number} maxLength={50} autoComplete="off" className={`${inputClass} tabular-nums`} onChange={set('sap_number')} {...describedBy(ids.sap, errors.sap_number, 'hint')} />
         </Field>
         <Field id={ids.contact} label="Contact person" error={errors.contact_person}>
           <input id={ids.contact} value={form.contact_person} maxLength={200} autoComplete="off" className={inputClass} onChange={set('contact_person')} {...describedBy(ids.contact, errors.contact_person)} />

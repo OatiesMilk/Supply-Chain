@@ -29,7 +29,7 @@ const filter = (id: string) => dashboardRecordFilter(id, TODAY)!;
 const is = (id: string, row: Record<string, unknown>) => matches(row, filter(id));
 
 test('transport requests cover every open driver job type that has no Driver profile (AC1)', () => {
-  const rows = [job(), job({ category: 'PROCUREMENT_PICKUP' }), job({ category: 'SALES_ORDERS', status: 'PENDING' }), rma()];
+  const rows = [job(), job({ category: 'ACCOUNTING_COLLECTION' }), job({ category: 'PROCUREMENT_PICKUP' }), job({ category: 'SALES_ORDERS', status: 'PENDING' }), rma()];
   for (const row of rows) assert.equal(is('log-transport-requests', row), true, String(row.category));
   assert.equal(is('log-transport-requests', job({ driver: 'Legacy Name' })), true, 'a name without a Driver profile still needs a driver');
   assert.deepEqual(filter('log-transport-requests'), transportRequestFilter());
@@ -45,7 +45,6 @@ test('transport requests leave out assigned, finished, draft and non-driver reco
     ['RMA transport completed', rma({ rmaTransportStatus: 'COMPLETED' })],
     ['RMA other movement', rma({ rmaMovement: 'CUSTOMER_DROP_OFF' })],
     ['RMA no movement', rma({ rmaMovement: null, rmaTransportStatus: null })],
-    ['accounting collection', job({ category: 'ACCOUNTING_COLLECTION' })],
   ];
   for (const [label, row] of excluded) assert.equal(is('log-transport-requests', row), false, label);
 });
@@ -66,12 +65,13 @@ test('log-rma-requests is unchanged and holds every RMA transport request', () =
   assert.equal(is('log-rma-requests', rma({ driverId: 'drv-a' })), true, 'assigned RMA transport stays in the old list');
 });
 
-test('SC in transit: started Delivery, Pick-up and Sales Order runs on any date (AC7)', () => {
+test('SC in transit: started Delivery, Collection, Pick-up and Sales Order runs on any date (AC7)', () => {
   const assigned = { driverId: 'drv-a', driver: 'Ana' };
   const rows = [
     job({ ...assigned, status: 'IN_TRANSIT', timeIn: STARTED, deliveryDate: YESTERDAY }),
     job({ ...assigned, status: 'SCHEDULED', timeIn: STARTED }),
     job({ ...assigned, category: 'PROCUREMENT_PICKUP', status: 'IN_TRANSIT', timeIn: STARTED }),
+    job({ ...assigned, category: 'ACCOUNTING_COLLECTION', status: 'IN_TRANSIT', timeIn: STARTED }),
     job({ ...assigned, category: 'SALES_ORDERS', status: 'PENDING', timeIn: STARTED }),
   ];
   for (const row of rows) assert.equal(is('sc-in-transit', row), true, JSON.stringify(row));
@@ -88,7 +88,6 @@ test('SC in transit leaves out unstarted, held, finished, draft, unassigned and 
     ['draft', job({ ...assigned, draft: true, status: 'IN_TRANSIT', timeIn: STARTED })],
     ['no Driver profile', job({ driver: 'Legacy Name', status: 'IN_TRANSIT', timeIn: STARTED })],
     ['RMA in transit', rma({ ...assigned, rmaTransportStatus: 'IN_TRANSIT' })],
-    ['accounting collection', job({ ...assigned, category: 'ACCOUNTING_COLLECTION', status: 'IN_TRANSIT', timeIn: STARTED })],
   ];
   for (const [label, row] of excluded) assert.equal(is('sc-in-transit', row), false, label);
 });

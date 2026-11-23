@@ -132,7 +132,7 @@ export default function ComboboxField({
   return (
     <div ref={containerRef} className="space-y-1.5">
       <label className="font-bold text-slate-700 block">
-        {label} {required && <span className="text-red-500">*</span>}{optional && <span className="text-[10px] font-normal text-slate-400"> (optional)</span>}
+        {label} {required && <span className="text-red-500">*</span>}{optional && <span className="text-xs font-normal text-slate-400"> (optional)</span>}
       </label>
       <div className="relative">
         <input
@@ -146,7 +146,7 @@ export default function ComboboxField({
           placeholder={placeholder}
           autoComplete="off"
           aria-invalid={!!error}
-          className={`w-full px-3 py-2 pr-8 border rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] bg-white ${
+          className={`w-full px-3 py-2 pr-8 border rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue bg-white ${
             error ? 'border-red-500' : 'border-slate-300'
           }`}
         />
@@ -161,7 +161,7 @@ export default function ComboboxField({
             {filteredGroups ? (
               filteredGroups.map(group => (
                 <React.Fragment key={group.label}>
-                  <li className="px-3 py-1.5 text-[9px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 select-none cursor-default sticky top-0 z-10">
+                  <li className="px-3 py-1.5 text-xs font-bold text-slate-400 uppercase tracking-widest bg-slate-50 select-none cursor-default sticky top-0 z-10">
                     {group.label}
                   </li>
                   {group.options.map(option => {
@@ -174,7 +174,7 @@ export default function ComboboxField({
                         aria-selected={idx === highlighted}
                         onMouseDown={(e) => { e.preventDefault(); commitSelection(option); }}
                         className={`px-3 py-2 pl-5 text-xs cursor-pointer select-none ${
-                          idx === highlighted ? 'bg-[#0078C1] text-white' : 'text-slate-700 hover:bg-slate-50'
+                          idx === highlighted ? 'bg-brand-blue text-white' : 'text-slate-700 hover:bg-slate-50'
                         }`}
                       >
                         {option}
@@ -192,7 +192,7 @@ export default function ComboboxField({
                   aria-selected={idx === highlighted}
                   onMouseDown={(e) => { e.preventDefault(); commitSelection(option); }}
                   className={`px-3 py-2 text-xs cursor-pointer select-none ${
-                    idx === highlighted ? 'bg-[#0078C1] text-white' : 'text-slate-700 hover:bg-slate-50'
+                    idx === highlighted ? 'bg-brand-blue text-white' : 'text-slate-700 hover:bg-slate-50'
                   }`}
                 >
                   {option}
@@ -208,7 +208,7 @@ export default function ComboboxField({
           </div>
         )}
       </div>
-      {error && <p className="text-red-500 text-[10px] font-semibold">{error}</p>}
+      {error && <p className="text-red-500 text-xs font-semibold">{error}</p>}
     </div>
   );
 }
