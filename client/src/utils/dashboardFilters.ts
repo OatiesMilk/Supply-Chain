@@ -31,8 +31,6 @@ export const DASHBOARD_FILTERS = {
   'tass-open-rma': { label: 'Open RMA', screen: 'rma' },
   'tass-rma-aging': { label: 'Open RMA over 7 days', screen: 'rma' },
   'tass-rma-on-hold': { label: 'RMA On-Hold', screen: 'rma' },
-  'tass-pending-pickups': { label: 'Pick-ups Pending', screen: 'procurement_pickup' },
-  'tass-pending-verification': { label: 'Collections Pending', screen: 'accounting_collection' },
   'admin-active-users': { label: 'Total Active Users', screen: 'admin' },
   'admin-records-this-week': { label: 'Records This Week', screen: 'transactions' },
   'admin-unverified-collections': { label: 'Unverified Collections', screen: 'accounting_collection' },
@@ -198,9 +196,6 @@ export function matchesDashboardFilter(
     }
     case 'tass-rma-on-hold':
       return record.category === 'RMA' && record.status === 'On-Hold';
-    case 'tass-pending-pickups':
-      return record.category === 'Procurement Pick-up' && (record.status === 'Scheduled' || record.status === 'Pending');
-    case 'tass-pending-verification':
     case 'admin-unverified-collections':
       return record.category === 'Accounting Collection' && record.status === 'Delivered' && !record.collection_verified;
     default:

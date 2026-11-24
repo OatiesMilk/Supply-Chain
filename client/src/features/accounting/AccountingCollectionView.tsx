@@ -167,7 +167,7 @@ export default function AccountingCollectionView({
     setDateTo('');
     setDateSort('default');
     setAmFilter('');
-    if (dashboardFilterId === 'tass-pending-verification' || dashboardFilterId === 'admin-unverified-collections') {
+    if (dashboardFilterId === 'admin-unverified-collections') {
       setStatusFilter('Delivered');
     }
   }, [dashboardFilterId]);
@@ -531,10 +531,9 @@ export default function AccountingCollectionView({
   // even though there's no actual dead space between them. Tightened both
   // columns to fit their content closely; the freed width goes to Company.
   // Collection column removed for all roles — it always rendered empty/dash
-  // values here (real verification happens via the TASS Dashboard's
-  // "Unverified Collections" table with its inline Verify action, and via
-  // the record workspace's Verification tab). This registry is a shared,
-  // action-free browse view across Sales Coordinator/TASS/Admin, so one
+  // values here (real verification happens in the record workspace's
+  // Verification tab, where Logistics verifies collections). This registry is
+  // a shared, action-free browse view across Sales Coordinator/Logistics/Admin, so one
   // column set now covers everyone.
   const colPct = { id: 10, company: 28, reference: 18, priority: 10, status: 12, date: 10, amount: 12 };
 
@@ -751,7 +750,7 @@ export default function AccountingCollectionView({
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
-              {(currentUserRole === 'TASS' || currentUserRole === 'Admin') && (
+              {(currentUserRole === 'Logistics' || currentUserRole === 'Admin') && (
                 <ExportMenu
                   rows={exportRows}
                   columns={[...DELIVERY_COLUMNS, ...AC_EXTRA_COLUMNS]}

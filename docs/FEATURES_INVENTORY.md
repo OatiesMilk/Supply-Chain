@@ -88,14 +88,14 @@ All five categories share the unified [`DeliveryRecord`](../server/prisma/schema
 
 ### 2.5 Accounting Collection Module
 * **Frontend Screen:** [`AccountingCollectionPage.tsx`](../client/src/pages/AccountingCollectionPage.tsx) (`/accounting_collection`)
-* **Authorized Roles:** `TASS` (Verification owner), `SALES_COORDINATOR`, `ADMIN`
+* **Authorized Roles:** `LOGISTICS` (Verification owner), `SALES_COORDINATOR`, `ADMIN` (TASS has no access)
 * **API Endpoints:**
   * `GET /api/v1/records?category=ACCOUNTING_COLLECTION`
   * `PATCH /api/v1/records/:id/verify-collection`
 * **Key Capabilities:**
   * Links collected payments to parent delivery shipments via `linkedCollectionId`.
   * Driver captures photo of cheque or payment receipt.
-  * TASS verifies an accomplished, unverified collection, saving the acting account and verification timestamp. The UI action does not request separate verification remarks; Admin cannot perform this TASS-only action.
+  * Logistics verifies an accomplished, unverified collection, saving the acting account and verification timestamp. The UI action does not request separate verification remarks; Admin and TASS cannot perform this Logistics-only action (in V1 Logistics needs an explicit `VERIFY_COLLECTION` grant).
 
 ---
 

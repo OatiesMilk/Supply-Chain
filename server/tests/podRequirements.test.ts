@@ -8,6 +8,7 @@ import { signToken } from '../src/middleware/auth';
 import { podStorage } from '../src/services/podStorage';
 import { podStorageNamespace } from '../src/services/podStorage';
 import { cleanPodStorageDeletions } from '../src/services/podDeletionCleanup';
+import { isoTimestamp } from '../src/services/deliveryLifecycle';
 import sharp from 'sharp';
 import { PassThrough } from 'node:stream';
 import { docx, oleFile, pdf, zipOf, xlsx } from './attachmentFixtures';
@@ -1648,4 +1649,17 @@ test('Logistics may upload RMA transport proof only after the switch, while tran
   resetFixtures(); database(rma(), [attachment()]); withSwitch(true);
   stub(podStorage, 'remove', async () => {});
   assert.equal((await request('delete', '/:id/attachments/:attachmentId', { role: 'LOGISTICS' })).status, 403, 'delete stays denied');
+});
+
+test('isoTimestamp rejects impossible calendar, clock and offset components instead of rolling them over', () => {
+  for (const value of [
+    '2026-02-30T12:00:00Z', '2026-02-29T12:00:00Z', '2026-04-31T00:00:00+08:00', '2100-02-29T00:00:00Z',
+    '2026-11-20T24:00:00Z', '2026-11-20T12:60:00Z', '2026-11-20T12:00:60Z',
+    '2026-11-20T12:00:00+25:00', '2026-11-20T12:00:00+08:60',
+  ]) assert.equal(isoTimestamp(value), null, value);
+  assert.equal(isoTimestamp('2024-02-29T12:00:00Z'), '2024-02-29T12:00:00.000Z');
+  assert.equal(isoTimestamp('2000-02-29T00:00:00+08:00'), '2000-02-28T16:00:00.000Z');
+  assert.equal(isoTimestamp('2026-11-20T15:00:00+08:00'), '2026-11-20T07:00:00.000Z');
+  assert.equal(isoTimestamp('2026-11-20T07:00:00.123Z'), '2026-11-20T07:00:00.123Z');
+  for (const value of ['2026-11-20T12:00', '2026-11-20', 20261120, null]) assert.equal(isoTimestamp(value), null, String(value));
 });

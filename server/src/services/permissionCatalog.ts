@@ -76,7 +76,9 @@ export function roleActionCeiling(role: PolicyRole, p: CatalogEntry): boolean {
     if (role === 'TASS' && !['RMA', 'ACCOUNTING_COLLECTION'].includes(c)) return false;
     if (p.action === 'DELETE') return false;
     if (p.action === 'READ') return true;
-    if (p.action === 'VERIFY_COLLECTION') return role === 'TASS' && c === 'ACCOUNTING_COLLECTION';
+    // TASS stays in the frozen ceiling for the V1 conversion baseline; module
+    // rules deny it at runtime. Logistics owns collection verification.
+    if (p.action === 'VERIFY_COLLECTION') return ['TASS', 'LOGISTICS'].includes(role) && c === 'ACCOUNTING_COLLECTION';
     if (role === 'TASS' && c === 'ACCOUNTING_COLLECTION') return ['WRITE', 'CREATE', 'COMMENT'].includes(p.action);
     if (c === 'RMA') {
       if (p.action === 'RECEIVE' || p.action === 'COMPLETE') return role === 'TASS';

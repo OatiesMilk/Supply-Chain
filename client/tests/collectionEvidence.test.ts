@@ -11,7 +11,8 @@ import { useAuthStore } from '../src/store/authStore';
 import { evaluatePermissions } from '../../server/src/services/permissionEvaluator';
 import { defaultRolePermissions } from '../../server/src/services/permissionCatalog';
 
-beforeEach(() => { installLegacySession('TASS', 'accounting_collection'); });
+// Logistics owns collection verification; TASS no longer has the Accounting Collection module.
+beforeEach(() => { installLegacySession('LOGISTICS', 'accounting_collection'); });
 
 const record = {
   id: 'collection-evidence', company_id: 'company', company_name: 'Collection customer', category: 'Accounting Collection',
@@ -27,15 +28,18 @@ const attachment = (name: string): ApiPodAttachment => ({
   preview_url: `/api/v1/records/${record.id}/attachments/${name}/preview`,
 } as ApiPodAttachment);
 
-function installTassV1(deny: string[] = []) {
+/** Logistics in V1 with the role policy granting collection verification (the frozen baseline does not). */
+function installLogisticsV1(deny: string[] = []) {
+  const permissions = new Map(defaultRolePermissions('LOGISTICS'));
+  permissions.set('CATEGORY:ACCOUNTING_COLLECTION:VERIFY_COLLECTION', 'ALLOW');
   const snapshot = evaluatePermissions({
-    userId: 'tass-evidence', role: 'TASS', isActive: true, authorizationRevision: '1', driverProfile: null,
-    rolePolicy: { role: 'TASS', revision: '1', catalogVersion: 1,
-      permissions: [...defaultRolePermissions('TASS')].map(([permissionKey, effect]) => ({ permissionKey, effect })) },
+    userId: 'logistics-evidence', role: 'LOGISTICS', isActive: true, authorizationRevision: '1', driverProfile: null,
+    rolePolicy: { role: 'LOGISTICS', revision: '1', catalogVersion: 1,
+      permissions: [...permissions].map(([permissionKey, effect]) => ({ permissionKey, effect })) },
     overrides: deny.map(permissionKey => ({ permissionKey, effect: 'DENY' })),
   });
   useAuthStore.getState().setAuthUser({
-    id: snapshot.userId, name: 'TASS', email: 'tass@example.test', role: 'TASS', permissions: [],
+    id: snapshot.userId, name: 'Logistics', email: 'logistics@example.test', role: 'LOGISTICS', permissions: [],
     effectiveScreens: snapshot.effectiveScreens, resources: snapshot.resources, permissionVersion: `evidence-${deny.join('-')}`,
     contractVersion: 1, activeMode: 'V1', snapshot,
   });
@@ -62,7 +66,7 @@ async function fixture(currentRecord: DeliveryRecord = record) {
   const flush = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); }); };
   const button = (name: string) => [...dom.window.document.querySelectorAll('button')].find(el => el.textContent?.trim() === name)!;
   await act(async () => { root.render(React.createElement(QueryClientProvider, { client }, React.createElement(Workspace, {
-    record: currentRecord, allRecordIds: [currentRecord.id], currentUserRole: 'TASS', currentUserName: 'TASS', onBack: () => {},
+    record: currentRecord, allRecordIds: [currentRecord.id], currentUserRole: 'Logistics', currentUserName: 'Logistics', onBack: () => {},
     onVerifyCollection: verify, onNavigateToRecord: () => {}, onUpdateRecord: async () => {},
   }))); });
   await flush();
@@ -74,7 +78,7 @@ async function fixture(currentRecord: DeliveryRecord = record) {
   } };
 }
 
-test('TASS can review saved collection documents before verification without upload or remove controls', async () => {
+test('Logistics can review saved collection documents before verification without upload or remove controls', async () => {
   const get = mock.method(api, 'getRecordAttachments', async () => [attachment('receipt.pdf')]);
   const upload = mock.method(api, 'uploadRecordAttachment', async () => { throw new Error('Read-only evidence must not upload'); });
   const remove = mock.method(api, 'deleteRecordAttachment', async () => { throw new Error('Read-only evidence must not delete'); });
@@ -114,7 +118,7 @@ test('collection evidence distinguishes fetch failure from no saved documents an
 });
 
 test('V1 collection evidence reads remain independent of verification permission and disappear when Read is revoked', async () => {
-  installTassV1(['CATEGORY:ACCOUNTING_COLLECTION:VERIFY_COLLECTION']);
+  installLogisticsV1(['CATEGORY:ACCOUNTING_COLLECTION:VERIFY_COLLECTION']);
   mock.method(api, 'getRecordAttachments', async () => [attachment('receipt.pdf')]);
   const ui = await fixture();
   try {
@@ -122,10 +126,10 @@ test('V1 collection evidence reads remain independent of verification permission
     assert.ok(ui.dom.window.document.querySelector('[aria-label="Download receipt.pdf"]'));
     assert.equal(ui.dom.window.document.querySelector('input[type=file]'), null);
     await act(async () => ui.button('Verification').click()); await ui.flush();
-    assert.match(ui.dom.window.document.body.textContent!, /Verification requires TASS collection-verification permission/);
+    assert.match(ui.dom.window.document.body.textContent!, /Verification requires Logistics collection-verification permission/);
     assert.equal(ui.button('Verify Collection of ₱100.00'), undefined);
     await act(async () => ui.button('Documents').click()); await ui.flush();
-    await act(async () => installTassV1(['CATEGORY:ACCOUNTING_COLLECTION:READ'])); await ui.flush();
+    await act(async () => installLogisticsV1(['CATEGORY:ACCOUNTING_COLLECTION:READ'])); await ui.flush();
     assert.equal(ui.dom.window.document.querySelector('[aria-label="Download receipt.pdf"]'), null);
     assert.match(ui.dom.window.document.body.textContent!, /Collection evidence is not available for your account/);
     assert.equal(ui.verify.mock.callCount(), 0);
@@ -136,7 +140,7 @@ test('verification tab distinguishes unverified collected records from verified 
   mock.method(api, 'getRecordAttachments', async () => [attachment('receipt.pdf')]);
   const unverifiedUi = await fixture();
   try {
-    assert.match(unverifiedUi.dom.window.document.body.textContent!, /Pending TASS Verification/);
+    assert.match(unverifiedUi.dom.window.document.body.textContent!, /Pending Verification/);
     assert.doesNotMatch(unverifiedUi.dom.window.document.body.textContent!, /Collection confirmed\. Verification is now available\./);
     await act(async () => unverifiedUi.button('Verification').click()); await unverifiedUi.flush();
     assert.match(unverifiedUi.dom.window.document.body.textContent!, /Collection confirmed\. Verification is now available\./);
@@ -151,7 +155,7 @@ test('verification tab distinguishes unverified collected records from verified 
     collection_verified_at: '2026-11-03T04:55:00Z',
   });
   try {
-    assert.match(verifiedUi.dom.window.document.body.textContent!, /TASS Verified/);
+    assert.match(verifiedUi.dom.window.document.body.textContent!, /Collection Verified/);
     assert.doesNotMatch(verifiedUi.dom.window.document.body.textContent!, /Collection Status: Complete · Collection Verified/);
     await act(async () => verifiedUi.button('Verification').click()); await verifiedUi.flush();
     assert.match(verifiedUi.dom.window.document.body.textContent!, /Collection Status: Complete · Collection Verified/);

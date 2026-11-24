@@ -22,7 +22,7 @@ import { ATTACHMENT_QUOTA_EXCEEDED, attachmentQuotaError, DOCX_PREVIEW_MAX_OUTPU
 import { canCreateCategory, canWriteCategory, canPerformRecordAction, isAssignedDriver, recordScope } from '../services/recordAccess';
 import { deliveryScheduleState, driverDeliveryDateError, driverStatusError, DRIVER_STATUS_ERROR, isValidDateOnly, isoTimestamp, manilaToday, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
 import { manilaDateRange } from '../services/dateSemantics';
-import { RMA_CONTACT_FIELDS, normalizeRmaCategory, rmaInputError } from '../services/rmaRules';
+import { RMA_CONTACT_FIELDS, normalizeRmaCategory, parseRmaEventDate, rmaInputError } from '../services/rmaRules';
 import { areasForLocation } from '../areaHierarchy';
 import { RmaActionError, canUploadRmaPod, rmaActionPolicy, rmaCapabilities, rmaVersionError } from './rmaDispatch';
 import { dispatchMovementScope, eligibleRmaTransport, isLogisticsRma, needsLogisticsHandoff, rmaMovementInputError, rmaTransportContext } from '../services/rmaMovement';
@@ -94,7 +94,7 @@ const recordInclude = {
   podAttachments: { orderBy: { createdAt: 'desc' as const } }
 };
 
-const TASS_CATEGORIES: string[] = ['ACCOUNTING_COLLECTION', 'RMA'];
+const TASS_CATEGORIES: string[] = ['RMA'];
 const LIST_ID_PATTERN = /^[\w-]{1,64}$/;
 const CURSOR_PATTERN = /^[\w=-]{1,128}$/;
 const LIST_MAX_LIMIT = 100;
@@ -796,7 +796,7 @@ router.get('/:id', requireAuth, requireResource('records'), requireRecordAccess,
   if (!record) return res.status(404).json({ error: 'Record not found' });
 
   if (req.user!.role === 'TASS' && !TASS_CATEGORIES.includes(record.category as any)) {
-    return res.status(403).json({ error: 'TASS may only view Accounting Collection and RMA records' });
+    return res.status(403).json({ error: 'TASS may only view RMA records' });
   }
 
   res.json(serializeRecord(record, req.user!));
@@ -1662,6 +1662,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   const newDeliveryDate = req.body.delivery_date;
   const hasNewDeliveryDate = newDeliveryDate !== undefined && newDeliveryDate !== null && newDeliveryDate !== '';
   if (hasNewDeliveryDate && !isValidDateOnly(newDeliveryDate)) return res.status(400).json({ error: 'New delivery date must be a valid YYYY-MM-DD date.' });
+  const hasCompletedAt = req.body.completed_at !== undefined && req.body.completed_at !== null && req.body.completed_at !== '';
   // WAN storage downloads and image decoding can exceed Prisma's default 5s
   // transaction limit. Verify the actual persisted bytes before acquiring the
   // record lock; the transaction below still validates the identical attachment.
@@ -1678,6 +1679,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     if (!current || current.deletedAt || (req.user!.role === 'DRIVER' && !isAssignedDriver(req.user!, current)) || !canWriteCategory(req.user!, current.category)) return { error: 'Record access denied', saved: null, previous: null };
     const operationError = recordOperationError(req.user!, current, req.body ?? {}, '/:id/status', 'PATCH');
     if (operationError) return { error: operationError, saved: null, previous: null };
+    if (hasCompletedAt && (current.category !== 'RMA' || status !== 'Delivered')) return { error: 'Completion date can only be set when completing an RMA.', saved: null, previous: null };
     if (current.category === 'RMA') {
       if (req.user!.role !== 'TASS' && (status === 'Delivered' || received_by !== undefined)) return { error: RMA_COMPLETION_ROLE_ERROR, saved: null, previous: null };
       const policy = await rmaActionPolicy(tx, req.user!, current);
@@ -1687,7 +1689,8 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
       const stale = rmaVersionError(current, req.body.expected_version);
       if (stale) return { error: stale, saved: null, previous: null, rmaStatus: Number.isSafeInteger(req.body.expected_version) ? 409 : 400 };
       if (status === 'Delivered' && !rmaCapabilities(policy, current).complete) return { error: 'Confirm physical receipt and complete any Logistics transport before completing this RMA.', saved: null, previous: null };
-      if (received_by !== undefined && (status !== 'Delivered' || received_by.trim() !== current.rmaRecipient)) return { error: 'Use the confirmed physical receipt recipient for RMA completion.', saved: null, previous: null };
+      // Recipient is optional on TASS physical receipt; a supplied name must match it.
+      if (received_by !== undefined && (status !== 'Delivered' || received_by.trim() !== (current.rmaRecipient?.trim() ?? ''))) return { error: 'Use the confirmed physical receipt recipient for RMA completion.', saved: null, previous: null };
       if (status === 'Draft' && (current.rmaTransportStartedAt || current.rmaReceivedAt)) return { error: 'An RMA with started transport or confirmed receipt cannot return to Draft.', saved: null, previous: null };
       if (current.draft && status === 'Scheduled') {
         const movementError = rmaMovementInputError({ rma_movement: current.rmaMovement, delivery_date: current.deliveryDate }, true);
@@ -1749,8 +1752,18 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     if (received_by !== undefined && current.category !== 'RMA') data.receivedBy = received_by.trim();
     if (statusChanged && status === 'Delivered') {
       if (current.category !== 'RMA' && !isoTimestamp(current.timeIn)) return { error: 'Record a valid Time In before completing this run.', saved: null, previous: null };
+      let rmaCompletedAt: Date | null = null;
+      if (current.category === 'RMA') {
+        const completion = parseRmaEventDate(req.body.completed_at, {
+          label: 'Completion date',
+          minDate: current.rmaReceivedAt ? manilaToday(new Date(current.rmaReceivedAt)) : null,
+          minDateError: 'Completion date cannot be earlier than the physical receipt date.',
+        });
+        if (!completion.ok) return { error: completion.error, saved: null, previous: null };
+        rmaCompletedAt = completion.date;
+      }
       const recipient = current.category === 'RMA' ? current.rmaRecipient : received_by ?? current.receivedBy;
-      if (!String(recipient ?? '').trim()) return { error: current.category === 'RMA' ? 'Recipient / Collector is required before completing this RMA.' : 'Received By is required before completing this run.', saved: null, previous: null };
+      if (current.category !== 'RMA' && !String(recipient ?? '').trim()) return { error: 'Received By is required before completing this run.', saved: null, previous: null };
       if (current.category !== 'RMA' && (!verifiedPod || !await tx.podAttachment.findFirst({
         where: {
           id: verifiedPod.id,
@@ -1760,8 +1773,8 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
           size: verifiedPod.size,
         },
       }))) return { error: DELIVERY_PHOTO_REQUIRED, saved: null, previous: null };
-      data.receivedBy = String(recipient).trim();
-      const completedAt = new Date();
+      data.receivedBy = String(recipient ?? '').trim() || null;
+      const completedAt = rmaCompletedAt ?? new Date();
       if (current.category === 'RMA') data.rmaCompletedAt = completedAt;
       else data.timeOut = completedAt.toISOString();
       if (current.category === 'DELIVERY') {
@@ -1867,8 +1880,8 @@ router.patch('/:id/complete', requireAuth, requireResource('records'), requireRe
       recordId: updated.id, body: remarks.trim(), context: 'COMPLETION_SIGNOFF', authorId: req.user!.id,
     } });
     if (updated.category === 'ACCOUNTING_COLLECTION') await notifyRecordRecipients(
-      tx, updated, ['TASS'], 'Collection ready for verification',
-      `${updated.company.name} · ${updated.reference} has been signed off by Sales and is ready for TASS collection verification.`,
+      tx, updated, ['LOGISTICS'], 'Collection ready for verification',
+      `${updated.company.name} · ${updated.reference} has been signed off by Sales and is ready for Logistics collection verification.`,
       req.user!.id,
     );
     return { status: 200, updated };
@@ -1890,8 +1903,8 @@ router.patch('/:id/complete', requireAuth, requireResource('records'), requireRe
   res.json(serializeRecord(updated, req.user!));
 }));
 
-// Collection verification - TASS only, for ACCOUNTING_COLLECTION records that are ACCOMPLISHED.
-router.patch('/:id/verify-collection', requireAuth, requireResource('records'), requireRecordAccess, requireRole('TASS'), asyncRoute(async (req, res) => {
+// Collection verification - LOGISTICS only, for ACCOUNTING_COLLECTION records that are ACCOMPLISHED.
+router.patch('/:id/verify-collection', requireAuth, requireResource('records'), requireRecordAccess, requireRole('LOGISTICS'), asyncRoute(async (req, res) => {
   const result = await prisma.$transaction(async tx => {
     // Share the lifecycle lock with status changes, and re-read mutable state.
     await lockPodRecord(tx, req.params.id);

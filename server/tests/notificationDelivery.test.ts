@@ -12,7 +12,8 @@ import { sessionUser } from '../src/services/permissions';
 import { signToken, type AuthUser } from '../src/middleware/auth';
 import notifications from '../src/routes/notifications';
 
-const account = (id: string, role: PolicyRole = 'TASS', extra: Record<string, unknown> = {}) => ({
+// The billing mailbox account must be able to read Accounting Collection (TASS no longer can).
+const account = (id: string, role: PolicyRole = 'LOGISTICS', extra: Record<string, unknown> = {}) => ({
   id, name: id, email: `${id}@example.test`, role, isActive: true, permissions: [],
   authorizationRevision: 1n, permissionOverrides: [], permissionConversion: { catalogVersion: 1 }, driverProfile: null, ...extra,
 });
@@ -87,13 +88,15 @@ for (const mode of ['LEGACY', 'V1']) {
     const denied = mode === 'V1' ? { permissionOverrides: [{ permissionKey: 'CATEGORY:ACCOUNTING_COLLECTION:READ', effect: 'DENY' }] }
       : { permissions: [{ screen: 'accounting_collection', granted: false }] };
     for (const users of [
-      [account('billing', 'TASS', denied)], [account('billing', 'TASS', { isActive: false })],
-      [account('billing'), account('duplicate', 'TASS', { email: 'billing@example.test' })],
+      [account('billing', 'LOGISTICS', denied)], [account('billing', 'LOGISTICS', { isActive: false })],
+      [account('billing'), account('duplicate', 'LOGISTICS', { email: 'billing@example.test' })],
+      // TASS has no Accounting Collection module, so it can never be the billing recipient.
+      [account('billing', 'TASS')],
     ]) {
       state.setUsers(users);
       assert.equal((await notifyAccomplished(completed)).skipped, 1);
     }
-    assert.equal(state.sends.length, 0); assert.equal(state.logs.length, 3);
+    assert.equal(state.sends.length, 0); assert.equal(state.logs.length, 4);
   });
 }
 
@@ -153,6 +156,10 @@ test('mail lifecycle checks never infer collection verification from accomplishm
   for (const activeMode of [undefined, 'V1'] as const) {
     const actor = { ...sessionUser(account('actor', 'LOGISTICS')), activeMode } as AuthUser;
     assert.equal(canDispatchRecordMail(actor, record({ collectionVerified: false }), 'Collection Verified'), false);
-    assert.equal(canDispatchRecordMail(actor, record({ collectionVerified: true }), 'Collection Verified'), false);
+    // Logistics owns collection verification (V1 additionally needs an explicit VERIFY_COLLECTION grant);
+    // TASS no longer dispatches this trigger.
+    assert.equal(canDispatchRecordMail(actor, record({ collectionVerified: true }), 'Collection Verified'), activeMode !== 'V1');
+    const tass = { ...sessionUser(account('tass', 'TASS')), activeMode } as AuthUser;
+    assert.equal(canDispatchRecordMail(tass, record({ collectionVerified: true }), 'Collection Verified'), false);
   }
 });

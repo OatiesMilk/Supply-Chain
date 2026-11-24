@@ -10,7 +10,8 @@ import { readRmaPermissions } from '../services/rmaDispatchPermissions';
 import { eligibleRmaTransport, rmaTransportContext, rmaTransportDateError, validRmaMovement } from '../services/rmaMovement';
 import { assignmentError, resolveDriverAssignment, withDriverDirectoryLock } from '../services/driverDirectory';
 import { findVerifiedDeliveryPhoto, lockPodRecord } from '../services/podPhotos';
-import { isoTimestamp, transitionError } from '../services/deliveryLifecycle';
+import { isoTimestamp, manilaToday, transitionError } from '../services/deliveryLifecycle';
+import { parseRmaEventDate } from '../services/rmaRules';
 import type { EffectivePermissionSnapshot } from '../services/permissionEvaluator';
 import { notifyRmaRecipients } from '../services/rmaNotifications';
 import { receivedByError } from '../services/driverActions';
@@ -174,15 +175,29 @@ router.patch('/:id/rma-transport', requireAuth, requireResource('records'), requ
 
 router.post('/:id/rma-receipt', requireAuth, requireResource('records'), requireRole('TASS'), requireAction('CATEGORY', 'RMA', 'RECEIVE'), action(async (req, res) => {
   const body = req.body ?? {};
-  const remarks = input(body, ['recipient', 'expected_version', 'remarks']);
-  if (typeof body.recipient !== 'string' || !body.recipient.trim()) throw new RmaActionError(400, 'Recipient is required to confirm physical receipt.');
+  const remarks = input(body, ['recipient', 'received_at', 'expected_version', 'remarks']);
+  // TASS records receipt status, not the signer: Recipient is optional.
+  if (body.recipient !== undefined && body.recipient !== null) {
+    if (typeof body.recipient !== 'string') throw new RmaActionError(400, 'Recipient must be text.');
+    if (body.recipient.trim().length > 120) throw new RmaActionError(400, 'Recipient must be 120 characters or fewer.');
+  }
+  const recipient = typeof body.recipient === 'string' && body.recipient.trim() ? body.recipient.trim() : null;
+  // Format and future-date bounds before locking; chronology is rechecked under the lock.
+  const preflight = parseRmaEventDate(body.received_at, { label: 'Receipt date' });
+  if (!preflight.ok) throw new RmaActionError(400, preflight.error);
   const saved = await prisma.$transaction(async tx => {
     const row = await locked(tx, req.params.id);
     const policy = await rmaActionPolicy(tx, req.user!, row);
     if (!rmaCapabilities(policy, row).receive) throw new RmaActionError(403, 'Physical receipt is not permitted before transport completion or after receipt.');
     version(row, body.expected_version);
-    const updated = await savedAction(tx, row, { rmaReceivedAt: new Date(), rmaReceivedBy: req.user!.id, rmaRecipient: body.recipient.trim() }, req.user!, remarks, 'RMA_RECEIPT');
-    await notifyRmaRecipients(tx, updated, ['TASS', 'LOGISTICS'], 'RMA physical receipt confirmed', `${updated.rmaReference || updated.recordNo} · ${updated.rmaRecipient}. Final RMA completion is a separate TASS action.`, req.user!.id);
+    const minDate = row.rmaMovement === 'LOGISTICS_TRANSPORT' && row.rmaTransportCompletedAt ? manilaToday(new Date(row.rmaTransportCompletedAt)) : null;
+    const receivedAt = parseRmaEventDate(body.received_at, {
+      label: 'Receipt date', minDate, minDateError: 'Receipt date cannot be earlier than the transport completion date.',
+    });
+    if (!receivedAt.ok) throw new RmaActionError(400, receivedAt.error);
+    const updated = await savedAction(tx, row, { rmaReceivedAt: receivedAt.date, rmaReceivedBy: req.user!.id, rmaRecipient: recipient }, req.user!, remarks, 'RMA_RECEIPT');
+    const receiptLabel = updated.rmaRecipient ? ` · ${updated.rmaRecipient}` : ' · Physical receipt confirmed';
+    await notifyRmaRecipients(tx, updated, ['TASS', 'LOGISTICS'], 'RMA physical receipt confirmed', `${updated.rmaReference || updated.recordNo}${receiptLabel}. Final RMA completion is a separate TASS action.`, req.user!.id);
     return updated;
   });
   res.json(serializeRecord(saved, req.user));

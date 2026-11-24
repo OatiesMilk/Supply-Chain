@@ -399,7 +399,7 @@ export function RecordOverviewTab({
                     : 'bg-amber-50 text-amber-700 border-amber-200'
                 }`}
               >
-                {record.collection_verified ? 'TASS Verified' : 'Pending TASS Verification'}
+                {record.collection_verified ? 'Collection Verified' : 'Pending Verification'}
               </span>
               {priorityLocked && <span className="text-xs text-slate-500">{PRIORITY_LOCKED_NOTE}</span>}
             </div>

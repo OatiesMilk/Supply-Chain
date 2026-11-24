@@ -148,7 +148,7 @@ test('Logistics includes every completed category and uses RMA final completion'
   assert.equal(matchesDashboardFilter(record({ ...rma, status: 'Scheduled', rma_transport_status: 'COMPLETED', rma_transport_completed_at: now }), 'log-completed-today', today), false);
 });
 
-test('TASS and Admin collection presets preserve category, lifecycle, and verification predicates', () => {
+test('TASS RMA and Admin collection presets preserve category, lifecycle, and verification predicates', () => {
   const openRma = record({ category: 'RMA', status: 'Pending' });
   const heldRma = record({ category: 'RMA', status: 'On-Hold' });
   const pickup = record({ category: 'Procurement Pick-up', status: 'Scheduled' });
@@ -156,9 +156,11 @@ test('TASS and Admin collection presets preserve category, lifecycle, and verifi
 
   assert.equal(matchesDashboardFilter(openRma, 'tass-open-rma'), true);
   assert.equal(matchesDashboardFilter(heldRma, 'tass-rma-on-hold'), true);
-  assert.equal(matchesDashboardFilter(pickup, 'tass-pending-pickups'), true);
-  assert.equal(matchesDashboardFilter(pendingCollection, 'tass-pending-verification'), true);
+  // TASS has no Procurement Pick-up or Accounting Collection presets any more.
+  assert.equal(matchesDashboardFilter(pickup, 'tass-open-rma'), false);
+  assert.equal(matchesDashboardFilter(pendingCollection, 'tass-open-rma'), false);
   assert.equal(matchesDashboardFilter(pendingCollection, 'admin-unverified-collections'), true);
+  assert.equal(matchesDashboardFilter(record({ ...pendingCollection, collection_verified: true }), 'admin-unverified-collections'), false);
 });
 
 test('Admin week preset starts Sunday in Manila', () => {

@@ -1,4 +1,4 @@
-import { isValidDateOnly } from './deliveryLifecycle';
+import { isValidDateOnly, isoTimestamp, manilaToday } from './deliveryLifecycle';
 
 export const RMA_CATEGORIES = [
   'Sales Orders', 'Return to Customer', 'Return to Supplier', 'Pull-Out Slip',
@@ -36,4 +36,49 @@ export function rmaInputError(body: Record<string, any>, requireComplete = false
     return 'Customer Contact Email must be a valid email address.';
   }
   return null;
+}
+
+export interface RmaEventDateOptions {
+  label: string;
+  /** Inclusive Asia/Manila YYYY-MM-DD lower bound. */
+  minDate?: string | null;
+  minDateError?: string;
+  now?: Date;
+}
+export type ParsedRmaEventDate = { ok: true; date: Date } | { ok: false; error: string };
+
+const RMA_EVENT_DATE_FLOOR = '2000-01-01';
+
+/**
+ * Parses an editable RMA event date (physical receipt or final completion).
+ * Accepts an Asia/Manila calendar date (YYYY-MM-DD) or an ISO-8601 timestamp
+ * with timezone; omitted/blank means "now". Bounds and chronology compare
+ * Manila calendar days so a same-day event is always accepted.
+ */
+export function parseRmaEventDate(value: unknown, options: RmaEventDateOptions): ParsedRmaEventDate {
+  const { label, minDate, minDateError } = options;
+  const now = options.now ?? new Date();
+  if (value === undefined || value === null || (typeof value === 'string' && !value.trim())) return { ok: true, date: now };
+  const formatError = { ok: false as const, error: `${label} must be a valid YYYY-MM-DD date or ISO timestamp with timezone.` };
+  if (typeof value !== 'string') return formatError;
+  const trimmed = value.trim();
+  const today = manilaToday(now);
+  const check = (day: string): string | null => {
+    if (day < RMA_EVENT_DATE_FLOOR) return `${label} must be on or after ${RMA_EVENT_DATE_FLOOR}.`;
+    if (day > today) return `${label} cannot be in the future.`;
+    if (minDate && day < minDate) return minDateError ?? `${label} cannot be earlier than ${minDate}.`;
+    return null;
+  };
+  if (isValidDateOnly(trimmed)) {
+    const error = check(trimmed);
+    if (error) return { ok: false, error };
+    // Today keeps the exact server time; a past day is stored at Manila noon so
+    // it stays inside that Manila calendar day in every timezone.
+    return { ok: true, date: trimmed === today ? now : new Date(`${trimmed}T12:00:00+08:00`) };
+  }
+  const iso = isoTimestamp(trimmed);
+  if (!iso) return formatError;
+  const parsed = new Date(iso);
+  const error = check(manilaToday(parsed));
+  return error ? { ok: false, error } : { ok: true, date: parsed };
 }
