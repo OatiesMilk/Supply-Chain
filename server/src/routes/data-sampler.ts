@@ -7,7 +7,7 @@ import { canResetLocalDemo } from '../services/localDemoReset';
 import { serializeRecord } from '../mappings';
 import type { Request, Response } from 'express';
 import { rmaMovementInputError, validRmaMovement } from '../services/rmaMovement';
-import { INTERNAL_TRANSFER_CATEGORY_ERROR, INTERNAL_TRANSFER_MOVEMENT_ERROR, RMA_CATEGORIES, RMA_ITEM_TYPES, canonicalRmaCategory, rmaInputError, rmaInternalTransferError } from '../services/rmaRules';
+import { INTERNAL_TRANSFER_CATEGORY_ERROR, INTERNAL_TRANSFER_MOVEMENT_ERROR, RMA_CATEGORIES, RMA_ITEM_TYPES, canonicalRmaCategory, isReturnToCustomerCategory, nonRmaFieldError, optionalText, rmaFormWrite, rmaInputError, rmaInternalTransferError, rmaServiceSlipError } from '../services/rmaRules';
 import { allocateRmaReference } from '../services/rmaReference';
 import { generateRecordId } from '../services/recordIds';
 import { dataSamplerEnabled } from '../services/dataSamplerEnvironment';
@@ -168,6 +168,14 @@ router.post('/generate', requireAuth, requireResource('dataSampler', 'WRITE'), r
       if (overrides.item_type !== undefined && !RMA_ITEM_TYPES.some(value => value === overrides.item_type)) {
         return res.status(400).json({ error: 'RMA Item Type must be Small Item or Unit.' });
       }
+      // A fixed SS# needs a fixed Return to Customer Slip category; random categories never get one.
+      const slipError = optionalText(overrides.service_slip_no) && rmaServiceSlipError(overrides.rma_type, overrides.service_slip_no);
+      if (slipError) return res.status(400).json({ error: slipError });
+      const form = rmaFormWrite(overrides, { rmaType: overrides.rma_type, submitted: true });
+      if (!form.ok) return res.status(400).json({ error: form.error });
+    } else {
+      const fieldError = nonRmaFieldError(overrides);
+      if (fieldError) return res.status(400).json({ error: fieldError });
     }
     const n = Math.min(Math.max(1, Number(count) || 1), 50);
     const sampleSubmissions = Array.from({ length: n }, () => ({
@@ -247,6 +255,10 @@ router.post('/generate', requireAuth, requireResource('dataSampler', 'WRITE'), r
 
       const noRmaDriver = isRma && rmaMovement !== 'LOGISTICS_TRANSPORT';
       const rmaType = isRma ? canonicalRmaCategory(overrides.rma_type) ?? RMA_CATEGORIES[randInt(0, RMA_CATEGORIES.length - 1)] : null;
+      const form = isRma ? rmaFormWrite(overrides, { rmaType, submitted: true }) : null;
+      if (form && !form.ok) return res.status(400).json({ error: form.error });
+      const rmaForm = form?.ok ? form.write : null;
+      const sampleCaseNumber = `CAS-${randInt(10000, 99999)}-${Math.random().toString(36).slice(2, 8).toUpperCase().padEnd(6, '0')}`;
       const record = await prisma.$transaction(async tx => {
         const record = await tx.deliveryRecord.create({
           data: {
@@ -264,6 +276,19 @@ router.post('/generate', requireAuth, requireResource('dataSampler', 'WRITE'), r
             customerContactName: isRma ? overrides.customer_contact_name?.trim() || null : null,
             customerContactEmail: isRma ? overrides.customer_contact_email?.trim() || null : null,
             customerContactPhone: isRma ? overrides.customer_contact_phone?.trim() || null : null,
+            ...(rmaForm ? {
+              caseNumber: overrides.case_number === undefined ? sampleCaseNumber : rmaForm.data.caseNumber ?? null,
+              serviceSlipNo: overrides.service_slip_no === undefined
+                ? (isReturnToCustomerCategory(rmaType) ? `SS#${randInt(60000, 69999)}` : null)
+                : rmaForm.data.serviceSlipNo ?? null,
+              clientRemarks: rmaForm.data.clientRemarks ?? null,
+              internalLogisticsRemarks: rmaForm.data.internalLogisticsRemarks ?? null,
+              ...(rmaForm.contacts ? {
+                ...Object.fromEntries(Object.entries(rmaForm.data).filter(([key]) => key.startsWith('customerContact'))),
+                rmaContacts: rmaForm.contacts.length ? { create: rmaForm.contacts.map((contact, position) => ({ ...contact, position })) } : undefined,
+              } : {}),
+              lineItems: rmaForm.lineItems?.length ? { create: rmaForm.lineItems } : undefined,
+            } : {}),
             remarks:         overrides.remarks        ?? 'Created via Data Sampler',
             status,
             // RMA samples without Logistics transport never fabricate a driver run.
@@ -287,7 +312,7 @@ router.post('/generate', requireAuth, requireResource('dataSampler', 'WRITE'), r
             createdById:  req.user!.id,
             modifiedById: req.user!.id,
           },
-          include: { company: true, createdBy: true, modifiedBy: true }
+          include: { company: true, createdBy: true, modifiedBy: true, lineItems: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] }, rmaContacts: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] } }
         });
 
         await tx.auditLog.create({ data: {

@@ -16,7 +16,7 @@ import { api, ApiCompany, ApiError } from '@/api';
 import { AREAS, VEHICLES, PRIORITIES, ITEM_TYPES, RMA_ITEM_TYPES, DRIVERS } from '@/data';
 import { accountManagerChoices, useAccountManagersQuery } from '@/api/queries/useAccountManagersQuery';
 import { activeCompanies, companyAccountManagers } from '@/utils/accountDirectory';
-import { INTERNAL_TRANSFER_LABEL, RECEIVING_SLIP_CATEGORY, RMA_CATEGORIES, TRANSFER_OUT_CATEGORY, formatRmaCategoryOption } from '@/utils/rma';
+import { INTERNAL_TRANSFER_LABEL, RECEIVING_SLIP_CATEGORY, RMA_CATEGORIES, TRANSFER_OUT_CATEGORY, formatRmaCategoryOption, isReturnToCustomerCategory } from '@/utils/rma';
 
 interface ModuleCount {
   key: string;
@@ -92,6 +92,7 @@ export function buildManualDefaults(module: string, allCompanies: ApiCompany[], 
     customer_contact_name: '',
     customer_contact_email: '',
     customer_contact_phone: '',
+    ...(module === 'rma' ? { case_number: '', service_slip_no: '', client_remarks: '', internal_logistics_remarks: '' } : {}),
     remarks: '',
     status: 'Scheduled',
     vehicle: '(None)',
@@ -197,7 +198,10 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
             ...manualFields,
             // RMA slip references are allocated by the server on save; never sent from the sampler.
             ...(selectedModule === 'rma' ? { reference: undefined, rma_reference: undefined, rma_movement: manualFields.rma_movement || undefined,
-              is_internal_transfer: manualFields.rma_type === TRANSFER_OUT_CATEGORY && manualFields.is_internal_transfer === 'true' ? true : undefined } : { is_internal_transfer: undefined, rma_movement: undefined }),
+              is_internal_transfer: manualFields.rma_type === TRANSFER_OUT_CATEGORY && manualFields.is_internal_transfer === 'true' ? true : undefined,
+              // SS# is only sent for Return to Customer Slips.
+              service_slip_no: isReturnToCustomerCategory(manualFields.rma_type) ? manualFields.service_slip_no : undefined }
+              : { is_internal_transfer: undefined, rma_movement: undefined, case_number: undefined, service_slip_no: undefined, client_remarks: undefined, internal_logistics_remarks: undefined }),
             amount: manualFields.amount ? parseFloat(manualFields.amount) : undefined,
           }
         : undefined;
@@ -443,6 +447,7 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
                     const value = e.target.value;
                     patch('rma_type', value);
                     if (value !== TRANSFER_OUT_CATEGORY) patch('is_internal_transfer', '');
+                    if (!isReturnToCustomerCategory(value)) patch('service_slip_no', '');
                     // Walk-in Receiving Slips default to Internal / no driver, like the record form.
                     if (value === RECEIVING_SLIP_CATEGORY && !manualFields.rma_movement) patch('rma_movement', 'INTERNAL_NO_DRIVER');
                   }}
@@ -569,6 +574,10 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
                 </div>
 
                 {isRma && ([
+                  ['case_number', 'Case Number', 'text'],
+                  ...(isReturnToCustomerCategory(manualFields.rma_type) ? [['service_slip_no', 'Service Slip (SS#)', 'text'] as const] : []),
+                  ['client_remarks', 'Client Slip Remarks', 'text'],
+                  ['internal_logistics_remarks', 'Internal Logistics Notes', 'text'],
                   ['purchase_date', 'Purchase Date', 'date'],
                   ['customer_contact_name', 'Customer Contact Name', 'text'],
                   ['customer_contact_email', 'Customer Contact Email', 'email'],

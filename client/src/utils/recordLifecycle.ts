@@ -1,11 +1,13 @@
-import type { DeliveryRecord, DeliveryStatus, UserRole } from '../types';
-import { canonicalRmaCategory, TRANSFER_OUT_CATEGORY } from './rma';
+import type { DeliveryRecord, DeliveryStatus, RecordLineItem, RmaContact, UserRole } from '../types';
+import { canonicalRmaCategory, isReturnToCustomerCategory, TRANSFER_OUT_CATEGORY } from './rma';
+import { rmaLineItemErrors } from './rmaItems';
 
 export function submissionErrors(data: {
   company_name: string; company_id: string; reference: string; delivery_date: string; category?: string;
   rma_reference?: string; rma_type?: string; purchase_date?: string; rma_movement?: string | null; is_internal_transfer?: boolean;
   priority?: string; area?: string; account_manager?: string;
   customer_contact_name?: string; customer_contact_email?: string; customer_contact_phone?: string;
+  service_slip_no?: string | null; rma_contacts?: readonly RmaContact[]; line_items?: readonly RecordLineItem[];
 }, isDraft: boolean): Record<string, string> {
   const errors: Record<string, string> = {};
   if (!data.company_name.trim()) errors.company_name = 'Company Name is required';
@@ -27,6 +29,11 @@ export function submissionErrors(data: {
     if (!data.account_manager?.trim()) errors.account_manager = 'Account Manager is required';
     const email = data.customer_contact_email?.trim() ?? '';
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.customer_contact_email = 'Enter a valid email address';
+    if ((data.service_slip_no ?? '').trim() && !isReturnToCustomerCategory(data.rma_type)) errors.service_slip_no = 'Service Slip (SS#) is only allowed for Return to Customer Slip (RTC) records';
+    const badContact = (data.rma_contacts ?? []).find(c => (c.email ?? '').trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((c.email ?? '').trim()));
+    if (badContact) errors.rma_contacts = 'Enter a valid contact email address';
+    const itemError = data.line_items?.length ? rmaLineItemErrors(data.line_items, !isDraft) : null;
+    if (itemError) errors.line_items = itemError;
   }
   return errors;
 }

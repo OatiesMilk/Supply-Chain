@@ -100,6 +100,12 @@ export function rmaInputError(body: Record<string, any>, requireComplete = false
   if (typeof body.customer_contact_email === 'string' && body.customer_contact_email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.customer_contact_email.trim())) {
     return 'Customer Contact Email must be a valid email address.';
   }
+  const formError = rmaFormTextError(body);
+  if (formError) return formError;
+  if (body.rma_contacts !== undefined) {
+    const contacts = normalizeRmaContacts(body.rma_contacts);
+    if (contacts.ok === false) return contacts.error;
+  }
   return null;
 }
 
@@ -159,4 +165,281 @@ export function parseRmaEventDate(value: unknown, options: RmaEventDateOptions):
   const parsed = new Date(iso);
   const error = check(manilaToday(parsed));
   return error ? { ok: false, error } : { ok: true, date: parsed };
+}
+
+// ── RMA form fields, structured items, contacts and separated remarks ───────
+
+export const RETURN_TO_CUSTOMER_CATEGORY: RmaCategory = 'Return to Customer Slip';
+export const RMA_ITEM_UNIT_TYPES = ['Unit', 'Item'] as const;
+export type RmaItemUnitType = typeof RMA_ITEM_UNIT_TYPES[number];
+export const RMA_STATUS_TAG_PRESETS = ['For Pull Out', 'For Pick Up', 'For Return', 'UNIT REPAIRED/FOR DELIVERY'] as const;
+export const RMA_SERVICE_SLIP_RTC_ONLY_ERROR = 'Service Slip (SS#) is only allowed for Return to Customer Slip (RTC) records.';
+export const RMA_PAIR_INCOMPLETE_ERROR = 'Replacement unit items must include both New SN and Defective SN.';
+export const RMA_SERIAL_MODE_ERROR = 'Use either a single Serial Number or a Replacement Unit pair (New SN + Defective SN), not both.';
+export const RMA_PAIR_SAME_ERROR = 'New SN and Defective SN must be different.';
+export const NON_RMA_FIELD_ERRORS = {
+  case_number: 'Case Number only applies to RMA records.',
+  service_slip_no: 'Service Slip (SS#) only applies to Return to Customer Slip (RTC) records.',
+  remarks: 'Client Slip Remarks and Internal Logistics Notes only apply to RMA records.',
+  rma_contacts: 'RMA contacts only apply to RMA records.',
+  line_items: 'Structured RMA item fields only apply to RMA records.',
+} as const;
+const MAX_CONTACTS = 10;
+const MAX_LINE_ITEMS = 50;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function isReturnToCustomerCategory(value: unknown): boolean {
+  return canonicalRmaCategory(value) === RETURN_TO_CUSTOMER_CATEGORY;
+}
+
+/** Trimmed text, or null when blank/absent. Non-text values are rejected by the validators below. */
+export function optionalText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+const blank = (value: unknown) => value === undefined || value === null || (typeof value === 'string' && !value.trim());
+
+/** RMA record-level text fields: shape and length only (category rules are checked separately). */
+export const RMA_FORM_TEXT_FIELDS: ReadonlyArray<readonly [field: string, label: string, max: number]> = [
+  ['case_number', 'Case Number', 80],
+  ['service_slip_no', 'Service Slip (SS#)', 60],
+  ['client_remarks', 'Client Slip Remarks', 2000],
+  ['internal_logistics_remarks', 'Internal Logistics Notes', 2000],
+];
+export function rmaFormTextError(body: Record<string, unknown>): string | null {
+  for (const [field, label, max] of RMA_FORM_TEXT_FIELDS) {
+    const value = body[field];
+    if (value === undefined || value === null) continue;
+    if (typeof value !== 'string') return `${label} must be text.`;
+    if (value.trim().length > max) return `${label} must be ${max} characters or fewer.`;
+  }
+  return null;
+}
+
+/** A non-empty SS# is only valid on Return to Customer Slip (RTC) records. */
+export function rmaServiceSlipError(rmaType: unknown, serviceSlipNo: unknown): string | null {
+  return optionalText(serviceSlipNo) && !isReturnToCustomerCategory(rmaType) ? RMA_SERVICE_SLIP_RTC_ONLY_ERROR : null;
+}
+
+export interface NormalizedRmaContact { name: string; phone: string | null; email: string | null }
+export type ContactsResult = { ok: true; contacts: NormalizedRmaContact[] } | { ok: false; error: string };
+
+export function normalizeRmaContacts(value: unknown): ContactsResult {
+  if (value === null) return { ok: true, contacts: [] };
+  if (!Array.isArray(value)) return { ok: false, error: 'Contacts must be a list.' };
+  if (value.length > MAX_CONTACTS) return { ok: false, error: `Enter at most ${MAX_CONTACTS} contacts.` };
+  const contacts: NormalizedRmaContact[] = [];
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: 'Each contact must be an object.' };
+    const entry = raw as Record<string, unknown>;
+    for (const key of ['name', 'phone', 'email']) {
+      if (entry[key] !== undefined && entry[key] !== null && typeof entry[key] !== 'string') return { ok: false, error: 'Contact details must be text.' };
+    }
+    const name = optionalText(entry.name) ?? '';
+    const phone = optionalText(entry.phone);
+    const email = optionalText(entry.email);
+    if (!name && !phone && !email) continue; // a fully blank row is an empty editor line
+    if (name.length > 120) return { ok: false, error: 'Contact Name must be 120 characters or fewer.' };
+    if (phone && phone.length > 60) return { ok: false, error: 'Contact Phone must be 60 characters or fewer.' };
+    if (email && email.length > 160) return { ok: false, error: 'Contact Email must be 160 characters or fewer.' };
+    if (email && !EMAIL.test(email)) return { ok: false, error: 'Contact Email must be a valid email address.' };
+    contacts.push({ name, phone, email });
+  }
+  return { ok: true, contacts };
+}
+
+/** Legacy single-contact columns kept in step with the contact list. */
+export function syncLegacyContactSnapshot(contacts: readonly NormalizedRmaContact[]) {
+  const unique = (values: (string | null)[]) => [...new Set(values.filter((v): v is string => !!v))];
+  const names = unique(contacts.map(c => c.name || null));
+  const phones = unique(contacts.map(c => c.phone));
+  return {
+    customerContactName: names.length ? names.join(' / ') : null,
+    customerContactPhone: phones.length ? phones.join(' / ') : null,
+    customerContactEmail: contacts.find(c => c.email)?.email ?? null,
+  };
+}
+
+/** One contact from the legacy single-contact fields, or none when all are blank. */
+export function contactsFromLegacySnapshot(name: unknown, email: unknown, phone: unknown): NormalizedRmaContact[] {
+  const contact = { name: optionalText(name) ?? '', phone: optionalText(phone), email: optionalText(email) };
+  return contact.name || contact.phone || contact.email ? [contact] : [];
+}
+
+export interface NormalizedLineItem {
+  position: number;
+  sku: string;
+  quantity: number;
+  unitType: RmaItemUnitType | null;
+  serialNumber: string | null;
+  newSerialNumber: string | null;
+  defectiveSerialNumber: string | null;
+  purchaseDate: string | null;
+  salesOrderNo: string | null;
+  accessories: string | null;
+  problemDescription: string | null;
+  repairNote: string | null;
+  statusTag: string | null;
+}
+export type LineItemsResult = { ok: true; items: NormalizedLineItem[] } | { ok: false; error: string };
+
+/** Snake-case API field, database column and maximum length of each structured item text field. */
+export const RMA_ITEM_TEXT_FIELDS = [
+  ['serial_number', 'serialNumber', 120], ['new_serial_number', 'newSerialNumber', 120], ['defective_serial_number', 'defectiveSerialNumber', 120],
+  ['purchase_date', 'purchaseDate', 10], ['sales_order_no', 'salesOrderNo', 60], ['accessories', 'accessories', 300],
+  ['problem_description', 'problemDescription', 500], ['repair_note', 'repairNote', 500], ['status_tag', 'statusTag', 100],
+] as const;
+export const RMA_ITEM_STRUCTURED_FIELDS = ['unit_type', ...RMA_ITEM_TEXT_FIELDS.map(([field]) => field)] as const;
+const ITEM_LABELS: Record<string, string> = {
+  serial_number: 'Serial Number', new_serial_number: 'New SN', defective_serial_number: 'Defective SN', purchase_date: 'Item Purchase Date',
+  sales_order_no: 'SO#', accessories: 'Accessories', problem_description: 'Problem / Fault Description', repair_note: 'Note / Repair Summary', status_tag: 'Status Tag',
+};
+
+function lineQuantity(value: unknown): number | null {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' && /^\s*\d+\s*$/.test(value) ? Number(value) : NaN;
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 99_999 ? parsed : null;
+}
+
+/**
+ * Validates and normalizes structured RMA line items. `requireCompletePairs`
+ * is true when the record is (or is becoming) submitted: a replacement unit
+ * then needs both New SN and Defective SN. Drafts may hold half a pair.
+ */
+export function normalizeRmaLineItems(value: unknown, options: { requireCompletePairs: boolean }): LineItemsResult {
+  if (!Array.isArray(value)) return { ok: false, error: 'Items must be a list.' };
+  if (value.length > MAX_LINE_ITEMS) return { ok: false, error: `Enter at most ${MAX_LINE_ITEMS} items.` };
+  const items: NormalizedLineItem[] = [];
+  for (const [position, raw] of value.entries()) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: 'Each item must be an object.' };
+    const entry = raw as Record<string, unknown>;
+    const skuSource = entry.sku ?? entry.description;
+    if (skuSource !== undefined && skuSource !== null && typeof skuSource !== 'string') return { ok: false, error: 'Item description must be text.' };
+    const sku = optionalText(skuSource);
+    if (!sku) return { ok: false, error: 'Each item requires a unit description or model.' };
+    if (sku.length > 300) return { ok: false, error: 'Item description must be 300 characters or fewer.' };
+    const quantity = entry.quantity === undefined || entry.quantity === null || entry.quantity === '' ? 1 : lineQuantity(entry.quantity);
+    if (quantity === null) return { ok: false, error: 'Item quantity must be a whole number of at least 1.' };
+    let unitType: RmaItemUnitType | null = null;
+    if (!blank(entry.unit_type)) {
+      if (typeof entry.unit_type !== 'string' || !(RMA_ITEM_UNIT_TYPES as readonly string[]).includes(entry.unit_type.trim())) return { ok: false, error: 'Item unit type must be "Unit" or "Item".' };
+      unitType = entry.unit_type.trim() as RmaItemUnitType;
+    }
+    const text: Record<string, string | null> = {};
+    for (const [field, , max] of RMA_ITEM_TEXT_FIELDS) {
+      const fieldValue = entry[field];
+      if (fieldValue !== undefined && fieldValue !== null && typeof fieldValue !== 'string') return { ok: false, error: `${ITEM_LABELS[field]} must be text.` };
+      const trimmed = optionalText(fieldValue);
+      if (trimmed && trimmed.length > max && field !== 'purchase_date') return { ok: false, error: `${ITEM_LABELS[field]} must be ${max} characters or fewer.` };
+      text[field] = trimmed;
+    }
+    if (text.purchase_date && !isValidDateOnly(text.purchase_date)) return { ok: false, error: 'Item Purchase Date must be a valid YYYY-MM-DD date.' };
+    const single = text.serial_number;
+    const fresh = text.new_serial_number;
+    const defective = text.defective_serial_number;
+    if (single && (fresh || defective)) return { ok: false, error: RMA_SERIAL_MODE_ERROR };
+    if (fresh && defective && fresh.toLowerCase() === defective.toLowerCase()) return { ok: false, error: RMA_PAIR_SAME_ERROR };
+    if (options.requireCompletePairs && !!fresh !== !!defective) return { ok: false, error: RMA_PAIR_INCOMPLETE_ERROR };
+    items.push({
+      position, sku, quantity, unitType,
+      serialNumber: single, newSerialNumber: fresh, defectiveSerialNumber: defective,
+      purchaseDate: text.purchase_date, salesOrderNo: text.sales_order_no, accessories: text.accessories,
+      problemDescription: text.problem_description, repairNote: text.repair_note, statusTag: text.status_tag,
+    });
+  }
+  return { ok: true, items };
+}
+
+/** Stored LineItem rows in the API input shape, to revalidate them on submission. */
+export function lineItemInputFromRow(row: Record<string, any>): Record<string, unknown> {
+  const input: Record<string, unknown> = { sku: row.sku, quantity: row.quantity, unit_type: row.unitType ?? null };
+  for (const [field, column] of RMA_ITEM_TEXT_FIELDS) input[field] = row[column] ?? null;
+  return input;
+}
+
+/** Simple non-RMA items keep the historical { sku, quantity } mapping. */
+export function nonRmaLineItemsError(value: unknown): string | null {
+  if (!Array.isArray(value)) return null;
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object') continue;
+    if (RMA_ITEM_STRUCTURED_FIELDS.some(field => !blank((raw as Record<string, unknown>)[field]))) return NON_RMA_FIELD_ERRORS.line_items;
+  }
+  return null;
+}
+export function simpleLineItems(value: unknown[]): { position: number; sku: string; quantity: number }[] {
+  return value.map((li: any, position) => ({
+    position,
+    sku: li?.sku || li?.description || '',
+    quantity: typeof li?.quantity === 'number' ? li.quantity : parseInt(li?.quantity, 10) || 1,
+  }));
+}
+
+/** Non-empty RMA-only fields sent for a non-RMA record. Blank values are ignored. */
+export function nonRmaFieldError(body: Record<string, unknown>): string | null {
+  if (!blank(body.case_number)) return NON_RMA_FIELD_ERRORS.case_number;
+  if (!blank(body.service_slip_no)) return NON_RMA_FIELD_ERRORS.service_slip_no;
+  if (!blank(body.client_remarks) || !blank(body.internal_logistics_remarks)) return NON_RMA_FIELD_ERRORS.remarks;
+  if (Array.isArray(body.rma_contacts) ? body.rma_contacts.length > 0 : !blank(body.rma_contacts)) return NON_RMA_FIELD_ERRORS.rma_contacts;
+  return nonRmaLineItemsError(body.line_items);
+}
+
+export interface RmaFormWriteContext {
+  /** Effective (stored + submitted) slip category. */
+  rmaType: unknown;
+  /** True when the record is, or is becoming, submitted. */
+  submitted: boolean;
+  /** Stored values used to merge partial legacy contact updates and clear a stale SS#. */
+  existing?: { serviceSlipNo?: string | null; customerContactName?: string | null; customerContactEmail?: string | null; customerContactPhone?: string | null } | null;
+}
+export interface RmaFormWrite {
+  data: Record<string, string | null>;
+  contacts?: NormalizedRmaContact[];
+  lineItems?: NormalizedLineItem[];
+}
+
+/**
+ * Builds the persisted changes for the RMA form fields of a create or edit.
+ * Never touches DeliveryRecord.remarks (the workflow reason-for-change).
+ */
+export function rmaFormWrite(body: Record<string, unknown>, context: RmaFormWriteContext): { ok: true; write: RmaFormWrite } | { ok: false; error: string } {
+  const textError = rmaFormTextError(body);
+  if (textError) return { ok: false, error: textError };
+  const data: Record<string, string | null> = {};
+  if (body.case_number !== undefined) data.caseNumber = optionalText(body.case_number);
+  if (body.client_remarks !== undefined) data.clientRemarks = optionalText(body.client_remarks);
+  if (body.internal_logistics_remarks !== undefined) data.internalLogisticsRemarks = optionalText(body.internal_logistics_remarks);
+  if (body.service_slip_no !== undefined) {
+    const slipError = rmaServiceSlipError(context.rmaType, body.service_slip_no);
+    if (slipError) return { ok: false, error: slipError };
+    data.serviceSlipNo = optionalText(body.service_slip_no);
+  } else if (context.existing?.serviceSlipNo && !isReturnToCustomerCategory(context.rmaType)) {
+    // A legacy record moving off RTC drops its SS# instead of violating the RTC-only rule.
+    data.serviceSlipNo = null;
+  }
+  const write: RmaFormWrite = { data };
+  if (body.rma_contacts !== undefined) {
+    const result = normalizeRmaContacts(body.rma_contacts);
+    if (result.ok === false) return { ok: false, error: result.error };
+    write.contacts = result.contacts;
+    Object.assign(data, syncLegacyContactSnapshot(result.contacts));
+  } else if (RMA_CONTACT_FIELDS.some(field => body[field] !== undefined)) {
+    const existing = context.existing ?? {};
+    const pick = (field: typeof RMA_CONTACT_FIELDS[number], stored: string | null | undefined) => body[field] !== undefined ? optionalText(body[field]) : (stored ?? null);
+    const name = pick('customer_contact_name', existing.customerContactName);
+    const email = pick('customer_contact_email', existing.customerContactEmail);
+    const phone = pick('customer_contact_phone', existing.customerContactPhone);
+    Object.assign(data, { customerContactName: name, customerContactEmail: email, customerContactPhone: phone });
+    write.contacts = contactsFromLegacySnapshot(name, email, phone);
+  }
+  if (Array.isArray(body.line_items)) {
+    const result = normalizeRmaLineItems(body.line_items, { requireCompletePairs: context.submitted });
+    if (result.ok === false) return { ok: false, error: result.error };
+    write.lineItems = result.items;
+  } else if (body.line_items !== undefined && body.line_items !== null) {
+    return { ok: false, error: 'Items must be a list.' };
+  }
+  return { ok: true, write };
+}
+
+/** Stored replacement pairs must be complete before an RMA leaves Draft. */
+export function storedLineItemsPairError(rows: ReadonlyArray<{ newSerialNumber?: string | null; defectiveSerialNumber?: string | null }>): string | null {
+  return rows.some(row => !!optionalText(row.newSerialNumber) !== !!optionalText(row.defectiveSerialNumber)) ? RMA_PAIR_INCOMPLETE_ERROR : null;
 }

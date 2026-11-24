@@ -180,6 +180,7 @@ export async function seedDriverDemo(prisma: PrismaClient, targetDate?: string) 
                 itemType: 'Small Item',
                 draft: false,
                 itemDescription: `Demo item for ${cat}`,
+                ...(cat === 'RMA' ? { caseNumber: `CAS-DEMO-${hashName.substring(0, 6).toUpperCase()}`, internalLogisticsRemarks: 'Call before going.' } : {}),
                 collectionVerified: false,
                 createdById: sales.id,
                 modifiedById: logistics.id

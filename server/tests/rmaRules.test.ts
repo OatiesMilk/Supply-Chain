@@ -120,3 +120,16 @@ test('parseRmaEventDate rejects impossible ISO timestamps and accepts real leap 
   assert.deepEqual(parseRmaEventDate('2024-02-29T12:00:00Z', { label: 'Receipt date', now }), { ok: true, date: new Date('2024-02-29T12:00:00.000Z') });
   assert.deepEqual(parseRmaEventDate('2000-02-29T00:00:00+08:00', { label: 'Receipt date', now }), { ok: true, date: new Date('2000-02-28T16:00:00.000Z') });
 });
+
+test('RTC-only Service Slip rule and legacy contact snapshot sync', async () => {
+  const rules = await import('../src/services/rmaRules');
+  assert.equal(rules.isReturnToCustomerCategory('RTC'), true);
+  assert.equal(rules.isReturnToCustomerCategory('Pull Out Slip'), false);
+  assert.equal(rules.rmaServiceSlipError('Transfer Out Slip', 'SS#1'), rules.RMA_SERVICE_SLIP_RTC_ONLY_ERROR);
+  assert.equal(rules.rmaServiceSlipError('Return to Customer Slip', 'SS#1'), null);
+  const contacts = rules.normalizeRmaContacts([{ name: 'A', phone: '1' }, { name: 'B', phone: '1' }]);
+  assert.ok(contacts.ok);
+  if (contacts.ok) assert.deepEqual(rules.syncLegacyContactSnapshot(contacts.contacts), { customerContactName: 'A / B', customerContactPhone: '1', customerContactEmail: null });
+  const items = rules.normalizeRmaLineItems([{ sku: 'X', unit_type: 'Item' }], { requireCompletePairs: true });
+  assert.ok(items.ok && items.items[0].unitType === 'Item' && items.items[0].quantity === 1);
+});

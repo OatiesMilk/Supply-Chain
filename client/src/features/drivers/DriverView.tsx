@@ -1,3 +1,5 @@
+import { formatRmaContacts } from '@/utils/rma';
+import { formatRmaItemsSummary } from '@/utils/rmaItems';
 import RecordStatus from '@/components/RecordStatus';
 import { usePermissions } from '@/hooks/usePermissions';
 import RmaWorkflowPanel from '@/features/deliveries/RmaWorkflowPanel';
@@ -557,7 +559,26 @@ function DriverViewContent({
                         <p className="flex items-start gap-2 text-sm text-slate-700"><MapPin aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />{selectedRecord.area}</p>
                       </div>
 
-                      {selectedRecord.item_description && (
+                      {selectedRecord.category === 'RMA' && (
+                        <div className="space-y-2">
+                          {selectedRecord.case_number && <p className="text-sm text-slate-700"><span className="font-bold">Case Number:</span> {selectedRecord.case_number}</p>}
+                          {formatRmaContacts(selectedRecord) && <p className="break-words text-sm text-slate-700"><span className="font-bold">Contact Person(s):</span> {formatRmaContacts(selectedRecord)}</p>}
+                          {formatRmaItemsSummary(selectedRecord) && (
+                            <div className="rounded-lg bg-slate-50 p-3">
+                              <p className="flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-slate-500"><Package aria-hidden="true" className="h-4 w-4" />Units / Items</p>
+                              <p className="mt-1 whitespace-pre-line break-words text-sm text-slate-700">{formatRmaItemsSummary(selectedRecord)}</p>
+                            </div>
+                          )}
+                          {selectedRecord.internal_logistics_remarks && (
+                            <div role="note" className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+                              <p className="text-xs font-bold uppercase tracking-wide text-amber-800">Internal Logistics Notes</p>
+                              <p className="mt-1 whitespace-pre-line break-words text-sm text-amber-900">{selectedRecord.internal_logistics_remarks}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {selectedRecord.category !== 'RMA' && selectedRecord.item_description && (
                         <div className="rounded-lg bg-slate-50 p-3">
                           <p className="flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-slate-500"><Package aria-hidden="true" className="h-4 w-4" />Item summary</p>
                           <p className="mt-1 break-words text-sm text-slate-700">{selectedRecord.item_description}</p>

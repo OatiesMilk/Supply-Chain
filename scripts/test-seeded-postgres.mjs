@@ -88,6 +88,8 @@ try {
     { ...seeded, SEED_TEST_DATABASE_URL: seeded.DATABASE_URL }, serverDir);
   await run(process.execPath, ['--import', 'tsx', '--test', 'tests/rmaReference.postgres.test.ts'],
     { ...seeded, SEED_TEST_DATABASE_URL: seeded.DATABASE_URL }, serverDir);
+  await run(process.execPath, ['--import', 'tsx', '--test', 'tests/rmaFormFields.postgres.test.ts'],
+    { ...seeded, SEED_TEST_DATABASE_URL: seeded.DATABASE_URL }, serverDir);
 
   // Separate databases prevent role-policy fixtures from affecting seeded users
   // or each other. These tests exercise actual PostgreSQL constraints and races.

@@ -2,13 +2,16 @@ import { manilaToday, submissionErrors } from '@/utils/recordLifecycle';
 import { usePermissions } from '@/hooks/usePermissions';
 import React, { useId, useRef, useState } from 'react';
 import { Plus, X, Check, FileText, UploadCloud, Wand2 } from 'lucide-react';
-import { DeliveryRecord, DeliveryCategory, DeliveryStatus, OutputActionConfig, OutputActionTrigger } from '@/types';
+import { DeliveryRecord, DeliveryCategory, DeliveryStatus, OutputActionConfig, OutputActionTrigger, type RecordLineItem, type RmaContact } from '@/types';
 import { AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, RMA_ITEM_TYPES } from '@/data';
 import { accountManagerChoices, useAccountManagersQuery } from '@/api/queries/useAccountManagersQuery';
 import { accountManagerAfterCompanyChange, accountManagerOptionGroups, activeCompanies, companyAccountManagers, companySapNumbers, isListedAccountManager,
   preferredAccountManagerFor } from '@/utils/accountDirectory';
 import CompanySapQuickPick from '@/components/CompanySapQuickPick';
-import { RECEIVING_SLIP_CATEGORY, RMA_CATEGORIES, TRANSFER_OUT_CATEGORY, autoFillRmaFields, formatRmaCategoryOption, previewRmaReference, type RmaCategory } from '@/utils/rma';
+import { RECEIVING_SLIP_CATEGORY, RMA_CATEGORIES, TRANSFER_OUT_CATEGORY, autoFillRmaFields, formatRmaCategoryOption, isReturnToCustomerCategory, previewRmaReference, type RmaCategory } from '@/utils/rma';
+import { RmaContactsEditor, cleanRmaContacts } from './RmaContactsEditor';
+import { RmaStructuredItemsEditor, cleanRmaItems } from './RmaStructuredItemsEditor';
+import { RMA_STATUS_TAG_PRESETS } from '@/utils/rmaItems';
 import { runOutputActions } from '@/outputActions';
 import { exportRecordOutputPDF } from '@/utils/recordOutputPdf';
 import { api, ApiCompany } from '@/api';
@@ -123,8 +126,13 @@ interface RecordFormState {
   customer_contact_name: string;
   customer_contact_email: string;
   customer_contact_phone: string;
+  case_number: string;
+  service_slip_no: string;
+  client_remarks: string;
+  internal_logistics_remarks: string;
+  rma_contacts: RmaContact[];
   item_description: string;
-  line_items: { sku: string; quantity: number }[];
+  line_items: RecordLineItem[];
   address: string;
   attachments: string[];
 }
@@ -152,6 +160,11 @@ const buildEmptyForm = (category: DeliveryCategory): RecordFormState => ({
   customer_contact_name: '',
   customer_contact_email: '',
   customer_contact_phone: '',
+  case_number: '',
+  service_slip_no: '',
+  client_remarks: '',
+  internal_logistics_remarks: '',
+  rma_contacts: [],
   item_description: '',
   line_items: [],
   attachments: []
@@ -214,6 +227,8 @@ export default function RecordCreateForm({
     setForm(prev => ({
       ...prev,
       rma_type: value,
+      // SS# only exists on Return to Customer Slips; switching away clears it.
+      service_slip_no: isReturnToCustomerCategory(value) ? prev.service_slip_no : '',
       is_internal_transfer: value === TRANSFER_OUT_CATEGORY ? prev.is_internal_transfer : false,
       rma_movement: value === RECEIVING_SLIP_CATEGORY && !prev.rma_movement ? 'INTERNAL_NO_DRIVER' : prev.rma_movement,
     }));
@@ -258,8 +273,17 @@ export default function RecordCreateForm({
       customer_contact_name: company.contact_person ?? '',
       customer_contact_email: '',
       customer_contact_phone: '',
+      case_number: cat === 'RMA' ? `CAS-${afRandInt(10000, 99999)}-${Math.random().toString(36).slice(2, 8).toUpperCase().padEnd(6, '0')}` : '',
+      service_slip_no: cat === 'RMA' && isReturnToCustomerCategory(rmaFields?.rma_type) ? `SS#${afRandInt(60000, 69999)}` : '',
+      client_remarks: cat === 'RMA' ? `SAP#${afRandInt(12000000, 12999999)}` : '',
+      internal_logistics_remarks: cat === 'RMA' ? afPick(['Call before going.', 'Note: with collection of Php2,000.00 cash. Please bring CR.', 'Coordinate with building admin for gate pass.']) : '',
+      rma_contacts: cat === 'RMA' ? [{ name: company.contact_person || 'Store Contact', phone: `+63917${afRandInt(1000000, 9999999)}`, email: '' }] : [],
       item_description: afPick(AF_ITEMS[cat] ?? ['(sample item)']),
-      line_items: [{ sku: afPick(AF_ITEMS[cat] ?? ['Sample SKU']), quantity: afRandInt(1, 10) }],
+      line_items: cat === 'RMA'
+        ? [{ sku: afPick(AF_ITEMS[cat] ?? ['Sample unit']), quantity: 1, unit_type: 'Unit', serial_number: `SN-${afRandInt(100000, 999999)}`,
+            purchase_date: afFutureDate(-365, -30), sales_order_no: String(afRandInt(12000000, 12999999)), accessories: 'Power Adaptor',
+            problem_description: 'No Display Upon Startup', status_tag: afPick(RMA_STATUS_TAG_PRESETS) }]
+        : [{ sku: afPick(AF_ITEMS[cat] ?? ['Sample SKU']), quantity: afRandInt(1, 10) }],
       attachments: [],
     });
     setFormErrors({});
@@ -341,7 +365,10 @@ export default function RecordCreateForm({
     if (saving || createdRecordInfo) return;
     const isDraft = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "draft";
     if (!access.canRecord(form.category, 'CREATE') || !isDraft && !access.canRecord(form.category, 'SUBMIT')) return;
-    const errors = submissionErrors(form, isDraft);
+    const isRmaForm = form.category === 'RMA';
+    const rmaItems = isRmaForm ? cleanRmaItems(form.line_items) : form.line_items;
+    const rmaContacts = isRmaForm ? cleanRmaContacts(form.rma_contacts) : [];
+    const errors = submissionErrors({ ...form, line_items: rmaItems, rma_contacts: rmaContacts }, isDraft);
     if (accountManagers.isSuccess && form.account_manager.trim() && !isListedAccountManager(form.account_manager, accountManagers.data)) {
       errors.account_manager = 'Choose an Account Manager from the list.';
     }
@@ -380,6 +407,16 @@ export default function RecordCreateForm({
         is_draft: isDraft ? 'Yes' : 'No',
         attachments: [],
         output_actions_log: [],
+        // RMA slip fields; the separated remarks never reuse the workflow remarks column.
+        ...(isRmaForm ? {
+          remarks: '',
+          case_number: form.case_number.trim() || null,
+          service_slip_no: isReturnToCustomerCategory(form.rma_type) ? form.service_slip_no.trim() || null : null,
+          client_remarks: form.client_remarks.trim() || null,
+          internal_logistics_remarks: form.internal_logistics_remarks.trim() || null,
+          rma_contacts: rmaContacts,
+          line_items: rmaItems,
+        } : { case_number: undefined, service_slip_no: undefined, client_remarks: undefined, internal_logistics_remarks: undefined, rma_contacts: undefined }),
       });
       // Retain the saved identity before any optional output can fail.
       createdInfo = {
@@ -576,19 +613,20 @@ export default function RecordCreateForm({
               {formErrors.purchase_date && <p className="text-red-500 text-xs font-semibold">{formErrors.purchase_date}</p>}
             </div>
             <div className="space-y-1.5">
-              <label className="font-bold text-slate-700">Customer Contact Name <span className="text-xs font-normal text-slate-400">(optional)</span></label>
-              <input type="text" value={form.customer_contact_name} onChange={e => updateField('customer_contact_name', e.target.value)} aria-invalid={!!formErrors.customer_contact_name} className={`w-full px-3 py-2 border rounded-lg ${formErrors.customer_contact_name ? 'border-red-500' : 'border-slate-300'}`} />
-              {formErrors.customer_contact_name && <p className="text-red-500 text-xs font-semibold">{formErrors.customer_contact_name}</p>}
+              <label htmlFor="create-rma-case-number" className="font-bold text-slate-700">Case Number <span className="text-xs font-normal text-slate-400">(optional)</span></label>
+              <input id="create-rma-case-number" type="text" value={form.case_number} onChange={e => updateField('case_number', e.target.value)} maxLength={80}
+                placeholder="e.g., CAS-31417-Y4Y6Z3" className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
             </div>
-            <div className="space-y-1.5">
-              <label className="font-bold text-slate-700">Customer Contact Email <span className="text-xs font-normal text-slate-400">(optional)</span></label>
-              <input type="email" value={form.customer_contact_email} onChange={e => updateField('customer_contact_email', e.target.value)} aria-invalid={!!formErrors.customer_contact_email} className={`w-full px-3 py-2 border rounded-lg ${formErrors.customer_contact_email ? 'border-red-500' : 'border-slate-300'}`} />
-              {formErrors.customer_contact_email && <p className="text-red-500 text-xs font-semibold">{formErrors.customer_contact_email}</p>}
-            </div>
-            <div className="space-y-1.5">
-              <label className="font-bold text-slate-700">Customer Contact Phone <span className="text-xs font-normal text-slate-400">(optional)</span></label>
-              <input type="tel" value={form.customer_contact_phone} onChange={e => updateField('customer_contact_phone', e.target.value)} aria-invalid={!!formErrors.customer_contact_email && !form.customer_contact_phone.trim()} className={`w-full px-3 py-2 border rounded-lg ${formErrors.customer_contact_email && !form.customer_contact_phone.trim() ? 'border-red-500' : 'border-slate-300'}`} />
-            </div>
+            {isReturnToCustomerCategory(form.rma_type) && (
+              <div className="space-y-1.5">
+                <label htmlFor="create-rma-service-slip" className="font-bold text-slate-700">Service Slip (SS#) <span className="text-xs font-normal text-slate-400">(optional · RTC only)</span></label>
+                <input id="create-rma-service-slip" type="text" value={form.service_slip_no} onChange={e => updateField('service_slip_no', e.target.value)} maxLength={60}
+                  placeholder="e.g., SS#60142" aria-invalid={!!formErrors.service_slip_no}
+                  className={`w-full px-3 py-2 border rounded-lg ${formErrors.service_slip_no ? 'border-red-500' : 'border-slate-300'}`} />
+                {formErrors.service_slip_no && <p className="text-red-500 text-xs font-semibold">{formErrors.service_slip_no}</p>}
+              </div>
+            )}
+            <RmaContactsEditor idPrefix="create-rma-contact" contacts={form.rma_contacts} onChange={contacts => updateField('rma_contacts', contacts)} error={formErrors.rma_contacts} />
           </>}
 
           {/* ── OPTIONAL FIELDS ─────────────────────────────────────── */}
@@ -655,14 +693,36 @@ export default function RecordCreateForm({
             </select>
           </div>
 
-          {/* Remarks */}
+          {/* Remarks — RMA keeps client slip remarks and internal Logistics notes apart */}
+          {cat === 'RMA' ? <>
+            <div className="space-y-1.5 md:col-span-2">
+              <label htmlFor="create-rma-client-remarks" className="font-bold text-slate-700 flex flex-wrap items-center gap-2">
+                Client Slip Remarks <span className="text-xs font-normal text-slate-400">(optional)</span>
+                <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-bold text-sky-800">Printed on client slip</span>
+              </label>
+              <textarea id="create-rma-client-remarks" value={form.client_remarks} onChange={e => updateField('client_remarks', e.target.value)} rows={2} maxLength={2000}
+                placeholder="e.g., SAP#12019325" className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <label htmlFor="create-rma-internal-logistics-remarks" className="font-bold text-slate-700 flex flex-wrap items-center gap-2">
+                Internal Logistics Notes <span className="text-xs font-normal text-slate-400">(optional)</span>
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800">Internal · Logistics only — never printed on client slips</span>
+              </label>
+              <textarea id="create-rma-internal-logistics-remarks" value={form.internal_logistics_remarks} onChange={e => updateField('internal_logistics_remarks', e.target.value)} rows={2} maxLength={2000}
+                placeholder="e.g., Note: with collection of Php2,000.00 cash. Please bring CR." className="w-full px-3 py-2 border border-amber-300 bg-amber-50/40 rounded-lg" />
+            </div>
+          </> : (
           <div className="space-y-1.5 md:col-span-2">
             <label className="font-bold text-slate-700">Remarks <span className="text-xs font-normal text-slate-400">(optional)</span></label>
             <textarea value={form.remarks} onChange={e => updateField('remarks', e.target.value)} rows={3}
               placeholder="Special instructions or notes..." className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
           </div>
+          )}
 
           {/* Line Items */}
+          {cat === 'RMA' ? (
+            <RmaStructuredItemsEditor idPrefix="create-rma-item" items={form.line_items} onChange={items => updateField('line_items', items)} error={formErrors.line_items} />
+          ) : (
           <div className="space-y-1.5 md:col-span-2">
             <div className="flex justify-between items-center mb-1.5">
               <label className="font-bold text-slate-700">Line Items <span className="text-xs font-normal text-slate-400">(optional)</span></label>
@@ -714,6 +774,7 @@ export default function RecordCreateForm({
               <p className="text-xs text-slate-400 italic">No line items added. Use the description box above if preferred.</p>
             )}
           </div>
+          )}
 
           {/* Document Attachments */}
           <div className="space-y-1.5 md:col-span-2">
