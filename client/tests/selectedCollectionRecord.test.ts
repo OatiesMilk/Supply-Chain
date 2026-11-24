@@ -123,12 +123,15 @@ test('Sales Coordinator Accounting Collection filters combine in paged requests,
     assert.ok(filterGrid);
     assert.match(filterGrid.className, /grid-cols-1/);
     assert.match(filterGrid.className, /min-\[400px\]:grid-cols-2/);
-    assert.match(filterGrid.className, /lg:grid-cols-4/);
-    const dateCell = filterGrid.firstElementChild as HTMLElement;
-    assert.ok(dateCell.classList.contains('min-[400px]:col-span-2'), 'date range occupies half the grid from narrow tablet widths and two columns on desktop');
-    const status = ui.dom.window.document.querySelector<HTMLSelectElement>('#accountingCollectionStatus')!;
-    assert.equal([...status.options].find(option => option.value === 'Transport Complete')?.textContent, 'Transport Complete · Awaiting Sales');
-    assert.equal([...status.options].find(option => option.value === 'Delivered')?.textContent, 'Complete');
+    assert.match(filterGrid.className, /lg:grid-cols-12/);
+    const searchCell = filterGrid.children[0] as HTMLElement;
+    const dateCell = filterGrid.children[1] as HTMLElement;
+    assert.ok(searchCell.querySelector('input[aria-label="Search accounting collection records"]'), 'search input sits in Row 1 alongside delivery dates and sort');
+    assert.ok(dateCell.classList.contains('min-[400px]:col-span-2'), 'date range spans two columns on narrow tablet widths');
+    assert.ok(dateCell.classList.contains('lg:col-span-5'), 'date range spans five of twelve columns on desktop');
+    const awaitingSalesChip = ui.button('Transport Complete · Awaiting Sales')!;
+    assert.ok(awaitingSalesChip, 'status chip uses Accounting Collection label for Transport Complete');
+    assert.ok(ui.button('Complete'), 'status chip uses Accounting Collection label for Delivered');
     assert.equal(latestRequest()?.dashboard_filter, 'sc-awaiting-verification-collection');
 
     await act(async () => ui.dom.window.document.querySelector<HTMLButtonElement>('button[aria-label="Page 2"]')!.click());
@@ -145,7 +148,7 @@ test('Sales Coordinator Accounting Collection filters combine in paged requests,
     assert.ok(presetButton, `date preset should be visible; toggle expanded: ${datePickerToggle.getAttribute('aria-expanded')}; controls: ${datePickerToggle.getAttribute('aria-controls')}; body: ${ui.dom.window.document.body.innerHTML}`);
     await act(async () => presetButton.click());
     await act(async () => ui.button('Apply dates')!.click());
-    await setValue(status, 'Transport Complete');
+    await act(async () => awaitingSalesChip.click());
     await setValue(ui.dom.window.document.querySelector<HTMLSelectElement>('#accountingCollectionSort')!, 'oldest');
     await setValue(ui.dom.window.document.querySelector<HTMLInputElement>('input[aria-label="Search accounting collection records"]')!, 'Customer');
 
@@ -171,14 +174,14 @@ test('Sales Coordinator Accounting Collection filters combine in paged requests,
     await act(async () => ui.button('Accounting Collection')!.click());
     await ui.flush();
     assert.equal(ui.dom.window.document.querySelector<HTMLInputElement>('input[aria-label="Search accounting collection records"]')!.value, 'Customer');
-    assert.equal(ui.dom.window.document.querySelector<HTMLSelectElement>('#accountingCollectionStatus')!.value, 'Transport Complete');
+    assert.equal(ui.button('Transport Complete · Awaiting Sales')!.getAttribute('aria-pressed'), 'true');
     assert.equal(ui.dom.window.document.querySelector<HTMLSelectElement>('#accountingCollectionSort')!.value, 'oldest');
 
     await act(async () => ui.button('Clear All Filters')!.click());
     await ui.flush();
     assert.equal(clearDashboardFilterCalls, 1);
     assert.equal(ui.dom.window.document.querySelector<HTMLInputElement>('input[aria-label="Search accounting collection records"]')!.value, '');
-    assert.equal(ui.dom.window.document.querySelector<HTMLSelectElement>('#accountingCollectionStatus')!.value, 'All');
+    assert.equal(ui.button('All')!.getAttribute('aria-pressed'), 'true');
     assert.equal(ui.dom.window.document.querySelector<HTMLSelectElement>('#accountingCollectionSort')!.value, 'default');
     assert.match(ui.dom.window.document.querySelector('#accounting-collection-filters button[aria-haspopup="dialog"]')!.textContent!, /All delivery dates/);
     assert.equal(latestRequest()?.page, 1);
@@ -215,8 +218,7 @@ test('Accounting Collection local fallback applies inclusive date and status fil
     assert.ok(monthPreset, `date preset should be visible; toggle expanded: ${datePickerToggle.getAttribute('aria-expanded')}; controls: ${datePickerToggle.getAttribute('aria-controls')}; body: ${ui.dom.window.document.body.innerHTML}`);
     await act(async () => monthPreset.click());
     await act(async () => ui.button('Apply dates')!.click());
-    const status = ui.dom.window.document.querySelector<HTMLSelectElement>('#accountingCollectionStatus')!;
-    await act(async () => { status.value = 'Transport Complete'; status.dispatchEvent(new ui.dom.window.Event('change', { bubbles: true })); });
+    await act(async () => ui.button('Transport Complete · Awaiting Sales')!.click());
     await ui.flush();
 
     assert.match(ui.dom.window.document.body.textContent!, /Customer in-range/);
