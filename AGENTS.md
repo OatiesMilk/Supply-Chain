@@ -97,6 +97,22 @@ Subsystems: `client`, `server`, `api`, `db`, `admin`
 
 Commit message format: `<type>(<subsystem>): <message> (TSK-XX)`
 
+### Automated Shipping & Commit Attribution (`.agents/skills/ship-pr/SKILL.md`)
+
+- Once a fix or new feature is implemented and locally verified (`tsc --noEmit`
+  and relevant `test:server` / `test:client`), automatically follow
+  `.agents/skills/ship-pr/SKILL.md`: create a new branch off `origin/dev`,
+  stage only the task's files, commit, push, open a PR targeting `dev`, and arm
+  GitHub auto-merge with `gh pr merge --auto --squash --delete-branch`.
+- GitHub's `CI Check (dev)` ruleset holds the merge until both `Lint, Validate & Build`
+  and `Playwright E2E Tests` pass. **Never** push directly to `dev`, `staging`,
+  or `main`, and **never** pass `--admin` to `gh pr merge`.
+- **No AI attribution:** Never add `Co-Authored-By:` trailers (e.g., Claude,
+  Codex, Gemini, Antigravity), `Generated with ...` footers, or any AI tool
+  signatures to commit messages or PR descriptions. Local enforcement is
+  provided by `.githooks/commit-msg` (enable once with
+  `git config core.hooksPath .githooks`) and `.claude/settings.json`.
+
 ### Backend (Express + Prisma)
 
 - Every write route must have `requireAuth` + `requireRole(...)` from `server/src/middleware/auth.ts`
@@ -194,5 +210,8 @@ The project uses a Notion Tickets database (`TSK-XX` prefix). The agent can:
 - Cross-reference code changes with ticket IDs
 
 Notion API key is stored in `.env` as `NOTION_API_KEY`.
-Ticket updates, emails, publishing and other external mutations require explicit
-task authorization; discovering a finding alone does not authorize them.
+Shipping verified fixes/features to a new branch + PR targeting `dev` with
+CI-gated auto-merge (`ship-pr`) is pre-authorized. Promotions to `staging` or
+`main`, Notion ticket updates, emails, deployments, and other external
+mutations still require explicit task authorization; discovering a finding
+alone does not authorize them.

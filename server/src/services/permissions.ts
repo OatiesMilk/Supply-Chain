@@ -115,7 +115,7 @@ export async function replacePermissions(db: PrismaClient, userId: string, actor
     } });
     const updated = await tx.user.findUnique({ where: { id: userId }, include: { permissions: true } });
     return permissionEditor(updated!);
-  }, { finish: async tx => permissionEditor((await tx.user.findUnique({ where: { id: userId }, include: { permissions: true } }))!) });
+  }, { legacyPermissions: true, finish: async tx => permissionEditor((await tx.user.findUnique({ where: { id: userId }, include: { permissions: true } }))!) });
 }
 
 // V1 action-aware contract for Steps 03/04. Legacy session/editor functions
