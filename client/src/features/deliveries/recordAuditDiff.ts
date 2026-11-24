@@ -45,6 +45,19 @@ export const AUDIT_FIELD_LABELS: Record<string, string> = {
   customer_contact_email: 'Customer Contact Email',
   customer_contact_phone: 'Customer Contact Phone',
   line_items: 'Line Items',
+  case_number: 'Case Number',
+  service_slip_no: 'Service Slip (SS#)',
+  client_remarks: 'Client Slip Remarks',
+  internal_logistics_remarks: 'Internal Logistics Notes',
+  rma_contacts: 'Contact Person(s)',
+};
+
+// Structured RMA item fields, compared and shown when present.
+const STRUCTURED_ITEM_FIELDS = ['unit_type', 'serial_number', 'new_serial_number', 'defective_serial_number', 'purchase_date',
+  'sales_order_no', 'accessories', 'problem_description', 'repair_note', 'status_tag'] as const;
+const ITEM_FIELD_LABELS: Record<string, string> = {
+  serial_number: 'SN', new_serial_number: 'New SN', defective_serial_number: 'Defective SN', purchase_date: 'Purchased',
+  sales_order_no: 'SO', accessories: 'Accessories', problem_description: 'Problem', repair_note: 'Note', status_tag: 'Tag',
 };
 
 // Beyond the explicitly-listed skip fields, also drop audit meta-fields
@@ -107,9 +120,14 @@ export function formatAuditValue(v: unknown): string {
           const obj = item as Record<string, unknown>;
           const sku = obj.sku || obj.description;
           const qty = obj.quantity;
-          if (sku !== undefined && qty !== undefined) return `${String(sku)} × ${String(qty)}`;
+          if (sku !== undefined && qty !== undefined) {
+            const unit = typeof obj.unit_type === 'string' && obj.unit_type ? ` ${obj.unit_type}` : '';
+            const details = STRUCTURED_ITEM_FIELDS.filter(field => field !== 'unit_type' && typeof obj[field] === 'string' && obj[field])
+              .map(field => `${ITEM_FIELD_LABELS[field]}: ${String(obj[field])}`);
+            return `${String(sku)} × ${String(qty)}${unit}${details.length ? ` (${details.join('; ')})` : ''}`;
+          }
           if (sku !== undefined) return String(sku);
-          if (typeof obj.name === 'string') return obj.name;
+          if (typeof obj.name === 'string') return [obj.name, obj.phone, obj.email].filter(value => typeof value === 'string' && value).join(' - ');
         }
         return typeof item === 'object' ? JSON.stringify(item) : String(item);
       })
@@ -141,7 +159,14 @@ function normalizeAuditForDiff(key: string, v: unknown): unknown {
       const quantity = typeof obj.quantity === 'number'
         ? obj.quantity
         : parseInt(String(obj.quantity ?? ''), 10) || 1;
-      return { sku, quantity };
+      const structured = Object.fromEntries(STRUCTURED_ITEM_FIELDS.filter(field => typeof obj[field] === 'string' && obj[field]).map(field => [field, obj[field]]));
+      return { sku, quantity, ...structured };
+    });
+  }
+  if (key === 'rma_contacts' && Array.isArray(v)) {
+    return v.map(item => {
+      const obj = (item && typeof item === 'object') ? (item as Record<string, unknown>) : {};
+      return { name: obj.name ?? '', phone: obj.phone ?? null, email: obj.email ?? null };
     });
   }
   return v;

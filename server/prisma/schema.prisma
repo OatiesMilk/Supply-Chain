@@ -340,10 +340,21 @@ model DeliveryRecord {
   // Valid only when category = 'RMA' and rmaType = 'Transfer Out Slip'.
   // Excluded from RMA KPI tiles/reports while still routed through Logistics transport.
   isInternalTransfer   Boolean    @default(false)
+  // CRM case reference for RMA records (e.g. CAS-31417-Y4Y6Z3); searchable.
+  caseNumber           String?
+  // Service Slip number (e.g. SS#60142); valid only when rmaType = 'Return to Customer Slip' (RTC).
+  serviceSlipNo        String?
+  // Client-facing slip remarks printed on client slips (e.g. SAP#12019325). Never overwritten by workflow actions.
+  clientRemarks        String?
+  // Internal Logistics-only notes (collection, call before going). Never printed on client slips.
+  internalLogisticsRemarks String?
+  // Legacy single-date / single-contact snapshots kept for compatibility; per-item purchase
+  // dates live on LineItem and the multi-contact list lives in rmaContacts.
   purchaseDate         String?
   customerContactName  String?
   customerContactEmail String?
   customerContactPhone String?
+  rmaContacts          RmaContact[] @relation("DeliveryRecordRmaContacts")
   // Explicit responsibility; null historical rows stay outside driver dispatch.
   rmaMovement          String?
   rmaTransportStatus   String?
@@ -388,6 +399,8 @@ model DeliveryRecord {
   @@index([accountManager])
   @@index([linkedCollectionId])
   @@index([category, rmaReference])
+  @@index([category, caseNumber])
+  @@index([category, serviceSlipNo])
   @@index([category, rmaMovement, rmaTransportStatus])
   @@index([category, isInternalTransfer, status])
   @@index([category, status, completionSignedOffAt])
@@ -593,9 +606,40 @@ model LineItem {
   id               String         @id @default(cuid())
   deliveryRecordId String
   deliveryRecord   DeliveryRecord @relation("DeliveryRecordLineItems", fields: [deliveryRecordId], references: [id], onDelete: Cascade)
+  position         Int            @default(0)
   sku              String
   quantity         Int            @default(1)
+  // Structured RMA unit/item fields (null on legacy and non-RMA line items).
+  unitType              String? // 'Unit' | 'Item'
+  serialNumber          String? // single SN; mutually exclusive with the replacement pair
+  newSerialNumber       String? // replacement unit pair: New SN
+  defectiveSerialNumber String? // replacement unit pair: Defective SN
+  purchaseDate          String? // YYYY-MM-DD
+  salesOrderNo          String? // SO#
+  accessories           String?
+  problemDescription    String?
+  repairNote            String?
+  statusTag             String? // e.g. "For Pull Out", "UNIT REPAIRED/FOR DELIVERY"
   createdAt        DateTime       @default(now())
 
   @@index([deliveryRecordId])
+  @@index([deliveryRecordId, position])
+  @@index([serialNumber])
+  @@index([newSerialNumber])
+  @@index([defectiveSerialNumber])
+}
+
+// Contact persons and phones for an RMA record (several per record).
+// DeliveryRecord.customerContact* stays synchronized as a legacy snapshot.
+model RmaContact {
+  id               String         @id @default(cuid())
+  deliveryRecordId String
+  deliveryRecord   DeliveryRecord @relation("DeliveryRecordRmaContacts", fields: [deliveryRecordId], references: [id], onDelete: Cascade)
+  position         Int            @default(0)
+  name             String
+  phone            String?
+  email            String?
+  createdAt        DateTime       @default(now())
+
+  @@index([deliveryRecordId, position])
 }

@@ -22,6 +22,7 @@ import { ATTACHMENT_QUOTA_EXCEEDED, attachmentQuotaError, DOCX_PREVIEW_MAX_OUTPU
 import { canCreateCategory, canWriteCategory, canPerformRecordAction, isAssignedDriver, recordScope } from '../services/recordAccess';
 import { deliveryScheduleState, driverDeliveryDateError, driverStatusError, DRIVER_STATUS_ERROR, isValidDateOnly, isoTimestamp, manilaToday, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
 import { manilaDateRange } from '../services/dateSemantics';
+import { nonRmaFieldError, normalizeRmaLineItems, rmaFormWrite, rmaServiceSlipError, simpleLineItems, storedLineItemsPairError, type RmaFormWrite } from '../services/rmaRules';
 import { INTERNAL_TRANSFER_LOCKED_ERROR, NON_RMA_INTERNAL_TRANSFER_ERROR, RMA_CATEGORY_LOCKED_ERROR, RMA_CONTACT_FIELDS, RMA_REFERENCE_LOCKED_ERROR, canonicalRmaCategory, normalizeRmaCategory, parseRmaEventDate, rmaCategoryDbValues, rmaInputError, rmaInternalTransferError } from '../services/rmaRules';
 import { allocateRmaReference } from '../services/rmaReference';
 import { areasForLocation } from '../areaHierarchy';
@@ -85,7 +86,8 @@ const requireRecordPodAccess = recordAccess(true);
 
 const recordInclude = {
   company: true,
-  lineItems: true,
+  lineItems: { orderBy: [{ position: 'asc' as const }, { createdAt: 'asc' as const }] },
+  rmaContacts: { orderBy: [{ position: 'asc' as const }, { createdAt: 'asc' as const }] },
   createdBy: true,
   modifiedBy: true,
   completionSignedOffBy: { select: { name: true } },
@@ -292,6 +294,14 @@ function parseListQuery(query: express.Request['query']) {
           { reference: { contains: s, mode: 'insensitive' } },
           { rmaReference: { contains: s, mode: 'insensitive' } },
           { legacySapReference: { contains: s, mode: 'insensitive' } },
+          { caseNumber: { contains: s, mode: 'insensitive' } },
+          { serviceSlipNo: { contains: s, mode: 'insensitive' } },
+          { lineItems: { some: { OR: [
+            { serialNumber: { contains: s, mode: 'insensitive' } },
+            { newSerialNumber: { contains: s, mode: 'insensitive' } },
+            { defectiveSerialNumber: { contains: s, mode: 'insensitive' } },
+            { salesOrderNo: { contains: s, mode: 'insensitive' } },
+          ] } } },
           { company: { name: { contains: s, mode: 'insensitive' } } },
           // Any of the company's SAP numbers (enterprise clients hold several).
           { company: { sapNumbers: { some: { sapNumber: { contains: s, mode: 'insensitive' } } } } },
@@ -1224,6 +1234,15 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
     if (typeof b.is_internal_transfer !== 'boolean') return res.status(400).json({ error: 'is_internal_transfer must be true or false.' });
     if (b.is_internal_transfer) return res.status(400).json({ error: NON_RMA_INTERNAL_TRANSFER_ERROR });
   }
+  let rmaForm: RmaFormWrite | null = null;
+  if (dbCategory === 'RMA') {
+    const form = rmaFormWrite(b, { rmaType: b.rma_type, submitted: !isDraft });
+    if (!form.ok) return res.status(400).json({ error: form.error });
+    rmaForm = form.write;
+  } else {
+    const fieldError = nonRmaFieldError(b);
+    if (fieldError) return res.status(400).json({ error: fieldError });
+  }
 
   if (req.user!.role === 'LOGISTICS' && dbCategory === 'RMA') {
     return res.status(403).json({ error: 'Logistics has view-only access to RMA records' });
@@ -1281,14 +1300,12 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
         customerContactName: dbCategory === 'RMA' && typeof b.customer_contact_name === 'string' ? b.customer_contact_name.trim() || null : null,
         customerContactEmail: dbCategory === 'RMA' && typeof b.customer_contact_email === 'string' ? b.customer_contact_email.trim() || null : null,
         customerContactPhone: dbCategory === 'RMA' && typeof b.customer_contact_phone === 'string' ? b.customer_contact_phone.trim() || null : null,
+        ...(rmaForm ? rmaForm.data : {}),
+        rmaContacts: rmaForm?.contacts?.length ? { create: rmaForm.contacts.map((contact, position) => ({ ...contact, position })) } : undefined,
 
         itemDescription: b.item_description ?? '',
-        lineItems: Array.isArray(b.line_items) ? {
-          create: b.line_items.map((li: any) => ({
-            sku: li.sku || li.description || '',
-            quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1
-          }))
-        } : undefined,
+        lineItems: rmaForm ? (rmaForm.lineItems?.length ? { create: rmaForm.lineItems } : undefined)
+          : Array.isArray(b.line_items) ? { create: simpleLineItems(b.line_items) } : undefined,
         address: b.address ?? '',
         documentAttachment: Array.isArray(b.attachments) && b.attachments.length > 0 ? b.attachments[0] : null,
         amount: b.amount != null ? parseFloat(String(b.amount)) : null,
@@ -1361,6 +1378,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     }
   }
 
+  let rmaForm: RmaFormWrite | null = null;
   if (existing.category === 'RMA') {
     if (b.reference !== undefined) return res.status(400).json({ error: 'Use rma_reference for the RMA document reference.' });
     // An unchanged echo of the stored category (even a retired legacy label) is not a change.
@@ -1392,14 +1410,26 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
       const completeError = rmaInputError(candidate, true, { requireCategory: isSubmitting, allowRetiredCategory: !categoryChanged });
       if (completeError) return res.status(400).json({ error: completeError });
     }
-  } else if (b.is_internal_transfer !== undefined) {
-    if (typeof b.is_internal_transfer !== 'boolean') return res.status(400).json({ error: 'is_internal_transfer must be true or false.' });
-    if (b.is_internal_transfer) return res.status(400).json({ error: NON_RMA_INTERNAL_TRANSFER_ERROR });
+    const form = rmaFormWrite(b, {
+      rmaType: b.rma_type === undefined ? existing.rmaType : b.rma_type,
+      submitted: !(b.is_draft === undefined ? existing.draft : b.is_draft === 'Yes'),
+      existing,
+    });
+    if (!form.ok) return res.status(400).json({ error: form.error });
+    rmaForm = form.write;
+  } else {
+    if (b.is_internal_transfer !== undefined) {
+      if (typeof b.is_internal_transfer !== 'boolean') return res.status(400).json({ error: 'is_internal_transfer must be true or false.' });
+      if (b.is_internal_transfer) return res.status(400).json({ error: NON_RMA_INTERNAL_TRANSFER_ERROR });
+    }
+    const fieldError = nonRmaFieldError(b);
+    if (fieldError) return res.status(400).json({ error: fieldError });
   }
 
   const LOGISTICS_SUBSTANTIVE_FIELDS = ['driver', 'driver_id', 'vehicle', 'driver_assistants', 'time_in', 'time_out', 'received_by', 'linked_collection_id', 'area', 'address', 'priority'];
   const SC_SUBSTANTIVE_FIELDS = ['company_id', 'priority', 'reference', 'area', 'address', 'account_manager', 'delivery_date', 'item_type', 'is_draft', 'date_time', 'item_description', 'line_items', 'attachments', 'amount'];
-  const RMA_SUBSTANTIVE_FIELDS = [...SC_SUBSTANTIVE_FIELDS.filter(field => field !== 'reference'), 'rma_reference', 'rma_type', 'is_internal_transfer', 'purchase_date', ...RMA_CONTACT_FIELDS];
+  const RMA_SUBSTANTIVE_FIELDS = [...SC_SUBSTANTIVE_FIELDS.filter(field => field !== 'reference'), 'rma_reference', 'rma_type', 'is_internal_transfer', 'purchase_date', ...RMA_CONTACT_FIELDS,
+    'case_number', 'service_slip_no', 'client_remarks', 'internal_logistics_remarks', 'rma_contacts'];
   const ADMIN_SUBSTANTIVE_FIELDS = existing.category === 'RMA'
     ? [...LOGISTICS_SUBSTANTIVE_FIELDS, ...RMA_SUBSTANTIVE_FIELDS]
     : [...LOGISTICS_SUBSTANTIVE_FIELDS, ...SC_SUBSTANTIVE_FIELDS];
@@ -1506,12 +1536,8 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (b.item_type !== undefined) data.itemType = b.item_type;
     if (b.is_draft !== undefined) data.draft = b.is_draft === 'Yes';
     if (b.item_description !== undefined) data.itemDescription = b.item_description;
-    if (Array.isArray(b.line_items)) data.lineItems = { deleteMany: {}, create: b.line_items.map((li: any) => ({ sku: li.sku || li.description || '', quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1 })) };
     Object.assign(data, rmaCategoryChange(existing, b));
     if (b.purchase_date !== undefined) data.purchaseDate = b.purchase_date || null;
-    if (b.customer_contact_name !== undefined) data.customerContactName = typeof b.customer_contact_name === 'string' ? b.customer_contact_name.trim() || null : null;
-    if (b.customer_contact_email !== undefined) data.customerContactEmail = typeof b.customer_contact_email === 'string' ? b.customer_contact_email.trim() || null : null;
-    if (b.customer_contact_phone !== undefined) data.customerContactPhone = typeof b.customer_contact_phone === 'string' ? b.customer_contact_phone.trim() || null : null;
   }
   if (existing.category === 'RMA' && b.rma_movement !== undefined) {
     const movementError = rmaMovementInputError(b);
@@ -1534,10 +1560,16 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
       if (b.reference !== undefined) return res.status(400).json({ error: 'Use rma_reference for the RMA document reference.' });
       Object.assign(data, rmaCategoryChange(existing, b));
       if (b.purchase_date !== undefined) data.purchaseDate = b.purchase_date || null;
-      if (b.customer_contact_name !== undefined) data.customerContactName = typeof b.customer_contact_name === 'string' ? b.customer_contact_name.trim() || null : null;
-      if (b.customer_contact_email !== undefined) data.customerContactEmail = typeof b.customer_contact_email === 'string' ? b.customer_contact_email.trim() || null : null;
-      if (b.customer_contact_phone !== undefined) data.customerContactPhone = typeof b.customer_contact_phone === 'string' ? b.customer_contact_phone.trim() || null : null;
     }
+  }
+  // RMA form fields, structured items and contacts (TASS and Admin only). The
+  // workflow reason-for-change stays in data.remarks and never touches them.
+  if (rmaForm && (req.user!.role === 'TASS' || req.user!.role === 'ADMIN')) {
+    Object.assign(data, rmaForm.data);
+    if (rmaForm.lineItems) data.lineItems = { deleteMany: {}, create: rmaForm.lineItems };
+    if (rmaForm.contacts) data.rmaContacts = { deleteMany: {}, create: rmaForm.contacts.map((contact, position) => ({ ...contact, position })) };
+  } else if (existing.category !== 'RMA' && Array.isArray(b.line_items) && data.lineItems) {
+    data.lineItems = { deleteMany: {}, create: simpleLineItems(b.line_items) };
   }
   if (b.is_draft !== undefined) data.draft = b.is_draft === 'Yes';
   if (b.remarks !== undefined) data.remarks = String(b.remarks).trim();
@@ -1545,7 +1577,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
   if (data.companyId !== undefined && (typeof data.companyId !== 'string' || !data.companyId.trim())) return res.status(400).json({ error: 'Select an existing Company.' });
   const result = await withDriverDirectoryLock(prisma, async tx => {
     await lockPodRecord(tx, existing.id);
-    const current = await tx.deliveryRecord.findUnique({ where: { id: existing.id }, include: { lineItems: true } });
+    const current = await tx.deliveryRecord.findUnique({ where: { id: existing.id }, include: { lineItems: recordInclude.lineItems, rmaContacts: recordInclude.rmaContacts } });
     if (!current || current.deletedAt) return { error: 'Record not found', updated: null };
     if (!canWriteCategory(req.user!, current.category) || (req.user!.role === 'DRIVER' && !isAssignedDriver(req.user!, current))) return { error: 'Record access denied', updated: null };
     if (current.category !== 'RMA' && current.status === 'TRANSPORT_COMPLETE') {
@@ -1592,6 +1624,20 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
         rmaMovement: movement,
       });
       if (transferError) return { error: transferError, updated: null };
+      // Revalidate the RTC-only SS# and replacement pairs against the locked row.
+      const effectiveType = data.rmaType === undefined ? current.rmaType : data.rmaType;
+      if (data.serviceSlipNo !== undefined) {
+        const slipError = rmaServiceSlipError(effectiveType, data.serviceSlipNo);
+        if (slipError) return { error: slipError, updated: null };
+      } else if (current.serviceSlipNo && rmaServiceSlipError(effectiveType, current.serviceSlipNo)) {
+        data.serviceSlipNo = null;
+      }
+      if (!(data.draft ?? current.draft)) {
+        const pairError = Array.isArray(b.line_items) && rmaForm?.lineItems
+          ? (() => { const checked = normalizeRmaLineItems(b.line_items, { requireCompletePairs: true }); return checked.ok ? null : checked.error; })()
+          : storedLineItemsPairError(current.lineItems);
+        if (pairError) return { error: pairError, updated: null };
+      }
       data.rmaVersion = { increment: 1 };
     }
     const dateError = driverDeliveryDateError(current, req.user!.role);
@@ -1831,6 +1877,8 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
       if (rmaError) return { error: rmaError, saved: null, previous: null };
       const transferError = rmaInternalTransferError({ rmaType: current.rmaType, isInternalTransfer: current.isInternalTransfer, rmaMovement: current.rmaMovement });
       if (transferError) return { error: transferError, saved: null, previous: null };
+      const formError = rmaServiceSlipError(current.rmaType, current.serviceSlipNo) ?? storedLineItemsPairError(current.lineItems);
+      if (formError) return { error: formError, saved: null, previous: null };
     }
     if (current.draft && status === 'Scheduled') {
       const submissionError = recordSubmissionError(current);

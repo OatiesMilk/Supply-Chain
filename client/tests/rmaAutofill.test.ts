@@ -61,3 +61,18 @@ test('Data Sampler internal transfers need Logistics transport or Internal / no 
   for (const rma_movement of ['LOGISTICS_TRANSPORT', 'INTERNAL_NO_DRIVER']) assert.equal(dataSamplerSubmissionError('rma', { ...transfer, rma_movement }), null, rma_movement);
   assert.equal(dataSamplerSubmissionError('rma', { reference: '', delivery_date: '', rma_type: 'Pull Out Slip', rma_movement: '' }), null, 'regular RMA samples may leave movement unset');
 });
+
+test('RTC helper, contact formatting, route-slip remarks and Data Sampler defaults for the RMA form fields', async () => {
+  const rma = await import('../src/utils/rma');
+  assert.equal(rma.isReturnToCustomerCategory('Return to Customer Slip'), true);
+  assert.equal(rma.isReturnToCustomerCategory('RTC'), true);
+  assert.equal(rma.isReturnToCustomerCategory('Pull Out Slip'), false);
+  assert.equal(rma.formatRmaContacts({ rma_contacts: [{ name: 'A', phone: '1' }, { name: 'B', phone: '2' }] }), 'A - 1 / B - 2');
+  assert.equal(rma.formatRmaContacts({ rma_contacts: [], customer_contact_name: 'Casey', customer_contact_phone: '' }), 'Casey');
+  assert.equal(rma.formatRmaContacts({}), '');
+  assert.equal(rma.formatLogisticsRouteRemarks({ rma_contacts: [{ name: 'A', phone: '1' }], internal_logistics_remarks: 'Call before going.', remarks: 'edit' }), 'A - 1\nCall before going.');
+  assert.equal(rma.formatLogisticsRouteRemarks({ remarks: 'legacy' }), 'legacy');
+  const defaults = buildManualDefaults('rma', [{ id: 'c1', name: 'Co', is_active: true } as never]);
+  for (const key of ['case_number', 'service_slip_no', 'client_remarks', 'internal_logistics_remarks']) assert.equal((defaults as Record<string, unknown>)[key], '', key);
+  assert.equal('case_number' in buildManualDefaults('deliveries', [{ id: 'c1', name: 'Co', is_active: true } as never]), false);
+});

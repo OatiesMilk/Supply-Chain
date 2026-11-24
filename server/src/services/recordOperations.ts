@@ -7,7 +7,8 @@ type RecordContext = PolicyRecord & { rmaMovement?: string | null; rmaTransportS
 const detailFields = ['company_id', 'priority', 'reference', 'rma_reference', 'category', 'area', 'address', 'account_manager', 'delivery_date',
   'item_type', 'is_draft', 'date_time', 'item_description', 'line_items', 'attachments', 'amount', 'driver', 'driver_id', 'vehicle',
   'driver_assistants', 'time_in', 'time_out', 'received_by', 'linked_collection_id', 'rma_type', 'is_internal_transfer', 'rma_movement', 'purchase_date',
-  'customer_contact_name', 'customer_contact_email', 'customer_contact_phone', 'remarks', 'expected_version', 'expected_edit_version'];
+  'customer_contact_name', 'customer_contact_email', 'customer_contact_phone', 'remarks', 'expected_version', 'expected_edit_version',
+  'case_number', 'service_slip_no', 'client_remarks', 'internal_logistics_remarks', 'rma_contacts'];
 export function recordMutationInputError(body: unknown, route: string, method: string): string | null {
   if (method === 'GET' || route.includes('/attachments') && method === 'POST') return null;
   if (!body || typeof body !== 'object' || Array.isArray(body)) return 'Record mutation must be an object';

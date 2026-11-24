@@ -323,9 +323,39 @@ export async function runSeed(force = false) {
     return { rmaType, rmaReference: formatRmaReference(prefix, deliveryDate, sequence) };
   };
 
+  // A few seeded RMAs carry the structured form fields (case number, RTC-only SS#,
+  // structured items, several contacts, separated remarks); the rest stay in the
+  // legacy itemDescription-only format so both read paths are exercised.
+  const seededRmaForms: Record<string, {
+    caseNumber: string; serviceSlipNo?: string; clientRemarks?: string; internalLogisticsRemarks?: string;
+    contacts?: { name: string; phone?: string; email?: string }[];
+    items?: Record<string, string | number | null>[];
+  }> = {
+    'REC-4101': {
+      caseNumber: 'CAS-31401-A1B2C3', clientRemarks: 'SAP#12019301', internalLogisticsRemarks: 'Call before going.',
+      contacts: [{ name: 'Maria Dela Cruz', phone: '+639171234567' }],
+      items: [{ sku: 'UTK-PRN-TH80 Thermal Printer', quantity: 1, unitType: 'Unit', serialNumber: 'TH80-SN-0001', purchaseDate: '2025-11-03', salesOrderNo: '12019301',
+        accessories: 'Power Adaptor', problemDescription: 'Dead pixel on print head', statusTag: 'For Pull Out' }],
+    },
+    'REC-4102': {
+      caseNumber: 'CAS-31417-Y4Y6Z3', serviceSlipNo: 'SS#60142', clientRemarks: 'SAP#12019325',
+      internalLogisticsRemarks: 'Note: with collection of Php2,000.00 cash. Please bring CR.',
+      contacts: [{ name: 'Alvin Gatus', phone: '+639989765266' }, { name: 'Raymond Oliva' }, { name: 'Jefferson Sualog' }],
+      items: [
+        { sku: 'UTK-TAB10 Tablet', quantity: 1, unitType: 'Unit', newSerialNumber: 'TAB10-NEW-7781', defectiveSerialNumber: 'TAB10-DEF-5512', purchaseDate: '2025-08-14',
+          salesOrderNo: '12019325', repairNote: 'Replacement unit', statusTag: 'UNIT REPAIRED/FOR DELIVERY' },
+        { sku: 'Power Adaptor', quantity: 1, unitType: 'Item', statusTag: 'For Return' },
+      ],
+    },
+    'REC-4106': { caseNumber: 'CAS-31455-K9L8M7' },
+    'REC-4107': { caseNumber: 'CAS-31460-Q2W3E4', serviceSlipNo: 'SS#60177', clientRemarks: 'SAP#12019388' },
+  };
+
   for (const r of records) {
     const company = companies[r.companyKey];
     const rma = r.category === 'RMA' ? seededRma(r.deliveryDate) : null;
+    const form = rma ? seededRmaForms[r.id] : undefined;
+    const contacts = form?.contacts ?? [];
     await prisma.deliveryRecord.create({
       data: {
         id:                 r.id,
@@ -350,6 +380,18 @@ export async function runSeed(force = false) {
         draft:              r.draft,
         
         itemDescription:    r.itemDescription,
+        ...(form ? {
+          caseNumber: form.caseNumber,
+          // SS# only on Return to Customer Slip rows.
+          serviceSlipNo: rma?.rmaType === 'Return to Customer Slip' ? form.serviceSlipNo ?? null : null,
+          clientRemarks: form.clientRemarks ?? null,
+          internalLogisticsRemarks: form.internalLogisticsRemarks ?? null,
+          customerContactName: contacts.length ? [...new Set(contacts.map(c => c.name))].join(' / ') : null,
+          customerContactPhone: contacts.some(c => c.phone) ? [...new Set(contacts.flatMap(c => c.phone ? [c.phone] : []))].join(' / ') : null,
+          customerContactEmail: contacts.find(c => c.email)?.email ?? null,
+          rmaContacts: contacts.length ? { create: contacts.map((c, position) => ({ position, name: c.name, phone: c.phone ?? null, email: c.email ?? null })) } : undefined,
+          lineItems: form.items?.length ? { create: form.items.map((item, position) => ({ ...item, position, sku: String(item.sku), quantity: Number(item.quantity) })) } : undefined,
+        } : {}),
         collectionVerified: r.collectionVerified,
         createdById:        r.createdBy.id,
         modifiedById:       r.modifiedBy.id

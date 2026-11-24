@@ -6,7 +6,8 @@ const fields: Record<string, readonly string[]> = {
   DeliveryRecord: ['company_name', 'reference', 'rma_reference', 'priority', 'status', 'category', 'delivery_date', 'driver', 'vehicle', 'area', 'address',
     'account_manager', 'item_type', 'item_description', 'is_draft', 'remarks', 'time_in', 'time_out', 'received_by', 'amount',
     'collection_verified', 'collection_verified_by', 'collection_verified_at', 'rma_type', 'is_internal_transfer', 'rma_movement', 'rma_transport_status',
-    'rma_received_at', 'rma_recipient', 'rma_completed_at', 'attachment', 'attachment_id', 'attachment_removed', 'line_items'],
+    'rma_received_at', 'rma_recipient', 'rma_completed_at', 'attachment', 'attachment_id', 'attachment_removed', 'line_items',
+    'case_number', 'service_slip_no', 'client_remarks', 'internal_logistics_remarks', 'rma_contacts'],
   Customer: ['name', 'contactPerson', 'contact_person', 'email', 'phone', 'address', 'city', 'remarks'],
   Supplier: ['name', 'contactPerson', 'contact_person', 'email', 'phone', 'address', 'city', 'category', 'categories'],
   SupplierCategory: ['name', 'is_active', 'version'],
@@ -18,6 +19,8 @@ const fields: Record<string, readonly string[]> = {
   InventoryTransaction: ['date', 'type', 'qtyChange', 'resultingBalance', 'reference'],
   User: ['name', 'email', 'role', 'isActive', 'microsoft_linked'],
 };
+const ITEM_FIELDS = ['unit_type', 'serial_number', 'new_serial_number', 'defective_serial_number', 'purchase_date',
+  'sales_order_no', 'accessories', 'problem_description', 'repair_note', 'status_tag'] as const;
 function display(value: unknown, key: string): string {
   if (value == null) return 'none';
   if (key === 'categories' && Array.isArray(value)) return value.map(item => item && typeof item === 'object'
@@ -26,8 +29,14 @@ function display(value: unknown, key: string): string {
   if (key === 'account_managers' && Array.isArray(value)) return value.map(item => item && typeof item === 'object'
     && typeof item.name === 'string' ? item.name : '').filter(Boolean).join(', ') || 'none';
   if (typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number') return String(value);
-  if (key === 'line_items' && Array.isArray(value)) return value.map(item => item && typeof item === 'object'
-    ? `${typeof item.sku === 'string' ? item.sku : ''} × ${typeof item.quantity === 'number' ? item.quantity : ''}` : '').join('; ');
+  if (key === 'line_items' && Array.isArray(value)) return value.map(item => {
+    if (!item || typeof item !== 'object') return '';
+    const base = `${typeof item.sku === 'string' ? item.sku : ''} × ${typeof item.quantity === 'number' ? item.quantity : ''}`;
+    const details = ITEM_FIELDS.filter(field => typeof item[field] === 'string' && item[field]).map(field => `${field.replace(/_/g, ' ')}: ${item[field]}`);
+    return details.length ? `${base} (${details.join(', ')})` : base;
+  }).join('; ');
+  if (key === 'rma_contacts' && Array.isArray(value)) return value.map(item => item && typeof item === 'object'
+    ? [item.name, item.phone, item.email].filter(part => typeof part === 'string' && part).join(' - ') : '').filter(Boolean).join('; ') || 'none';
   return 'unavailable';
 }
 export function businessAuditChanges(recordType: string, previous?: Record<string, unknown> | null, next?: Record<string, unknown> | null) {

@@ -43,7 +43,9 @@ import { DashboardFilterId, matchesDashboardFilter } from '@/utils/dashboardFilt
 import DashboardFilterChip from '@/components/DashboardFilterChip';
 import { DATA_SAMPLER_ENABLED } from '@/utils/developmentTools';
 import { recordLabel } from '../../utils/recordLabel';
-import { INTERNAL_TRANSFER_LABEL, RMA_CATEGORIES, canonicalRmaCategory, formatRmaCategoryOption } from '@/utils/rma';
+import { INTERNAL_TRANSFER_LABEL, RMA_CATEGORIES, canonicalRmaCategory, formatRmaCategoryOption, formatRmaContacts, isReturnToCustomerCategory } from '@/utils/rma';
+import { formatRmaItemsSummary } from '@/utils/rmaItems';
+import type { DeliveryRecord as RmaExportSource } from '@/types';
 import {
   btnPrimaryClass,
   btnSecondaryClass,
@@ -85,6 +87,19 @@ const outputLineIcon = (message: string) => {
 
 
 
+
+/** RMA form columns for internal CSV/Excel exports (never used by client-facing PDF columns). */
+function rmaFormExportFields(r: RmaExportSource) {
+  if (r.category !== 'RMA') return {};
+  return {
+    case_number: r.case_number ?? '',
+    service_slip_no: isReturnToCustomerCategory(r.rma_type) ? r.service_slip_no ?? '' : '',
+    structured_items_fmt: formatRmaItemsSummary(r),
+    client_remarks: r.client_remarks ?? '',
+    rma_contacts_fmt: formatRmaContacts(r),
+    internal_logistics_remarks: r.internal_logistics_remarks ?? '',
+  };
+}
 export default function DeliveryRecordsView({
   category,
   title,
@@ -330,6 +345,11 @@ export default function DeliveryRecordsView({
       (r.customer_contact_name ?? '').toLowerCase().includes(q) ||
       (r.customer_contact_email ?? '').toLowerCase().includes(q) ||
       (r.customer_contact_phone ?? '').toLowerCase().includes(q) ||
+      (r.case_number ?? '').toLowerCase().includes(q) ||
+      (r.service_slip_no ?? '').toLowerCase().includes(q) ||
+      (r.rma_contacts ?? []).some(c => [c.name, c.phone, c.email].some(value => (value ?? '').toLowerCase().includes(q))) ||
+      (r.line_items ?? []).some(li => [li.sku, li.serial_number, li.new_serial_number, li.defective_serial_number, li.sales_order_no]
+        .some(value => (value ?? '').toLowerCase().includes(q))) ||
       r.driver.toLowerCase().includes(q) ||
       r.area.toLowerCase().includes(q) ||
       r.account_manager.toLowerCase().includes(q)
@@ -554,6 +574,7 @@ export default function DeliveryRecordsView({
     customer_contact_name: r.customer_contact_name ?? '',
     customer_contact_email: r.customer_contact_email ?? '',
     customer_contact_phone: r.customer_contact_phone ?? '',
+    ...rmaFormExportFields(r),
     category: r.category,
     priority: r.priority,
     area: r.area,
@@ -649,6 +670,7 @@ export default function DeliveryRecordsView({
       customer_contact_name: r.customer_contact_name ?? '',
       customer_contact_email: r.customer_contact_email ?? '',
       customer_contact_phone: r.customer_contact_phone ?? '',
+      ...rmaFormExportFields(r),
       category: r.category,
       priority: r.priority,
       area: r.area,
@@ -1000,7 +1022,7 @@ export default function DeliveryRecordsView({
                   <label className="font-medium text-slate-600 block">Search</label>
                   <div className="relative">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search records..."
+                    <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={category === 'RMA' ? 'Search ref, Case#, SS#, company, SN...' : 'Search records...'}
                       aria-label={`Search ${category === 'Deliveries' ? 'delivery' : category} records`}
                       className="w-full min-h-10 pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder:text-slate-400 bg-white focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/20" />
                   </div>
@@ -1204,6 +1226,11 @@ export default function DeliveryRecordsView({
                         </td>
                         <td className="px-4 py-3.5">
                           <div className="font-semibold text-sm text-slate-900 truncate" title={rec.company_name}>{rec.company_name}</div>
+                          {rec.category === 'RMA' && (rec.case_number || (rec.service_slip_no && isReturnToCustomerCategory(rec.rma_type))) && (
+                            <div className="text-[11px] text-slate-500 truncate">
+                              {[rec.case_number ? `Case# ${rec.case_number}` : '', rec.service_slip_no && isReturnToCustomerCategory(rec.rma_type) ? rec.service_slip_no : ''].filter(Boolean).join(' · ')}
+                            </div>
+                          )}
                           {category === 'RMA' && <div className="text-xs text-slate-600 mt-0.5 truncate" title={rec.rma_reference ?? ''}>RMA document ref: {rec.rma_reference || 'Not assigned'}</div>}
                           {category === 'RMA' && (rec.rma_type || rec.is_internal_transfer) && (
                             <div className="mt-0.5 flex items-center gap-1.5 min-w-0">

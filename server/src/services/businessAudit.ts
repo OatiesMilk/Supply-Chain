@@ -9,7 +9,8 @@ export const BUSINESS_AUDIT_FIELDS: Record<string, readonly string[]> = {
   DeliveryRecord: ['company_name', 'reference', 'rma_reference', 'priority', 'status', 'category', 'delivery_date', 'driver', 'vehicle',
     'area', 'address', 'account_manager', 'item_type', 'item_description', 'is_draft', 'remarks', 'time_in', 'time_out', 'received_by',
     'amount', 'collection_verified', 'collection_verified_by', 'collection_verified_at', 'rma_type', 'is_internal_transfer', 'rma_movement', 'rma_transport_status',
-    'rma_received_at', 'rma_recipient', 'rma_completed_at', 'attachment', 'attachment_id', 'attachment_removed', 'line_items'],
+    'rma_received_at', 'rma_recipient', 'rma_completed_at', 'attachment', 'attachment_id', 'attachment_removed', 'line_items',
+    'case_number', 'service_slip_no', 'client_remarks', 'internal_logistics_remarks', 'rma_contacts'],
   Customer: ['name', 'contactPerson', 'contact_person', 'email', 'phone', 'address', 'city', 'remarks'],
   Supplier: ['name', 'contactPerson', 'contact_person', 'email', 'phone', 'address', 'city', 'category', 'categories'],
   SupplierCategory: ['name', 'is_active', 'version'],
@@ -21,6 +22,8 @@ export const BUSINESS_AUDIT_FIELDS: Record<string, readonly string[]> = {
   InventoryTransaction: ['date', 'type', 'qtyChange', 'resultingBalance', 'reference'],
   User: ['name', 'email', 'role', 'isActive', 'microsoft_linked'],
 };
+const AUDIT_LINE_ITEM_FIELDS = ['unit_type', 'serial_number', 'new_serial_number', 'defective_serial_number', 'purchase_date',
+  'sales_order_no', 'accessories', 'problem_description', 'repair_note', 'status_tag'] as const;
 const RESOURCES: Record<string, string> = { Customer: 'customers', Supplier: 'suppliers', SupplierCategory: 'suppliers', Company: 'companies', AccountManager: 'admin', Driver: 'drivers', SKU: 'skus',
   Product: 'skus', InventoryTransaction: 'skus', User: 'admin' };
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -45,6 +48,13 @@ export function safeBusinessAudit(recordType: string, value: string | null): Rec
       if (key === 'line_items' && Array.isArray(field)) safe[key] = field.filter(object).map(item => ({
         ...(typeof item.sku === 'string' ? { sku: item.sku } : {}),
         ...(typeof item.quantity === 'number' && Number.isFinite(item.quantity) ? { quantity: item.quantity } : {}),
+        // Structured RMA item fields only when present, so legacy items project unchanged.
+        ...Object.fromEntries(AUDIT_LINE_ITEM_FIELDS.filter(name => typeof item[name] === 'string').map(name => [name, item[name]])),
+      }));
+      if (recordType === 'DeliveryRecord' && key === 'rma_contacts' && Array.isArray(field)) safe[key] = field.filter(object).map(item => ({
+        name: typeof item.name === 'string' ? item.name : '',
+        ...(typeof item.phone === 'string' ? { phone: item.phone } : {}),
+        ...(typeof item.email === 'string' ? { email: item.email } : {}),
       }));
     }
     if (recordType === 'SKU' && object(parsed.inventory)) {

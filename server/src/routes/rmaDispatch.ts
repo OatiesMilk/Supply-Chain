@@ -17,7 +17,13 @@ import { notifyRmaRecipients } from '../services/rmaNotifications';
 import { receivedByError } from '../services/driverActions';
 
 const router = Router();
-const include = { company: true, lineItems: true, createdBy: true, modifiedBy: true } satisfies Prisma.DeliveryRecordInclude;
+const include = {
+  company: true,
+  lineItems: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] },
+  rmaContacts: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] },
+  createdBy: true,
+  modifiedBy: true,
+} satisfies Prisma.DeliveryRecordInclude;
 type Row = Prisma.DeliveryRecordGetPayload<{ include: typeof include }>;
 export class RmaActionError extends Error {
   constructor(public status: number, message: string) { super(message); }

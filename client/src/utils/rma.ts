@@ -87,3 +87,43 @@ export function autoFillRmaFields(_currentReference: string, categoryIndex: numb
   const index = Number.isFinite(categoryIndex) ? Math.max(0, Math.min(RMA_CATEGORIES.length - 1, Math.floor(categoryIndex))) : 0;
   return { reference: '', rma_type: RMA_CATEGORIES[index] };
 }
+
+export const RETURN_TO_CUSTOMER_CATEGORY: RmaCategory = 'Return to Customer Slip';
+
+/** Service Slip (SS#) applies only to Return to Customer Slip (RTC) records. */
+export function isReturnToCustomerCategory(value: string | null | undefined): boolean {
+  return canonicalRmaCategory(value) === RETURN_TO_CUSTOMER_CATEGORY;
+}
+
+interface ContactSource {
+  rma_contacts?: ReadonlyArray<{ name?: string | null; phone?: string | null; email?: string | null }> | null;
+  customer_contact_name?: string | null;
+  customer_contact_phone?: string | null;
+}
+
+/**
+ * One line for the contact persons, e.g.
+ * "Alvin Gatus / Raymond Oliva / Jefferson Sualog - +639989765266" when they
+ * share one phone, or "Name - Phone / Name - Phone" when phones differ.
+ */
+export function formatRmaContacts(source: ContactSource): string {
+  const list = source.rma_contacts?.length ? source.rma_contacts
+    : [{ name: source.customer_contact_name ?? '', phone: source.customer_contact_phone ?? '' }];
+  const contacts = list.map(c => ({ name: (c.name ?? '').trim(), phone: (c.phone ?? '').trim() })).filter(c => c.name || c.phone);
+  if (!contacts.length) return '';
+  const phones = [...new Set(contacts.map(c => c.phone).filter(Boolean))];
+  if (phones.length <= 1) {
+    const names = [...new Set(contacts.map(c => c.name).filter(Boolean))].join(' / ');
+    return [names, phones[0]].filter(Boolean).join(' - ');
+  }
+  return contacts.map(c => [c.name, c.phone].filter(Boolean).join(' - ')).join(' / ');
+}
+
+/**
+ * Logistics route slip remarks: contacts, then the internal Logistics notes.
+ * Legacy RMAs with neither fall back to the workflow remarks they always showed.
+ */
+export function formatLogisticsRouteRemarks(record: ContactSource & { internal_logistics_remarks?: string | null; remarks?: string | null }): string {
+  const parts = [formatRmaContacts(record), (record.internal_logistics_remarks ?? '').trim()].filter(Boolean);
+  return parts.length ? parts.join('\n') : (record.remarks ?? '');
+}
