@@ -72,3 +72,15 @@ test('account editor keeps its original baseline and draft across conflict and e
     for (const key of Object.keys(globals)) { if (original[key]) Object.defineProperty(globalThis, key, original[key]); else Reflect.deleteProperty(globalThis, key); }
   }
 });
+
+test('central audit lists Company SAP number and Account Manager changes as readable names', () => {
+  const previous = { name: 'BDO', sap_numbers: ['SAP-1'], account_managers: [{ id: 'am-1', name: 'P. Soriano' }], default_account_manager: 'P. Soriano' };
+  const next = { name: 'BDO', sap_numbers: ['SAP-1', 'SAP-2'], account_managers: [{ id: 'am-1', name: 'P. Soriano' }, { id: 'am-3', name: 'B. Reyes' }],
+    default_account_manager: 'P. Soriano', secret: 'x' };
+  assert.deepEqual(businessAuditChanges('Company', previous, next), [
+    { field: 'sap_numbers', before: 'SAP-1', after: 'SAP-1, SAP-2' },
+    { field: 'account_managers', before: 'P. Soriano', after: 'P. Soriano, B. Reyes' },
+  ]);
+  assert.deepEqual(businessAuditChanges('Company', { sap_numbers: ['SAP-1'] }, { sap_numbers: [] }), [{ field: 'sap_numbers', before: 'SAP-1', after: 'none' }]);
+  assert.deepEqual(businessAuditChanges('AccountManager', { is_active: true }, { is_active: false }), [{ field: 'is_active', before: 'true', after: 'false' }]);
+});

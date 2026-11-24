@@ -2,6 +2,9 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { FileText, Link2, Loader2, Pencil, Plus, Save, X as XIcon } from 'lucide-react';
 import { api } from '@/api';
 import { accountManagerChoices, useAccountManagersQuery } from '@/api/queries/useAccountManagersQuery';
+import { useCompaniesQuery } from '@/api/queries/useCompaniesQuery';
+import { accountManagerOptionGroups, companySapNumbers } from '@/utils/accountDirectory';
+import CompanySapQuickPick from '@/components/CompanySapQuickPick';
 import ComboboxField from '@/components/ComboboxField';
 import { RecordStatusProgress } from '@/components/RecordStatus';
 import { AREAS, AREA_HIERARCHY, ITEM_TYPES, PRIORITIES, RMA_ITEM_TYPES, VEHICLES } from '@/data';
@@ -140,6 +143,9 @@ export function RecordOverviewTab({
 
   const [editing, setEditing] = useState(false);
   const accountManagers = useAccountManagersQuery(editing && canEditFull);
+  // Only while editing: read mode never loads the company directory.
+  const companies = useCompaniesQuery(editing && canEditFull);
+  const recordCompany = editing && canEditFull ? companies.data?.find(company => company.id === record.company_id) : undefined;
   const [saving, setSaving] = useState(false);
   const [remarksError, setRemarksError] = useState(false);
   const [amountError, setAmountError] = useState<string | null>(null);
@@ -646,6 +652,9 @@ export function RecordOverviewTab({
                     aria-invalid={isRma ? !!rmaErrors.rma_reference : undefined}
                     aria-describedby={rmaErrors.rma_reference ? 'rma-reference-error' : undefined}
                   />
+                  {!isRma && (
+                    <CompanySapQuickPick sapNumbers={companySapNumbers(recordCompany)} value={draft.reference} onPick={sap => set('reference', sap)} />
+                  )}
                   {rmaErrors.rma_reference && (
                     <p id="rma-reference-error" className="text-xs text-red-600">
                       {rmaErrors.rma_reference}
@@ -889,11 +898,15 @@ export function RecordOverviewTab({
                     >
                       <option value="">— Select —</option>
                       {/* Active Account Managers, plus the saved name if it has since been deactivated. */}
-                      {accountManagerChoices(accountManagers.data, record.account_manager).map(m => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
+                      {(() => {
+                        const choices = accountManagerChoices(accountManagers.data, record.account_manager);
+                        const groups = accountManagerOptionGroups(recordCompany, choices, accountManagers.data);
+                        const options = (names: string[]) => names.map(m => <option key={m} value={m}>{m}</option>);
+                        // The company's assigned Account Managers first; any other stays selectable.
+                        return groups
+                          ? groups.filter(group => group.options.length).map(group => <optgroup key={group.label} label={group.label}>{options(group.options)}</optgroup>)
+                          : options(choices);
+                      })()}
                     </select>
                     {rmaErrors.account_manager && (
                       <p className="text-xs text-red-600">{rmaErrors.account_manager}</p>

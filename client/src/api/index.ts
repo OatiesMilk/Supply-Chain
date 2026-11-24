@@ -217,16 +217,25 @@ export interface ApiCompany {
   /** Inactive companies stay on existing records but are hidden from new choices. */
   is_active: boolean;
   version: number;
+  /** First active assigned Account Manager (legacy single default); see account_managers. */
   default_account_manager: ApiAccountManagerOption | null;
+  /** All SAP numbers in display order; sap_number is the first or "" (walk-in clients have none). */
+  sap_numbers: string[];
+  /** All assigned Account Managers, sorted by name; inactive ones stay until an Admin removes them. */
+  account_managers: ApiAccountManagerOption[];
   created_at: string;
   updated_at: string;
 }
 
 export interface CompanyInput {
   name: string;
-  sap_number: string;
+  /** Legacy single value; send sap_numbers instead (never both). */
+  sap_number?: string | null;
+  sap_numbers?: string[];
+  account_manager_ids?: string[];
   address?: string;
   contact_person?: string;
+  /** Legacy single value; send account_manager_ids instead (never both). */
   default_account_manager_id?: string | null;
 }
 

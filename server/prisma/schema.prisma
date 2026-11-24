@@ -170,40 +170,72 @@ model PermissionQuarantine {
 }
 
 model Company {
-  id                      String          @id @default(cuid())
+  id                      String                  @id @default(cuid())
   name                    String
   // lower(trimmed, single-spaced name); blocks case/spacing duplicates.
-  normalizedName          String          @unique
-  // Nonblank values are unique; enforced by the companies API under the directory lock.
-  sapNumber               String
+  normalizedName          String                  @unique
+  // Legacy compatibility snapshot (first SAP number, or "" when none); sapNumbers is authoritative.
+  sapNumber               String                  @default("")
   address                 String
   contactPerson           String
-  isActive                Boolean         @default(true)
-  version                 Int             @default(1)
+  isActive                Boolean                 @default(true)
+  version                 Int                     @default(1)
+  // Legacy compatibility snapshot (first active assigned AM, else first assigned AM,
+  // else null); accountManagers is authoritative.
   defaultAccountManagerId String?
-  defaultAccountManager   AccountManager? @relation(fields: [defaultAccountManagerId], references: [id], onDelete: SetNull)
-  createdAt               DateTime        @default(now())
-  updatedAt               DateTime        @default(now()) @updatedAt
+  defaultAccountManager   AccountManager?         @relation("LegacyDefaultCompanyAccountManager", fields: [defaultAccountManagerId], references: [id], onDelete: SetNull)
+  sapNumbers              CompanySapNumber[]
+  accountManagers         CompanyAccountManager[]
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @default(now()) @updatedAt
 
   records DeliveryRecord[]
 
   @@index([defaultAccountManagerId])
 }
 
+// SAP numbers of a Company: walk-in clients have none, enterprise clients several.
+model CompanySapNumber {
+  id               String   @id @default(cuid())
+  companyId        String
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  sapNumber        String
+  // PostgreSQL lower(btrim(sapNumber)); case-insensitive uniqueness across all companies.
+  normalizedNumber String   @unique
+  position         Int      @default(0)
+  createdAt        DateTime @default(now())
+
+  @@index([companyId])
+}
+
+// Account Managers assigned to a Company. Records keep their own overrideable AM text.
+model CompanyAccountManager {
+  companyId        String
+  accountManagerId String
+  company          Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  // Account Managers are deactivated, never deleted.
+  accountManager   AccountManager @relation(fields: [accountManagerId], references: [id], onDelete: Restrict)
+  createdAt        DateTime       @default(now())
+
+  @@id([companyId, accountManagerId])
+  @@index([accountManagerId])
+}
+
 // Admin-managed Account Manager directory. DeliveryRecord.accountManager keeps
 // the name as written at the time (historical text, no foreign key).
 model AccountManager {
-  id             String    @id @default(cuid())
-  name           String
-  normalizedName String    @unique
-  email          String? // Contact detail only; record mail goes to the linked portal user.
-  userId         String?   @unique
-  user           User?     @relation("AccountManagerLogin", fields: [userId], references: [id], onDelete: SetNull)
-  isActive       Boolean   @default(true)
-  version        Int       @default(1)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  companies      Company[]
+  id                 String                  @id @default(cuid())
+  name               String
+  normalizedName     String                  @unique
+  email              String? // Contact detail only; record mail goes to the linked portal user.
+  userId             String?                 @unique
+  user               User?                   @relation("AccountManagerLogin", fields: [userId], references: [id], onDelete: SetNull)
+  isActive           Boolean                 @default(true)
+  version            Int                     @default(1)
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  companies          Company[]               @relation("LegacyDefaultCompanyAccountManager")
+  companyAssignments CompanyAccountManager[]
 }
 
 // Merchant directory — separate from Company (the validated Company Name
