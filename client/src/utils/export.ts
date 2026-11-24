@@ -679,6 +679,7 @@ export const RMA_EXTRA_COLUMNS: ExportColumn[] = [
   { header: 'RMA completed (Manila)', key: 'rma_completed_at_fmt', width: 26 },
   { header: 'Legacy SAP Reference', key: 'legacy_sap_reference', width: 24 },
   { header: 'RMA Category', key: 'rma_type', width: 24 },
+  { header: 'Classification', key: 'rma_classification', width: 24 },
   { header: 'Purchase Date', key: 'purchase_date_fmt', width: 18 },
   { header: 'Customer Contact Name', key: 'customer_contact_name', width: 26 },
   { header: 'Customer Contact Email', key: 'customer_contact_email', width: 30 },

@@ -218,3 +218,17 @@ test('RMA in transit footer and rows navigate with tass-rma-in-transit', async (
   assert.deepEqual(calls, [['rma', undefined, 'tass-rma-in-transit'], ['rma', 'REC-7']]);
   await act(async () => { root.unmount(); });
 });
+
+test('non-RMA internal transfers never count toward TASS RMA tiles or drill-downs', () => {
+  const transfer = rma('TXO-1', { rma_type: 'Transfer Out Slip', is_internal_transfer: true, rma_movement: 'LOGISTICS_TRANSPORT',
+    rma_transport_status: 'IN_TRANSIT', driver_id: 'drv-a', driver: 'Ana' });
+  const regular = { ...transfer, id: 'RMA-1', is_internal_transfer: false };
+  for (const id of ['tass-open-rma', 'tass-rma-aging', 'tass-rma-in-transit'] as const) {
+    assert.equal(matchesDashboardFilter(transfer, id), false, id);
+    assert.equal(matchesDashboardFilter(regular, id), true, id);
+  }
+  assert.equal(matchesDashboardFilter({ ...transfer, status: 'On-Hold' }, 'tass-rma-on-hold'), false);
+  assert.equal(matchesDashboardFilter({ ...regular, status: 'On-Hold' }, 'tass-rma-on-hold'), true);
+  assert.equal(matchesDashboardFilter({ ...regular, status: 'On-Hold', is_draft: 'Yes' }, 'tass-rma-on-hold'), false, 'drafts are not on hold');
+  assert.equal(matchesDashboardFilter({ ...transfer, driver_id: null, rma_transport_status: 'PENDING' }, 'log-transport-requests'), true, 'Logistics still routes them');
+});

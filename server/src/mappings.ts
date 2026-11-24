@@ -100,6 +100,7 @@ export function serializeRecord(r: any, user?: AuthUser) {
     item_type: r.itemType,
     is_draft: r.draft ? 'Yes' : 'No',
     rma_type: normalizeRmaCategory(r.rmaType),
+    is_internal_transfer: r.category === 'RMA' ? Boolean(r.isInternalTransfer) : false,
     purchase_date: r.purchaseDate ?? null,
     customer_contact_name: r.customerContactName ?? null,
     customer_contact_email: r.customerContactEmail ?? null,

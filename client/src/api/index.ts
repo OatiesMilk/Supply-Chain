@@ -148,6 +148,9 @@ export interface RecordListFilters {
   driver_exact?: string;
   account_manager_exact?: string;
   supplier_name?: string;
+  rma_scope?: 'all' | 'rma' | 'internal_transfer';
+  rma_type?: string;
+  rma_movement?: string;
 }
 
 export interface PagedRecordResponse {

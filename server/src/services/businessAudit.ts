@@ -8,7 +8,7 @@ import { hasActionPermission } from './permissionEvaluator';
 export const BUSINESS_AUDIT_FIELDS: Record<string, readonly string[]> = {
   DeliveryRecord: ['company_name', 'reference', 'rma_reference', 'priority', 'status', 'category', 'delivery_date', 'driver', 'vehicle',
     'area', 'address', 'account_manager', 'item_type', 'item_description', 'is_draft', 'remarks', 'time_in', 'time_out', 'received_by',
-    'amount', 'collection_verified', 'collection_verified_by', 'collection_verified_at', 'rma_type', 'rma_movement', 'rma_transport_status',
+    'amount', 'collection_verified', 'collection_verified_by', 'collection_verified_at', 'rma_type', 'is_internal_transfer', 'rma_movement', 'rma_transport_status',
     'rma_received_at', 'rma_recipient', 'rma_completed_at', 'attachment', 'attachment_id', 'attachment_removed', 'line_items'],
   Customer: ['name', 'contactPerson', 'contact_person', 'email', 'phone', 'address', 'city', 'remarks'],
   Supplier: ['name', 'contactPerson', 'contact_person', 'email', 'phone', 'address', 'city', 'category', 'categories'],

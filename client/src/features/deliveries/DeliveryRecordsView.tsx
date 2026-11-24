@@ -43,6 +43,7 @@ import { DashboardFilterId, matchesDashboardFilter } from '@/utils/dashboardFilt
 import DashboardFilterChip from '@/components/DashboardFilterChip';
 import { DATA_SAMPLER_ENABLED } from '@/utils/developmentTools';
 import { recordLabel } from '../../utils/recordLabel';
+import { INTERNAL_TRANSFER_LABEL, RMA_CATEGORIES, canonicalRmaCategory, formatRmaCategoryOption } from '@/utils/rma';
 import {
   btnPrimaryClass,
   btnSecondaryClass,
@@ -118,6 +119,10 @@ export default function DeliveryRecordsView({
   const [dateSort, setDateSort] = useState<'default' | 'nearest' | 'oldest' | 'furthest'>('default');
   const [amFilter, setAmFilter] = useState('');
   const [driverFilter, setDriverFilter] = useState('');
+  // RMA-only filters: classification, slip category and movement method.
+  const [rmaScope, setRmaScope] = useState<'all' | 'rma' | 'internal_transfer'>('all');
+  const [rmaTypeFilter, setRmaTypeFilter] = useState('');
+  const [rmaMovementFilter, setRmaMovementFilter] = useState('');
   const [showDateRangePicker, setShowDateRangePicker] = useState(false);
   // Always enforce chronological date ranges across all categories and roles.
   const {
@@ -257,12 +262,15 @@ export default function DeliveryRecordsView({
     if (subregionFilter !== 'All Subregions') params.set('subregion', subregionFilter);
     if (driverFilter) params.set('driver', driverFilter);
     if (statusFilter !== 'All') params.set('status', statusFilter);
+    if (category === 'RMA' && rmaScope !== 'all') params.set('rma_scope', rmaScope);
+    if (category === 'RMA' && rmaTypeFilter) params.set('rma_type', rmaTypeFilter);
+    if (category === 'RMA' && rmaMovementFilter) params.set('rma_movement', rmaMovementFilter);
 
     api.getStatusHistoryCounts(params)
       .then(data => { if (active) setStatusHistoryCounts(data ?? undefined); })
       .catch(() => { if (active) setStatusHistoryCounts(undefined); });
     return () => { active = false; };
-  }, [category, dateRangeError, appliedDateFrom, appliedDateTo, areaFilter, regionFilter, subregionFilter, driverFilter, statusFilter]);
+  }, [category, dateRangeError, appliedDateFrom, appliedDateTo, areaFilter, regionFilter, subregionFilter, driverFilter, statusFilter, rmaScope, rmaTypeFilter, rmaMovementFilter]);
 
 
 
@@ -306,6 +314,9 @@ export default function DeliveryRecordsView({
     if (statusFilter !== 'All' && r.status !== statusFilter) return false;
     if (showAccountManagerFilter && amFilter && !r.account_manager.toLowerCase().includes(amFilter.toLowerCase())) return false;
     if (driverFilter && !r.driver.toLowerCase().includes(driverFilter.toLowerCase())) return false;
+    if (category === 'RMA' && rmaScope !== 'all' && Boolean(r.is_internal_transfer) !== (rmaScope === 'internal_transfer')) return false;
+    if (category === 'RMA' && rmaTypeFilter && canonicalRmaCategory(r.rma_type) !== rmaTypeFilter) return false;
+    if (category === 'RMA' && rmaMovementFilter && r.rma_movement !== rmaMovementFilter) return false;
     if (appliedDateFrom && (!r.delivery_date || r.delivery_date < appliedDateFrom)) return false;
     if (appliedDateTo && (!r.delivery_date || r.delivery_date > appliedDateTo)) return false;
     const q = searchQuery.toLowerCase();
@@ -338,6 +349,11 @@ export default function DeliveryRecordsView({
   const effectiveDateFrom = appliedDateFrom || undefined;
   const effectiveDateTo = appliedDateTo || undefined;
   const effectiveAreaFilter = areaFilter !== 'All Areas' ? areaFilter : undefined;
+  const rmaListFilters = category === 'RMA' ? {
+    rma_scope: rmaScope !== 'all' ? rmaScope : undefined,
+    rma_type: rmaTypeFilter || undefined,
+    rma_movement: rmaMovementFilter || undefined,
+  } : {};
 
   const { data: pagedData, isLoading: pagedLoading, isError: pagedError, refetch: retryPage } = usePagedRecordsQuery({
     category,
@@ -354,6 +370,7 @@ export default function DeliveryRecordsView({
     dateFrom: effectiveDateFrom,
     dateTo: effectiveDateTo,
     dashboard_filter: dashboardFilterId || undefined,
+    ...rmaListFilters,
     paged: true,
   }, Boolean(category) && !hasInvalidDateRange);
 
@@ -373,6 +390,9 @@ export default function DeliveryRecordsView({
     amFilter,
     driverFilter,
     dashboardFilterId,
+    rmaScope,
+    rmaTypeFilter,
+    rmaMovementFilter,
   ]);
 
   const displayTotalCount = hasInvalidDateRange ? 0 : pagedData ? pagedData.total : sortedFiltered.length;
@@ -400,7 +420,7 @@ export default function DeliveryRecordsView({
     setSelectedBulkIds(new Set());
     setBulkResult(null);
   }, [category, currentPage, pageSize, searchQuery, statusFilter, regionFilter, subregionFilter,
-    areaFilter, dateFrom, dateTo, dateSort, amFilter, driverFilter, dashboardFilterId]);
+    areaFilter, dateFrom, dateTo, dateSort, amFilter, driverFilter, dashboardFilterId, rmaScope, rmaTypeFilter, rmaMovementFilter]);
 
   // Delivered records keep their Priority, so a bulk Priority never applies to them (TSK-124).
   const allSelectedPriorityLocked = selectedBulkIds.size > 0 && [...selectedBulkIds].every(id => {
@@ -528,6 +548,7 @@ export default function DeliveryRecordsView({
     rma_reference: r.rma_reference ?? '',
     legacy_sap_reference: r.legacy_sap_reference ?? '',
     rma_type: r.rma_type ?? '',
+    rma_classification: r.is_internal_transfer ? INTERNAL_TRANSFER_LABEL : 'RMA',
     ...rmaWorkflowExportFields(r),
     purchase_date_fmt: r.purchase_date ? fmtDate(r.purchase_date) : '',
     customer_contact_name: r.customer_contact_name ?? '',
@@ -592,6 +613,7 @@ export default function DeliveryRecordsView({
       account_manager: effectiveAmFilter,
       ...routeSlipPeriod(routeSlipSelection),
       dashboard_filter: dashboardFilterId || undefined,
+      ...rmaListFilters,
     });
     return sortRows(raw.map(normalizeApiRecord));
   };
@@ -609,6 +631,7 @@ export default function DeliveryRecordsView({
       dateFrom: effectiveDateFrom,
       dateTo: effectiveDateTo,
       dashboard_filter: dashboardFilterId || undefined,
+      ...rmaListFilters,
     });
     const allRecords = rawAll.map(normalizeApiRecord);
     const sortedAll = sortRows(allRecords);
@@ -620,6 +643,7 @@ export default function DeliveryRecordsView({
       rma_reference: r.rma_reference ?? '',
       legacy_sap_reference: r.legacy_sap_reference ?? '',
       rma_type: r.rma_type ?? '',
+      rma_classification: r.is_internal_transfer ? INTERNAL_TRANSFER_LABEL : 'RMA',
     ...rmaWorkflowExportFields(r),
       purchase_date_fmt: r.purchase_date ? fmtDate(r.purchase_date) : '',
       customer_contact_name: r.customer_contact_name ?? '',
@@ -668,12 +692,14 @@ export default function DeliveryRecordsView({
     showAccountManagerFilter && !!amFilter, !!driverFilter, Boolean(dateFrom || dateTo), dateSort !== 'default',
     statusFilter !== 'All', !!searchQuery,
     !!dashboardFilterId,
+    category === 'RMA' && rmaScope !== 'all', category === 'RMA' && !!rmaTypeFilter, category === 'RMA' && !!rmaMovementFilter,
   ].filter(Boolean).length;
 
   const clearAllFilters = () => {
     setSearchQuery(''); setStatusFilter('All'); setRegionFilter('All Regions');
     setSubregionFilter('All Subregions'); setAreaFilter('All Areas');
     setAmFilter(''); setDriverFilter(''); setRouteSlipMode('day'); setDateFrom(''); setDateTo(''); setDateSort('default');
+    setRmaScope('all'); setRmaTypeFilter(''); setRmaMovementFilter('');
     clearDashboardFilter();
   };
 
@@ -1036,6 +1062,37 @@ export default function DeliveryRecordsView({
                         <FilterCombobox label="Driver" placeholder="All Drivers" value={driverFilter} onChange={setDriverFilter} options={driverOptions} />
                       </div>
                     </fieldset>
+                    {category === 'RMA' && (
+                      <fieldset className="min-w-0">
+                        <legend className="text-xs font-semibold text-slate-800 mb-2">RMA slip</legend>
+                        <div className="grid grid-cols-1 min-[400px]:grid-cols-3 gap-2">
+                          <label className="block min-w-0 text-xs font-medium text-slate-600">Classification
+                            <select id="rma-scope-filter" value={rmaScope} onChange={e => setRmaScope(e.target.value as typeof rmaScope)}
+                              className="mt-1 min-h-10 text-xs border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue">
+                              <option value="all">All</option>
+                              <option value="rma">RMA Only</option>
+                              <option value="internal_transfer">Internal Transfers</option>
+                            </select>
+                          </label>
+                          <label className="block min-w-0 text-xs font-medium text-slate-600">Slip Category
+                            <select id="rma-type-filter" value={rmaTypeFilter} onChange={e => setRmaTypeFilter(e.target.value)}
+                              className="mt-1 min-h-10 text-xs border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue">
+                              <option value="">All Categories</option>
+                              {RMA_CATEGORIES.map(value => <option key={value} value={value}>{formatRmaCategoryOption(value)}</option>)}
+                            </select>
+                          </label>
+                          <label className="block min-w-0 text-xs font-medium text-slate-600">Movement Method
+                            <select id="rma-movement-filter" value={rmaMovementFilter} onChange={e => setRmaMovementFilter(e.target.value)}
+                              className="mt-1 min-h-10 text-xs border border-slate-200 rounded-lg px-2.5 py-2 w-full bg-white focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue">
+                              <option value="">All</option>
+                              <option value="LOGISTICS_TRANSPORT">Logistics transport</option>
+                              <option value="SUPPLIER_COLLECTION">Supplier collection</option>
+                              <option value="INTERNAL_NO_DRIVER">Internal / no driver</option>
+                            </select>
+                          </label>
+                        </div>
+                      </fieldset>
+                    )}
                   </FilterPopover>
                 </div>
               </div>
@@ -1148,6 +1205,12 @@ export default function DeliveryRecordsView({
                         <td className="px-4 py-3.5">
                           <div className="font-semibold text-sm text-slate-900 truncate" title={rec.company_name}>{rec.company_name}</div>
                           {category === 'RMA' && <div className="text-xs text-slate-600 mt-0.5 truncate" title={rec.rma_reference ?? ''}>RMA document ref: {rec.rma_reference || 'Not assigned'}</div>}
+                          {category === 'RMA' && (rec.rma_type || rec.is_internal_transfer) && (
+                            <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
+                              {rec.rma_type && <span className="text-xs text-slate-500 truncate" title={rec.rma_type}>{rec.rma_type}</span>}
+                              {rec.is_internal_transfer && <span className="shrink-0 rounded-full border border-indigo-200 bg-indigo-50 px-1.5 py-px text-[10px] font-semibold text-indigo-700">Internal Transfer</span>}
+                            </div>
+                          )}
                           {category === 'RMA' && rec.legacy_sap_reference && <div className="text-xs text-slate-500 truncate" title={rec.legacy_sap_reference}>Legacy SAP ref: {rec.legacy_sap_reference}</div>}
                         </td>
                         <td className="px-4 py-3.5 truncate text-slate-600" title={rec.area}>{rec.area}</td>

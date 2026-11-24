@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 // Include the persisted edit state, rather than relying on timestamp precision.
 // Related attachment uploads do not overwrite metadata and need not invalidate an editor.
 const fields = [
-  'id', 'companyId', 'category', 'draft', 'status', 'priority', 'reference', 'rmaReference',
+  'id', 'companyId', 'category', 'draft', 'status', 'priority', 'reference', 'rmaReference', 'rmaType', 'isInternalTransfer',
   'remarks', 'vehicle', 'area', 'address', 'driver', 'driverId', 'driverAssistants',
   'timeIn', 'timeOut', 'receivedBy', 'accountManager', 'deliveryDate', 'itemType',
   'itemDescription', 'documentAttachment', 'amount', 'linkedCollectionId',

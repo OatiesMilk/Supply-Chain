@@ -36,18 +36,21 @@ async function read(s: Session, id: string): Promise<Rma> {
   return saved(await s.context.request.get(`/api/v1/records/${id}`));
 }
 
+/** The server allocates RTC<MMDDYY>-<NN> on save; the slip reference is never sent by the client. */
 async function create(s: Session, movement: string, draft = false): Promise<Rma> {
-  return saved(await s.context.request.post('/api/v1/records', {
+  const record = await saved(await s.context.request.post('/api/v1/records', {
     headers: s.headers,
     data: {
       company_id: 'sc255-company', category: 'RMA', priority: '2 - Moderate',
-      rma_reference: `SC255-${movement}-${Date.now()}`, rma_type: 'Return to Customer',
+      rma_type: 'Return to Customer Slip',
       area: 'Carmona', account_manager: 'RMA Test AM', delivery_date: today(),
       rma_movement: movement, is_draft: draft ? 'Yes' : 'No',
       item_type: 'Unit', item_description: 'Browser verification unit',
       line_items: [{ sku: 'SC255-UNIT', quantity: 2 }], remarks: 'Local browser fixture',
     },
   }), 201);
+  expect(record.rma_reference).toMatch(/^RTC\d{6}-\d{2,}$/);
+  return record;
 }
 
 async function action(s: Session, id: string, path: string, data: Record<string, unknown>, method = 'PATCH') {
@@ -98,6 +101,7 @@ test('three online sessions synchronize submission, reassignment, transport/POD 
     const submittedAt = Date.now();
     await tass.page.getByRole('button', { name: 'Submit', exact: true }).click();
     const submitted = await saved(await submission);
+    expect(submitted.rma_reference, 'a submitted draft keeps its allocated slip reference').toBe(draft.rma_reference);
     let since = submittedAt;
     const boardCard = logistics.page.getByRole('article').filter({ hasText: draft.rma_reference });
     await propagated('submission to Logistics board', since, () => expect(boardCard).toBeVisible(), observations);

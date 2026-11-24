@@ -42,7 +42,7 @@ async function statsQueries(role: string) {
 test('Open RMA is every RMA that is not completed and not a draft', () => {
   assert.deepEqual([...OPEN_RMA_STATUSES].sort(), ['IN_TRANSIT', 'ON_HOLD', 'PENDING', 'RESCHEDULED', 'SCHEDULED']);
   assert.equal(OPEN_RMA_STATUSES.includes('ACCOMPLISHED'), false);
-  assert.deepEqual(dashboardRecordFilter('tass-open-rma', TODAY), { category: 'RMA', draft: false, status: { in: OPEN_RMA_STATUSES } });
+  assert.deepEqual(dashboardRecordFilter('tass-open-rma', TODAY), { category: 'RMA', isInternalTransfer: false, draft: false, status: { in: OPEN_RMA_STATUSES } });
 });
 
 test('every role stats tile counts with exactly the filter its drill-down list uses', async context => {

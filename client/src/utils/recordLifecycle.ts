@@ -1,8 +1,9 @@
 import type { DeliveryRecord, DeliveryStatus, UserRole } from '../types';
+import { canonicalRmaCategory, TRANSFER_OUT_CATEGORY } from './rma';
 
 export function submissionErrors(data: {
   company_name: string; company_id: string; reference: string; delivery_date: string; category?: string;
-  rma_reference?: string; rma_type?: string; purchase_date?: string; rma_movement?: string | null;
+  rma_reference?: string; rma_type?: string; purchase_date?: string; rma_movement?: string | null; is_internal_transfer?: boolean;
   priority?: string; area?: string; account_manager?: string;
   customer_contact_name?: string; customer_contact_email?: string; customer_contact_phone?: string;
 }, isDraft: boolean): Record<string, string> {
@@ -13,8 +14,13 @@ export function submissionErrors(data: {
   if (!isRma && !isDraft && !data.reference.trim()) errors.reference = 'Reference (SAP number) is required';
   if (!isRma && !isDraft && !data.delivery_date) errors.delivery_date = 'Delivery Date is required';
   if (isRma) {
+    // Category decides the slip prefix, so Save and Save as Draft both need it. The reference itself is server-generated.
+    const category = canonicalRmaCategory(data.rma_type);
+    if (!category) errors.rma_type = 'Select a category to generate the slip reference';
+    if (data.is_internal_transfer && category !== TRANSFER_OUT_CATEGORY) errors.is_internal_transfer = 'Non-RMA internal transfer is only available for Transfer Out Slip (TXO)';
+    else if (data.is_internal_transfer && data.rma_movement === 'SUPPLIER_COLLECTION') errors.rma_movement = 'Non-RMA internal transfers must use Logistics transport or Internal / no driver';
     if (!isDraft && !['LOGISTICS_TRANSPORT', 'SUPPLIER_COLLECTION', 'INTERNAL_NO_DRIVER'].includes(data.rma_movement ?? '')) errors.rma_movement = 'Select a movement method before submitting';
-    if (!isDraft && data.rma_movement === 'LOGISTICS_TRANSPORT' && !deliveryScheduleState(data.delivery_date).valid) errors.delivery_date = 'A valid Delivery Date is required for Logistics transport';
+    if (!errors.rma_movement && !isDraft && data.rma_movement === 'LOGISTICS_TRANSPORT' && !deliveryScheduleState(data.delivery_date).valid) errors.delivery_date = 'A valid Delivery Date is required for Logistics transport';
     if (!data.priority?.trim()) errors.priority = 'Priority is required';
     else if (!['1 - Low', '2 - Moderate', '3 - High'].includes(data.priority)) errors.priority = 'Select a valid Priority';
     if (!data.area?.trim()) errors.area = 'Area is required';

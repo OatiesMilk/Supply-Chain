@@ -373,6 +373,11 @@ test('shared RMA creation requires an explicit movement choice and preserves sub
     await ui.renderElement(React.createElement(CreateForm, { category: 'RMA', categoryLocked: true, companies: [company], onSubmit: submit, onCancel: () => {} }));
     await ui.flush();
     await act(async () => ui.button('Auto Fill')!.click());
+    // Pin a non-Receiving-Slip category so the movement requirement never depends on Auto Fill's random pick.
+    const category = ui.dom.window.document.getElementById('create-rma-type') as HTMLSelectElement;
+    await act(async () => { category.value = 'Pull Out Slip'; category.dispatchEvent(new ui.dom.window.Event('change', { bubbles: true })); });
+    await ui.flush();
+    assert.equal((ui.dom.window.document.getElementById('create-rma-movement') as HTMLSelectElement).value, '', 'Auto Fill leaves the movement method unset');
     const form = ui.dom.window.document.querySelector('form')!;
     const submitForm = async (label: string) => { await act(async () => form.dispatchEvent(new ui.dom.window.SubmitEvent('submit', { bubbles: true, cancelable: true, submitter: ui.button(label) }))); await ui.flush(); };
     await submitForm('Submit');
@@ -386,6 +391,46 @@ test('shared RMA creation requires an explicit movement choice and preserves sub
     assert.equal(saved.rma_movement, 'LOGISTICS_TRANSPORT'); assert.equal(saved.category, 'RMA'); assert.equal(saved.is_draft, 'No');
     assert.equal(saved.company_id, company.id); assert.ok(saved.delivery_date); assert.ok(saved.line_items.length > 0);
     assert.equal(saved.reference, ''); assert.equal(saved.rma_reference, null, 'auto-fill does not invent manual references');
+  } finally { await ui.close(); }
+});
+
+test('RMA create form: required slip category, read-only reference preview, RR default and TXO internal transfer option', async () => {
+  const ui = await fixture();
+  const { default: CreateForm } = await import('../src/features/deliveries/RecordCreateForm');
+  const submit = mock.fn(async (data: any) => base({ ...data, id: 'created-rma', rma_reference: 'TXO112426-01' }));
+  const company = { id: 'company', name: 'RMA Company', contact_person: 'Contact' } as any;
+  mock.method(api, 'getAccountManagers', async () => [{ id: 'am-1', name: 'P. Soriano', is_active: true }]);
+  try {
+    await ui.renderElement(React.createElement(CreateForm, { category: 'RMA', categoryLocked: true, companies: [company], onSubmit: submit, onCancel: () => {} }));
+    await ui.flush();
+    const doc = ui.dom.window.document;
+    const category = doc.getElementById('create-rma-type') as HTMLSelectElement;
+    const reference = doc.getElementById('create-rma-reference') as HTMLInputElement;
+    const movement = () => doc.getElementById('create-rma-movement') as HTMLSelectElement;
+    assert.equal(reference.readOnly, true);
+    assert.match(reference.value, /Select a category first/);
+    assert.deepEqual([...category.options].slice(1).map(option => option.textContent), [
+      'Pull Out Slip (POS)', 'Return to Customer Slip (RTC)', 'Return to Supplier Slip (RTS)', 'Advance Replacement Slip (ARD)', 'Receiving Slip (RR)', 'Transfer Out Slip (TXO)']);
+    const choose = async (select: HTMLSelectElement, value: string) => { await act(async () => { select.value = value; select.dispatchEvent(new ui.dom.window.Event('change', { bubbles: true })); }); await ui.flush(); };
+    await choose(category, 'Receiving Slip');
+    assert.equal(movement().value, 'INTERNAL_NO_DRIVER', 'walk-in Receiving Slips default to Internal / no driver');
+    assert.match(reference.value, /^Auto-generated on save \(RR\d{6}-NN\)$/);
+    assert.equal(doc.getElementById('create-rma-internal-transfer'), null, 'only Transfer Out Slips can be internal transfers');
+    await choose(category, 'Transfer Out Slip');
+    const transfer = doc.getElementById('create-rma-internal-transfer') as HTMLInputElement;
+    assert.ok(transfer);
+    await act(async () => transfer.click()); await ui.flush();
+    const supplier = [...movement().options].find(option => option.value === 'SUPPLIER_COLLECTION')!;
+    assert.equal(supplier.disabled, true, 'internal transfers cannot use supplier collection');
+    await act(async () => ui.button('Auto Fill')!.click());
+    await choose(category, 'Transfer Out Slip');
+    await act(async () => (doc.getElementById('create-rma-internal-transfer') as HTMLInputElement).click()); await ui.flush();
+    await choose(movement(), 'INTERNAL_NO_DRIVER');
+    const form = doc.querySelector('form')!;
+    await act(async () => form.dispatchEvent(new ui.dom.window.SubmitEvent('submit', { bubbles: true, cancelable: true, submitter: ui.button('Submit') }))); await ui.flush();
+    assert.equal(submit.mock.callCount(), 1);
+    const saved = submit.mock.calls[0].arguments[0];
+    assert.equal(saved.rma_type, 'Transfer Out Slip'); assert.equal(saved.is_internal_transfer, true); assert.equal(saved.rma_reference, null);
   } finally { await ui.close(); }
 });
 
