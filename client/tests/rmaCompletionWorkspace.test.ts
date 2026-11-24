@@ -9,6 +9,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { api } from '../src/api';
 import type { DeliveryRecord, UserRole } from '../src/types';
 import { saveRecordToCache } from '../src/api/queries/operationalSync';
+import { manilaToday } from '../src/utils/recordLifecycle';
+import { rmaEventDateError } from '../src/features/deliveries/RmaWorkflowPanel';
 
 const base = (updates: Partial<DeliveryRecord> = {}) => ({
   id: 'rma-ui', company_id: 'company', company_name: 'RMA customer', category: 'RMA',
@@ -74,24 +76,68 @@ const dialogButton = (ui: { dom: JSDOM }, title: string, label: string) => {
 };
 const none = { assign: false, transport: false, receive: false, complete: false, pod: false, correctTransport: false };
 
-test('TASS confirms physical receipt separately before final completion without a metadata PUT or driver clocks', async () => {
+const manilaDay = (offsetDays = 0) => manilaToday(new Date(Date.now() + offsetDays * 86_400_000));
+
+test('TASS confirms physical receipt with an editable receipt date and no Recipient, then completes with a completion date', async () => {
   const ui = await fixture(); let record = base();
   mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []);
   mock.method(api, 'getRmaCapabilities', async () => ({ ...none, receive: !record.rma_received_at, complete: !!record.rma_received_at && record.status !== 'Delivered' }));
   const put = mock.method(api, 'updateRecord', async () => { throw new Error('Receipt is a dedicated action'); });
-  const receive = mock.method(api, 'receiveRma', async (_id, data) => record = { ...record, rma_version: 1, rma_recipient: data.recipient, rma_received_at: '2026-10-28T02:00:00Z', rma_received_by: 'tass-id' });
-  const complete = mock.method(api, 'patchStatus', async () => record = { ...record, status: 'Delivered', rma_version: 2, rma_completed_at: '2026-10-28T02:01:00Z' });
+  const receivedDay = manilaDay(-2);
+  const receive = mock.method(api, 'receiveRma', async () => record = { ...record, rma_version: 1, rma_recipient: null, rma_received_at: `${receivedDay}T04:00:00.000Z`, rma_received_by: 'tass-id' });
+  const complete = mock.method(api, 'patchStatus', async () => record = { ...record, status: 'Delivered', rma_version: 2, rma_completed_at: new Date().toISOString() });
   try {
     await ui.render(record, 'TASS', true); await act(async () => ui.button('Status & Actions')!.click()); await ui.flush();
     assert.equal(ui.button('Complete RMA'), undefined); assert.doesNotMatch(ui.dom.window.document.body.textContent!, /Record Time In|Driver & Delivery Details/);
-    await ui.input('Recipient', 'Collector'); await ui.input('Remarks', 'Units physically received');
+    const labels = [...ui.dom.window.document.querySelectorAll('label')].map(el => el.childNodes[0]?.textContent?.trim());
+    assert.ok(!labels.includes('Recipient'), 'TASS does not encode the signer');
+    const receiptDate = ui.field('Receipt date') as HTMLInputElement;
+    assert.equal(receiptDate.type, 'date'); assert.equal(receiptDate.value, manilaDay(0)); assert.equal(receiptDate.max, manilaDay(0));
+    await ui.input('Remarks', 'Signed slip returned');
+    await ui.input('Receipt date', manilaDay(1));
+    assert.match(ui.dom.window.document.body.textContent!, /Receipt date cannot be in the future\./);
+    assert.equal(ui.button('Confirm physical receipt')!.disabled, true);
+    await ui.input('Receipt date', receivedDay);
+    assert.equal(ui.button('Confirm physical receipt')!.disabled, false, 'remarks and date are enough');
     await act(async () => ui.button('Confirm physical receipt')!.click()); await ui.flush();
-    assert.deepEqual(receive.mock.calls[0].arguments, [record.id, { expected_version: 0, remarks: 'Units physically received', recipient: 'Collector' }]);
-    assert.ok(ui.button('Complete RMA')); assert.match(ui.summaryValue('Physical receipt') ?? '', /^Collector\b/);
-    await ui.input('Remarks', 'RMA reviewed and completed'); await act(async () => ui.button('Complete RMA')!.click()); await ui.flush();
-    assert.deepEqual(complete.mock.calls[0].arguments, [record.id, 'Delivered', 'RMA reviewed and completed', { expected_version: 1, received_by: 'Collector' }]);
+    assert.deepEqual(receive.mock.calls[0].arguments, [record.id, { expected_version: 0, remarks: 'Signed slip returned', received_at: receivedDay }]);
+    assert.ok(ui.button('Complete RMA')); assert.match(ui.summaryValue('Physical receipt') ?? '', /^Confirmed · /);
+    const completionDate = ui.field('Completion date') as HTMLInputElement;
+    assert.equal(completionDate.type, 'date'); assert.equal(completionDate.value, receivedDay, 'defaults to the receipt date');
+    assert.equal(completionDate.min, receivedDay); assert.equal(completionDate.max, manilaDay(0));
+    await ui.input('Remarks', 'RMA reviewed and completed');
+    await ui.input('Completion date', manilaDay(-3));
+    assert.match(ui.dom.window.document.body.textContent!, /Completion date cannot be earlier than the receipt date\./);
+    assert.equal(ui.button('Complete RMA')!.disabled, true);
+    await ui.input('Completion date', manilaDay(-1));
+    await act(async () => ui.button('Complete RMA')!.click()); await ui.flush();
+    assert.deepEqual(complete.mock.calls[0].arguments, [record.id, 'Delivered', 'RMA reviewed and completed', { expected_version: 1, completed_at: manilaDay(-1) }]);
     assert.equal(record.time_in, null); assert.equal(record.time_out, null); assert.equal(put.mock.callCount(), 0);
   } finally { await ui.close(); }
+});
+
+test('a legacy confirmed Recipient is still passed through on completion', async () => {
+  const ui = await fixture();
+  const record = base({ rma_version: 1, rma_recipient: 'Collector', rma_received_at: new Date().toISOString(), rma_received_by: 'tass-id' });
+  mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []);
+  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, complete: true }));
+  const complete = mock.method(api, 'patchStatus', async () => ({ ...record, status: 'Delivered', rma_version: 2 }));
+  try {
+    await ui.render(record, 'TASS');
+    assert.match(ui.summaryValue('Physical receipt') ?? '', /^Collector\b/);
+    await ui.input('Remarks', 'Completed');
+    await act(async () => ui.button('Complete RMA')!.click()); await ui.flush();
+    assert.deepEqual(complete.mock.calls[0].arguments, [record.id, 'Delivered', 'Completed', { expected_version: 1, completed_at: manilaDay(0), received_by: 'Collector' }]);
+  } finally { await ui.close(); }
+});
+
+test('receipt/completion date validation mirrors the server bounds', () => {
+  const today = '2026-11-24';
+  assert.equal(rmaEventDateError('', 'Receipt date', today, null, 'x'), 'Receipt date is required.');
+  assert.equal(rmaEventDateError('2026-11-25', 'Receipt date', today, null, 'x'), 'Receipt date cannot be in the future.');
+  assert.equal(rmaEventDateError('2026-11-19', 'Receipt date', today, '2026-11-20', 'Too early'), 'Too early');
+  assert.equal(rmaEventDateError('2026-11-20', 'Receipt date', today, '2026-11-20', 'Too early'), null, 'same day as the lower bound');
+  assert.equal(rmaEventDateError(today, 'Completion date', today, null, 'x'), null);
 });
 
 test('Logistics reuses coverage-ranked assignment in its read-only workspace and refused saves preserve the edit', async () => {

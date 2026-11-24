@@ -17,13 +17,24 @@ test('RMA completion patches the confirmed receipt recipient and version without
   const put = mock.method(api, 'updateRecord', async () => { throw new Error('RMA completion must use one status update'); });
   const patch = mock.method(api, 'patchStatus', async () => ({ id: 'rma', status: 'Delivered', received_by: 'Collector' }));
   const options = createUpdateRecordMutationOptions(client);
-  await assert.rejects(options.mutationFn({ id: 'rma', updates: { status: 'Delivered', received_by: ' ', remarks: 'Collected' } }), /Recipient \/ Collector/);
   await assert.rejects(options.mutationFn({ id: 'rma', updates: { status: 'Delivered', received_by: 'Collector', remarks: ' ' } }), /Remarks/);
   const saved = await options.mutationFn({ id: 'rma', updates: { status: 'Delivered', received_by: ' Collector ', remarks: 'Collected' } });
   assert.equal(saved.status, 'Delivered');
   assert.deepEqual(patch.mock.calls[0].arguments, ['rma', 'Delivered', 'Collected', { received_by: 'Collector', expected_version: 3 }]);
   assert.equal(files.mock.callCount(), 0);
   assert.equal(put.mock.callCount(), 0);
+  client.clear();
+});
+
+test('RMA completion without a confirmed recipient sends no received_by', async () => {
+  const client = createQueryClient();
+  mock.method(api, 'getRecord', async () => ({ id: 'rma', status: 'Scheduled', category: 'RMA', time_in: null, received_by: 'Legacy name', rma_received_at: '2026-10-28T01:00:00Z', rma_recipient: null, rma_version: 3 }));
+  const patch = mock.method(api, 'patchStatus', async () => ({ id: 'rma', status: 'Delivered', received_by: null }));
+  const options = createUpdateRecordMutationOptions(client);
+  await options.mutationFn({ id: 'rma', updates: { status: 'Delivered', remarks: 'Collected' } });
+  await options.mutationFn({ id: 'rma', updates: { status: 'Delivered', received_by: ' ', remarks: 'Collected' } });
+  assert.deepEqual(patch.mock.calls[0].arguments, ['rma', 'Delivered', 'Collected', { expected_version: 3 }]);
+  assert.deepEqual(patch.mock.calls[1].arguments, ['rma', 'Delivered', 'Collected', { expected_version: 3 }]);
   client.clear();
 });
 

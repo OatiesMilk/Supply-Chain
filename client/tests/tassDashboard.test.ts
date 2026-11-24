@@ -9,7 +9,7 @@ import type { ApiDashboardOverview, ApiDashboardStats } from '../src/api';
 import type { DeliveryRecord } from '../src/types';
 
 const h = React.createElement;
-const stats = { role: 'TASS', open_rma: 14, rma_on_hold: 2, pending_procurement_pickup: 0, pending_verification: 4, verified_today: 1 } as Extract<ApiDashboardStats, { role: 'TASS' }>;
+const stats = { role: 'TASS', open_rma: 14, rma_on_hold: 2, rma_in_transit: 5, rma_aging: 3 } as Extract<ApiDashboardStats, { role: 'TASS' }>;
 const rma = (id: string, extra: Partial<DeliveryRecord> = {}) => ({ id, category: 'RMA', status: 'Scheduled', is_draft: 'No', company_name: 'Acme Trading Corporation of the Philippines',
   area: 'Makati', delivery_date: '2026-07-12', created_at: '2026-01-01T00:00:00Z', submitted_at: new Date(Date.now() - 9 * 86_400_000).toISOString(),
   rma_reference: null, driver: '', ...extra }) as DeliveryRecord;
@@ -35,20 +35,29 @@ test('Open RMA tile explains the number with on hold and over 7 days counts', ()
 test('every tile has one action, a context line and calm zero states', () => {
   const markup = html();
   assert.match(text(markup), /Blocked, needs action/);
-  assert.match(text(markup), /Nothing pending/);
-  assert.match(text(markup), /1 verified today/);
+  assert.match(text(markup), /With Logistics driver/);
+  assert.match(text(markup), /Needs follow-up/);
   const tiles = markup.split('data-kpi-tile').length - 1;
   assert.equal(tiles, 4);
-  const calm = text(html({ stats: { ...stats, rma_on_hold: 0, pending_verification: 0, verified_today: 0 } }));
-  assert.match(calm, /No blocked RMA/); assert.match(calm, /Nothing to verify/);
+  const calm = text(html({ stats: { ...stats, rma_on_hold: 0, rma_in_transit: 0, rma_aging: 0 } }));
+  assert.match(calm, /No blocked RMA/); assert.match(calm, /None in transit/); assert.match(calm, /All within 7 days/);
+});
+
+test('TASS tiles are RMA-only: no collection verification or procurement pick-up tiles', () => {
+  const markup = html();
+  assert.match(markup, /aria-label="In transit, 5 RMA records\. View list"/);
+  assert.match(markup, /aria-label="Aging over 7 days, 3 RMA records\. View list"/);
+  assert.doesNotMatch(text(markup), /Collections to verify|Pick-ups pending|verified today|Awaiting your sign-off/);
+  assert.doesNotMatch(markup, /accounting_collection|procurement_pickup/);
 });
 
 test('while stats load the tiles show skeletons and no numbers, never a guessed count', () => {
   const markup = html({ stats: null });
   assert.equal((markup.match(/aria-busy="true"/g) ?? []).length >= 4, true);
-  assert.doesNotMatch(markup, /<button[^>]*aria-label="(Open RMA|On hold|Pick-ups pending|Collections to verify),/);
+  assert.doesNotMatch(markup, /<button[^>]*aria-label="(Open RMA|On hold|In transit|Aging over 7 days),/);
   const tilesOnly = markup.slice(markup.indexOf('<div class="grid'), markup.indexOf('Open RMA needing attention'));
-  assert.doesNotMatch(text(tilesOnly.replace(/class="[^"]*"/g, '')), /\b\d+\b/);
+  // "Aging over 7 days" is a label, not a count.
+  assert.doesNotMatch(text(tilesOnly.replace(/class="[^"]*"/g, '')).replace(/Aging over 7 days/g, ''), /\b\d+\b/);
 });
 
 test('table lists On-Hold first, shows the RMA reference on a second line and a Status without the RMA prefix', () => {
@@ -100,7 +109,8 @@ test('TASS dashboard heading, Manila update stamp and refresh', () => {
 test('tiles and links for screens the viewer cannot open have no button', () => {
   const markup = html({ canAccess: (screen: string) => screen !== 'rma' });
   assert.doesNotMatch(markup, /aria-label="Open RMA, /); assert.doesNotMatch(markup, /aria-label="On hold, /);
-  assert.match(markup, /aria-label="Pick-ups pending, /);
+  assert.doesNotMatch(markup, /aria-label="In transit, /); assert.doesNotMatch(markup, /aria-label="Aging over 7 days, /);
+  assert.match(text(markup), /In transit/);
   assert.doesNotMatch(markup, /View all 14 open RMA records/);
   assert.doesNotMatch(markup, /aria-label="Open RMA record (RMA|REC)/);
 });
@@ -138,13 +148,15 @@ test('footer link, tiles and rows navigate with the dashboard filter', async () 
   await click(buttons.find(b => b.textContent?.includes('View all 14 open RMA records'))!);
   await click(buttons.find(b => b.getAttribute('aria-label')?.startsWith('Open RMA, 14'))!);
   await click(buttons.find(b => b.getAttribute('aria-label')?.startsWith('On hold'))!);
-  await click(buttons.find(b => b.getAttribute('aria-label')?.startsWith('Collections to verify'))!);
+  await click(buttons.find(b => b.getAttribute('aria-label')?.startsWith('In transit'))!);
+  await click(buttons.find(b => b.getAttribute('aria-label')?.startsWith('Aging over 7 days'))!);
   await click(buttons.find(b => b.getAttribute('aria-label') === 'Open RMA record RMA-2026-001')!);
   assert.deepEqual(calls, [
     ['rma', undefined, 'tass-open-rma'],
     ['rma', undefined, 'tass-open-rma'],
     ['rma', undefined, 'tass-rma-on-hold'],
-    ['accounting_collection', undefined, 'tass-pending-verification'],
+    ['rma', undefined, 'tass-rma-in-transit'],
+    ['rma', undefined, 'tass-rma-aging'],
     ['rma', 'REC-1'],
   ]);
   await act(async () => { root.unmount(); });

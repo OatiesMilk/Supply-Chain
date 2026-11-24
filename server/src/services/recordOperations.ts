@@ -11,7 +11,7 @@ const detailFields = ['company_id', 'priority', 'reference', 'rma_reference', 'c
 export function recordMutationInputError(body: unknown, route: string, method: string): string | null {
   if (method === 'GET' || route.includes('/attachments') && method === 'POST') return null;
   if (!body || typeof body !== 'object' || Array.isArray(body)) return 'Record mutation must be an object';
-  const allowed = route.endsWith('/status') ? ['status', 'remarks', 'priority', 'received_by', 'delivery_date', 'expected_version', 'expected_edit_version']
+  const allowed = route.endsWith('/status') ? ['status', 'remarks', 'priority', 'received_by', 'delivery_date', 'completed_at', 'expected_version', 'expected_edit_version']
     : route.endsWith('/comments') ? ['body'] : route.endsWith('/time-in') ? ['remarks']
     : route.endsWith('/verify-collection') ? [] : route.endsWith('/complete') ? ['remarks', 'reviewed_photo_id', 'expected_edit_version'] : route.includes('/attachments') ? ['remarks']
     : method === 'POST' ? [...detailFields, 'status', 'company_name', 'output_actions_log'] : detailFields;
@@ -34,6 +34,7 @@ export function recordOperationError(user: AuthUser, record: RecordContext, body
     if (target !== runStateForPermission(record) && !allowed('STATUS', target)) return 'Status changes denied';
     if (target === 'Delivered' && !allowed('COMPLETE', target)) return 'Completion denied';
     if (body.received_by !== undefined && !allowed('COMPLETE', undefined, true)) return 'Recipient changes denied';
+    if (body.completed_at !== undefined && !allowed('COMPLETE', undefined, true)) return 'Completion date changes denied';
     if ((body.priority !== undefined || body.delivery_date !== undefined) && !allowed('UPDATE')) return 'Record detail changes denied';
     return null;
   }

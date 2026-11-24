@@ -162,15 +162,22 @@ test('three online sessions synchronize submission, reassignment, transport/POD 
     await expect(transport(logistics.page)).toContainText('Complete');
     expect((await action(driver, draft.id, 'status', { status: 'Delivered', remarks: 'Driver must not finalize RMA', expected_version: current.rma_version })).status()).toBe(403);
 
-    await transport(tass.page).getByLabel('Recipient', { exact: true }).fill('Verified TASS Recipient');
+    // TASS records the receipt date and status only; there is no Recipient input.
+    await expect(transport(tass.page).getByLabel('Recipient', { exact: true })).toHaveCount(0);
+    const receiptDate = transport(tass.page).getByLabel('Receipt date', { exact: true });
+    await expect(receiptDate).toHaveAttribute('type', 'date');
+    const today = await receiptDate.inputValue();
+    expect(today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    await expect(receiptDate).toHaveAttribute('max', today);
     await transport(tass.page).getByLabel('Remarks', { exact: true }).fill('Physical receipt verified separately');
     const receiptResponse = tass.page.waitForResponse(r => r.url().endsWith(`/records/${draft.id}/rma-receipt`));
     await transport(tass.page).getByRole('button', { name: 'Confirm physical receipt', exact: true }).click();
     const received = await saved(await receiptResponse);
     expect(received.rma_received_at).toBeTruthy();
     expect(received.rma_received_by).toBe('sc255-user-1');
-    expect(received.rma_recipient).toBe('Verified TASS Recipient');
+    expect(received.rma_recipient).toBeNull();
     expect(received.status).not.toBe('Delivered');
+    await expect(transport(tass.page).getByLabel('Completion date', { exact: true })).toHaveAttribute('type', 'date');
     await transport(tass.page).getByLabel('Remarks', { exact: true }).fill('TASS final completion verified');
     const finalResponse = tass.page.waitForResponse(r => r.url().endsWith(`/records/${draft.id}/status`) && r.request().method() === 'PATCH');
     await transport(tass.page).getByRole('button', { name: 'Complete RMA', exact: true }).click();
@@ -218,8 +225,9 @@ test('supplier/internal no-driver movements retain view access without dispatch,
       expect(notices.some((n: { record_id: string }) => n.record_id === record.id)).toBe(false);
       await expect(logistics.page.getByRole('article').filter({ hasText: record.rma_reference })).toHaveCount(0);
       const receipt = await saved(await action(tass, record.id, 'rma-receipt', {
-        recipient: 'No-driver Recipient', expected_version: record.rma_version, remarks: 'Confirm no-driver receipt',
+        expected_version: record.rma_version, remarks: 'Confirm no-driver receipt',
       }, 'POST'));
+      expect(receipt.rma_recipient).toBeNull();
       const complete = await saved(await action(tass, record.id, 'status', {
         status: 'Delivered', expected_version: receipt.rma_version, remarks: 'Complete without invented driver clocks',
       }));

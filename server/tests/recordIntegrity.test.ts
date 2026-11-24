@@ -66,6 +66,8 @@ async function fixture(t: TestContext, role: Role = 'SALES_COORDINATOR') {
       : where?.role === 'LOGISTICS' ? [{ id: 'logistics-user', role: 'LOGISTICS', name: 'Logistics', email: 'logistics@example.test', isActive: true,
         authorizationRevision: 1n, permissions: [], permissionOverrides: [], permissionConversion: null, driverProfile: null }]
       : where?.role?.in?.includes('TASS') ? [{ id: 'tass-eligible', role: 'TASS', name: 'TASS Reviewer', email: 'tass@example.test', isActive: true,
+        authorizationRevision: 1n, permissions: [], permissionOverrides: [], permissionConversion: null, driverProfile: null }]
+      : where?.role?.in?.includes('LOGISTICS') ? [{ id: 'logistics-eligible', role: 'LOGISTICS', name: 'Logistics Reviewer', email: 'logistics-reviewer@example.test', isActive: true,
         authorizationRevision: 1n, permissions: [], permissionOverrides: [], permissionConversion: null, driverProfile: null }] : [] },
     rolePolicy: { findUnique: async ({ where }: any) => rmaTestPolicy(where.role), findMany: async ({ where }: any) => (where?.role?.in ?? []).map((role: any) => rmaTestPolicy(role)) },
     $queryRaw: async () => [], $executeRaw: async () => 1,
@@ -205,7 +207,7 @@ test('an assigned Driver can submit transport proof, while missing Sales coverag
   assert.equal(notificationFailure.notifications.length, 0);
 });
 
-test('Sales sign-off records reviewer and exact photo, then alerts TASS without verifying the collection', async t => {
+test('Sales sign-off records reviewer and exact photo, then alerts Logistics without verifying the collection', async t => {
   const state = await fixture(t, 'SALES_COORDINATOR');
   state.setRow({ category: 'ACCOUNTING_COLLECTION', draft: false, status: 'TRANSPORT_COMPLETE', deliveryDate: '2026-10-30',
     timeIn: '2026-10-30T01:00:00.000Z', timeOut: '2026-10-30T03:00:00.000Z', receivedBy: 'Receiver',
@@ -221,17 +223,18 @@ test('Sales sign-off records reviewer and exact photo, then alerts TASS without 
   assert.ok((state.row() as any).completionSignedOffAt instanceof Date);
   assert.equal((state.row() as any).completionRemarks, 'Verified recipient and saved receipt.');
   assert.equal((state.row() as any).completionReviewedPhotoId, transportPhoto.id);
-  assert.equal(state.row().collectionVerified, false, 'only TASS can verify collection');
+  assert.equal(state.row().collectionVerified, false, 'only Logistics can verify collection');
   assert.equal(state.row().collectionVerifiedBy, undefined);
   assert.equal(state.row().collectionVerifiedAt, undefined);
   assert.equal(state.notifications.length, 1);
-  assert.equal((state.notifications[0] as any).userId, 'tass-eligible');
+  assert.equal((state.notifications[0] as any).userId, 'logistics-eligible');
   assert.equal((state.notifications[0] as any).title, 'Collection ready for verification');
+  assert.match((state.notifications[0] as any).message, /Logistics collection verification/);
   assert.equal(state.audits.length, 1);
   assert.equal(JSON.parse((state.audits[0] as any).newValue).completion_reviewed_photo_id, transportPhoto.id);
 });
 
-test('Accounting Collection sign-off rolls back when its TASS notification cannot be saved', async t => {
+test('Accounting Collection sign-off rolls back when its Logistics notification cannot be saved', async t => {
   const state = await fixture(t, 'SALES_COORDINATOR');
   state.setRow({ category: 'ACCOUNTING_COLLECTION', draft: false, status: 'TRANSPORT_COMPLETE', deliveryDate: '2026-10-30',
     timeIn: '2026-10-30T01:00:00.000Z', timeOut: '2026-10-30T03:00:00.000Z', receivedBy: 'Receiver', podAttachments: [transportPhoto] });
@@ -348,7 +351,7 @@ test('valid record creation uses UUID IDs even when Math.random repeats, and leg
 });
 
 test('concurrent collection confirmations produce one verification, one conflict, and one audit/alert', async t => {
-  const state = await fixture(t, 'TASS');
+  const state = await fixture(t, 'LOGISTICS');
   state.setRow({ category: 'ACCOUNTING_COLLECTION', draft: false, status: 'ACCOMPLISHED' });
   // Deliberately let both transactions read unverified state: the conditional
   // write must still protect confirmation even without a real PostgreSQL lock.
@@ -363,7 +366,7 @@ test('concurrent collection confirmations produce one verification, one conflict
 
 for (const failure of ['audit', 'notification']) {
   test(`collection verification rolls back when ${failure} persistence fails and forwards the async error`, async t => {
-    const state = await fixture(t, 'TASS');
+    const state = await fixture(t, 'LOGISTICS');
     state.setRow({ category: 'ACCOUNTING_COLLECTION', draft: false, status: 'ACCOMPLISHED' });
     failure === 'audit' ? state.failAudit() : state.failNotification();
     const response = await state.request('/records/REC-legacy/verify-collection', 'PATCH', {});
@@ -376,7 +379,7 @@ for (const failure of ['audit', 'notification']) {
 }
 
 test('collection verification rejects completed drafts, uncompleted records, and repeats', async t => {
-  const state = await fixture(t, 'TASS');
+  const state = await fixture(t, 'LOGISTICS');
   for (const [extra, expected] of [
     [{ draft: true, status: 'ACCOMPLISHED' }, 400],
     [{ draft: false, status: 'SCHEDULED' }, 400],
@@ -387,6 +390,17 @@ test('collection verification rejects completed drafts, uncompleted records, and
   }
   assert.equal(state.updates.length, 0);
 });
+
+for (const role of ['TASS', 'SALES_COORDINATOR', 'ADMIN', 'DRIVER'] as const) {
+  test(`collection verification is Logistics-owned: ${role} is rejected without writing`, async t => {
+    const state = await fixture(t, role);
+    state.setRow({ category: 'ACCOUNTING_COLLECTION', draft: false, status: 'ACCOMPLISHED' });
+    assert.equal((await state.request('/records/REC-legacy/verify-collection', 'PATCH', {})).status, 403);
+    assert.equal(state.updates.length, 0);
+    assert.equal(state.audits.length, 0);
+    assert.equal(state.row().collectionVerified, false);
+  });
+}
 
 for (const category of ['DELIVERY', 'PROCUREMENT_PICKUP', 'ACCOUNTING_COLLECTION', 'SALES_ORDERS']) {
   test(`${category} submitted records cannot lose their required reference/date through metadata edits`, async t => {

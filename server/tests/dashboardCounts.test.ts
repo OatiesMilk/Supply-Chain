@@ -50,13 +50,17 @@ test('every role stats tile counts with exactly the filter its drill-down list u
   const expected: Record<string, string[]> = {
     SALES_COORDINATOR: ['sc-scheduled-today', 'sc-pending-assignment', 'sc-on-hold', 'sc-rescheduled', 'sc-completed-today'],
     LOGISTICS: ['log-assigned-today', 'log-transport-requests', 'log-completed-today', 'log-on-hold-rescheduled'],
-    TASS: ['tass-open-rma', 'tass-rma-on-hold', 'tass-pending-pickups', 'tass-pending-verification', 'tass-verified-today'],
+    TASS: ['tass-open-rma', 'tass-rma-on-hold', 'tass-rma-in-transit', 'tass-rma-aging'],
   };
   for (const [role, ids] of Object.entries(expected)) {
     const { queries, user } = await statsQueries(role);
     ids.forEach((id, index) => {
-      assert.deepEqual(queries[index], { AND: [recordScope(user)], deletedAt: null, ...dashboardRecordFilter(id, TODAY) }, `${role} ${id}`);
-      assert.equal(queries[index].draft, false, `${role} ${id} excludes drafts`);
+      const filter = dashboardRecordFilter(id, TODAY)!;
+      // A filter carrying its own AND is nested beside the scope so it can never replace it.
+      const where = filter.AND ? { AND: [recordScope(user), filter], deletedAt: null } : { AND: [recordScope(user)], deletedAt: null, ...filter };
+      assert.deepEqual(queries[index], where, `${role} ${id}`);
+      assert.deepEqual(queries[index].AND[0], recordScope(user), `${role} ${id} keeps the record scope`);
+      if (!filter.AND) assert.equal(queries[index].draft, false, `${role} ${id} excludes drafts`);
     });
   }
 });

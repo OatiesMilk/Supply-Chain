@@ -174,7 +174,9 @@ Commit message format: `<type>(<subsystem>): <message> (TSK-XX)`
 - Preserve linked Driver profile ownership, immutable role ceilings and
   action-level denials. Admin does not bypass every domain boundary.
 - RMA transport completion, TASS physical receipt and final completion are
-  separate events. Collection verification is TASS-owned.
+  separate events (Recipient is optional on TASS physical receipt; receipt and
+  completion dates are editable). TASS has no Accounting Collection access;
+  collection verification is Logistics-owned.
 - Trace UI → API → middleware/domain rules → transaction/audit/evidence →
   notifications/cache → next role's view, including alternate submission paths.
 - Report configured, queued, mocked, sent, skipped and failed integration outcomes

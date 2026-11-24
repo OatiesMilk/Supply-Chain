@@ -76,7 +76,7 @@ export function assertPermissionRequest(path: string, options: RequestInit = {})
       else if (operation === 'comments') actions.push('COMMENT');
       else if (operation === 'attachments') actions.push('POD');
       else if (operation === 'time-in') actions.push('TIME_IN');
-      else if (operation === 'verify-collection') { require(user.role === 'TASS'); actions.push('VERIFY_COLLECTION'); }
+      else if (operation === 'verify-collection') { require(user.role === 'LOGISTICS'); actions.push('VERIFY_COLLECTION'); }
       else if (operation === 'complete') { require(user.role === 'SALES_COORDINATOR'); actions.push('RECEIVE'); }
       else if (operation === 'rma-assignment') actions.push('ASSIGN');
       else if (operation === 'rma-transport-correction') { require(user.role === 'LOGISTICS'); actions.push('ASSIGN'); }

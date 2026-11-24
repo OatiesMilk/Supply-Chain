@@ -364,9 +364,8 @@ export type ApiDashboardStats =
       role: 'TASS';
       open_rma: number;
       rma_on_hold: number;
-      pending_procurement_pickup: number;
-      pending_verification: number;
-      verified_today: number;
+      rma_in_transit: number;
+      rma_aging: number;
     }
   | {
       role: 'ADMIN';
@@ -653,7 +652,7 @@ export const api = {
     request<any>(`/records/${id}/rma-assignment`, { method: 'PATCH', body: JSON.stringify(data) }),
   progressRmaTransport: (id: string, data: { transport_status: 'IN_TRANSIT' | 'COMPLETED'; expected_version: number; remarks?: string; received_by?: string }) =>
     request<any>(`/records/${id}/rma-transport`, { method: 'PATCH', body: JSON.stringify(data) }),
-  receiveRma: (id: string, data: { recipient: string; expected_version: number; remarks: string }) =>
+  receiveRma: (id: string, data: { recipient?: string | null; received_at?: string; expected_version: number; remarks: string }) =>
     request<any>(`/records/${id}/rma-receipt`, { method: 'POST', body: JSON.stringify(data) }),
   correctRmaTransport: (id: string, data: { transport_received_by?: string; transport_started_at?: string; transport_completed_at?: string; expected_version: number; remarks: string }) =>
     request<any>(`/records/${id}/rma-transport-correction`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -664,7 +663,7 @@ export const api = {
     request<any>(`/records/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   recordTimeIn: (id: string, remarks?: string) =>
     request<any>(`/records/${id}/time-in`, { method: 'POST', body: JSON.stringify({ remarks }) }),
-  patchStatus: (id: string, status: string, remarks?: string, extra?: { time_out?: string; received_by?: string; priority?: string; delivery_date?: string; expected_version?: number; expected_edit_version?: string }) =>
+  patchStatus: (id: string, status: string, remarks?: string, extra?: { time_out?: string; received_by?: string; priority?: string; delivery_date?: string; completed_at?: string; expected_version?: number; expected_edit_version?: string }) =>
     request<any>(`/records/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, remarks: remarks ?? '', ...extra }) }),
   completeRecord: (id: string, data: { remarks: string; reviewed_photo_id: string; expected_edit_version: string }) =>
     request<any>(`/records/${id}/complete`, { method: 'PATCH', body: JSON.stringify(data) }),

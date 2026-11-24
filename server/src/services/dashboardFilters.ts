@@ -125,9 +125,7 @@ export function dashboardRecordFilter(id: string, today = manilaToday()): Prisma
         OR: [{ submittedAt: { lt: cutoff } }, { submittedAt: null, createdAt: { lt: cutoff } }] };
     }
     case 'tass-rma-on-hold': return { category: 'RMA', draft: false, status: 'ON_HOLD' };
-    case 'tass-pending-pickups': return { category: 'PROCUREMENT_PICKUP', draft: false, status: { in: ['SCHEDULED', 'PENDING'] } };
-    case 'tass-verified-today': return { category: 'ACCOUNTING_COLLECTION', draft: false, collectionVerified: true, collectionVerifiedAt: { gte: date, lt: tomorrow } };
-    case 'tass-pending-verification': case 'admin-unverified-collections': return { category: 'ACCOUNTING_COLLECTION', draft: false, status: 'ACCOMPLISHED', collectionVerified: false };
+    case 'admin-unverified-collections': return { category: 'ACCOUNTING_COLLECTION', draft: false, status: 'ACCOMPLISHED', collectionVerified: false };
     default: return null;
   }
 }

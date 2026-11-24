@@ -453,7 +453,7 @@ test('Logistics sees locked driver/assistant controls on Draft and Transport Com
   }
 });
 
-test('TASS does not see Status & Actions tab while Verification and Documents tabs remain available', async () => {
+test('TASS has no Accounting Collection access: no Status & Actions, no verification cue and no collection evidence', async () => {
   installLegacySession('TASS', 'accounting_collection');
   mock.method(api, 'getRecordAttachments', async () => [photoAttachment]);
 
@@ -463,11 +463,16 @@ test('TASS does not see Status & Actions tab while Verification and Documents ta
   });
   try {
     assert.equal(ui.tab('Status & Actions'), undefined);
-    assert.ok(ui.tab('Verification'));
-    assert.ok(ui.tab('Documents'));
-    await act(async () => ui.tab('Documents')!.click());
-    await ui.flush();
-    assert.ok(ui.dom.window.document.querySelector('[aria-label="Download collection-proof.jpg"]'));
+    const body = () => ui.dom.window.document.body.textContent ?? '';
+    assert.doesNotMatch(body(), /Open Verification|Ready for Logistics collection verification/);
+    for (const label of ['Verification', 'Documents']) {
+      const tab = ui.tab(label);
+      if (!tab) continue;
+      await act(async () => tab.click());
+      await ui.flush();
+      assert.equal(ui.dom.window.document.querySelector('[aria-label="Download collection-proof.jpg"]'), null, label);
+    }
+    assert.equal([...ui.dom.window.document.querySelectorAll('button')].some(el => /verify collection/i.test(el.textContent ?? '')), false);
   } finally {
     await ui.close();
   }

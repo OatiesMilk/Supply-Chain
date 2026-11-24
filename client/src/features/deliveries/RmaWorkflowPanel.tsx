@@ -16,13 +16,23 @@ import { invalidateOperationalQueries, normalizeApiRecord, saveRecordToCache, us
 import { operationalSyncOptions } from '@/api/queries/operationalSync';
 import { RMA_MOVEMENT_LABELS, rmaLogisticsTransportNotice } from '@/utils/rmaTransport';
 import { formatManilaTimestamp } from '@/utils/manilaTimestamp';
-import { manilaDateTimeInput, manilaInputToIso } from '@/utils/recordLifecycle';
+import { manilaDateTimeInput, manilaInputToIso, manilaToday } from '@/utils/recordLifecycle';
 import { rankDriversByCoverage } from '@/utils/driverCoverage';
 import { notify } from '@/utils/notify';
 import { Check, ChevronDown, ChevronUp, CircleAlert, CircleCheck, ClipboardEdit, Loader2, Save } from 'lucide-react';
 import { WorkflowSection, workflowFieldHintClass, workflowFieldLabelClass, workflowInputClass, workflowPrimaryButtonClass, workflowSecondaryButtonClass, workflowSelectClass } from './WorkflowSection';
 
 type Action = 'assign' | 'receive' | 'complete' | 'status' | 'correct-transport';
+
+/** Manila calendar day (YYYY-MM-DD) of a saved timestamp. */
+const manilaDayOf = (value?: string | null) => value ? manilaToday(new Date(value)) : null;
+/** Inline validation for the editable receipt/completion dates (the server re-validates). */
+export function rmaEventDateError(value: string, label: string, today: string, min: string | null, minMessage: string): string | null {
+  if (!value) return `${label} is required.`;
+  if (value > today) return `${label} cannot be in the future.`;
+  if (min && value < min) return minMessage;
+  return null;
+}
 
 function SummaryItem({ label, value }: { label: string; value: string }) {
   return <div className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
@@ -70,7 +80,6 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
   const [driverId, setDriverId] = useState(record.driver_id ?? '');
   const [vehicle, setVehicle] = useState(record.vehicle || '(None)');
   const [assistants, setAssistants] = useState(record.driver_assistants ?? []);
-  const [recipient, setRecipient] = useState('');
   const [dialog, setDialog] = useState<'start' | 'complete' | null>(null);
   const [dialogVersion, setDialogVersion] = useState(0);
   const [cardFocus, setCardFocus] = useState(0);
@@ -85,6 +94,18 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
   const [feedback, setFeedback] = useState('');
   const version = record.rma_version ?? 0;
   const staleForm = dirty && editVersion !== version;
+  // TASS records the actual date the signed slip / item came back, not who signed it.
+  const today = manilaToday();
+  const transportCompletedDate = internalTransport ? manilaDayOf(record.rma_transport_completed_at) : null;
+  const receivedDateMin = manilaDayOf(record.rma_received_at);
+  const defaultCompletionDate = receivedDateMin ?? today;
+  const [receiptDate, setReceiptDate] = useState(today);
+  const [completionDate, setCompletionDate] = useState(defaultCompletionDate);
+  const receiptDateError = rmaEventDateError(receiptDate, 'Receipt date', today, transportCompletedDate,
+    'Receipt date cannot be earlier than the transport completion date.');
+  const completionDateError = rmaEventDateError(completionDate, 'Completion date', today, receivedDateMin,
+    'Completion date cannot be earlier than the receipt date.');
+  const resetEventDates = () => { setReceiptDate(manilaToday()); setCompletionDate(manilaDayOf(record.rma_received_at) ?? manilaToday()); };
 
   const savedTransportReceivedBy = record.rma_transport_received_by ?? '';
   const savedTransportStartedAt = manilaDateTimeInput(record.rma_transport_started_at);
@@ -118,8 +139,9 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
     setTransportReceivedBy(record.rma_transport_received_by ?? '');
     setTransportStartedAt(manilaDateTimeInput(record.rma_transport_started_at));
     setTransportCompletedAt(manilaDateTimeInput(record.rma_transport_completed_at));
+    setCompletionDate(manilaDayOf(record.rma_received_at) ?? manilaToday());
     setEditVersion(version);
-  }, [record.id, version, record.driver_id, record.vehicle, record.driver_assistants, record.rma_transport_received_by, record.rma_transport_started_at, record.rma_transport_completed_at, dirty]);
+  }, [record.id, version, record.driver_id, record.vehicle, record.driver_assistants, record.rma_transport_received_by, record.rma_transport_started_at, record.rma_transport_completed_at, record.rma_received_at, dirty]);
   const beginEdit = () => {
     if (!dirty) setEditVersion(version);
     setDirty(true);
@@ -150,17 +172,22 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
         if (!nextStatus) throw new Error('Select an RMA status.');
         return api.patchStatus(record.id, nextStatus, precondition.remarks, { expected_version: precondition.expected_version });
       }
-      if (action === 'receive') return api.receiveRma(record.id, { ...precondition, recipient: recipient.trim() });
+      if (action === 'receive') {
+        if (receiptDateError) throw new Error(receiptDateError);
+        return api.receiveRma(record.id, { ...precondition, received_at: receiptDate });
+      }
+      if (completionDateError) throw new Error(completionDateError);
       return api.patchStatus(record.id, 'Delivered', precondition.remarks, {
         expected_version: precondition.expected_version,
-        received_by: record.rma_recipient ?? undefined,
+        completed_at: completionDate,
+        ...(record.rma_recipient ? { received_by: record.rma_recipient } : {}),
       });
     },
     onSuccess: async (saved, action) => {
       await saveRecordToCache(client, normalizeApiRecord(saved));
       setDirty(false);
       setRemarks('');
-      setRecipient('');
+      resetEventDates();
       setNextStatus('');
       if (action === 'correct-transport') setCorrectionOpen(false);
       const message = action === 'assign' ? 'Driver assignment saved.'
@@ -237,6 +264,7 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
     if (record.rma_transport_started_at) completionParts.push(`Transport started: ${formatManilaTimestamp(record.rma_transport_started_at)}`);
     if (record.rma_transport_completed_at) completionParts.push(`Transport completed: ${formatManilaTimestamp(record.rma_transport_completed_at)}`);
     if (recipientName) completionParts.push(`Physical receipt: ${recipientName}`);
+    else if (record.rma_received_at) completionParts.push(`Physical receipt: Confirmed (${formatManilaTimestamp(record.rma_received_at)})`);
     if (record.rma_completed_at) completionParts.push(`RMA completed: ${formatManilaTimestamp(record.rma_completed_at)}`);
 
     const canCorrect = Boolean(caps?.correctTransport);
@@ -532,9 +560,21 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
     </WorkflowSection>}
 
     {hasAction && <WorkflowSection variant="flat" title={embedded ? 'Transport actions' : 'RMA workflow actions'} description="Available actions depend on the return movement, current stage, and your role.">
-    {caps?.receive && <label htmlFor={`${id}-recipient`} className={fieldLabel}>Recipient
-      <input id={`${id}-recipient`} value={recipient} className={input} disabled={busy} onChange={event => { beginEdit(); setRecipient(event.target.value); }} placeholder="Name of recipient / collector" />
-      <span className={fieldHint}>Record who physically received the returned item.</span>
+    {caps?.receive && <label htmlFor={`${id}-receipt-date`} className={fieldLabel}>Receipt date
+      <input id={`${id}-receipt-date`} type="date" value={receiptDate} max={today} min={transportCompletedDate ?? undefined} className={input} disabled={busy}
+        aria-invalid={receiptDateError ? true : undefined} aria-describedby={`${id}-receipt-date-help`}
+        onChange={event => { beginEdit(); setReceiptDate(event.target.value); }} />
+      <span id={`${id}-receipt-date-help`} className={receiptDateError ? 'text-xs font-medium text-red-700' : fieldHint}>
+        {receiptDateError ?? 'Actual date the signed slip or returned item was received (defaults to today).'}
+      </span>
+    </label>}
+    {caps?.complete && <label htmlFor={`${id}-completion-date`} className={fieldLabel}>Completion date
+      <input id={`${id}-completion-date`} type="date" value={completionDate} max={today} min={receivedDateMin ?? undefined} className={input} disabled={busy}
+        aria-invalid={completionDateError ? true : undefined} aria-describedby={`${id}-completion-date-help`}
+        onChange={event => { beginEdit(); setCompletionDate(event.target.value); }} />
+      <span id={`${id}-completion-date-help`} className={completionDateError ? 'text-xs font-medium text-red-700' : fieldHint}>
+        {completionDateError ?? 'Actual date the RMA was completed (cannot be earlier than the receipt date).'}
+      </span>
     </label>}
     {statusOptions.length > 0 && <label htmlFor={`${id}-status`} className={fieldLabel}>RMA status
       <span className="relative block">
@@ -553,7 +593,7 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
 
     {staleForm && <div role="alert" className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
       <CircleAlert aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
-      <p>This RMA changed while you were editing. Review the latest saved state before retrying. <button type="button" className="min-h-11 font-semibold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-800" onClick={() => { setDirty(false); setRemarks(''); setRecipient(''); setNextStatus(''); setFeedback(''); }}>Use latest saved values</button></p>
+      <p>This RMA changed while you were editing. Review the latest saved state before retrying. <button type="button" className="min-h-11 font-semibold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-800" onClick={() => { setDirty(false); setRemarks(''); resetEventDates(); setNextStatus(''); setFeedback(''); }}>Use latest saved values</button></p>
     </div>}
 
     <div className="space-y-3 border-t border-slate-200 pt-4">
@@ -568,13 +608,13 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
           {caps?.assign && <button type="button" className={button} disabled={!canSave || !assignmentChanged || directory.isPending || directory.isError} onClick={() => mutation.mutate('assign')}>
             {busy && mutation.variables === 'assign' ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Saving assignment…</> : 'Save assignment'}
           </button>}
-          {caps?.receive && <button type="button" className={button} disabled={!canSave || !recipient.trim()} onClick={() => mutation.mutate('receive')}>
+          {caps?.receive && <button type="button" className={button} disabled={!canSave || !receiptDate || !!receiptDateError} onClick={() => mutation.mutate('receive')}>
             {busy && mutation.variables === 'receive' ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Confirming…</> : 'Confirm physical receipt'}
           </button>}
           {statusOptions.length > 0 && <button type="button" className={button} disabled={!canSave || !nextStatus} onClick={() => mutation.mutate('status')}>
             {busy && mutation.variables === 'status' ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Saving status…</> : 'Save RMA status'}
           </button>}
-          {caps?.complete && <button type="button" className={button} disabled={!canSave} onClick={() => mutation.mutate('complete')}>
+          {caps?.complete && <button type="button" className={button} disabled={!canSave || !completionDate || !!completionDateError} onClick={() => mutation.mutate('complete')}>
             {busy && mutation.variables === 'complete' ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Completing…</> : 'Complete RMA'}
           </button>}
         </div>
