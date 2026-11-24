@@ -13,6 +13,7 @@ import { DeliveryRecord } from '@/types';
 import { ApiCompany, ApiAuditEntry, ApiComment, ApiRemarkLog, ApiPodAttachment } from '@/api';
 import { DocumentSize, getPdfFormat, fitColumnWidths, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
 import { recordLabel } from '../../utils/recordLabel';
+import { INTERNAL_TRANSFER_LABEL, rmaSlipTitle } from '@/utils/rma';
 
 export interface ManifestDocumentationData {
   auditEntries: ApiAuditEntry[];
@@ -107,7 +108,8 @@ export async function printSingleManifest(
 
   drawManifestHeader(
     doc, logo,
-    record.category === 'RMA' ? 'RMA Document Record' : 'Delivery Manifest',
+    // Every TASS slip shares this layout; only the title follows the category (e.g. TRANSFER OUT SLIP).
+    record.category === 'RMA' ? rmaSlipTitle(record.rma_type) : 'Delivery Manifest',
     record.category === 'RMA' ? `RMA Document Reference ${record.rma_reference ?? record.reference} · Record ${recordLabel(record)}` : `Record ${recordLabel(record)} · ${fmtDate(record.delivery_date)}`,
     pageW
   );
@@ -124,6 +126,7 @@ export async function printSingleManifest(
       ['RMA Document Reference', record.rma_reference ?? record.reference],
       ['Legacy SAP Reference', record.legacy_sap_reference ?? '—'],
       ['RMA Category', record.rma_type ?? '—'],
+      ['Classification', record.is_internal_transfer ? INTERNAL_TRANSFER_LABEL : 'RMA'],
       ['Movement method', workflow.rma_movement_fmt || 'Not selected'],
       ['Transport status', workflow.rma_transport_status_fmt || 'Not applicable'],
       ['Transport started', workflow.rma_transport_started_at_fmt || (record.rma_movement === 'LOGISTICS_TRANSPORT' ? '—' : record.rma_movement ? 'Not applicable' : 'Not selected')],
@@ -178,7 +181,7 @@ export async function printSingleManifest(
       columnStyles: { 0: { cellWidth: 52, fontStyle: 'bold' }, 1: { cellWidth: 'auto' } },
       headStyles: { fillColor: [...NAVY], textColor: [255, 255, 255], fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [248, 249, 250] },
-      didDrawPage: () => drawManifestHeader(doc, logo, 'RMA Document Record', `RMA Document Reference ${record.rma_reference ?? record.reference} · Record ${recordLabel(record)}`, pageW),
+      didDrawPage: () => drawManifestHeader(doc, logo, rmaSlipTitle(record.rma_type), `RMA Document Reference ${record.rma_reference ?? record.reference} · Record ${recordLabel(record)}`, pageW),
     });
     if (record.line_items?.length) {
       const tableEnd = (doc as any).lastAutoTable?.finalY ?? 31;
@@ -190,7 +193,7 @@ export async function printSingleManifest(
         styles: { fontSize: 7.5, cellPadding: 1.5 },
         headStyles: { fillColor: [...NAVY], textColor: [255, 255, 255], fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [248, 249, 250] },
-        didDrawPage: () => drawManifestHeader(doc, logo, 'RMA Document Record', `RMA Document Reference ${record.rma_reference ?? record.reference} · Record ${recordLabel(record)}`, pageW),
+        didDrawPage: () => drawManifestHeader(doc, logo, rmaSlipTitle(record.rma_type), `RMA Document Reference ${record.rma_reference ?? record.reference} · Record ${recordLabel(record)}`, pageW),
       });
     }
     for (let page = 1; page <= doc.getNumberOfPages(); page++) {

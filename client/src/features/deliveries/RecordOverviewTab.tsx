@@ -20,7 +20,7 @@ import {
   selectableStatuses,
   submissionErrors,
 } from '@/utils/recordLifecycle';
-import { RMA_CATEGORIES, type RmaCategory } from '@/utils/rma';
+import { INTERNAL_TRANSFER_LABEL, RMA_CATEGORIES, TRANSFER_OUT_CATEGORY, canonicalRmaCategory, formatRmaCategoryOption } from '@/utils/rma';
 import { getStartTimeDisplay } from './RecordWorkspaceShell';
 import { ReturnToDraftDialog } from './ReturnToDraftDialog';
 import { useWorkspaceDraft } from './WorkspaceDrafts';
@@ -39,8 +39,10 @@ type EditDraft = {
   item_description: string;
   line_items: { sku: string; quantity: number }[];
   address: string;
-  rma_type: RmaCategory | '';
+  /** A canonical slip category, or a retired legacy label kept read-only. */
+  rma_type: string;
   rma_movement: DeliveryRecord['rma_movement'] | '';
+  is_internal_transfer: boolean;
   purchase_date: string;
   customer_contact_name: string;
   customer_contact_email: string;
@@ -64,6 +66,7 @@ function buildDraft(record: DeliveryRecord, remarks = record.remarks || ''): Edi
     line_items: (record.line_items ?? []).map(li => ({ sku: li.sku, quantity: li.quantity })),
     rma_type: record.rma_type ?? '',
     rma_movement: record.rma_movement ?? '',
+    is_internal_transfer: Boolean(record.is_internal_transfer),
     purchase_date: record.purchase_date ?? '',
     customer_contact_name: record.customer_contact_name ?? '',
     customer_contact_email: record.customer_contact_email ?? '',
@@ -169,6 +172,8 @@ export function RecordOverviewTab({
   }, [record.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = <K extends keyof EditDraft>(k: K, v: EditDraft[K]) => setDraft(p => ({ ...p, [k]: v }));
+  // Once a slip reference exists for a canonical category, the category is part of that number.
+  const categoryLocked = record.category === 'RMA' && !!record.rma_reference && !!canonicalRmaCategory(record.rma_type);
 
   const handleStartEdit = () => {
     setSaveConflict(null);
@@ -194,7 +199,6 @@ export function RecordOverviewTab({
           company_name: record.company_name ?? '',
           company_id: record.company_id ?? '',
           reference: '',
-          rma_reference: draft.reference,
           delivery_date: draft.delivery_date,
           category: 'RMA',
           rma_movement: draft.rma_movement,
@@ -202,6 +206,7 @@ export function RecordOverviewTab({
           area: draft.area,
           account_manager: draft.account_manager,
           rma_type: draft.rma_type,
+          is_internal_transfer: draft.is_internal_transfer,
           purchase_date: draft.purchase_date,
           customer_contact_name: draft.customer_contact_name,
           customer_contact_email: draft.customer_contact_email,
@@ -210,8 +215,9 @@ export function RecordOverviewTab({
         isDraftRecord(record),
       );
       const fieldErrors: Record<string, string> = {};
-      if (validation.reference) fieldErrors.rma_reference = validation.reference;
-      for (const field of ['priority', 'area', 'account_manager', 'customer_contact_email', 'rma_movement', 'delivery_date']) {
+      // A legacy record may keep its retired category while other details are edited; submitting still needs one.
+      if (validation.rma_type && (isDraftRecord(record) || draft.rma_type !== (record.rma_type ?? ''))) fieldErrors.rma_type = validation.rma_type;
+      for (const field of ['priority', 'area', 'account_manager', 'customer_contact_email', 'rma_movement', 'delivery_date', 'is_internal_transfer']) {
         if (validation[field]) fieldErrors[field] = validation[field];
       }
       if (Object.keys(fieldErrors).length) {
@@ -250,8 +256,8 @@ export function RecordOverviewTab({
 
     if (canEditFull) {
       updates.priority = draft.priority;
-      if (isRma) updates.rma_reference = draft.reference.trim() || null;
-      else updates.reference = draft.reference;
+      // The RMA slip reference is server-generated and locked; it is never sent.
+      if (!isRma) updates.reference = draft.reference;
       if (isCollection && parsedAmount !== undefined) updates.amount = parsedAmount;
       updates.area = draft.area;
       if (!isRma && access.canRecord(record.category, 'ASSIGN') && draft.vehicle !== record.vehicle) {
@@ -264,7 +270,8 @@ export function RecordOverviewTab({
       updates.line_items = draft.line_items;
       updates.address = draft.address;
       if (isRma) {
-        updates.rma_type = draft.rma_type || null;
+        if (draft.rma_type !== (record.rma_type ?? '')) updates.rma_type = draft.rma_type || null;
+        if (draft.is_internal_transfer !== Boolean(record.is_internal_transfer)) updates.is_internal_transfer = draft.is_internal_transfer;
         if (tassRma) updates.rma_movement = draft.rma_movement || null;
         updates.purchase_date = draft.purchase_date || null;
         updates.customer_contact_name = draft.customer_contact_name || null;
@@ -561,6 +568,7 @@ export function RecordOverviewTab({
                 ...(isRma
                   ? [
                       { label: 'Category', value: record.rma_type || '—' },
+                      { label: 'Classification', value: record.is_internal_transfer ? INTERNAL_TRANSFER_LABEL : 'RMA' },
                       { label: 'Purchase Date', value: record.purchase_date || '—' },
                       { label: 'Customer Contact Name', value: record.customer_contact_name || '—' },
                       { label: 'Customer Contact Email', value: record.customer_contact_email || '—' },
@@ -634,7 +642,16 @@ export function RecordOverviewTab({
                   <p className="text-xs text-slate-500">{PRIORITY_LOCKED_NOTE}</p>
                 </div>
               )}
-              {canEditFull && (
+              {canEditFull && isRma && (
+                <div className="space-y-1">
+                  <label htmlFor="overview-reference" className={labelCls}>RMA Document Reference</label>
+                  <input id="overview-reference" type="text" readOnly aria-readonly="true" tabIndex={-1}
+                    value={record.rma_reference || 'Auto-generated on save once a category is chosen'}
+                    className={`${inputCls} bg-slate-50 text-slate-500 cursor-not-allowed`} />
+                  <p className="text-xs text-slate-500">Auto-generated and locked from manual edits.</p>
+                </div>
+              )}
+              {canEditFull && !isRma && (
                 <div className="space-y-1">
                   <label htmlFor="overview-reference" className={labelCls}>
                     {isRma ? 'RMA Document Reference' : 'Reference (SAP)'}
@@ -705,7 +722,7 @@ export function RecordOverviewTab({
                       >
                         <option value="">— Select before submitting —</option>
                         <option value="LOGISTICS_TRANSPORT">Logistics transport</option>
-                        <option value="SUPPLIER_COLLECTION">Supplier collection</option>
+                        <option value="SUPPLIER_COLLECTION" disabled={draft.is_internal_transfer}>Supplier collection</option>
                         <option value="INTERNAL_NO_DRIVER">Internal / no driver</option>
                       </select>
                       {rmaErrors.rma_movement && (
@@ -717,23 +734,29 @@ export function RecordOverviewTab({
                   )}
                   <div className="space-y-1">
                     <label htmlFor="overview-rma-category" className={labelCls}>
-                      Category <span className="normal-case tracking-normal font-normal">(optional)</span>
+                      Category{categoryLocked && <span className="normal-case tracking-normal font-normal"> (locked — slip reference assigned)</span>}
                     </label>
                     <select
                       id="overview-rma-category"
                       value={draft.rma_type}
+                      disabled={categoryLocked}
                       onChange={e => {
-                        set('rma_type', e.target.value as EditDraft['rma_type']);
-                        setRmaErrors(errors => ({ ...errors, rma_type: '' }));
+                        const value = e.target.value;
+                        setDraft(previous => ({ ...previous, rma_type: value,
+                          is_internal_transfer: canonicalRmaCategory(value) === TRANSFER_OUT_CATEGORY ? previous.is_internal_transfer : false }));
+                        setRmaErrors(errors => ({ ...errors, rma_type: '', is_internal_transfer: '' }));
                       }}
                       className={fieldInputCls('rma_type')}
                       aria-invalid={!!rmaErrors.rma_type}
                       aria-describedby={rmaErrors.rma_type ? 'rma-category-error' : undefined}
                     >
                       <option value="">— Select —</option>
+                      {record.rma_type && !RMA_CATEGORIES.some(value => value === record.rma_type) && (
+                        <option value={record.rma_type} disabled>{record.rma_type} (retired)</option>
+                      )}
                       {RMA_CATEGORIES.map(value => (
                         <option key={value} value={value}>
-                          {value}
+                          {formatRmaCategoryOption(value)}
                         </option>
                       ))}
                     </select>
@@ -743,6 +766,28 @@ export function RecordOverviewTab({
                       </p>
                     )}
                   </div>
+                  {canonicalRmaCategory(draft.rma_type) === TRANSFER_OUT_CATEGORY && (
+                    <div className="sm:col-span-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                      <input
+                        id="overview-rma-internal-transfer"
+                        type="checkbox"
+                        checked={draft.is_internal_transfer}
+                        disabled={record.status === 'Delivered'}
+                        onChange={e => {
+                          const checked = e.target.checked;
+                          setDraft(previous => ({ ...previous, is_internal_transfer: checked,
+                            rma_movement: checked && previous.rma_movement === 'SUPPLIER_COLLECTION' ? '' : previous.rma_movement }));
+                          setRmaErrors(errors => ({ ...errors, is_internal_transfer: '', rma_movement: '' }));
+                        }}
+                        className="mt-1"
+                      />
+                      <label htmlFor="overview-rma-internal-transfer" className="text-xs text-slate-700">
+                        <span className="font-bold">{INTERNAL_TRANSFER_LABEL}</span>
+                        <span className="block text-slate-600">{record.status === 'Delivered' ? 'Locked after completion.' : 'Routed by Logistics but left out of RMA KPIs and reports.'}</span>
+                      </label>
+                      {rmaErrors.is_internal_transfer && <p className="text-xs text-red-600">{rmaErrors.is_internal_transfer}</p>}
+                    </div>
+                  )}
                   <div className="space-y-1">
                     <label htmlFor="overview-purchase-date" className={labelCls}>
                       Purchase Date <span className="normal-case tracking-normal font-normal">(optional)</span>

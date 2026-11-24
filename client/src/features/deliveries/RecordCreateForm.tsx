@@ -8,7 +8,7 @@ import { accountManagerChoices, useAccountManagersQuery } from '@/api/queries/us
 import { accountManagerAfterCompanyChange, accountManagerOptionGroups, activeCompanies, companyAccountManagers, companySapNumbers, isListedAccountManager,
   preferredAccountManagerFor } from '@/utils/accountDirectory';
 import CompanySapQuickPick from '@/components/CompanySapQuickPick';
-import { RMA_CATEGORIES, autoFillRmaFields, type RmaCategory } from '@/utils/rma';
+import { RECEIVING_SLIP_CATEGORY, RMA_CATEGORIES, TRANSFER_OUT_CATEGORY, autoFillRmaFields, formatRmaCategoryOption, previewRmaReference, type RmaCategory } from '@/utils/rma';
 import { runOutputActions } from '@/outputActions';
 import { exportRecordOutputPDF } from '@/utils/recordOutputPdf';
 import { api, ApiCompany } from '@/api';
@@ -118,6 +118,7 @@ interface RecordFormState {
   is_draft: string;
   rma_type: RmaCategory | '';
   rma_movement: DeliveryRecord['rma_movement'] | '';
+  is_internal_transfer: boolean;
   purchase_date: string;
   customer_contact_name: string;
   customer_contact_email: string;
@@ -146,6 +147,7 @@ const buildEmptyForm = (category: DeliveryCategory): RecordFormState => ({
   is_draft: 'No',
   rma_type: '',
   rma_movement: '',
+  is_internal_transfer: false,
   purchase_date: '',
   customer_contact_name: '',
   customer_contact_email: '',
@@ -205,6 +207,22 @@ export default function RecordCreateForm({
     setForm(prev => ({ ...prev, [key]: value }));
   }
 
+  // Category decides the slip prefix. Walk-in Receiving Slips default to Internal / no driver;
+  // only Transfer Out Slips can be non-RMA internal transfers.
+  const updateRmaCategory = (value: RecordFormState['rma_type']) => {
+    setFormErrors(prev => { const n = { ...prev }; delete n.rma_type; delete n.is_internal_transfer; return n; });
+    setForm(prev => ({
+      ...prev,
+      rma_type: value,
+      is_internal_transfer: value === TRANSFER_OUT_CATEGORY ? prev.is_internal_transfer : false,
+      rma_movement: value === RECEIVING_SLIP_CATEGORY && !prev.rma_movement ? 'INTERNAL_NO_DRIVER' : prev.rma_movement,
+    }));
+  };
+  const updateInternalTransfer = (checked: boolean) => {
+    setFormErrors(prev => { const n = { ...prev }; delete n.is_internal_transfer; delete n.rma_movement; return n; });
+    setForm(prev => ({ ...prev, is_internal_transfer: checked, rma_movement: checked && prev.rma_movement === 'SUPPLIER_COLLECTION' ? '' : prev.rma_movement }));
+  };
+
   const handleCategoryChange = (cat: DeliveryCategory) => {
     setForm(prev => ({ ...buildEmptyForm(cat), company_name: prev.company_name, company_id: prev.company_id }));
     setFormErrors({});
@@ -234,7 +252,8 @@ export default function RecordCreateForm({
       item_type: cat === 'RMA' ? afPick(RMA_ITEM_TYPES) : afPick(ITEM_TYPES),
       is_draft: 'No',
       rma_type: rmaFields?.rma_type ?? '',
-      rma_movement: '',
+      rma_movement: '', // Auto Fill leaves movement for the user to choose explicitly
+      is_internal_transfer: false,
       purchase_date: '',
       customer_contact_name: company.contact_person ?? '',
       customer_contact_email: '',
@@ -322,7 +341,7 @@ export default function RecordCreateForm({
     if (saving || createdRecordInfo) return;
     const isDraft = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "draft";
     if (!access.canRecord(form.category, 'CREATE') || !isDraft && !access.canRecord(form.category, 'SUBMIT')) return;
-    const errors = submissionErrors({ ...form, rma_reference: form.category === 'RMA' ? form.reference : undefined }, isDraft);
+    const errors = submissionErrors(form, isDraft);
     if (accountManagers.isSuccess && form.account_manager.trim() && !isListedAccountManager(form.account_manager, accountManagers.data)) {
       errors.account_manager = 'Choose an Account Manager from the list.';
     }
@@ -347,9 +366,11 @@ export default function RecordCreateForm({
       createdRecord = await onSubmit({
         ...form,
         reference: form.category === 'RMA' ? '' : form.reference,
-        rma_reference: form.category === 'RMA' ? form.reference.trim() || null : null,
+        // The server allocates the RMA slip reference on save; it is never sent from the form.
+        rma_reference: null,
         rma_type: form.category === 'RMA' && form.rma_type ? form.rma_type : null,
         rma_movement: form.category === 'RMA' && form.rma_movement ? form.rma_movement : null,
+        is_internal_transfer: form.category === 'RMA' && form.rma_type === TRANSFER_OUT_CATEGORY && form.is_internal_transfer,
         driver: '',
         driver_assistants: [],
         category: form.category,
@@ -364,7 +385,7 @@ export default function RecordCreateForm({
       createdInfo = {
         id: createdRecord.id,
         recordNo: recordLabel(createdRecord),
-        referenceLabel: form.reference || form.company_name,
+        referenceLabel: (form.category === 'RMA' ? createdRecord.rma_reference : form.reference) || form.company_name,
         lines: bannerLines,
         isDraft,
       };
@@ -439,7 +460,7 @@ export default function RecordCreateForm({
             <Plus className="w-5 h-5 text-brand-blue" />
             {categoryLocked ? `Create New ${cat} Record` : 'Create New Record'}
           </h3>
-          <p className="text-xs text-slate-500 font-medium">{cat === 'RMA' ? 'Company Name, Priority, Area and Account Manager are required. Choose a movement method to submit; Logistics transport also needs a Delivery Date.' : 'Submit requires a company, reference and delivery date. Drafts may be incomplete.'}</p>
+          <p className="text-xs text-slate-500 font-medium">{cat === 'RMA' ? 'Category, Company Name, Priority, Area and Account Manager are required; the slip reference is generated on save. Choose a movement method to submit; Logistics transport also needs a Delivery Date.' : 'Submit requires a company, reference and delivery date. Drafts may be incomplete.'}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -496,18 +517,46 @@ export default function RecordCreateForm({
             {formErrors.priority && <p className="text-red-500 text-xs font-semibold">{formErrors.priority}</p>}
           </div>
 
+          {cat === 'RMA' && <>
+            <div className="space-y-1.5">
+              <label htmlFor="create-rma-type" className="font-bold text-slate-700">Category <span className="text-red-500">*</span></label>
+              <select id="create-rma-type" value={form.rma_type} onChange={e => updateRmaCategory(e.target.value as RecordFormState['rma_type'])} aria-invalid={!!formErrors.rma_type} aria-required="true" className={`w-full px-3 py-2 border rounded-lg bg-white ${formErrors.rma_type ? 'border-red-500' : 'border-slate-300'}`}>
+                <option value="">— Select a slip category —</option>
+                {RMA_CATEGORIES.map(value => <option key={value} value={value}>{formatRmaCategoryOption(value)}</option>)}
+              </select>
+              {formErrors.rma_type && <p className="text-red-500 text-xs font-semibold">{formErrors.rma_type}</p>}
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="create-rma-reference" className="font-bold text-slate-700">RMA Document Reference</label>
+              <input id="create-rma-reference" type="text" readOnly aria-readonly="true" tabIndex={-1}
+                value={form.rma_type ? `Auto-generated on save (${previewRmaReference(form.rma_type)})` : 'Select a category first — auto-generated on save'}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-500 cursor-not-allowed" />
+              <p className="text-xs text-slate-500">Numbered per category and Manila date when you Save or Save as Draft; it cannot be edited.</p>
+            </div>
+            {form.rma_type === TRANSFER_OUT_CATEGORY && (
+              <div className="md:col-span-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                <input id="create-rma-internal-transfer" type="checkbox" checked={form.is_internal_transfer} onChange={e => updateInternalTransfer(e.target.checked)} aria-invalid={!!formErrors.is_internal_transfer} className="mt-1" />
+                <label htmlFor="create-rma-internal-transfer" className="text-sm text-slate-700">
+                  <span className="font-bold">Non-RMA Internal Transfer</span>
+                  <span className="block text-xs text-slate-600">For units moved for internal work (e.g. testing or configuration). Logistics still routes it and assigns a Driver, but it is left out of RMA KPIs and reports.</span>
+                </label>
+                {formErrors.is_internal_transfer && <p className="text-red-500 text-xs font-semibold">{formErrors.is_internal_transfer}</p>}
+              </div>
+            )}
+          </>}
+
           {/* Reference * (not required when Draft) */}
-          <div className="space-y-1.5 md:col-span-2">
+          {cat !== 'RMA' && <div className="space-y-1.5 md:col-span-2">
             <label className="font-bold text-slate-700">
-              {cat === 'RMA' ? 'Reference' : 'Reference (SAP Number)'}{cat !== 'RMA' && form.is_draft !== 'Yes' && <span className="text-red-500"> *</span>}{cat === 'RMA' && <span className="text-xs font-normal text-slate-400"> (optional)</span>}
+              Reference (SAP Number){form.is_draft !== 'Yes' && <span className="text-red-500"> *</span>}
             </label>
             <input type="text" value={form.reference} onChange={e => updateField('reference', e.target.value)}
               aria-invalid={!!formErrors.reference}
-              placeholder={cat === 'RMA' ? 'Enter document reference (optional)' : 'e.g., SAP-88231'}
+              placeholder="e.g., SAP-88231"
               className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25 ${formErrors.reference ? 'border-red-500' : 'border-slate-300'}`} />
-            {cat !== 'RMA' && <CompanySapQuickPick sapNumbers={companySapNumbers(selectedCompany)} value={form.reference} onPick={sap => updateField('reference', sap)} />}
+            <CompanySapQuickPick sapNumbers={companySapNumbers(selectedCompany)} value={form.reference} onPick={sap => updateField('reference', sap)} />
             {formErrors.reference && <p className="text-red-500 text-xs font-semibold">{formErrors.reference}</p>}
-          </div>
+          </div>}
 
           {cat === 'RMA' && <>
             <div className="space-y-1.5">
@@ -515,18 +564,11 @@ export default function RecordCreateForm({
               <select id="create-rma-movement" value={form.rma_movement ?? ''} onChange={e => updateField('rma_movement', e.target.value as RecordFormState['rma_movement'])} aria-invalid={!!formErrors.rma_movement} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">
                 <option value="">— Select before submitting —</option>
                 <option value="LOGISTICS_TRANSPORT">Logistics transport</option>
-                <option value="SUPPLIER_COLLECTION">Supplier collection</option>
+                <option value="SUPPLIER_COLLECTION" disabled={form.is_internal_transfer}>Supplier collection</option>
                 <option value="INTERNAL_NO_DRIVER">Internal / no driver</option>
               </select>
+              {form.rma_type === RECEIVING_SLIP_CATEGORY && form.rma_movement === 'INTERNAL_NO_DRIVER' && <p className="text-xs text-slate-500">Walk-in Receiving Slips default to Internal / no driver; change it if Logistics should route this one.</p>}
               {formErrors.rma_movement && <p role="alert" className="text-red-600 text-xs">{formErrors.rma_movement}</p>}
-            </div>
-            <div className="space-y-1.5">
-              <label className="font-bold text-slate-700">Category <span className="text-xs font-normal text-slate-400">(optional)</span></label>
-              <select value={form.rma_type} onChange={e => updateField('rma_type', e.target.value as RecordFormState['rma_type'])} aria-invalid={!!formErrors.rma_type} className={`w-full px-3 py-2 border rounded-lg bg-white ${formErrors.rma_type ? 'border-red-500' : 'border-slate-300'}`}>
-                <option value="">— Select —</option>
-                {RMA_CATEGORIES.map(value => <option key={value} value={value}>{value}</option>)}
-              </select>
-              {formErrors.rma_type && <p className="text-red-500 text-xs font-semibold">{formErrors.rma_type}</p>}
             </div>
             <div className="space-y-1.5">
               <label className="font-bold text-slate-700">Purchase Date <span className="text-xs font-normal text-slate-400">(optional)</span></label>

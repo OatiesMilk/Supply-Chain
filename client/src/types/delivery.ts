@@ -84,7 +84,10 @@ export interface DeliveryRecord extends AuditFields {
   modified_by_id?: string;
   deleted_at?: string | null;
   document_attachment?: string | null;
-  rma_type?: RmaCategory | null;
+  /** One of the six slip categories; historical records may keep a retired label such as 'Others'. */
+  rma_type?: RmaCategory | string | null;
+  /** Non-RMA internal Logistics transfer (TXO only); excluded from RMA KPIs. */
+  is_internal_transfer?: boolean;
   rma_movement?: RmaMovement | null;
   rma_transport_status?: RmaTransportStatus | null;
   rma_version?: number;

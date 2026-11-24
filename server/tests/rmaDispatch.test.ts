@@ -32,7 +32,7 @@ function fixture(overrides: Record<string, any> = {}, options: { logisticsTransp
   let actor: any;
   let row: any = { id: 'rma-test', category: 'RMA', draft: false, status: 'SCHEDULED', priority: '2 - Moderate',
     companyId: 'company', company: { name: 'Company' }, createdById: 'tass', modifiedById: 'tass', createdBy: { name: 'TASS' }, modifiedBy: { name: 'TASS' },
-    rmaReference: 'POL-255', reference: '', driverId: 'driver-one', driver: 'Driver One', driverAssistants: '[]', vehicle: 'Van',
+    rmaReference: 'POL-255', rmaType: 'Return to Customer Slip', isInternalTransfer: false, reference: '', driverId: 'driver-one', driver: 'Driver One', driverAssistants: '[]', vehicle: 'Van',
     rmaMovement: 'LOGISTICS_TRANSPORT', rmaTransportStatus: 'PENDING', rmaVersion: 0,
     deliveryDate: '2020-01-01', timeIn: null, timeOut: null, receivedBy: null, rmaReceivedAt: null,
     rmaTransportStartedAt: null, rmaTransportCompletedAt: null, rmaRecipient: null, rmaCompletedAt: null, deletedAt: null,

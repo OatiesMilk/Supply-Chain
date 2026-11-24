@@ -74,7 +74,9 @@ test('TASS dashboard count definitions remain category-specific', async context 
   assert.deepEqual([queries[0].category, queries[1].category, queries[3].category], ['RMA', 'RMA', 'RMA']);
   assert.equal(queries[1].status, 'ON_HOLD');
   assert.ok(Array.isArray(queries[2].AND) && queries[2].AND.length === 2, 'in-transit keeps the record scope beside its own AND');
-  assert.deepEqual(queries[2].AND[1].AND[1], { category: 'RMA' });
+  assert.deepEqual(queries[2].AND[1].AND[1], { category: 'RMA', isInternalTransfer: false });
+  // Non-RMA internal transfers stay out of every TASS RMA KPI.
+  for (const index of [0, 1, 3]) assert.equal(queries[index].isInternalTransfer, false);
   // Every count keeps the TASS record scope, which is RMA-only.
   for (const query of queries) assert.deepEqual(query.AND[0].category, { in: ['RMA'] });
 });

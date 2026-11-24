@@ -56,7 +56,12 @@ async function fixture(t: TestContext, mode: 'LEGACY' | 'V1') {
     }
   }
   for (const method of ['save', 'read', 'open', 'remove']) stub(podStorage, method, async () => { throw new Error(`Unconfigured storage operation: ${method}`); });
-  stub(prisma, '$queryRaw', async () => []);
+  const rmaSequences = new Map<string, number>();
+  stub(prisma, '$queryRaw', async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    if (!strings.join('').includes('"RmaReferenceSequence"')) return [];
+    const key = `${values[0]}|${values[1]}`; rmaSequences.set(key, (rmaSequences.get(key) ?? 0) + 1);
+    return [{ lastValue: rmaSequences.get(key) }];
+  });
   stub(prisma, '$executeRaw', async () => 1);
   const hydrate = (row: any) => row ? structuredClone({ ...row, company: { id: 'seed-company', name: 'Seed Workflow Company' },
     createdBy: accounts.find(user => user.id === row.createdById), modifiedBy: accounts.find(user => user.id === row.modifiedById),
@@ -229,8 +234,9 @@ for (const mode of ['LEGACY', 'V1'] as const) {
   test(`${mode}: seeded TASS RMA edits require the current numeric version and reject stale retries`, async t => {
     const f = await fixture(t, mode);
     const created = await f.expect(f.send('TASS', '/records', 'POST', { category: 'RMA', company_id: 'seed-company',
-      priority: '2 - Moderate', area: 'Carmona', account_manager: 'Seed AM', rma_reference: 'SEED-RMA-VERSION',
+      priority: '2 - Moderate', area: 'Carmona', account_manager: 'Seed AM', rma_type: 'Pull Out Slip',
       rma_movement: 'INTERNAL_NO_DRIVER', remarks: 'Seeded internal RMA request' }), 201);
+    assert.match(created.rma_reference, /^POS\d{6}-\d{2,}$/);
     const change = { area: 'Makati', remarks: 'Correct RMA destination' };
     const before = structuredClone(f.rows.get(created.id));
     await f.expect(f.send('TASS', `/records/${created.id}`, 'PUT', change), 400);

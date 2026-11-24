@@ -127,11 +127,18 @@ function database(row = record(), files: any[] = []) {
   const events: string[] = [];
   const cleanupJobs: any[] = [];
   const audit: any[] = []; const remarks: any[] = [];
+  const sequences = new Map<string, number>();
   const outOfScope = (scope: any) => !matchesRecordWhere(saved, scope);
   stub(prisma.deliveryRecord, 'findFirst', async ({ where }: any) => outOfScope(where.AND?.[0]) ? null : saved as any);
   const tx = {
     $executeRaw: async () => {},
-    $queryRaw: async () => { events.push('lock'); return [{ id: saved.id }]; },
+    $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      if (strings.join('').includes('"RmaReferenceSequence"')) {
+        const key = `${values[0]}|${values[1]}`; sequences.set(key, (sequences.get(key) ?? 0) + 1);
+        events.push('sequence'); return [{ lastValue: sequences.get(key) }];
+      }
+      events.push('lock'); return [{ id: saved.id }];
+    },
     user: { findUnique: async (query: any) => prisma.user.findUnique(query), findMany: async ({ where }: any = {}) => where?.role === 'SALES_COORDINATOR' ? [{
       id: 'eligible-sales', role: 'SALES_COORDINATOR', isActive: true, authorizationRevision: 1n,
       permissions: [{ screen: 'deliveries', granted: true }],
@@ -848,14 +855,18 @@ test('data sampler rejects non-RMA reference and date overrides before database 
   assert.equal(companyRead.mock.callCount(), 0);
 });
 
-test('RMA samples never generate document references and preserve manually supplied values in the serialized field', async () => {
+test('RMA samples allocate slip references like real records and reject manual references', async () => {
+  const slip = (prefix: string) => new RegExp(`^${prefix}\\d{6}-01$`);
   const cases = [
-    { module: 'rma', fields: undefined, expected: null },
-    { module: 'rma', fields: { reference: '00042 / manual-Ref', rma_type: 'Return to Customer', item_type: 'Unit', status: 'Scheduled' }, expected: '00042 / manual-Ref' },
-    { module: 'rma', fields: { rma_reference: '00000-A', rma_type: 'Others' }, expected: '00000-A' },
-    { module: 'rma', fields: { rma_reference: '', rma_type: '' }, expected: null },
+    { module: 'rma', fields: undefined, expected: /^(POS|RTC|RTS|ARD|RR|TXO)\d{6}-01$/ },
+    { module: 'rma', fields: { rma_type: 'Return to Customer', item_type: 'Unit', status: 'Scheduled' }, expected: slip('RTC') },
+    { module: 'rma', fields: { rma_type: 'Transfer Out Slip', is_internal_transfer: true, rma_movement: 'LOGISTICS_TRANSPORT' }, expected: slip('TXO'),
+      movement: 'LOGISTICS_TRANSPORT', transport: 'PENDING' },
+    { module: 'rma', fields: { rma_type: 'Transfer Out Slip', is_internal_transfer: true, rma_movement: 'INTERNAL_NO_DRIVER', vehicle: 'Van-01 (L300)' }, expected: slip('TXO'),
+      movement: 'INTERNAL_NO_DRIVER', transport: null },
+    { module: 'rma', fields: { rma_reference: '', rma_type: '' }, expected: /^(POS|RTC|RTS|ARD|RR|TXO)\d{6}-01$/ },
     { module: 'deliveries', fields: { reference: '00077', delivery_date: '2026-10-07', status: 'Scheduled' }, expected: '00077' },
-  ];
+  ] as Array<{ module: string; fields?: Record<string, unknown>; expected: string | RegExp; movement?: string | null; transport?: string | null }>;
   for (const entry of cases) {
     resetFixtures();
     const state = database();
@@ -865,18 +876,43 @@ test('RMA samples never generate document references and preserve manually suppl
       body: { module: entry.module, count: 1, fields: entry.fields } });
     assert.equal(response.status, 201);
     const saved = response.body.records[0];
-    assert.equal(saved.reference, entry.expected ?? '');
+    if (typeof entry.expected === 'string') assert.equal(saved.reference, entry.expected);
+    else assert.match(saved.reference, entry.expected);
     assert.equal(state.saved().status, 'SCHEDULED');
     assert.equal(state.audit[0].changedById, 'test-user');
     if (entry.module === 'deliveries') assert.equal(state.saved().deliveryDate, '2026-10-07');
     if (entry.module === 'rma') {
       assert.equal(state.saved().reference, '');
-      assert.equal(state.saved().rmaReference, entry.expected);
-      assert.equal(saved.rma_reference, entry.expected);
-      assert.ok(saved.rma_type === null || RMA_CATEGORIES.includes(saved.rma_type));
+      assert.match(state.saved().rmaReference, entry.expected as RegExp);
+      assert.equal(saved.rma_reference, state.saved().rmaReference);
+      assert.ok(RMA_CATEGORIES.includes(saved.rma_type));
+      assert.equal(saved.is_internal_transfer, entry.fields?.is_internal_transfer === true);
       assert.ok(['Small Item', 'Unit'].includes(saved.item_type));
-      assert.equal(JSON.parse(state.audit[0].newValue).rma_reference, entry.expected);
+      assert.equal(JSON.parse(state.audit[0].newValue).rma_reference, saved.rma_reference);
+      // Samples are saved Scheduled: the movement is persisted and only Logistics transport starts a transport.
+      assert.equal(saved.rma_movement, entry.movement ?? null);
+      assert.equal(saved.rma_transport_status, entry.transport ?? null);
+      if (entry.movement !== 'LOGISTICS_TRANSPORT') {
+        assert.equal(saved.driver, ''); assert.equal(saved.driver_id, null);
+        assert.equal(saved.vehicle, '(None)'); assert.deepEqual(saved.driver_assistants, []);
+      }
     }
+  }
+  for (const fields of [{ rma_reference: '00000-A', rma_type: 'Pull Out Slip' }, { reference: '00042', rma_type: 'Pull Out Slip' }, { rma_type: 'Others' },
+    { rma_type: 'Pull Out Slip', is_internal_transfer: true }, { is_internal_transfer: true },
+    // A Scheduled internal transfer needs Logistics transport or Internal / no driver.
+    { rma_type: 'Transfer Out Slip', is_internal_transfer: true },
+    { rma_type: 'Transfer Out Slip', is_internal_transfer: true, rma_movement: null },
+    { rma_type: 'Transfer Out Slip', is_internal_transfer: true, rma_movement: 'SUPPLIER_COLLECTION' },
+    { rma_type: 'Transfer Out Slip', is_internal_transfer: true, rma_movement: 'LOGISTICS_TRANSPORT', delivery_date: '' },
+    { rma_type: 'Pull Out Slip', rma_movement: 'INVALID_MOVEMENT' }]) {
+    resetFixtures();
+    database();
+    const rejected = await request('post', '/generate', { role: 'ADMIN', router: sampler, body: { module: 'rma', count: 1, fields } });
+    assert.equal(rejected.status, 400, JSON.stringify(fields));
+    if ('rma_movement' in fields && (fields as any).rma_movement === 'INVALID_MOVEMENT') assert.equal(rejected.body.error, 'Choose a valid RMA movement method.');
+    else if ('delivery_date' in fields) assert.match(rejected.body.error, /planned transport date/);
+    else if (fields.rma_type === 'Transfer Out Slip') assert.equal(rejected.body.error, 'Non-RMA internal transfers must use Logistics transport or Internal / no driver.', JSON.stringify(fields));
   }
 });
 
@@ -1091,10 +1127,12 @@ test('RMA accepts required entry fields and explicit movement without optional d
     stub(prisma.company, 'findUnique', async () => ({ id: 'company-1', isActive: true }) as any);
     const created = await request('post', '/', { role: 'TASS', body: {
       company_id: 'company-1', category: 'RMA', rma_movement: 'INTERNAL_NO_DRIVER', priority: '2 - Moderate', area: 'Carmona',
-      account_manager: 'Alex AM', is_draft: isDraft ? 'Yes' : 'No',
+      account_manager: 'Alex AM', is_draft: isDraft ? 'Yes' : 'No', rma_type: 'Receiving Slip',
     } });
     assert.equal(created.status, 201);
-    assert.equal(created.body.rma_reference, null);
+    // Save and Save as Draft both allocate the slip reference.
+    assert.match(created.body.rma_reference, /^RR\d{6}-01$/);
+    const allocated = created.body.rma_reference;
     assert.equal(created.body.purchase_date, null);
     assert.equal(created.body.customer_contact_name, null);
     assert.equal(created.body.delivery_date, '');
@@ -1102,6 +1140,7 @@ test('RMA accepts required entry fields and explicit movement without optional d
       const submitted = await request('patch', '/:id/status', { role: 'TASS', body: { status: 'Scheduled', remarks: 'Submit with confirmed required fields' } });
       assert.equal(submitted.status, 200);
       assert.equal(submitted.body.is_draft, 'No');
+      assert.equal(submitted.body.rma_reference, allocated, 'submitting a draft keeps its reference');
     }
     for (const field of ['area', 'account_manager', 'priority']) {
       const before = { ...state.saved() };
@@ -1112,20 +1151,33 @@ test('RMA accepts required entry fields and explicit movement without optional d
   }
 });
 
-test('all seven RMA categories save with the exact manually supplied reference', async () => {
-  for (const category of RMA_CATEGORIES) {
+test('all six slip categories allocate their prefix reference and reject manual or missing categories', async () => {
+  const body = { company_id: 'company-1', category: 'RMA', rma_movement: 'INTERNAL_NO_DRIVER', priority: '2 - Moderate', area: 'Carmona', account_manager: 'Alex AM', item_type: 'Unit' };
+  for (const [category, prefix] of [['Pull Out Slip', 'POS'], ['Return to Customer Slip', 'RTC'], ['Return to Supplier Slip', 'RTS'],
+    ['Advance Replacement Slip', 'ARD'], ['Receiving Slip', 'RR'], ['Transfer Out Slip', 'TXO']] as const) {
     resetFixtures();
     const state = database();
     stub(prisma.company, 'findUnique', async () => ({ id: 'company-1', isActive: true }) as any);
-    const created = await request('post', '/', { role: 'TASS', body: {
-      company_id: 'company-1', category: 'RMA', rma_movement: 'INTERNAL_NO_DRIVER', priority: '2 - Moderate', area: 'Carmona', account_manager: 'Alex AM',
-      rma_type: category, rma_reference: '00042 / manual-Ref', item_type: 'Unit',
-    } });
+    const created = await request('post', '/', { role: 'TASS', body: { ...body, rma_type: category } });
     assert.equal(created.status, 201);
     assert.equal(created.body.rma_type, category);
-    assert.equal(created.body.rma_reference, '00042 / manual-Ref');
-    assert.equal(state.saved().rmaReference, '00042 / manual-Ref');
+    assert.match(created.body.rma_reference, new RegExp(`^${prefix}\\d{6}-01$`));
     assert.equal(state.saved().rmaType, category);
+    assert.equal(state.events.indexOf('sequence') < state.events.indexOf('create'), true, 'allocated inside the save transaction');
+  }
+  for (const [extra, message] of [
+    [{ rma_type: 'Pull Out Slip', rma_reference: '00042 / manual-Ref' }, /auto-generated on save/],
+    [{}, /^Category is required/], [{ rma_type: 'Others' }, /^Category is required/], [{ rma_type: 'RESCH' }, /^Category is required/],
+    [{ rma_type: 'Pull Out Slip', is_internal_transfer: true }, /only supported for Transfer Out Slip/],
+    [{ rma_type: 'Transfer Out Slip', is_internal_transfer: true, rma_movement: 'SUPPLIER_COLLECTION' }, /must use Logistics transport or Internal/],
+    [{ rma_type: 'Transfer Out Slip', is_internal_transfer: 'yes' }, /must be true or false/],
+  ] as const) {
+    resetFixtures();
+    const state = database();
+    const rejected = await request('post', '/', { role: 'TASS', body: { ...body, ...extra } });
+    assert.equal(rejected.status, 400, JSON.stringify(extra));
+    assert.match(rejected.body.error, message);
+    assert.equal(state.events.includes('sequence'), false, 'failed validation never consumes a number');
   }
 });
 
@@ -1133,7 +1185,7 @@ test('earlier RMA category labels remain readable without rewriting saved data',
   const state = database(record({ category: 'RMA', rmaType: 'Pull out', rmaReference: '00042' }));
   const response = await request('get', '/:id', { role: 'TASS' });
   assert.equal(response.status, 200);
-  assert.equal(response.body.rma_type, 'Pull-Out Slip');
+  assert.equal(response.body.rma_type, 'Pull Out Slip');
   assert.equal(response.body.rma_reference, '00042');
   assert.equal(state.saved().rmaType, 'Pull out');
   assert.deepEqual(state.events, []);
@@ -1143,7 +1195,7 @@ test('TASS creates, edits, submits and changes priority/status for an RMA record
   const state = database();
   stub(prisma.company, 'findUnique', async () => ({ id: 'company-1', isActive: true }) as any);
   const created = await request('post', '/', { role: 'TASS', body: {
-    company_id: 'company-1', category: 'RMA', rma_movement: 'INTERNAL_NO_DRIVER', rma_reference: 'RMA-DOC-042', is_draft: 'Yes',
+    company_id: 'company-1', category: 'RMA', rma_movement: 'INTERNAL_NO_DRIVER', is_draft: 'Yes',
     rma_type: 'Pull-Out Slip', purchase_date: '2026-08-04', customer_contact_name: 'Casey Customer',
     customer_contact_email: 'casey@example.com', customer_contact_phone: '+63 900 123 4567',
     priority: '2 - Moderate', area: 'BGC', address: '1 Demo Street', account_manager: 'Alex AM',
@@ -1152,22 +1204,29 @@ test('TASS creates, edits, submits and changes priority/status for an RMA record
   assert.equal(created.status, 201);
   assert.equal(created.body.category, 'RMA');
   assert.equal(created.body.is_draft, 'Yes');
-  assert.equal(created.body.reference, 'RMA-DOC-042');
-  assert.equal(created.body.rma_reference, 'RMA-DOC-042');
-  assert.equal(created.body.rma_type, 'Pull-Out Slip');
+  assert.match(created.body.reference, /^POS\d{6}-01$/);
+  assert.equal(created.body.rma_reference, created.body.reference);
+  assert.equal(created.body.rma_type, 'Pull Out Slip');
   assert.equal(created.body.purchase_date, '2026-08-04');
   assert.equal(created.body.customer_contact_name, 'Casey Customer');
   assert.equal(created.body.customer_contact_email, 'casey@example.com');
   assert.equal(created.body.customer_contact_phone, '+63 900 123 4567');
   assert.equal(state.audit[0].changedById, 'test-user');
 
+  for (const locked of [{ rma_type: 'Return to Supplier Slip' }, { rma_reference: 'POS000000-99' }, { rma_reference: '' }]) {
+    const before = { ...state.saved() };
+    const rejected = await request('put', '/:id', { role: 'TASS', body: { ...locked, remarks: 'Try to change the slip' } });
+    assert.equal(rejected.status, 400, JSON.stringify(locked));
+    assert.deepEqual(state.saved(), before);
+  }
   const edited = await request('put', '/:id', { role: 'TASS', body: {
-    rma_type: 'Return to Supplier', purchase_date: '2026-08-12',
+    rma_type: 'Pull-Out Slip', rma_reference: created.body.rma_reference, purchase_date: '2026-08-12',
     customer_contact_name: 'Jordan Customer', customer_contact_email: 'jordan@example.com',
     customer_contact_phone: '+63 900 555 0101', priority: '3 - High', remarks: 'Supplier return details updated',
   } });
   assert.equal(edited.status, 200);
-  assert.equal(edited.body.rma_type, 'Return to Supplier');
+  assert.equal(edited.body.rma_type, 'Pull Out Slip');
+  assert.equal(edited.body.rma_reference, created.body.rma_reference);
   assert.equal(edited.body.purchase_date, '2026-08-12');
   assert.equal(edited.body.customer_contact_name, 'Jordan Customer');
   assert.equal(edited.body.customer_contact_email, 'jordan@example.com');

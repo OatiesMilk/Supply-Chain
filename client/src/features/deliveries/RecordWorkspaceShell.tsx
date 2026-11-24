@@ -7,6 +7,7 @@ import { useUIStore } from '@/store/uiStore';
 import type { DeliveryRecord } from '@/types';
 import { formatManilaTime, formatManilaTimestamp as formatTs } from '@/utils/manilaTimestamp';
 import { recordLabel } from '@/utils/recordLabel';
+import { INTERNAL_TRANSFER_LABEL } from '@/utils/rma';
 import { useWorkspaceNavigation } from './WorkspaceDrafts';
 import WorkspaceTabs, { type WorkspaceTab } from './WorkspaceTabs';
 
@@ -156,6 +157,12 @@ export function RecordWorkspaceShell({
           <span className="text-slate-400">·</span>
           <span className="text-slate-600 font-medium">{record.category}</span>
           <RecordStatus record={record} />
+          {record.category === 'RMA' && record.rma_type && (
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 font-medium text-slate-700">{record.rma_type}</span>
+          )}
+          {record.category === 'RMA' && record.is_internal_transfer && (
+            <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 font-semibold text-indigo-700" title={INTERNAL_TRANSFER_LABEL}>Internal Transfer</span>
+          )}
           {summaryBadges}
           <span
             className={`rounded-full border px-2.5 py-0.5 font-medium ${

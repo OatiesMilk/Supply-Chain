@@ -30,6 +30,7 @@ export const AUDIT_FIELD_LABELS: Record<string, string> = {
   rma_reference: 'RMA Document Reference',
   legacy_sap_reference: 'Legacy SAP Reference',
   rma_type: 'RMA Category',
+  is_internal_transfer: 'Non-RMA Internal Transfer',
   rma_movement: 'Movement method',
   rma_transport_status: 'Transport status',
   rma_transport_started_at: 'Transport started',

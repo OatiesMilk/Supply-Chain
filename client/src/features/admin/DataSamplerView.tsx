@@ -16,7 +16,7 @@ import { api, ApiCompany, ApiError } from '@/api';
 import { AREAS, VEHICLES, PRIORITIES, ITEM_TYPES, RMA_ITEM_TYPES, DRIVERS } from '@/data';
 import { accountManagerChoices, useAccountManagersQuery } from '@/api/queries/useAccountManagersQuery';
 import { activeCompanies, companyAccountManagers } from '@/utils/accountDirectory';
-import { RMA_CATEGORIES } from '@/utils/rma';
+import { INTERNAL_TRANSFER_LABEL, RECEIVING_SLIP_CATEGORY, RMA_CATEGORIES, TRANSFER_OUT_CATEGORY, formatRmaCategoryOption } from '@/utils/rma';
 
 interface ModuleCount {
   key: string;
@@ -86,6 +86,8 @@ export function buildManualDefaults(module: string, allCompanies: ApiCompany[], 
     priority: '2 - Moderate',
     reference: module === 'rma' ? '' : randRef(prefix),
     rma_type: module === 'rma' ? RMA_CATEGORIES[Math.floor(Math.random() * RMA_CATEGORIES.length)] : '',
+    rma_movement: '',
+    is_internal_transfer: '',
     purchase_date: '',
     customer_contact_name: '',
     customer_contact_email: '',
@@ -105,7 +107,13 @@ export function buildManualDefaults(module: string, allCompanies: ApiCompany[], 
 }
 
 export function dataSamplerSubmissionError(module: string, fields: Record<string, string>): string | null {
-  if (module === 'rma') return null;
+  if (module === 'rma') {
+    // Samples are saved Scheduled, so an internal transfer needs its movement method now.
+    if (fields.is_internal_transfer === 'true' && !['LOGISTICS_TRANSPORT', 'INTERNAL_NO_DRIVER'].includes(fields.rma_movement ?? '')) {
+      return 'Non-RMA internal transfers must use Logistics transport or Internal / no driver.';
+    }
+    return null;
+  }
   if (!fields.reference?.trim()) return 'Reference is required to submit the record.';
   if (!fields.delivery_date) return 'Delivery Date is required';
   return null;
@@ -187,7 +195,9 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
       const fields = isManual
         ? {
             ...manualFields,
-            ...(selectedModule === 'rma' ? { rma_reference: manualFields.reference, reference: undefined } : {}),
+            // RMA slip references are allocated by the server on save; never sent from the sampler.
+            ...(selectedModule === 'rma' ? { reference: undefined, rma_reference: undefined, rma_movement: manualFields.rma_movement || undefined,
+              is_internal_transfer: manualFields.rma_type === TRANSFER_OUT_CATEGORY && manualFields.is_internal_transfer === 'true' ? true : undefined } : { is_internal_transfer: undefined, rma_movement: undefined }),
             amount: manualFields.amount ? parseFloat(manualFields.amount) : undefined,
           }
         : undefined;
@@ -412,23 +422,52 @@ export default function DataSamplerView({ companies, currentUserName, onRefresh 
 
                 {/* Reference */}
                 <div>
-                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">Reference{isRma ? ' (optional)' : ' *'}</label>
-                  <input
-                    type="text"
-                    required={!isRma}
-                    value={manualFields.reference ?? ''}
-                    onChange={e => patch('reference', e.target.value)}
-                    placeholder={isRma ? 'Enter document reference (optional)' : undefined}
-                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
-                  />
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">{isRma ? 'RMA Document Reference' : 'Reference *'}</label>
+                  {isRma ? (
+                    <input type="text" readOnly aria-readonly="true" tabIndex={-1} value="Auto-generated on save"
+                      className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 text-slate-500 cursor-not-allowed" />
+                  ) : (
+                    <input
+                      type="text"
+                      required
+                      value={manualFields.reference ?? ''}
+                      onChange={e => patch('reference', e.target.value)}
+                      className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
+                    />
+                  )}
                 </div>
 
                 {isRma && <div>
-                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">Category (optional)</label>
-                  <select value={manualFields.rma_type ?? ''} onChange={e => patch('rma_type', e.target.value)}
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">Category *</label>
+                  <select required value={manualFields.rma_type ?? ''} onChange={e => {
+                    const value = e.target.value;
+                    patch('rma_type', value);
+                    if (value !== TRANSFER_OUT_CATEGORY) patch('is_internal_transfer', '');
+                    // Walk-in Receiving Slips default to Internal / no driver, like the record form.
+                    if (value === RECEIVING_SLIP_CATEGORY && !manualFields.rma_movement) patch('rma_movement', 'INTERNAL_NO_DRIVER');
+                  }}
                     className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue">
                     <option value="">— Select —</option>
-                    {RMA_CATEGORIES.map(value => <option key={value}>{value}</option>)}
+                    {RMA_CATEGORIES.map(value => <option key={value} value={value}>{formatRmaCategoryOption(value)}</option>)}
+                  </select>
+                </div>}
+
+                {isRma && manualFields.rma_type === TRANSFER_OUT_CATEGORY && <label className="flex items-center gap-2 text-xs text-slate-700">
+                  <input type="checkbox" checked={manualFields.is_internal_transfer === 'true'} onChange={e => {
+                    patch('is_internal_transfer', e.target.checked ? 'true' : '');
+                    if (e.target.checked && (!manualFields.rma_movement || manualFields.rma_movement === 'SUPPLIER_COLLECTION')) patch('rma_movement', 'LOGISTICS_TRANSPORT');
+                  }} />
+                  {INTERNAL_TRANSFER_LABEL}
+                </label>}
+
+                {isRma && <div>
+                  <label htmlFor="sampler-rma-movement" className="text-xs font-bold text-slate-600 uppercase tracking-wide block mb-1">Movement Method</label>
+                  <select id="sampler-rma-movement" value={manualFields.rma_movement ?? ''} onChange={e => patch('rma_movement', e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue">
+                    <option value="">— Not selected —</option>
+                    <option value="LOGISTICS_TRANSPORT">Logistics transport</option>
+                    <option value="SUPPLIER_COLLECTION" disabled={manualFields.is_internal_transfer === 'true'}>Supplier collection</option>
+                    <option value="INTERNAL_NO_DRIVER">Internal / no driver</option>
                   </select>
                 </div>}
 

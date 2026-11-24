@@ -1,5 +1,7 @@
 import { assertDisposableSeedTarget } from './seed-safety';
 import { prisma } from '../src/db';
+import { RMA_CATEGORIES } from '../src/services/rmaRules';
+import { RMA_SLIP_PREFIX_BY_CATEGORY, formatRmaReference } from '../src/services/rmaReference';
 import bcrypt from 'bcryptjs';
 
 import { seedAccounts, COMPANIES, CUSTOMERS, SUPPLIERS } from './seeds/accounts';
@@ -174,6 +176,7 @@ export async function runSeed(force = false) {
   await prisma.inventoryItem.deleteMany();
   await prisma.product.deleteMany();
   await prisma.deliveryRecord.deleteMany();
+  await prisma.rmaReferenceSequence.deleteMany();
   await prisma.company.deleteMany();
   await prisma.customer.deleteMany();
   await prisma.supplier.deleteMany();
@@ -306,15 +309,32 @@ export async function runSeed(force = false) {
     { id: 'REC-4405', companyKey: 'seven11',        priority: '1 - Low',      reference: 'SAP-SO-3070', remarks: 'High-volume consumables order for 7-Eleven Pasig cluster.',              status: 'PENDING',      vehicle: '(None)',                 area: 'Pasig - Kapitolyo',        driver: '',  driverAssistants: '[]',  accountManager: 'C. Lim',        deliveryDate: '2026-07-19', category: 'SALES_ORDERS',          itemType: 'Large / Pallet', draft: false,  itemDescription: '50x UTK-RFID-TAG, 50x UTK-ACC-ROLL, 30x UTK-STY-PAS', collectionVerified: false, createdBy: sales, modifiedBy: sales }
   ];
 
+  // Seeded RMAs cycle through the six slip categories with deterministic slip
+  // references dated by their delivery date; the counters are synced below so
+  // records created afterwards never collide with them.
+  const rmaSequences = new Map<string, number>();
+  let rmaIndex = 0;
+  const seededRma = (deliveryDate: string) => {
+    const rmaType = RMA_CATEGORIES[rmaIndex++ % RMA_CATEGORIES.length];
+    const prefix = RMA_SLIP_PREFIX_BY_CATEGORY[rmaType];
+    const key = `${prefix}|${deliveryDate}`;
+    const sequence = (rmaSequences.get(key) ?? 0) + 1;
+    rmaSequences.set(key, sequence);
+    return { rmaType, rmaReference: formatRmaReference(prefix, deliveryDate, sequence) };
+  };
+
   for (const r of records) {
     const company = companies[r.companyKey];
+    const rma = r.category === 'RMA' ? seededRma(r.deliveryDate) : null;
     await prisma.deliveryRecord.create({
       data: {
         id:                 r.id,
         companyId:          company.id,
         priority:           r.priority,
         reference:          r.category === 'RMA' ? '' : r.reference,
-        rmaReference:       null,
+        rmaReference:       rma?.rmaReference ?? null,
+        rmaType:            rma?.rmaType ?? null,
+        isInternalTransfer: false,
         legacySapReference: r.category === 'RMA' ? r.reference : null,
         remarks:            r.remarks,
         status:             r.status as any,
@@ -335,6 +355,11 @@ export async function runSeed(force = false) {
         modifiedById:       r.modifiedBy.id
       }
     });
+  }
+
+  for (const [key, lastValue] of rmaSequences) {
+    const [prefix, manilaDate] = key.split('|');
+    await prisma.rmaReferenceSequence.create({ data: { prefix, manilaDate, lastValue } });
   }
 
   console.log(`Seed complete: ${USERS.length} users, ${COMPANIES.length} companies, ${records.length} delivery records.`);

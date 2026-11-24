@@ -336,6 +336,10 @@ model DeliveryRecord {
   documentAttachment   String?
   address              String     @default("")
   rmaType              String?
+  // Non-RMA internal Logistics transfer (e.g. a BDO unit routed via TXO).
+  // Valid only when category = 'RMA' and rmaType = 'Transfer Out Slip'.
+  // Excluded from RMA KPI tiles/reports while still routed through Logistics transport.
+  isInternalTransfer   Boolean    @default(false)
   purchaseDate         String?
   customerContactName  String?
   customerContactEmail String?
@@ -385,6 +389,7 @@ model DeliveryRecord {
   @@index([linkedCollectionId])
   @@index([category, rmaReference])
   @@index([category, rmaMovement, rmaTransportStatus])
+  @@index([category, isInternalTransfer, status])
   @@index([category, status, completionSignedOffAt])
 }
 
@@ -396,6 +401,16 @@ model RecordSequence {
   lastValue Int    @default(0)
 
   @@id([category, year])
+}
+
+// Last slip reference number used per TASS slip prefix and Asia/Manila date (YYYY-MM-DD).
+// Allocated atomically inside the record's transaction on Save / Save as Draft; numbers are never reused.
+model RmaReferenceSequence {
+  prefix     String // POS | RTC | RTS | ARD | RR | TXO
+  manilaDate String // YYYY-MM-DD in Asia/Manila
+  lastValue  Int    @default(0)
+
+  @@id([prefix, manilaDate])
 }
 
 model PodAttachment {
