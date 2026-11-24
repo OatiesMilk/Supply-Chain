@@ -10,6 +10,8 @@ const fields: Record<string, readonly string[]> = {
   Customer: ['name', 'contactPerson', 'contact_person', 'email', 'phone', 'address', 'city', 'remarks'],
   Supplier: ['name', 'contactPerson', 'contact_person', 'email', 'phone', 'address', 'city', 'category', 'categories'],
   SupplierCategory: ['name', 'is_active', 'version'],
+  Company: ['name', 'sap_numbers', 'sap_number', 'address', 'contact_person', 'account_managers', 'default_account_manager', 'is_active', 'version'],
+  AccountManager: ['name', 'email', 'linked_user', 'is_active', 'version'],
   Driver: ['name', 'type', 'coverageAreas', 'isActive'],
   SKU: ['skuCode', 'name', 'category', 'unitCost', 'unitPrice', 'reorderPoint', 'description', 'warehouseLocation', 'onHandQty', 'allocatedQty', 'sku_code', 'unit_cost', 'unit_price', 'reorder_point', 'on_hand_qty', 'adjustment_type', 'qty_change', 'reference', 'inventory_warehouse_location', 'inventory_on_hand_qty', 'inventory_allocated_qty'],
   Product: ['skuCode', 'name', 'category', 'unitCost', 'unitPrice', 'reorderPoint', 'description'],
@@ -20,6 +22,9 @@ function display(value: unknown, key: string): string {
   if (value == null) return 'none';
   if (key === 'categories' && Array.isArray(value)) return value.map(item => item && typeof item === 'object'
     && typeof item.name === 'string' ? `${item.name} (${typeof item.id === 'string' ? item.id : ''})` : '').join('; ') || 'none';
+  if (key === 'sap_numbers' && Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string').join(', ') || 'none';
+  if (key === 'account_managers' && Array.isArray(value)) return value.map(item => item && typeof item === 'object'
+    && typeof item.name === 'string' ? item.name : '').filter(Boolean).join(', ') || 'none';
   if (typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number') return String(value);
   if (key === 'line_items' && Array.isArray(value)) return value.map(item => item && typeof item === 'object'
     ? `${typeof item.sku === 'string' ? item.sku : ''} × ${typeof item.quantity === 'number' ? item.quantity : ''}` : '').join('; ');

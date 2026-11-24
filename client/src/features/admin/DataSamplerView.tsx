@@ -15,7 +15,7 @@ import {
 import { api, ApiCompany, ApiError } from '@/api';
 import { AREAS, VEHICLES, PRIORITIES, ITEM_TYPES, RMA_ITEM_TYPES, DRIVERS } from '@/data';
 import { accountManagerChoices, useAccountManagersQuery } from '@/api/queries/useAccountManagersQuery';
-import { activeCompanies } from '@/utils/accountDirectory';
+import { activeCompanies, companyAccountManagers } from '@/utils/accountDirectory';
 import { RMA_CATEGORIES } from '@/utils/rma';
 
 interface ModuleCount {
@@ -79,6 +79,8 @@ export function buildManualDefaults(module: string, allCompanies: ApiCompany[], 
   const companies = activeCompanies(allCompanies);
   const company = companies[Math.floor(Math.random() * companies.length)];
   const isAC = module === 'accounting_collection';
+  // Prefer an active Account Manager assigned to the company (multi-AM companies pick the first).
+  const assignedAm = companyAccountManagers(company, undefined).find(name => accountManagers.includes(name));
   return {
     company_id: company?.id ?? '',
     priority: '2 - Moderate',
@@ -94,8 +96,7 @@ export function buildManualDefaults(module: string, allCompanies: ApiCompany[], 
     area: AREAS[Math.floor(Math.random() * AREAS.length)],
     driver: '',
     driver_assistant: '',
-    account_manager: (company?.default_account_manager?.is_active && accountManagers.includes(company.default_account_manager.name)
-      ? company.default_account_manager.name : accountManagers[Math.floor(Math.random() * accountManagers.length)]) ?? '',
+    account_manager: assignedAm ?? accountManagers[Math.floor(Math.random() * accountManagers.length)] ?? '',
     delivery_date: randDate(),
     item_type: 'Small Item',
     item_description: '',

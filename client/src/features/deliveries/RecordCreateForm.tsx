@@ -5,7 +5,9 @@ import { Plus, X, Check, FileText, UploadCloud, Wand2 } from 'lucide-react';
 import { DeliveryRecord, DeliveryCategory, DeliveryStatus, OutputActionConfig, OutputActionTrigger } from '@/types';
 import { AREAS, AREA_HIERARCHY, VEHICLES, PRIORITIES, ITEM_TYPES, RMA_ITEM_TYPES } from '@/data';
 import { accountManagerChoices, useAccountManagersQuery } from '@/api/queries/useAccountManagersQuery';
-import { activeCompanies, defaultAccountManagerFor, isListedAccountManager } from '@/utils/accountDirectory';
+import { accountManagerAfterCompanyChange, accountManagerOptionGroups, activeCompanies, companyAccountManagers, companySapNumbers, isListedAccountManager,
+  preferredAccountManagerFor } from '@/utils/accountDirectory';
+import CompanySapQuickPick from '@/components/CompanySapQuickPick';
 import { RMA_CATEGORIES, autoFillRmaFields, type RmaCategory } from '@/utils/rma';
 import { runOutputActions } from '@/outputActions';
 import { exportRecordOutputPDF } from '@/utils/recordOutputPdf';
@@ -189,6 +191,8 @@ export default function RecordCreateForm({
   const amOptions = accountManagerChoices(accountManagers.data);
   const companyOptions = activeCompanies(companies);
   const [form, setForm] = useState<RecordFormState>(() => buildEmptyForm(category));
+  const selectedCompany = form.company_id ? companies.find(c => c.id === form.company_id) : undefined;
+  const selectedCompanyAms = companyAccountManagers(selectedCompany, accountManagers.data);
   const [saving, setSaving] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [stagedAttachments, setStagedAttachments] = useState<StagedRecordAttachment[]>([]);
@@ -219,12 +223,12 @@ export default function RecordCreateForm({
       company_id: company.id,
       address: location.address,
       priority: afPick(PRIORITIES),
-      reference: rmaFields ? rmaFields.reference : `${AF_REF_PREFIX[cat] ?? 'SAP'}-${afRandInt(10000, 99999)}`,
+      reference: rmaFields ? rmaFields.reference : companySapNumbers(company)[0] ?? `${AF_REF_PREFIX[cat] ?? 'SAP'}-${afRandInt(10000, 99999)}`,
       remarks: afPick(AF_REMARKS[cat] ?? ['']),
       status: 'Scheduled',
       vehicle: afPick(VEHICLES),
       area: location.area,
-      account_manager: defaultAccountManagerFor(company, accountManagers.data) || (amOptions.length ? afPick(amOptions) : ''),
+      account_manager: preferredAccountManagerFor(company, accountManagers.data) || (amOptions.length ? afPick(amOptions) : ''),
       delivery_date: deliveryDate,
       category: cat,
       item_type: cat === 'RMA' ? afPick(RMA_ITEM_TYPES) : afPick(ITEM_TYPES),
@@ -270,11 +274,9 @@ export default function RecordCreateForm({
     setFormErrors(prev => { const n = { ...prev }; delete n.company_name; delete n.company_id; return n; });
     const company = companyOptions.find(c => c.name === name);
     setForm(prev => {
-      // Fill the company's default AM unless the user already picked a different one.
-      const previousDefault = defaultAccountManagerFor(companies.find(c => c.id === prev.company_id), accountManagers.data);
-      const nextDefault = defaultAccountManagerFor(company, accountManagers.data);
-      const keepAm = prev.account_manager.trim() && prev.account_manager !== previousDefault;
-      return { ...prev, company_name: name, company_id: company?.id || '', account_manager: keepAm || !nextDefault ? prev.account_manager : nextDefault };
+      // Fill the company's single AM unless the user already picked a different one.
+      const account_manager = accountManagerAfterCompanyChange(prev.account_manager, companies.find(c => c.id === prev.company_id), company, accountManagers.data);
+      return { ...prev, company_name: name, company_id: company?.id || '', account_manager };
     });
   };
 
@@ -503,6 +505,7 @@ export default function RecordCreateForm({
               aria-invalid={!!formErrors.reference}
               placeholder={cat === 'RMA' ? 'Enter document reference (optional)' : 'e.g., SAP-88231'}
               className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25 ${formErrors.reference ? 'border-red-500' : 'border-slate-300'}`} />
+            {cat !== 'RMA' && <CompanySapQuickPick sapNumbers={companySapNumbers(selectedCompany)} value={form.reference} onPick={sap => updateField('reference', sap)} />}
             {formErrors.reference && <p className="text-red-500 text-xs font-semibold">{formErrors.reference}</p>}
           </div>
 
@@ -582,10 +585,16 @@ export default function RecordCreateForm({
             optional={cat !== 'RMA'}
             error={formErrors.account_manager}
             options={amOptions}
+            optionGroups={accountManagerOptionGroups(selectedCompany, amOptions, accountManagers.data)}
             value={form.account_manager}
             onChange={v => updateField('account_manager', v)}
             placeholder="Type to search or scroll to browse..."
           />
+          {selectedCompany && selectedCompanyAms.length > 1 && (
+            <p className="-mt-2 text-xs text-slate-500 md:col-span-2">
+              Assigned Account Managers for {selectedCompany.name}: {selectedCompanyAms.join(', ')} — choose one or override.
+            </p>
+          )}
 
           {/* Delivery Date */}
           <div className="space-y-1.5">

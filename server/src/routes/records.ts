@@ -249,6 +249,8 @@ function parseListQuery(query: express.Request['query']) {
           { rmaReference: { contains: s, mode: 'insensitive' } },
           { legacySapReference: { contains: s, mode: 'insensitive' } },
           { company: { name: { contains: s, mode: 'insensitive' } } },
+          // Any of the company's SAP numbers (enterprise clients hold several).
+          { company: { sapNumbers: { some: { sapNumber: { contains: s, mode: 'insensitive' } } } } },
           { driver: { contains: s, mode: 'insensitive' } },
           { area: { contains: s, mode: 'insensitive' } },
           { accountManager: { contains: s, mode: 'insensitive' } },

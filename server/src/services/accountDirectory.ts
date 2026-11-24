@@ -22,6 +22,11 @@ export async function normalizedDirectoryName(tx: Pick<Prisma.TransactionClient,
 }
 /** Seeds and fixtures without a database round trip; names there are ASCII. */
 export const localDirectoryKey = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
+/** Seeds and fixtures: nested CompanySapNumber create for one (possibly blank) SAP number. */
+export const localSapNumbersCreate = (sapNumber: string) => {
+  const sap = sapNumber.trim();
+  return sap ? { create: [{ sapNumber: sap, normalizedNumber: sap.toLowerCase(), position: 0 }] } : undefined;
+};
 
 const OWN = Object.prototype.hasOwnProperty;
 export function body(value: unknown, allowed: readonly string[]): Record<string, unknown> {
@@ -100,33 +105,111 @@ export async function linkableUser(tx: Prisma.TransactionClient, userId: string)
 // ── Companies ───────────────────────────────────────────────────────────────
 export const companyInclude = {
   defaultAccountManager: { select: { id: true, name: true, isActive: true } },
+  sapNumbers: { orderBy: [{ position: 'asc' }, { id: 'asc' }], select: { id: true, sapNumber: true, position: true } },
+  accountManagers: { select: { accountManagerId: true, accountManager: { select: { id: true, name: true, isActive: true } } } },
 } satisfies Prisma.CompanyInclude;
 type CompanyRow = Prisma.CompanyGetPayload<{ include: typeof companyInclude }>;
+type AmChoice = { id: string; name: string; isActive: boolean };
+
+export const MAX_COMPANY_SAP_NUMBERS = 50;
+export const MAX_COMPANY_ACCOUNT_MANAGERS = 50;
+const byName = (a: AmChoice, b: AmChoice) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+/** Legacy Company.defaultAccountManagerId snapshot: first active assigned AM, else the first assigned. */
+export const legacyDefaultAccountManagerId = (rows: readonly AmChoice[]) => {
+  const sorted = [...rows].sort(byName);
+  return sorted.find(row => row.isActive)?.id ?? sorted[0]?.id ?? null;
+};
+
+/** SAP numbers in display order. Rows written before the child table fall back to the legacy column. */
+export function companySapNumbers(row: Pick<CompanyRow, 'sapNumber'> & { sapNumbers?: CompanyRow['sapNumbers'] }): string[] {
+  if (row.sapNumbers?.length) return row.sapNumbers.map(entry => entry.sapNumber);
+  const legacy = (row.sapNumber ?? '').trim();
+  return legacy ? [legacy] : [];
+}
+/** Assigned Account Managers sorted by name; legacy single default as fallback. */
+export function companyAccountManagers(row: Pick<CompanyRow, 'defaultAccountManager'> & { accountManagers?: CompanyRow['accountManagers'] }): AmChoice[] {
+  const assigned = (row.accountManagers ?? []).map(link => link.accountManager);
+  if (assigned.length) return assigned.sort(byName);
+  return row.defaultAccountManager ? [row.defaultAccountManager] : [];
+}
 
 export function companyDto(row: CompanyRow) {
+  const sapNumbers = companySapNumbers(row);
+  const accountManagers = companyAccountManagers(row).map(am => ({ id: am.id, name: am.name, is_active: am.isActive }));
   return {
-    id: row.id, name: row.name, sap_number: row.sapNumber, address: row.address, contact_person: row.contactPerson,
+    id: row.id, name: row.name, sap_number: sapNumbers[0] ?? '', sap_numbers: sapNumbers, address: row.address, contact_person: row.contactPerson,
     is_active: row.isActive, version: row.version,
-    default_account_manager: row.defaultAccountManager
-      ? { id: row.defaultAccountManager.id, name: row.defaultAccountManager.name, is_active: row.defaultAccountManager.isActive } : null,
+    default_account_manager: accountManagers.find(am => am.is_active) ?? accountManagers[0] ?? null,
+    account_managers: accountManagers,
     created_at: row.createdAt, updated_at: row.updatedAt,
   };
 }
-export const companyAudit = (row: CompanyRow) => ({
-  name: row.name, sap_number: row.sapNumber, address: row.address, contact_person: row.contactPerson,
-  default_account_manager: row.defaultAccountManager?.name ?? '', is_active: row.isActive, version: row.version,
-});
+export const companyAudit = (row: CompanyRow) => {
+  const dto = companyDto(row);
+  return {
+    name: dto.name, sap_number: dto.sap_number, sap_numbers: dto.sap_numbers, address: dto.address, contact_person: dto.contact_person,
+    default_account_manager: dto.default_account_manager?.name ?? '',
+    account_managers: dto.account_managers.map(am => ({ id: am.id, name: am.name })), is_active: dto.is_active, version: dto.version,
+  };
+};
 
-export async function assertSapAvailable(tx: Prisma.TransactionClient, sapNumber: string, exceptId?: string) {
-  const clash = await tx.company.findFirst({ where: { sapNumber: { equals: sapNumber, mode: 'insensitive' }, ...(exceptId ? { id: { not: exceptId } } : {}) }, select: { id: true } });
-  if (clash) throw new DirectoryInputError('Another company already uses this SAP number', 409);
+/** SAP numbers from `sap_numbers` (list) or legacy `sap_number` (one value; blank means none).
+ * Returns undefined when neither is present. Never both in one request. */
+export function parseSapNumbers(input: Record<string, unknown>): string[] | undefined {
+  const list = has(input, 'sap_numbers'), legacy = has(input, 'sap_number');
+  if (list && legacy) throw new DirectoryInputError('Use sap_numbers or legacy sap_number, not both');
+  if (legacy) {
+    const value = input.sap_number;
+    if (value === null) return [];
+    if (typeof value !== 'string' || value.trim().length > 50) throw new DirectoryInputError('SAP number must be text of at most 50 characters');
+    return value.trim() ? [value.trim()] : [];
+  }
+  if (!list) return undefined;
+  const values = input.sap_numbers;
+  if (!Array.isArray(values)) throw new DirectoryInputError('sap_numbers must be a list');
+  if (values.length > MAX_COMPANY_SAP_NUMBERS) throw new DirectoryInputError(`At most ${MAX_COMPANY_SAP_NUMBERS} SAP numbers may be assigned to one company`);
+  const seen = new Set<string>();
+  return values.map(value => {
+    if (typeof value !== 'string' || !value.trim() || value.trim().length > 50) throw new DirectoryInputError('Each SAP number must be 1 to 50 characters');
+    const sap = value.trim(), key = sap.toLowerCase();
+    if (seen.has(key)) throw new DirectoryInputError(`Duplicate SAP number in list: ${sap}`);
+    seen.add(key);
+    return sap;
+  });
 }
-/** New default assignments must be active; an existing one may be kept as is. */
-export async function assignableAccountManager(tx: Prisma.TransactionClient, id: string, current?: string | null) {
-  const row = await tx.accountManager.findUnique({ where: { id }, select: { id: true, isActive: true } });
-  if (!row) throw new DirectoryInputError('The selected Account Manager no longer exists. Refresh and try again.');
-  if (!row.isActive && row.id !== current) throw new DirectoryInputError('Choose an active Account Manager', 409);
-  return row.id;
+/** Account Manager ids from `account_manager_ids` (list) or legacy `default_account_manager_id` (one or none).
+ * Returns undefined when neither is present. Never both in one request. */
+export function parseAccountManagerIds(input: Record<string, unknown>): string[] | undefined {
+  const list = has(input, 'account_manager_ids'), legacy = has(input, 'default_account_manager_id');
+  if (list && legacy) throw new DirectoryInputError('Use account_manager_ids or legacy default_account_manager_id, not both');
+  if (legacy) { const id = optionalId(input.default_account_manager_id, 'Default Account Manager'); return id ? [id] : []; }
+  if (!list) return undefined;
+  const values = input.account_manager_ids;
+  if (!Array.isArray(values)) throw new DirectoryInputError('account_manager_ids must be a list');
+  if (values.length > MAX_COMPANY_ACCOUNT_MANAGERS) throw new DirectoryInputError(`At most ${MAX_COMPANY_ACCOUNT_MANAGERS} Account Managers may be assigned to one company`);
+  if (values.some(value => typeof value !== 'string' || !value || value.length > 200)) throw new DirectoryInputError('Account Manager selections are invalid');
+  if (new Set(values).size !== values.length) throw new DirectoryInputError('Account Manager selections must be unique');
+  return values as string[];
+}
+
+/** PostgreSQL keys for SAP numbers; rejects any already used by another company (any of its numbers). */
+export async function assertSapsAvailable(tx: Prisma.TransactionClient, sapNumbers: readonly string[], exceptCompanyId?: string) {
+  const keys: string[] = [];
+  for (const sap of sapNumbers) keys.push(await normalizedDirectoryName(tx, sap));
+  if (keys.length) {
+    const clash = await tx.companySapNumber.findFirst({ where: { normalizedNumber: { in: keys }, ...(exceptCompanyId ? { companyId: { not: exceptCompanyId } } : {}) },
+      select: { sapNumber: true } });
+    if (clash) throw new DirectoryInputError(`Another company already uses SAP number "${clash.sapNumber}"`, 409);
+  }
+  return keys;
+}
+/** Newly assigned Account Managers must be active; already assigned ones may be kept as they are. */
+export async function assignableAccountManagers(tx: Prisma.TransactionClient, ids: readonly string[], retained: readonly string[] = []) {
+  if (!ids.length) return [];
+  const rows = await tx.accountManager.findMany({ where: { id: { in: [...ids] } }, select: { id: true, name: true, isActive: true } });
+  if (rows.length !== ids.length) throw new DirectoryInputError('One or more selected Account Managers no longer exist. Refresh and try again.');
+  if (rows.some(row => !row.isActive && !retained.includes(row.id))) throw new DirectoryInputError('Choose active Account Managers only', 409);
+  return rows.sort(byName);
 }
 
 // ── Records ─────────────────────────────────────────────────────────────────
@@ -182,6 +265,7 @@ export async function summaryAccountManagerNames(users: ReadonlyArray<{ id: stri
 export function uniqueViolationMessage(error: unknown): string | null {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return null;
   const target = JSON.stringify(error.meta ?? {});
+  if (target.includes('normalizedNumber') || target.includes('CompanySapNumber')) return 'Another company already uses this SAP number';
   if (target.includes('userId')) return 'That portal user is already linked to another Account Manager';
   return 'A record with this name already exists, including inactive ones';
 }

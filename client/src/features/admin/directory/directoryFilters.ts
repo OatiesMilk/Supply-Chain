@@ -30,18 +30,28 @@ export function accountManagerFormErrors(form: { name: string; email: string }):
   return errors;
 }
 
-export function companyFormErrors(form: { name: string; sap_number: string; address: string; contact_person: string }): Record<string, string> {
+export const MAX_COMPANY_SAP_NUMBERS = 50;
+
+/** SAP numbers are optional (walk-in clients); each is at most 50 characters and unique ignoring case. */
+export function companyFormErrors(form: { name: string; sap_numbers: readonly string[]; pending_sap?: string; address: string; contact_person: string }): Record<string, string> {
   const errors: Record<string, string> = {};
   const name = normalizeSpaces(form.name);
   if (name.length < 2 || name.length > 200) errors.name = 'Enter a company name of 2 to 200 characters.';
-  if (!form.sap_number.trim()) errors.sap_number = 'SAP number is required.';
-  else if (form.sap_number.trim().length > 50) errors.sap_number = 'Use at most 50 characters.';
+  const saps = [...form.sap_numbers, form.pending_sap ?? ''].map(value => value.trim()).filter(Boolean);
+  const seen = new Set<string>();
+  const duplicate = saps.find(sap => { const key = sap.toLowerCase(); if (seen.has(key)) return true; seen.add(key); return false; });
+  if (saps.some(sap => sap.length > 50)) errors.sap_numbers = 'Use at most 50 characters per SAP number.';
+  else if (duplicate) errors.sap_numbers = `${duplicate} is already in the list.`;
+  else if (saps.length > MAX_COMPANY_SAP_NUMBERS) errors.sap_numbers = `Add at most ${MAX_COMPANY_SAP_NUMBERS} SAP numbers.`;
   if (form.address.trim().length > 1000) errors.address = 'Use at most 1000 characters.';
   if (form.contact_person.trim().length > 200) errors.contact_person = 'Use at most 200 characters.';
   return errors;
 }
 
-/** Only changed fields are sent, so an untouched form is a no-op. */
+const sameValue = (a: unknown, b: unknown) => Array.isArray(a) && Array.isArray(b)
+  ? a.length === b.length && a.every((value, index) => value === b[index]) : a === b;
+
+/** Only changed fields are sent, so an untouched form is a no-op. Lists compare by value, in order. */
 export function changedFields<T extends Record<string, unknown>>(before: T, after: T): Partial<T> {
-  return Object.fromEntries(Object.entries(after).filter(([key, value]) => value !== before[key])) as Partial<T>;
+  return Object.fromEntries(Object.entries(after).filter(([key, value]) => !sameValue(value, before[key]))) as Partial<T>;
 }

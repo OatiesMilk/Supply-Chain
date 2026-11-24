@@ -13,7 +13,7 @@ export const BUSINESS_AUDIT_FIELDS: Record<string, readonly string[]> = {
   Customer: ['name', 'contactPerson', 'contact_person', 'email', 'phone', 'address', 'city', 'remarks'],
   Supplier: ['name', 'contactPerson', 'contact_person', 'email', 'phone', 'address', 'city', 'category', 'categories'],
   SupplierCategory: ['name', 'is_active', 'version'],
-  Company: ['name', 'sap_number', 'address', 'contact_person', 'default_account_manager', 'is_active', 'version'],
+  Company: ['name', 'sap_number', 'sap_numbers', 'address', 'contact_person', 'default_account_manager', 'account_managers', 'is_active', 'version'],
   AccountManager: ['name', 'email', 'linked_user', 'is_active', 'version'],
   Driver: ['name', 'type', 'coverageAreas', 'isActive'],
   SKU: ['skuCode', 'name', 'category', 'unitCost', 'unitPrice', 'reorderPoint', 'description', 'warehouseLocation', 'onHandQty', 'allocatedQty', 'sku_code', 'unit_cost', 'unit_price', 'reorder_point', 'on_hand_qty', 'adjustment_type', 'qty_change', 'reference', 'inventory_warehouse_location', 'inventory_on_hand_qty', 'inventory_allocated_qty'],
@@ -33,6 +33,11 @@ export function safeBusinessAudit(recordType: string, value: string | null): Rec
     for (const key of BUSINESS_AUDIT_FIELDS[recordType]) {
       const field = parsed[key];
       if (recordType === 'Supplier' && key === 'categories' && Array.isArray(field)) safe[key] = field.filter(object).map(item => ({
+        ...(typeof item.id === 'string' ? { id: item.id } : {}),
+        ...(typeof item.name === 'string' ? { name: item.name } : {}),
+      }));
+      if (recordType === 'Company' && key === 'sap_numbers' && Array.isArray(field)) safe[key] = field.filter((item): item is string => typeof item === 'string');
+      if (recordType === 'Company' && key === 'account_managers' && Array.isArray(field)) safe[key] = field.filter(object).map(item => ({
         ...(typeof item.id === 'string' ? { id: item.id } : {}),
         ...(typeof item.name === 'string' ? { name: item.name } : {}),
       }));
