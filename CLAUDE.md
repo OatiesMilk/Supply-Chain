@@ -131,6 +131,9 @@ Commit format: `<type>(<subsystem>): <message> (TSK-XX)`
 
 Subsystems: `client`, `server`, `api`, `db`, `admin`
 
+- **Automated shipping (`ship-pr`):** After implementing and verifying a fix or feature, follow `.agents/skills/ship-pr/SKILL.md` — create a new branch off `origin/dev`, stage only the task's files, commit, push, open a PR targeting `dev`, and run `gh pr merge --auto --squash --delete-branch` (never push directly to `dev`/`staging`/`main`, and never pass `--admin`).
+- **No AI attribution:** Never add `Co-Authored-By:` trailers or `Generated with ...` footers to commit messages or PR descriptions (`.claude/settings.json` and `.githooks/commit-msg` enforce this).
+
 ## Notion Ticketing
 
 Tickets use the `TSK-XX` prefix. The API key is in `.env` as `NOTION_API_KEY`.

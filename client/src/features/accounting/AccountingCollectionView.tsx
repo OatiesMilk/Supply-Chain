@@ -741,71 +741,80 @@ export default function AccountingCollectionView({
 
       {/* List */}
       {!showForm && (
-        <div className={`${cardClass} overflow-hidden`}>
-          {/* Unified Toolbar */}
-          <div className="p-4 border-b border-slate-200/80 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
+            <div className="flex items-center gap-2.5 min-w-0">
               <p className="text-xs text-slate-500 tabular-nums">
                 Showing <span className="font-semibold text-slate-800">{displayRecords.length}</span> of{' '}
                 <span className="font-semibold text-slate-800">{displayTotalCount}</span>{' '}
                 {displayTotalCount === 1 ? 'record' : 'records'}
               </p>
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
-                {(currentUserRole === 'TASS' || currentUserRole === 'Admin') && (
-                  <ExportMenu
-                    rows={exportRows}
-                    columns={[...DELIVERY_COLUMNS, ...AC_EXTRA_COLUMNS]}
-                    pdfColumns={PDF_AC_COLUMNS}
-                    sheetName="Accounting Collection"
-                    filename="accounting-collection"
-                    pdfTitle="Accounting Collection records"
-                    showPdf={true}
-                    meta={{
-                      reportName: 'Accounting Collection Export',
-                      dateRange: dateFrom || dateTo ? `${dateFrom || 'earliest'} to ${dateTo || 'latest'}` : 'All dates',
-                      dateBasis: 'Delivery Date (Asia/Manila)',
-                      generatedByName: currentUserName,
-                      generatedByRole: currentUserRole,
-                    }}
-                    summary={exportSummary}
-                    statusHistoryCounts={statusHistoryCounts}
-                    totalCount={displayTotalCount}
-                    fetchExportData={fetchExportData}
-                  />
-                )}
-                {canEdit && (
-                  <button
-                    type="button"
-                    onClick={() => { setShowForm(true); setSelectedRecordId(null); }}
-                    className={btnPrimaryClass}
-                  >
-                    <Plus className="w-4 h-4" /> New Record
-                  </button>
-                )}
-              </div>
             </div>
+            <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+              {(currentUserRole === 'TASS' || currentUserRole === 'Admin') && (
+                <ExportMenu
+                  rows={exportRows}
+                  columns={[...DELIVERY_COLUMNS, ...AC_EXTRA_COLUMNS]}
+                  pdfColumns={PDF_AC_COLUMNS}
+                  sheetName="Accounting Collection"
+                  filename="accounting-collection"
+                  pdfTitle="Accounting Collection records"
+                  showPdf={true}
+                  meta={{
+                    reportName: 'Accounting Collection Export',
+                    dateRange: dateFrom || dateTo ? `${dateFrom || 'earliest'} to ${dateTo || 'latest'}` : 'All dates',
+                    dateBasis: 'Delivery Date (Asia/Manila)',
+                    generatedByName: currentUserName,
+                    generatedByRole: currentUserRole,
+                  }}
+                  summary={exportSummary}
+                  statusHistoryCounts={statusHistoryCounts}
+                  totalCount={displayTotalCount}
+                  fetchExportData={fetchExportData}
+                />
+              )}
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => { setShowForm(true); setSelectedRecordId(null); }}
+                  className={btnPrimaryClass}
+                >
+                  <Plus className="w-4 h-4" /> New Record
+                </button>
+              )}
+            </div>
+          </div>
 
-            <div className="space-y-3">
-              <div
-                className={`grid grid-cols-1 min-[400px]:grid-cols-2 ${currentUserRole === 'Sales Coordinator' ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-3 items-start text-xs`}
-                id="accounting-collection-filters"
-              >
-                <div className="min-w-0 min-[400px]:col-span-2">
-                  <DateRangePicker dateFrom={dateFrom} dateTo={dateTo} open={showDateRangePicker}
-                    onOpenChange={setShowDateRangePicker}
-                    onChange={range => { setDateFrom(range.from); setDateTo(range.to); }} />
+          <div className={`${cardClass} overflow-hidden`}>
+          {/* Unified Toolbar */}
+          <div className="p-4 border-b border-slate-200/80 space-y-3 print:hidden">
+            {/* Row 1: Search + Date range + Sort + Advanced filters */}
+            <div
+              className="grid grid-cols-1 min-[400px]:grid-cols-2 lg:grid-cols-12 gap-3 items-end text-xs"
+              id="accounting-collection-filters"
+            >
+              <div className="min-w-0 min-[400px]:col-span-2 lg:col-span-4 space-y-1">
+                <label htmlFor="accountingCollectionSearch" className="font-medium text-slate-600 block">Search</label>
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    id="accountingCollectionSearch"
+                    type="text"
+                    aria-label="Search accounting collection records"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    placeholder="Search records..."
+                    className="w-full min-h-10 pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder:text-slate-400 bg-white focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/20"
+                  />
                 </div>
-                {currentUserRole === 'Sales Coordinator' && (
-                  <div className="space-y-1 min-w-0">
-                    <label htmlFor="accountingCollectionStatus" className="font-medium text-slate-600 block">Status</label>
-                    <select id="accountingCollectionStatus" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-                      className="min-h-10 w-full text-xs font-medium border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/20 cursor-pointer">
-                      <option value="All">All Statuses</option>
-                      {DELIVERY_STATUSES.map(status => <option key={status} value={status}>{acStatusLabel(status)}</option>)}
-                    </select>
-                  </div>
-                )}
-                <div className="space-y-1 min-w-0">
+              </div>
+              <div className="min-w-0 min-[400px]:col-span-2 lg:col-span-5">
+                <DateRangePicker dateFrom={dateFrom} dateTo={dateTo} open={showDateRangePicker}
+                  onOpenChange={setShowDateRangePicker}
+                  onChange={range => { setDateFrom(range.from); setDateTo(range.to); }} />
+              </div>
+              <div className="min-w-0 min-[400px]:col-span-2 lg:col-span-3 flex items-end gap-2">
+                <div className="space-y-1 min-w-0 flex-1">
                   <label htmlFor="accountingCollectionSort" className="font-medium text-slate-600 block">Sort</label>
                   <select id="accountingCollectionSort" value={dateSort} onChange={e => setDateSort(e.target.value as typeof dateSort)}
                     className="min-h-10 w-full text-xs font-medium border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/20 cursor-pointer">
@@ -815,48 +824,38 @@ export default function AccountingCollectionView({
                     <option value="furthest">Furthest Future First</option>
                   </select>
                 </div>
-              </div>
-
-              {currentUserRole !== 'Sales Coordinator' && (
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {['All', ...DELIVERY_STATUSES].map(s => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => setStatusFilter(s)}
-                      aria-pressed={statusFilter === s}
-                      className={filterChipClass(statusFilter === s)}
-                    >
-                      {s === 'All' ? 'All' : acStatusLabel(s)}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="relative w-full min-w-0 sm:flex-1 sm:min-w-56">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    aria-label="Search accounting collection records"
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                    placeholder="Search by ID, company, reference..."
-                    className="w-full min-h-10 pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder:text-slate-400 bg-white focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/20"
-                  />
-                </div>
                 <FilterPopover open={showAdvancedFilters} onOpenChange={setShowAdvancedFilters}
                   count={amFilter ? 1 : 0} onClear={() => setAmFilter('')}>
                   <FilterCombobox label="Account Manager" placeholder="All Account Managers"
                     value={amFilter} onChange={setAmFilter} options={amOptions} />
                 </FilterPopover>
-                {activeFilterCount > 0 && (
-                  <button type="button" onClick={clearAllFilters}
-                    className="min-h-10 px-3 py-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-medium text-xs rounded-lg cursor-pointer flex items-center gap-1 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">
-                    <X className="w-3.5 h-3.5" /> Clear All Filters
-                  </button>
-                )}
               </div>
+            </div>
+
+            {/* Row 2: Status chips + Clear filters */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {['All', ...DELIVERY_STATUSES].map(s => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setStatusFilter(s)}
+                    aria-pressed={statusFilter === s}
+                    className={filterChipClass(statusFilter === s)}
+                  >
+                    {s === 'All' ? 'All' : acStatusLabel(s)}
+                  </button>
+                ))}
+              </div>
+              {activeFilterCount > 0 && (
+                <button
+                  type="button"
+                  onClick={clearAllFilters}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"
+                >
+                  <X className="w-3.5 h-3.5" /> Clear All Filters
+                </button>
+              )}
             </div>
           </div>
 
@@ -974,7 +973,8 @@ export default function AccountingCollectionView({
               </div>
             );
           })()}
-        </div>
+          </div>
+        </>
       )}
     </div>
   );
