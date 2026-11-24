@@ -5,9 +5,10 @@ import { safeBusinessAudit, visibleBusinessAuditSnapshots } from '../src/service
 import { accountMetadataVersion, getUserPermissionEditor, mutateAdminAccount, PolicyManagementError, safePolicyAudit } from '../src/services/permissionManagement';
 import { evaluatePermissions } from '../src/services/permissionEvaluator';
 import { permissionSession } from '../src/services/sessionPermissions';
-import { sessionUser } from '../src/services/permissions';
+import { permissionEditor, replacePermissions, sessionUser } from '../src/services/permissions';
 import { defaultRolePermissions, POLICY_ROLES } from '../src/services/permissionCatalog';
 import { planPermissionConversion } from '../src/services/permissionBackfill';
+import { dispatchRolePermissions, RMA_LOGISTICS_TRANSPORT_GRANTS } from '../src/services/rmaDispatchPermissions';
 import type { AuthUser } from '../src/middleware/auth';
 import adminRoutes from '../src/routes/admin';
 import userRoutes from '../src/routes/users';
@@ -114,4 +115,85 @@ test('account metadata response uses the final revision after legacy conversion 
   assert.equal(output.metadata_version, accountMetadataVersion(target));
   await route.stack.at(-1).handle({ user: user(), params: { id: 'target' }, body: { name: 'Second edit', expectedMetadataVersion: output.metadata_version } }, response);
   assert.equal(output.name, 'Second edit', 'the returned version can be used immediately for the next edit');
+});
+
+test('LEGACY non-permission account edits succeed on converted accounts when RMA role policies are active, while role and legacy permission writes still enforce baseline checks', async t => {
+  const oldMode = process.env.PERMISSION_MODE; process.env.PERMISSION_MODE = 'LEGACY';
+  t.after(() => { if (oldMode === undefined) delete process.env.PERMISSION_MODE; else process.env.PERMISSION_MODE = oldMode; });
+
+  let target: any = { ...actor(), id: 'target', role: 'SALES_COORDINATOR', name: 'Original Name', email: 'orig@example.test', permissions: [] };
+  const plan = planPermissionConversion(target);
+  target.permissionConversion = { catalogVersion: 1, sourceHash: plan.sourceHash };
+  target.permissionOverrides = plan.overrides.map(row => ({ ...row, source: 'LEGACY_V1' }));
+
+  // Simulate staging after permissions:activate-rma-dispatch and permissions:activate-rma-logistics-transport --apply.
+  const policies = POLICY_ROLES.map(role => {
+    const map = dispatchRolePermissions(role);
+    if (role === 'LOGISTICS') for (const key of RMA_LOGISTICS_TRANSPORT_GRANTS) map.set(key, 'ALLOW');
+    return { role, revision: 10n, catalogVersion: 1, permissions: [...map].map(([permissionKey, effect]) => ({ permissionKey, effect })) };
+  });
+
+  const logs: any[] = [];
+  let overrideWrites = 0;
+  let conversionWrites = 0;
+  const tx: any = {
+    $executeRaw: async () => 0, $queryRaw: async () => [],
+    user: {
+      findUnique: async ({ where }: any) => structuredClone(where.id === 'admin' ? actor() : target),
+      update: async ({ data }: any) => {
+        target = { ...target, ...data };
+        return structuredClone(target);
+      },
+    },
+    rolePolicy: { findMany: async () => policies },
+    userPermission: { deleteMany: async () => ({ count: 0 }), createMany: async () => ({ count: 0 }) },
+    userPermissionOverride: {
+      deleteMany: async () => { overrideWrites++; return { count: 0 }; },
+      createMany: async () => { overrideWrites++; return { count: 0 }; },
+    },
+    permissionConversion: { update: async () => { conversionWrites++; } },
+    auditLog: { create: async ({ data }: any) => { logs.push(data); return data; } },
+  };
+  const db: any = { $transaction: async (work: any) => work(tx) };
+
+  // 1. Name & email edit on a converted account in LEGACY mode with active RMA role policies succeeds.
+  const updated = await mutateAdminAccount(
+    db, 'admin', 'target',
+    { name: 'Renamed Account', email: 'renamed@example.test', expectedMetadataVersion: accountMetadataVersion(target) },
+    client => client.user.update({ where: { id: 'target' }, data: { name: 'Renamed Account', email: 'renamed@example.test' } }),
+    { metadata: true },
+  );
+  assert.equal(updated.name, 'Renamed Account');
+  assert.equal(updated.email, 'renamed@example.test');
+  assert.equal(overrideWrites, 0);
+  assert.equal(conversionWrites, 0);
+  assert.equal(logs.length, 1);
+  assert.equal(JSON.parse(logs[0].previousValue).name, 'Original Name');
+  assert.equal(JSON.parse(logs[0].newValue).name, 'Renamed Account');
+
+  // 2. Activate/deactivate also leaves conversion sourceHash unchanged and succeeds.
+  await mutateAdminAccount(db, 'admin', 'target', {}, client => client.user.update({ where: { id: 'target' }, data: { isActive: false } }));
+  assert.equal(target.isActive, false);
+  assert.equal(overrideWrites, 0);
+
+  // 3. Changing role alters sourceHash and is still blocked with 409 because RolePolicy differs from frozen baseline.
+  const snapshotBeforeRole = structuredClone(target);
+  await assert.rejects(
+    mutateAdminAccount(
+      db, 'admin', 'target',
+      { role: 'LOGISTICS', expectedMetadataVersion: accountMetadataVersion(target) },
+      client => client.user.update({ where: { id: 'target' }, data: { role: 'LOGISTICS' } }),
+      { role: 'LOGISTICS', metadata: true },
+    ),
+    (error: unknown) => error instanceof PolicyManagementError && error.status === 409 && /V1 policies were customized/.test(error.message),
+  );
+  target = snapshotBeforeRole;
+
+  // 4. Legacy permission replacement (even with an unchanged empty list) still enforces drift/policy guards.
+  target.permissionOverrides = [{ permissionKey: 'SCREEN:dashboard:READ', effect: 'DENY', source: 'LEGACY_V1' }];
+  const editor = permissionEditor(target);
+  await assert.rejects(
+    replacePermissions(db, 'target', 'admin', [], editor.permissionVersion),
+    (error: unknown) => error instanceof PolicyManagementError && error.status === 409 && /Converted legacy source drifted/.test(error.message),
+  );
 });
