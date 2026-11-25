@@ -169,6 +169,8 @@ router.post('/rma-logistics-dispatch', requireAuth, requireResource('records'), 
     const clientSlips = await inspectDispatchPdf(pdf.path);
     const routeSlip = await inspectDispatchXlsx(xlsx.path);
     if (clientSlips.length + routeSlip.length > MAX_DISPATCH_TOTAL_BYTES) throw new DispatchFileError(413, DISPATCH_TOTAL_TOO_LARGE_ERROR);
+    // Buffers are already in memory; remove quarantined temp files before DB/mail I/O and before flushing the HTTP response.
+    await discardDispatchFiles(paths);
     const result = await dispatchRmaToLogistics(prisma, req.user!, input, { clientSlips, routeSlip });
     res.status(result.deduplicated ? 200 : 201).json(result);
   } finally {
