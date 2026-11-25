@@ -21,7 +21,7 @@ const include = {
   company: true,
   lineItems: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] },
   rmaContacts: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] },
-  createdBy: true,
+  createdBy: { include: { signature: { select: { updatedAt: true } } } },
   modifiedBy: true,
 } satisfies Prisma.DeliveryRecordInclude;
 type Row = Prisma.DeliveryRecordGetPayload<{ include: typeof include }>;

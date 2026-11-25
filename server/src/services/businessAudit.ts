@@ -20,7 +20,7 @@ export const BUSINESS_AUDIT_FIELDS: Record<string, readonly string[]> = {
   SKU: ['skuCode', 'name', 'category', 'unitCost', 'unitPrice', 'reorderPoint', 'description', 'warehouseLocation', 'onHandQty', 'allocatedQty', 'sku_code', 'unit_cost', 'unit_price', 'reorder_point', 'on_hand_qty', 'adjustment_type', 'qty_change', 'reference', 'inventory_warehouse_location', 'inventory_on_hand_qty', 'inventory_allocated_qty'],
   Product: ['skuCode', 'name', 'category', 'unitCost', 'unitPrice', 'reorderPoint', 'description'],
   InventoryTransaction: ['date', 'type', 'qtyChange', 'resultingBalance', 'reference'],
-  User: ['name', 'email', 'role', 'isActive', 'microsoft_linked'],
+  User: ['name', 'email', 'role', 'isActive', 'microsoft_linked', 'has_signature', 'signature_mime_type', 'signature_updated_at'],
 };
 const AUDIT_LINE_ITEM_FIELDS = ['unit_type', 'serial_number', 'new_serial_number', 'defective_serial_number', 'purchase_date',
   'sales_order_no', 'accessories', 'problem_description', 'repair_note', 'status_tag'] as const;

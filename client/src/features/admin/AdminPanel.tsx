@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Users, ClipboardList, UserX, Plus, ChevronLeft, ChevronRight, Loader2, Check, ShieldCheck, X, Settings2, Send, Pencil, Link2, Trash2, Building2, Contact } from 'lucide-react';
+import { Users, ClipboardList, UserX, Plus, ChevronLeft, ChevronRight, Loader2, Check, ShieldCheck, X, Settings2, Send, Pencil, Link2, Trash2, Building2, Contact, PenLine } from 'lucide-react';
 import { api, ApiDriver, ApiUserAdmin, ApiAdminAuditEntry, ApiIntegrationStatus, ApiError, type AccountPolicyVersion } from '@/api';
 import AccountActionsMenu from './AccountActionsMenu';
+import DigitalSignatureManager from '@/components/DigitalSignatureManager';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { ActionDialog } from '@/components/ActionDialog';
 import DashboardFilterChip from '@/components/DashboardFilterChip';
@@ -45,6 +46,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
 
   // ── User Management ──────────────────────────────────────────────────────────
   const [users, setUsers] = useState<ApiUserAdmin[]>([]);
+  const [signatureUser, setSignatureUser] = useState<ApiUserAdmin | null>(null);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
   const [usersPage, setUsersPage] = useState(1);
@@ -530,12 +532,13 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                     <th className="px-4 py-3">Role</th>
                     <th className="px-4 py-3 text-center">Auth</th>
                     <th className="px-4 py-3 text-center">Status</th>
+                    <th className="px-4 py-3 text-center">Signature</th>
                     <th className="px-4 py-3 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {visibleUsers.length === 0 ? (
-                    <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">No users found.</td></tr>
+                    <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-500">No users found.</td></tr>
                   ) : pagedUsers.map(u => (
                       <tr key={u.id} className="hover:bg-slate-50 transition-all">
                         <td className="px-4 py-3">
@@ -600,6 +603,11 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                             : <span className="bg-slate-100 text-slate-500 border border-slate-200 text-xs px-2 py-0.5 rounded-full font-semibold">Deactivated</span>
                           }
                         </td>
+                        <td className="px-4 py-3 text-center">
+                          {u.has_signature
+                            ? <span className="bg-sky-50 text-sky-700 border border-sky-200 text-xs px-2 py-0.5 rounded-full font-semibold">On file</span>
+                            : <span className="text-xs text-slate-400 font-semibold">None</span>}
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-center gap-2 whitespace-nowrap">
                             {editingUserId === u.id ? (
@@ -625,6 +633,10 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                                   className="flex items-center gap-1 font-bold text-xs uppercase tracking-wide cursor-pointer text-slate-500 hover:text-brand-blue"
                                 >
                                   <ShieldCheck className="w-3 h-3" /> Access
+                                </button>
+                                <button onClick={() => setSignatureUser(u)}
+                                  className="flex items-center gap-1 font-bold text-xs uppercase tracking-wide cursor-pointer text-slate-500 hover:text-brand-blue">
+                                  <PenLine className="w-3 h-3" /> Signature
                                 </button>
                                 {u.is_active ? (
                                   <button
@@ -902,6 +914,20 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
           </div>
         </div>
       )}
+      <ActionDialog
+        open={!!signatureUser}
+        title={signatureUser ? `Digital signature — ${signatureUser.name}` : 'Digital signature'}
+        description="Preview, upload, replace or remove the signature printed in the Issued by block of this user's RMA client slips."
+        cancelLabel="Close"
+        onDismiss={() => setSignatureUser(null)}
+      >
+        {signatureUser && (
+          <DigitalSignatureManager mode="admin" userId={signatureUser.id} userName={signatureUser.name}
+            onChange={meta => setUsers(prev => prev.map(user => user.id === signatureUser.id
+              ? { ...user, has_signature: meta.has_signature, signature_updated_at: meta.updated_at, signature_mime_type: meta.mime_type }
+              : user))} />
+        )}
+      </ActionDialog>
       <ActionDialog
         open={userAction !== null}
         confirmDisabled={!actionVersion}

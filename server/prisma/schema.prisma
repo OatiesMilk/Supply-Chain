@@ -53,6 +53,27 @@ model User {
   podAttachmentsUploaded PodAttachment[]
   driverProfile          Driver?          @relation("DriverLogin")
   accountManagerProfile  AccountManager?  @relation("AccountManagerLogin")
+  signature              UserSignature?   @relation("UserDigitalSignature")
+  uploadedSignatures     UserSignature[]  @relation("UserSignatureUploadedBy")
+}
+
+// Private per-user digital signature image embedded in the "Issued by" block
+// of TASS/RMA client slip PDFs. Stored outside POD storage via signatureStorage;
+// never exposed via public URLs or unauthenticated endpoints.
+model UserSignature {
+  userId       String   @id
+  user         User     @relation("UserDigitalSignature", fields: [userId], references: [id], onDelete: Cascade)
+  storageKey   String   @unique
+  mimeType     String // 'image/png' | 'image/jpeg'
+  size         Int // verified byte size, 1..2097152 (2 MiB)
+  width        Int? // decoded pixel width (16..4096)
+  height       Int? // decoded pixel height (16..4096)
+  uploadedById String?
+  uploadedBy   User?    @relation("UserSignatureUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([uploadedById])
 }
 
 model UserPermission {

@@ -2,10 +2,12 @@ import type { DeliveryRecord } from '../types';
 import { downloadPDF, fmtDate, fmtStatus, PDF_AC_COLUMNS, PDF_DELIVERY_COLUMNS, type ExportColumn } from './export';
 import { rmaWorkflowExportFields } from './rmaTransport';
 import { recordLabel } from './recordLabel';
-import { INTERNAL_TRANSFER_LABEL, rmaSlipTitle } from './rma';
+import { INTERNAL_TRANSFER_LABEL } from './rma';
 import { buildRmaClientSlipData, rmaClientSlipItemsText } from './rmaSlip';
+import type { DocumentSize } from './documentSize';
+import { DEFAULT_SLIP_DOCUMENT_SIZE, generateRmaClientSlipPdf, rmaSlipFileName } from './rmaClientSlipPdf';
 
-/** Client-facing RMA slip columns. Widths sum to 277mm (A4 landscape usable width). */
+/** Client-facing RMA slip columns (tabular summary). Widths sum to 277mm (A4 landscape usable width). */
 export const PDF_RMA_CLIENT_SLIP_COLUMNS: ExportColumn[] = [
   { header: 'Record No.', key: 'id', width: 14, pdfWidth: 18 },
   { header: 'Company', key: 'company_name', width: 28, pdfWidth: 34 },
@@ -33,15 +35,16 @@ export function buildRmaOutputPdfRow(record: DeliveryRecord): Record<string, str
   };
 }
 
-/** Use a freshly loaded, authorized record when calling this after a transition. */
-export async function exportRecordOutputPDF(record: DeliveryRecord): Promise<void> {
+/**
+ * Use a freshly loaded, authorized record when calling this after a transition.
+ * RMA records download the target borderless Microgenesis client slip (same
+ * engine as the workspace Download PDF); other categories keep the tabular export.
+ */
+export async function exportRecordOutputPDF(record: DeliveryRecord, documentSize: DocumentSize = DEFAULT_SLIP_DOCUMENT_SIZE): Promise<void> {
   const fileName = `record-${record.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
   if (record.category === 'RMA') {
-    // RMA records print under their slip title, e.g. TRANSFER OUT SLIP; every slip shares one layout.
-    const title = rmaSlipTitle(record.rma_type);
-    await downloadPDF([buildRmaOutputPdfRow(record)], PDF_RMA_CLIENT_SLIP_COLUMNS, title, fileName, {
-      reportName: title, generatedByName: record.modified_by, generatedByRole: '',
-    });
+    const doc = await generateRmaClientSlipPdf(record, { documentSize });
+    doc.save(rmaSlipFileName(record, recordLabel(record)));
     return;
   }
   const columns = record.category === 'Accounting Collection' ? PDF_AC_COLUMNS : PDF_DELIVERY_COLUMNS;

@@ -28,7 +28,7 @@ import { allocateRmaReference } from '../services/rmaReference';
 import { areasForLocation } from '../areaHierarchy';
 import { RmaActionError, canUploadRmaPod, rmaActionPolicy, rmaCapabilities, rmaVersionError } from './rmaDispatch';
 import { dispatchMovementScope, eligibleRmaTransport, isLogisticsRma, needsLogisticsHandoff, rmaMovementInputError, rmaTransportContext, validRmaMovement } from '../services/rmaMovement';
-import { canPerformPolicyRecordAction } from '../services/recordAccess';
+import { canPerformPolicyRecordAction, canReadRecord } from '../services/recordAccess';
 import { notifyRecordRecipients } from '../services/rmaNotifications';
 import { RMA_COMPLETION_ROLE_ERROR } from '../services/deliveryLifecycle';
 import { categoryActionRestriction } from '../services/moduleAccessRules';
@@ -41,6 +41,7 @@ import { RECORD_VIEWS, runViewWhere, type RecordView } from '../services/recordV
 import { dashboardRecordFilter, transportRequestFilter } from '../services/dashboardFilters';
 import { submittedAtChange, submittedAtOnCreate } from '../services/submission';
 import { salesCompletionApproverIds } from '../services/completionApprovers';
+import { sendNoSignature, streamSignatureImage } from '../services/userSignatures';
 
 const router = Router();
 class RecordSubmissionError extends Error {}
@@ -88,7 +89,8 @@ const recordInclude = {
   company: true,
   lineItems: { orderBy: [{ position: 'asc' as const }, { createdAt: 'asc' as const }] },
   rmaContacts: { orderBy: [{ position: 'asc' as const }, { createdAt: 'asc' as const }] },
-  createdBy: true,
+  // Signature presence only (for slip PDFs); the storage key is never serialized.
+  createdBy: { include: { signature: { select: { updatedAt: true } } } },
   modifiedBy: true,
   completionSignedOffBy: { select: { name: true } },
   linkedCollection: {
@@ -861,6 +863,22 @@ router.get('/:id', requireAuth, requireResource('records'), requireRecordAccess,
 
   res.json(serializeRecord(record, req.user!));
 });
+
+// Feature 5a: the RMA creator's digital signature for the "Issued by" block of
+// the client slip PDF. Readable only by callers who may read record :id, so a
+// signature cannot be fetched by user id (no IDOR). 204 when none is on file.
+router.get('/:id/issuer-signature', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
+  const record = await prisma.deliveryRecord.findFirst({
+    where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] },
+    select: { category: true, createdById: true, driverId: true, draft: true, rmaMovement: true },
+  });
+  // Same read policy as the record itself (V1 CATEGORY/SCREEN READ, Driver assignment).
+  if (!record || !canReadRecord(req.user!, record)) return res.status(403).json({ error: 'Record access denied' });
+  if (record.category !== 'RMA') return res.status(404).json({ error: 'Issuer signatures are only available on RMA slips' });
+  const signature = await prisma.userSignature.findUnique({ where: { userId: record.createdById } });
+  if (!signature) return sendNoSignature(res);
+  await streamSignatureImage(res, signature, () => sendNoSignature(res));
+}));
 
 router.get('/:id/audit', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
   const entries = await prisma.auditLog.findMany({

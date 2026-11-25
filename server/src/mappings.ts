@@ -173,6 +173,12 @@ export function serializeRecord(r: any, user?: AuthUser) {
     } : null,
     created_by: r.createdBy?.name ?? '',
     created_by_id: r.createdById,
+    // Slip PDFs skip the issuer-signature fetch when none is on file. Presence
+    // and timestamp only: the storage key is never serialized.
+    ...(r.category === 'RMA' ? {
+      created_by_has_signature: Boolean(r.createdBy?.signature),
+      created_by_signature_updated_at: r.createdBy?.signature?.updatedAt ?? null,
+    } : {}),
     created_at: r.createdAt,
     submitted_at: r.submittedAt ?? null,
     modified_by: r.modifiedBy?.name ?? '',

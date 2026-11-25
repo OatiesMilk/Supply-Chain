@@ -122,6 +122,35 @@ export async function fetchProtectedAttachment(url: string, signal?: AbortSignal
   return response;
 }
 
+const SIGNATURE_IMAGE_PATHS = [/^\/api\/v1\/auth\/me\/signature\/image$/, /^\/api\/v1\/users\/[^/]+\/signature\/image$/, /^\/api\/v1\/records\/[^/]+\/issuer-signature$/];
+
+/**
+ * Digital signature images go through the same authorization and session
+ * version guard as JSON requests. Only the three private image endpoints are
+ * allowed; the caller receives the raw response (200 image, 204 none on file).
+ */
+export async function fetchProtectedSignature(url: string, signal?: AbortSignal): Promise<Response> {
+  const target = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'https://permission.local');
+  if (!SIGNATURE_IMAGE_PATHS.some(pattern => pattern.test(target.pathname))) throw new ApiError('Signature is not available.', 403);
+  const path = target.pathname.slice('/api/v1'.length) + target.search;
+  assertPermissionRequest(path);
+  const version = permissionRequestVersion();
+  const response = await send(path, { signal });
+  assertPermissionRequestVersion(version);
+  return response;
+}
+
+/** Signature metadata. The server never returns the storage key. */
+export interface ApiUserSignatureMeta {
+  has_signature: boolean;
+  mime_type: 'image/png' | 'image/jpeg' | null;
+  size: number | null;
+  width: number | null;
+  height: number | null;
+  updated_at: string | null;
+  image_url: string | null;
+}
+
 /** Optional server-side filters for GET /records; the server always applies the user's record scope. */
 export interface RecordListFilters {
   company_id?: string;
@@ -195,6 +224,9 @@ export interface ApiUserAdmin {
   microsoft_linked: boolean;
   created_at: string;
   driver_profile?: { id: string; name: string } | null; // DRIVER logins: the linked Driver profile
+  has_signature?: boolean;
+  signature_updated_at?: string | null;
+  signature_mime_type?: string | null;
 }
 
 export interface ApiIntegrationStatus {
@@ -687,6 +719,20 @@ export const api = {
     form.append('file', file);
     return request<ApiPodAttachment>(`/records/${id}/attachments`, { method: 'POST', body: form });
   },
+  getMySignature: () => request<ApiUserSignatureMeta>('/auth/me/signature'),
+  uploadMySignature: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<ApiUserSignatureMeta>('/auth/me/signature', { method: 'PUT', body: form });
+  },
+  deleteMySignature: () => request<void>('/auth/me/signature', { method: 'DELETE' }),
+  getUserSignature: (userId: string) => request<ApiUserSignatureMeta>(`/users/${encodeURIComponent(userId)}/signature`),
+  uploadUserSignature: (userId: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<ApiUserSignatureMeta>(`/users/${encodeURIComponent(userId)}/signature`, { method: 'PUT', body: form });
+  },
+  deleteUserSignature: (userId: string) => request<void>(`/users/${encodeURIComponent(userId)}/signature`, { method: 'DELETE' }),
   deleteRecordAttachment: (id: string, attachmentId: string, remarks: string) =>
     request<void>(`/records/${id}/attachments/${attachmentId}`, { method: 'DELETE', body: JSON.stringify({ remarks }) }),
 

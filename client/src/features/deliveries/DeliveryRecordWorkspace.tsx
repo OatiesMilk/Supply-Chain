@@ -19,6 +19,7 @@ import { usePodAttachments } from '@/api/queries/usePodAttachments';
 import { useRecordDetailQuery } from '@/api/queries/useRecordsQuery';
 import { ActionDialog } from '@/components/ActionDialog';
 import DocumentSizeSelect from '@/components/DocumentSizeSelect';
+import { DEFAULT_SLIP_DOCUMENT_SIZE, rmaSlipFileName } from '@/utils/rmaClientSlipPdf';
 import { PodAttachmentList } from '@/components/PodAttachmentPreview';
 import { ManifestDocumentationData, printSingleManifest } from '@/features/deliveries/DeliveryManifest';
 import { usePermissions } from '@/hooks/usePermissions';
@@ -389,7 +390,8 @@ function RecordWorkspace({
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
-  const [docSize, setDocSize] = useState<DocumentSize>(DEFAULT_DOCUMENT_SIZE);
+  // RMA client slips default to A4 portrait (A4 / Letter / Legal selectable).
+  const [docSize, setDocSize] = useState<DocumentSize>(() => initialRecord.category === 'RMA' ? DEFAULT_SLIP_DOCUMENT_SIZE : DEFAULT_DOCUMENT_SIZE);
   // RMA PDFs are client slips: the internal documentation trail is opt-in (staff copy only).
   const [includeTrail, setIncludeTrail] = useState(false);
   const isRmaRecord = record.category === 'RMA';
@@ -422,7 +424,7 @@ function RecordWorkspace({
       const blob = await printSingleManifest(record, companies, docData, docSize, { includeDocumentationTrail: withTrail });
       const url = URL.createObjectURL(blob);
       setPdfPreviewBlob(blob);
-      setPdfFileName(`manifest-${recordLabel(record)}-${record.delivery_date}.pdf`);
+      setPdfFileName(isRmaRecord ? rmaSlipFileName(record, recordLabel(record)) : `manifest-${recordLabel(record)}-${record.delivery_date}.pdf`);
       setPdfPreviewUrl(url);
       setPdfDialogOpen(false);
     } catch (err) {
@@ -533,7 +535,7 @@ function RecordWorkspace({
           setPdfError(null);
         }}
       >
-        <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={pdfLoading} />
+        <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={pdfLoading} orientationLabel={isRmaRecord ? 'Portrait' : 'Landscape'} />
         {isRmaRecord && (
           <label className="mt-3 flex items-start gap-2 text-sm text-slate-700">
             <input type="checkbox" className="mt-1" checked={includeTrail} disabled={pdfLoading} onChange={e => setIncludeTrail(e.target.checked)} />

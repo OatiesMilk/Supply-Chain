@@ -261,7 +261,7 @@ test('Access opens the account in Roles & Permissions without a second editor in
   });
 });
 
-test('account menu exposes four actions, supports keyboard navigation and dismisses without writes', async () => {
+test('account menu exposes five actions, supports keyboard navigation and dismisses without writes', async () => {
   setup();
   const updates = mock.method(api, 'updateUser', async () => target);
   const deletes = mock.method(api, 'deleteUser', async () => ({ ok: true, deleted_id: target.id }));
@@ -270,7 +270,7 @@ test('account menu exposes four actions, supports keyboard navigation and dismis
     const menu = doc.querySelector('[role="menu"]')!;
     assert.ok(menu);
     const items = [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
-    assert.deepEqual(items.map(item => item.textContent?.trim()), ['Edit', 'Access', 'Deactivate', 'Delete']);
+    assert.deepEqual(items.map(item => item.textContent?.trim()), ['Edit', 'Access', 'Signature', 'Deactivate', 'Delete']);
     assert.equal(doc.activeElement, items[0]);
     await act(async () => items[0].dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
     assert.equal(doc.activeElement, items[1]);
@@ -300,5 +300,21 @@ test('V1 Access shortcut uses the same individual editor as Roles & Permissions'
     assert.equal(legacy.mock.callCount(), 0);
     await click('Close editor');
     assert.ok(doc.querySelector('#policy-individual-account'));
+  });
+});
+
+test('Signature action opens the admin signature manager and syncs the status badge', async () => {
+  setup();
+  const meta = { has_signature: false, mime_type: null, size: null, width: null, height: null, updated_at: null, image_url: null };
+  const read = mock.method(api, 'getUserSignature', async () => meta);
+  await mounted(async ({ doc, click }) => {
+    assert.ok([...doc.querySelectorAll('th')].some(th => th.textContent?.trim() === 'Signature'));
+    await click('Actions for Target User');
+    await click('Signature');
+    assert.deepEqual(read.mock.calls[0].arguments, [target.id]);
+    const dialog = [...doc.querySelectorAll<HTMLDialogElement>('dialog')].find(item => item.open)!;
+    assert.match(dialog.textContent ?? '', /Digital signature — Target User/);
+    assert.ok(dialog.querySelector('[data-testid="digital-signature-manager"]'));
+    assert.match(dialog.textContent ?? '', /Upload signature/);
   });
 });

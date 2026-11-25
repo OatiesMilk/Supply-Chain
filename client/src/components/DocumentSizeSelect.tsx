@@ -6,9 +6,11 @@ interface DocumentSizeSelectProps {
   onChange: (val: DocumentSize) => void;
   disabled?: boolean;
   inline?: boolean;
+  /** Page orientation shown next to the label (RMA client slips are portrait). */
+  orientationLabel?: string;
 }
 
-export default function DocumentSizeSelect({ value, onChange, disabled, inline }: DocumentSizeSelectProps) {
+export default function DocumentSizeSelect({ value, onChange, disabled, inline, orientationLabel = 'Landscape' }: DocumentSizeSelectProps) {
   const id = useId();
   if (inline) {
     return (
@@ -33,7 +35,7 @@ export default function DocumentSizeSelect({ value, onChange, disabled, inline }
   return (
     <div className="mb-4">
       <label htmlFor={id} className="block text-xs font-semibold text-slate-700 mb-1">
-        Document size <span className="text-slate-400 font-normal ml-1">(Landscape)</span>
+        Document size <span className="text-slate-400 font-normal ml-1">({orientationLabel})</span>
       </label>
       <select
         id={id}
