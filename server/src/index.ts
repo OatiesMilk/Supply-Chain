@@ -34,6 +34,7 @@ import { removeStaleUploads } from './services/podStorage';
 import { startPodDeletionCleanup } from './services/podDeletionCleanup';
 import { removeStaleSignatureUploads } from './services/signatureStorage';
 import { startSignatureDeletionCleanup } from './services/signatureDeletionCleanup';
+import { removeStaleDispatchUploads } from './services/dispatchUpload';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -121,6 +122,8 @@ app.listen(PORT, () => {
   // Feature 5a: same recovery for user digital signature uploads and deletions.
   removeStaleSignatureUploads().catch(err => console.error('[Signature] Stale upload cleanup failed', err));
   startSignatureDeletionCleanup();
+  // Feature 5b: TASS -> Logistics dispatch attachments are never kept; drop any abandoned quarantine files.
+  removeStaleDispatchUploads().catch(err => console.error('[Dispatch] Stale upload cleanup failed', err));
 
   // Self-ping to prevent Render free tier from sleeping
   const externalUrl = process.env.RENDER_EXTERNAL_URL;

@@ -18,6 +18,8 @@ const fields: Record<string, readonly string[]> = {
   Product: ['skuCode', 'name', 'category', 'unitCost', 'unitPrice', 'reorderPoint', 'description'],
   InventoryTransaction: ['date', 'type', 'qtyChange', 'resultingBalance', 'reference'],
   User: ['name', 'email', 'role', 'isActive', 'microsoft_linked', 'has_signature', 'signature_mime_type', 'signature_updated_at'],
+  RmaLogisticsDispatch: ['dispatch_date', 'recipient_name', 'record_count', 'logistics_count', 'supplier_count', 'internal_count',
+    'route_slip_file_name', 'client_slips_file_name', 'email_status', 'email_method', 'in_app_notified'],
 };
 const ITEM_FIELDS = ['unit_type', 'serial_number', 'new_serial_number', 'defective_serial_number', 'purchase_date',
   'sales_order_no', 'accessories', 'problem_description', 'repair_note', 'status_tag'] as const;

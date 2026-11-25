@@ -93,6 +93,9 @@ try {
     { ...seeded, SEED_TEST_DATABASE_URL: seeded.DATABASE_URL }, serverDir);
   await run(process.execPath, ['--import', 'tsx', '--test', 'tests/userSignatures.postgres.test.ts'],
     { ...seeded, SEED_TEST_DATABASE_URL: seeded.DATABASE_URL }, serverDir);
+  // Feature 5b: dispatch uploads stay in a private quarantine inside this run's temp directory.
+  await run(process.execPath, ['--import', 'tsx', '--test', 'tests/rmaLogisticsDispatch.postgres.test.ts'],
+    { ...seeded, SEED_TEST_DATABASE_URL: seeded.DATABASE_URL, DISPATCH_TEMP_DIR: path.join(directory, 'dispatch-uploads') }, serverDir);
 
   // Separate databases prevent role-policy fixtures from affecting seeded users
   // or each other. These tests exercise actual PostgreSQL constraints and races.

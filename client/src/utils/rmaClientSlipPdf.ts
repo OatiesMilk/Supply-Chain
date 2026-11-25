@@ -82,12 +82,16 @@ export function buildRmaClientSlipModel(record: SlipRecord, companies: ReadonlyA
 const MOVEMENT_ORDER: Record<RmaMovement, number> = { LOGISTICS_TRANSPORT: 0, SUPPLIER_COLLECTION: 1, INTERNAL_NO_DRIVER: 2 };
 export const MOVEMENT_GROUP_LABELS = ['Logistics Route', 'Supplier Collection', 'Internal Printing'] as const;
 
-/** Bulk order: grouped Logistics Route → Supplier Collection → Internal Printing, then by reference. */
+/**
+ * Bulk order: grouped Logistics Route → Supplier Collection → Internal Printing,
+ * then delivery date, then reference — the same order as the Daily Route Slip.
+ */
 export function sortBulkSlipRecords<T extends SlipRecord>(records: readonly T[], groupByMovement: boolean): T[] {
   if (!groupByMovement) return [...records];
   const bucket = (record: T) => (record.rma_movement && MOVEMENT_ORDER[record.rma_movement] !== undefined ? MOVEMENT_ORDER[record.rma_movement] : 2);
+  const date = (record: T) => text(record.delivery_date) || '9999-99-99';
   const key = (record: T) => text(record.rma_reference) || text(record.reference) || text(record.record_no) || record.id;
-  return [...records].sort((a, b) => bucket(a) - bucket(b) || key(a).localeCompare(key(b), 'en', { numeric: true }));
+  return [...records].sort((a, b) => bucket(a) - bucket(b) || date(a).localeCompare(date(b)) || key(a).localeCompare(key(b), 'en', { numeric: true }));
 }
 
 export type IssuerSignatureFetcher = (recordId: string, signal?: AbortSignal) => Promise<IssuerSignature | null>;
