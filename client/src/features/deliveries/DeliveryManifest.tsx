@@ -132,6 +132,14 @@ export async function printSingleManifest(
   options: ManifestOptions = {},
 ): Promise<Blob> {
   const includeTrail = !!docData && (options.includeDocumentationTrail ?? record.category !== 'RMA');
+  if (record.category === 'RMA') {
+    // Target borderless portrait Microgenesis client slip with the issuer's
+    // digital signature. The staff-only trail is appended only on explicit opt-in.
+    const { generateRmaClientSlipPdf } = await import('@/utils/rmaClientSlipPdf');
+    const slip = await generateRmaClientSlipPdf(record, { documentSize, companies });
+    if (docData && includeTrail) await appendDocumentationTrail(slip, record, docData, documentSize, await loadLogo());
+    return slip.output('blob');
+  }
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: getPdfFormat(documentSize) });
   const logo = await loadLogo();
@@ -142,62 +150,12 @@ export async function printSingleManifest(
 
   drawManifestHeader(
     doc, logo,
-    // Every TASS slip shares this layout; only the title follows the category (e.g. TRANSFER OUT SLIP).
-    record.category === 'RMA' ? rmaSlipTitle(record.rma_type) : 'Delivery Manifest',
-    record.category === 'RMA' ? `RMA Document Reference ${record.rma_reference ?? record.reference} · Record ${recordLabel(record)}` : `Record ${recordLabel(record)} · ${fmtDate(record.delivery_date)}`,
+    'Delivery Manifest',
+    `Record ${recordLabel(record)} · ${fmtDate(record.delivery_date)}`,
     pageW
   );
 
-  if (record.category === 'RMA') {
-    const { default: autoTable } = await import('jspdf-autotable');
-    // Client-facing slip: built only from client-safe fields (no internal Logistics
-    // notes, workflow remarks, internal IDs or history).
-    const header = () => drawManifestHeader(doc, logo, rmaSlipTitle(record.rma_type), `RMA Document Reference ${record.rma_reference ?? record.reference} · Record ${recordLabel(record)}`, pageW);
-    autoTable(doc, {
-      body: rmaClientSlipFields(record),
-      startY: 31,
-      margin: { left: 10, right: 10, top: 31, bottom: 11 },
-      styles: { fontSize: 8.5, cellPadding: 1.5, overflow: 'linebreak', valign: 'top' },
-      columnStyles: { 0: { cellWidth: 52, fontStyle: 'bold' }, 1: { cellWidth: 'auto' } },
-      didParseCell: data => { if (data.row.raw && (data.row.raw as string[])[0] === 'Case Number' && data.column.index === 1) data.cell.styles.fontStyle = 'bold'; },
-      didDrawPage: header,
-    });
-    const itemRows = rmaClientSlipItemRows(record);
-    if (itemRows.length) {
-      const tableEnd = (doc as any).lastAutoTable?.finalY ?? 31;
-      autoTable(doc, {
-        head: [['QTY', 'ITEM DESCRIPTIONS']],
-        body: itemRows.map(row => [row.qty, row.text]),
-        startY: tableEnd + 5,
-        margin: { left: 10, right: 10, top: 31, bottom: 11 },
-        styles: { fontSize: 8.5, cellPadding: 1.5, overflow: 'linebreak', valign: 'top' },
-        columnStyles: { 0: { cellWidth: 22, fontStyle: 'bold' }, 1: { cellWidth: 'auto' } },
-        headStyles: { fillColor: [255, 255, 255], textColor: [15, 23, 42], fontStyle: 'bold', lineWidth: { bottom: 0.4 }, lineColor: [15, 23, 42] },
-        didParseCell: data => { if (data.section === 'body' && itemRows[data.row.index]?.bold) data.cell.styles.fontStyle = 'bold'; },
-        didDrawPage: header,
-      });
-    }
-    {
-      const sigY = Math.min(((doc as any).lastAutoTable?.finalY ?? 31) + 22, pageH - 20);
-      const colW = (pageW - 30) / 2;
-      doc.setDrawColor(...SLATE);
-      doc.setLineWidth(0.3);
-      doc.line(10, sigY, 10 + colW - 15, sigY);
-      doc.line(20 + colW, sigY, 20 + colW * 2 - 15, sigY);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(...SLATE);
-      doc.text('Issued by:', 10, sigY + 4);
-      doc.text('Received by: (Signature over printed name)', 20 + colW, sigY + 4);
-    }
-    for (let page = 1; page <= doc.getNumberOfPages(); page++) {
-      doc.setPage(page);
-      doc.setFontSize(7.5);
-      doc.setTextColor(148, 163, 184);
-      doc.text('Microgenesis Business Systems — Confidential', pageW / 2, pageH - 8, { align: 'center' });
-      doc.text(`Generated: ${fmtDate(new Date().toISOString())}`, 10, pageH - 8);
-    }
-  } else {
+  {
   let y = 34;
   const col1 = 10;
   const colW = (pageW - 30) / 2;
@@ -292,10 +250,15 @@ export async function printSingleManifest(
   doc.text(`Generated: ${fmtDate(new Date().toISOString())}`, 10, pageH - 8);
   }
 
-  // ── Page 2: Documentation Trail ─────────────────────────────────────────────
-  if (docData && includeTrail) {
+  if (docData && includeTrail) await appendDocumentationTrail(doc, record, docData, documentSize, logo);
+
+  return doc.output('blob');
+}
+
+/** Staff-only Documentation Trail pages (landscape), appended after the manifest or client slip. */
+async function appendDocumentationTrail(doc: any, record: DeliveryRecord, docData: ManifestDocumentationData, documentSize: DocumentSize, logo: string | null) {
     const { default: autoTable } = await import('jspdf-autotable');
-    doc.addPage();
+    doc.addPage(getPdfFormat(documentSize), 'landscape');
     const pageW2 = doc.internal.pageSize.getWidth();
     const pageH2 = doc.internal.pageSize.getHeight();
 
@@ -436,9 +399,6 @@ export async function printSingleManifest(
         doc.text(`Page ${pages}`, pageW2 - 10, pageH2 - 8, { align: 'right' });
       }
     });
-  }
-
-  return doc.output('blob');
 }
 
 /** Generate a driver-day manifest (all records for one driver on one date) */

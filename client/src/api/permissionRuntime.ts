@@ -103,6 +103,13 @@ export function assertPermissionRequest(path: string, options: RequestInit = {})
   }
   const resource = ({ 'data-sampler': 'dataSampler', dev: 'dataSampler', reports: 'records', 'account-managers': 'companies' } as Record<string, string>)[root] ?? root;
   require(p.canResource(resource));
+  // Admin-managed digital signatures mirror the server: reads need users READ;
+  // upload/replace and removal are users UPDATE (not DELETE) for an ADMIN.
+  if (root === 'users' && operation === 'signature') {
+    if (!write) return;
+    require(user.role === 'ADMIN' && p.canWrite('admin') && p.canResource('users', 'UPDATE'));
+    return;
+  }
   if (root === 'reports' || root === 'transactions') {
     require(p.canAccess(root === 'reports' ? 'statistical_reports' : user.role === 'DRIVER' ? 'driver_dashboard' : 'transactions'));
     const category = url.searchParams.get('category');

@@ -10,6 +10,7 @@ import { formatRmaItemLines, formatRmaItemQty, formatRmaItemsSummary, rmaLineIte
 import { submissionErrors } from '../src/utils/recordLifecycle';
 import { diffAuditEntry, formatAuditValue } from '../src/features/deliveries/recordAuditDiff';
 import { businessAuditChanges } from '../src/features/admin/BusinessAuditDiff';
+import { buildRmaClientSlipModel } from '../src/utils/rmaClientSlipPdf';
 
 const INTERNAL = 'INTERNAL_SECRET_COD_PHP2000_DO_NOT_PRINT';
 const WORKFLOW = 'WORKFLOW_EDIT_REASON_SECRET';
@@ -134,4 +135,16 @@ test('audit diffs detect and label the new fields, structured item changes and c
   assert.equal(formatAuditValue(after.rma_contacts), 'Alvin - 1');
   const changes = businessAuditChanges('DeliveryRecord', before, after).map(change => change.field);
   for (const field of ['case_number', 'service_slip_no', 'client_remarks', 'internal_logistics_remarks', 'rma_contacts', 'line_items']) assert.ok(changes.includes(field), field);
+});
+
+test('the borderless client slip model (Feature 5a) carries client-safe fields only', () => {
+  const record = rmaRecord({ created_by: 'Roselyn Arguelles', address: 'Makati City' });
+  const model = buildRmaClientSlipModel(record);
+  const json = JSON.stringify(model);
+  for (const expected of ['RETURN TO CUSTOMER SLIP', 'RTC112426-03', 'CAS-31417-Y4Y6Z3', 'SS#60142', 'SAP#12019325', 'Makati City', 'Roselyn Arguelles']) assert.ok(json.includes(expected), expected);
+  assert.equal(json.includes(INTERNAL), false);
+  assert.equal(json.includes(WORKFLOW), false);
+  assert.equal(buildRmaClientSlipModel(rmaRecord({ rma_type: 'Pull Out Slip' })).serviceSlip, null);
+  const changes = businessAuditChanges('User', { has_signature: false, signature_mime_type: null }, { has_signature: true, signature_mime_type: 'image/png' }).map(change => change.field);
+  assert.deepEqual(changes.sort(), ['has_signature', 'signature_mime_type']);
 });

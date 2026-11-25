@@ -85,4 +85,5 @@ export function applySecurity(app: Express, settings: RateLimitSettings = RATE_L
   app.use('/api/v1/auth/microsoft', limits.microsoftAuth);
   app.post(['/api/v1/notifications/send-email', '/api/v1/admin/test-email'], limits.mail);
   app.post('/api/v1/records/:id/attachments', limits.upload);
+  app.put(['/api/v1/auth/me/signature', '/api/v1/users/:id/signature'], limits.upload);
 }

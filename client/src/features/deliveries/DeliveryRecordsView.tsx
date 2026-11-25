@@ -19,7 +19,8 @@ import {
   ListChecks,
   Shuffle,
   AlertTriangle as SamplerAlert,
-  FileBarChart2
+  FileBarChart2,
+  FileStack
 } from 'lucide-react';
 import ExportMenu from '@/components/ExportMenu';
 import DriverReportModal from '@/features/drivers/DriverReportModal';
@@ -30,6 +31,8 @@ import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, RMA_EXTRA_COLUMNS, PDF_DELIVERY_COLUMNS, PDF_AC_COLUMNS, PDF_RMA_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus, OutputActionConfig, OutputActionTrigger, PriorityLevel } from '@/types';
 import { ApiCompany, api, apiUrl, ApiError } from '@/api';
+import BulkRmaSlipsDialog from './BulkRmaSlipsDialog';
+import { MAX_BULK_SLIP_RECORDS } from '@/utils/rmaClientSlipPdf';
 import { usePagedRecordsQuery, useSelectedRecordQuery, normalizeApiRecord } from '@/api/queries/useRecordsQuery';
 import { useRecordFilterOptionsQuery } from '@/api/queries/useOperationalViews';
 import { sortDeliveryRows } from '@/utils/dateSort';
@@ -156,6 +159,7 @@ export default function DeliveryRecordsView({
   const [bulkApplying, setBulkApplying] = useState(false);
   const [bulkPriority, setBulkPriority] = useState<PriorityLevel | ''>('');
   const [bulkResult, setBulkResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [bulkSlipsOpen, setBulkSlipsOpen] = useState(false);
 
   // Monthly Driver Report modal
   const [showDriverReportModal, setShowDriverReportModal] = useState(false);
@@ -639,6 +643,32 @@ export default function DeliveryRecordsView({
     return sortRows(raw.map(normalizeApiRecord));
   };
 
+  // Bulk slip extraction (RMA). Selected rows are reloaded so each slip uses the
+  // current authorized record; the filtered scope stops one past the cap.
+  const loadSelectedSlipRecords = async () => {
+    const ids = [...selectedBulkIds];
+    const loaded: DeliveryRecord[] = [];
+    for (let index = 0; index < ids.length; index += 4) {
+      loaded.push(...(await Promise.all(ids.slice(index, index + 4).map(async id => normalizeApiRecord(await api.getRecord(id))))));
+    }
+    return loaded;
+  };
+  const loadFilteredSlipRecords = async (from: string, to: string) => {
+    const rows: DeliveryRecord[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await api.getPagedRecords({
+        category, status: effectiveStatusFilter, search: searchQuery || undefined, driver: driverFilter || undefined, area: effectiveAreaFilter,
+        region: regionFilter !== 'All Regions' ? regionFilter : undefined, subregion: subregionFilter !== 'All Subregions' ? subregionFilter : undefined,
+        account_manager: effectiveAmFilter, dateFrom: from || undefined, dateTo: to || undefined, dashboard_filter: dashboardFilterId || undefined,
+        ...rmaListFilters, limit: 100, cursor,
+      });
+      rows.push(...page.rows.map(normalizeApiRecord));
+      cursor = page.hasMore ? page.nextCursor || undefined : undefined;
+    } while (cursor && rows.length <= MAX_BULK_SLIP_RECORDS);
+    return sortRows(rows);
+  };
+
   const fetchExportData = async () => {
     const rawAll = await api.getAllRecordsForExport({
       category,
@@ -726,7 +756,12 @@ export default function DeliveryRecordsView({
   };
 
 
-  const showCheckbox = canAssignDriver || canEdit;
+  // Write-capable roles keep their bulk status/priority controls. RMA readers
+  // with export access (TASS, Logistics, Admin) may also select rows, but only
+  // to extract client slips; view-only roles never see the write controls.
+  const canBulkWrite = canAssignDriver || canEdit;
+  const canBulkExtractSlips = isRma && showExports;
+  const showCheckbox = canBulkWrite || canBulkExtractSlips;
   const showCollectionCol = currentUserRole === 'TASS' && category === 'Accounting Collection';
 
   // Percentage widths (not px) so the table fills the full available width —
@@ -787,6 +822,16 @@ export default function DeliveryRecordsView({
               totalCount={displayTotalCount}
               fetchExportData={fetchExportData}
             />
+          )}
+          {canBulkExtractSlips && (
+            <button
+              type="button"
+              id="toolbar-extract-slips"
+              onClick={() => setBulkSlipsOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"
+            >
+              <FileStack className="h-3.5 w-3.5" aria-hidden="true" /> Extract Slips (PDF)
+            </button>
           )}
           {showExports && (
             <RouteSlipMenu
@@ -885,8 +930,8 @@ export default function DeliveryRecordsView({
         </div>
       </div>
 
-      {/* Bulk action bar — Logistics: status / Sales Coordinator: priority */}
-      {selectedBulkIds.size > 0 && (canAssignDriver || canEdit) && (
+      {/* Bulk action bar — Logistics: status / Sales Coordinator: priority / RMA: slip extraction */}
+      {selectedBulkIds.size > 0 && showCheckbox && (
         <div
           role="region"
           aria-label="Bulk actions"
@@ -932,14 +977,25 @@ export default function DeliveryRecordsView({
               {allSelectedPriorityLocked && <span id="bulk-priority-locked-hint" className="text-xs text-white/75 max-w-56 leading-tight">{PRIORITY_LOCKED_NOTE}</span>}
             </div>
           )}
-          <button
+          {canBulkExtractSlips && (
+            <button
+              type="button"
+              id="bulk-extract-slips"
+              onClick={() => setBulkSlipsOpen(true)}
+              disabled={bulkApplying}
+              className="px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/25 text-white text-xs font-semibold rounded-lg transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            >
+              <FileStack className="w-3.5 h-3.5" aria-hidden="true" /> Extract Slips (PDF)
+            </button>
+          )}
+          {canBulkWrite && <button
             type="button"
             onClick={handleBulkUpdate}
             disabled={bulkApplying || !((canAssignDriver && bulkStatus) || (canEdit && effectiveBulkPriority))}
             className="px-4 py-1.5 bg-brand-blue hover:bg-brand-blue-hover text-white text-xs font-semibold rounded-lg transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
           >
             {bulkApplying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Apply
-          </button>
+          </button>}
           <button
             type="button"
             onClick={() => setSelectedBulkIds(new Set())}
@@ -951,6 +1007,19 @@ export default function DeliveryRecordsView({
             <X className="w-4 h-4" />
           </button>
         </div>
+      )}
+
+      {canBulkExtractSlips && (
+        <BulkRmaSlipsDialog
+          open={bulkSlipsOpen}
+          onClose={() => setBulkSlipsOpen(false)}
+          selectedCount={selectedBulkIds.size}
+          loadSelected={loadSelectedSlipRecords}
+          loadFiltered={loadFilteredSlipRecords}
+          defaultDateFrom={effectiveDateFrom ?? ''}
+          defaultDateTo={effectiveDateTo ?? ''}
+          companies={companies}
+        />
       )}
 
       {/* Record Created output-action confirmation */}

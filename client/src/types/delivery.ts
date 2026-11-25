@@ -100,6 +100,9 @@ export interface DeliveryRecord extends AuditFields {
   is_draft: 'Yes' | 'No';
   submitted_at?: string | null; // ISO; when the record last left Draft
   created_by_id?: string;
+  /** RMA only: whether the creator has a digital signature on file (never the storage key). */
+  created_by_has_signature?: boolean;
+  created_by_signature_updated_at?: string | null;
   modified_by_id?: string;
   deleted_at?: string | null;
   document_attachment?: string | null;
