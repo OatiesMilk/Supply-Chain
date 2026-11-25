@@ -198,6 +198,14 @@ function rmaListConditions(query: { rma_scope: unknown; rma_type: unknown; rma_m
   return { conditions };
 }
 
+/** Case-insensitive "Created By" filter on the creating account's display name (max 100 chars). */
+function createdByCondition(createdBy: unknown): { condition?: Prisma.DeliveryRecordWhereInput } | { error: string } {
+  if (createdBy === undefined) return {};
+  if (typeof createdBy !== 'string' || createdBy.length > 100) return { error: 'created_by is invalid' };
+  const trimmed = createdBy.trim();
+  return trimmed ? { condition: { createdBy: { name: { contains: trimmed, mode: 'insensitive' } } } } : {};
+}
+
 /** The slip reference is system-owned: omitting it or echoing the stored value is the only accepted input. */
 function rmaReferenceEditError(existing: { rmaReference: string | null }, b: Record<string, unknown>): string | null {
   if (b.rma_reference === undefined) return null;
@@ -219,7 +227,7 @@ function rmaCategoryChange(existing: { rmaType: string | null }, b: Record<strin
 function parseListQuery(query: express.Request['query']) {
   const {
     company_id, category, limit, cursor, page,
-    status, dateFrom, dateTo, search, driver, area, region, subregion, account_manager, priority, dashboard_filter,
+    status, dateFrom, dateTo, search, driver, area, region, subregion, account_manager, created_by, priority, dashboard_filter,
     paged, dateSort, view, queue, driver_exact, account_manager_exact, supplier_name, assignment,
     rma_scope, rma_type, rma_movement
   } = query;
@@ -346,6 +354,9 @@ function parseListQuery(query: express.Request['query']) {
       andConditions.push({ accountManager: { contains: account_manager.trim(), mode: 'insensitive' } });
     }
   }
+  const creator = createdByCondition(created_by);
+  if ('error' in creator) return { error: creator.error };
+  if (creator.condition) andConditions.push(creator.condition);
   if (priority !== undefined) {
     if (typeof priority !== 'string' || !ALLOWED_PRIORITIES.has(priority)) return { error: 'priority is invalid' };
     andConditions.push({ priority });
@@ -563,14 +574,20 @@ router.get('/filter-options', requireAuth, requireResource('records'), requireRe
   const parsed = parseListQuery({ category: req.query.category });
   if ('error' in parsed || !parsed.where.category) return res.status(400).json({ error: 'category is invalid' });
   const where: Prisma.DeliveryRecordWhereInput = { deletedAt: null, category: parsed.where.category, AND: [recordScope(req.user!)] };
-  const [accountManagers, drivers, areas] = await Promise.all([
+  const [accountManagers, drivers, areas, creatorRows] = await Promise.all([
     prisma.deliveryRecord.groupBy({ by: ['accountManager'], where }),
     prisma.deliveryRecord.groupBy({ by: ['driver'], where }),
     prisma.deliveryRecord.groupBy({ by: ['area'], where }),
+    prisma.deliveryRecord.groupBy({ by: ['createdById'], where }),
   ]);
+  const creatorIds = creatorRows.map(row => row.createdById).filter((id): id is string => !!id);
+  const creatorUsers = creatorIds.length ? await prisma.user.findMany({ where: { id: { in: creatorIds } }, select: { name: true } }) : [];
   const options = (values: string[]) => [...new Set(values.filter(value => value.trim()))].sort((a, b) => a.localeCompare(b));
   res.setHeader('Cache-Control', 'no-store');
-  res.json({ accountManagers: options(accountManagers.map(row => row.accountManager)), drivers: options(drivers.map(row => row.driver)), areas: options(areas.map(row => row.area)) });
+  res.json({
+    accountManagers: options(accountManagers.map(row => row.accountManager)), drivers: options(drivers.map(row => row.driver)),
+    areas: options(areas.map(row => row.area)), creators: options(creatorUsers.map(user => user.name)),
+  });
 }));
 
 // Counts/grouping are computed over the complete authorized scope; queue pages
@@ -791,6 +808,15 @@ router.get('/status-history-counts', requireAuth, requireResource('records'), re
   const rmaFilters = rmaListConditions({ rma_scope: req.query.rma_scope, rma_type: req.query.rma_type, rma_movement: req.query.rma_movement });
   if ('error' in rmaFilters) return res.status(400).json({ error: rmaFilters.error });
   where.AND.push(...rmaFilters.conditions);
+  // Same Account Manager / Created By filters as the paged list, so Status Trail counts match the table.
+  const accountManagerFilter = req.query.account_manager;
+  if (accountManagerFilter !== undefined) {
+    if (typeof accountManagerFilter !== 'string' || accountManagerFilter.length > 100) return res.status(400).json({ error: 'account_manager is invalid' });
+    if (accountManagerFilter.trim()) where.AND.push({ accountManager: { contains: accountManagerFilter.trim(), mode: 'insensitive' } });
+  }
+  const creator = createdByCondition(req.query.created_by);
+  if ('error' in creator) return res.status(400).json({ error: creator.error });
+  if (creator.condition) where.AND.push(creator.condition);
   const candidates = await prisma.deliveryRecord.findMany({
     where,
     select: { id: true, category: true, status: true, draft: true, timeIn: true }

@@ -148,3 +148,20 @@ test('the borderless client slip model (Feature 5a) carries client-safe fields o
   const changes = businessAuditChanges('User', { has_signature: false, signature_mime_type: null }, { has_signature: true, signature_mime_type: 'image/png' }).map(change => change.field);
   assert.deepEqual(changes.sort(), ['has_signature', 'signature_mime_type']);
 });
+
+test('Logistics dispatch pair: DRR Remarks never carry client remarks and the client slip never carries internal notes', async () => {
+  const { buildTassDailyRouteSlipRows, generateTassDailyRouteSlipWorkbook } = await import('../src/utils/tassDailyRouteSlip');
+  const record = rmaRecord();
+  const [row] = buildTassDailyRouteSlipRows([record]);
+  assert.equal(row.values.Remarks, `Alvin Gatus / Raymond Oliva / Jefferson Sualog - +639989765266\n${INTERNAL}`);
+  assert.equal(JSON.stringify(row).includes('SAP#12019325'), false, 'client-facing slip remarks stay on the client slip');
+  assert.equal(JSON.stringify(row).includes(WORKFLOW), false, 'workflow remarks are not a fallback when contacts or internal notes exist');
+  const { workbook } = await generateTassDailyRouteSlipWorkbook([record]);
+  const sheet = JSON.stringify(workbook.getWorksheet('Daily Route Slip')!.getSheetValues());
+  assert.equal(sheet.includes('SAP#12019325'), false);
+  assert.ok(sheet.includes('INTERNAL_SECRET_COD_PHP2000_DO_NOT_PRINT'), 'internal Logistics notes belong on the route slip');
+  const slip = JSON.stringify(buildRmaClientSlipModel(record));
+  assert.equal(slip.includes(INTERNAL), false);
+  assert.equal(slip.includes(WORKFLOW), false);
+  assert.ok(slip.includes('SAP#12019325'));
+});

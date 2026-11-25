@@ -21,11 +21,14 @@ export const BUSINESS_AUDIT_FIELDS: Record<string, readonly string[]> = {
   Product: ['skuCode', 'name', 'category', 'unitCost', 'unitPrice', 'reorderPoint', 'description'],
   InventoryTransaction: ['date', 'type', 'qtyChange', 'resultingBalance', 'reference'],
   User: ['name', 'email', 'role', 'isActive', 'microsoft_linked', 'has_signature', 'signature_mime_type', 'signature_updated_at'],
+  // TASS -> Logistics handoff summary; recipient email, record IDs and errors are not projected.
+  RmaLogisticsDispatch: ['dispatch_date', 'recipient_name', 'record_count', 'logistics_count', 'supplier_count', 'internal_count',
+    'route_slip_file_name', 'client_slips_file_name', 'email_status', 'email_method', 'in_app_notified'],
 };
 const AUDIT_LINE_ITEM_FIELDS = ['unit_type', 'serial_number', 'new_serial_number', 'defective_serial_number', 'purchase_date',
   'sales_order_no', 'accessories', 'problem_description', 'repair_note', 'status_tag'] as const;
 const RESOURCES: Record<string, string> = { Customer: 'customers', Supplier: 'suppliers', SupplierCategory: 'suppliers', Company: 'companies', AccountManager: 'admin', Driver: 'drivers', SKU: 'skus',
-  Product: 'skus', InventoryTransaction: 'skus', User: 'admin' };
+  Product: 'skus', InventoryTransaction: 'skus', User: 'admin', RmaLogisticsDispatch: 'records' };
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 export function safeBusinessAudit(recordType: string, value: string | null): Record<string, unknown> | null {
   if (!value || !Array.isArray(BUSINESS_AUDIT_FIELDS[recordType])) return null;

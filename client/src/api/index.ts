@@ -151,6 +151,40 @@ export interface ApiUserSignatureMeta {
   image_url: string | null;
 }
 
+/** Active Logistics printing coordinator with current RMA read access (TASS-only lookup). */
+export interface ApiLogisticsRecipient { id: string; name: string; email: string }
+
+export type RmaDispatchEmailStatus = 'SENT' | 'MOCKED' | 'SKIPPED' | 'FAILED';
+
+/** A TASS -> Logistics daily handoff; email outcome is reported separately from the in-app notice. */
+export interface ApiRmaLogisticsDispatch {
+  id: string;
+  dispatch_date: string;
+  dispatched_by: string;
+  recipient: { id: string; name: string };
+  record_count: number;
+  logistics_count: number;
+  supplier_count: number;
+  internal_count: number;
+  route_slip_file_name: string;
+  client_slips_file_name: string;
+  email_status: RmaDispatchEmailStatus;
+  email_method: 'graph' | 'smtp' | 'mock' | null;
+  in_app_notified: boolean;
+  /** Present when the stored FAILED status is an unfinished reservation (in flight, or final save failed). */
+  outcome_unconfirmed?: boolean;
+  note: string | null;
+  created_at: string;
+}
+
+export interface ApiRmaLogisticsDispatchResult {
+  deduplicated: boolean;
+  dispatch: ApiRmaLogisticsDispatch;
+  email_error: string | null;
+  /** An earlier attempt with this key never saved its final email status; the mail outcome is unknown. */
+  outcome_unconfirmed?: boolean;
+}
+
 /** Optional server-side filters for GET /records; the server always applies the user's record scope. */
 export interface RecordListFilters {
   company_id?: string;
@@ -165,6 +199,8 @@ export interface RecordListFilters {
   region?: string;
   subregion?: string;
   account_manager?: string;
+  /** Case-insensitive match on the creating account's name. */
+  created_by?: string;
   priority?: string;
   dashboard_filter?: string;
   limit?: number;
@@ -637,7 +673,17 @@ export const api = {
     return request<any[]>(`/records${query ? `?${query}` : ''}`);
   },
   getRecordActiveCounts: () => request<RecordActiveCounts>('/records/active-counts'),
-  getRecordFilterOptions: (category: string) => request<{ accountManagers: string[]; drivers: string[]; areas: string[] }>(`/records/filter-options?${new URLSearchParams({ category })}`),
+  getRecordFilterOptions: (category: string) => request<{ accountManagers: string[]; drivers: string[]; areas: string[]; creators?: string[] }>(`/records/filter-options?${new URLSearchParams({ category })}`),
+  getRmaLogisticsRecipients: () => request<{ recipients: ApiLogisticsRecipient[] }>('/records/rma-logistics-recipients'),
+  getRmaLogisticsDispatches: (options: { date?: string; limit?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (options.date) params.set('date', options.date);
+    if (options.limit) params.set('limit', String(options.limit));
+    const query = params.toString();
+    return request<{ dispatches: ApiRmaLogisticsDispatch[] }>(`/records/rma-logistics-dispatches${query ? `?${query}` : ''}`);
+  },
+  /** Multipart: client_slips (PDF), route_slip (xlsx), recipient_user_id, dispatch_date, record_ids (JSON), note, idempotency_key. */
+  dispatchRmaToLogistics: (form: FormData) => request<ApiRmaLogisticsDispatchResult>('/records/rma-logistics-dispatch', { method: 'POST', body: form }),
   getDriverOverview: (search = '', area = '') => {
     const params = new URLSearchParams();
     if (search) params.set('search', search);

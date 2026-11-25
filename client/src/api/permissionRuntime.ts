@@ -59,6 +59,21 @@ export function assertPermissionRequest(path: string, options: RequestInit = {})
   // Personal read-state is self-scoped by the server, independent of module Write.
   if (root === 'notifications' && ((!write && (!id || id === 'unread-count'))
     || options.method === 'PATCH' && (id === 'read-all' && !operation || !!id && operation === 'read'))) return;
+  // TASS -> Logistics handoff (Feature 5b). Matched before the generic record rules:
+  // the dispatch POST is multipart FormData, so it carries no JSON body.category.
+  if (root === 'records' && !operation && id === 'rma-logistics-recipients') {
+    require(!write && user.role === 'TASS' && p.canResource('records') && p.canRecord('RMA', 'READ', screen) && p.canRecord('RMA', 'WRITE', screen));
+    return;
+  }
+  if (root === 'records' && !operation && id === 'rma-logistics-dispatches') {
+    require(!write && ['TASS', 'LOGISTICS', 'ADMIN'].includes(user.role) && p.canResource('records') && p.canRecord('RMA', 'READ', screen));
+    return;
+  }
+  if (root === 'records' && !operation && id === 'rma-logistics-dispatch') {
+    require(write && options.method?.toUpperCase() === 'POST' && user.role === 'TASS' && p.canResource('records')
+      && p.canRecord('RMA', 'READ', screen) && p.canRecord('RMA', 'WRITE', screen));
+    return;
+  }
   if (root === 'records' || root === 'notifications' && id === 'send-email') {
     require(p.canResource('records'));
     const recordId = root === 'notifications' ? body.recordId : id;

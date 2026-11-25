@@ -55,6 +55,41 @@ model User {
   accountManagerProfile  AccountManager?  @relation("AccountManagerLogin")
   signature              UserSignature?   @relation("UserDigitalSignature")
   uploadedSignatures     UserSignature[]  @relation("UserSignatureUploadedBy")
+  rmaDispatchesSent      RmaLogisticsDispatch[] @relation("RmaDispatchesSent")
+  rmaDispatchesReceived  RmaLogisticsDispatch[] @relation("RmaDispatchesReceived")
+}
+
+// Daily TASS -> Logistics printing handoff record (Client Slips PDF + DRRMMDDYY.xlsx).
+// Tracks recipient, dispatched RMA IDs, movement breakdown, idempotency key, and
+// truthful email outcome (SENT | MOCKED | SKIPPED | FAILED). Attachments are emailed
+// directly and never persisted in POD or signature storage.
+model RmaLogisticsDispatch {
+  id                  String   @id @default(cuid())
+  idempotencyKey      String   @unique
+  dispatchDate        String // YYYY-MM-DD (Asia/Manila)
+  dispatchedById      String
+  dispatchedBy        User     @relation("RmaDispatchesSent", fields: [dispatchedById], references: [id], onDelete: Restrict)
+  recipientUserId     String
+  recipientUser       User     @relation("RmaDispatchesReceived", fields: [recipientUserId], references: [id], onDelete: Restrict)
+  recipientName       String
+  recipientEmail      String
+  recordIds           String[] // ordered authorized RMA DeliveryRecord IDs included in this handoff
+  recordCount         Int
+  logisticsCount      Int      @default(0)
+  supplierCount       Int      @default(0)
+  internalCount       Int      @default(0)
+  routeSlipFileName   String
+  clientSlipsFileName String
+  note                String?
+  inAppNotificationId String?
+  emailStatus         String // SENT | MOCKED | SKIPPED | FAILED
+  emailMethod         String? // graph | smtp | mock
+  emailError          String?
+  createdAt           DateTime @default(now())
+
+  @@index([dispatchDate, createdAt(sort: Desc)])
+  @@index([dispatchedById, createdAt(sort: Desc)])
+  @@index([recipientUserId, createdAt(sort: Desc)])
 }
 
 // Private per-user digital signature image embedded in the "Issued by" block
@@ -425,6 +460,7 @@ model DeliveryRecord {
   @@index([category, rmaMovement, rmaTransportStatus])
   @@index([category, isInternalTransfer, status])
   @@index([category, status, completionSignedOffAt])
+  @@index([category, createdById])
 }
 
 // Last record number used per record type and Asia/Manila year.
