@@ -154,7 +154,13 @@ Commit message format: `<type>(<subsystem>): <message> (TSK-XX)`
   real PostgreSQL, browser and external-provider validation.
 - Do **not** spin up new dev servers in tests — frontend is on `3000`, backend on `4000`
 - Existing isolated HTTP tests on ephemeral ports are appropriate. PostgreSQL
-  race/rollback tests require designated disposable targets.
+  race/rollback tests require designated disposable `127.0.0.1` targets
+  removed in `finally`, with `*.postgres.test.ts` suites executed serially
+  (one file at a time or `--test-concurrency=1`) to avoid shared sequence races.
+- Server unit tests that stub `mailer` or external providers MUST blank real
+  provider variables (e.g., `AZURE_*`, `SMTP_*`, `SUPABASE_*`, `NOTION_*`) to
+  empty strings (`''`, not `delete`) before dynamically importing `db.ts` or
+  `mailer.ts`, because `db.ts` loads `server/.env` via `dotenv.config()`.
 - Documentation/instruction-only edits need link, format and consistency checks;
   application tests are needed when behavior/contracts change. Substantial skill
   revisions also need a scoped behavioral evaluation when available/permitted.
@@ -181,6 +187,10 @@ Commit message format: `<type>(<subsystem>): <message> (TSK-XX)`
   notifications/cache → next role's view, including alternate submission paths.
 - Report configured, queued, mocked, sent, skipped and failed integration outcomes
   truthfully. Success messages and Delivered status do not prove email delivery.
+- **Microsoft SSO / Live Azure Tenant Deferred:** Microsoft SSO authentication
+  and live Microsoft Graph/Azure tenant configuration are out of scope until
+  Microgenesis provides its company SSO credentials upon handoff. Keep
+  mail/Graph integration tests strictly offline and stubbed locally.
 - Operational stock movement is currently manual; do not add automatic stock or
   financial reconciliation as an incidental fix without an agreed business rule.
 - Detailed audit and permission guidance lives in the routing skill's
