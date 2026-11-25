@@ -57,6 +57,8 @@ model User {
   uploadedSignatures     UserSignature[]  @relation("UserSignatureUploadedBy")
   rmaDispatchesSent      RmaLogisticsDispatch[] @relation("RmaDispatchesSent")
   rmaDispatchesReceived  RmaLogisticsDispatch[] @relation("RmaDispatchesReceived")
+  masterDataRequestsSubmitted MasterDataAdditionRequest[] @relation("MasterDataRequestsSubmitted")
+  masterDataRequestsReviewed  MasterDataAdditionRequest[] @relation("MasterDataRequestsReviewed")
 }
 
 // Daily TASS -> Logistics printing handoff record (Client Slips PDF + DRRMMDDYY.xlsx).
@@ -245,7 +247,8 @@ model Company {
   createdAt               DateTime                @default(now())
   updatedAt               DateTime                @default(now()) @updatedAt
 
-  records DeliveryRecord[]
+  records          DeliveryRecord[]
+  additionRequests MasterDataAdditionRequest[] @relation("CompanyFromAdditionRequest")
 
   @@index([defaultAccountManagerId])
 }
@@ -332,6 +335,57 @@ model Supplier {
   modifiedById  String
   modifiedBy    User     @relation("SupplierModifiedBy", fields: [modifiedById], references: [id])
   modifiedAt    DateTime @updatedAt
+  additionRequests MasterDataAdditionRequest[] @relation("SupplierFromAdditionRequest")
+}
+
+// In-app Company & Supplier addition requests submitted by TASS and reviewed by ADMIN (Sec 5.4).
+// Approved requests atomically create the target Company (+ CompanySapNumber / CompanyAccountManager)
+// or Supplier (+ optional SupplierCategoryAssignment) and link the created entity ID.
+model MasterDataAdditionRequest {
+  id                  String   @id @default(cuid())
+  entityType          String // COMPANY | SUPPLIER
+  status              String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  name                String
+  // PostgreSQL lower() of the trimmed, single-spaced name; backs the partial unique index on PENDING rows.
+  normalizedName      String
+  // Optional SAP numbers (CompanySapNumber for COMPANY; optional reference SAP for SUPPLIER).
+  sapNumbers          String[] @default([])
+  contactPerson       String   @default("")
+  contactPhone        String   @default("")
+  email               String   @default("")
+  address             String   @default("")
+  city                String   @default("")
+  // COMPANY only; validated active on submit and re-verified on approve.
+  accountManagerIds   String[] @default([])
+  // SUPPLIER only; validated active on submit and re-verified on approve.
+  supplierCategoryIds String[] @default([])
+  notes               String   @default("")
+  version             Int      @default(1)
+
+  requestedById   String
+  requestedBy     User      @relation("MasterDataRequestsSubmitted", fields: [requestedById], references: [id], onDelete: Restrict)
+  reviewedById    String?
+  reviewedBy      User?     @relation("MasterDataRequestsReviewed", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt      DateTime?
+  rejectionReason String?
+  reviewNotes     String?
+
+  createdCompanyId  String?
+  createdCompany    Company?  @relation("CompanyFromAdditionRequest", fields: [createdCompanyId], references: [id], onDelete: SetNull)
+  createdSupplierId String?
+  createdSupplier   Supplier? @relation("SupplierFromAdditionRequest", fields: [createdSupplierId], references: [id], onDelete: SetNull)
+  // Historical name of the created Company/Supplier, kept even if it is later renamed or removed.
+  createdEntityName String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([requestedById, createdAt(sort: Desc)])
+  @@index([entityType, status, createdAt(sort: Desc)])
+  @@index([reviewedById])
+  @@index([createdCompanyId])
+  @@index([createdSupplierId])
 }
 
 // Deactivate catalog entries instead of deleting them; actor history is in AuditLog.

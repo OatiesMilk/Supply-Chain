@@ -298,6 +298,79 @@ export interface ApiCompany {
   updated_at: string;
 }
 
+// ── Company & Supplier addition requests (Feature 4b) ──────────────────────
+export type MasterDataEntityType = 'COMPANY' | 'SUPPLIER';
+export type MasterDataRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+export interface ApiMasterDataChoice { id: string; name: string; is_active: boolean }
+export interface ApiMasterDataAdditionRequest {
+  id: string;
+  entity_type: MasterDataEntityType;
+  status: MasterDataRequestStatus;
+  name: string;
+  sap_numbers: string[];
+  contact_person: string;
+  contact_phone: string;
+  email: string;
+  address: string;
+  city: string;
+  /** COMPANY only. */
+  account_managers: ApiMasterDataChoice[];
+  /** SUPPLIER only. */
+  supplier_categories: ApiMasterDataChoice[];
+  notes: string;
+  version: number;
+  requested_by: { id: string; name: string };
+  reviewed_by: { id: string; name: string } | null;
+  reviewed_at: string | null;
+  rejection_reason: string | null;
+  review_notes: string | null;
+  created_company_id: string | null;
+  created_supplier_id: string | null;
+  created_entity_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface MasterDataRequestCounts { pending: number; approved: number; rejected: number }
+/** Server-evaluated submit permission (LEGACY sessions cannot evaluate RMA write policy on the client). */
+export interface MasterDataRequestCapabilities { can_submit_company: boolean; can_submit_supplier: boolean }
+/** One page of requests; counts cover every page for the same scope, type and search. */
+export interface MasterDataRequestListResponse {
+  requests: ApiMasterDataAdditionRequest[];
+  counts: MasterDataRequestCounts;
+  total?: number;
+  page?: number;
+  limit?: number;
+  pages?: number;
+  capabilities?: MasterDataRequestCapabilities;
+}
+export interface MasterDataRequestListParams {
+  status?: MasterDataRequestStatus | 'ALL';
+  entity_type?: MasterDataEntityType | 'ALL';
+  search?: string;
+  page?: number;
+  /** 1..100 on the server. */
+  limit?: number;
+}
+export interface MasterDataRequestFields {
+  name?: string;
+  sap_numbers?: string[];
+  contact_person?: string;
+  contact_phone?: string;
+  email?: string;
+  address?: string;
+  /** SUPPLIER only. */
+  city?: string;
+  /** COMPANY only. */
+  account_manager_ids?: string[];
+  /** SUPPLIER only. */
+  supplier_category_ids?: string[];
+}
+export interface SubmitMasterDataRequestInput extends MasterDataRequestFields { entity_type: MasterDataEntityType; name: string; notes?: string }
+/** Omitted fields keep the submitted values (one-click approval). entity_type lets the client permission check match the server. */
+export interface ApproveMasterDataRequestInput extends MasterDataRequestFields { expected_version: number; entity_type: MasterDataEntityType; review_notes?: string }
+export interface RejectMasterDataRequestInput { expected_version: number; rejection_reason: string }
+export interface ApproveMasterDataRequestResult { request: ApiMasterDataAdditionRequest; created_company?: ApiCompany; created_supplier?: ApiSupplier }
+
 export interface CompanyInput {
   name: string;
   /** Legacy single value; send sap_numbers instead (never both). */
@@ -809,6 +882,22 @@ export const api = {
     request<SupplierCategory>(`/suppliers/categories/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   updateSupplierCategories: (id: string, data: { category_ids: string[]; expected_version: number }) =>
     request<ApiSupplier>(`/suppliers/${id}/categories`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  getMasterDataRequests: (params: MasterDataRequestListParams = {}) => {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (typeof value === 'string' && value.trim()) query.set(key, value.trim());
+      else if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) query.set(key, String(value));
+    }
+    return request<MasterDataRequestListResponse>(`/master-data-requests${query.size ? `?${query}` : ''}`);
+  },
+  getMasterDataRequest: (id: string) => request<ApiMasterDataAdditionRequest>(`/master-data-requests/${encodeURIComponent(id)}`),
+  submitMasterDataRequest: (data: SubmitMasterDataRequestInput) =>
+    request<ApiMasterDataAdditionRequest>('/master-data-requests', { method: 'POST', body: JSON.stringify(data) }),
+  approveMasterDataRequest: (id: string, data: ApproveMasterDataRequestInput) =>
+    request<ApproveMasterDataRequestResult>(`/master-data-requests/${encodeURIComponent(id)}/approve`, { method: 'POST', body: JSON.stringify(data) }),
+  rejectMasterDataRequest: (id: string, data: RejectMasterDataRequestInput) =>
+    request<{ request: ApiMasterDataAdditionRequest }>(`/master-data-requests/${encodeURIComponent(id)}/reject`, { method: 'POST', body: JSON.stringify(data) }),
 
   getDashboardStats: () => request<ApiDashboardStats>('/dashboard/stats'),
   getDashboardOverview: () => request<ApiDashboardOverview>('/dashboard/overview'),

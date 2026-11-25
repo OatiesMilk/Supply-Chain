@@ -116,6 +116,32 @@ export function assertPermissionRequest(path: string, options: RequestInit = {})
     }
     return;
   }
+  // Company/Supplier addition requests (Feature 4b) mirror routes/masterDataRequests.ts.
+  // Submission needs CATEGORY:RMA:WRITE without a screen, so TASS can also request from Suppliers.
+  if (root === 'master-data-requests') {
+    const method = options.method?.toUpperCase() ?? 'GET';
+    if (!write) {
+      if (user.role === 'ADMIN') require(p.canResource('admin', 'READ'));
+      else if (user.role === 'TASS') require(p.canResource('companies', 'READ') || p.canResource('suppliers', 'READ'));
+      else throw new ClientPermissionError();
+      return;
+    }
+    if (method === 'POST' && !id) {
+      require(user.role === 'TASS' && p.can('CATEGORY', 'RMA', 'WRITE')
+        && (body.entity_type === 'SUPPLIER' ? p.canResource('suppliers', 'READ') : p.canResource('companies', 'READ')));
+      return;
+    }
+    if (method === 'POST' && id && !parts[3] && (operation === 'approve' || operation === 'reject')) {
+      require(user.role === 'ADMIN' && p.canWrite('admin') && p.canResource('admin', 'WRITE'));
+      if (operation === 'approve') {
+        if (body.entity_type === 'COMPANY') require(p.canResource('companies', 'CREATE'));
+        else if (body.entity_type === 'SUPPLIER') require(p.canWrite('suppliers') && p.canResource('suppliers', 'CREATE'));
+        else throw new ClientPermissionError();
+      }
+      return;
+    }
+    throw new ClientPermissionError();
+  }
   const resource = ({ 'data-sampler': 'dataSampler', dev: 'dataSampler', reports: 'records', 'account-managers': 'companies' } as Record<string, string>)[root] ?? root;
   require(p.canResource(resource));
   // Admin-managed digital signatures mirror the server: reads need users READ;

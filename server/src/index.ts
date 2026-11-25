@@ -18,6 +18,7 @@ import companiesRoutes from './routes/companies';
 import accountManagersRoutes from './routes/accountManagers';
 import customersRoutes from './routes/customers';
 import suppliersRoutes from './routes/suppliers';
+import masterDataRequestsRoutes from './routes/masterDataRequests';
 import usersRoutes from './routes/users';
 import dashboardRoutes from './routes/dashboard';
 import adminRoutes from './routes/admin';
@@ -77,6 +78,7 @@ app.use('/api/v1/companies', companiesRoutes);
 app.use('/api/v1/account-managers', accountManagersRoutes);
 app.use('/api/v1/customers', customersRoutes);
 app.use('/api/v1/suppliers', suppliersRoutes); // Includes supplier category catalog/assignment endpoints.
+app.use('/api/v1/master-data-requests', masterDataRequestsRoutes); // TASS Company/Supplier addition requests, ADMIN review.
 app.use('/api/v1/users', usersRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
 app.use('/api/v1/admin', adminRoutes);

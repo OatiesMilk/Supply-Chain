@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, ClipboardList, UserX, Plus, ChevronLeft, ChevronRight, Loader2, Check, ShieldCheck, X, Settings2, Send, Pencil, Link2, Trash2, Building2, Contact, PenLine } from 'lucide-react';
+import { Users, ClipboardList, UserX, Plus, ChevronLeft, ChevronRight, Loader2, Check, ShieldCheck, X, Settings2, Send, Pencil, Link2, Trash2, Building2, Contact, PenLine, FilePlus2 } from 'lucide-react';
 import { api, ApiDriver, ApiUserAdmin, ApiAdminAuditEntry, ApiIntegrationStatus, ApiError, type AccountPolicyVersion } from '@/api';
 import AccountActionsMenu from './AccountActionsMenu';
 import DigitalSignatureManager from '@/components/DigitalSignatureManager';
@@ -17,9 +17,11 @@ import BusinessAuditDiff from './BusinessAuditDiff';
 import type { UserPermissionEditor } from '@/types/permissionEditor';
 import AccountManagersTab from './directory/AccountManagersTab';
 import CompaniesTab from './directory/CompaniesTab';
+import AdditionRequestsTab, { useAdditionRequestReviewAccess } from './directory/AdditionRequestsTab';
+import { MASTER_DATA_REQUEST_SUMMARY, useMasterDataRequestsQuery } from '@/api/queries/useMasterDataRequestsQuery';
 import { usePermissions } from '@/hooks/usePermissions';
 
-type Tab = 'users' | 'account_managers' | 'companies' | 'audit' | 'integrations' | 'permissions';
+type Tab = 'users' | 'account_managers' | 'companies' | 'addition_requests' | 'audit' | 'integrations' | 'permissions';
 
 const ROLE_OPTIONS = ['SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'ADMIN', 'DRIVER'] as const;
 const ROLE_LABELS: Record<string, string> = {
@@ -33,9 +35,12 @@ const ROLE_LABELS: Record<string, string> = {
 interface AdminPanelProps {
   dashboardFilterId: DashboardFilterId | null;
   clearDashboardFilter: () => void;
+  /** Addition request opened from a notification or ?request= link: opens its tab and highlights it. */
+  selectedAdditionRequestId?: string | null;
+  clearSelectedAdditionRequestId?: () => void;
 }
 
-export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: AdminPanelProps) {
+export default function AdminPanel({ dashboardFilterId, clearDashboardFilter, selectedAdditionRequestId = null, clearSelectedAdditionRequestId }: AdminPanelProps) {
   const activePermissionMode = useAuthStore(state => state.authUser?.activeMode);
   const initialAuditDate = dashboardFilterId === 'admin-audit-today' ? manilaToday() : '';
   const [tab, setTab] = useState<Tab>('users');
@@ -43,6 +48,17 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
   const authRole = useAuthStore(state => state.authUser?.role);
   // Mirrors the server guards on company and Account Manager writes.
   const canManageDirectory = authRole === 'ADMIN' && access.canWrite('admin') && access.canResource('admin', 'WRITE') && access.canResource('companies', 'WRITE');
+  const additionRequestAccess = useAdditionRequestReviewAccess();
+  // Badge: exact server count of pending requests, without loading the queue.
+  const additionRequests = useMasterDataRequestsQuery(MASTER_DATA_REQUEST_SUMMARY, additionRequestAccess.canRead);
+  const pendingAdditionRequests = additionRequests.data?.counts.pending ?? 0;
+  const [highlightedRequestId, setHighlightedRequestId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!selectedAdditionRequestId || !additionRequestAccess.canRead) return;
+    setHighlightedRequestId(selectedAdditionRequestId);
+    setTab('addition_requests');
+    clearSelectedAdditionRequestId?.();
+  }, [selectedAdditionRequestId, additionRequestAccess.canRead, clearSelectedAdditionRequestId]);
 
   // ── User Management ──────────────────────────────────────────────────────────
   const [users, setUsers] = useState<ApiUserAdmin[]>([]);
@@ -394,6 +410,14 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
         <button className={tabClass('companies')} onClick={() => setTab('companies')}>
           <span className="flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5" /> Companies</span>
         </button>
+        {additionRequestAccess.canRead && (
+          <button className={tabClass('addition_requests')} onClick={() => { setHighlightedRequestId(null); setTab('addition_requests'); }}
+            aria-label={pendingAdditionRequests ? `Addition Requests, ${pendingAdditionRequests} pending` : 'Addition Requests'}>
+            <span className="flex items-center gap-1.5"><FilePlus2 className="w-3.5 h-3.5" /> Addition Requests
+              {pendingAdditionRequests > 0 && <span aria-hidden="true" className="rounded-full bg-amber-100 px-1.5 text-xs font-bold text-amber-900 tabular-nums">{pendingAdditionRequests}</span>}
+            </span>
+          </button>
+        )}
         <button className={tabClass('audit')} onClick={() => setTab('audit')}>
           <span className="flex items-center gap-1.5"><ClipboardList className="w-3.5 h-3.5" /> System Audit Log</span>
         </button>
@@ -406,6 +430,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
       {tab === 'permissions' && <RolesPermissions key={openPermissionsUserId ?? 'overview'} initialUserId={openPermissionsUserId} users={users} usersLoading={usersLoading} usersError={usersError} onRetryUsers={loadUsers} />}
       {tab === 'account_managers' && <AccountManagersTab canManage={canManageDirectory} />}
       {tab === 'companies' && <CompaniesTab canManage={canManageDirectory} />}
+      {tab === 'addition_requests' && additionRequestAccess.canRead && <AdditionRequestsTab highlightedRequestId={highlightedRequestId} />}
       {tab === 'users' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">

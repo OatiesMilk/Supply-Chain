@@ -319,6 +319,7 @@ router.delete('/:id', requireAuth, requireResource('users', 'DELETE'), requireRo
     modifiedSuppliers,
     comments,
     remarkLogs,
+    additionRequests,
   ] = await Promise.all([
     tx.deliveryRecord.count({ where: { createdById: id } }),
     tx.deliveryRecord.count({ where: { modifiedById: id } }),
@@ -331,11 +332,13 @@ router.delete('/:id', requireAuth, requireResource('users', 'DELETE'), requireRo
     tx.supplier.count({ where: { modifiedById: id } }),
     tx.comment.count({ where: { authorId: id } }),
     tx.remarkLog.count({ where: { authorId: id } }),
+    // Requester provenance is ON DELETE RESTRICT; report it as linked history.
+    tx.masterDataAdditionRequest.count({ where: { requestedById: id } }),
   ]);
 
   const totalLinked = createdRecords + modifiedRecords + auditEntries
     + createdProducts + modifiedProducts + createdCustomers + modifiedCustomers
-    + createdSuppliers + modifiedSuppliers + comments + remarkLogs;
+    + createdSuppliers + modifiedSuppliers + comments + remarkLogs + additionRequests;
 
   if (totalLinked > 0) {
     throw new PolicyManagementError(409, 'Cannot delete a user with business records; deactivate the account to retain history', { linked_records: totalLinked });

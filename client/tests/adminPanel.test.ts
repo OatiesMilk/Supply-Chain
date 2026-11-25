@@ -2,6 +2,7 @@ import { afterEach, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { JSDOM } from 'jsdom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AdminPanel from '../src/features/admin/AdminPanel';
 import { api, ApiError, type ApiDriver, type ApiIntegrationStatus, type ApiUserAdmin } from '../src/api';
 import { useAuthStore } from '../src/store/authStore';
@@ -75,7 +76,11 @@ async function mounted(run: (controls: Controls) => Promise<void>) {
     await act(async () => { element.dispatchEvent(new dom.window.Event(element.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); });
   };
   try {
-    await act(async () => root.render(React.createElement(AdminPanel, { dashboardFilterId: null, clearDashboardFilter() {} })));
+    // The Admin Panel reads the addition-request queue (pending badge) through TanStack Query.
+    if (!('mock' in api.getMasterDataRequests)) mock.method(api, 'getMasterDataRequests', async () => ({ requests: [], counts: { pending: 0, approved: 0, rejected: 0 } }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await act(async () => root.render(React.createElement(QueryClientProvider, { client: queryClient },
+      React.createElement(AdminPanel, { dashboardFilterId: null, clearDashboardFilter() {} }))));
     await run({ doc, click, change });
   } finally {
     await act(async () => root.unmount()); dom.window.close();

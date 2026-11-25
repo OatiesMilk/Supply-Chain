@@ -17,6 +17,8 @@ import { exportRecordOutputPDF } from '@/utils/recordOutputPdf';
 import { api, ApiCompany } from '@/api';
 import OutputActionsPanel from '@/features/deliveries/OutputActionsPanel';
 import ComboboxField from '@/components/ComboboxField';
+import MasterDataAdditionRequestDialog from '@/features/masterDataRequests/MasterDataAdditionRequestDialog';
+import { useMasterDataRequestAccess } from '@/features/masterDataRequests/TassAdditionRequestActions';
 import { POD_ATTACHMENT_ACCEPT, getPodAttachmentRejection } from '@/utils/attachmentValidation';
 import { selectDemoLocation } from '@/utils/demoLocations';
 import { notify } from '@/utils/notify';
@@ -214,6 +216,10 @@ export default function RecordCreateForm({
   const [createdRecordInfo, setCreatedRecordInfo] = useState<{ id: string; recordNo: string; referenceLabel: string; lines: string[]; isDraft: boolean } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  // TASS cannot add companies; it asks an Admin from here without losing this form (Feature 4b).
+  const { canRequestCompany } = useMasterDataRequestAccess();
+  const [requestingCompany, setRequestingCompany] = useState(false);
+  const [companyRequestNotice, setCompanyRequestNotice] = useState<string | null>(null);
 
   const updateField = <K extends keyof RecordFormState>(key: K, value: RecordFormState[K]) => {
     setFormErrors(prev => { const n = { ...prev }; delete n[key as string]; return n; });
@@ -535,15 +541,27 @@ export default function RecordCreateForm({
           )}
 
           {/* Company Name * */}
-          <ComboboxField
-            label="Company Name"
-            required
-            options={companyOptions.map(c => c.name)}
-            value={form.company_name}
-            onChange={handleCompanySelect}
-            placeholder="Type to search or scroll to browse..."
-            error={formErrors.company_name}
-          />
+          <div className="space-y-1.5">
+            <ComboboxField
+              label="Company Name"
+              required
+              options={companyOptions.map(c => c.name)}
+              value={form.company_name}
+              onChange={handleCompanySelect}
+              placeholder="Type to search or scroll to browse..."
+              error={formErrors.company_name}
+            />
+            {canRequestCompany && (
+              <p className="text-xs text-slate-500">
+                Missing a company?{' '}
+                <button type="button" id="request-company-addition" onClick={() => { setCompanyRequestNotice(null); setRequestingCompany(true); }}
+                  className="font-semibold text-brand-blue underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-blue">
+                  Request to add company
+                </button>
+                {companyRequestNotice && <span role="status" className="ml-2 font-semibold text-emerald-800">{companyRequestNotice}</span>}
+              </p>
+            )}
+          </div>
 
           {/* Priority * */}
           <div className="space-y-1.5">
@@ -821,6 +839,10 @@ export default function RecordCreateForm({
           </button>
         </div>
       </form>
+      {requestingCompany && (
+        <MasterDataAdditionRequestDialog allowedTypes={['COMPANY']} initialEntityType="COMPANY" initialName={form.company_id ? '' : form.company_name}
+          onClose={submitted => { setRequestingCompany(false); if (submitted) setCompanyRequestNotice(`Request sent for "${submitted.name}". You will be notified when an Admin reviews it.`); }} />
+      )}
     </div>
   );
 }

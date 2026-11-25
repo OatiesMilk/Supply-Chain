@@ -15,6 +15,8 @@ export interface UIState {
   accessRequestScreen: string;
   selectedProductId: string | null;
   selectedRecordId: string | null;
+  /** Company/Supplier addition request opened from a notification or a ?request= link. Never a record id. */
+  selectedAdditionRequestId: string | null;
   dashboardFilterId: DashboardFilterId | null;
   outputActionConfigs: Record<OutputActionTrigger, OutputActionConfig>;
 }
@@ -29,6 +31,9 @@ export interface UIActions {
   closeAccessRequest: () => void;
   setSelectedProductId: (id: string | null) => void;
   setSelectedRecordId: (id: string | null) => void;
+  setSelectedAdditionRequestId: (id: string | null) => void;
+  /** Open a screen focused on an addition request without touching record or product selection. */
+  handleNavigateAdditionRequest: (screen: string, requestId: string) => void;
   handleNavigate: (screen: string, item_id?: string, dashboardFilterId?: DashboardFilterId) => void;
   clearDashboardFilter: () => void;
   resetSession: () => void;
@@ -51,6 +56,7 @@ export const useUIStore = create<UIStore>()(
       accessRequestScreen: '',
       selectedProductId: null,
       selectedRecordId: null,
+      selectedAdditionRequestId: null,
       dashboardFilterId: null,
       outputActionConfigs: DEFAULT_OUTPUT_ACTIONS,
 
@@ -75,6 +81,24 @@ export const useUIStore = create<UIStore>()(
 
       setSelectedRecordId: (id: string | null) => set({ selectedRecordId: id }),
 
+      setSelectedAdditionRequestId: (id: string | null) => set({ selectedAdditionRequestId: id }),
+
+      handleNavigateAdditionRequest: (screen: string, requestId: string) => {
+        const targetPath = `/${screen}?request=${encodeURIComponent(requestId)}`;
+        if (targetPath !== window.location.pathname + window.location.search) {
+          window.history.pushState({ screen, request_id: requestId }, '', targetPath);
+        }
+        set({
+          currentScreen: screen,
+          navigationNonce: get().navigationNonce + 1,
+          isSidebarOpen: false,
+          dashboardFilterId: null,
+          selectedProductId: null,
+          selectedRecordId: null,
+          selectedAdditionRequestId: requestId,
+        });
+      },
+
       resetSession: () => {
         window.history.replaceState({ screen: 'login' }, '', '/login');
         set({
@@ -85,6 +109,7 @@ export const useUIStore = create<UIStore>()(
           accessRequestScreen: '',
           selectedProductId: null,
           selectedRecordId: null,
+          selectedAdditionRequestId: null,
           dashboardFilterId: null,
         });
       },
@@ -104,6 +129,7 @@ export const useUIStore = create<UIStore>()(
           dashboardFilterId: dashboardFilterId ?? null,
           selectedProductId: screen === 'inventory' && item_id ? item_id : null,
           selectedRecordId: CATEGORY_SCREENS[screen] && item_id ? item_id : null,
+          selectedAdditionRequestId: null,
         });
       },
 

@@ -88,7 +88,7 @@ async function fixture(t: TestContext, mode: Mode) {
   stub(prisma.rolePolicy, 'findUnique', async ({ where }: any) => structuredClone(policies.get(where.role) ?? null));
   stub(prisma.rolePolicy, 'findMany', async () => []);
   stub(prisma.deliveryRecord, 'findFirst', async ({ where }: any) => structuredClone(records.find(row => matches(row, where)) ?? null));
-  for (const model of ['deliveryRecord', 'auditLog', 'product', 'customer', 'supplier', 'comment', 'remarkLog'] as const) stub((prisma as any)[model], 'count', async () => 0);
+  for (const model of ['deliveryRecord', 'auditLog', 'product', 'customer', 'supplier', 'comment', 'remarkLog', 'masterDataAdditionRequest'] as const) stub((prisma as any)[model], 'count', async () => 0);
   stub(prisma.userPermission, 'deleteMany', async () => ({ count: 0 }));
   stub(prisma.notification, 'deleteMany', async () => ({ count: 0 }));
   stub(prisma.userSignature, 'findUnique', async ({ where }: any) => signatures.get(where.userId) ? { ...signatures.get(where.userId) } : null);
