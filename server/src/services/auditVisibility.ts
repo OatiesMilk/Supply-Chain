@@ -13,7 +13,7 @@ export function auditVisibilitySql(user: AuthUser): Prisma.Sql {
   const clauses: Prisma.Sql[] = [Prisma.sql`(a."recordType" = 'DeliveryRecord' AND EXISTS (SELECT 1 FROM "DeliveryRecord" r WHERE r.id = a."recordId" AND r."deletedAt" IS NULL AND ${category} AND ${ownership}))`];
   const types: Record<string, string[]> = {
     skus: ['SKU', 'Product', 'InventoryTransaction'], customers: ['Customer'], suppliers: ['Supplier', 'SupplierCategory'], drivers: ['Driver'],
-    admin: ['User', 'RolePolicy', 'UserPermission', 'UserPermissionOverride', 'UserAuthorization', 'PermissionConversion'],
+    admin: ['User', 'RolePolicy', 'UserPermission', 'UserPermissionOverride', 'UserAuthorization', 'PermissionConversion', 'MasterDataAdditionRequest'],
   };
   for (const [resource, recordTypes] of Object.entries(types)) if (user.snapshot && hasActionPermission(user.snapshot, 'RESOURCE', resource, 'READ')) clauses.push(Prisma.sql`a."recordType" IN (${Prisma.join(recordTypes)})`);
   return Prisma.sql`(${Prisma.join(clauses, ' OR ')})`;

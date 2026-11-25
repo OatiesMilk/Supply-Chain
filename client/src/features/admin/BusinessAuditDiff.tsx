@@ -20,6 +20,8 @@ const fields: Record<string, readonly string[]> = {
   User: ['name', 'email', 'role', 'isActive', 'microsoft_linked', 'has_signature', 'signature_mime_type', 'signature_updated_at'],
   RmaLogisticsDispatch: ['dispatch_date', 'recipient_name', 'record_count', 'logistics_count', 'supplier_count', 'internal_count',
     'route_slip_file_name', 'client_slips_file_name', 'email_status', 'email_method', 'in_app_notified'],
+  MasterDataAdditionRequest: ['entity_type', 'status', 'name', 'sap_numbers', 'contact_person', 'contact_phone', 'email', 'address', 'city',
+    'account_managers', 'supplier_categories', 'notes', 'rejection_reason', 'review_notes', 'created_entity_name', 'version'],
 };
 const ITEM_FIELDS = ['unit_type', 'serial_number', 'new_serial_number', 'defective_serial_number', 'purchase_date',
   'sales_order_no', 'accessories', 'problem_description', 'repair_note', 'status_tag'] as const;
@@ -28,7 +30,7 @@ function display(value: unknown, key: string): string {
   if (key === 'categories' && Array.isArray(value)) return value.map(item => item && typeof item === 'object'
     && typeof item.name === 'string' ? `${item.name} (${typeof item.id === 'string' ? item.id : ''})` : '').join('; ') || 'none';
   if (key === 'sap_numbers' && Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string').join(', ') || 'none';
-  if (key === 'account_managers' && Array.isArray(value)) return value.map(item => item && typeof item === 'object'
+  if ((key === 'account_managers' || key === 'supplier_categories') && Array.isArray(value)) return value.map(item => item && typeof item === 'object'
     && typeof item.name === 'string' ? item.name : '').filter(Boolean).join(', ') || 'none';
   if (typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number') return String(value);
   if (key === 'line_items' && Array.isArray(value)) return value.map(item => {

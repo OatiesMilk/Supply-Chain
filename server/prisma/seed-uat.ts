@@ -94,6 +94,8 @@ export async function runUatSeed() {
   await prisma.remarkLog.deleteMany();
   await prisma.comment.deleteMany();
   await prisma.notification.deleteMany();
+  // Requests restrict User deletion and link Company/Supplier; clear them first.
+  await prisma.masterDataAdditionRequest.deleteMany();
   await prisma.userPermission.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.notificationLog.deleteMany();

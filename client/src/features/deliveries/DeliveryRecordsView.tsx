@@ -42,6 +42,7 @@ import { useRecordFilterOptionsQuery } from '@/api/queries/useOperationalViews';
 import { sortDeliveryRows } from '@/utils/dateSort';
 import { DELIVERY_STATUSES, AREA_HIERARCHY, getRegion, getSubregion } from '@/data';
 import DeliveryRecordWorkspace from '@/features/deliveries/DeliveryRecordWorkspace';
+import TassAdditionRequestActions from '@/features/masterDataRequests/TassAdditionRequestActions';
 import RecordCreateForm from '@/features/deliveries/RecordCreateForm';
 import FilterPopover, { FilterCombobox } from '@/components/FilterPopover';
 import { dateRangeState } from '@/utils/dateRange';
@@ -82,6 +83,9 @@ interface DeliveryRecordsViewProps {
   dashboardFilterId: DashboardFilterId | null;
   clearDashboardFilter: () => void;
   onRefresh?: () => void;
+  /** Addition request opened from a notification or ?request= link (Feature 4b, RMA only). */
+  selectedAdditionRequestId?: string | null;
+  clearSelectedAdditionRequestId?: () => void;
 }
 
 // Small icon per output-action log message, purely cosmetic
@@ -124,7 +128,9 @@ export default function DeliveryRecordsView({
   clearSelectedRecordId,
   dashboardFilterId,
   clearDashboardFilter,
-  onRefresh
+  onRefresh,
+  selectedAdditionRequestId = null,
+  clearSelectedAdditionRequestId,
 }: DeliveryRecordsViewProps) {
   const access = usePermissions();
   // RMA shows Account Manager / Created By / Movement Method inline; other categories keep Account Manager in the filter popover.
@@ -933,6 +939,10 @@ export default function DeliveryRecordsView({
         </div>
         {/* View Actions */}
         <div className="flex items-center justify-end gap-2 flex-wrap">
+          {category === 'RMA' && (
+            <TassAdditionRequestActions variant="rma" selectedAdditionRequestId={selectedAdditionRequestId}
+              clearSelectedAdditionRequestId={clearSelectedAdditionRequestId} />
+          )}
           {showExports && (
             <ExportMenu
               rows={exportRows}
