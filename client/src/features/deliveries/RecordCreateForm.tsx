@@ -22,6 +22,7 @@ import { useMasterDataRequestAccess } from '@/features/masterDataRequests/TassAd
 import { POD_ATTACHMENT_ACCEPT, getPodAttachmentRejection } from '@/utils/attachmentValidation';
 import { selectDemoLocation } from '@/utils/demoLocations';
 import { notify } from '@/utils/notify';
+import { DATA_SAMPLER_ENABLED } from '@/utils/developmentTools';
 import { uploadPendingRecordAttachments, type StagedRecordAttachment } from '@/utils/recordAttachments';
 import { recordLabel } from '../../utils/recordLabel';
 
@@ -186,6 +187,8 @@ export interface RecordCreateFormProps {
   outputActionConfigs?: Record<OutputActionTrigger, OutputActionConfig>;
   onUpdateOutputActionConfig?: (trigger: OutputActionTrigger, patch: Partial<OutputActionConfig>) => void;
   onAfterSubmit?: (bannerData: { recordId: string; recordNo: string; referenceLabel: string; lines: string[] }) => void;
+  /** Demo-data button. Defaults to the dev-only Data Sampler flag; tests may force it on. */
+  showAutoFill?: boolean;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -201,13 +204,18 @@ export default function RecordCreateForm({
   outputActionConfigs,
   onUpdateOutputActionConfig,
   onAfterSubmit,
+  showAutoFill = DATA_SAMPLER_ENABLED,
 }: RecordCreateFormProps) {
   const access = usePermissions();
   const deliveryDateId = useId();
+  // Same focus treatment as the Reference input (#349).
+  const focusCls = 'focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25';
   const accountManagers = useAccountManagersQuery();
   const amOptions = accountManagerChoices(accountManagers.data);
   const companyOptions = activeCompanies(companies);
   const [form, setForm] = useState<RecordFormState>(() => buildEmptyForm(category));
+  // Same predicate as the Submit button. Only a submission needs a movement method; Save as Draft does not (#349 QA run 1, finding 5).
+  const canSubmitRecord = access.canRecord(form.category, 'CREATE') && access.canRecord(form.category, 'SUBMIT');
   const selectedCompany = form.company_id ? companies.find(c => c.id === form.company_id) : undefined;
   const selectedCompanyAms = companyAccountManagers(selectedCompany, accountManagers.data);
   const [saving, setSaving] = useState(false);
@@ -251,7 +259,7 @@ export default function RecordCreateForm({
   };
 
   const handleAutoFill = () => {
-    if (companyOptions.length === 0) return;
+    if (!showAutoFill || companyOptions.length === 0) return;
     const cat = form.category;
     const company = afPick(companyOptions);
     const location = selectDemoLocation();
@@ -466,6 +474,8 @@ export default function RecordCreateForm({
   };
 
   const cat = form.category;
+  // The movement hint explains the Receiving Slip default; it is linked to the select through aria-describedby.
+  const movementHintShown = form.rma_type === RECEIVING_SLIP_CATEGORY && form.rma_movement === 'INTERNAL_NO_DRIVER';
 
   if (createdRecordInfo) {
     return (
@@ -506,15 +516,17 @@ export default function RecordCreateForm({
           <p className="text-xs text-slate-500 font-medium">{cat === 'RMA' ? 'Category, Company Name, Priority, Area and Account Manager are required; the slip reference is generated on save. Choose a movement method to submit; Logistics transport also needs a Delivery Date.' : 'Submit requires a company, reference and delivery date. Drafts may be incomplete.'}</p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleAutoFill}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg transition-colors cursor-pointer"
-          >
-            <Wand2 className="w-3.5 h-3.5" /> Auto Fill
-          </button>
-          <button onClick={onCancel} className="text-slate-400 hover:text-slate-700">
-            <X className="w-5 h-5" />
+          {showAutoFill && (
+            <button
+              type="button"
+              onClick={handleAutoFill}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg transition-colors cursor-pointer"
+            >
+              <Wand2 aria-hidden="true" className="w-3.5 h-3.5" /> Auto Fill
+            </button>
+          )}
+          <button type="button" onClick={onCancel} aria-label="Close" className="rounded-md text-slate-400 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">
+            <X aria-hidden="true" className="w-5 h-5" />
           </button>
         </div>
       </div>
@@ -565,21 +577,21 @@ export default function RecordCreateForm({
 
           {/* Priority * */}
           <div className="space-y-1.5">
-            <label className="font-bold text-slate-700">Priority <span className="text-red-500">*</span></label>
-            <select value={form.priority} onChange={e => updateField('priority', e.target.value)} aria-invalid={!!formErrors.priority} className={`w-full px-3 py-2 border rounded-lg bg-white ${formErrors.priority ? 'border-red-500' : 'border-slate-300'}`}>
+            <label htmlFor="create-priority" className="font-bold text-slate-700">Priority <span className="text-red-500">*</span></label>
+            <select id="create-priority" value={form.priority} onChange={e => updateField('priority', e.target.value)} aria-invalid={!!formErrors.priority} aria-describedby={formErrors.priority ? 'create-priority-error' : undefined} className={`w-full px-3 py-2 border rounded-lg bg-white ${focusCls} ${formErrors.priority ? 'border-red-500' : 'border-slate-300'}`}>
               {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
-            {formErrors.priority && <p className="text-red-500 text-xs font-semibold">{formErrors.priority}</p>}
+            {formErrors.priority && <p id="create-priority-error" role="alert" className="text-red-500 text-xs font-semibold">{formErrors.priority}</p>}
           </div>
 
           {cat === 'RMA' && <>
             <div className="space-y-1.5">
               <label htmlFor="create-rma-type" className="font-bold text-slate-700">Category <span className="text-red-500">*</span></label>
-              <select id="create-rma-type" value={form.rma_type} onChange={e => updateRmaCategory(e.target.value as RecordFormState['rma_type'])} aria-invalid={!!formErrors.rma_type} aria-required="true" className={`w-full px-3 py-2 border rounded-lg bg-white ${formErrors.rma_type ? 'border-red-500' : 'border-slate-300'}`}>
+              <select id="create-rma-type" value={form.rma_type} onChange={e => updateRmaCategory(e.target.value as RecordFormState['rma_type'])} aria-invalid={!!formErrors.rma_type} aria-required="true" aria-describedby={formErrors.rma_type ? 'create-rma-type-error' : undefined} className={`w-full px-3 py-2 border rounded-lg bg-white ${focusCls} ${formErrors.rma_type ? 'border-red-500' : 'border-slate-300'}`}>
                 <option value="">— Select a slip category —</option>
                 {RMA_CATEGORIES.map(value => <option key={value} value={value}>{formatRmaCategoryOption(value)}</option>)}
               </select>
-              {formErrors.rma_type && <p className="text-red-500 text-xs font-semibold">{formErrors.rma_type}</p>}
+              {formErrors.rma_type && <p id="create-rma-type-error" role="alert" className="text-red-500 text-xs font-semibold">{formErrors.rma_type}</p>}
             </div>
             <div className="space-y-1.5">
               <label htmlFor="create-rma-reference" className="font-bold text-slate-700">RMA Document Reference</label>
@@ -590,12 +602,12 @@ export default function RecordCreateForm({
             </div>
             {form.rma_type === TRANSFER_OUT_CATEGORY && (
               <div className="md:col-span-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-                <input id="create-rma-internal-transfer" type="checkbox" checked={form.is_internal_transfer} onChange={e => updateInternalTransfer(e.target.checked)} aria-invalid={!!formErrors.is_internal_transfer} className="mt-1" />
+                <input id="create-rma-internal-transfer" type="checkbox" checked={form.is_internal_transfer} onChange={e => updateInternalTransfer(e.target.checked)} aria-invalid={!!formErrors.is_internal_transfer} aria-describedby={formErrors.is_internal_transfer ? 'create-rma-internal-transfer-error' : undefined} className="mt-1" />
                 <label htmlFor="create-rma-internal-transfer" className="text-sm text-slate-700">
                   <span className="font-bold">Non-RMA Internal Transfer</span>
                   <span className="block text-xs text-slate-600">For units moved for internal work (e.g. testing or configuration). Logistics still routes it and assigns a Driver, but it is left out of RMA KPIs and reports.</span>
                 </label>
-                {formErrors.is_internal_transfer && <p className="text-red-500 text-xs font-semibold">{formErrors.is_internal_transfer}</p>}
+                {formErrors.is_internal_transfer && <p id="create-rma-internal-transfer-error" role="alert" className="text-red-500 text-xs font-semibold">{formErrors.is_internal_transfer}</p>}
               </div>
             )}
           </>}
@@ -615,33 +627,35 @@ export default function RecordCreateForm({
 
           {cat === 'RMA' && <>
             <div className="space-y-1.5">
-              <label htmlFor="create-rma-movement" className="font-bold text-slate-700">Movement method</label>
-              <select id="create-rma-movement" value={form.rma_movement ?? ''} onChange={e => updateField('rma_movement', e.target.value as RecordFormState['rma_movement'])} aria-invalid={!!formErrors.rma_movement} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">
+              <label htmlFor="create-rma-movement" className="font-bold text-slate-700">Movement method{canSubmitRecord && <span className="text-red-500" aria-hidden="true"> *</span>}</label>
+              <select id="create-rma-movement" value={form.rma_movement ?? ''} onChange={e => updateField('rma_movement', e.target.value as RecordFormState['rma_movement'])} aria-invalid={!!formErrors.rma_movement} aria-required={canSubmitRecord || undefined}
+                aria-describedby={[movementHintShown ? 'create-rma-movement-hint' : null, formErrors.rma_movement ? 'create-rma-movement-error' : null].filter(Boolean).join(' ') || undefined}
+                className={`w-full px-3 py-2 border rounded-lg bg-white ${focusCls} ${formErrors.rma_movement ? 'border-red-500' : 'border-slate-300'}`}>
                 <option value="">— Select before submitting —</option>
                 <option value="LOGISTICS_TRANSPORT">Logistics transport</option>
                 <option value="SUPPLIER_COLLECTION" disabled={form.is_internal_transfer}>Supplier collection</option>
                 <option value="INTERNAL_NO_DRIVER">Internal / no driver</option>
               </select>
-              {form.rma_type === RECEIVING_SLIP_CATEGORY && form.rma_movement === 'INTERNAL_NO_DRIVER' && <p className="text-xs text-slate-500">Walk-in Receiving Slips default to Internal / no driver; change it if Logistics should route this one.</p>}
-              {formErrors.rma_movement && <p role="alert" className="text-red-600 text-xs">{formErrors.rma_movement}</p>}
+              {movementHintShown && <p id="create-rma-movement-hint" className="text-xs text-slate-500">Walk-in Receiving Slips default to Internal / no driver; change it if Logistics should route this one.</p>}
+              {formErrors.rma_movement && <p id="create-rma-movement-error" role="alert" className="text-red-600 text-xs">{formErrors.rma_movement}</p>}
             </div>
             <div className="space-y-1.5">
-              <label className="font-bold text-slate-700">Purchase Date <span className="text-xs font-normal text-slate-400">(optional)</span></label>
-              <input type="date" value={form.purchase_date} onChange={e => updateField('purchase_date', e.target.value)} aria-invalid={!!formErrors.purchase_date} className={`w-full px-3 py-2 border rounded-lg ${formErrors.purchase_date ? 'border-red-500' : 'border-slate-300'}`} />
-              {formErrors.purchase_date && <p className="text-red-500 text-xs font-semibold">{formErrors.purchase_date}</p>}
+              <label htmlFor="create-rma-purchase-date" className="font-bold text-slate-700">Purchase Date <span className="text-xs font-normal text-slate-400">(optional)</span></label>
+              <input id="create-rma-purchase-date" type="date" value={form.purchase_date} onChange={e => updateField('purchase_date', e.target.value)} aria-invalid={!!formErrors.purchase_date} aria-describedby={formErrors.purchase_date ? 'create-rma-purchase-date-error' : undefined} className={`w-full px-3 py-2 border rounded-lg ${focusCls} ${formErrors.purchase_date ? 'border-red-500' : 'border-slate-300'}`} />
+              {formErrors.purchase_date && <p id="create-rma-purchase-date-error" role="alert" className="text-red-500 text-xs font-semibold">{formErrors.purchase_date}</p>}
             </div>
             <div className="space-y-1.5">
               <label htmlFor="create-rma-case-number" className="font-bold text-slate-700">Case Number <span className="text-xs font-normal text-slate-400">(optional)</span></label>
               <input id="create-rma-case-number" type="text" value={form.case_number} onChange={e => updateField('case_number', e.target.value)} maxLength={80}
-                placeholder="e.g., CAS-31417-Y4Y6Z3" className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
+                placeholder="e.g., CAS-31417-Y4Y6Z3" className={`w-full px-3 py-2 border border-slate-300 rounded-lg ${focusCls}`} />
             </div>
             {isReturnToCustomerCategory(form.rma_type) && (
               <div className="space-y-1.5">
                 <label htmlFor="create-rma-service-slip" className="font-bold text-slate-700">Service Slip (SS#) <span className="text-xs font-normal text-slate-400">(optional · RTC only)</span></label>
                 <input id="create-rma-service-slip" type="text" value={form.service_slip_no} onChange={e => updateField('service_slip_no', e.target.value)} maxLength={60}
-                  placeholder="e.g., SS#60142" aria-invalid={!!formErrors.service_slip_no}
-                  className={`w-full px-3 py-2 border rounded-lg ${formErrors.service_slip_no ? 'border-red-500' : 'border-slate-300'}`} />
-                {formErrors.service_slip_no && <p className="text-red-500 text-xs font-semibold">{formErrors.service_slip_no}</p>}
+                  placeholder="e.g., SS#60142" aria-invalid={!!formErrors.service_slip_no} aria-describedby={formErrors.service_slip_no ? 'create-rma-service-slip-error' : undefined}
+                  className={`w-full px-3 py-2 border rounded-lg ${focusCls} ${formErrors.service_slip_no ? 'border-red-500' : 'border-slate-300'}`} />
+                {formErrors.service_slip_no && <p id="create-rma-service-slip-error" role="alert" className="text-red-500 text-xs font-semibold">{formErrors.service_slip_no}</p>}
               </div>
             )}
             <RmaContactsEditor idPrefix="create-rma-contact" contacts={form.rma_contacts} onChange={contacts => updateField('rma_contacts', contacts)} error={formErrors.rma_contacts} />
@@ -698,15 +712,15 @@ export default function RecordCreateForm({
           <div className="space-y-1.5">
             <label htmlFor={deliveryDateId} className="font-bold text-slate-700">Delivery Date {(cat !== 'RMA' || form.rma_movement === 'LOGISTICS_TRANSPORT') && form.is_draft !== 'Yes' ? <span className="text-red-500">*</span> : <span className="text-xs font-normal text-slate-400">(optional)</span>}</label>
             <input id={deliveryDateId} type="date" value={form.delivery_date} onChange={e => updateField('delivery_date', e.target.value)}
-              aria-invalid={!!formErrors.delivery_date}
-              className={`w-full px-3 py-2 border rounded-lg ${formErrors.delivery_date ? 'border-red-500' : 'border-slate-300'}`} />
-            {formErrors.delivery_date && <p className="text-red-500 text-xs font-semibold">{formErrors.delivery_date}</p>}
+              aria-invalid={!!formErrors.delivery_date} aria-describedby={formErrors.delivery_date ? `${deliveryDateId}-error` : undefined}
+              className={`w-full px-3 py-2 border rounded-lg ${focusCls} ${formErrors.delivery_date ? 'border-red-500' : 'border-slate-300'}`} />
+            {formErrors.delivery_date && <p id={`${deliveryDateId}-error`} role="alert" className="text-red-500 text-xs font-semibold">{formErrors.delivery_date}</p>}
           </div>
 
           {/* Item Type */}
           <div className="space-y-1.5">
-            <label className="font-bold text-slate-700">Item Type <span className="text-xs font-normal text-slate-400">(optional)</span></label>
-            <select value={form.item_type} onChange={e => updateField('item_type', e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">
+            <label htmlFor="create-item-type" className="font-bold text-slate-700">Item Type <span className="text-xs font-normal text-slate-400">(optional)</span></label>
+            <select id="create-item-type" value={form.item_type} onChange={e => updateField('item_type', e.target.value)} className={`w-full px-3 py-2 border border-slate-300 rounded-lg bg-white ${focusCls}`}>
               {(cat === 'RMA' ? RMA_ITEM_TYPES : ITEM_TYPES).map(it => <option key={it} value={it}>{it}</option>)}
             </select>
           </div>
@@ -719,7 +733,7 @@ export default function RecordCreateForm({
                 <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-bold text-sky-800">Printed on client slip</span>
               </label>
               <textarea id="create-rma-client-remarks" value={form.client_remarks} onChange={e => updateField('client_remarks', e.target.value)} rows={2} maxLength={2000}
-                placeholder="e.g., SAP#12019325" className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
+                placeholder="e.g., SAP#12019325" className={`w-full px-3 py-2 border border-slate-300 rounded-lg ${focusCls}`} />
             </div>
             <div className="space-y-1.5 md:col-span-2">
               <label htmlFor="create-rma-internal-logistics-remarks" className="font-bold text-slate-700 flex flex-wrap items-center gap-2">
@@ -727,7 +741,7 @@ export default function RecordCreateForm({
                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800">Internal · Logistics only — never printed on client slips</span>
               </label>
               <textarea id="create-rma-internal-logistics-remarks" value={form.internal_logistics_remarks} onChange={e => updateField('internal_logistics_remarks', e.target.value)} rows={2} maxLength={2000}
-                placeholder="e.g., Note: with collection of Php2,000.00 cash. Please bring CR." className="w-full px-3 py-2 border border-amber-300 bg-amber-50/40 rounded-lg" />
+                placeholder="e.g., Note: with collection of Php2,000.00 cash. Please bring CR." className={`w-full px-3 py-2 border border-amber-300 bg-amber-50/40 rounded-lg ${focusCls}`} />
             </div>
           </> : (
           <div className="space-y-1.5 md:col-span-2">
@@ -834,7 +848,7 @@ export default function RecordCreateForm({
             Cancel
           </button>
           <button type="submit" value="draft" disabled={saving || !access.canRecord(form.category, 'CREATE')} className="px-5 py-2.5 border border-slate-300 text-slate-700 font-bold rounded-lg disabled:opacity-50">Save as Draft</button>
-          <button type="submit" value="submit" disabled={saving || !access.canRecord(form.category, 'CREATE') || !access.canRecord(form.category, 'SUBMIT')} className="px-6 py-2.5 bg-brand-blue hover:bg-brand-navy text-white font-bold rounded-lg transition-colors text-xs uppercase flex items-center gap-1.5">
+          <button type="submit" value="submit" disabled={saving || !canSubmitRecord} className="px-6 py-2.5 bg-brand-blue hover:bg-brand-navy text-white font-bold rounded-lg transition-colors text-xs uppercase flex items-center gap-1.5">
             <Check className="w-4 h-4" /> {saving ? "Saving…" : "Submit"}
           </button>
         </div>

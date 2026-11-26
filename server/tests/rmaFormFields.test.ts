@@ -377,6 +377,63 @@ test('PUT edits the RMA form fields, revalidates SS# against the category and re
   assert.equal(legacy.saved().rmaType, 'Pull Out Slip');
 });
 
+test('a completed legacy RMA without a movement saves an unrelated correction, but movement and date stay locked', async () => {
+  const lockMessage = 'Movement responsibility, date and submission cannot change after transport starts or receipt is confirmed.';
+  const completedRow = (overrides: Record<string, unknown> = {}) => baseRecord({
+    draft: false, status: 'ACCOMPLISHED', rmaMovement: null, deliveryDate: '',
+    rmaReceivedAt: new Date('2026-01-05T02:00:00Z'), rmaCompletedAt: new Date('2026-01-05T03:00:00Z'), ...overrides,
+  });
+
+  // Historical completed rows can lack a movement method; an unrelated correction still saves.
+  const legacy = database(completedRow());
+  const corrected = await request('put', '/:id', 'TASS', { case_number: 'CAS-9', remarks: 'Correct case number', expected_version: 0 });
+  assert.equal(corrected.status, 200, JSON.stringify(corrected.body));
+  assert.equal(legacy.saved().caseNumber, 'CAS-9');
+  assert.equal(legacy.saved().rmaMovement, null);
+  assert.equal(legacy.saved().rmaVersion, 1);
+
+  // A client that still echoes the unchanged schedule is accepted as well.
+  database(completedRow());
+  const echoed = await request('put', '/:id', 'TASS', { rma_movement: null, delivery_date: '', case_number: 'CAS-10', remarks: 'Echo unchanged schedule', expected_version: 0 });
+  assert.equal(echoed.status, 200, JSON.stringify(echoed.body));
+
+  // Changing the movement on the same completed row is still validated and locked.
+  const reclassified = database(completedRow());
+  const movementChange = await request('put', '/:id', 'TASS', { rma_movement: 'INTERNAL_NO_DRIVER', remarks: 'Reclassify', expected_version: 0 });
+  assert.equal(movementChange.status, 400);
+  assert.equal(movementChange.body.error, lockMessage);
+  assert.equal(reclassified.saved().rmaMovement, null);
+
+  // Changing the Logistics delivery date on a completed row is still locked.
+  database(completedRow({ rmaMovement: 'LOGISTICS_TRANSPORT', deliveryDate: '2026-01-04' }));
+  const dateChange = await request('put', '/:id', 'TASS', { delivery_date: manilaToday(), remarks: 'Move date', expected_version: 0 });
+  assert.equal(dateChange.status, 400);
+  assert.equal(dateChange.body.error, lockMessage);
+
+  // A submitted, non-completed RMA with no movement method is still rejected.
+  database(baseRecord({ draft: false, status: 'SCHEDULED', rmaMovement: null }));
+  const scheduled = await request('put', '/:id', 'TASS', { case_number: 'CAS-11', remarks: 'Edit', expected_version: 0 });
+  assert.equal(scheduled.status, 400);
+  assert.equal(scheduled.body.error, 'Choose a movement method before submitting this RMA.');
+
+  // Received but not yet completed (in flight): the skip is ACCOMPLISHED-only, so validation still runs.
+  database(baseRecord({ draft: false, status: 'SCHEDULED', rmaMovement: null, rmaReceivedAt: new Date('2026-01-05T02:00:00Z') }));
+  const inFlight = await request('put', '/:id', 'TASS', { case_number: 'CAS-12', remarks: 'Edit', expected_version: 0 });
+  assert.equal(inFlight.status, 400);
+  assert.equal(inFlight.body.error, 'Choose a movement method before submitting this RMA.');
+
+  // Received (not completed) and transport-started rows keep the lock on any movement or date change.
+  database(baseRecord({ draft: false, status: 'SCHEDULED', rmaMovement: 'LOGISTICS_TRANSPORT', deliveryDate: '2026-01-04', rmaReceivedAt: new Date('2026-01-05T02:00:00Z') }));
+  const receivedMovement = await request('put', '/:id', 'TASS', { rma_movement: 'INTERNAL_NO_DRIVER', remarks: 'Reclassify', expected_version: 0 });
+  assert.equal(receivedMovement.status, 400);
+  assert.equal(receivedMovement.body.error, lockMessage);
+
+  database(baseRecord({ draft: false, status: 'SCHEDULED', rmaMovement: 'LOGISTICS_TRANSPORT', rmaTransportStatus: 'IN_TRANSIT', deliveryDate: '2026-01-04', rmaTransportStartedAt: new Date('2026-01-05T01:00:00Z') }));
+  const startedDate = await request('put', '/:id', 'TASS', { delivery_date: manilaToday(), remarks: 'Move date', expected_version: 0 });
+  assert.equal(startedDate.status, 400);
+  assert.equal(startedDate.body.error, lockMessage);
+});
+
 test('Logistics stays view-only for RMA form fields and legacy single-contact payloads stay compatible', async () => {
   database(baseRecord({ draft: false }));
   const denied = await request('put', '/:id', 'LOGISTICS', { case_number: 'CAS-9', remarks: 'try' });
