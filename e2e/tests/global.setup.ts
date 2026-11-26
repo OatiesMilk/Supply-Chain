@@ -9,7 +9,7 @@ import { chromium, expect, test as setup } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:3000';
 
 // Seeded credentials — matches server/prisma/seeds/users.ts
 const ROLES = [

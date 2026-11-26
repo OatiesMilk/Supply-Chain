@@ -126,11 +126,15 @@ export function RecordOverviewTab({
     (tassRma ||
       ((currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') &&
         (record.status === 'Scheduled' || isDraftRecord(record))));
+  // Mirrors the server guards (records.ts PUT and PATCH status): movement, date and Draft
+  // freeze once transport starts, receipt is confirmed, or the RMA is completed.
+  const rmaScheduleLocked = isRma && (Boolean(record.rma_transport_started_at) || Boolean(record.rma_received_at) || record.status === 'Delivered');
   const canManageDraft =
     !readOnly &&
     access.canRecord(record.category, 'SUBMIT') &&
     (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin' || tassRma) &&
-    !record.time_in;
+    !record.time_in &&
+    !rmaScheduleLocked;
 
   const [lifecycleRemarks, setLifecycleRemarks] = useState('');
   const [editVersion, setEditVersion] = useState(record.rma_version ?? 0);
@@ -193,8 +197,6 @@ export function RecordOverviewTab({
   const set = <K extends keyof EditDraft>(k: K, v: EditDraft[K]) => setDraft(p => ({ ...p, [k]: v }));
   // Once a slip reference exists for a canonical category, the category is part of that number.
   const categoryLocked = record.category === 'RMA' && !!record.rma_reference && !!canonicalRmaCategory(record.rma_type);
-  // Mirrors the server guard (records.ts PUT): movement and date freeze once transport starts, receipt is confirmed, or the RMA is completed.
-  const rmaScheduleLocked = isRma && (Boolean(record.rma_transport_started_at) || Boolean(record.rma_received_at) || record.status === 'Delivered');
 
   const handleStartEdit = () => {
     setSaveConflict(null);

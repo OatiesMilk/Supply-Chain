@@ -15,7 +15,7 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:3000';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
