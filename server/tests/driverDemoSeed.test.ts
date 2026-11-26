@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { seedDriverDemo } from '../prisma/seed-driver-demo';
 import type { PrismaClient } from '@prisma/client';
+import { RMA_AUTO_REFERENCE_PATTERN } from '../src/services/rmaReference';
+import { manilaToday } from '../src/services/deliveryLifecycle';
 
 function fakePrisma(state: any, lockChecker?: () => void): PrismaClient {
   return {
@@ -9,6 +11,13 @@ function fakePrisma(state: any, lockChecker?: () => void): PrismaClient {
       if (query && query[0] && query[0].includes('pg_advisory_xact_lock')) {
         state.locked = true;
       }
+    },
+    // allocateRmaReference: the atomic RmaReferenceSequence upsert (rolled back with the transaction).
+    $queryRaw: async (query: TemplateStringsArray, ...values: any[]) => {
+      if (!query.join('?').includes('"RmaReferenceSequence"')) throw new Error('Unexpected raw query');
+      const key = `${values[0]}|${values[1]}`;
+      state.rmaSequences[key] = (state.rmaSequences[key] ?? 0) + 1;
+      return [{ lastValue: state.rmaSequences[key] }];
     },
     $transaction: async (fn: any) => {
       const stateCopy = JSON.parse(JSON.stringify(state));
@@ -26,13 +35,24 @@ function fakePrisma(state: any, lockChecker?: () => void): PrismaClient {
       }
     },
     user: {
-      findFirst: async ({ where }: any) => {
-        const users = [state.sales, state.logistics, state.admin, state.driver].filter(Boolean);
-        return users.find((u: any) =>
-          u.email === where.email &&
+      findFirst: async ({ where, orderBy }: any) => {
+        const users = [state.sales, state.logistics, state.admin, state.driver, state.tass, ...(state.extraUsers ?? [])].filter(Boolean);
+        const matching = users.filter((u: any) =>
+          (where.email === undefined || u.email === where.email) &&
           u.role === where.role &&
           u.isActive === where.isActive
-        ) || null;
+        );
+        // Honor [{ createdAt: 'asc' }, { id: 'asc' }]-style ordering deterministically.
+        const keys = (Array.isArray(orderBy) ? orderBy : orderBy ? [orderBy] : []).map((o: any) => Object.entries(o)[0] as [string, string]);
+        matching.sort((a: any, b: any) => {
+          for (const [key, dir] of keys) {
+            const x = a[key] instanceof Date ? a[key].getTime() : a[key];
+            const y = b[key] instanceof Date ? b[key].getTime() : b[key];
+            if (x !== y) return (x < y ? -1 : 1) * (dir === 'desc' ? -1 : 1);
+          }
+          return 0;
+        });
+        return matching[0] || null;
       }
     },
     company: {
@@ -101,6 +121,7 @@ function getBaseState() {
       { id: '1', name: 'Lando Navarro', type: 'DRIVER', isActive: true }
     ],
     records: [],
+    rmaSequences: {} as Record<string, number>,
     failOnSecondRecord: false
   };
 }
@@ -122,9 +143,88 @@ test('successful run, exact login name match when case differs, rerun test, and 
   assert.equal(leoRuns[0].driver, 'leo DRIVER');
   assert.equal(state.drivers.find((d: any) => d.id === '2').userId, 'd1');
 
-  // Actual rerun
+  // Actual rerun: skipped rows allocate no slip numbers.
   const count2 = await seedDriverDemo(prisma, '2026-10-02');
   assert.equal(count2, 0); // Both exist
+  assert.deepEqual(state.rmaSequences, { 'POS|2026-10-02': 2 });
+});
+
+test('driver-demo RMA runs are canonical Logistics-transport Pull Out Slips with allocated references', async () => {
+  const state = getBaseState();
+  (state as any).tass = { id: 't1', email: 'tass@microgenesis.com', role: 'TASS', name: 'TASS', isActive: true };
+  state.rmaSequences['POS|2026-10-02'] = 4; // numbers already used that day are never reused
+  state.drivers.push({ id: '2', name: 'Leo Driver', type: 'DRIVER', isActive: true });
+  await seedDriverDemo(fakePrisma(state), '2026-10-02');
+
+  const rmas = (state.records as any[]).filter((r: any) => r.category === 'RMA');
+  assert.equal(rmas.length, 2);
+  assert.deepEqual(rmas.map((r: any) => r.rmaReference).sort(), ['POS100226-05', 'POS100226-06']);
+  assert.deepEqual(state.rmaSequences, { 'POS|2026-10-02': 6 });
+  for (const rma of rmas) {
+    assert.match(rma.rmaReference, RMA_AUTO_REFERENCE_PATTERN);
+    assert.equal(rma.rmaType, 'Pull Out Slip');
+    assert.equal(rma.rmaMovement, 'LOGISTICS_TRANSPORT');
+    assert.equal(rma.rmaTransportStatus, 'PENDING');
+    assert.equal(rma.reference, '');
+    assert.equal(rma.serviceSlipNo, null);
+    assert.equal(rma.itemType, 'Small Item');
+    assert.equal(rma.createdById, 't1', 'TASS owns RMA requests when present');
+    assert.equal(rma.modifiedById, 'l1');
+    assert.ok(rma.driverId);
+    assert.match(rma.caseNumber, /^CAS-DEMO-/);
+    assert.ok(rma.clientRemarks);
+    assert.equal(rma.internalLogisticsRemarks, 'Call before going.');
+    assert.equal(rma.rmaContacts.create.length, 1);
+    assert.equal(rma.customerContactName, rma.rmaContacts.create[0].name);
+    assert.equal(rma.lineItems.create.length, 1);
+    assert.equal(rma.lineItems.create[0].unitType, 'Unit');
+    assert.ok(rma.id.endsWith('-RMA'));
+  }
+  // Non-RMA demo runs keep their previous shape.
+  for (const row of (state.records as any[]).filter((r: any) => r.category !== 'RMA')) {
+    assert.match(row.reference, /^SAP-DEMO-/);
+    assert.equal(row.rmaReference, undefined);
+    assert.equal(row.createdById, 's1');
+  }
+});
+
+test('prefers a non-stock active TASS account over Sales and keeps stock TASS preferred when both are active', async () => {
+  // Case A: stock TASS inactive, another TASS account active -> that account, not Sales.
+  const stateA = getBaseState() as any;
+  stateA.tass = { id: 't-stock', email: 'tass@microgenesis.com', role: 'TASS', name: 'Stock TASS', isActive: false, createdAt: new Date('2026-01-01T00:00:00Z') };
+  stateA.extraUsers = [{ id: 't-custom', email: 'tass.custom@microgenesis.com', role: 'TASS', name: 'Custom TASS', isActive: true, createdAt: new Date('2026-02-01T00:00:00Z') }];
+  await seedDriverDemo(fakePrisma(stateA), '2026-10-02');
+  const rmasA = (stateA.records as any[]).filter(r => r.category === 'RMA');
+  assert.ok(rmasA.length > 0);
+  assert.ok(rmasA.every(r => r.createdById === 't-custom'));
+  assert.ok((stateA.records as any[]).filter(r => r.category !== 'RMA').every(r => r.createdById === 's1'));
+
+  // Case B: stock and an older other TASS both active -> stock wins deterministically.
+  const stateB = getBaseState() as any;
+  stateB.tass = { id: 't-stock', email: 'tass@microgenesis.com', role: 'TASS', name: 'Stock TASS', isActive: true, createdAt: new Date('2026-03-01T00:00:00Z') };
+  stateB.extraUsers = [{ id: 't-other', email: 'tass.other@microgenesis.com', role: 'TASS', name: 'Other TASS', isActive: true, createdAt: new Date('2025-01-01T00:00:00Z') }];
+  await seedDriverDemo(fakePrisma(stateB), '2026-10-02');
+  assert.ok((stateB.records as any[]).filter(r => r.category === 'RMA').every(r => r.createdById === 't-stock'));
+
+  // Several non-stock TASS accounts -> the oldest (createdAt asc, id asc).
+  const stateC = getBaseState() as any;
+  stateC.extraUsers = [
+    { id: 't-b', email: 'b@example.com', role: 'TASS', isActive: true, createdAt: new Date('2025-05-01T00:00:00Z') },
+    { id: 't-a', email: 'a@example.com', role: 'TASS', isActive: true, createdAt: new Date('2025-05-01T00:00:00Z') },
+    { id: 't-new', email: 'n@example.com', role: 'TASS', isActive: true, createdAt: new Date('2026-05-01T00:00:00Z') },
+  ];
+  await seedDriverDemo(fakePrisma(stateC), '2026-10-02');
+  assert.ok((stateC.records as any[]).filter(r => r.category === 'RMA').every(r => r.createdById === 't-a'));
+});
+
+test('without a TASS account RMA runs fall back to Sales and default to the Manila day', async () => {
+  const state = getBaseState();
+  await seedDriverDemo(fakePrisma(state));
+  const today = manilaToday();
+  const rma = (state.records as any[]).find((r: any) => r.category === 'RMA');
+  assert.equal(rma.createdById, 's1');
+  assert.equal(rma.deliveryDate, today);
+  assert.deepEqual(Object.keys(state.rmaSequences), [`POS|${today}`]);
 });
 
 test('one fixture when account matches a seeded driver', async () => {
@@ -212,7 +312,8 @@ test('preserves all fields of edited/completed fixtures and unrelated records', 
 
   assert.equal(count, 0);
 
-  assert.deepEqual(state.records, snapshotRecords);
+  // Compared as JSON: the snapshot serialises seeded Date fields (e.g. submittedAt).
+  assert.deepEqual(JSON.parse(JSON.stringify(state.records)), snapshotRecords);
   assert.deepEqual(state.drivers, snapshotDrivers);
 });
 
@@ -241,4 +342,6 @@ test('rollback when a later record creation fails', async () => {
   assert.equal(state.records.length, 0);
   // Any created directory entries should also be rolled back
   assert.equal(state.drivers.length, 1);
+  // ...and the slip number allocated for the failed RMA insert.
+  assert.deepEqual(state.rmaSequences, {});
 });
