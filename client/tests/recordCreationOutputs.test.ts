@@ -28,7 +28,7 @@ test('creation outputs wait for persistence and report failure without creating 
   const dispatch = mock.method(api, 'sendNotificationEmail', async () => new Promise<{ ok: boolean; sent: number; failed: number; mocked: number; skipped: number }>(resolve => { resolveDispatch = resolve; }));
   try {
     await act(async () => root.render(React.createElement(QueryClientProvider, { client }, React.createElement(RecordCreateForm, {
-      category: 'Deliveries', categoryLocked: true,
+      category: 'Deliveries', categoryLocked: true, showAutoFill: true,
       companies: [{ id: 'company', name: 'Company', sap_number: 'SAP-1', sap_numbers: ['SAP-1'], address: 'Address', contact_person: 'Contact', is_active: true, version: 1, default_account_manager: null, account_managers: [], created_at: '', updated_at: '' }],
       onSubmit: data => { submitted = data; calls++; return new Promise(resolve => { resolveCreate = resolve; }); },
       onCancel: () => {}, outputActionConfigs: DEFAULT_OUTPUT_ACTIONS, onAfterSubmit: value => { banner = value; },
@@ -74,7 +74,7 @@ test('record form offers company SAP numbers as quick picks and lists assigned A
   const doc = dom.window.document;
   try {
     await act(async () => root.render(React.createElement(QueryClientProvider, { client }, React.createElement(RecordCreateForm, {
-      category: 'Deliveries', categoryLocked: true,
+      category: 'Deliveries', categoryLocked: true, showAutoFill: true,
       companies: [{ id: 'bdo', name: 'BDO Unibank', sap_number: 'SAP-BDO-1', sap_numbers: ['SAP-BDO-1', 'SAP-BDO-2'], address: '', contact_person: '',
         is_active: true, version: 1, default_account_manager: ams[1], account_managers: [ams[1], ams[0]], created_at: '', updated_at: '' }],
       onSubmit: async data => ({ ...data, id: 'r' } as any), onCancel: () => {}, outputActionConfigs: DEFAULT_OUTPUT_ACTIONS,

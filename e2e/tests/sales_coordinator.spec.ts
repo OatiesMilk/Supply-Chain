@@ -10,7 +10,6 @@ import { test, expect, Page } from '@playwright/test';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
-import { DEMO_LOCATION_FIXTURES } from '../../client/src/utils/demoLocations';
 import { kpiTile } from '../support/kpiTile';
 import { RECORD_NO_PATTERN, deliveredFixtureRow } from '../support/recordRows';
 
@@ -99,23 +98,15 @@ test.describe('A-2 Create a Delivery Record', () => {
     await page.waitForLoadState('networkidle');
   });
 
-  test('A-2.1 Auto Fill keeps Area and Address in one demo-location fixture', async ({ page }) => {
+  test('A-2.1 Auto Fill is not shown in the production build', async ({ page }) => {
     await page.getByRole('button', { name: /new record/i }).click();
 
     const areaInput = page.locator('label').filter({ hasText: /^Area/ }).locator('..').locator('input');
     const addressInput = page.getByPlaceholder(/street, building, floor/i);
-    const autoFill = page.getByRole('button', { name: /auto fill/i });
 
-    for (let attempt = 0; attempt < 3; attempt++) {
-      await autoFill.click();
-      // Area and Address render one after the other, so retry until both settle.
-      await expect(async () => {
-        const area = await areaInput.inputValue();
-        const address = await addressInput.inputValue();
-        const fixture = DEMO_LOCATION_FIXTURES.find(location => location.area === area && location.address === address);
-        expect(fixture, `Expected one demo-location fixture for ${area} / ${address}`).toBeTruthy();
-      }).toPass({ timeout: 5000 });
-    }
+    // CI serves the production bundle, where the demo-data flag is off. The demo-location fixture is covered by client unit tests.
+    await expect(addressInput).toBeVisible();
+    await expect(page.getByRole('button', { name: /auto fill/i })).toHaveCount(0);
 
     await areaInput.fill('Makati CBD');
     await addressInput.fill('Manually entered delivery address');

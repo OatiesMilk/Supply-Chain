@@ -1647,10 +1647,17 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
       const stale = rmaVersionError(current, b.expected_version);
       if (stale) return { error: stale, updated: null, rmaStatus: Number.isSafeInteger(b.expected_version) ? 409 : 400 };
       const movement = data.rmaMovement === undefined ? current.rmaMovement : data.rmaMovement;
-      const movementError = rmaMovementInputError({ rma_movement: movement, delivery_date: data.deliveryDate ?? current.deliveryDate }, !(data.draft ?? current.draft));
-      if (movementError) return { error: movementError, updated: null };
       const movementChanged = movement !== current.rmaMovement;
-      if ((movementChanged || data.deliveryDate !== undefined && data.deliveryDate !== current.deliveryDate || data.draft === true)
+      const deliveryDateChanged = data.deliveryDate !== undefined && data.deliveryDate !== current.deliveryDate;
+      // A completed RMA may predate movement classification (historical rows stay unclassified).
+      // A correction that leaves movement, date and submission untouched must not re-run submission
+      // validation on the stored values; any movement/date change is still validated and locked below.
+      const completedUnchangedSchedule = current.status === 'ACCOMPLISHED' && !movementChanged && !deliveryDateChanged
+        && (data.draft === undefined || data.draft === current.draft);
+      const movementError = completedUnchangedSchedule ? null
+        : rmaMovementInputError({ rma_movement: movement, delivery_date: data.deliveryDate ?? current.deliveryDate }, !(data.draft ?? current.draft));
+      if (movementError) return { error: movementError, updated: null };
+      if ((movementChanged || deliveryDateChanged || data.draft === true)
         && (current.rmaTransportStartedAt || current.rmaReceivedAt || current.status === 'ACCOMPLISHED')) return { error: 'Movement responsibility, date and submission cannot change after transport starts or receipt is confirmed.', updated: null };
       if (movementChanged) {
         data.rmaTransportStatus = movement === 'LOGISTICS_TRANSPORT' ? 'PENDING' : null;

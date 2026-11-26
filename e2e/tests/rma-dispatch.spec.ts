@@ -58,6 +58,8 @@ async function action(s: Session, id: string, path: string, data: Record<string,
 }
 
 const transport = (page: Page) => page.getByRole('region', { name: 'RMA transport', exact: true });
+// A NextStepCard is a region named by its heading, so each TASS stage is located by its own title.
+const step = (page: Page, name: string) => transport(page).getByRole('region', { name, exact: true });
 /** Opens the Transport card's action, fills the dialog and returns its confirm button. */
 async function openDialog(card: Locator, page: Page, action: 'Start transport' | 'Mark as delivered') {
   await card.getByRole('button', { name: action === 'Start transport' ? 'Start transport' : 'Mark as delivered', exact: true }).click();
@@ -109,9 +111,9 @@ test('three online sessions synchronize submission, reassignment, transport/POD 
     await logistics.page.goto(`/rma?item=${draft.id}`);
     const actions = logistics.page.getByRole('tab', { name: 'Status & Actions', exact: true });
     await actions.click();
-    await transport(logistics.page).getByLabel('Driver', { exact: true }).selectOption('sc255-driver-3');
-    await transport(logistics.page).getByLabel('Vehicle', { exact: true }).selectOption('Van-01 (L300)');
-    await transport(logistics.page).getByLabel('Remarks', { exact: true }).fill('Assign linked Driver');
+    await transport(logistics.page).getByLabel(/^Driver\b/).selectOption('sc255-driver-3');
+    await transport(logistics.page).getByLabel(/^Vehicle\b/).selectOption('Van-01 (L300)');
+    await transport(logistics.page).getByLabel(/^Remarks\b/).fill('Assign linked Driver');
     const assignment = logistics.page.waitForResponse(r => r.url().endsWith(`/records/${draft.id}/rma-assignment`));
     const assignedAt = Date.now();
     await transport(logistics.page).getByRole('button', { name: 'Save assignment', exact: true }).click();
@@ -168,23 +170,24 @@ test('three online sessions synchronize submission, reassignment, transport/POD 
 
     // TASS records the receipt date and status only; there is no Recipient input.
     await expect(transport(tass.page).getByLabel('Recipient', { exact: true })).toHaveCount(0);
-    const receiptDate = transport(tass.page).getByLabel('Receipt date', { exact: true });
+    const receiptDate = step(tass.page, 'Step 1 of 2 · Physical receipt').getByLabel(/^Receipt date\b/);
     await expect(receiptDate).toHaveAttribute('type', 'date');
     const today = await receiptDate.inputValue();
     expect(today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     await expect(receiptDate).toHaveAttribute('max', today);
-    await transport(tass.page).getByLabel('Remarks', { exact: true }).fill('Physical receipt verified separately');
+    await step(tass.page, 'Step 1 of 2 · Physical receipt').getByLabel(/^Remarks\b/).fill('Physical receipt verified separately');
     const receiptResponse = tass.page.waitForResponse(r => r.url().endsWith(`/records/${draft.id}/rma-receipt`));
-    await transport(tass.page).getByRole('button', { name: 'Confirm physical receipt', exact: true }).click();
+    await step(tass.page, 'Step 1 of 2 · Physical receipt').getByRole('button', { name: 'Confirm physical receipt', exact: true }).click();
     const received = await saved(await receiptResponse);
     expect(received.rma_received_at).toBeTruthy();
     expect(received.rma_received_by).toBe('sc255-user-1');
     expect(received.rma_recipient).toBeNull();
     expect(received.status).not.toBe('Delivered');
-    await expect(transport(tass.page).getByLabel('Completion date', { exact: true })).toHaveAttribute('type', 'date');
-    await transport(tass.page).getByLabel('Remarks', { exact: true }).fill('TASS final completion verified');
+    await expect(step(tass.page, 'Step 2 of 2 · Complete RMA').getByLabel(/^Completion date\b/)).toHaveAttribute('type', 'date');
+    await step(tass.page, 'Step 2 of 2 · Complete RMA').getByLabel(/^Remarks\b/).fill('TASS final completion verified');
     const finalResponse = tass.page.waitForResponse(r => r.url().endsWith(`/records/${draft.id}/status`) && r.request().method() === 'PATCH');
-    await transport(tass.page).getByRole('button', { name: 'Complete RMA', exact: true }).click();
+    await step(tass.page, 'Step 2 of 2 · Complete RMA').getByRole('button', { name: 'Complete RMA', exact: true }).click();
+    await tass.page.getByRole('dialog', { name: 'Complete this RMA?' }).getByRole('button', { name: 'Complete RMA', exact: true }).click();
     const final = await saved(await finalResponse);
     expect(final.status).toBe('Delivered');
     expect(final.rma_completed_at).toBeTruthy();

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { FileText, Link2, Loader2, Pencil, Plus, Save, X as XIcon } from 'lucide-react';
+import { AlertTriangle, FileText, Link2, Loader2, Pencil, Plus, Save, X as XIcon } from 'lucide-react';
 import { api } from '@/api';
 import { accountManagerChoices, useAccountManagersQuery } from '@/api/queries/useAccountManagersQuery';
 import { useCompaniesQuery } from '@/api/queries/useCompaniesQuery';
@@ -90,6 +90,9 @@ function formatPhpAmount(amount: number): string {
   return `₱${amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+/** Shown beside the locked Movement method and Delivery Date fields (mirrors the server guard in records.ts). */
+const RMA_SCHEDULE_LOCK_HINT = 'Locked after transport starts or receipt is confirmed.';
+
 export interface RecordOverviewTabProps {
   record: DeliveryRecord;
   currentUserRole: UserRole;
@@ -155,6 +158,8 @@ export function RecordOverviewTab({
       (currentUserRole === 'Logistics' && !isRma) ||
       tassRma);
   const canEdit = canEditFull || canEditAreaAddress || canEditDeliveryDate || canEditPriority;
+  // TASS may correct a completed RMA, but only as a logged correction with a reason (#348).
+  const correctingCompletedRma = tassRma && canEditFull && record.status === 'Delivered';
 
   const [editing, setEditing] = useState(false);
   const accountManagers = useAccountManagersQuery(editing && canEditFull);
@@ -188,6 +193,8 @@ export function RecordOverviewTab({
   const set = <K extends keyof EditDraft>(k: K, v: EditDraft[K]) => setDraft(p => ({ ...p, [k]: v }));
   // Once a slip reference exists for a canonical category, the category is part of that number.
   const categoryLocked = record.category === 'RMA' && !!record.rma_reference && !!canonicalRmaCategory(record.rma_type);
+  // Mirrors the server guard (records.ts PUT): movement and date freeze once transport starts, receipt is confirmed, or the RMA is completed.
+  const rmaScheduleLocked = isRma && (Boolean(record.rma_transport_started_at) || Boolean(record.rma_received_at) || record.status === 'Delivered');
 
   const handleStartEdit = () => {
     setSaveConflict(null);
@@ -238,6 +245,8 @@ export function RecordOverviewTab({
       // A legacy record may keep its retired category while other details are edited; submitting still needs one.
       if (validation.rma_type && (isDraftRecord(record) || draft.rma_type !== (record.rma_type ?? ''))) fieldErrors.rma_type = validation.rma_type;
       for (const field of ['priority', 'area', 'account_manager', 'customer_contact_email', 'rma_movement', 'delivery_date', 'is_internal_transfer', 'service_slip_no', 'rma_contacts', 'line_items']) {
+        // A locked schedule cannot be edited, so it must not block the save (legacy blanks stay saveable).
+        if (rmaScheduleLocked && (field === 'rma_movement' || field === 'delivery_date')) continue;
         if (validation[field]) fieldErrors[field] = validation[field];
       }
       if (Object.keys(fieldErrors).length) {
@@ -284,7 +293,7 @@ export function RecordOverviewTab({
         updates.vehicle = draft.vehicle;
       }
       updates.account_manager = draft.account_manager;
-      updates.delivery_date = draft.delivery_date;
+      if (!rmaScheduleLocked) updates.delivery_date = draft.delivery_date;
       updates.item_type = draft.item_type;
       updates.item_description = draft.item_description;
       updates.line_items = cleanItems;
@@ -292,7 +301,7 @@ export function RecordOverviewTab({
       if (isRma) {
         if (draft.rma_type !== (record.rma_type ?? '')) updates.rma_type = draft.rma_type || null;
         if (draft.is_internal_transfer !== Boolean(record.is_internal_transfer)) updates.is_internal_transfer = draft.is_internal_transfer;
-        if (tassRma) updates.rma_movement = draft.rma_movement || null;
+        if (tassRma && !rmaScheduleLocked) updates.rma_movement = draft.rma_movement || null;
         updates.purchase_date = draft.purchase_date || null;
         // The contact list keeps the legacy single-contact columns in step on the server.
         updates.rma_contacts = cleanContacts;
@@ -316,7 +325,7 @@ export function RecordOverviewTab({
         modified_by: `${currentUserName} (${currentUserRole})`,
       });
       setEditing(false);
-      notify.success('Record changes saved');
+      notify.success(correctingCompletedRma ? 'Completed RMA corrected' : 'Record changes saved');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not save the record. Please try again.';
       const status = (error as { status?: number }).status;
@@ -554,13 +563,18 @@ export function RecordOverviewTab({
               onClick={handleStartEdit}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-brand-blue hover:bg-blue-50 border border-blue-200 rounded-lg transition-colors cursor-pointer"
             >
-              <Pencil className="w-3 h-3" /> Edit
+              <Pencil aria-hidden="true" className="w-3 h-3" /> {correctingCompletedRma ? 'Correct completed RMA' : 'Edit'}
             </button>
           )}
         </div>
 
         {!editing ? (
           <>
+            {correctingCompletedRma && (
+              <p role="note" className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900">
+                This RMA is completed. Use “Correct completed RMA” only to fix a mistake; a correction reason is required.
+              </p>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-xs">
               {[
                 {
@@ -661,6 +675,12 @@ export function RecordOverviewTab({
           </>
         ) : (
           <div className="space-y-4 text-xs">
+            {correctingCompletedRma && (
+              <div role="alert" className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
+                <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+                <p><span className="font-bold">You are correcting a completed RMA.</span> Status and driver assignment stay locked. Explain the correction below; it is saved with your name in Remarks History.</p>
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {canEditPriority && (
                 <div className="space-y-1">
@@ -760,6 +780,7 @@ export function RecordOverviewTab({
                     <div className="space-y-1">
                       <label htmlFor="edit-rma-movement" className={labelCls}>
                         Movement method
+                        {rmaScheduleLocked && <span className="normal-case tracking-normal font-normal"> (locked)</span>}
                       </label>
                       <select
                         id="edit-rma-movement"
@@ -767,12 +788,15 @@ export function RecordOverviewTab({
                         onChange={event => set('rma_movement', event.target.value as EditDraft['rma_movement'])}
                         className={fieldInputCls('rma_movement')}
                         aria-invalid={!!rmaErrors.rma_movement}
+                        disabled={rmaScheduleLocked}
+                        aria-describedby={rmaScheduleLocked ? 'edit-rma-movement-lock' : undefined}
                       >
                         <option value="">— Select before submitting —</option>
                         <option value="LOGISTICS_TRANSPORT">Logistics transport</option>
                         <option value="SUPPLIER_COLLECTION" disabled={draft.is_internal_transfer}>Supplier collection</option>
                         <option value="INTERNAL_NO_DRIVER">Internal / no driver</option>
                       </select>
+                      {rmaScheduleLocked && <p id="edit-rma-movement-lock" className="text-xs text-slate-500">{RMA_SCHEDULE_LOCK_HINT}</p>}
                       {rmaErrors.rma_movement && (
                         <p role="alert" className="text-xs text-red-600">
                           {rmaErrors.rma_movement}
@@ -993,6 +1017,7 @@ export function RecordOverviewTab({
                     <label htmlFor="overview-delivery-date" className={labelCls}>
                       Delivery Date
                       {isRma && (draft.rma_movement === 'LOGISTICS_TRANSPORT' ? ' *' : ' (optional)')}
+                      {rmaScheduleLocked && <span className="normal-case tracking-normal font-normal"> (locked)</span>}
                     </label>
                     <input
                       id="overview-delivery-date"
@@ -1003,14 +1028,16 @@ export function RecordOverviewTab({
                         setRmaErrors(errors => ({ ...errors, delivery_date: '' }));
                       }}
                       className={isRma ? fieldInputCls('delivery_date') : inputCls}
+                      disabled={rmaScheduleLocked}
                       aria-invalid={isRma ? !!rmaErrors.delivery_date : undefined}
-                      aria-describedby={rmaErrors.delivery_date ? 'rma-delivery-date-error' : undefined}
+                      aria-describedby={[rmaScheduleLocked ? 'overview-delivery-date-lock' : null, rmaErrors.delivery_date ? 'rma-delivery-date-error' : null].filter(Boolean).join(' ') || undefined}
                     />
                     {rmaErrors.delivery_date && (
                       <p id="rma-delivery-date-error" className="text-xs text-red-600">
                         {rmaErrors.delivery_date}
                       </p>
                     )}
+                    {rmaScheduleLocked && <p id="overview-delivery-date-lock" className="text-xs text-slate-500">{RMA_SCHEDULE_LOCK_HINT}</p>}
                   </div>
                 </>
               )}
@@ -1069,14 +1096,16 @@ export function RecordOverviewTab({
 
             <div className="space-y-1">
               <label htmlFor="overview-change-remarks" className={labelCls}>
-                Remarks — reason for change <span className="text-red-500">*</span>
+                {correctingCompletedRma ? 'Correction reason' : 'Remarks — reason for change'} <span className="text-red-500">*</span>
               </label>
               <p id="overview-change-remarks-help" className="text-xs text-slate-600">
-                Explain why you are making this change. The reason is saved with your name in Remarks History.
+                {correctingCompletedRma
+                  ? 'Explain what was wrong and what you corrected. The reason is saved with your name in Remarks History.'
+                  : 'Explain why you are making this change. The reason is saved with your name in Remarks History.'}
               </p>
               <textarea
                 id="overview-change-remarks"
-                aria-describedby="overview-change-remarks-help"
+                aria-describedby={remarksError ? 'overview-change-remarks-help overview-change-remarks-error' : 'overview-change-remarks-help'}
                 required
                 value={draft.remarks}
                 onChange={e => {
@@ -1084,13 +1113,15 @@ export function RecordOverviewTab({
                   if (remarksError && e.target.value.trim()) setRemarksError(false);
                 }}
                 rows={3}
-                placeholder={canEditFull ? '' : 'Explain why you are making this update...'}
+                placeholder={correctingCompletedRma ? 'What was corrected and why…' : canEditFull ? '' : 'Explain why you are making this update...'}
                 className={`w-full px-2.5 py-1.5 border rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue ${
                   remarksError ? 'border-red-400 bg-red-50' : 'border-slate-300'
                 }`}
               />
               {remarksError && (
-                <p className="text-xs text-red-600 font-semibold">Remarks are required to save changes.</p>
+                <p id="overview-change-remarks-error" role="alert" className="text-xs text-red-600 font-semibold">
+                  {correctingCompletedRma ? 'A correction reason is required to save changes to a completed RMA.' : 'Remarks are required to save changes.'}
+                </p>
               )}
             </div>
 
@@ -1204,7 +1235,7 @@ export function RecordOverviewTab({
           </div>
         )}
 
-        {canEdit && !editing && (
+        {canEdit && !editing && !correctingCompletedRma && (
           <p className="mt-4 text-xs text-slate-400 border-t border-slate-100 pt-3">
             This record can be edited while its status is <span className="font-bold text-blue-600">Draft</span> or{' '}
             <span className="font-bold text-blue-600">Scheduled</span>. Once Logistics advances the status, it locks.
@@ -1228,7 +1259,7 @@ export function RecordOverviewTab({
               className="px-6 py-2.5 bg-brand-blue hover:bg-brand-navy text-white font-bold rounded-lg transition-colors text-xs uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              {saving ? 'Saving…' : 'Save Changes'}
+              {saving ? 'Saving…' : correctingCompletedRma ? 'Save correction' : 'Save Changes'}
             </button>
           </div>
         )}
