@@ -1,4 +1,4 @@
-import { AlertTriangle, Clock, Navigation, PackageSearch, RotateCcw } from 'lucide-react';
+import { AlertTriangle, Clock, Navigation, RotateCcw } from 'lucide-react';
 import type { ApiDashboardOverview, ApiDashboardStats } from '@/api';
 import type { DeliveryRecord } from '@/types';
 import type { DashboardFilterId } from '@/utils/dashboardFilters';
@@ -57,7 +57,6 @@ export default function TassDashboard({ stats, overview, overviewStatus, onRetry
   const onHold = overview?.counts['tass-rma-on-hold'];
   const aging = overview?.counts['tass-rma-aging'];
   const openContext = onHold === undefined || aging === undefined ? undefined : `${onHold} on hold, ${aging} over 7 days`;
-  const verifiedToday = stats?.verified_today ?? 0;
 
   const previews = overview?.record_previews.rma_attention ?? [];
   const total = overview?.counts['tass-open-rma'] ?? overview?.counts.rma_attention ?? 0;
@@ -72,12 +71,12 @@ export default function TassDashboard({ stats, overview, overviewStatus, onRetry
         <KpiTile label="On hold" unit="RMA records" icon={AlertTriangle} value={stats?.rma_on_hold} tone="critical"
           context={stats ? (stats.rma_on_hold > 0 ? 'Blocked, needs action' : 'No blocked RMA') : undefined}
           onOpen={open('rma', 'tass-rma-on-hold')} />
-        <KpiTile label="Pick-ups pending" unit="pick-ups" icon={PackageSearch} value={stats?.pending_procurement_pickup}
-          context={stats ? (stats.pending_procurement_pickup > 0 ? 'Waiting to be picked up' : 'Nothing pending') : undefined}
-          onOpen={open('procurement_pickup', 'tass-pending-pickups')} />
-        <KpiTile label="Collections to verify" unit="collections" icon={Clock} value={stats?.pending_verification} tone="warning"
-          context={stats ? (verifiedToday > 0 ? `${verifiedToday} verified today` : stats.pending_verification > 0 ? 'Awaiting your sign-off' : 'Nothing to verify') : undefined}
-          onOpen={open('accounting_collection', 'tass-pending-verification')} />
+        <KpiTile label="In transit" unit="RMA records" icon={Navigation} value={stats?.rma_in_transit}
+          context={stats ? (stats.rma_in_transit > 0 ? 'With Logistics driver' : 'None in transit') : undefined}
+          onOpen={open('rma', 'tass-rma-in-transit')} />
+        <KpiTile label="Aging over 7 days" unit="RMA records" icon={Clock} value={stats?.rma_aging} tone={stats?.rma_aging ? 'critical' : undefined}
+          context={stats ? (stats.rma_aging > 0 ? 'Needs follow-up' : 'All within 7 days') : undefined}
+          onOpen={open('rma', 'tass-rma-aging')} />
       </KpiRow>
 
       <DashboardPanel

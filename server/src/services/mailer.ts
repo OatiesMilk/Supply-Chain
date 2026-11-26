@@ -6,11 +6,19 @@ import { ClientSecretCredential } from '@azure/identity';
 import { Client as GraphClient } from '@microsoft/microsoft-graph-client';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials';
 
+export interface MailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType: string;
+}
+
 export interface MailMessage {
   to: string;
   subject: string;
   text: string;
   html?: string;
+  /** Optional file attachments; omitted by every existing text-only caller. */
+  attachments?: MailAttachment[];
 }
 
 export type SendMethod = 'graph' | 'smtp' | 'mock';
@@ -48,6 +56,14 @@ async function sendViaGraph(msg: MailMessage): Promise<SendResult> {
         toRecipients: msg.to.split(',').map(addr => ({
           emailAddress: { address: addr.trim() },
         })),
+        ...(msg.attachments?.length ? {
+          attachments: msg.attachments.map(a => ({
+            '@odata.type': '#microsoft.graph.fileAttachment',
+            name: a.filename,
+            contentType: a.contentType,
+            contentBytes: a.content.toString('base64'),
+          })),
+        } : {}),
       },
       saveToSentItems: false,
     });
@@ -78,6 +94,9 @@ async function sendViaSMTP(msg: MailMessage): Promise<SendResult> {
       subject: msg.subject,
       text: msg.text,
       ...(msg.html ? { html: msg.html } : {}),
+      ...(msg.attachments?.length ? {
+        attachments: msg.attachments.map(a => ({ filename: a.filename, content: a.content, contentType: a.contentType })),
+      } : {}),
     });
     return { ok: true, method: 'smtp' };
   } catch (err: any) {
@@ -91,6 +110,8 @@ async function sendViaSMTP(msg: MailMessage): Promise<SendResult> {
 async function sendViaMock(msg: MailMessage): Promise<SendResult> {
   console.log('--- [MOCK EMAIL] ---------------------------------------');
   console.log(`To: ${msg.to}\nSubject: ${msg.subject}\n\n${msg.text}`);
+  // Attachment names and sizes only; binary contents are never logged.
+  for (const a of msg.attachments ?? []) console.log(`Attachment: ${a.filename} (${a.contentType}, ${a.content.length} bytes)`);
   console.log('----------------------------------------------------------');
   return { ok: true, method: 'mock' };
 }

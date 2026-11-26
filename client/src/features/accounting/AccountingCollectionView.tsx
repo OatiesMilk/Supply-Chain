@@ -14,7 +14,8 @@ import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus } from '@/types';
 import { AREAS, PRIORITIES, ITEM_TYPES, DELIVERY_STATUSES, acStatusLabel } from '@/data';
 import { accountManagerChoices, useAccountManagersQuery } from '@/api/queries/useAccountManagersQuery';
-import { activeCompanies, defaultAccountManagerFor } from '@/utils/accountDirectory';
+import { accountManagerAfterCompanyChange, accountManagerOptionGroups, activeCompanies, companySapNumbers, preferredAccountManagerFor } from '@/utils/accountDirectory';
+import CompanySapQuickPick from '@/components/CompanySapQuickPick';
 import { ApiCompany, api, apiUrl } from '@/api';
 import { usePagedRecordsQuery, useSelectedRecordQuery, normalizeApiRecord } from '@/api/queries/useRecordsQuery';
 import { useRecordFilterOptionsQuery } from '@/api/queries/useOperationalViews';
@@ -167,7 +168,7 @@ export default function AccountingCollectionView({
     setDateTo('');
     setDateSort('default');
     setAmFilter('');
-    if (dashboardFilterId === 'tass-pending-verification' || dashboardFilterId === 'admin-unverified-collections') {
+    if (dashboardFilterId === 'admin-unverified-collections') {
       setStatusFilter('Delivered');
     }
   }, [dashboardFilterId]);
@@ -190,6 +191,8 @@ export default function AccountingCollectionView({
   const accountManagers = useAccountManagersQuery();
   const amChoices = accountManagerChoices(accountManagers.data);
   const companyOptions = activeCompanies(companies);
+  const selectedCompany = form.company_id ? companies.find(c => c.id === form.company_id) : undefined;
+  const amGroups = accountManagerOptionGroups(selectedCompany, amChoices, accountManagers.data);
   const amOptions = filterOptions.isError ? [] : filterOptions.data?.accountManagers
     ?? [...new Set(records.filter(r => r.category === CATEGORY).map(r => r.account_manager).filter(Boolean))].sort();
 
@@ -204,11 +207,11 @@ export default function AccountingCollectionView({
       company_name: company.name,
       company_id: company.id,
       priority: acAfPick(PRIORITIES),
-      reference: `SAP-COLL-${acAfRandInt(10000, 99999)}`,
+      reference: companySapNumbers(company)[0] ?? `SAP-COLL-${acAfRandInt(10000, 99999)}`,
       remarks: acAfPick(AC_AF_REMARKS),
       status: 'Scheduled',
       area: acAfPick(AREAS),
-      account_manager: defaultAccountManagerFor(company, accountManagers.data) || (amChoices.length ? acAfPick(amChoices) : ''),
+      account_manager: preferredAccountManagerFor(company, accountManagers.data) || (amChoices.length ? acAfPick(amChoices) : ''),
       delivery_date: deliveryDate,
       item_type: acAfPick(ITEM_TYPES),
       is_draft: 'No',
@@ -222,11 +225,9 @@ export default function AccountingCollectionView({
   const handleCompanySelect = (name: string) => {
     const company = companyOptions.find(c => c.name === name);
     setForm(prev => {
-      // Fill the company's default AM unless the user already picked a different one.
-      const previousDefault = defaultAccountManagerFor(companies.find(c => c.id === prev.company_id), accountManagers.data);
-      const nextDefault = defaultAccountManagerFor(company, accountManagers.data);
-      const keepAm = prev.account_manager.trim() && prev.account_manager !== previousDefault;
-      return { ...prev, company_name: name, company_id: company?.id ?? '', account_manager: keepAm || !nextDefault ? prev.account_manager : nextDefault };
+      // Fill the company's single AM unless the user already picked a different one.
+      const account_manager = accountManagerAfterCompanyChange(prev.account_manager, companies.find(c => c.id === prev.company_id), company, accountManagers.data);
+      return { ...prev, company_name: name, company_id: company?.id ?? '', account_manager };
     });
   };
 
@@ -531,10 +532,9 @@ export default function AccountingCollectionView({
   // even though there's no actual dead space between them. Tightened both
   // columns to fit their content closely; the freed width goes to Company.
   // Collection column removed for all roles — it always rendered empty/dash
-  // values here (real verification happens via the TASS Dashboard's
-  // "Unverified Collections" table with its inline Verify action, and via
-  // the record workspace's Verification tab). This registry is a shared,
-  // action-free browse view across Sales Coordinator/TASS/Admin, so one
+  // values here (real verification happens in the record workspace's
+  // Verification tab, where Logistics verifies collections). This registry is
+  // a shared, action-free browse view across Sales Coordinator/Logistics/Admin, so one
   // column set now covers everyone.
   const colPct = { id: 10, company: 28, reference: 18, priority: 10, status: 12, date: 10, amount: 12 };
 
@@ -626,6 +626,7 @@ export default function AccountingCollectionView({
                   aria-invalid={!!formErrors.reference}
                   placeholder="e.g., SAP-88231"
                   className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25 ${formErrors.reference ? 'border-red-500' : 'border-slate-300'}`} />
+                <CompanySapQuickPick sapNumbers={companySapNumbers(selectedCompany)} value={form.reference} onPick={sap => updateField('reference', sap)} />
                 {formErrors.reference && <p className="text-red-600 text-xs font-semibold">{formErrors.reference}</p>}
               </div>
 
@@ -671,7 +672,9 @@ export default function AccountingCollectionView({
                   aria-invalid={!!formErrors.account_manager}
                   className={`w-full px-3 py-2 border rounded-lg bg-white ${formErrors.account_manager ? 'border-red-500' : 'border-slate-300'}`}>
                   <option value="">-- Select account manager --</option>
-                  {amChoices.map(m => <option key={m} value={m}>{m}</option>)}
+                  {amGroups ? amGroups.filter(group => group.options.length).map(group => (
+                    <optgroup key={group.label} label={group.label}>{group.options.map(m => <option key={m} value={m}>{m}</option>)}</optgroup>
+                  )) : amChoices.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
                 {formErrors.account_manager && <p className="text-red-500 text-xs font-semibold">{formErrors.account_manager}</p>}
               </div>
@@ -751,7 +754,7 @@ export default function AccountingCollectionView({
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
-              {(currentUserRole === 'TASS' || currentUserRole === 'Admin') && (
+              {(currentUserRole === 'Logistics' || currentUserRole === 'Admin') && (
                 <ExportMenu
                   rows={exportRows}
                   columns={[...DELIVERY_COLUMNS, ...AC_EXTRA_COLUMNS]}

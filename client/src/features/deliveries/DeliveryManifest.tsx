@@ -6,13 +6,13 @@
  *
  * Clean layout — no sidebar or header chrome. Uses jsPDF.
  */
-import { rmaWorkflowExportFields } from '@/utils/rmaTransport';
-import { formatManilaTimestamp } from '@/utils/manilaTimestamp';
 import { fmtDate } from '@/utils/export';
 import { DeliveryRecord } from '@/types';
 import { ApiCompany, ApiAuditEntry, ApiComment, ApiRemarkLog, ApiPodAttachment } from '@/api';
 import { DocumentSize, getPdfFormat, fitColumnWidths, DEFAULT_DOCUMENT_SIZE } from '@/utils/documentSize';
 import { recordLabel } from '../../utils/recordLabel';
+import { rmaSlipTitle } from '@/utils/rma';
+import { buildRmaClientSlipData } from '@/utils/rmaSlip';
 
 export interface ManifestDocumentationData {
   auditEntries: ApiAuditEntry[];
@@ -89,14 +89,57 @@ const CONTEXT_LABEL: Record<string, string> = {
 
 
 
+export interface ManifestOptions {
+  /** Append the internal Documentation Trail. Defaults to false for RMA client slips. */
+  includeDocumentationTrail?: boolean;
+}
+
+/** Client-safe RMA slip body rows: [label, value]. Never internal notes or workflow remarks. */
+export function rmaClientSlipFields(record: DeliveryRecord): [string, string][] {
+  const slip = buildRmaClientSlipData(record);
+  return [
+    ['RMA Document Reference', record.rma_reference ?? record.reference ?? ''],
+    ['Category', record.rma_type ?? '—'],
+    ['Case Number', slip.caseNumber || '—'],
+    ...(slip.serviceSlipNo ? [['Service Slip (SS#)', slip.serviceSlipNo] as [string, string]] : []),
+    ['Company', record.company_name],
+    ['Address', record.address || '—'],
+    ['Area', record.area || '—'],
+    ['Account Manager', record.account_manager || '—'],
+    ['Date', record.delivery_date ? fmtDate(record.delivery_date) : '—'],
+    ['Contact Details', slip.contacts || '—'],
+    ['Remarks', slip.slipRemarks || '—'],
+  ];
+}
+
+/** QTY / ITEM DESCRIPTIONS rows; status tag lines are flagged bold. */
+export function rmaClientSlipItemRows(record: DeliveryRecord): { qty: string; text: string; bold: boolean }[] {
+  return buildRmaClientSlipData(record).items.flatMap(block => {
+    const plain = block.lines.filter(line => !line.bold).map(line => line.text).join('\n');
+    const bold = block.lines.filter(line => line.bold);
+    return [{ qty: block.qty, text: plain, bold: false }, ...bold.map(line => ({ qty: '', text: line.text, bold: true }))];
+  });
+}
+
 /** Generate a single-record manifest PDF.
- *  When docData is supplied, a second page (Documentation Trail) is appended. */
+ *  When docData is supplied, a second page (Documentation Trail) is appended;
+ *  RMA client slips append it only when explicitly requested. */
 export async function printSingleManifest(
   record: DeliveryRecord,
   companies: ApiCompany[],
   docData?: ManifestDocumentationData,
-  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE
+  documentSize: DocumentSize = DEFAULT_DOCUMENT_SIZE,
+  options: ManifestOptions = {},
 ): Promise<Blob> {
+  const includeTrail = !!docData && (options.includeDocumentationTrail ?? record.category !== 'RMA');
+  if (record.category === 'RMA') {
+    // Target borderless portrait Microgenesis client slip with the issuer's
+    // digital signature. The staff-only trail is appended only on explicit opt-in.
+    const { generateRmaClientSlipPdf } = await import('@/utils/rmaClientSlipPdf');
+    const slip = await generateRmaClientSlipPdf(record, { documentSize, companies });
+    if (docData && includeTrail) await appendDocumentationTrail(slip, record, docData, documentSize, await loadLogo());
+    return slip.output('blob');
+  }
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: getPdfFormat(documentSize) });
   const logo = await loadLogo();
@@ -107,100 +150,12 @@ export async function printSingleManifest(
 
   drawManifestHeader(
     doc, logo,
-    record.category === 'RMA' ? 'RMA Document Record' : 'Delivery Manifest',
-    record.category === 'RMA' ? `RMA Document Reference ${record.rma_reference ?? record.reference} · Record ${recordLabel(record)}` : `Record ${recordLabel(record)} · ${fmtDate(record.delivery_date)}`,
+    'Delivery Manifest',
+    `Record ${recordLabel(record)} · ${fmtDate(record.delivery_date)}`,
     pageW
   );
 
-  if (record.category === 'RMA') {
-    const { default: autoTable } = await import('jspdf-autotable');
-    const attachments = [
-      ...(record.attachments ?? []),
-      ...(docData?.attachments ?? []).map(file => file.name),
-    ];
-    const workflow = rmaWorkflowExportFields(record);
-    const fields: [string, string][] = [
-      ['Record No.', recordLabel(record)],
-      ['RMA Document Reference', record.rma_reference ?? record.reference],
-      ['Legacy SAP Reference', record.legacy_sap_reference ?? '—'],
-      ['RMA Category', record.rma_type ?? '—'],
-      ['Movement method', workflow.rma_movement_fmt || 'Not selected'],
-      ['Transport status', workflow.rma_transport_status_fmt || 'Not applicable'],
-      ['Transport started', workflow.rma_transport_started_at_fmt || (record.rma_movement === 'LOGISTICS_TRANSPORT' ? '—' : record.rma_movement ? 'Not applicable' : 'Not selected')],
-      ['Transport completed', workflow.rma_transport_completed_at_fmt || '—'],
-      ['Physical receipt recipient', workflow.rma_recipient || '—'],
-      ['Physical receipt confirmed', workflow.rma_received_at_fmt || 'Not confirmed'],
-      ['RMA completed', workflow.rma_completed_at_fmt || '—'],
-      ['Status', record.status],
-      ['Priority', record.priority],
-      ['Company', record.company_name],
-      ['Company ID', record.company_id],
-      ['Customer Contact Name', record.customer_contact_name ?? '—'],
-      ['Customer Contact Email', record.customer_contact_email ?? '—'],
-      ['Customer Contact Phone', record.customer_contact_phone ?? '—'],
-      ['Purchase Date', record.purchase_date ? fmtDate(record.purchase_date) : '—'],
-      ['Area', record.area || '—'],
-      ['Address', record.address || '—'],
-      ['Account Manager', record.account_manager || '—'],
-      ['Delivery Date', record.delivery_date ? fmtDate(record.delivery_date) : '—'],
-      ['Item Type', record.item_type || '—'],
-      ['Item Description', record.item_description || '—'],
-      ['Vehicle', record.vehicle || '—'],
-      ['Driver', record.driver || 'Unassigned'],
-      ['Driver ID', record.driver_id || '—'],
-      ['Driver Assistants', record.driver_assistants?.join(', ') || '—'],
-      ['Received By', record.received_by || '—'],
-      ['Completed Late', record.completed_late ? 'Yes' : 'No'],
-      ['Days Late', String(record.days_late ?? 0)],
-      ['Draft', record.is_draft],
-      ['Remarks', record.remarks || '—'],
-      ['Legacy Document Attachment', record.document_attachment || '—'],
-      ['Attachments', attachments.join(', ') || '—'],
-      ['Created By', record.created_by || '—'],
-      ['Created By ID', record.created_by_id ?? '—'],
-      ['Created At', formatManilaTimestamp(record.created_at)],
-      ['Modified By', record.modified_by || '—'],
-      ['Modified By ID', record.modified_by_id ?? '—'],
-      ['Modified At', formatManilaTimestamp(record.modified_at)],
-      ['Deleted At', formatManilaTimestamp(record.deleted_at)],
-      ['Amount', record.amount == null ? '—' : String(record.amount)],
-      ['Collection Verified', record.collection_verified ? 'Yes' : 'No'],
-      ['Collection Verified By', record.collection_verified_by ?? '—'],
-      ['Collection Verified At', formatManilaTimestamp(record.collection_verified_at)],
-      ['Linked Collection', record.linked_collection ? `${recordLabel(record.linked_collection)} · ${record.linked_collection.reference}` : record.linked_collection_id ?? '—'],
-    ];
-    autoTable(doc, {
-      head: [['RMA Record Field', 'Saved Value']],
-      body: fields,
-      startY: 31,
-      margin: { left: 10, right: 10, top: 31, bottom: 11 },
-      styles: { fontSize: 7.5, cellPadding: 1.5, overflow: 'linebreak', valign: 'top' },
-      columnStyles: { 0: { cellWidth: 52, fontStyle: 'bold' }, 1: { cellWidth: 'auto' } },
-      headStyles: { fillColor: [...NAVY], textColor: [255, 255, 255], fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: [248, 249, 250] },
-      didDrawPage: () => drawManifestHeader(doc, logo, 'RMA Document Record', `RMA Document Reference ${record.rma_reference ?? record.reference} · Record ${recordLabel(record)}`, pageW),
-    });
-    if (record.line_items?.length) {
-      const tableEnd = (doc as any).lastAutoTable?.finalY ?? 31;
-      autoTable(doc, {
-        head: [['Line Item', 'Quantity']],
-        body: record.line_items.map(item => [item.sku, String(item.quantity)]),
-        startY: tableEnd + 5,
-        margin: { left: 10, right: 10, top: 31, bottom: 11 },
-        styles: { fontSize: 7.5, cellPadding: 1.5 },
-        headStyles: { fillColor: [...NAVY], textColor: [255, 255, 255], fontStyle: 'bold' },
-        alternateRowStyles: { fillColor: [248, 249, 250] },
-        didDrawPage: () => drawManifestHeader(doc, logo, 'RMA Document Record', `RMA Document Reference ${record.rma_reference ?? record.reference} · Record ${recordLabel(record)}`, pageW),
-      });
-    }
-    for (let page = 1; page <= doc.getNumberOfPages(); page++) {
-      doc.setPage(page);
-      doc.setFontSize(7.5);
-      doc.setTextColor(148, 163, 184);
-      doc.text('Microgenesis Business Systems — Confidential', pageW / 2, pageH - 8, { align: 'center' });
-      doc.text(`Generated: ${fmtDate(new Date().toISOString())}`, 10, pageH - 8);
-    }
-  } else {
+  {
   let y = 34;
   const col1 = 10;
   const colW = (pageW - 30) / 2;
@@ -295,10 +250,15 @@ export async function printSingleManifest(
   doc.text(`Generated: ${fmtDate(new Date().toISOString())}`, 10, pageH - 8);
   }
 
-  // ── Page 2: Documentation Trail ─────────────────────────────────────────────
-  if (docData) {
+  if (docData && includeTrail) await appendDocumentationTrail(doc, record, docData, documentSize, logo);
+
+  return doc.output('blob');
+}
+
+/** Staff-only Documentation Trail pages (landscape), appended after the manifest or client slip. */
+async function appendDocumentationTrail(doc: any, record: DeliveryRecord, docData: ManifestDocumentationData, documentSize: DocumentSize, logo: string | null) {
     const { default: autoTable } = await import('jspdf-autotable');
-    doc.addPage();
+    doc.addPage(getPdfFormat(documentSize), 'landscape');
     const pageW2 = doc.internal.pageSize.getWidth();
     const pageH2 = doc.internal.pageSize.getHeight();
 
@@ -439,9 +399,6 @@ export async function printSingleManifest(
         doc.text(`Page ${pages}`, pageW2 - 10, pageH2 - 8, { align: 'right' });
       }
     });
-  }
-
-  return doc.output('blob');
 }
 
 /** Generate a driver-day manifest (all records for one driver on one date) */

@@ -5,7 +5,7 @@ import { hasActionPermission, type EffectivePermissionSnapshot } from './permiss
 import { POLICY_CATEGORIES, type PolicyAction, type PolicyCategory } from './permissionCatalog';
 import { driverDeliveryDateError, isoTimestamp, runState, timeInError, transitionError, type RunRecord, type RunState } from './deliveryLifecycle';
 import { eligibleRmaTransport as isEligibleRmaMovement, rmaTransportContext } from './rmaMovement';
-import { categoryActionRestriction } from './moduleAccessRules';
+import { categoryActionRestriction, categoryRestricted } from './moduleAccessRules';
 export { runState as runStateForPermission } from './deliveryLifecycle';
 
 export const CATEGORY_SCREEN: Record<string, Screen> = {
@@ -27,7 +27,8 @@ export function readableCategories(user: AuthUser): string[] {
       if (user.rmaPermissions !== undefined && (!user.rmaPermissions || !hasActionPermission(user.rmaPermissions, 'CATEGORY', 'RMA', 'READ'))) return false;
       if (user.role === 'DRIVER' && !user.rmaPermissions?.driverProfileId) return false;
     }
-    if (user.role === 'TASS' && !['ACCOUNTING_COLLECTION', 'RMA'].includes(category)) return false;
+    if (categoryRestricted(user.role, category)) return false;
+    if (user.role === 'TASS' && category !== 'RMA') return false;
     if (user.permissions.some(p => p.screen === screen && p.granted === false)) return false;
     return shared || user.effectiveScreens.includes(screen);
   });
@@ -69,7 +70,7 @@ export function canReadRecord(
 }
 
 export function canWriteCategory(user: AuthUser, category: string): boolean {
-  if (categoryActionRestriction(user.role, category, 'WRITE')) return false;
+  if (categoryRestricted(user.role, category) || categoryActionRestriction(user.role, category, 'WRITE')) return false;
   if (user.activeMode === 'V1') return !!user.snapshot && !!writePathForCategory(user.snapshot, category)
     && hasActionPermission(user.snapshot, 'CATEGORY', category, 'WRITE');
   const screen = CATEGORY_SCREEN[category];
@@ -131,7 +132,7 @@ export function transactionCategories(role: string): string[] {
     case 'DRIVER': return Object.keys(CATEGORY_SCREEN);
     case 'SALES_COORDINATOR': return ['DELIVERY', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'];
     case 'LOGISTICS': return ['DELIVERY', 'RMA', 'PROCUREMENT_PICKUP'];
-    case 'TASS': return ['RMA', 'ACCOUNTING_COLLECTION'];
+    case 'TASS': return ['RMA'];
     default: return [];
   }
 }
@@ -145,7 +146,7 @@ function policyPathAllowed(snapshot: EffectivePermissionSnapshot, path: PolicyRe
 
 export function readablePolicyCategories(snapshot: EffectivePermissionSnapshot, path: PolicyRecordPath = 'records'): PolicyCategory[] {
   if (!policyPathAllowed(snapshot, path)) return [];
-  return POLICY_CATEGORIES.filter(category => hasActionPermission(snapshot, 'CATEGORY', category, 'READ')
+  return POLICY_CATEGORIES.filter(category => !categoryRestricted(snapshot.role ?? '', category) && hasActionPermission(snapshot, 'CATEGORY', category, 'READ')
     && (path !== 'transactions' || transactionCategories(snapshot.role ?? '').includes(category)));
 }
 
@@ -183,7 +184,7 @@ export function canReadPolicyRecord(snapshot: EffectivePermissionSnapshot, recor
   return true;
 }
 export function canWritePolicyCategory(snapshot: EffectivePermissionSnapshot, category: string, path: PolicyRecordPath = 'records'): boolean {
-  if (categoryActionRestriction(snapshot.role ?? '', category, 'WRITE')) return false;
+  if (categoryRestricted(snapshot.role ?? '', category) || categoryActionRestriction(snapshot.role ?? '', category, 'WRITE')) return false;
   return policyPathAllowed(snapshot, path, true) && hasActionPermission(snapshot, 'CATEGORY', category, 'WRITE');
 }
 export function canCreatePolicyCategory(snapshot: EffectivePermissionSnapshot, category: string, path: PolicyRecordPath = 'records'): boolean {
@@ -220,7 +221,7 @@ export function canPerformPolicyRecordAction(
   if (!canReadPolicyRecord(snapshot, record, options) || !canWritePolicyCategory(snapshot, record.category!, options.path)
     || !hasActionPermission(snapshot, 'CATEGORY', record.category!, action)) return false;
   const role = snapshot.role!;
-  if (action === 'VERIFY_COLLECTION') return role === 'TASS' && record.category === 'ACCOUNTING_COLLECTION'
+  if (action === 'VERIFY_COLLECTION') return role === 'LOGISTICS' && record.category === 'ACCOUNTING_COLLECTION'
     && record.status === 'ACCOMPLISHED' && record.draft === false && record.collectionVerified === false;
   if (action === 'RECEIVE' && record.category !== 'RMA') return role === 'SALES_COORDINATOR'
     && record.status === 'TRANSPORT_COMPLETE' && record.draft === false;

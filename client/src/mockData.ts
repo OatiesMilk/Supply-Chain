@@ -87,11 +87,13 @@ export function getMockCompanies(): ApiCompany[] {
     id: c.id,
     name: c.name,
     sap_number: `SAP-${c.id.replace('CST-', '')}`,
+    sap_numbers: [`SAP-${c.id.replace('CST-', '')}`],
     address: c.address,
     contact_person: c.contact_person,
     is_active: true,
     version: 1,
     default_account_manager: null,
+    account_managers: [],
     created_at: c.created_at,
     updated_at: c.created_at,
   }));

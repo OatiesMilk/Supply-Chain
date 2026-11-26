@@ -13,7 +13,7 @@ import dashboardRoutes from '../src/routes/dashboard';
 import transactionsRoutes from '../src/routes/transactions';
 import recordsRoutes from '../src/routes/records';
 import driversRoutes from '../src/routes/drivers';
-import { effectiveScreens, permissionEditor, permissionInputError, permissionSnapshot, replacePermissions, sessionUser, type Permission } from '../src/services/permissions';
+import { editableScreens, effectiveScreens, permissionEditor, permissionInputError, permissionSnapshot, replacePermissions, sessionUser, type Permission } from '../src/services/permissions';
 import { canCreateCategory, canWriteCategory, recordScope } from '../src/services/recordAccess';
 import type { AuthUser } from '../src/middleware/auth';
 
@@ -85,7 +85,15 @@ test('RMA access defaults keep Sales out, TASS as owner, Logistics read-only, an
   assert.ok(recordScope(tassUser).category.in.includes('RMA'));
   assert.equal(canWriteCategory(tassUser, 'RMA'), true);
   assert.equal(canCreateCategory(tassUser, 'RMA'), true);
-  assert.ok(recordScope(tassUser).category.in.includes('ACCOUNTING_COLLECTION'));
+  // TASS has no Accounting Collection module, even with a legacy screen grant.
+  assert.ok(!recordScope(tassUser).category.in.includes('ACCOUNTING_COLLECTION'));
+  assert.ok(!tass.effectiveScreens.includes('accounting_collection'));
+  const grantedTass = sessionUser(account('TASS', [{ screen: 'accounting_collection', granted: true }])) as AuthUser;
+  assert.ok(!grantedTass.effectiveScreens.includes('accounting_collection'));
+  assert.ok(!recordScope(grantedTass).category.in.includes('ACCOUNTING_COLLECTION'));
+  assert.equal(canWriteCategory(grantedTass, 'ACCOUNTING_COLLECTION'), false);
+  assert.equal(canCreateCategory(grantedTass, 'ACCOUNTING_COLLECTION'), false);
+  assert.ok(!editableScreens('TASS').includes('accounting_collection'));
 
   const admin = permissionEditor(account('ADMIN'));
   assert.ok(admin.roleDefaults.includes('rma'));
@@ -150,7 +158,7 @@ test('record scopes retain role limits and explicit denials even through shared 
   assert.ok(!scope.category.in.includes('DELIVERY'));
   assert.equal(canWriteCategory(user, 'DELIVERY'), false);
   const tass = recordScope(sessionUser(account('TASS')) as AuthUser) as any;
-  assert.deepEqual(tass.category.in, ['RMA', 'ACCOUNTING_COLLECTION']);
+  assert.deepEqual(tass.category.in, ['RMA']);
   // Drivers are scoped by their linked profile id; an unlinked Driver owns nothing.
   const driver = sessionUser(account('DRIVER')) as AuthUser;
   const linked = recordScope({ ...driver, driverProfileId: 'profile-1' }) as any;

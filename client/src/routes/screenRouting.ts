@@ -43,10 +43,15 @@ export function driverLandingScreen(canAccess: (screen: string) => boolean): str
   return DRIVER_TABS.find(tab => canAccess(tab.screen))?.screen ?? null;
 }
 
-export function syncAuthenticatedRoute(screens: Set<string>, navigate: (screen: string, itemId?: string) => void) {
+/** `?request=<id>` deep links (Feature 4b) open an addition request; they never select a record. */
+export function syncAuthenticatedRoute(screens: Set<string>, navigate: (screen: string, itemId?: string) => void,
+  openAdditionRequest?: (screen: string, requestId: string) => void) {
   const requested = window.location.pathname.substring(1) || 'dashboard';
   if (screens.has(requested)) {
-    navigate(requested, new URLSearchParams(window.location.search).get('item') || undefined);
+    const params = new URLSearchParams(window.location.search);
+    const requestId = params.get('request');
+    if (requestId && openAdditionRequest) openAdditionRequest(requested, requestId);
+    else navigate(requested, params.get('item') || undefined);
     return;
   }
   const fallback = screens.has('dashboard') ? 'dashboard' : screens.values().next().value ?? 'no-access';

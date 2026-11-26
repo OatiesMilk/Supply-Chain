@@ -1,22 +1,36 @@
-import { Router } from 'express';
+import { Router, type RequestHandler } from 'express';
 import type { DeliveryRecord, Prisma } from '@prisma/client';
 import { prisma } from '../db';
 import { asyncRoute } from '../middleware/asyncRoute';
 import { requireAuth, requireResource, requireRole, requireAction, type AuthUser } from '../middleware/auth';
 import { serializeRecord } from '../mappings';
 import { resolveStartRemarks } from '../services/startRemarks';
-import { canPerformPolicyRecordAction, canReadRecord, canReadPolicyRecord, recordScope } from '../services/recordAccess';
+import { canPerformPolicyRecordAction, canReadRecord, canReadPolicyRecord, readableCategories, recordScope } from '../services/recordAccess';
+import {
+  canDispatchToLogistics, DispatchError, dispatchRmaToLogistics, listActiveLogisticsRecipients, listRecentRmaDispatches, parseDispatchInput, recentDispatchQuery,
+} from '../services/rmaLogisticsDispatch';
+import {
+  discardDispatchFiles, DISPATCH_TOTAL_TOO_LARGE_ERROR, DispatchFileError, dispatchUploadPaths, handleDispatchUpload, inspectDispatchPdf, inspectDispatchXlsx,
+  MAX_DISPATCH_TOTAL_BYTES, type DispatchFiles,
+} from '../services/dispatchUpload';
 import { readRmaPermissions } from '../services/rmaDispatchPermissions';
 import { eligibleRmaTransport, rmaTransportContext, rmaTransportDateError, validRmaMovement } from '../services/rmaMovement';
 import { assignmentError, resolveDriverAssignment, withDriverDirectoryLock } from '../services/driverDirectory';
 import { findVerifiedDeliveryPhoto, lockPodRecord } from '../services/podPhotos';
-import { isoTimestamp, transitionError } from '../services/deliveryLifecycle';
+import { isoTimestamp, manilaToday, transitionError } from '../services/deliveryLifecycle';
+import { parseRmaEventDate } from '../services/rmaRules';
 import type { EffectivePermissionSnapshot } from '../services/permissionEvaluator';
 import { notifyRmaRecipients } from '../services/rmaNotifications';
 import { receivedByError } from '../services/driverActions';
 
 const router = Router();
-const include = { company: true, lineItems: true, createdBy: true, modifiedBy: true } satisfies Prisma.DeliveryRecordInclude;
+const include = {
+  company: true,
+  lineItems: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] },
+  rmaContacts: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] },
+  createdBy: { include: { signature: { select: { updatedAt: true } } } },
+  modifiedBy: true,
+} satisfies Prisma.DeliveryRecordInclude;
 type Row = Prisma.DeliveryRecordGetPayload<{ include: typeof include }>;
 export class RmaActionError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -115,6 +129,55 @@ async function locked(tx: Prisma.TransactionClient, id: string) {
   return row;
 }
 
+// ─── Feature 5b: TASS -> Logistics daily handoff (static paths ahead of /:id/*) ──
+
+const dispatchAction = (fn: Parameters<typeof asyncRoute>[0]) => asyncRoute(async (req, res, next) => {
+  try { await fn(req, res, next); }
+  catch (error) {
+    if (error instanceof DispatchError) { res.status(error.status).json({ error: error.message, ...(error.details ?? {}) }); return; }
+    if (error instanceof DispatchFileError) { res.status(error.status).json({ error: error.message }); return; }
+    throw error;
+  }
+});
+/** Current TASS RMA read + write, checked before any upload is accepted. */
+const requireDispatchActor: RequestHandler = (req, res, next) => {
+  if (!canDispatchToLogistics(req.user)) { res.status(403).json({ error: 'Dispatching RMA slips to Logistics is not permitted for this account.' }); return; }
+  next();
+};
+
+router.get('/rma-logistics-recipients', requireAuth, requireResource('records'), requireRole('TASS'), requireDispatchActor, dispatchAction(async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ recipients: await listActiveLogisticsRecipients(prisma) });
+}));
+
+router.get('/rma-logistics-dispatches', requireAuth, requireResource('records'), requireRole('TASS', 'LOGISTICS', 'ADMIN'), dispatchAction(async (req, res) => {
+  if (!readableCategories(req.user!).includes('RMA')) throw new DispatchError(403, 'RMA access denied');
+  const query = recentDispatchQuery(req.query as Record<string, unknown>);
+  if ('error' in query) throw new DispatchError(400, query.error);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ dispatches: await listRecentRmaDispatches(prisma, req.user!, query) });
+}));
+
+router.post('/rma-logistics-dispatch', requireAuth, requireResource('records'), requireRole('TASS'), requireDispatchActor, handleDispatchUpload, dispatchAction(async (req, res) => {
+  const paths = dispatchUploadPaths(req);
+  try {
+    const input = parseDispatchInput(req.body);
+    const files = (req.files ?? {}) as DispatchFiles;
+    const pdf = files.client_slips?.[0];
+    const xlsx = files.route_slip?.[0];
+    if (!pdf || !xlsx) throw new DispatchError(400, 'Attach both the Client Slips PDF ("client_slips") and the Daily Route Slip workbook ("route_slip").');
+    const clientSlips = await inspectDispatchPdf(pdf.path);
+    const routeSlip = await inspectDispatchXlsx(xlsx.path);
+    if (clientSlips.length + routeSlip.length > MAX_DISPATCH_TOTAL_BYTES) throw new DispatchFileError(413, DISPATCH_TOTAL_TOO_LARGE_ERROR);
+    // Buffers are already in memory; remove quarantined temp files before DB/mail I/O and before flushing the HTTP response.
+    await discardDispatchFiles(paths);
+    const result = await dispatchRmaToLogistics(prisma, req.user!, input, { clientSlips, routeSlip });
+    res.status(result.deduplicated ? 200 : 201).json(result);
+  } finally {
+    await discardDispatchFiles(paths);
+  }
+}));
+
 router.get('/:id/rma-capabilities', requireAuth, requireResource('records'), action(async (req, res) => {
   const row = await prisma.deliveryRecord.findFirst({ where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] }, include });
   if (!row || row.category !== 'RMA') throw new RmaActionError(403, 'Record access denied');
@@ -174,15 +237,29 @@ router.patch('/:id/rma-transport', requireAuth, requireResource('records'), requ
 
 router.post('/:id/rma-receipt', requireAuth, requireResource('records'), requireRole('TASS'), requireAction('CATEGORY', 'RMA', 'RECEIVE'), action(async (req, res) => {
   const body = req.body ?? {};
-  const remarks = input(body, ['recipient', 'expected_version', 'remarks']);
-  if (typeof body.recipient !== 'string' || !body.recipient.trim()) throw new RmaActionError(400, 'Recipient is required to confirm physical receipt.');
+  const remarks = input(body, ['recipient', 'received_at', 'expected_version', 'remarks']);
+  // TASS records receipt status, not the signer: Recipient is optional.
+  if (body.recipient !== undefined && body.recipient !== null) {
+    if (typeof body.recipient !== 'string') throw new RmaActionError(400, 'Recipient must be text.');
+    if (body.recipient.trim().length > 120) throw new RmaActionError(400, 'Recipient must be 120 characters or fewer.');
+  }
+  const recipient = typeof body.recipient === 'string' && body.recipient.trim() ? body.recipient.trim() : null;
+  // Format and future-date bounds before locking; chronology is rechecked under the lock.
+  const preflight = parseRmaEventDate(body.received_at, { label: 'Receipt date' });
+  if (!preflight.ok) throw new RmaActionError(400, preflight.error);
   const saved = await prisma.$transaction(async tx => {
     const row = await locked(tx, req.params.id);
     const policy = await rmaActionPolicy(tx, req.user!, row);
     if (!rmaCapabilities(policy, row).receive) throw new RmaActionError(403, 'Physical receipt is not permitted before transport completion or after receipt.');
     version(row, body.expected_version);
-    const updated = await savedAction(tx, row, { rmaReceivedAt: new Date(), rmaReceivedBy: req.user!.id, rmaRecipient: body.recipient.trim() }, req.user!, remarks, 'RMA_RECEIPT');
-    await notifyRmaRecipients(tx, updated, ['TASS', 'LOGISTICS'], 'RMA physical receipt confirmed', `${updated.rmaReference || updated.recordNo} · ${updated.rmaRecipient}. Final RMA completion is a separate TASS action.`, req.user!.id);
+    const minDate = row.rmaMovement === 'LOGISTICS_TRANSPORT' && row.rmaTransportCompletedAt ? manilaToday(new Date(row.rmaTransportCompletedAt)) : null;
+    const receivedAt = parseRmaEventDate(body.received_at, {
+      label: 'Receipt date', minDate, minDateError: 'Receipt date cannot be earlier than the transport completion date.',
+    });
+    if (!receivedAt.ok) throw new RmaActionError(400, receivedAt.error);
+    const updated = await savedAction(tx, row, { rmaReceivedAt: receivedAt.date, rmaReceivedBy: req.user!.id, rmaRecipient: recipient }, req.user!, remarks, 'RMA_RECEIPT');
+    const receiptLabel = updated.rmaRecipient ? ` · ${updated.rmaRecipient}` : ' · Physical receipt confirmed';
+    await notifyRmaRecipients(tx, updated, ['TASS', 'LOGISTICS'], 'RMA physical receipt confirmed', `${updated.rmaReference || updated.recordNo}${receiptLabel}. Final RMA completion is a separate TASS action.`, req.user!.id);
     return updated;
   });
   res.json(serializeRecord(saved, req.user));

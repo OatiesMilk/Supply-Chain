@@ -8,6 +8,7 @@ import { api } from '../api';
 import { filterRouteSlipRecords, routeSlipDriverNames, routeSlipPeriodLabel, type RouteSlipPeriod } from './routeSlipPeriod';
 import { DocumentSize, DEFAULT_DOCUMENT_SIZE, getExcelPageSetup, getPdfFormat, fitColumnWidths, getDocxDimensions, getDocxLandscapeContentWidth } from './documentSize';
 import { recordLabel } from './recordLabel';
+import { formatLogisticsRouteRemarks } from './rma';
 
 const MANILA_TZ = 'Asia/Manila';
 const BLANK_LINE = '___________';
@@ -93,7 +94,8 @@ export function routeSlipRowValues(r: DeliveryRecord): string[] {
     recordLabel(r),
     r.reference || '',
     '', // Waybill # — filled manually when applicable
-    r.remarks || '',
+    // RMA stops show contacts + internal Logistics notes (internal route slip only).
+    r.category === 'RMA' ? formatLogisticsRouteRemarks(r) : (r.remarks || ''),
     r.area || '',
     '', // Type / Mode — filled manually when applicable
     formatRouteSlipTime(recordTransportStart(r)),

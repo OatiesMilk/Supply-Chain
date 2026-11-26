@@ -30,9 +30,11 @@ export async function notifyUser(
   title: string,
   message: string,
   recordId?: string,
-  recordType?: string
+  recordType?: string,
+  // Pass a transaction client so the notification commits or rolls back with the caller's write.
+  db: Pick<PrismaClient, 'notification'> = prisma
 ) {
-  await prisma.notification.create({
+  await db.notification.create({
     data: {
       userId,
       title,

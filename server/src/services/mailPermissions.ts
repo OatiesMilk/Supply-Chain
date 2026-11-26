@@ -23,7 +23,7 @@ export function canDispatchRecordMail(user: AuthUser, record: any, trigger: stri
     : ['Accomplished', 'RMA Completed'].includes(trigger) ? 'COMPLETE' : 'STATUS';
   if (trigger === 'Accomplished' && (record.category === 'RMA' || record.status !== 'ACCOMPLISHED')) return false;
   if (trigger === 'RMA Completed' && (record.category !== 'RMA' || record.status !== 'ACCOMPLISHED')) return false;
-  if (trigger === 'Collection Verified' && (record.category !== 'ACCOUNTING_COLLECTION' || record.status !== 'ACCOMPLISHED' || record.draft || !record.collectionVerified || user.role !== 'TASS')) return false;
+  if (trigger === 'Collection Verified' && (record.category !== 'ACCOUNTING_COLLECTION' || record.status !== 'ACCOMPLISHED' || record.draft || !record.collectionVerified || user.role !== 'LOGISTICS')) return false;
   if (trigger === 'Rescheduled' && record.status !== 'RESCHEDULED' || trigger === 'On-Hold' && record.status !== 'ON_HOLD') return false;
   if (user.activeMode !== 'V1') return true;
   return operation === 'CREATE' ? canCreateCategory(user, record.category) : canPerformRecordAction(user, record, operation, undefined, true);

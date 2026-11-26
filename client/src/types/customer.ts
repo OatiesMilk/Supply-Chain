@@ -18,6 +18,8 @@ export interface ApiCompany {
   id: string;
   name: string;
   sap_number: string;
+  sap_numbers?: string[];
+  account_managers?: { id: string; name: string; is_active: boolean }[];
   address: string;
   contact_person: string;
   created_at: string;

@@ -23,7 +23,11 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
   const scope = recordScope(req.user!);
 
   // Every tile counts through the same filter its drill-down list uses.
-  const count = (id: string) => prisma.deliveryRecord.count({ where: { AND: [scope], deletedAt: null, ...dashboardRecordFilter(id, dateStr)! } });
+  const count = (id: string) => {
+    const filter = dashboardRecordFilter(id, dateStr)!;
+    // A filter with its own AND (e.g. tass-rma-in-transit) must not replace the record scope.
+    return prisma.deliveryRecord.count({ where: filter.AND ? { AND: [scope, filter], deletedAt: null } : { AND: [scope], deletedAt: null, ...filter } });
+  };
 
   // ── SALES_COORDINATOR ────────────────────────────────────────────────────────
   if (role === 'SALES_COORDINATOR') {
@@ -57,17 +61,16 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
 
   // ── TASS ─────────────────────────────────────────────────────────────────────
   if (role === 'TASS') {
-    const [openRma, rmaOnHold, pendingProcurementPickup, pendingVerification, verifiedToday] = await Promise.all([
-      'tass-open-rma', 'tass-rma-on-hold', 'tass-pending-pickups', 'tass-pending-verification', 'tass-verified-today',
+    const [openRma, rmaOnHold, rmaInTransit, rmaAging] = await Promise.all([
+      'tass-open-rma', 'tass-rma-on-hold', 'tass-rma-in-transit', 'tass-rma-aging',
     ].map(count));
 
     return res.json({
       role: 'TASS',
       open_rma: openRma,
       rma_on_hold: rmaOnHold,
-      pending_procurement_pickup: pendingProcurementPickup,
-      pending_verification: pendingVerification,
-      verified_today: verifiedToday
+      rma_in_transit: rmaInTransit,
+      rma_aging: rmaAging
     });
   }
 

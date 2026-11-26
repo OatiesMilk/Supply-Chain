@@ -117,7 +117,14 @@ export function timeInError(record: RunRecord): string | null {
   return null;
 }
 export function isoTimestamp(value: unknown): string | null {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) return null;
+  if (typeof value !== 'string') return null;
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-](\d{2}):(\d{2}))$/.exec(value);
+  if (!match) return null;
+  const [, datePart, hh, mm, ss, tz, tzH, tzM] = match;
+  // Date would silently roll impossible components over (2026-02-30 → 2026-03-02).
+  if (!isValidDateOnly(datePart)) return null;
+  if (Number(hh) > 23 || Number(mm) > 59 || Number(ss) > 59) return null;
+  if (tz !== 'Z' && (Number(tzH) > 23 || Number(tzM) > 59)) return null;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }

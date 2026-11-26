@@ -18,6 +18,23 @@ export async function normalizedCategoryName(tx: Pick<Prisma.TransactionClient, 
   const [row] = await tx.$queryRaw<Array<{ key: string }>>`SELECT lower(${name}::text) AS key`;
   return row.key;
 }
+/** Canonical single-spaced Supplier display name shared by direct create and request approval. */
+export const normalizeSupplierDisplayName = (value: string) => value.trim().replace(/\s+/g, ' ');
+
+/** Case-insensitive, whitespace-collapsed Supplier name lookup. Call under lockSupplierCatalog(tx):
+ * Supplier.name has no unique index (legacy data may hold duplicates), so the lock serializes the check. */
+export async function findSupplierByNormalizedName(
+  tx: Pick<Prisma.TransactionClient, '$queryRaw'>,
+  name: string,
+): Promise<{ id: string; name: string } | null> {
+  const normalized = await normalizedCategoryName(tx, normalizeSupplierDisplayName(name));
+  const [clash] = await tx.$queryRaw<Array<{ id: string; name: string }>>`
+    SELECT "id", "name"
+      FROM "Supplier"
+     WHERE lower(btrim(regexp_replace("name", '\\s+', ' ', 'g'))) = ${normalized}
+     LIMIT 1`;
+  return clash && typeof clash.name === 'string' && clash.name.length > 0 ? clash : null;
+}
 export function textField(value: unknown, label: string, required = false, max = 250): string {
   if (value === undefined && !required) return '';
   if (typeof value !== 'string' || value.trim().length > max || required && !value.trim()) {

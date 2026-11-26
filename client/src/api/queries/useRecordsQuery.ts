@@ -166,7 +166,8 @@ export function createUpdateRecordMutationOptions(queryClient: ReturnType<typeof
           if (record.status !== 'Delivered') {
             if (!(u.status_remarks ?? u.remarks ?? '').trim()) throw new Error('Remarks are required to complete this run.');
             const files = record.category === 'RMA' ? [] : await api.getRecordAttachments(id);
-            const receivedBy = updates.received_by !== undefined ? updates.received_by : record.rma_recipient ?? record.received_by;
+            // An RMA completes with the confirmed receipt recipient, which is optional.
+            const receivedBy = updates.received_by !== undefined ? updates.received_by : record.category === 'RMA' ? record.rma_recipient : record.received_by;
             if (record.category === 'RMA') {
               if (!record.rma_received_at) throw new Error('Confirm physical receipt before completing this RMA.');
               if (extra.expected_version === undefined) {
@@ -178,7 +179,8 @@ export function createUpdateRecordMutationOptions(queryClient: ReturnType<typeof
               loading: false, uploading: false, loadFailed: false, hasPhoto: hasSavedPodPhoto(files), hasStagedFiles: false,
             });
             if (error) throw new Error(error);
-            extra.received_by = receivedBy!.trim();
+            if (receivedBy?.trim()) extra.received_by = receivedBy.trim();
+            else delete extra.received_by;
           }
         }
         if (updates.priority !== undefined) extra.priority = updates.priority;

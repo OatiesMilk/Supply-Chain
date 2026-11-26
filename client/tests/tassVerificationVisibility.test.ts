@@ -171,7 +171,7 @@ async function mountWorkspace(record: DeliveryRecord, role: Exclude<UserRole, 'D
   };
 }
 
-test('Logistics sees compact TASS Verified badge on Overview and unified Sales + TASS verification details on Verification tab', async () => {
+test('Logistics sees compact Collection Verified badge on Overview and unified Sales + collection verification details on Verification tab', async () => {
   const verifiedAt = '2026-11-22T05:30:00Z';
   const record = baseRecord({
     status: 'Delivered',
@@ -184,10 +184,11 @@ test('Logistics sees compact TASS Verified badge on Overview and unified Sales +
   try {
     const overviewPanel = ui.dom.window.document.querySelector('[id$="-panel-overview"]')!;
     const overviewText = overviewPanel.textContent ?? '';
-    assert.match(overviewText, /TASS Verified/);
-    assert.doesNotMatch(overviewText, /TASS verification complete/, 'Full verification panels belong in Verification tab');
+    assert.match(overviewText, /Collection Verified/);
+    assert.doesNotMatch(overviewText, /TASS/);
+    assert.doesNotMatch(overviewText, /Collection verification complete/, 'Full verification panels belong in Verification tab');
     assert.doesNotMatch(overviewText, /Collection Status:/, 'Collection status banner belongs in Verification tab');
-    assert.doesNotMatch(overviewText, /Open Verification/, 'Logistics has no pending verification action');
+    assert.doesNotMatch(overviewText, /Open Verification/, 'An already verified collection has no pending action');
     assert.equal(ui.verifyButtons().length, 0);
 
     await act(async () => ui.tab('Verification')!.click());
@@ -197,10 +198,12 @@ test('Logistics sees compact TASS Verified badge on Overview and unified Sales +
     const verificationText = verificationPanel.textContent ?? '';
     assert.match(verificationText, /Collection Status: Complete · Collection Verified/);
     assert.match(verificationText, /Sales verification complete/);
-    assert.match(verificationText, /TASS verification complete/);
+    assert.match(verificationText, /Collection verification complete/);
+    assert.match(verificationText, /Logistics has verified that this billing collection is complete\./);
     assert.match(verificationText, /Ana Cruz/);
     assert.ok(verificationText.includes(formatManilaTimestamp(verifiedAt)), 'Verification tab should display formatted Verified at timestamp');
-    assert.doesNotMatch(verificationText, /Verification requires TASS collection-verification permission/);
+    assert.doesNotMatch(verificationText, /Verification requires Logistics collection-verification permission/);
+    assert.doesNotMatch(verificationText, /TASS/);
     assert.equal(ui.verifyButtons().length, 0);
     assert.equal(ui.verify.mock.callCount(), 0);
   } finally {
@@ -208,7 +211,7 @@ test('Logistics sees compact TASS Verified badge on Overview and unified Sales +
   }
 });
 
-test('Logistics sees Pending TASS Verification badge on Overview and Awaiting TASS verification + permission notice on Verification tab for unverified Delivered records', async () => {
+test('Logistics sees Pending Verification badge and an Open Verification cue, then verifies unverified Delivered collections', async () => {
   const record = baseRecord({
     status: 'Delivered',
     collection_verified: false,
@@ -218,19 +221,18 @@ test('Logistics sees Pending TASS Verification badge on Overview and Awaiting TA
   try {
     const overviewPanel = ui.dom.window.document.querySelector('[id$="-panel-overview"]')!;
     const overviewText = overviewPanel.textContent ?? '';
-    assert.match(overviewText, /Pending TASS Verification/);
-    assert.doesNotMatch(overviewText, /Awaiting TASS verification/);
-    assert.equal(ui.verifyButtons().length, 0);
-
-    await act(async () => ui.tab('Verification')!.click());
+    assert.match(overviewText, /Pending Verification/);
+    assert.match(overviewText, /Ready for Logistics collection verification\./);
+    assert.doesNotMatch(overviewText, /TASS/);
+    const openBtn = [...overviewPanel.querySelectorAll<HTMLButtonElement>('button')].find(btn => btn.textContent?.includes('Open Verification'));
+    assert.ok(openBtn, 'Logistics should see Open Verification cue on Overview');
+    await act(async () => openBtn.click());
     await ui.flush();
+    assert.equal(ui.tab('Verification')?.getAttribute('aria-selected'), 'true');
 
     const verificationPanel = ui.dom.window.document.querySelector('[id$="-panel-verification"]')!;
-    const verificationText = verificationPanel.textContent ?? '';
-    assert.match(verificationText, /Awaiting TASS verification/);
-    assert.match(verificationText, /Verification requires TASS collection-verification permission\./);
-    assert.equal(ui.verifyButtons().length, 0);
-    assert.equal(ui.verify.mock.callCount(), 0);
+    assert.doesNotMatch(verificationPanel.textContent ?? '', /Verification requires Logistics collection-verification permission/);
+    assert.ok(ui.verifyButtons().length > 0, 'Logistics can verify the collection');
   } finally {
     await ui.close();
   }
@@ -248,7 +250,7 @@ test('TassVerificationPanel does not render before Sales sign-off completes (Sch
       'Logistics',
     );
     try {
-      assert.doesNotMatch(ui.dom.window.document.body.textContent ?? '', /TASS Verified|Pending TASS Verification/);
+      assert.doesNotMatch(ui.dom.window.document.body.textContent ?? '', /Collection Verified|Pending Verification/);
       await act(async () => ui.tab('Verification')!.click());
       await ui.flush();
       assert.equal(Boolean(ui.dom.window.document.querySelector('#tass-verification-title')), false, `Panel must not render on ${status}`);
@@ -258,7 +260,7 @@ test('TassVerificationPanel does not render before Sales sign-off completes (Sch
   }
 });
 
-test('Sales Coordinator and Admin see read-only TASS verification visibility without verify controls, and TASS sees an Open Verification cue on Overview when unverified', async () => {
+test('Sales Coordinator and Admin see read-only collection verification visibility without verify controls, and TASS never gets a verification cue', async () => {
   for (const role of ['Sales Coordinator', 'Admin'] as const) {
     const verifiedUi = await mountWorkspace(
       baseRecord({
@@ -270,11 +272,11 @@ test('Sales Coordinator and Admin see read-only TASS verification visibility wit
       role,
     );
     try {
-      assert.match(verifiedUi.dom.window.document.body.textContent ?? '', /TASS Verified/);
+      assert.match(verifiedUi.dom.window.document.body.textContent ?? '', /Collection Verified/);
       await act(async () => verifiedUi.tab('Verification')!.click());
       await verifiedUi.flush();
       const verificationPanel = verifiedUi.dom.window.document.querySelector('[id$="-panel-verification"]')!;
-      assert.match(verificationPanel.textContent ?? '', /TASS verification complete/);
+      assert.match(verificationPanel.textContent ?? '', /Collection verification complete/);
       assert.match(verificationPanel.textContent ?? '', /Ana Cruz/);
       assert.equal(verifiedUi.verifyButtons().length, 0);
       assert.equal(verifiedUi.verify.mock.callCount(), 0);
@@ -287,12 +289,13 @@ test('Sales Coordinator and Admin see read-only TASS verification visibility wit
       role,
     );
     try {
-      assert.match(pendingUi.dom.window.document.body.textContent ?? '', /Pending TASS Verification/);
+      assert.match(pendingUi.dom.window.document.body.textContent ?? '', /Pending Verification/);
       await act(async () => pendingUi.tab('Verification')!.click());
       await pendingUi.flush();
       const verificationPanel = pendingUi.dom.window.document.querySelector('[id$="-panel-verification"]')!;
-      assert.match(verificationPanel.textContent ?? '', /Awaiting TASS verification/);
-      assert.match(verificationPanel.textContent ?? '', /Verification requires TASS collection-verification permission\./);
+      assert.match(verificationPanel.textContent ?? '', /Awaiting collection verification/);
+      assert.match(verificationPanel.textContent ?? '', /Waiting for Logistics to review and verify this collection\./);
+      assert.match(verificationPanel.textContent ?? '', /Verification requires Logistics collection-verification permission\./);
       assert.equal(pendingUi.verifyButtons().length, 0);
     } finally {
       await pendingUi.close();
@@ -305,13 +308,10 @@ test('Sales Coordinator and Admin see read-only TASS verification visibility wit
   );
   try {
     const overviewPanel = tassPendingUi.dom.window.document.querySelector('[id$="-panel-overview"]')!;
-    assert.match(overviewPanel.textContent ?? '', /Ready for TASS collection verification\./);
+    assert.doesNotMatch(overviewPanel.textContent ?? '', /collection verification\./);
     const openBtn = [...overviewPanel.querySelectorAll<HTMLButtonElement>('button')].find(btn => btn.textContent?.includes('Open Verification'));
-    assert.ok(openBtn, 'TASS should see Open Verification cue on Overview');
-    await act(async () => openBtn.click());
-    await tassPendingUi.flush();
-    assert.equal(tassPendingUi.tab('Verification')?.getAttribute('aria-selected'), 'true');
-    assert.ok(tassPendingUi.verifyButtons().length > 0);
+    assert.equal(openBtn, undefined, 'TASS no longer verifies collections');
+    assert.equal(tassPendingUi.verifyButtons().length, 0);
   } finally {
     await tassPendingUi.close();
   }

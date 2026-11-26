@@ -115,19 +115,17 @@ export function dashboardRecordFilter(id: string, today = manilaToday()): Prisma
     case 'log-rma-requests': return { category: 'RMA', draft: false, rmaMovement: 'LOGISTICS_TRANSPORT', status: { not: 'ACCOMPLISHED' }, rmaTransportStatus: { not: 'COMPLETED' } };
     case 'log-transport-requests': return transportRequestFilter();
     case 'sc-in-transit': return { AND: [driversInTransitFilter(today), { category: { in: DRIVER_RUN_CATEGORIES } }] };
-    case 'tass-rma-in-transit': return { AND: [driversInTransitFilter(today), { category: 'RMA' }] };
-    case 'tass-open-rma': return { category: 'RMA', draft: false, status: { in: OPEN_RMA_STATUSES } };
+    case 'tass-rma-in-transit': return { AND: [driversInTransitFilter(today), { category: 'RMA', isInternalTransfer: false }] };
+    case 'tass-open-rma': return { category: 'RMA', isInternalTransfer: false, draft: false, status: { in: OPEN_RMA_STATUSES } };
     case 'tass-rma-aging': {
       // Older than 7 Manila days: submitted on or before (today - 8 days). Rows the
       // backfill missed fall back to their creation time.
       const cutoff = new Date(date.getTime() - RMA_AGING_DAYS * 86_400_000);
-      return { category: 'RMA', draft: false, status: { in: OPEN_RMA_STATUSES },
+      return { category: 'RMA', isInternalTransfer: false, draft: false, status: { in: OPEN_RMA_STATUSES },
         OR: [{ submittedAt: { lt: cutoff } }, { submittedAt: null, createdAt: { lt: cutoff } }] };
     }
-    case 'tass-rma-on-hold': return { category: 'RMA', draft: false, status: 'ON_HOLD' };
-    case 'tass-pending-pickups': return { category: 'PROCUREMENT_PICKUP', draft: false, status: { in: ['SCHEDULED', 'PENDING'] } };
-    case 'tass-verified-today': return { category: 'ACCOUNTING_COLLECTION', draft: false, collectionVerified: true, collectionVerifiedAt: { gte: date, lt: tomorrow } };
-    case 'tass-pending-verification': case 'admin-unverified-collections': return { category: 'ACCOUNTING_COLLECTION', draft: false, status: 'ACCOMPLISHED', collectionVerified: false };
+    case 'tass-rma-on-hold': return { category: 'RMA', isInternalTransfer: false, draft: false, status: 'ON_HOLD' };
+    case 'admin-unverified-collections': return { category: 'ACCOUNTING_COLLECTION', draft: false, status: 'ACCOMPLISHED', collectionVerified: false };
     default: return null;
   }
 }

@@ -157,7 +157,9 @@ test('HTTP transaction reads enforce driver ownership, category, inventory denia
       const response = await get('/api/v1/transactions');
       assert.equal(response.status, 200, role);
       const ids = (await response.json() as any).transactions.map((txn: any) => txn.id);
-      assert.ok(ids.includes(role === 'TASS' ? 'collection' : 'other'), role);
+      // TASS is RMA-only: it no longer reads Accounting Collection transactions.
+      if (role === 'TASS') assert.deepEqual(ids, [], role);
+      else assert.ok(ids.includes('other'), role);
       assert.equal((await get('/api/v1/transactions?source=inventory')).status, role === 'TASS' ? 403 : 200);
     }
     user = account('LOGISTICS', [{ screen: 'deliveries', granted: false }]);

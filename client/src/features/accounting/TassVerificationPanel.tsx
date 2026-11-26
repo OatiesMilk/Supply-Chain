@@ -2,7 +2,7 @@ import { CheckCircle2, Clock } from 'lucide-react';
 import type { DeliveryRecord } from '@/types';
 import { formatManilaTimestamp } from '@/utils/manilaTimestamp';
 
-/** Read-only TASS collection verification panel rendered in the Verification tab. */
+/** Read-only collection verification panel (Logistics verifies) rendered in the Verification tab. */
 export default function TassVerificationPanel({ record }: { record: DeliveryRecord }) {
   const verified = Boolean(record.collection_verified);
   if (record.status !== 'Delivered' && !verified) return null;
@@ -25,12 +25,12 @@ export default function TassVerificationPanel({ record }: { record: DeliveryReco
         <div className="min-w-0 flex-1 space-y-3">
           <div>
             <h3 id="tass-verification-title" className="font-bold text-slate-900">
-              {verified ? 'TASS verification complete' : 'Awaiting TASS verification'}
+              {verified ? 'Collection verification complete' : 'Awaiting collection verification'}
             </h3>
             <p className="mt-1 text-sm text-slate-600">
               {verified
-                ? 'TASS has verified that this billing collection is complete.'
-                : 'Sales verification is complete. Waiting for TASS to review and verify this collection.'}
+                ? 'Logistics has verified that this billing collection is complete.'
+                : 'Sales verification is complete. Waiting for Logistics to review and verify this collection.'}
             </p>
           </div>
 
@@ -38,13 +38,13 @@ export default function TassVerificationPanel({ record }: { record: DeliveryReco
             <div>
               <dt className="text-xs font-semibold text-slate-500">Verification status</dt>
               <dd className={`font-semibold ${verified ? 'text-emerald-700' : 'text-amber-700'}`}>
-                {verified ? 'Verified' : 'Pending TASS verification'}
+                {verified ? 'Verified' : 'Pending verification'}
               </dd>
             </div>
             {verified && (
               <div>
                 <dt className="text-xs font-semibold text-slate-500">Verified by</dt>
-                <dd className="font-semibold text-slate-800">{record.collection_verified_by || 'TASS'}</dd>
+                <dd className="font-semibold text-slate-800">{record.collection_verified_by || 'Logistics'}</dd>
               </div>
             )}
             {verified && (

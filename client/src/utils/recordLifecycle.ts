@@ -1,10 +1,13 @@
-import type { DeliveryRecord, DeliveryStatus, UserRole } from '../types';
+import type { DeliveryRecord, DeliveryStatus, RecordLineItem, RmaContact, UserRole } from '../types';
+import { canonicalRmaCategory, isReturnToCustomerCategory, TRANSFER_OUT_CATEGORY } from './rma';
+import { rmaLineItemErrors } from './rmaItems';
 
 export function submissionErrors(data: {
   company_name: string; company_id: string; reference: string; delivery_date: string; category?: string;
-  rma_reference?: string; rma_type?: string; purchase_date?: string; rma_movement?: string | null;
+  rma_reference?: string; rma_type?: string; purchase_date?: string; rma_movement?: string | null; is_internal_transfer?: boolean;
   priority?: string; area?: string; account_manager?: string;
   customer_contact_name?: string; customer_contact_email?: string; customer_contact_phone?: string;
+  service_slip_no?: string | null; rma_contacts?: readonly RmaContact[]; line_items?: readonly RecordLineItem[];
 }, isDraft: boolean): Record<string, string> {
   const errors: Record<string, string> = {};
   if (!data.company_name.trim()) errors.company_name = 'Company Name is required';
@@ -13,14 +16,24 @@ export function submissionErrors(data: {
   if (!isRma && !isDraft && !data.reference.trim()) errors.reference = 'Reference (SAP number) is required';
   if (!isRma && !isDraft && !data.delivery_date) errors.delivery_date = 'Delivery Date is required';
   if (isRma) {
+    // Category decides the slip prefix, so Save and Save as Draft both need it. The reference itself is server-generated.
+    const category = canonicalRmaCategory(data.rma_type);
+    if (!category) errors.rma_type = 'Select a category to generate the slip reference';
+    if (data.is_internal_transfer && category !== TRANSFER_OUT_CATEGORY) errors.is_internal_transfer = 'Non-RMA internal transfer is only available for Transfer Out Slip (TXO)';
+    else if (data.is_internal_transfer && data.rma_movement === 'SUPPLIER_COLLECTION') errors.rma_movement = 'Non-RMA internal transfers must use Logistics transport or Internal / no driver';
     if (!isDraft && !['LOGISTICS_TRANSPORT', 'SUPPLIER_COLLECTION', 'INTERNAL_NO_DRIVER'].includes(data.rma_movement ?? '')) errors.rma_movement = 'Select a movement method before submitting';
-    if (!isDraft && data.rma_movement === 'LOGISTICS_TRANSPORT' && !deliveryScheduleState(data.delivery_date).valid) errors.delivery_date = 'A valid Delivery Date is required for Logistics transport';
+    if (!errors.rma_movement && !isDraft && data.rma_movement === 'LOGISTICS_TRANSPORT' && !deliveryScheduleState(data.delivery_date).valid) errors.delivery_date = 'A valid Delivery Date is required for Logistics transport';
     if (!data.priority?.trim()) errors.priority = 'Priority is required';
     else if (!['1 - Low', '2 - Moderate', '3 - High'].includes(data.priority)) errors.priority = 'Select a valid Priority';
     if (!data.area?.trim()) errors.area = 'Area is required';
     if (!data.account_manager?.trim()) errors.account_manager = 'Account Manager is required';
     const email = data.customer_contact_email?.trim() ?? '';
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.customer_contact_email = 'Enter a valid email address';
+    if ((data.service_slip_no ?? '').trim() && !isReturnToCustomerCategory(data.rma_type)) errors.service_slip_no = 'Service Slip (SS#) is only allowed for Return to Customer Slip (RTC) records';
+    const badContact = (data.rma_contacts ?? []).find(c => (c.email ?? '').trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((c.email ?? '').trim()));
+    if (badContact) errors.rma_contacts = 'Enter a valid contact email address';
+    const itemError = data.line_items?.length ? rmaLineItemErrors(data.line_items, !isDraft) : null;
+    if (itemError) errors.line_items = itemError;
   }
   return errors;
 }

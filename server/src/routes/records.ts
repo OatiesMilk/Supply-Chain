@@ -22,11 +22,13 @@ import { ATTACHMENT_QUOTA_EXCEEDED, attachmentQuotaError, DOCX_PREVIEW_MAX_OUTPU
 import { canCreateCategory, canWriteCategory, canPerformRecordAction, isAssignedDriver, recordScope } from '../services/recordAccess';
 import { deliveryScheduleState, driverDeliveryDateError, driverStatusError, DRIVER_STATUS_ERROR, isValidDateOnly, isoTimestamp, manilaToday, runState, timeInError, transitionError, type RunState } from '../services/deliveryLifecycle';
 import { manilaDateRange } from '../services/dateSemantics';
-import { RMA_CONTACT_FIELDS, normalizeRmaCategory, rmaInputError } from '../services/rmaRules';
+import { nonRmaFieldError, normalizeRmaLineItems, rmaFormWrite, rmaServiceSlipError, simpleLineItems, storedLineItemsPairError, type RmaFormWrite } from '../services/rmaRules';
+import { INTERNAL_TRANSFER_LOCKED_ERROR, NON_RMA_INTERNAL_TRANSFER_ERROR, RMA_CATEGORY_LOCKED_ERROR, RMA_CONTACT_FIELDS, RMA_REFERENCE_LOCKED_ERROR, canonicalRmaCategory, normalizeRmaCategory, parseRmaEventDate, rmaCategoryDbValues, rmaInputError, rmaInternalTransferError } from '../services/rmaRules';
+import { allocateRmaReference } from '../services/rmaReference';
 import { areasForLocation } from '../areaHierarchy';
 import { RmaActionError, canUploadRmaPod, rmaActionPolicy, rmaCapabilities, rmaVersionError } from './rmaDispatch';
-import { dispatchMovementScope, eligibleRmaTransport, isLogisticsRma, needsLogisticsHandoff, rmaMovementInputError, rmaTransportContext } from '../services/rmaMovement';
-import { canPerformPolicyRecordAction } from '../services/recordAccess';
+import { dispatchMovementScope, eligibleRmaTransport, isLogisticsRma, needsLogisticsHandoff, rmaMovementInputError, rmaTransportContext, validRmaMovement } from '../services/rmaMovement';
+import { canPerformPolicyRecordAction, canReadRecord } from '../services/recordAccess';
 import { notifyRecordRecipients } from '../services/rmaNotifications';
 import { RMA_COMPLETION_ROLE_ERROR } from '../services/deliveryLifecycle';
 import { categoryActionRestriction } from '../services/moduleAccessRules';
@@ -39,6 +41,7 @@ import { RECORD_VIEWS, runViewWhere, type RecordView } from '../services/recordV
 import { dashboardRecordFilter, transportRequestFilter } from '../services/dashboardFilters';
 import { submittedAtChange, submittedAtOnCreate } from '../services/submission';
 import { salesCompletionApproverIds } from '../services/completionApprovers';
+import { sendNoSignature, streamSignatureImage } from '../services/userSignatures';
 
 const router = Router();
 class RecordSubmissionError extends Error {}
@@ -84,8 +87,10 @@ const requireRecordPodAccess = recordAccess(true);
 
 const recordInclude = {
   company: true,
-  lineItems: true,
-  createdBy: true,
+  lineItems: { orderBy: [{ position: 'asc' as const }, { createdAt: 'asc' as const }] },
+  rmaContacts: { orderBy: [{ position: 'asc' as const }, { createdAt: 'asc' as const }] },
+  // Signature presence only (for slip PDFs); the storage key is never serialized.
+  createdBy: { include: { signature: { select: { updatedAt: true } } } },
   modifiedBy: true,
   completionSignedOffBy: { select: { name: true } },
   linkedCollection: {
@@ -94,7 +99,7 @@ const recordInclude = {
   podAttachments: { orderBy: { createdAt: 'desc' as const } }
 };
 
-const TASS_CATEGORIES: string[] = ['ACCOUNTING_COLLECTION', 'RMA'];
+const TASS_CATEGORIES: string[] = ['RMA'];
 const LIST_ID_PATTERN = /^[\w-]{1,64}$/;
 const CURSOR_PATTERN = /^[\w=-]{1,128}$/;
 const LIST_MAX_LIMIT = 100;
@@ -172,11 +177,59 @@ function dashboardPresetWhere(filterId: string): Prisma.DeliveryRecordWhereInput
 }
 
 // Every list response is bounded. Full exports must explicitly traverse the paged contract.
+/** RMA list filters: classification scope, slip category (incl. legacy aliases) and movement method. */
+function rmaListConditions(query: { rma_scope: unknown; rma_type: unknown; rma_movement: unknown }): { conditions: Prisma.DeliveryRecordWhereInput[] } | { error: string } {
+  const conditions: Prisma.DeliveryRecordWhereInput[] = [];
+  const { rma_scope, rma_type, rma_movement } = query;
+  if (rma_scope !== undefined && rma_scope !== '' && rma_scope !== 'all') {
+    if (rma_scope === 'rma') conditions.push({ category: 'RMA', isInternalTransfer: false });
+    else if (rma_scope === 'internal_transfer') conditions.push({ category: 'RMA', isInternalTransfer: true });
+    else return { error: 'rma_scope is invalid' };
+  }
+  if (rma_type !== undefined && rma_type !== '' && rma_type !== 'All') {
+    const canonical = canonicalRmaCategory(rma_type);
+    if (!canonical) return { error: 'rma_type is invalid' };
+    conditions.push({ category: 'RMA', rmaType: { in: rmaCategoryDbValues(canonical) } });
+  }
+  if (rma_movement !== undefined && rma_movement !== '' && rma_movement !== 'All') {
+    if (!validRmaMovement(rma_movement)) return { error: 'rma_movement is invalid' };
+    conditions.push({ category: 'RMA', rmaMovement: rma_movement });
+  }
+  return { conditions };
+}
+
+/** Case-insensitive "Created By" filter on the creating account's display name (max 100 chars). */
+function createdByCondition(createdBy: unknown): { condition?: Prisma.DeliveryRecordWhereInput } | { error: string } {
+  if (createdBy === undefined) return {};
+  if (typeof createdBy !== 'string' || createdBy.length > 100) return { error: 'created_by is invalid' };
+  const trimmed = createdBy.trim();
+  return trimmed ? { condition: { createdBy: { name: { contains: trimmed, mode: 'insensitive' } } } } : {};
+}
+
+/** The slip reference is system-owned: omitting it or echoing the stored value is the only accepted input. */
+function rmaReferenceEditError(existing: { rmaReference: string | null }, b: Record<string, unknown>): string | null {
+  if (b.rma_reference === undefined) return null;
+  const submitted = b.rma_reference === null ? '' : typeof b.rma_reference === 'string' ? b.rma_reference.trim() : null;
+  if (submitted === null) return 'Reference must be text.';
+  return submitted === (existing.rmaReference ?? '').trim() ? null : RMA_REFERENCE_LOCKED_ERROR;
+}
+
+/** Category/classification writes for an RMA edit. An unchanged echo keeps the stored (possibly legacy) label. */
+function rmaCategoryChange(existing: { rmaType: string | null }, b: Record<string, unknown>): { rmaType?: string | null; isInternalTransfer?: boolean } {
+  const change: { rmaType?: string | null; isInternalTransfer?: boolean } = {};
+  if (b.rma_type !== undefined && normalizeRmaCategory(typeof b.rma_type === 'string' ? b.rma_type : null) !== normalizeRmaCategory(existing.rmaType)) {
+    change.rmaType = canonicalRmaCategory(b.rma_type);
+  }
+  if (typeof b.is_internal_transfer === 'boolean') change.isInternalTransfer = b.is_internal_transfer;
+  return change;
+}
+
 function parseListQuery(query: express.Request['query']) {
   const {
     company_id, category, limit, cursor, page,
-    status, dateFrom, dateTo, search, driver, area, region, subregion, account_manager, priority, dashboard_filter,
-    paged, dateSort, view, queue, driver_exact, account_manager_exact, supplier_name, assignment
+    status, dateFrom, dateTo, search, driver, area, region, subregion, account_manager, created_by, priority, dashboard_filter,
+    paged, dateSort, view, queue, driver_exact, account_manager_exact, supplier_name, assignment,
+    rma_scope, rma_type, rma_movement
   } = query;
   const where: Prisma.DeliveryRecordWhereInput = {};
   const andConditions: Prisma.DeliveryRecordWhereInput[] = [];
@@ -198,6 +251,9 @@ function parseListQuery(query: express.Request['query']) {
   }
   if (driver_exact) andConditions.push({ driver: driver_exact as string });
   if (account_manager_exact) andConditions.push(account_manager_exact === 'Unknown' ? { OR: [{ accountManager: '' }, { accountManager: 'Unknown' }] } : { accountManager: account_manager_exact as string });
+  const rmaFilters = rmaListConditions({ rma_scope, rma_type, rma_movement });
+  if ('error' in rmaFilters) return { error: rmaFilters.error };
+  andConditions.push(...rmaFilters.conditions);
   if (supplier_name) andConditions.push({ category: 'PROCUREMENT_PICKUP', OR: [{ itemDescription: { contains: supplier_name as string, mode: 'insensitive' } }, { company: { name: { contains: supplier_name as string, mode: 'insensitive' } } }] });
   let pageNum: number | undefined;
 
@@ -248,7 +304,17 @@ function parseListQuery(query: express.Request['query']) {
           { reference: { contains: s, mode: 'insensitive' } },
           { rmaReference: { contains: s, mode: 'insensitive' } },
           { legacySapReference: { contains: s, mode: 'insensitive' } },
+          { caseNumber: { contains: s, mode: 'insensitive' } },
+          { serviceSlipNo: { contains: s, mode: 'insensitive' } },
+          { lineItems: { some: { OR: [
+            { serialNumber: { contains: s, mode: 'insensitive' } },
+            { newSerialNumber: { contains: s, mode: 'insensitive' } },
+            { defectiveSerialNumber: { contains: s, mode: 'insensitive' } },
+            { salesOrderNo: { contains: s, mode: 'insensitive' } },
+          ] } } },
           { company: { name: { contains: s, mode: 'insensitive' } } },
+          // Any of the company's SAP numbers (enterprise clients hold several).
+          { company: { sapNumbers: { some: { sapNumber: { contains: s, mode: 'insensitive' } } } } },
           { driver: { contains: s, mode: 'insensitive' } },
           { area: { contains: s, mode: 'insensitive' } },
           { accountManager: { contains: s, mode: 'insensitive' } },
@@ -288,6 +354,9 @@ function parseListQuery(query: express.Request['query']) {
       andConditions.push({ accountManager: { contains: account_manager.trim(), mode: 'insensitive' } });
     }
   }
+  const creator = createdByCondition(created_by);
+  if ('error' in creator) return { error: creator.error };
+  if (creator.condition) andConditions.push(creator.condition);
   if (priority !== undefined) {
     if (typeof priority !== 'string' || !ALLOWED_PRIORITIES.has(priority)) return { error: 'priority is invalid' };
     andConditions.push({ priority });
@@ -490,6 +559,7 @@ router.get('/active-counts', requireAuth, requireResource('records'), requireRec
       deletedAt: null,
       draft: false,
       status: { in: ['SCHEDULED', 'IN_TRANSIT', 'PENDING', 'ON_HOLD', 'RESCHEDULED'] },
+      NOT: { category: 'RMA', isInternalTransfer: true }, // the sidebar RMA badge mirrors the Open RMA tile
       AND: [recordScope(req.user!)],
     },
     _count: { _all: true },
@@ -504,14 +574,20 @@ router.get('/filter-options', requireAuth, requireResource('records'), requireRe
   const parsed = parseListQuery({ category: req.query.category });
   if ('error' in parsed || !parsed.where.category) return res.status(400).json({ error: 'category is invalid' });
   const where: Prisma.DeliveryRecordWhereInput = { deletedAt: null, category: parsed.where.category, AND: [recordScope(req.user!)] };
-  const [accountManagers, drivers, areas] = await Promise.all([
+  const [accountManagers, drivers, areas, creatorRows] = await Promise.all([
     prisma.deliveryRecord.groupBy({ by: ['accountManager'], where }),
     prisma.deliveryRecord.groupBy({ by: ['driver'], where }),
     prisma.deliveryRecord.groupBy({ by: ['area'], where }),
+    prisma.deliveryRecord.groupBy({ by: ['createdById'], where }),
   ]);
+  const creatorIds = creatorRows.map(row => row.createdById).filter((id): id is string => !!id);
+  const creatorUsers = creatorIds.length ? await prisma.user.findMany({ where: { id: { in: creatorIds } }, select: { name: true } }) : [];
   const options = (values: string[]) => [...new Set(values.filter(value => value.trim()))].sort((a, b) => a.localeCompare(b));
   res.setHeader('Cache-Control', 'no-store');
-  res.json({ accountManagers: options(accountManagers.map(row => row.accountManager)), drivers: options(drivers.map(row => row.driver)), areas: options(areas.map(row => row.area)) });
+  res.json({
+    accountManagers: options(accountManagers.map(row => row.accountManager)), drivers: options(drivers.map(row => row.driver)),
+    areas: options(areas.map(row => row.area)), creators: options(creatorUsers.map(user => user.name)),
+  });
 }));
 
 // Counts/grouping are computed over the complete authorized scope; queue pages
@@ -729,6 +805,18 @@ router.get('/status-history-counts', requireAuth, requireResource('records'), re
     where.AND.push({ area: { in: locationAreas } });
   }
   if (driver) where.driver = { contains: driver, mode: 'insensitive' };
+  const rmaFilters = rmaListConditions({ rma_scope: req.query.rma_scope, rma_type: req.query.rma_type, rma_movement: req.query.rma_movement });
+  if ('error' in rmaFilters) return res.status(400).json({ error: rmaFilters.error });
+  where.AND.push(...rmaFilters.conditions);
+  // Same Account Manager / Created By filters as the paged list, so Status Trail counts match the table.
+  const accountManagerFilter = req.query.account_manager;
+  if (accountManagerFilter !== undefined) {
+    if (typeof accountManagerFilter !== 'string' || accountManagerFilter.length > 100) return res.status(400).json({ error: 'account_manager is invalid' });
+    if (accountManagerFilter.trim()) where.AND.push({ accountManager: { contains: accountManagerFilter.trim(), mode: 'insensitive' } });
+  }
+  const creator = createdByCondition(req.query.created_by);
+  if ('error' in creator) return res.status(400).json({ error: creator.error });
+  if (creator.condition) where.AND.push(creator.condition);
   const candidates = await prisma.deliveryRecord.findMany({
     where,
     select: { id: true, category: true, status: true, draft: true, timeIn: true }
@@ -796,11 +884,27 @@ router.get('/:id', requireAuth, requireResource('records'), requireRecordAccess,
   if (!record) return res.status(404).json({ error: 'Record not found' });
 
   if (req.user!.role === 'TASS' && !TASS_CATEGORIES.includes(record.category as any)) {
-    return res.status(403).json({ error: 'TASS may only view Accounting Collection and RMA records' });
+    return res.status(403).json({ error: 'TASS may only view RMA records' });
   }
 
   res.json(serializeRecord(record, req.user!));
 });
+
+// Feature 5a: the RMA creator's digital signature for the "Issued by" block of
+// the client slip PDF. Readable only by callers who may read record :id, so a
+// signature cannot be fetched by user id (no IDOR). 204 when none is on file.
+router.get('/:id/issuer-signature', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
+  const record = await prisma.deliveryRecord.findFirst({
+    where: { id: req.params.id, deletedAt: null, AND: [recordScope(req.user!)] },
+    select: { category: true, createdById: true, driverId: true, draft: true, rmaMovement: true },
+  });
+  // Same read policy as the record itself (V1 CATEGORY/SCREEN READ, Driver assignment).
+  if (!record || !canReadRecord(req.user!, record)) return res.status(403).json({ error: 'Record access denied' });
+  if (record.category !== 'RMA') return res.status(404).json({ error: 'Issuer signatures are only available on RMA slips' });
+  const signature = await prisma.userSignature.findUnique({ where: { userId: record.createdById } });
+  if (!signature) return sendNoSignature(res);
+  await streamSignatureImage(res, signature, () => sendNoSignature(res));
+}));
 
 router.get('/:id/audit', requireAuth, requireResource('records'), requireRecordAccess, asyncRoute(async (req, res) => {
   const entries = await prisma.auditLog.findMany({
@@ -1163,10 +1267,25 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
   }
 
   if (dbCategory === 'RMA') {
-    const rmaError = rmaInputError(b, true);
+    // Category decides the slip prefix, so it is required for Save and Save as Draft.
+    const rmaError = rmaInputError(b, true, { requireCategory: true, allowManualReference: false });
     if (rmaError) return res.status(400).json({ error: rmaError });
     const movementError = rmaMovementInputError(b, !isDraft);
     if (movementError) return res.status(400).json({ error: movementError });
+    const transferError = rmaInternalTransferError({ rmaType: b.rma_type, isInternalTransfer: b.is_internal_transfer === true, rmaMovement: b.rma_movement });
+    if (transferError) return res.status(400).json({ error: transferError });
+  } else if (b.is_internal_transfer !== undefined) {
+    if (typeof b.is_internal_transfer !== 'boolean') return res.status(400).json({ error: 'is_internal_transfer must be true or false.' });
+    if (b.is_internal_transfer) return res.status(400).json({ error: NON_RMA_INTERNAL_TRANSFER_ERROR });
+  }
+  let rmaForm: RmaFormWrite | null = null;
+  if (dbCategory === 'RMA') {
+    const form = rmaFormWrite(b, { rmaType: b.rma_type, submitted: !isDraft });
+    if (!form.ok) return res.status(400).json({ error: form.error });
+    rmaForm = form.write;
+  } else {
+    const fieldError = nonRmaFieldError(b);
+    if (fieldError) return res.status(400).json({ error: fieldError });
   }
 
   if (req.user!.role === 'LOGISTICS' && dbCategory === 'RMA') {
@@ -1200,7 +1319,7 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
         companyId: b.company_id,
         priority: b.priority ?? '2 - Moderate',
         reference: dbCategory === 'RMA' ? '' : (b.reference ?? ''),
-        rmaReference: dbCategory === 'RMA' && typeof b.rma_reference === 'string' ? b.rma_reference.trim() || null : null,
+        rmaReference: null, // RMA slip references are allocated below, inside this transaction
         legacySapReference: null,
         remarks: b.remarks ?? '',
         status: 'SCHEDULED',
@@ -1217,21 +1336,20 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
         itemType: b.item_type ?? 'Small Item',
         draft: isDraft,
         submittedAt: submittedAtOnCreate(isDraft),
-        rmaType: dbCategory === 'RMA' ? normalizeRmaCategory(b.rma_type) : null,
+        rmaType: dbCategory === 'RMA' ? canonicalRmaCategory(b.rma_type) : null,
+        isInternalTransfer: dbCategory === 'RMA' && b.is_internal_transfer === true,
         rmaMovement: dbCategory === 'RMA' ? b.rma_movement || null : null,
         rmaTransportStatus: dbCategory === 'RMA' && b.rma_movement === 'LOGISTICS_TRANSPORT' ? 'PENDING' : null,
         purchaseDate: dbCategory === 'RMA' ? (b.purchase_date || null) : null,
         customerContactName: dbCategory === 'RMA' && typeof b.customer_contact_name === 'string' ? b.customer_contact_name.trim() || null : null,
         customerContactEmail: dbCategory === 'RMA' && typeof b.customer_contact_email === 'string' ? b.customer_contact_email.trim() || null : null,
         customerContactPhone: dbCategory === 'RMA' && typeof b.customer_contact_phone === 'string' ? b.customer_contact_phone.trim() || null : null,
+        ...(rmaForm ? rmaForm.data : {}),
+        rmaContacts: rmaForm?.contacts?.length ? { create: rmaForm.contacts.map((contact, position) => ({ ...contact, position })) } : undefined,
 
         itemDescription: b.item_description ?? '',
-        lineItems: Array.isArray(b.line_items) ? {
-          create: b.line_items.map((li: any) => ({
-            sku: li.sku || li.description || '',
-            quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1
-          }))
-        } : undefined,
+        lineItems: rmaForm ? (rmaForm.lineItems?.length ? { create: rmaForm.lineItems } : undefined)
+          : Array.isArray(b.line_items) ? { create: simpleLineItems(b.line_items) } : undefined,
         address: b.address ?? '',
         documentAttachment: Array.isArray(b.attachments) && b.attachments.length > 0 ? b.attachments[0] : null,
         amount: b.amount != null ? parseFloat(String(b.amount)) : null,
@@ -1240,6 +1358,8 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
       };
       const submissionError = !data.draft && recordSubmissionError(data);
       if (submissionError) throw new RecordSubmissionError(submissionError);
+      // Reserved only after every check passed; rolls back with any later failure.
+      if (dbCategory === 'RMA') data.rmaReference = await allocateRmaReference(tx, data.rmaType!);
       const created = await tx.deliveryRecord.create({ data, include: recordInclude });
 
       await tx.auditLog.create({ data: {
@@ -1248,7 +1368,7 @@ router.post('/', requireAuth, requireResource('records'), requireRecordAccess, r
       } });
       if (typeof b.remarks === 'string' && b.remarks.trim()) await tx.remarkLog.create({ data: { recordId: created.id, body: b.remarks.trim(), context: 'CREATION', authorId: req.user!.id } });
       if (dbCategory !== 'RMA' && !created.draft) await notifyOrdinarySubmission(tx, created);
-      if (dbCategory === 'RMA' && needsLogisticsHandoff(created)) await notifyRecordRecipients(tx, created, ['LOGISTICS'], 'New RMA request — driver needed', `${created.rmaReference || created.recordNo} · ${created.company.name}${created.deliveryDate ? ` on ${created.deliveryDate}` : ''} · ${created.address || created.area}`);
+      if (dbCategory === 'RMA' && needsLogisticsHandoff(created)) await notifyRecordRecipients(tx, created, ['LOGISTICS'], created.isInternalTransfer ? 'New internal transfer — driver needed' : 'New RMA request — driver needed', `${created.rmaReference || created.recordNo} · ${created.company.name}${created.deliveryDate ? ` on ${created.deliveryDate}` : ''} · ${created.address || created.area}`);
       return created;
     });
   } catch (error) {
@@ -1302,10 +1422,20 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     }
   }
 
+  let rmaForm: RmaFormWrite | null = null;
   if (existing.category === 'RMA') {
     if (b.reference !== undefined) return res.status(400).json({ error: 'Use rma_reference for the RMA document reference.' });
-    const rmaError = rmaInputError(b);
+    // An unchanged echo of the stored category (even a retired legacy label) is not a change.
+    const storedCategory = normalizeRmaCategory(existing.rmaType);
+    const categoryChanged = b.rma_type !== undefined && (typeof b.rma_type !== 'string' && b.rma_type !== null || normalizeRmaCategory(b.rma_type) !== storedCategory);
+    const rmaError = rmaInputError(b, false, { allowRetiredCategory: !categoryChanged });
     if (rmaError) return res.status(400).json({ error: rmaError });
+    const referenceError = rmaReferenceEditError(existing, b);
+    if (referenceError) return res.status(400).json({ error: referenceError });
+    if (categoryChanged && existing.rmaReference && canonicalRmaCategory(existing.rmaType)) return res.status(400).json({ error: RMA_CATEGORY_LOCKED_ERROR });
+    if (b.is_internal_transfer !== undefined && b.is_internal_transfer !== existing.isInternalTransfer && existing.status === 'ACCOMPLISHED') {
+      return res.status(400).json({ error: INTERNAL_TRANSFER_LOCKED_ERROR });
+    }
     const rmaFields = ['priority', 'area', 'account_manager', 'rma_reference', 'rma_type', 'purchase_date', ...RMA_CONTACT_FIELDS];
     const isSubmitting = existing.draft && b.is_draft === 'No';
     const editsSubmittedRmaDetails = !existing.draft && rmaFields.some(field => field in b);
@@ -1321,14 +1451,29 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
         customer_contact_email: b.customer_contact_email ?? existing.customerContactEmail,
         customer_contact_phone: b.customer_contact_phone ?? existing.customerContactPhone,
       };
-      const completeError = rmaInputError(candidate, true);
+      const completeError = rmaInputError(candidate, true, { requireCategory: isSubmitting, allowRetiredCategory: !categoryChanged });
       if (completeError) return res.status(400).json({ error: completeError });
     }
+    const form = rmaFormWrite(b, {
+      rmaType: b.rma_type === undefined ? existing.rmaType : b.rma_type,
+      submitted: !(b.is_draft === undefined ? existing.draft : b.is_draft === 'Yes'),
+      existing,
+    });
+    if (!form.ok) return res.status(400).json({ error: form.error });
+    rmaForm = form.write;
+  } else {
+    if (b.is_internal_transfer !== undefined) {
+      if (typeof b.is_internal_transfer !== 'boolean') return res.status(400).json({ error: 'is_internal_transfer must be true or false.' });
+      if (b.is_internal_transfer) return res.status(400).json({ error: NON_RMA_INTERNAL_TRANSFER_ERROR });
+    }
+    const fieldError = nonRmaFieldError(b);
+    if (fieldError) return res.status(400).json({ error: fieldError });
   }
 
   const LOGISTICS_SUBSTANTIVE_FIELDS = ['driver', 'driver_id', 'vehicle', 'driver_assistants', 'time_in', 'time_out', 'received_by', 'linked_collection_id', 'area', 'address', 'priority'];
   const SC_SUBSTANTIVE_FIELDS = ['company_id', 'priority', 'reference', 'area', 'address', 'account_manager', 'delivery_date', 'item_type', 'is_draft', 'date_time', 'item_description', 'line_items', 'attachments', 'amount'];
-  const RMA_SUBSTANTIVE_FIELDS = [...SC_SUBSTANTIVE_FIELDS.filter(field => field !== 'reference'), 'rma_reference', 'rma_type', 'purchase_date', ...RMA_CONTACT_FIELDS];
+  const RMA_SUBSTANTIVE_FIELDS = [...SC_SUBSTANTIVE_FIELDS.filter(field => field !== 'reference'), 'rma_reference', 'rma_type', 'is_internal_transfer', 'purchase_date', ...RMA_CONTACT_FIELDS,
+    'case_number', 'service_slip_no', 'client_remarks', 'internal_logistics_remarks', 'rma_contacts'];
   const ADMIN_SUBSTANTIVE_FIELDS = existing.category === 'RMA'
     ? [...LOGISTICS_SUBSTANTIVE_FIELDS, ...RMA_SUBSTANTIVE_FIELDS]
     : [...LOGISTICS_SUBSTANTIVE_FIELDS, ...SC_SUBSTANTIVE_FIELDS];
@@ -1428,7 +1573,6 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
 
   if (req.user!.role === 'TASS' && existing.category === 'RMA') {
     if (b.priority !== undefined) data.priority = b.priority;
-    if (b.rma_reference !== undefined) data.rmaReference = typeof b.rma_reference === 'string' ? b.rma_reference.trim() || null : null;
     if (b.area !== undefined) data.area = b.area;
     if (b.address !== undefined) data.address = b.address;
     if (b.account_manager !== undefined) data.accountManager = b.account_manager;
@@ -1436,12 +1580,8 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (b.item_type !== undefined) data.itemType = b.item_type;
     if (b.is_draft !== undefined) data.draft = b.is_draft === 'Yes';
     if (b.item_description !== undefined) data.itemDescription = b.item_description;
-    if (Array.isArray(b.line_items)) data.lineItems = { deleteMany: {}, create: b.line_items.map((li: any) => ({ sku: li.sku || li.description || '', quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1 })) };
-    if (b.rma_type !== undefined) data.rmaType = normalizeRmaCategory(b.rma_type);
+    Object.assign(data, rmaCategoryChange(existing, b));
     if (b.purchase_date !== undefined) data.purchaseDate = b.purchase_date || null;
-    if (b.customer_contact_name !== undefined) data.customerContactName = typeof b.customer_contact_name === 'string' ? b.customer_contact_name.trim() || null : null;
-    if (b.customer_contact_email !== undefined) data.customerContactEmail = typeof b.customer_contact_email === 'string' ? b.customer_contact_email.trim() || null : null;
-    if (b.customer_contact_phone !== undefined) data.customerContactPhone = typeof b.customer_contact_phone === 'string' ? b.customer_contact_phone.trim() || null : null;
   }
   if (existing.category === 'RMA' && b.rma_movement !== undefined) {
     const movementError = rmaMovementInputError(b);
@@ -1462,13 +1602,18 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     if (Array.isArray(b.line_items)) data.lineItems = { deleteMany: {}, create: b.line_items.map((li: any) => ({ sku: li.sku || li.description || '', quantity: typeof li.quantity === 'number' ? li.quantity : parseInt(li.quantity, 10) || 1 })) };
     if (existing.category === 'RMA') {
       if (b.reference !== undefined) return res.status(400).json({ error: 'Use rma_reference for the RMA document reference.' });
-      if (b.rma_reference !== undefined) data.rmaReference = typeof b.rma_reference === 'string' ? b.rma_reference.trim() || null : null;
-      if (b.rma_type !== undefined) data.rmaType = normalizeRmaCategory(b.rma_type);
+      Object.assign(data, rmaCategoryChange(existing, b));
       if (b.purchase_date !== undefined) data.purchaseDate = b.purchase_date || null;
-      if (b.customer_contact_name !== undefined) data.customerContactName = typeof b.customer_contact_name === 'string' ? b.customer_contact_name.trim() || null : null;
-      if (b.customer_contact_email !== undefined) data.customerContactEmail = typeof b.customer_contact_email === 'string' ? b.customer_contact_email.trim() || null : null;
-      if (b.customer_contact_phone !== undefined) data.customerContactPhone = typeof b.customer_contact_phone === 'string' ? b.customer_contact_phone.trim() || null : null;
     }
+  }
+  // RMA form fields, structured items and contacts (TASS and Admin only). The
+  // workflow reason-for-change stays in data.remarks and never touches them.
+  if (rmaForm && (req.user!.role === 'TASS' || req.user!.role === 'ADMIN')) {
+    Object.assign(data, rmaForm.data);
+    if (rmaForm.lineItems) data.lineItems = { deleteMany: {}, create: rmaForm.lineItems };
+    if (rmaForm.contacts) data.rmaContacts = { deleteMany: {}, create: rmaForm.contacts.map((contact, position) => ({ ...contact, position })) };
+  } else if (existing.category !== 'RMA' && Array.isArray(b.line_items) && data.lineItems) {
+    data.lineItems = { deleteMany: {}, create: simpleLineItems(b.line_items) };
   }
   if (b.is_draft !== undefined) data.draft = b.is_draft === 'Yes';
   if (b.remarks !== undefined) data.remarks = String(b.remarks).trim();
@@ -1476,7 +1621,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
   if (data.companyId !== undefined && (typeof data.companyId !== 'string' || !data.companyId.trim())) return res.status(400).json({ error: 'Select an existing Company.' });
   const result = await withDriverDirectoryLock(prisma, async tx => {
     await lockPodRecord(tx, existing.id);
-    const current = await tx.deliveryRecord.findUnique({ where: { id: existing.id }, include: { lineItems: true } });
+    const current = await tx.deliveryRecord.findUnique({ where: { id: existing.id }, include: { lineItems: recordInclude.lineItems, rmaContacts: recordInclude.rmaContacts } });
     if (!current || current.deletedAt) return { error: 'Record not found', updated: null };
     if (!canWriteCategory(req.user!, current.category) || (req.user!.role === 'DRIVER' && !isAssignedDriver(req.user!, current))) return { error: 'Record access denied', updated: null };
     if (current.category !== 'RMA' && current.status === 'TRANSPORT_COMPLETE') {
@@ -1511,6 +1656,32 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
         data.rmaTransportStatus = movement === 'LOGISTICS_TRANSPORT' ? 'PENDING' : null;
         data.driverId = null; data.driver = ''; data.vehicle = '(None)'; data.driverAssistants = '[]';
       }
+      // Revalidate category and classification against the locked row.
+      if (data.rmaType !== undefined && normalizeRmaCategory(data.rmaType) !== normalizeRmaCategory(current.rmaType)
+        && current.rmaReference && canonicalRmaCategory(current.rmaType)) return { error: RMA_CATEGORY_LOCKED_ERROR, updated: null };
+      if (data.isInternalTransfer !== undefined && data.isInternalTransfer !== current.isInternalTransfer && current.status === 'ACCOMPLISHED') {
+        return { error: INTERNAL_TRANSFER_LOCKED_ERROR, updated: null };
+      }
+      const transferError = rmaInternalTransferError({
+        rmaType: data.rmaType === undefined ? current.rmaType : data.rmaType,
+        isInternalTransfer: data.isInternalTransfer ?? current.isInternalTransfer,
+        rmaMovement: movement,
+      });
+      if (transferError) return { error: transferError, updated: null };
+      // Revalidate the RTC-only SS# and replacement pairs against the locked row.
+      const effectiveType = data.rmaType === undefined ? current.rmaType : data.rmaType;
+      if (data.serviceSlipNo !== undefined) {
+        const slipError = rmaServiceSlipError(effectiveType, data.serviceSlipNo);
+        if (slipError) return { error: slipError, updated: null };
+      } else if (current.serviceSlipNo && rmaServiceSlipError(effectiveType, current.serviceSlipNo)) {
+        data.serviceSlipNo = null;
+      }
+      if (!(data.draft ?? current.draft)) {
+        const pairError = Array.isArray(b.line_items) && rmaForm?.lineItems
+          ? (() => { const checked = normalizeRmaLineItems(b.line_items, { requireCompletePairs: true }); return checked.ok ? null : checked.error; })()
+          : storedLineItemsPairError(current.lineItems);
+        if (pairError) return { error: pairError, updated: null };
+      }
       data.rmaVersion = { increment: 1 };
     }
     const dateError = driverDeliveryDateError(current, req.user!.role);
@@ -1525,14 +1696,15 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
           priority: data.priority ?? current.priority,
           area: data.area ?? current.area,
           account_manager: data.accountManager ?? current.accountManager,
-          rma_reference: data.rmaReference ?? current.rmaReference,
-          rma_type: data.rmaType ?? current.rmaType,
+          rma_reference: current.rmaReference,
+          rma_type: data.rmaType === undefined ? current.rmaType : data.rmaType,
           purchase_date: data.purchaseDate ?? current.purchaseDate,
           customer_contact_name: data.customerContactName ?? current.customerContactName,
           customer_contact_email: data.customerContactEmail ?? current.customerContactEmail,
           customer_contact_phone: data.customerContactPhone ?? current.customerContactPhone,
         };
-        const rmaError = rmaInputError(rmaSubmission, true);
+        // Submitting a draft needs a slip category so the record carries a slip reference.
+        const rmaError = rmaInputError(rmaSubmission, true, { requireCategory: true });
         if (rmaError) return { error: rmaError, updated: null };
       }
       data.status = 'SCHEDULED';
@@ -1574,6 +1746,12 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
       if (conflict) return { error: conflict.error, updated: null, writeStatus: conflict.status };
     }
     Object.assign(data, submittedAtChange(current.draft, data.draft ?? current.draft));
+    // Legacy rows saved before auto-numbering get a slip reference once they carry a
+    // canonical category. Allocated last, after every check, so a rejected edit never consumes a number.
+    if (current.category === 'RMA' && !current.rmaReference?.trim()) {
+      const effectiveCategory = canonicalRmaCategory(data.rmaType === undefined ? current.rmaType : data.rmaType);
+      if (effectiveCategory) data.rmaReference = await allocateRmaReference(tx, effectiveCategory);
+    }
     const updated = await tx.deliveryRecord.update({ where: { id: existing.id }, data, include: recordInclude });
     await tx.auditLog.create({ data: {
       recordId: updated.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id,
@@ -1585,7 +1763,7 @@ router.put('/:id', requireAuth, requireResource('records'), requireRecordAccess,
     } });
     if (current.draft && !updated.draft && current.category !== 'RMA') await notifyOrdinarySubmission(tx, updated);
     if (current.category === 'RMA' && needsLogisticsHandoff(updated) && (current.draft || !isLogisticsRma(current))) {
-      await notifyRecordRecipients(tx, updated, ['LOGISTICS'], 'RMA request — driver needed', `${updated.rmaReference || updated.recordNo} · ${updated.company.name} on ${updated.deliveryDate} · ${updated.address || updated.area}`);
+      await notifyRecordRecipients(tx, updated, ['LOGISTICS'], updated.isInternalTransfer ? 'Internal transfer — driver needed' : 'RMA request — driver needed', `${updated.rmaReference || updated.recordNo} · ${updated.company.name} on ${updated.deliveryDate} · ${updated.address || updated.area}`);
     }
     return { error: null, updated, previousDraft: current.draft };
   }).catch(error => {
@@ -1662,6 +1840,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
   const newDeliveryDate = req.body.delivery_date;
   const hasNewDeliveryDate = newDeliveryDate !== undefined && newDeliveryDate !== null && newDeliveryDate !== '';
   if (hasNewDeliveryDate && !isValidDateOnly(newDeliveryDate)) return res.status(400).json({ error: 'New delivery date must be a valid YYYY-MM-DD date.' });
+  const hasCompletedAt = req.body.completed_at !== undefined && req.body.completed_at !== null && req.body.completed_at !== '';
   // WAN storage downloads and image decoding can exceed Prisma's default 5s
   // transaction limit. Verify the actual persisted bytes before acquiring the
   // record lock; the transaction below still validates the identical attachment.
@@ -1678,6 +1857,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     if (!current || current.deletedAt || (req.user!.role === 'DRIVER' && !isAssignedDriver(req.user!, current)) || !canWriteCategory(req.user!, current.category)) return { error: 'Record access denied', saved: null, previous: null };
     const operationError = recordOperationError(req.user!, current, req.body ?? {}, '/:id/status', 'PATCH');
     if (operationError) return { error: operationError, saved: null, previous: null };
+    if (hasCompletedAt && (current.category !== 'RMA' || status !== 'Delivered')) return { error: 'Completion date can only be set when completing an RMA.', saved: null, previous: null };
     if (current.category === 'RMA') {
       if (req.user!.role !== 'TASS' && (status === 'Delivered' || received_by !== undefined)) return { error: RMA_COMPLETION_ROLE_ERROR, saved: null, previous: null };
       const policy = await rmaActionPolicy(tx, req.user!, current);
@@ -1687,7 +1867,8 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
       const stale = rmaVersionError(current, req.body.expected_version);
       if (stale) return { error: stale, saved: null, previous: null, rmaStatus: Number.isSafeInteger(req.body.expected_version) ? 409 : 400 };
       if (status === 'Delivered' && !rmaCapabilities(policy, current).complete) return { error: 'Confirm physical receipt and complete any Logistics transport before completing this RMA.', saved: null, previous: null };
-      if (received_by !== undefined && (status !== 'Delivered' || received_by.trim() !== current.rmaRecipient)) return { error: 'Use the confirmed physical receipt recipient for RMA completion.', saved: null, previous: null };
+      // Recipient is optional on TASS physical receipt; a supplied name must match it.
+      if (received_by !== undefined && (status !== 'Delivered' || received_by.trim() !== (current.rmaRecipient?.trim() ?? ''))) return { error: 'Use the confirmed physical receipt recipient for RMA completion.', saved: null, previous: null };
       if (status === 'Draft' && (current.rmaTransportStartedAt || current.rmaReceivedAt)) return { error: 'An RMA with started transport or confirmed receipt cannot return to Draft.', saved: null, previous: null };
       if (current.draft && status === 'Scheduled') {
         const movementError = rmaMovementInputError({ rma_movement: current.rmaMovement, delivery_date: current.deliveryDate }, true);
@@ -1736,8 +1917,12 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
         customer_contact_name: current.customerContactName,
         customer_contact_email: current.customerContactEmail,
         customer_contact_phone: current.customerContactPhone,
-      }, true);
+      }, true, { requireCategory: true });
       if (rmaError) return { error: rmaError, saved: null, previous: null };
+      const transferError = rmaInternalTransferError({ rmaType: current.rmaType, isInternalTransfer: current.isInternalTransfer, rmaMovement: current.rmaMovement });
+      if (transferError) return { error: transferError, saved: null, previous: null };
+      const formError = rmaServiceSlipError(current.rmaType, current.serviceSlipNo) ?? storedLineItemsPairError(current.lineItems);
+      if (formError) return { error: formError, saved: null, previous: null };
     }
     if (current.draft && status === 'Scheduled') {
       const submissionError = recordSubmissionError(current);
@@ -1749,8 +1934,18 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
     if (received_by !== undefined && current.category !== 'RMA') data.receivedBy = received_by.trim();
     if (statusChanged && status === 'Delivered') {
       if (current.category !== 'RMA' && !isoTimestamp(current.timeIn)) return { error: 'Record a valid Time In before completing this run.', saved: null, previous: null };
+      let rmaCompletedAt: Date | null = null;
+      if (current.category === 'RMA') {
+        const completion = parseRmaEventDate(req.body.completed_at, {
+          label: 'Completion date',
+          minDate: current.rmaReceivedAt ? manilaToday(new Date(current.rmaReceivedAt)) : null,
+          minDateError: 'Completion date cannot be earlier than the physical receipt date.',
+        });
+        if (!completion.ok) return { error: completion.error, saved: null, previous: null };
+        rmaCompletedAt = completion.date;
+      }
       const recipient = current.category === 'RMA' ? current.rmaRecipient : received_by ?? current.receivedBy;
-      if (!String(recipient ?? '').trim()) return { error: current.category === 'RMA' ? 'Recipient / Collector is required before completing this RMA.' : 'Received By is required before completing this run.', saved: null, previous: null };
+      if (current.category !== 'RMA' && !String(recipient ?? '').trim()) return { error: 'Received By is required before completing this run.', saved: null, previous: null };
       if (current.category !== 'RMA' && (!verifiedPod || !await tx.podAttachment.findFirst({
         where: {
           id: verifiedPod.id,
@@ -1760,8 +1955,8 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
           size: verifiedPod.size,
         },
       }))) return { error: DELIVERY_PHOTO_REQUIRED, saved: null, previous: null };
-      data.receivedBy = String(recipient).trim();
-      const completedAt = new Date();
+      data.receivedBy = String(recipient ?? '').trim() || null;
+      const completedAt = rmaCompletedAt ?? new Date();
       if (current.category === 'RMA') data.rmaCompletedAt = completedAt;
       else data.timeOut = completedAt.toISOString();
       if (current.category === 'DELIVERY') {
@@ -1785,6 +1980,10 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
       error: `No active Sales Coordinator can sign off ${current.category.replace(/_/g, ' ')} records. Configure category access before accepting a transport handoff.`,
       saved: null, previous: null, writeStatus: 409,
     };
+    // A legacy draft without a slip reference gets one on submission (never re-allocated).
+    if (current.category === 'RMA' && current.draft && status === 'Scheduled' && !current.rmaReference?.trim()) {
+      data.rmaReference = await allocateRmaReference(tx, canonicalRmaCategory(current.rmaType)!);
+    }
     const saved = await tx.deliveryRecord.update({ where: { id: current.id }, data, include: recordInclude });
     await tx.auditLog.create({ data: {
       recordId: saved.id, recordType: 'DeliveryRecord', action: 'UPDATE', changedById: req.user!.id,
@@ -1799,7 +1998,7 @@ router.patch('/:id/status', requireAuth, requireResource('records'), requireReco
         recordId: saved.id, recordType: 'DeliveryRecord',
       })) });
     }
-    if (current.category === 'RMA' && current.draft && needsLogisticsHandoff(saved)) await notifyRecordRecipients(tx, saved, ['LOGISTICS'], 'RMA request — driver needed', `${saved.rmaReference || saved.recordNo} · ${saved.company.name} on ${saved.deliveryDate} · ${saved.address || saved.area}`);
+    if (current.category === 'RMA' && current.draft && needsLogisticsHandoff(saved)) await notifyRecordRecipients(tx, saved, ['LOGISTICS'], saved.isInternalTransfer ? 'Internal transfer — driver needed' : 'RMA request — driver needed', `${saved.rmaReference || saved.recordNo} · ${saved.company.name} on ${saved.deliveryDate} · ${saved.address || saved.area}`);
     if (current.category === 'RMA' && status === 'Delivered') await notifyRecordRecipients(tx, saved, ['TASS', 'LOGISTICS'], 'RMA completed', `${saved.rmaReference || saved.recordNo} · ${saved.company.name} · Final completion recorded by TASS.`, req.user!.id);
     return { error: null, saved, previous: current };
   }, { timeout: 30_000, maxWait: 10_000 }).catch(error => {
@@ -1867,8 +2066,8 @@ router.patch('/:id/complete', requireAuth, requireResource('records'), requireRe
       recordId: updated.id, body: remarks.trim(), context: 'COMPLETION_SIGNOFF', authorId: req.user!.id,
     } });
     if (updated.category === 'ACCOUNTING_COLLECTION') await notifyRecordRecipients(
-      tx, updated, ['TASS'], 'Collection ready for verification',
-      `${updated.company.name} · ${updated.reference} has been signed off by Sales and is ready for TASS collection verification.`,
+      tx, updated, ['LOGISTICS'], 'Collection ready for verification',
+      `${updated.company.name} · ${updated.reference} has been signed off by Sales and is ready for Logistics collection verification.`,
       req.user!.id,
     );
     return { status: 200, updated };
@@ -1890,8 +2089,8 @@ router.patch('/:id/complete', requireAuth, requireResource('records'), requireRe
   res.json(serializeRecord(updated, req.user!));
 }));
 
-// Collection verification - TASS only, for ACCOUNTING_COLLECTION records that are ACCOMPLISHED.
-router.patch('/:id/verify-collection', requireAuth, requireResource('records'), requireRecordAccess, requireRole('TASS'), asyncRoute(async (req, res) => {
+// Collection verification - LOGISTICS only, for ACCOUNTING_COLLECTION records that are ACCOMPLISHED.
+router.patch('/:id/verify-collection', requireAuth, requireResource('records'), requireRecordAccess, requireRole('LOGISTICS'), asyncRoute(async (req, res) => {
   const result = await prisma.$transaction(async tx => {
     // Share the lifecycle lock with status changes, and re-read mutable state.
     await lockPodRecord(tx, req.params.id);

@@ -18,6 +18,7 @@ import companiesRoutes from './routes/companies';
 import accountManagersRoutes from './routes/accountManagers';
 import customersRoutes from './routes/customers';
 import suppliersRoutes from './routes/suppliers';
+import masterDataRequestsRoutes from './routes/masterDataRequests';
 import usersRoutes from './routes/users';
 import dashboardRoutes from './routes/dashboard';
 import adminRoutes from './routes/admin';
@@ -32,6 +33,9 @@ import { uploadErrorHandler } from './middleware/uploadErrors';
 import { applySecurity } from './middleware/security';
 import { removeStaleUploads } from './services/podStorage';
 import { startPodDeletionCleanup } from './services/podDeletionCleanup';
+import { removeStaleSignatureUploads } from './services/signatureStorage';
+import { startSignatureDeletionCleanup } from './services/signatureDeletionCleanup';
+import { removeStaleDispatchUploads } from './services/dispatchUpload';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -74,6 +78,7 @@ app.use('/api/v1/companies', companiesRoutes);
 app.use('/api/v1/account-managers', accountManagersRoutes);
 app.use('/api/v1/customers', customersRoutes);
 app.use('/api/v1/suppliers', suppliersRoutes); // Includes supplier category catalog/assignment endpoints.
+app.use('/api/v1/master-data-requests', masterDataRequestsRoutes); // TASS Company/Supplier addition requests, ADMIN review.
 app.use('/api/v1/users', usersRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
 app.use('/api/v1/admin', adminRoutes);
@@ -116,6 +121,11 @@ app.listen(PORT, () => {
   // SEC-07: clear quarantined uploads abandoned by a previous crash or restart.
   removeStaleUploads().catch(err => console.error('[POD] Stale upload cleanup failed', err));
   startPodDeletionCleanup();
+  // Feature 5a: same recovery for user digital signature uploads and deletions.
+  removeStaleSignatureUploads().catch(err => console.error('[Signature] Stale upload cleanup failed', err));
+  startSignatureDeletionCleanup();
+  // Feature 5b: TASS -> Logistics dispatch attachments are never kept; drop any abandoned quarantine files.
+  removeStaleDispatchUploads().catch(err => console.error('[Dispatch] Stale upload cleanup failed', err));
 
   // Self-ping to prevent Render free tier from sleeping
   const externalUrl = process.env.RENDER_EXTERNAL_URL;

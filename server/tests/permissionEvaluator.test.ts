@@ -59,7 +59,7 @@ function matches(record: Record<string, unknown>, predicate: any): boolean {
 for (const [role, expectedCategories] of [
   ['SALES_COORDINATOR', ['DELIVERY', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS']],
   ['LOGISTICS', ['DELIVERY', 'RMA', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS']],
-  ['TASS', ['RMA', 'ACCOUNTING_COLLECTION']],
+  ['TASS', ['RMA']],
   ['ADMIN', ['DELIVERY', 'RMA', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS']],
   ['DRIVER', ['DELIVERY', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS']],
 ] as const) test(`${role} baseline exposes a complete typed snapshot with independently expected categories`, () => {
@@ -368,23 +368,31 @@ test('Driver Dashboard cannot bypass a category denial and eligible RMA transpor
   }
 });
 
-test('Accounting verification requires TASS, category Write and accomplished/unverified state', () => {
+test('Accounting verification requires an explicit Logistics grant, category Write and accomplished/unverified state', () => {
   const row = delivery({ category: 'ACCOUNTING_COLLECTION', status: 'ACCOMPLISHED', collectionVerified: false });
-  const snapshot = evaluatePermissions(input('TASS'));
+  const grant = { 'CATEGORY:ACCOUNTING_COLLECTION:VERIFY_COLLECTION': 'ALLOW' };
+  // The frozen baseline does not grant verification; an explicit V1 Allow is within the Logistics ceiling.
+  assert.equal(canPerformPolicyRecordAction(evaluatePermissions(input('LOGISTICS')), row, 'VERIFY_COLLECTION'), false);
+  const snapshot = evaluatePermissions(withEffects(input('LOGISTICS'), grant));
   assert.equal(canPerformPolicyRecordAction(snapshot, row, 'VERIFY_COLLECTION'), true);
   for (const changed of [{ collectionVerified: true }, { collectionVerified: undefined }, { status: 'SCHEDULED' }, { draft: true }]) {
     assert.equal(canPerformPolicyRecordAction(snapshot, { ...row, ...changed }, 'VERIFY_COLLECTION'), false);
   }
-  assert.equal(canPerformPolicyRecordAction(evaluatePermissions(withEffects(input('TASS'), { 'CATEGORY:ACCOUNTING_COLLECTION:WRITE': 'DENY' })), row, 'VERIFY_COLLECTION'), false);
+  assert.equal(canPerformPolicyRecordAction(evaluatePermissions(withEffects(input('LOGISTICS'), { ...grant, 'CATEGORY:ACCOUNTING_COLLECTION:WRITE': 'DENY' })), row, 'VERIFY_COLLECTION'), false);
+  // TASS no longer has the Accounting Collection module, even with stored Allows.
+  const tass = evaluatePermissions(withEffects(input('TASS'), { ...grant, 'CATEGORY:ACCOUNTING_COLLECTION:READ': 'ALLOW', 'SCREEN:accounting_collection:READ': 'ALLOW' }));
+  assert.equal(canReadPolicyRecord(tass, row), false);
+  assert.equal(canPerformPolicyRecordAction(tass, row, 'VERIFY_COLLECTION'), false);
+  assert.equal(canCreatePolicyCategory(tass, 'ACCOUNTING_COLLECTION'), false);
   assert.equal(canPerformPolicyRecordAction(evaluatePermissions(input('ADMIN')), row, 'VERIFY_COLLECTION'), false);
-  assert.equal(canCreatePolicyCategory(snapshot, 'ACCOUNTING_COLLECTION'), true);
-  assert.equal(canPerformPolicyRecordAction(snapshot, row, 'UPDATE'), false);
+  assert.equal(canPerformPolicyRecordAction(evaluatePermissions(withEffects(input('ADMIN'), grant)), row, 'VERIFY_COLLECTION'), false);
+  assert.equal(canPerformPolicyRecordAction(tass, row, 'UPDATE'), false);
 });
 
 test('transaction scope and instance reads agree on independently specified role category ceilings', () => {
   const expected: Record<PolicyRole, string[]> = {
     SALES_COORDINATOR: ['DELIVERY', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'], LOGISTICS: ['DELIVERY', 'RMA', 'PROCUREMENT_PICKUP'],
-    TASS: ['RMA', 'ACCOUNTING_COLLECTION'], ADMIN: ['DELIVERY', 'RMA', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'],
+    TASS: ['RMA'], ADMIN: ['DELIVERY', 'RMA', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'],
     DRIVER: ['DELIVERY', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'],
   };
   const categories = ['DELIVERY', 'RMA', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'];

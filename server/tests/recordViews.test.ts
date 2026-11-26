@@ -139,19 +139,19 @@ test('filter options are complete sorted category aggregates and exclude deleted
   ]);
   const response = await state.get('/filter-options?category=Deliveries'); assert.equal(response.status, 200);
   assert.equal(response.headers.get('cache-control'), 'no-store');
-  assert.deepEqual(await response.json(), { accountManagers: ['AM Before', 'AM One'], drivers: ['Driver Before', 'Driver One'], areas: ['Alabang', 'Makati'] });
-  assert.deepEqual(state.calls.map(call => call.method), ['groupBy', 'groupBy', 'groupBy']);
+  assert.deepEqual(await response.json(), { accountManagers: ['AM Before', 'AM One'], drivers: ['Driver Before', 'Driver One'], areas: ['Alabang', 'Makati'], creators: [] });
+  assert.deepEqual(state.calls.map(call => call.method), ['groupBy', 'groupBy', 'groupBy', 'groupBy']);
 });
 test('filter options retain linked Driver ownership and draft exclusion', async t => {
   const state = await fixture(t, [row(1), row(2, { driverId: 'other', accountManager: 'Other', area: 'Other' }), row(3, { draft: true, accountManager: 'Draft', area: 'Draft' })], 'DRIVER');
   const response = await state.get('/filter-options?category=Deliveries'); assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { accountManagers: ['AM One'], drivers: ['Driver One'], areas: ['Makati'] });
+  assert.deepEqual(await response.json(), { accountManagers: ['AM One'], drivers: ['Driver One'], areas: ['Makati'], creators: [] });
   assert.ok(state.calls.every(call => call.args.where.AND[0].driverId === 'profile-one'));
 });
 test('filter options cannot expose explicitly denied categories through aggregate access', async t => {
   const state = await fixture(t, [row(1)], 'ADMIN', [{ screen: 'deliveries', granted: false }]);
   const response = await state.get('/filter-options?category=Deliveries'); assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { accountManagers: [], drivers: [], areas: [] });
+  assert.deepEqual(await response.json(), { accountManagers: [], drivers: [], areas: [], creators: [] });
 });
 test('filter options reject missing/invalid categories and unauthenticated requests before aggregation', async t => {
   const state = await fixture(t, []);

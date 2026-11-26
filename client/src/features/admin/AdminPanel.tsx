@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Users, ClipboardList, UserX, Plus, ChevronLeft, ChevronRight, Loader2, Check, ShieldCheck, X, Settings2, Send, Pencil, Link2, Trash2, Building2, Contact } from 'lucide-react';
+import { Users, ClipboardList, UserX, Plus, ChevronLeft, ChevronRight, Loader2, Check, ShieldCheck, X, Settings2, Send, Pencil, Link2, Trash2, Building2, Contact, PenLine, FilePlus2 } from 'lucide-react';
 import { api, ApiDriver, ApiUserAdmin, ApiAdminAuditEntry, ApiIntegrationStatus, ApiError, type AccountPolicyVersion } from '@/api';
 import AccountActionsMenu from './AccountActionsMenu';
+import DigitalSignatureManager from '@/components/DigitalSignatureManager';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { ActionDialog } from '@/components/ActionDialog';
 import DashboardFilterChip from '@/components/DashboardFilterChip';
@@ -16,9 +17,11 @@ import BusinessAuditDiff from './BusinessAuditDiff';
 import type { UserPermissionEditor } from '@/types/permissionEditor';
 import AccountManagersTab from './directory/AccountManagersTab';
 import CompaniesTab from './directory/CompaniesTab';
+import AdditionRequestsTab, { useAdditionRequestReviewAccess } from './directory/AdditionRequestsTab';
+import { MASTER_DATA_REQUEST_SUMMARY, useMasterDataRequestsQuery } from '@/api/queries/useMasterDataRequestsQuery';
 import { usePermissions } from '@/hooks/usePermissions';
 
-type Tab = 'users' | 'account_managers' | 'companies' | 'audit' | 'integrations' | 'permissions';
+type Tab = 'users' | 'account_managers' | 'companies' | 'addition_requests' | 'audit' | 'integrations' | 'permissions';
 
 const ROLE_OPTIONS = ['SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'ADMIN', 'DRIVER'] as const;
 const ROLE_LABELS: Record<string, string> = {
@@ -32,9 +35,12 @@ const ROLE_LABELS: Record<string, string> = {
 interface AdminPanelProps {
   dashboardFilterId: DashboardFilterId | null;
   clearDashboardFilter: () => void;
+  /** Addition request opened from a notification or ?request= link: opens its tab and highlights it. */
+  selectedAdditionRequestId?: string | null;
+  clearSelectedAdditionRequestId?: () => void;
 }
 
-export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: AdminPanelProps) {
+export default function AdminPanel({ dashboardFilterId, clearDashboardFilter, selectedAdditionRequestId = null, clearSelectedAdditionRequestId }: AdminPanelProps) {
   const activePermissionMode = useAuthStore(state => state.authUser?.activeMode);
   const initialAuditDate = dashboardFilterId === 'admin-audit-today' ? manilaToday() : '';
   const [tab, setTab] = useState<Tab>('users');
@@ -42,9 +48,21 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
   const authRole = useAuthStore(state => state.authUser?.role);
   // Mirrors the server guards on company and Account Manager writes.
   const canManageDirectory = authRole === 'ADMIN' && access.canWrite('admin') && access.canResource('admin', 'WRITE') && access.canResource('companies', 'WRITE');
+  const additionRequestAccess = useAdditionRequestReviewAccess();
+  // Badge: exact server count of pending requests, without loading the queue.
+  const additionRequests = useMasterDataRequestsQuery(MASTER_DATA_REQUEST_SUMMARY, additionRequestAccess.canRead);
+  const pendingAdditionRequests = additionRequests.data?.counts.pending ?? 0;
+  const [highlightedRequestId, setHighlightedRequestId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!selectedAdditionRequestId || !additionRequestAccess.canRead) return;
+    setHighlightedRequestId(selectedAdditionRequestId);
+    setTab('addition_requests');
+    clearSelectedAdditionRequestId?.();
+  }, [selectedAdditionRequestId, additionRequestAccess.canRead, clearSelectedAdditionRequestId]);
 
   // ── User Management ──────────────────────────────────────────────────────────
   const [users, setUsers] = useState<ApiUserAdmin[]>([]);
+  const [signatureUser, setSignatureUser] = useState<ApiUserAdmin | null>(null);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
   const [usersPage, setUsersPage] = useState(1);
@@ -392,6 +410,14 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
         <button className={tabClass('companies')} onClick={() => setTab('companies')}>
           <span className="flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5" /> Companies</span>
         </button>
+        {additionRequestAccess.canRead && (
+          <button className={tabClass('addition_requests')} onClick={() => { setHighlightedRequestId(null); setTab('addition_requests'); }}
+            aria-label={pendingAdditionRequests ? `Addition Requests, ${pendingAdditionRequests} pending` : 'Addition Requests'}>
+            <span className="flex items-center gap-1.5"><FilePlus2 className="w-3.5 h-3.5" /> Addition Requests
+              {pendingAdditionRequests > 0 && <span aria-hidden="true" className="rounded-full bg-amber-100 px-1.5 text-xs font-bold text-amber-900 tabular-nums">{pendingAdditionRequests}</span>}
+            </span>
+          </button>
+        )}
         <button className={tabClass('audit')} onClick={() => setTab('audit')}>
           <span className="flex items-center gap-1.5"><ClipboardList className="w-3.5 h-3.5" /> System Audit Log</span>
         </button>
@@ -404,6 +430,7 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
       {tab === 'permissions' && <RolesPermissions key={openPermissionsUserId ?? 'overview'} initialUserId={openPermissionsUserId} users={users} usersLoading={usersLoading} usersError={usersError} onRetryUsers={loadUsers} />}
       {tab === 'account_managers' && <AccountManagersTab canManage={canManageDirectory} />}
       {tab === 'companies' && <CompaniesTab canManage={canManageDirectory} />}
+      {tab === 'addition_requests' && additionRequestAccess.canRead && <AdditionRequestsTab highlightedRequestId={highlightedRequestId} />}
       {tab === 'users' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -530,12 +557,13 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                     <th className="px-4 py-3">Role</th>
                     <th className="px-4 py-3 text-center">Auth</th>
                     <th className="px-4 py-3 text-center">Status</th>
+                    <th className="px-4 py-3 text-center">Signature</th>
                     <th className="px-4 py-3 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {visibleUsers.length === 0 ? (
-                    <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">No users found.</td></tr>
+                    <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-500">No users found.</td></tr>
                   ) : pagedUsers.map(u => (
                       <tr key={u.id} className="hover:bg-slate-50 transition-all">
                         <td className="px-4 py-3">
@@ -600,6 +628,11 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                             : <span className="bg-slate-100 text-slate-500 border border-slate-200 text-xs px-2 py-0.5 rounded-full font-semibold">Deactivated</span>
                           }
                         </td>
+                        <td className="px-4 py-3 text-center">
+                          {u.has_signature
+                            ? <span className="bg-sky-50 text-sky-700 border border-sky-200 text-xs px-2 py-0.5 rounded-full font-semibold">On file</span>
+                            : <span className="text-xs text-slate-400 font-semibold">None</span>}
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-center gap-2 whitespace-nowrap">
                             {editingUserId === u.id ? (
@@ -625,6 +658,10 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
                                   className="flex items-center gap-1 font-bold text-xs uppercase tracking-wide cursor-pointer text-slate-500 hover:text-brand-blue"
                                 >
                                   <ShieldCheck className="w-3 h-3" /> Access
+                                </button>
+                                <button onClick={() => setSignatureUser(u)}
+                                  className="flex items-center gap-1 font-bold text-xs uppercase tracking-wide cursor-pointer text-slate-500 hover:text-brand-blue">
+                                  <PenLine className="w-3 h-3" /> Signature
                                 </button>
                                 {u.is_active ? (
                                   <button
@@ -902,6 +939,20 @@ export default function AdminPanel({ dashboardFilterId, clearDashboardFilter }: 
           </div>
         </div>
       )}
+      <ActionDialog
+        open={!!signatureUser}
+        title={signatureUser ? `Digital signature — ${signatureUser.name}` : 'Digital signature'}
+        description="Preview, upload, replace or remove the signature printed in the Issued by block of this user's RMA client slips."
+        cancelLabel="Close"
+        onDismiss={() => setSignatureUser(null)}
+      >
+        {signatureUser && (
+          <DigitalSignatureManager mode="admin" userId={signatureUser.id} userName={signatureUser.name}
+            onChange={meta => setUsers(prev => prev.map(user => user.id === signatureUser.id
+              ? { ...user, has_signature: meta.has_signature, signature_updated_at: meta.updated_at, signature_mime_type: meta.mime_type }
+              : user))} />
+        )}
+      </ActionDialog>
       <ActionDialog
         open={userAction !== null}
         confirmDisabled={!actionVersion}

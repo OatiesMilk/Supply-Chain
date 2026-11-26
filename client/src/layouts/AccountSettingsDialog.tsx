@@ -1,4 +1,5 @@
 import { ActionDialog } from '@/components/ActionDialog';
+import DigitalSignatureManager from '@/components/DigitalSignatureManager';
 
 interface Props {
   open: boolean;
@@ -26,6 +27,12 @@ export default function AccountSettingsDialog({
           <dd className="break-words font-medium text-slate-800">{role}</dd>
         </dl>
         <p className="text-xs leading-5 text-slate-500">These details are read-only. Contact your administrator to request an account change.</p>
+      </section>
+
+      <section aria-labelledby="account-settings-signature" className="space-y-3 border-t border-slate-100 pt-4">
+        <h3 id="account-settings-signature" className="text-sm font-semibold text-slate-900">Digital Signature</h3>
+        {/* Mounted only while open, so the signature is fetched only when viewed. */}
+        {open && <DigitalSignatureManager mode="self" userName={name} />}
       </section>
 
       {canManageAdmin && (

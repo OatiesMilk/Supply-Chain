@@ -23,9 +23,10 @@ router.get('/summary', requireAuth, requireResource('records'), requireScreen('s
   const area = queryValue('area');
   const driver = queryValue('driver');
   const status = queryValue('status');
+  const includeInternalTransfers = queryValue('include_internal_transfers') === 'true';
 
   if ([req.query.deliveryDateFrom, req.query.deliveryDateTo, req.query.dateFrom, req.query.dateTo,
-    req.query.category, req.query.area, req.query.driver, req.query.status]
+    req.query.category, req.query.area, req.query.driver, req.query.status, req.query.include_internal_transfers]
     .some(value => value !== undefined && typeof value !== 'string')) {
     return res.status(400).json({ error: 'Report filters must be single string values.' });
   }
@@ -46,6 +47,8 @@ router.get('/summary', requireAuth, requireResource('records'), requireScreen('s
     AND: [recordScope(req.user!)],
   };
   if (category) filters.category = CATEGORY_TO_DB[category] ?? category;
+  // RMA statistics never count non-RMA internal transfers (TXO routed through Logistics).
+  if (filters.category === 'RMA' && !includeInternalTransfers) filters.isInternalTransfer = false;
   if (area) filters.area = area;
   if (driver) filters.driver = driver;
 
@@ -72,7 +75,7 @@ router.get('/summary', requireAuth, requireResource('records'), requireScreen('s
   const [foundRecords, completedInRange] = await Promise.all([
     prisma.deliveryRecord.findMany({
       where: cohortWhere,
-      select: { category: true, status: true, draft: true, timeIn: true, area: true, driver: true, deliveryDate: true },
+      select: { category: true, isInternalTransfer: true, status: true, draft: true, timeIn: true, area: true, driver: true, deliveryDate: true },
     }),
     prisma.deliveryRecord.count({ where: completionWhere }),
   ]);
@@ -87,7 +90,7 @@ router.get('/summary', requireAuth, requireResource('records'), requireScreen('s
 
   for (const r of records) {
     const statusKey   = runState(r);
-    const categoryKey = CATEGORY_FROM_DB[r.category] ?? r.category;
+    const categoryKey = r.category === 'RMA' && r.isInternalTransfer ? 'Internal Transfer' : (CATEGORY_FROM_DB[r.category] ?? r.category);
     byStatus[statusKey]     = (byStatus[statusKey]     ?? 0) + 1;
     byCategory[categoryKey] = (byCategory[categoryKey] ?? 0) + 1;
     if (r.area)   byArea[r.area]     = (byArea[r.area]     ?? 0) + 1;

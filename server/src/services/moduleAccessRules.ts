@@ -5,7 +5,8 @@
  *
  * - Admin: view-only on Deliveries, RMA, Procurement Pick-up and Sales Orders.
  * - Sales Coordinator alone creates Deliveries, Procurement Pick-up and Sales Orders.
- * - TASS has no Procurement Pick-up module.
+ * - TASS has neither the Procurement Pick-up nor the Accounting Collection module
+ *   (collection verification belongs to Logistics).
  */
 import type { CatalogEntry, PolicyAction } from './permissionCatalog';
 
@@ -14,7 +15,8 @@ export const SALES_COORDINATOR_CREATE_CATEGORIES = ['DELIVERY', 'PROCUREMENT_PIC
 const CATEGORY_LABELS: Record<string, string> = {
   DELIVERY: 'Deliveries', RMA: 'RMA', PROCUREMENT_PICKUP: 'Procurement Pick-up', SALES_ORDERS: 'Sales Orders', ACCOUNTING_COLLECTION: 'Accounting Collection',
 };
-const RESTRICTED_SCREENS: Record<string, readonly string[]> = { TASS: ['procurement_pickup'] };
+const RESTRICTED_SCREENS: Record<string, readonly string[]> = { TASS: ['procurement_pickup', 'accounting_collection'] };
+const RESTRICTED_CATEGORIES: Record<string, readonly string[]> = { TASS: ['PROCUREMENT_PICKUP', 'ACCOUNTING_COLLECTION'] };
 const SCREEN_CATEGORY: Record<string, string> = {
   deliveries: 'DELIVERY', rma: 'RMA', procurement_pickup: 'PROCUREMENT_PICKUP', sales_orders: 'SALES_ORDERS', accounting_collection: 'ACCOUNTING_COLLECTION',
 };
@@ -36,6 +38,11 @@ export function screenRestricted(role: string, screen: string): boolean {
   return includes(RESTRICTED_SCREENS[role] ?? [], screen);
 }
 
+/** True when `role` has no access at all (including READ) to `category` records. */
+export function categoryRestricted(role: string, category: string): boolean {
+  return includes(RESTRICTED_CATEGORIES[role] ?? [], category);
+}
+
 /** Applied by the V1 evaluator after stored policy decisions. */
 export function policyEntryRestricted(role: string, entry: Pick<CatalogEntry, 'scope' | 'module' | 'action'>): boolean {
   if (entry.scope === 'SCREEN') {
@@ -44,6 +51,6 @@ export function policyEntryRestricted(role: string, entry: Pick<CatalogEntry, 's
     const category = SCREEN_CATEGORY[entry.module];
     return entry.action === 'WRITE' && !!category && categoryActionRestriction(role, category, 'WRITE') !== null;
   }
-  if (entry.scope === 'CATEGORY') return categoryActionRestriction(role, entry.module, entry.action) !== null;
+  if (entry.scope === 'CATEGORY') return categoryRestricted(role, entry.module) || categoryActionRestriction(role, entry.module, entry.action) !== null;
   return false;
 }

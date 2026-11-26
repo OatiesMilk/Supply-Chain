@@ -36,7 +36,7 @@ test('tiles and panels show skeletons while stats load, never counted guesses', 
 
 test('tiles still render when the overview fails, falling back to an awaiting message', () => {
   const markup = html({ overview: undefined });
-  assert.match(markup, /aria-label="Unverified collections, 4 collections/); assert.match(text(markup), /Awaiting TASS/);
+  assert.match(markup, /aria-label="Unverified collections, 4 collections/); assert.match(text(markup), /Awaiting verification/);
 });
 
 test('panels use the shared pattern with replaced copy and a timestamped audit list', () => {

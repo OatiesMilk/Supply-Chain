@@ -49,6 +49,25 @@ export interface OutputActionLogEntry {
   at: string; // ISO timestamp
 }
 
+export type RmaItemUnitType = 'Unit' | 'Item';
+export interface RmaContact { id?: string; name: string; phone?: string | null; email?: string | null }
+/** A record line item; RMA items may carry the structured unit fields. */
+export interface RecordLineItem {
+  id?: string;
+  sku: string;
+  quantity: number;
+  unit_type?: RmaItemUnitType | null;
+  serial_number?: string | null;
+  new_serial_number?: string | null;
+  defective_serial_number?: string | null;
+  purchase_date?: string | null;
+  sales_order_no?: string | null;
+  accessories?: string | null;
+  problem_description?: string | null;
+  repair_note?: string | null;
+  status_tag?: string | null;
+}
+
 export interface DeliveryRecord extends AuditFields {
   id: string; // internal key used for API calls; never shown to users
   record_no?: string | null; // short user-facing number, e.g. DEL-26-00042
@@ -81,10 +100,16 @@ export interface DeliveryRecord extends AuditFields {
   is_draft: 'Yes' | 'No';
   submitted_at?: string | null; // ISO; when the record last left Draft
   created_by_id?: string;
+  /** RMA only: whether the creator has a digital signature on file (never the storage key). */
+  created_by_has_signature?: boolean;
+  created_by_signature_updated_at?: string | null;
   modified_by_id?: string;
   deleted_at?: string | null;
   document_attachment?: string | null;
-  rma_type?: RmaCategory | null;
+  /** One of the six slip categories; historical records may keep a retired label such as 'Others'. */
+  rma_type?: RmaCategory | string | null;
+  /** Non-RMA internal Logistics transfer (TXO only); excluded from RMA KPIs. */
+  is_internal_transfer?: boolean;
   rma_movement?: RmaMovement | null;
   rma_transport_status?: RmaTransportStatus | null;
   rma_version?: number;
@@ -103,8 +128,17 @@ export interface DeliveryRecord extends AuditFields {
   customer_contact_name?: string | null;
   customer_contact_email?: string | null;
   customer_contact_phone?: string | null;
+  /** CRM case reference (e.g. CAS-31417-Y4Y6Z3). */
+  case_number?: string | null;
+  /** Service Slip number; only present on Return to Customer Slip (RTC) records. */
+  service_slip_no?: string | null;
+  /** Client-facing slip remarks, printed on client slips (e.g. SAP#12019325). */
+  client_remarks?: string | null;
+  /** Internal Logistics-only notes; never printed on client slips. */
+  internal_logistics_remarks?: string | null;
+  rma_contacts?: RmaContact[];
   item_description: string;
-  line_items?: { id?: string, sku: string, quantity: number }[];
+  line_items?: RecordLineItem[];
   attachments: string[]; // mock file names only
   email_notification_sent: boolean;
   output_actions_log: OutputActionLogEntry[]; // full history of fired output actions

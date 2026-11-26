@@ -9,6 +9,7 @@ async function main() {
   await prisma.remarkLog.deleteMany();
   await prisma.comment.deleteMany();
   await prisma.notification.deleteMany();
+  await prisma.masterDataAdditionRequest.deleteMany();
   await prisma.userPermission.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.notificationLog.deleteMany();
