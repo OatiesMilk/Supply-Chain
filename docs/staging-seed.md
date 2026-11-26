@@ -9,6 +9,8 @@ Excel snapshot while preserving login accounts and permissions. Both require
 explicit `-- --apply` to write. They are separate from the local demo/UAT seed
 commands and are never called during startup or deployment. Local development
 continues to use its current `seed` / `seed:uat` dataset and safeguards.
+`npm run seed:staging:rma-demo` separately refreshes only the RMA demo records; see
+[Refresh staging RMA demo data](#refresh-staging-rma-demo-data).
 
 The reviewed source is the committed snapshot
 [`staging-route-source.json`](../server/prisma/data/staging-route-source.json),
@@ -227,6 +229,86 @@ metadata replacement. Any later storage cleanup is a separate reviewed operation
 This is an operational-data reset, not a schema drop or a full account/database
 reset. It creates no default accounts, credentials, current-day fixture runs or
 fabricated POD.
+
+## Refresh staging RMA demo data
+
+`npm run seed:staging:rma-demo` is a separate, **RMA-only** refresh. It is not
+`seed:staging:reset`: it never reloads the Excel snapshot and never touches
+non-RMA records. It replaces every `category = 'RMA'` record with the curated
+demo set in [`server/prisma/seeds/rma-demo.ts`](../server/prisma/seeds/rma-demo.ts)
+(REC-4101..REC-4115, shared with the local `seed`), plus one driver-demo RMA run
+(`REC-DEMO-<YYYYMMDD>-<hash>-RMA`, today's Asia/Manila date) per existing
+**active** Driver profile. Every demo RMA passes the current server RMA rules
+(`server/tests/rmaSeedValidation.test.ts`): canonical slip category with a matching
+auto reference, movement method, transport status and timestamps consistent with
+the record status, case number, RTC-only SS#, separated client/internal remarks,
+contacts and structured items. The set covers the TASS dashboard queues (open,
+on hold, rescheduled, aging, in transit, awaiting receipt, awaiting completion),
+one non-RMA internal Transfer Out Slip and one Receiving Slip with Internal / no driver.
+
+It uses the same target guard and environment confirmation as the staging seed
+(`APP_ENV=staging`, `DATABASE_URL`, `STAGING_SEED_DATABASE`, `STAGING_SEED_HOST`,
+the Supabase project checks and `STAGING_SEED_ADMIN_EMAIL`; see
+[Prerequisites](#prerequisites)). It does not need `STAGING_SEED_DATA_APPROVED`
+or `STAGING_SEED_ALLOW_RESET`; it has its own acknowledgements.
+
+Preview (read-only: no writes, no locks, no slip numbers allocated):
+
+```bash
+npm run seed:staging:rma-demo
+```
+
+The JSON preview lists the RMA rows and RMA-scoped children to delete, the
+preserved counts (users, permissions, Driver profiles, audits, slip counters and
+non-RMA records per category) and the rows to create. After the environment owner
+reviews it and approves the replacement, put staging in maintenance mode, set:
+
+```text
+STAGING_RMA_DEMO_APPROVED=true
+STAGING_RMA_DEMO_ALLOW_RESET=true
+```
+
+and apply:
+
+```bash
+npm run seed:staging:rma-demo -- --apply
+```
+
+Missing acknowledgement is refused before any database access. Everything runs in
+**one transaction** under the Driver directory lock and exclusive locks on the RMA
+tables; any failure rolls back all deletions, inserts and counter changes.
+
+**Removed (RMA scope only):** RMA records and their line items, contacts and POD
+metadata, their remark history, `DeliveryRecord` comments and record
+notifications, every RMA Logistics dispatch handoff (they list only RMA ids) and
+its in-app notification. A non-RMA record linked to a removed RMA is unlinked.
+POD metadata removal **does not delete external storage objects**.
+
+**Preserved:** all non-RMA records and their children, every User,
+UserPermission and permission table, user signatures, every Driver profile
+(linked or unlinked; none is created, activated or relinked), companies,
+customers, suppliers, products, stock, addition requests, `RecordSequence` and
+existing `AuditLog` rows. One `RESET` audit (`recordType: StagingRmaDemoSeed`)
+records the actor and the deletion/creation/preservation counts with
+`externalStorageDeleted: false`.
+
+**Slip counters:** `RmaReferenceSequence` rows are never deleted or lowered.
+The curated references are fixed (July and earlier 2026 dates) and their counters
+are only raised to at least the seeded number; driver-demo runs allocate the next
+numbers for today. Later saves therefore never reuse a reference.
+
+**Staging prerequisites:** at least one active Driver profile and one active
+Company. Demo login emails are not assumed: RMA creator and physical receiver use
+the oldest active TASS account, transport updates the oldest active Logistics
+account, each falling back to the confirmed Admin. Seeded Driver/Helper names are
+matched case-insensitively to existing active profiles; otherwise transport rows
+cycle through the active Driver profiles and helpers are left empty. Companies are
+matched by the demo company name, otherwise the oldest active Company is used.
+
+**Caveat:** completed transports are seeded with transport timestamps and
+received-by names but **without POD photos**, since fabricated POD is not seeded.
+In the application, completing a transport requires a verified photo, so these
+rows show completed transport without proof.
 
 ## Historical drafts and Driver UAT
 

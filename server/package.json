@@ -18,6 +18,7 @@
     "seed:staging": "tsx prisma/seed-staging.ts",
     "seed:staging:reset": "tsx prisma/seed-staging.ts --reset",
     "seed:staging:master-data": "tsx prisma/seed-staging-master-data.ts",
+    "seed:staging:rma-demo": "tsx prisma/seed-staging-rma-demo.ts",
     "lint": "tsc --noEmit",
     "db:reset": "prisma migrate reset --force",
     "seed:accounts": "tsx prisma/seed-accounts-only.ts",

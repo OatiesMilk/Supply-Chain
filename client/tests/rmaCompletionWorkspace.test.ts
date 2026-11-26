@@ -11,6 +11,7 @@ import type { DeliveryRecord, UserRole } from '../src/types';
 import { saveRecordToCache } from '../src/api/queries/operationalSync';
 import { manilaToday } from '../src/utils/recordLifecycle';
 import { rmaEventDateError } from '../src/features/deliveries/RmaWorkflowPanel';
+import { notify } from '../src/utils/notify';
 
 const base = (updates: Partial<DeliveryRecord> = {}) => ({
   id: 'rma-ui', company_id: 'company', company_name: 'RMA customer', category: 'RMA',
@@ -86,6 +87,7 @@ test('TASS confirms physical receipt with an editable receipt date and no Recipi
   const receivedDay = manilaDay(-2);
   const receive = mock.method(api, 'receiveRma', async () => record = { ...record, rma_version: 1, rma_recipient: null, rma_received_at: `${receivedDay}T04:00:00.000Z`, rma_received_by: 'tass-id' });
   const complete = mock.method(api, 'patchStatus', async () => record = { ...record, status: 'Delivered', rma_version: 2, rma_completed_at: new Date().toISOString() });
+  const toast = mock.method(notify, 'success', () => {});
   try {
     await ui.render(record, 'TASS', true); await act(async () => ui.button('Status & Actions')!.click()); await ui.flush();
     assert.equal(ui.button('Complete RMA'), undefined); assert.doesNotMatch(ui.dom.window.document.body.textContent!, /Record Time In|Driver & Delivery Details/);
@@ -101,9 +103,11 @@ test('TASS confirms physical receipt with an editable receipt date and no Recipi
     assert.equal(ui.button('Confirm physical receipt')!.disabled, false, 'remarks and date are enough');
     await act(async () => ui.button('Confirm physical receipt')!.click()); await ui.flush();
     assert.deepEqual(receive.mock.calls[0].arguments, [record.id, { expected_version: 0, remarks: 'Signed slip returned', received_at: receivedDay }]);
+    assert.equal(toast.mock.calls.at(-1)?.arguments[0], 'Physical receipt confirmed');
+    assert.match(ui.dom.window.document.body.textContent!, /Step 2 of 2 · Complete RMA/);
     assert.ok(ui.button('Complete RMA')); assert.match(ui.summaryValue('Physical receipt') ?? '', /^Confirmed · /);
     const completionDate = ui.field('Completion date') as HTMLInputElement;
-    assert.equal(completionDate.type, 'date'); assert.equal(completionDate.value, receivedDay, 'defaults to the receipt date');
+    assert.equal(completionDate.type, 'date'); assert.equal(completionDate.value, manilaDay(0), 'defaults to today (Manila)');
     assert.equal(completionDate.min, receivedDay); assert.equal(completionDate.max, manilaDay(0));
     await ui.input('Remarks', 'RMA reviewed and completed');
     await ui.input('Completion date', manilaDay(-3));
@@ -111,7 +115,12 @@ test('TASS confirms physical receipt with an editable receipt date and no Recipi
     assert.equal(ui.button('Complete RMA')!.disabled, true);
     await ui.input('Completion date', manilaDay(-1));
     await act(async () => ui.button('Complete RMA')!.click()); await ui.flush();
+    assert.equal(complete.mock.callCount(), 0, 'Complete RMA asks for confirmation first');
+    const confirmText = [...ui.dom.window.document.querySelectorAll('dialog')].find(item => item.querySelector('h2')?.textContent === 'Complete this RMA?')!.textContent!;
+    assert.match(confirmText, new RegExp(`Receipt date: ${receivedDay}`)); assert.match(confirmText, new RegExp(`Completion date: ${manilaDay(-1)}`));
+    await act(async () => dialogButton(ui, 'Complete this RMA?', 'Complete RMA')!.click()); await ui.flush();
     assert.deepEqual(complete.mock.calls[0].arguments, [record.id, 'Delivered', 'RMA reviewed and completed', { expected_version: 1, completed_at: manilaDay(-1) }]);
+    assert.equal(toast.mock.calls.at(-1)?.arguments[0], 'RMA completed');
     assert.equal(record.time_in, null); assert.equal(record.time_out, null); assert.equal(put.mock.callCount(), 0);
   } finally { await ui.close(); }
 });
@@ -127,6 +136,7 @@ test('a legacy confirmed Recipient is still passed through on completion', async
     assert.match(ui.summaryValue('Physical receipt') ?? '', /^Collector\b/);
     await ui.input('Remarks', 'Completed');
     await act(async () => ui.button('Complete RMA')!.click()); await ui.flush();
+    await act(async () => dialogButton(ui, 'Complete this RMA?', 'Complete RMA')!.click()); await ui.flush();
     assert.deepEqual(complete.mock.calls[0].arguments, [record.id, 'Delivered', 'Completed', { expected_version: 1, completed_at: manilaDay(0), received_by: 'Collector' }]);
   } finally { await ui.close(); }
 });
@@ -370,7 +380,7 @@ test('shared RMA creation requires an explicit movement choice and preserves sub
   // Auto Fill picks the Account Manager (required for RMA) from the managed list.
   mock.method(api, 'getAccountManagers', async () => [{ id: 'am-1', name: 'P. Soriano', is_active: true }]);
   try {
-    await ui.renderElement(React.createElement(CreateForm, { category: 'RMA', categoryLocked: true, companies: [company], onSubmit: submit, onCancel: () => {} }));
+    await ui.renderElement(React.createElement(CreateForm, { category: 'RMA', categoryLocked: true, companies: [company], onSubmit: submit, onCancel: () => {}, showAutoFill: true }));
     await ui.flush();
     await act(async () => ui.button('Auto Fill')!.click());
     // Pin a non-Receiving-Slip category so the movement requirement never depends on Auto Fill's random pick.
@@ -401,7 +411,7 @@ test('RMA create form: required slip category, read-only reference preview, RR d
   const company = { id: 'company', name: 'RMA Company', contact_person: 'Contact' } as any;
   mock.method(api, 'getAccountManagers', async () => [{ id: 'am-1', name: 'P. Soriano', is_active: true }]);
   try {
-    await ui.renderElement(React.createElement(CreateForm, { category: 'RMA', categoryLocked: true, companies: [company], onSubmit: submit, onCancel: () => {} }));
+    await ui.renderElement(React.createElement(CreateForm, { category: 'RMA', categoryLocked: true, companies: [company], onSubmit: submit, onCancel: () => {}, showAutoFill: true }));
     await ui.flush();
     const doc = ui.dom.window.document;
     const category = doc.getElementById('create-rma-type') as HTMLSelectElement;
@@ -439,10 +449,12 @@ test('existing RMA rescheduling can resume Scheduled through a versioned non-fin
   mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []);
   mock.method(api, 'getRmaCapabilities', async () => ({ ...none, status: true }));
   const patch = mock.method(api, 'patchStatus', async () => ({ ...record, status: 'Scheduled', rma_version: 5 }));
+  const toast = mock.method(notify, 'success', () => {});
   try {
-    await ui.render(record, 'TASS'); await ui.input('RMA status', 'Scheduled'); await ui.input('Remarks', 'Resume the planned return');
+    await ui.render(record, 'TASS'); await ui.input('RMA status', 'Scheduled'); await ui.input('Status change reason', 'Resume the planned return');
     await act(async () => ui.button('Save RMA status')!.click()); await ui.flush();
     assert.deepEqual(patch.mock.calls[0].arguments, [record.id, 'Scheduled', 'Resume the planned return', { expected_version: 4 }]);
+    assert.equal(toast.mock.calls.at(-1)?.arguments[0], 'Status set to Scheduled');
     assert.equal(ui.button('Complete RMA'), undefined);
   } finally { await ui.close(); }
 });
@@ -551,5 +563,99 @@ test('Logistics sees the planned start date instead of buttons before it, and no
     assert.equal(ui.button('Start transport'), undefined);
     await ui.render(record, 'TASS');
     assert.doesNotMatch(ui.dom.window.document.body.textContent!, /Transport can start on|Recording for/);
+  } finally { await ui.close(); }
+});
+
+test('Complete RMA confirmation can be cancelled without saving, and status changes keep their own reason', async () => {
+  const ui = await fixture(); let record = base({ rma_version: 1, rma_received_at: new Date().toISOString(), allowed_statuses: ['On-Hold', 'Delivered', 'Draft'] });
+  mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []);
+  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, complete: true, status: true }));
+  const patch = mock.method(api, 'patchStatus', async (_id: string, status: string) => record = { ...record, status: status as DeliveryRecord['status'], rma_version: 2 });
+  try {
+    await ui.render(record, 'TASS');
+    await ui.input('Remarks', 'Done');
+    await act(async () => ui.button('Complete RMA')!.click()); await ui.flush();
+    await act(async () => dialogButton(ui, 'Complete this RMA?', 'Cancel')!.click()); await ui.flush();
+    assert.equal(patch.mock.callCount(), 0, 'cancel saves nothing');
+    assert.equal(ui.field('Remarks').value, 'Done', 'the step reason survives a cancelled confirmation');
+    await ui.input('RMA status', 'On-Hold');
+    assert.equal(ui.button('Save RMA status')!.disabled, true, 'the step reason does not satisfy the status reason');
+    await ui.input('Status change reason', 'Waiting for parts');
+    await act(async () => ui.button('Save RMA status')!.click()); await ui.flush();
+    assert.deepEqual(patch.mock.calls[0].arguments, [record.id, 'On-Hold', 'Waiting for parts', { expected_version: 1 }]);
+  } finally { await ui.close(); }
+});
+
+test('a status save keeps an unfinished completion draft and its version stays reviewable', async () => {
+  const ui = await fixture(); const receivedDay = manilaDay(-2);
+  let record = base({ rma_version: 1, rma_received_at: `${receivedDay}T04:00:00.000Z`, allowed_statuses: ['On-Hold', 'Delivered', 'Draft'] });
+  mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []);
+  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, complete: true, status: true }));
+  const patch = mock.method(api, 'patchStatus', async (_id: string, status: string) => record = { ...record, status: status as DeliveryRecord['status'], rma_version: (record.rma_version ?? 0) + 1 });
+  const toast = mock.method(notify, 'success', () => {});
+  try {
+    await ui.render(record, 'TASS');
+    await ui.input('Remarks', 'Completion draft');
+    await ui.input('Completion date', manilaDay(-1));
+    await ui.input('RMA status', 'On-Hold');
+    await ui.input('Status change reason', 'Waiting for parts');
+    await act(async () => ui.button('Save RMA status')!.click()); await ui.flush();
+    assert.deepEqual(patch.mock.calls[0].arguments, [record.id, 'On-Hold', 'Waiting for parts', { expected_version: 1 }]);
+    assert.equal(toast.mock.calls.at(-1)?.arguments[0], 'Status set to On-Hold');
+    assert.equal(ui.field('Remarks').value, 'Completion draft', 'the completion reason survives a status save');
+    assert.equal(ui.field('Completion date').value, manilaDay(-1), 'the completion date survives a status save');
+    assert.equal(ui.field('Status change reason').value, '');
+    assert.equal(ui.field('RMA status').value, '');
+    assert.doesNotMatch(ui.dom.window.document.body.textContent!, /changed while you were editing/);
+    assert.equal(ui.button('Complete RMA')!.disabled, false);
+    await act(async () => ui.button('Complete RMA')!.click()); await ui.flush();
+    await act(async () => dialogButton(ui, 'Complete this RMA?', 'Complete RMA')!.click()); await ui.flush();
+    assert.deepEqual(patch.mock.calls[1].arguments, [record.id, 'Delivered', 'Completion draft', { expected_version: 2, completed_at: manilaDay(-1) }], 'the next action sends the saved version');
+  } finally { await ui.close(); }
+});
+
+test('confirming receipt keeps an unsaved status change', async () => {
+  const ui = await fixture(); let record = base();
+  mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []);
+  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, receive: !record.rma_received_at, status: true, complete: !!record.rma_received_at }));
+  const receive = mock.method(api, 'receiveRma', async () => record = { ...record, rma_version: 1, rma_received_at: `${manilaDay(0)}T04:00:00.000Z` });
+  const toast = mock.method(notify, 'success', () => {});
+  try {
+    await ui.render(record, 'TASS');
+    await ui.input('RMA status', 'On-Hold');
+    await ui.input('Status change reason', 'Hold for customer');
+    await ui.input('Remarks', 'Slip back');
+    await act(async () => ui.button('Confirm physical receipt')!.click()); await ui.flush();
+    assert.deepEqual(receive.mock.calls[0].arguments, [record.id, { expected_version: 0, remarks: 'Slip back', received_at: manilaDay(0) }]);
+    assert.equal(toast.mock.calls.at(-1)?.arguments[0], 'Physical receipt confirmed');
+    const body = ui.dom.window.document.body.textContent!;
+    assert.match(body, /Step 2 of 2 · Complete RMA/);
+    assert.equal(ui.field('Remarks').value, '', 'the receipt reason is cleared');
+    assert.equal(ui.field('Status change reason').value, 'Hold for customer', 'the status reason survives receipt');
+    assert.equal(ui.field('RMA status').value, 'On-Hold', 'the status selection survives receipt');
+    assert.doesNotMatch(body, /changed while you were editing/);
+  } finally { await ui.close(); }
+});
+
+test('a newer version while the Complete confirmation is open disables Confirm and offers review', async () => {
+  const ui = await fixture();
+  let record = base({ rma_version: 1, rma_received_at: new Date().toISOString() });
+  mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []);
+  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, complete: true }));
+  const patch = mock.method(api, 'patchStatus', async (_id: string, status: string) => record = { ...record, status: status as DeliveryRecord['status'], rma_version: (record.rma_version ?? 0) + 1 });
+  try {
+    await ui.render(record, 'TASS');
+    await ui.input('Remarks', 'Done');
+    await act(async () => ui.button('Complete RMA')!.click()); await ui.flush();
+    const dialog = () => [...ui.dom.window.document.querySelectorAll('dialog')].find(item => item.querySelector('h2')?.textContent === 'Complete this RMA?') as HTMLDialogElement;
+    assert.equal(dialogButton(ui, 'Complete this RMA?', 'Complete RMA')!.disabled, false);
+    record = { ...record, rma_version: 2 };
+    await act(async () => { await ui.client.invalidateQueries({ queryKey: ['records', 'detail', record.id]}); }); await ui.flush();
+    assert.equal(dialogButton(ui, 'Complete this RMA?', 'Complete RMA')!.disabled, true, 'Confirm is disabled once the record moved on');
+    assert.match(dialog().textContent!, /changed while this confirmation was open/);
+    await act(async () => dialogButton(ui, 'Complete this RMA?', 'Review latest saved values')!.click()); await ui.flush();
+    assert.equal(dialog().open, false, 'review closes the confirmation');
+    assert.match(ui.dom.window.document.body.textContent!, /changed while you were editing/, 'the card shows the stale review');
+    assert.equal(patch.mock.callCount(), 0, 'no request is sent with the stale version');
   } finally { await ui.close(); }
 });
