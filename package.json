@@ -22,6 +22,7 @@
     "seed:uat": "npm run seed:uat --workspace=mg-portal-server",
     "seed:staging": "npm run seed:staging --workspace=mg-portal-server --",
     "seed:staging:reset": "npm run seed:staging:reset --workspace=mg-portal-server --",
+    "seed:staging:rma-demo": "npm run seed:staging:rma-demo --workspace=mg-portal-server --",
     "pod:reconcile": "npm run pod:reconcile --workspace=mg-portal-server",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
