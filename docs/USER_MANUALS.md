@@ -119,7 +119,7 @@ flowchart LR
    * **Company Name \*:** Begin typing in the combobox and **select an existing company from the list** (free text is rejected). Selecting a company automatically fills its default **Account Manager** unless you have already picked a different one; enter and verify the destination **Area** and **Address** separately.
    * **Priority \*:** Select `1 - Low`, `2 - Moderate`, or `3 - High`.
    * **Reference (SAP Number) \*:** Enter the sales order or invoice tracking number (mandatory for non-draft submissions).
-   * **Area & Address:** Type the destination area (e.g., `Makati`, `BGC`, `Ortigas`) and detailed street address. *(Where **Auto Fill** is shown, it populates sample test/training values that must be reviewed before saving.)*
+   * **Area & Address:** Type the destination area (e.g., `Makati`, `BGC`, `Ortigas`) and detailed street address. *(**Auto Fill** is a local-development/demo tool only: it never appears on staging or production. In a local demo build it populates sample values that must be reviewed before saving.)*
    * **Delivery Date:** Select the scheduled fulfillment date (mandatory for non-draft submissions).
    * **Item Type & Remarks:** Optional header classification and initial notes.
 4. **Add Line Items:**

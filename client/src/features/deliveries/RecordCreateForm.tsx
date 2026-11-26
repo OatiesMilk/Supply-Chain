@@ -476,6 +476,8 @@ export default function RecordCreateForm({
   const cat = form.category;
   // The movement hint explains the Receiving Slip default; it is linked to the select through aria-describedby.
   const movementHintShown = form.rma_type === RECEIVING_SLIP_CATEGORY && form.rma_movement === 'INTERNAL_NO_DRIVER';
+  // Like the movement marker, Delivery Date is only marked required when this user can submit; drafts may omit it.
+  const deliveryDateRequired = canSubmitRecord && (cat !== 'RMA' || form.rma_movement === 'LOGISTICS_TRANSPORT');
 
   if (createdRecordInfo) {
     return (
@@ -710,9 +712,9 @@ export default function RecordCreateForm({
 
           {/* Delivery Date */}
           <div className="space-y-1.5">
-            <label htmlFor={deliveryDateId} className="font-bold text-slate-700">Delivery Date {(cat !== 'RMA' || form.rma_movement === 'LOGISTICS_TRANSPORT') && form.is_draft !== 'Yes' ? <span className="text-red-500">*</span> : <span className="text-xs font-normal text-slate-400">(optional)</span>}</label>
+            <label htmlFor={deliveryDateId} className="font-bold text-slate-700">Delivery Date {deliveryDateRequired ? <span className="text-red-500" aria-hidden="true">*</span> : <span className="text-xs font-normal text-slate-400">(optional)</span>}</label>
             <input id={deliveryDateId} type="date" value={form.delivery_date} onChange={e => updateField('delivery_date', e.target.value)}
-              aria-invalid={!!formErrors.delivery_date} aria-describedby={formErrors.delivery_date ? `${deliveryDateId}-error` : undefined}
+              aria-required={deliveryDateRequired || undefined} aria-invalid={!!formErrors.delivery_date} aria-describedby={formErrors.delivery_date ? `${deliveryDateId}-error` : undefined}
               className={`w-full px-3 py-2 border rounded-lg ${focusCls} ${formErrors.delivery_date ? 'border-red-500' : 'border-slate-300'}`} />
             {formErrors.delivery_date && <p id={`${deliveryDateId}-error`} role="alert" className="text-red-500 text-xs font-semibold">{formErrors.delivery_date}</p>}
           </div>
