@@ -122,6 +122,69 @@ export async function fetchProtectedAttachment(url: string, signal?: AbortSignal
   return response;
 }
 
+const SIGNATURE_IMAGE_PATHS = [/^\/api\/v1\/auth\/me\/signature\/image$/, /^\/api\/v1\/users\/[^/]+\/signature\/image$/, /^\/api\/v1\/records\/[^/]+\/issuer-signature$/];
+
+/**
+ * Digital signature images go through the same authorization and session
+ * version guard as JSON requests. Only the three private image endpoints are
+ * allowed; the caller receives the raw response (200 image, 204 none on file).
+ */
+export async function fetchProtectedSignature(url: string, signal?: AbortSignal): Promise<Response> {
+  const target = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'https://permission.local');
+  if (!SIGNATURE_IMAGE_PATHS.some(pattern => pattern.test(target.pathname))) throw new ApiError('Signature is not available.', 403);
+  const path = target.pathname.slice('/api/v1'.length) + target.search;
+  assertPermissionRequest(path);
+  const version = permissionRequestVersion();
+  const response = await send(path, { signal });
+  assertPermissionRequestVersion(version);
+  return response;
+}
+
+/** Signature metadata. The server never returns the storage key. */
+export interface ApiUserSignatureMeta {
+  has_signature: boolean;
+  mime_type: 'image/png' | 'image/jpeg' | null;
+  size: number | null;
+  width: number | null;
+  height: number | null;
+  updated_at: string | null;
+  image_url: string | null;
+}
+
+/** Active Logistics printing coordinator with current RMA read access (TASS-only lookup). */
+export interface ApiLogisticsRecipient { id: string; name: string; email: string }
+
+export type RmaDispatchEmailStatus = 'SENT' | 'MOCKED' | 'SKIPPED' | 'FAILED';
+
+/** A TASS -> Logistics daily handoff; email outcome is reported separately from the in-app notice. */
+export interface ApiRmaLogisticsDispatch {
+  id: string;
+  dispatch_date: string;
+  dispatched_by: string;
+  recipient: { id: string; name: string };
+  record_count: number;
+  logistics_count: number;
+  supplier_count: number;
+  internal_count: number;
+  route_slip_file_name: string;
+  client_slips_file_name: string;
+  email_status: RmaDispatchEmailStatus;
+  email_method: 'graph' | 'smtp' | 'mock' | null;
+  in_app_notified: boolean;
+  /** Present when the stored FAILED status is an unfinished reservation (in flight, or final save failed). */
+  outcome_unconfirmed?: boolean;
+  note: string | null;
+  created_at: string;
+}
+
+export interface ApiRmaLogisticsDispatchResult {
+  deduplicated: boolean;
+  dispatch: ApiRmaLogisticsDispatch;
+  email_error: string | null;
+  /** An earlier attempt with this key never saved its final email status; the mail outcome is unknown. */
+  outcome_unconfirmed?: boolean;
+}
+
 /** Optional server-side filters for GET /records; the server always applies the user's record scope. */
 export interface RecordListFilters {
   company_id?: string;
@@ -136,6 +199,8 @@ export interface RecordListFilters {
   region?: string;
   subregion?: string;
   account_manager?: string;
+  /** Case-insensitive match on the creating account's name. */
+  created_by?: string;
   priority?: string;
   dashboard_filter?: string;
   limit?: number;
@@ -148,6 +213,9 @@ export interface RecordListFilters {
   driver_exact?: string;
   account_manager_exact?: string;
   supplier_name?: string;
+  rma_scope?: 'all' | 'rma' | 'internal_transfer';
+  rma_type?: string;
+  rma_movement?: string;
 }
 
 export interface PagedRecordResponse {
@@ -192,6 +260,9 @@ export interface ApiUserAdmin {
   microsoft_linked: boolean;
   created_at: string;
   driver_profile?: { id: string; name: string } | null; // DRIVER logins: the linked Driver profile
+  has_signature?: boolean;
+  signature_updated_at?: string | null;
+  signature_mime_type?: string | null;
 }
 
 export interface ApiIntegrationStatus {
@@ -217,16 +288,98 @@ export interface ApiCompany {
   /** Inactive companies stay on existing records but are hidden from new choices. */
   is_active: boolean;
   version: number;
+  /** First active assigned Account Manager (legacy single default); see account_managers. */
   default_account_manager: ApiAccountManagerOption | null;
+  /** All SAP numbers in display order; sap_number is the first or "" (walk-in clients have none). */
+  sap_numbers: string[];
+  /** All assigned Account Managers, sorted by name; inactive ones stay until an Admin removes them. */
+  account_managers: ApiAccountManagerOption[];
   created_at: string;
   updated_at: string;
 }
 
+// ── Company & Supplier addition requests (Feature 4b) ──────────────────────
+export type MasterDataEntityType = 'COMPANY' | 'SUPPLIER';
+export type MasterDataRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+export interface ApiMasterDataChoice { id: string; name: string; is_active: boolean }
+export interface ApiMasterDataAdditionRequest {
+  id: string;
+  entity_type: MasterDataEntityType;
+  status: MasterDataRequestStatus;
+  name: string;
+  sap_numbers: string[];
+  contact_person: string;
+  contact_phone: string;
+  email: string;
+  address: string;
+  city: string;
+  /** COMPANY only. */
+  account_managers: ApiMasterDataChoice[];
+  /** SUPPLIER only. */
+  supplier_categories: ApiMasterDataChoice[];
+  notes: string;
+  version: number;
+  requested_by: { id: string; name: string };
+  reviewed_by: { id: string; name: string } | null;
+  reviewed_at: string | null;
+  rejection_reason: string | null;
+  review_notes: string | null;
+  created_company_id: string | null;
+  created_supplier_id: string | null;
+  created_entity_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface MasterDataRequestCounts { pending: number; approved: number; rejected: number }
+/** Server-evaluated submit permission (LEGACY sessions cannot evaluate RMA write policy on the client). */
+export interface MasterDataRequestCapabilities { can_submit_company: boolean; can_submit_supplier: boolean }
+/** One page of requests; counts cover every page for the same scope, type and search. */
+export interface MasterDataRequestListResponse {
+  requests: ApiMasterDataAdditionRequest[];
+  counts: MasterDataRequestCounts;
+  total?: number;
+  page?: number;
+  limit?: number;
+  pages?: number;
+  capabilities?: MasterDataRequestCapabilities;
+}
+export interface MasterDataRequestListParams {
+  status?: MasterDataRequestStatus | 'ALL';
+  entity_type?: MasterDataEntityType | 'ALL';
+  search?: string;
+  page?: number;
+  /** 1..100 on the server. */
+  limit?: number;
+}
+export interface MasterDataRequestFields {
+  name?: string;
+  sap_numbers?: string[];
+  contact_person?: string;
+  contact_phone?: string;
+  email?: string;
+  address?: string;
+  /** SUPPLIER only. */
+  city?: string;
+  /** COMPANY only. */
+  account_manager_ids?: string[];
+  /** SUPPLIER only. */
+  supplier_category_ids?: string[];
+}
+export interface SubmitMasterDataRequestInput extends MasterDataRequestFields { entity_type: MasterDataEntityType; name: string; notes?: string }
+/** Omitted fields keep the submitted values (one-click approval). entity_type lets the client permission check match the server. */
+export interface ApproveMasterDataRequestInput extends MasterDataRequestFields { expected_version: number; entity_type: MasterDataEntityType; review_notes?: string }
+export interface RejectMasterDataRequestInput { expected_version: number; rejection_reason: string }
+export interface ApproveMasterDataRequestResult { request: ApiMasterDataAdditionRequest; created_company?: ApiCompany; created_supplier?: ApiSupplier }
+
 export interface CompanyInput {
   name: string;
-  sap_number: string;
+  /** Legacy single value; send sap_numbers instead (never both). */
+  sap_number?: string | null;
+  sap_numbers?: string[];
+  account_manager_ids?: string[];
   address?: string;
   contact_person?: string;
+  /** Legacy single value; send account_manager_ids instead (never both). */
   default_account_manager_id?: string | null;
 }
 
@@ -364,9 +517,8 @@ export type ApiDashboardStats =
       role: 'TASS';
       open_rma: number;
       rma_on_hold: number;
-      pending_procurement_pickup: number;
-      pending_verification: number;
-      verified_today: number;
+      rma_in_transit: number;
+      rma_aging: number;
     }
   | {
       role: 'ADMIN';
@@ -594,7 +746,17 @@ export const api = {
     return request<any[]>(`/records${query ? `?${query}` : ''}`);
   },
   getRecordActiveCounts: () => request<RecordActiveCounts>('/records/active-counts'),
-  getRecordFilterOptions: (category: string) => request<{ accountManagers: string[]; drivers: string[]; areas: string[] }>(`/records/filter-options?${new URLSearchParams({ category })}`),
+  getRecordFilterOptions: (category: string) => request<{ accountManagers: string[]; drivers: string[]; areas: string[]; creators?: string[] }>(`/records/filter-options?${new URLSearchParams({ category })}`),
+  getRmaLogisticsRecipients: () => request<{ recipients: ApiLogisticsRecipient[] }>('/records/rma-logistics-recipients'),
+  getRmaLogisticsDispatches: (options: { date?: string; limit?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (options.date) params.set('date', options.date);
+    if (options.limit) params.set('limit', String(options.limit));
+    const query = params.toString();
+    return request<{ dispatches: ApiRmaLogisticsDispatch[] }>(`/records/rma-logistics-dispatches${query ? `?${query}` : ''}`);
+  },
+  /** Multipart: client_slips (PDF), route_slip (xlsx), recipient_user_id, dispatch_date, record_ids (JSON), note, idempotency_key. */
+  dispatchRmaToLogistics: (form: FormData) => request<ApiRmaLogisticsDispatchResult>('/records/rma-logistics-dispatch', { method: 'POST', body: form }),
   getDriverOverview: (search = '', area = '') => {
     const params = new URLSearchParams();
     if (search) params.set('search', search);
@@ -653,7 +815,7 @@ export const api = {
     request<any>(`/records/${id}/rma-assignment`, { method: 'PATCH', body: JSON.stringify(data) }),
   progressRmaTransport: (id: string, data: { transport_status: 'IN_TRANSIT' | 'COMPLETED'; expected_version: number; remarks?: string; received_by?: string }) =>
     request<any>(`/records/${id}/rma-transport`, { method: 'PATCH', body: JSON.stringify(data) }),
-  receiveRma: (id: string, data: { recipient: string; expected_version: number; remarks: string }) =>
+  receiveRma: (id: string, data: { recipient?: string | null; received_at?: string; expected_version: number; remarks: string }) =>
     request<any>(`/records/${id}/rma-receipt`, { method: 'POST', body: JSON.stringify(data) }),
   correctRmaTransport: (id: string, data: { transport_received_by?: string; transport_started_at?: string; transport_completed_at?: string; expected_version: number; remarks: string }) =>
     request<any>(`/records/${id}/rma-transport-correction`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -664,7 +826,7 @@ export const api = {
     request<any>(`/records/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   recordTimeIn: (id: string, remarks?: string) =>
     request<any>(`/records/${id}/time-in`, { method: 'POST', body: JSON.stringify({ remarks }) }),
-  patchStatus: (id: string, status: string, remarks?: string, extra?: { time_out?: string; received_by?: string; priority?: string; delivery_date?: string; expected_version?: number; expected_edit_version?: string }) =>
+  patchStatus: (id: string, status: string, remarks?: string, extra?: { time_out?: string; received_by?: string; priority?: string; delivery_date?: string; completed_at?: string; expected_version?: number; expected_edit_version?: string }) =>
     request<any>(`/records/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, remarks: remarks ?? '', ...extra }) }),
   completeRecord: (id: string, data: { remarks: string; reviewed_photo_id: string; expected_edit_version: string }) =>
     request<any>(`/records/${id}/complete`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -676,6 +838,20 @@ export const api = {
     form.append('file', file);
     return request<ApiPodAttachment>(`/records/${id}/attachments`, { method: 'POST', body: form });
   },
+  getMySignature: () => request<ApiUserSignatureMeta>('/auth/me/signature'),
+  uploadMySignature: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<ApiUserSignatureMeta>('/auth/me/signature', { method: 'PUT', body: form });
+  },
+  deleteMySignature: () => request<void>('/auth/me/signature', { method: 'DELETE' }),
+  getUserSignature: (userId: string) => request<ApiUserSignatureMeta>(`/users/${encodeURIComponent(userId)}/signature`),
+  uploadUserSignature: (userId: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<ApiUserSignatureMeta>(`/users/${encodeURIComponent(userId)}/signature`, { method: 'PUT', body: form });
+  },
+  deleteUserSignature: (userId: string) => request<void>(`/users/${encodeURIComponent(userId)}/signature`, { method: 'DELETE' }),
   deleteRecordAttachment: (id: string, attachmentId: string, remarks: string) =>
     request<void>(`/records/${id}/attachments/${attachmentId}`, { method: 'DELETE', body: JSON.stringify({ remarks }) }),
 
@@ -706,6 +882,22 @@ export const api = {
     request<SupplierCategory>(`/suppliers/categories/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   updateSupplierCategories: (id: string, data: { category_ids: string[]; expected_version: number }) =>
     request<ApiSupplier>(`/suppliers/${id}/categories`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  getMasterDataRequests: (params: MasterDataRequestListParams = {}) => {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (typeof value === 'string' && value.trim()) query.set(key, value.trim());
+      else if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) query.set(key, String(value));
+    }
+    return request<MasterDataRequestListResponse>(`/master-data-requests${query.size ? `?${query}` : ''}`);
+  },
+  getMasterDataRequest: (id: string) => request<ApiMasterDataAdditionRequest>(`/master-data-requests/${encodeURIComponent(id)}`),
+  submitMasterDataRequest: (data: SubmitMasterDataRequestInput) =>
+    request<ApiMasterDataAdditionRequest>('/master-data-requests', { method: 'POST', body: JSON.stringify(data) }),
+  approveMasterDataRequest: (id: string, data: ApproveMasterDataRequestInput) =>
+    request<ApproveMasterDataRequestResult>(`/master-data-requests/${encodeURIComponent(id)}/approve`, { method: 'POST', body: JSON.stringify(data) }),
+  rejectMasterDataRequest: (id: string, data: RejectMasterDataRequestInput) =>
+    request<{ request: ApiMasterDataAdditionRequest }>(`/master-data-requests/${encodeURIComponent(id)}/reject`, { method: 'POST', body: JSON.stringify(data) }),
 
   getDashboardStats: () => request<ApiDashboardStats>('/dashboard/stats'),
   getDashboardOverview: () => request<ApiDashboardOverview>('/dashboard/overview'),

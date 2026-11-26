@@ -164,6 +164,8 @@ export async function seedDriverDemo(prisma: PrismaClient, targetDate?: string) 
                 priority: '2 - Moderate',
                 reference: cat === 'RMA' ? '' : `SAP-DEMO-${hashName.substring(0, 8)}-${cat}`,
                 rmaReference: null,
+                rmaType: cat === 'RMA' ? 'Pull Out Slip' : null,
+                isInternalTransfer: false,
                 legacySapReference: cat === 'RMA' ? `SAP-DEMO-${hashName.substring(0, 8)}-${cat}` : null,
                 remarks: `Demo seeded run for ${cat}`,
                 status: 'SCHEDULED',
@@ -178,6 +180,7 @@ export async function seedDriverDemo(prisma: PrismaClient, targetDate?: string) 
                 itemType: 'Small Item',
                 draft: false,
                 itemDescription: `Demo item for ${cat}`,
+                ...(cat === 'RMA' ? { caseNumber: `CAS-DEMO-${hashName.substring(0, 6).toUpperCase()}`, internalLogisticsRemarks: 'Call before going.' } : {}),
                 collectionVerified: false,
                 createdById: sales.id,
                 modifiedById: logistics.id

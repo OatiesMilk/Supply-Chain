@@ -1,5 +1,7 @@
 import { assertDisposableSeedTarget } from './seed-safety';
 import { prisma } from '../src/db';
+import { RMA_CATEGORIES } from '../src/services/rmaRules';
+import { RMA_SLIP_PREFIX_BY_CATEGORY, formatRmaReference } from '../src/services/rmaReference';
 import bcrypt from 'bcryptjs';
 
 import { seedAccounts, COMPANIES, CUSTOMERS, SUPPLIERS } from './seeds/accounts';
@@ -166,6 +168,8 @@ export async function runSeed(force = false) {
   await prisma.remarkLog.deleteMany();
   await prisma.comment.deleteMany();
   await prisma.notification.deleteMany();
+  // Requests restrict User deletion and link Company/Supplier; clear them first.
+  await prisma.masterDataAdditionRequest.deleteMany();
   await prisma.userPermission.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.notificationLog.deleteMany();
@@ -174,6 +178,7 @@ export async function runSeed(force = false) {
   await prisma.inventoryItem.deleteMany();
   await prisma.product.deleteMany();
   await prisma.deliveryRecord.deleteMany();
+  await prisma.rmaReferenceSequence.deleteMany();
   await prisma.company.deleteMany();
   await prisma.customer.deleteMany();
   await prisma.supplier.deleteMany();
@@ -306,15 +311,62 @@ export async function runSeed(force = false) {
     { id: 'REC-4405', companyKey: 'seven11',        priority: '1 - Low',      reference: 'SAP-SO-3070', remarks: 'High-volume consumables order for 7-Eleven Pasig cluster.',              status: 'PENDING',      vehicle: '(None)',                 area: 'Pasig - Kapitolyo',        driver: '',  driverAssistants: '[]',  accountManager: 'C. Lim',        deliveryDate: '2026-07-19', category: 'SALES_ORDERS',          itemType: 'Large / Pallet', draft: false,  itemDescription: '50x UTK-RFID-TAG, 50x UTK-ACC-ROLL, 30x UTK-STY-PAS', collectionVerified: false, createdBy: sales, modifiedBy: sales }
   ];
 
+  // Seeded RMAs cycle through the six slip categories with deterministic slip
+  // references dated by their delivery date; the counters are synced below so
+  // records created afterwards never collide with them.
+  const rmaSequences = new Map<string, number>();
+  let rmaIndex = 0;
+  const seededRma = (deliveryDate: string) => {
+    const rmaType = RMA_CATEGORIES[rmaIndex++ % RMA_CATEGORIES.length];
+    const prefix = RMA_SLIP_PREFIX_BY_CATEGORY[rmaType];
+    const key = `${prefix}|${deliveryDate}`;
+    const sequence = (rmaSequences.get(key) ?? 0) + 1;
+    rmaSequences.set(key, sequence);
+    return { rmaType, rmaReference: formatRmaReference(prefix, deliveryDate, sequence) };
+  };
+
+  // A few seeded RMAs carry the structured form fields (case number, RTC-only SS#,
+  // structured items, several contacts, separated remarks); the rest stay in the
+  // legacy itemDescription-only format so both read paths are exercised.
+  const seededRmaForms: Record<string, {
+    caseNumber: string; serviceSlipNo?: string; clientRemarks?: string; internalLogisticsRemarks?: string;
+    contacts?: { name: string; phone?: string; email?: string }[];
+    items?: Record<string, string | number | null>[];
+  }> = {
+    'REC-4101': {
+      caseNumber: 'CAS-31401-A1B2C3', clientRemarks: 'SAP#12019301', internalLogisticsRemarks: 'Call before going.',
+      contacts: [{ name: 'Maria Dela Cruz', phone: '+639171234567' }],
+      items: [{ sku: 'UTK-PRN-TH80 Thermal Printer', quantity: 1, unitType: 'Unit', serialNumber: 'TH80-SN-0001', purchaseDate: '2025-11-03', salesOrderNo: '12019301',
+        accessories: 'Power Adaptor', problemDescription: 'Dead pixel on print head', statusTag: 'For Pull Out' }],
+    },
+    'REC-4102': {
+      caseNumber: 'CAS-31417-Y4Y6Z3', serviceSlipNo: 'SS#60142', clientRemarks: 'SAP#12019325',
+      internalLogisticsRemarks: 'Note: with collection of Php2,000.00 cash. Please bring CR.',
+      contacts: [{ name: 'Alvin Gatus', phone: '+639989765266' }, { name: 'Raymond Oliva' }, { name: 'Jefferson Sualog' }],
+      items: [
+        { sku: 'UTK-TAB10 Tablet', quantity: 1, unitType: 'Unit', newSerialNumber: 'TAB10-NEW-7781', defectiveSerialNumber: 'TAB10-DEF-5512', purchaseDate: '2025-08-14',
+          salesOrderNo: '12019325', repairNote: 'Replacement unit', statusTag: 'UNIT REPAIRED/FOR DELIVERY' },
+        { sku: 'Power Adaptor', quantity: 1, unitType: 'Item', statusTag: 'For Return' },
+      ],
+    },
+    'REC-4106': { caseNumber: 'CAS-31455-K9L8M7' },
+    'REC-4107': { caseNumber: 'CAS-31460-Q2W3E4', serviceSlipNo: 'SS#60177', clientRemarks: 'SAP#12019388' },
+  };
+
   for (const r of records) {
     const company = companies[r.companyKey];
+    const rma = r.category === 'RMA' ? seededRma(r.deliveryDate) : null;
+    const form = rma ? seededRmaForms[r.id] : undefined;
+    const contacts = form?.contacts ?? [];
     await prisma.deliveryRecord.create({
       data: {
         id:                 r.id,
         companyId:          company.id,
         priority:           r.priority,
         reference:          r.category === 'RMA' ? '' : r.reference,
-        rmaReference:       null,
+        rmaReference:       rma?.rmaReference ?? null,
+        rmaType:            rma?.rmaType ?? null,
+        isInternalTransfer: false,
         legacySapReference: r.category === 'RMA' ? r.reference : null,
         remarks:            r.remarks,
         status:             r.status as any,
@@ -330,11 +382,28 @@ export async function runSeed(force = false) {
         draft:              r.draft,
         
         itemDescription:    r.itemDescription,
+        ...(form ? {
+          caseNumber: form.caseNumber,
+          // SS# only on Return to Customer Slip rows.
+          serviceSlipNo: rma?.rmaType === 'Return to Customer Slip' ? form.serviceSlipNo ?? null : null,
+          clientRemarks: form.clientRemarks ?? null,
+          internalLogisticsRemarks: form.internalLogisticsRemarks ?? null,
+          customerContactName: contacts.length ? [...new Set(contacts.map(c => c.name))].join(' / ') : null,
+          customerContactPhone: contacts.some(c => c.phone) ? [...new Set(contacts.flatMap(c => c.phone ? [c.phone] : []))].join(' / ') : null,
+          customerContactEmail: contacts.find(c => c.email)?.email ?? null,
+          rmaContacts: contacts.length ? { create: contacts.map((c, position) => ({ position, name: c.name, phone: c.phone ?? null, email: c.email ?? null })) } : undefined,
+          lineItems: form.items?.length ? { create: form.items.map((item, position) => ({ ...item, position, sku: String(item.sku), quantity: Number(item.quantity) })) } : undefined,
+        } : {}),
         collectionVerified: r.collectionVerified,
         createdById:        r.createdBy.id,
         modifiedById:       r.modifiedBy.id
       }
     });
+  }
+
+  for (const [key, lastValue] of rmaSequences) {
+    const [prefix, manilaDate] = key.split('|');
+    await prisma.rmaReferenceSequence.create({ data: { prefix, manilaDate, lastValue } });
   }
 
   console.log(`Seed complete: ${USERS.length} users, ${COMPANIES.length} companies, ${records.length} delivery records.`);

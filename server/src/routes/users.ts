@@ -10,6 +10,8 @@ import { accountMetadataVersion, assertAdminSurvives, administrativeTransaction,
 import { policyRoute } from '../middleware/policyRoute';
 import { planPermissionConversion } from '../services/permissionBackfill';
 import { asyncRoute } from '../middleware/asyncRoute';
+import { handleSignatureUpload } from '../services/signatureStorage';
+import { deleteUserSignature, drainSignatureDeletion, queueSignatureDeletionForUser, saveUserSignature, serializeSignatureMeta, streamSignatureImage } from '../services/userSignatures';
 
 const router = Router();
 
@@ -24,7 +26,10 @@ function accountBodyError(value: unknown, fields: readonly string[]): string | n
 
 // User management — ADMIN only.
 router.get('/', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (_req: Request, res: Response) => {
-  const users = await prisma.user.findMany({ orderBy: { name: 'asc' }, include: { driverProfile: { select: { id: true, name: true } } } });
+  const users = await prisma.user.findMany({ orderBy: { name: 'asc' }, include: {
+    driverProfile: { select: { id: true, name: true } },
+    signature: { select: { mimeType: true, updatedAt: true } },
+  } });
   res.json(users.map(u => ({
     id: u.id,
     name: u.name,
@@ -35,6 +40,10 @@ router.get('/', requireAuth, requireResource('users'), requireRole('ADMIN'), asy
     metadata_version: accountMetadataVersion(u),
     created_at: u.createdAt,
     driver_profile: u.driverProfile,
+    // Signature status only; the storage key is never exposed.
+    has_signature: !!u.signature,
+    signature_updated_at: u.signature?.updatedAt ?? null,
+    signature_mime_type: u.signature?.mimeType ?? null,
   })));
 }));
 
@@ -293,6 +302,7 @@ router.delete('/:id', requireAuth, requireResource('users', 'DELETE'), requireRo
     return res.status(400).json({ error: 'You cannot delete your own account' });
   }
 
+  let signatureJobId: string | null = null;
   await mutateAdminAccount(prisma, req.user!.id, id, req.body, async (tx, actor, user) => {
   await assertAdminSurvives(tx, actor.id, user, user.role, false);
 
@@ -309,6 +319,7 @@ router.delete('/:id', requireAuth, requireResource('users', 'DELETE'), requireRo
     modifiedSuppliers,
     comments,
     remarkLogs,
+    additionRequests,
   ] = await Promise.all([
     tx.deliveryRecord.count({ where: { createdById: id } }),
     tx.deliveryRecord.count({ where: { modifiedById: id } }),
@@ -321,23 +332,57 @@ router.delete('/:id', requireAuth, requireResource('users', 'DELETE'), requireRo
     tx.supplier.count({ where: { modifiedById: id } }),
     tx.comment.count({ where: { authorId: id } }),
     tx.remarkLog.count({ where: { authorId: id } }),
+    // Requester provenance is ON DELETE RESTRICT; report it as linked history.
+    tx.masterDataAdditionRequest.count({ where: { requestedById: id } }),
   ]);
 
   const totalLinked = createdRecords + modifiedRecords + auditEntries
     + createdProducts + modifiedProducts + createdCustomers + modifiedCustomers
-    + createdSuppliers + modifiedSuppliers + comments + remarkLogs;
+    + createdSuppliers + modifiedSuppliers + comments + remarkLogs + additionRequests;
 
   if (totalLinked > 0) {
     throw new PolicyManagementError(409, 'Cannot delete a user with business records; deactivate the account to retain history', { linked_records: totalLinked });
   }
 
-  // Safe to delete — clean up owned non-business data first, then remove the user
+  // Safe to delete — clean up owned non-business data first, then remove the user.
+  // A stored signature file is queued for durable deletion in this transaction
+  // (the UserSignature row itself cascades with the user).
+  signatureJobId = await queueSignatureDeletionForUser(tx, id);
   await tx.userPermission.deleteMany({ where: { userId: id } });
   await tx.notification.deleteMany({ where: { userId: id } });
   await tx.user.delete({ where: { id } });
   }, { action: 'DELETE' });
+  drainSignatureDeletion(signatureJobId);
 
   res.json({ ok: true, deleted_id: id });
+}));
+
+// ─── Admin-managed digital signatures (Feature 5a) ──────────────────────────
+const userSignatureImage = (id: string) => `/api/v1/users/${encodeURIComponent(id)}/signature/image`;
+
+router.get('/:id/signature', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (req: Request, res: Response) => {
+  const user = await prisma.user.findUnique({ where: { id: req.params.id }, select: { id: true, signature: true } });
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(serializeSignatureMeta(user.signature, userSignatureImage(user.id)));
+}));
+
+router.get('/:id/signature/image', requireAuth, requireResource('users'), requireRole('ADMIN'), asyncRoute(async (req: Request, res: Response) => {
+  const user = await prisma.user.findUnique({ where: { id: req.params.id }, select: { id: true, signature: true } });
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (!user.signature) return res.status(404).json({ error: 'No digital signature is on file.' });
+  await streamSignatureImage(res, user.signature);
+}));
+
+router.put('/:id/signature', requireAuth, requireResource('users', 'UPDATE'), requireRole('ADMIN'), handleSignatureUpload, policyRoute(async (req: Request, res: Response) => {
+  const result = await saveUserSignature({ kind: 'admin', actorId: req.user!.id, targetId: req.params.id }, req.file, userSignatureImage(req.params.id));
+  res.status(result.status).json(result.body);
+}));
+
+router.delete('/:id/signature', requireAuth, requireResource('users', 'UPDATE'), requireRole('ADMIN'), policyRoute(async (req: Request, res: Response) => {
+  const result = await deleteUserSignature({ kind: 'admin', actorId: req.user!.id, targetId: req.params.id });
+  if (result.status === 204) return res.status(204).end();
+  res.status(result.status).json(result.body);
 }));
 
 // The editor and login consume the same policy, including locked modules.

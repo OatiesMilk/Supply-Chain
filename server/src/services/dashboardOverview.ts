@@ -7,7 +7,7 @@ import { dashboardRecordFilter, driversInTransitFilter, driversOutFilter, driver
 
 const PREVIEW_LIMIT = 10;
 const DRIVER_LINK_LIMIT = 3;
-const previewInclude = { company: true, createdBy: true, modifiedBy: true, lineItems: true } as const;
+const previewInclude = { company: true, createdBy: true, modifiedBy: true, lineItems: { orderBy: [{ position: 'asc' as const }, { createdAt: 'asc' as const }] }, rmaContacts: { orderBy: [{ position: 'asc' as const }, { createdAt: 'asc' as const }] } };
 
 export async function dashboardOverview(db: PrismaClient, user: AuthUser) {
   const today = manilaToday();

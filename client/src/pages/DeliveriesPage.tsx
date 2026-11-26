@@ -26,6 +26,9 @@ export interface DeliveriesPageProps {
   dashboardFilterId: DashboardFilterId | null;
   clearDashboardFilter: () => void;
   onRefresh: () => Promise<void>;
+  /** Addition request opened from a notification or ?request= link (Feature 4b). */
+  selectedAdditionRequestId?: string | null;
+  clearSelectedAdditionRequestId?: () => void;
 }
 
 const TITLE_MAP: Record<string, { title: string; subtitle: string }> = {
@@ -67,6 +70,8 @@ export const DeliveriesPage: React.FC<DeliveriesPageProps> = ({
   dashboardFilterId,
   clearDashboardFilter,
   onRefresh,
+  selectedAdditionRequestId = null,
+  clearSelectedAdditionRequestId,
 }) => {
   const baseMeta = TITLE_MAP[category] || {
     title: 'Deliveries',
@@ -101,6 +106,8 @@ export const DeliveriesPage: React.FC<DeliveriesPageProps> = ({
       dashboardFilterId={dashboardFilterId}
       clearDashboardFilter={clearDashboardFilter}
       onRefresh={onRefresh}
+      selectedAdditionRequestId={category === 'RMA' ? selectedAdditionRequestId : null}
+      clearSelectedAdditionRequestId={clearSelectedAdditionRequestId}
     />
   );
 };

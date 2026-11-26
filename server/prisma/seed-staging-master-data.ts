@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import { assertStagingSeedTarget, StagingSeedError } from './staging-seed-safety';
 import { lockDriverDirectory } from '../src/services/driverDirectory';
-import { localDirectoryKey } from '../src/services/accountDirectory';
+import { localDirectoryKey, localSapNumbersCreate } from '../src/services/accountDirectory';
 
 /**
  * Adds a small set of demo master data to the confirmed staging database so
@@ -76,7 +76,7 @@ export async function runStagingMasterDataSeed(db: PrismaClient, options: { appl
     for (const c of companies) {
       const id = COMPANY_PREFIX + c.key;
       const data = { name: c.name, sapNumber: c.sapNumber, address: c.address, contactPerson: c.contactPerson };
-      await tx.company.create({ data: { id, ...data, normalizedName: localDirectoryKey(c.name) } });
+      await tx.company.create({ data: { id, ...data, normalizedName: localDirectoryKey(c.name), sapNumbers: localSapNumbersCreate(c.sapNumber) } });
       await tx.auditLog.create({ data: { recordId: id, recordType: 'Company', action: 'CREATE', changedById: admin.id, previousValue: null, newValue: JSON.stringify({ source: 'staging-master-data-v1', ...data }) } });
     }
     for (const p of profiles) {

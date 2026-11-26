@@ -1,9 +1,10 @@
 import { usePermissions } from '@/hooks/usePermissions';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Plus } from 'lucide-react';
 import type { Supplier, DeliveryRecord, CreateSupplierInput } from '@/types';
 import SupplierWorkspace from './SupplierWorkspace';
 import CreateSupplierForm from './CreateSupplierForm';
+import TassAdditionRequestActions, { useMasterDataRequestAccess } from '@/features/masterDataRequests/TassAdditionRequestActions';
 import { SupplierCategoryTags, SupplierCategoryManager, useCanManageSupplierCategories } from './SupplierCategories';
 import { useSupplierCategoriesQuery } from '@/api/queries/useSuppliersQuery';
 import ExportMenu from '@/components/ExportMenu';
@@ -19,6 +20,9 @@ interface Props {
   currentUserRole?: string;
   currentUserName?: string;
   onCreateSupplier: (data: CreateSupplierInput) => Promise<void>;
+  /** Addition request opened from a notification or ?request= link (Feature 4b). */
+  selectedAdditionRequestId?: string | null;
+  clearSelectedAdditionRequestId?: () => void;
 }
 export function filterSuppliers(suppliers: Supplier[], categoryId: string) {
   return categoryId ? suppliers.filter(supplier => categoryId === '__uncategorized'
@@ -30,7 +34,7 @@ export function supplierExportRows(suppliers: Supplier[], counts: Map<string, nu
     categories: supplier.categories.map(category => category.name).join('; ') || supplier.category,
     pickup_count: counts.get(supplier.id) ?? null }));
 }
-export default function SuppliersView({ suppliers, currentUserRole = '', currentUserName = '', onCreateSupplier }: Props) {
+export default function SuppliersView({ suppliers, currentUserRole = '', currentUserName = '', onCreateSupplier, selectedAdditionRequestId = null, clearSelectedAdditionRequestId }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showCategories, setShowCategories] = useState(false);
@@ -48,6 +52,11 @@ export default function SuppliersView({ suppliers, currentUserRole = '', current
   const pickupCounts = new Map(counts.data?.map(row => [row.id, row.count]));
   const canCreate = currentUserRole !== 'TASS' && access.canWrite('suppliers') && access.canResource('suppliers', 'CREATE');
   const activeSupplier = suppliers.find(supplier => supplier.id === selectedId);
+  const { canReadOwnRequests } = useMasterDataRequestAccess();
+  // A request notification opened while a supplier is shown: return to the registry so My Requests can open.
+  useEffect(() => {
+    if (selectedAdditionRequestId && canReadOwnRequests) setSelectedId(null);
+  }, [selectedAdditionRequestId, canReadOwnRequests]);
   if (selectedId && activeSupplier) return <SupplierWorkspace key={selectedId} supplier={activeSupplier}
     allSupplierIds={filtered.map(supplier => supplier.id)} deliveryRecords={[]} pickupCount={pickupCounts.get(activeSupplier.id)}
     onBack={() => setSelectedId(null)} onNavigateToSupplier={setSelectedId} />;
@@ -59,6 +68,9 @@ export default function SuppliersView({ suppliers, currentUserRole = '', current
         <div className="flex flex-wrap items-center gap-2">
           {canManage && <button type="button" onClick={() => setShowCategories(true)} className={btnSecondaryClass}>Manage Categories</button>}
           {canCreate && <button type="button" onClick={() => setShowCreate(true)} className={btnPrimaryClass}><Plus className="w-4 h-4" />New Supplier</button>}
+          {/* TASS cannot create suppliers directly; it asks an Admin instead. */}
+          <TassAdditionRequestActions variant="suppliers" selectedAdditionRequestId={selectedAdditionRequestId}
+            clearSelectedAdditionRequestId={clearSelectedAdditionRequestId} />
           <ExportMenu rows={supplierExportRows(filtered, pickupCounts)} totalCount={filtered.length}
             fetchExportData={async () => {
               const all = new Map<string, number>();

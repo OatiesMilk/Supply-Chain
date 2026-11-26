@@ -6,7 +6,9 @@ import { runSeed } from '../../prisma/seed';
 import { canResetLocalDemo } from '../services/localDemoReset';
 import { serializeRecord } from '../mappings';
 import type { Request, Response } from 'express';
-import { RMA_CATEGORIES, RMA_ITEM_TYPES, normalizeRmaCategory, rmaInputError } from '../services/rmaRules';
+import { rmaMovementInputError, validRmaMovement } from '../services/rmaMovement';
+import { INTERNAL_TRANSFER_CATEGORY_ERROR, INTERNAL_TRANSFER_MOVEMENT_ERROR, RMA_CATEGORIES, RMA_ITEM_TYPES, canonicalRmaCategory, isReturnToCustomerCategory, nonRmaFieldError, optionalText, rmaFormWrite, rmaInputError, rmaInternalTransferError, rmaServiceSlipError } from '../services/rmaRules';
+import { allocateRmaReference } from '../services/rmaReference';
 import { generateRecordId } from '../services/recordIds';
 import { dataSamplerEnabled } from '../services/dataSamplerEnvironment';
 import { recordSubmissionError } from '../services/recordSubmission';
@@ -148,12 +150,32 @@ router.post('/generate', requireAuth, requireResource('dataSampler', 'WRITE'), r
     if (fields?.status !== undefined && !['Scheduled', 'SCHEDULED'].includes(fields.status)) return res.status(400).json({ error: 'Sample records must start Scheduled. Record Time In and complete through the delivery workflow.' });
     const isRma = mod.dbCategory === 'RMA';
     const overrides: Record<string, any> = fields ?? {};
+    const rmaMovement: string | null = isRma && typeof overrides.rma_movement === 'string' && overrides.rma_movement.trim() ? overrides.rma_movement.trim() : null;
     if (isRma) {
-      const error = rmaInputError({ ...overrides, rma_reference: overrides.rma_reference ?? overrides.reference });
+      // Slip references are allocated on save, like real RMA records.
+      const error = rmaInputError({ ...overrides, rma_reference: overrides.rma_reference ?? overrides.reference }, false, { allowManualReference: false });
       if (error) return res.status(400).json({ error });
+      if (overrides.rma_movement !== undefined && overrides.rma_movement !== null && overrides.rma_movement !== '' && !validRmaMovement(rmaMovement)) {
+        return res.status(400).json({ error: 'Choose a valid RMA movement method.' });
+      }
+      if (overrides.is_internal_transfer === true) {
+        if (overrides.rma_type === undefined) return res.status(400).json({ error: INTERNAL_TRANSFER_CATEGORY_ERROR });
+        const transferError = rmaInternalTransferError({ rmaType: overrides.rma_type, isInternalTransfer: true, rmaMovement });
+        if (transferError) return res.status(400).json({ error: transferError });
+        // Samples are always saved Scheduled (never Draft), so a transfer needs its movement now.
+        if (rmaMovement !== 'LOGISTICS_TRANSPORT' && rmaMovement !== 'INTERNAL_NO_DRIVER') return res.status(400).json({ error: INTERNAL_TRANSFER_MOVEMENT_ERROR });
+      }
       if (overrides.item_type !== undefined && !RMA_ITEM_TYPES.some(value => value === overrides.item_type)) {
         return res.status(400).json({ error: 'RMA Item Type must be Small Item or Unit.' });
       }
+      // A fixed SS# needs a fixed Return to Customer Slip category; random categories never get one.
+      const slipError = optionalText(overrides.service_slip_no) && rmaServiceSlipError(overrides.rma_type, overrides.service_slip_no);
+      if (slipError) return res.status(400).json({ error: slipError });
+      const form = rmaFormWrite(overrides, { rmaType: overrides.rma_type, submitted: true });
+      if (!form.ok) return res.status(400).json({ error: form.error });
+    } else {
+      const fieldError = nonRmaFieldError(overrides);
+      if (fieldError) return res.status(400).json({ error: fieldError });
     }
     const n = Math.min(Math.max(1, Number(count) || 1), 50);
     const sampleSubmissions = Array.from({ length: n }, () => ({
@@ -163,6 +185,9 @@ router.post('/generate', requireAuth, requireResource('dataSampler', 'WRITE'), r
     for (const submission of sampleSubmissions) {
       const error = recordSubmissionError({ category: mod.dbCategory, ...submission });
       if (error) return res.status(400).json({ error });
+      // Scheduled Logistics transport needs a valid planned date, like a real submission.
+      const movementError = rmaMovement === 'LOGISTICS_TRANSPORT' && rmaMovementInputError({ rma_movement: rmaMovement, delivery_date: submission.deliveryDate }, true);
+      if (movementError) return res.status(400).json({ error: movementError });
     }
 
     const companies = await prisma.company.findMany({ where: { isActive: true }, select: { id: true, name: true } });
@@ -228,6 +253,12 @@ router.post('/generate', requireAuth, requireResource('dataSampler', 'WRITE'), r
         formattedAssistants = JSON.stringify([driverAssistants]);
       }
 
+      const noRmaDriver = isRma && rmaMovement !== 'LOGISTICS_TRANSPORT';
+      const rmaType = isRma ? canonicalRmaCategory(overrides.rma_type) ?? RMA_CATEGORIES[randInt(0, RMA_CATEGORIES.length - 1)] : null;
+      const form = isRma ? rmaFormWrite(overrides, { rmaType, submitted: true }) : null;
+      if (form && !form.ok) return res.status(400).json({ error: form.error });
+      const rmaForm = form?.ok ? form.write : null;
+      const sampleCaseNumber = `CAS-${randInt(10000, 99999)}-${Math.random().toString(36).slice(2, 8).toUpperCase().padEnd(6, '0')}`;
       const record = await prisma.$transaction(async tx => {
         const record = await tx.deliveryRecord.create({
           data: {
@@ -235,21 +266,38 @@ router.post('/generate', requireAuth, requireResource('dataSampler', 'WRITE'), r
             companyId:       overrides.company_id    ?? company.id,
             priority:        overrides.priority       ?? priority,
             reference:       isRma ? '' : overrides.reference ?? reference,
-            rmaReference:    isRma ? (overrides.rma_reference ?? overrides.reference ?? '').trim() || null : null,
+            rmaReference:    rmaType ? await allocateRmaReference(tx, rmaType) : null,
             legacySapReference: null,
-            rmaType:         isRma ? normalizeRmaCategory(overrides.rma_type !== undefined ? overrides.rma_type : RMA_CATEGORIES[randInt(0, RMA_CATEGORIES.length - 1)]) : null,
+            rmaType,
+            isInternalTransfer: isRma && rmaType === 'Transfer Out Slip' && overrides.is_internal_transfer === true,
+            rmaMovement:     isRma ? rmaMovement : null,
+            rmaTransportStatus: isRma && rmaMovement === 'LOGISTICS_TRANSPORT' ? 'PENDING' : null,
             purchaseDate:    isRma ? overrides.purchase_date || null : null,
             customerContactName: isRma ? overrides.customer_contact_name?.trim() || null : null,
             customerContactEmail: isRma ? overrides.customer_contact_email?.trim() || null : null,
             customerContactPhone: isRma ? overrides.customer_contact_phone?.trim() || null : null,
+            ...(rmaForm ? {
+              caseNumber: overrides.case_number === undefined ? sampleCaseNumber : rmaForm.data.caseNumber ?? null,
+              serviceSlipNo: overrides.service_slip_no === undefined
+                ? (isReturnToCustomerCategory(rmaType) ? `SS#${randInt(60000, 69999)}` : null)
+                : rmaForm.data.serviceSlipNo ?? null,
+              clientRemarks: rmaForm.data.clientRemarks ?? null,
+              internalLogisticsRemarks: rmaForm.data.internalLogisticsRemarks ?? null,
+              ...(rmaForm.contacts ? {
+                ...Object.fromEntries(Object.entries(rmaForm.data).filter(([key]) => key.startsWith('customerContact'))),
+                rmaContacts: rmaForm.contacts.length ? { create: rmaForm.contacts.map((contact, position) => ({ ...contact, position })) } : undefined,
+              } : {}),
+              lineItems: rmaForm.lineItems?.length ? { create: rmaForm.lineItems } : undefined,
+            } : {}),
             remarks:         overrides.remarks        ?? 'Created via Data Sampler',
             status,
-            vehicle:         overrides.vehicle        ?? vehicle,
+            // RMA samples without Logistics transport never fabricate a driver run.
+            vehicle:         noRmaDriver ? '(None)' : overrides.vehicle ?? vehicle,
             area:            overrides.area           ?? area,
             address:         overrides.address        ?? '',
-            driver:          fieldDriver ? fieldDriver.name : (overrides.driver === '' ? '' : driver),
-            driverId:        fieldDriver ? fieldDriver.id : (overrides.driver === '' ? null : sampleDriver?.id ?? null),
-            driverAssistants: formattedAssistants,
+            driver:          noRmaDriver ? '' : fieldDriver ? fieldDriver.name : (overrides.driver === '' ? '' : driver),
+            driverId:        noRmaDriver ? null : fieldDriver ? fieldDriver.id : (overrides.driver === '' ? null : sampleDriver?.id ?? null),
+            driverAssistants: noRmaDriver ? '[]' : formattedAssistants,
             accountManager:  chosenAccountManager ?? accountManager,
             deliveryDate:    overrides.delivery_date  ?? deliveryDate,
             category:        mod.dbCategory as any,
@@ -264,7 +312,7 @@ router.post('/generate', requireAuth, requireResource('dataSampler', 'WRITE'), r
             createdById:  req.user!.id,
             modifiedById: req.user!.id,
           },
-          include: { company: true, createdBy: true, modifiedBy: true }
+          include: { company: true, createdBy: true, modifiedBy: true, lineItems: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] }, rmaContacts: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] } }
         });
 
         await tx.auditLog.create({ data: {
@@ -301,6 +349,7 @@ const dataSamplerResetOperations: DataSamplerResetOperations = {
     await prisma.notification.deleteMany();
     await prisma.notificationLog.deleteMany();
     await prisma.deliveryRecord.deleteMany();
+    await prisma.rmaReferenceSequence.deleteMany();
   },
 };
 

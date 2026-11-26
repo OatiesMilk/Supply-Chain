@@ -31,8 +31,6 @@ export const DASHBOARD_FILTERS = {
   'tass-open-rma': { label: 'Open RMA', screen: 'rma' },
   'tass-rma-aging': { label: 'Open RMA over 7 days', screen: 'rma' },
   'tass-rma-on-hold': { label: 'RMA On-Hold', screen: 'rma' },
-  'tass-pending-pickups': { label: 'Pick-ups Pending', screen: 'procurement_pickup' },
-  'tass-pending-verification': { label: 'Collections Pending', screen: 'accounting_collection' },
   'admin-active-users': { label: 'Total Active Users', screen: 'admin' },
   'admin-records-this-week': { label: 'Records This Week', screen: 'transactions' },
   'admin-unverified-collections': { label: 'Unverified Collections', screen: 'accounting_collection' },
@@ -72,9 +70,14 @@ export function recordCompletedAt(record: DeliveryRecord): string | null | undef
   return record.category === 'RMA' ? record.rma_completed_at ?? record.time_out : record.completion_signed_off_at ?? record.time_out;
 }
 
+/** Non-RMA internal transfers (TXO) ride Logistics transport but never count as TASS RMA work. */
+function isRmaKpiRecord(record: DeliveryRecord): boolean {
+  return record.category === 'RMA' && !record.is_internal_transfer;
+}
+
 /** Every RMA that is neither completed nor a draft. Mirrors OPEN_RMA_STATUSES on the server. */
 function isOpenRma(record: DeliveryRecord): boolean {
-  return record.category === 'RMA' && !isDraftRecord(record) && record.status !== 'Delivered';
+  return isRmaKpiRecord(record) && !isDraftRecord(record) && record.status !== 'Delivered';
 }
 
 /** Non-RMA job types a Driver runs. Mirrors DRIVER_RUN_CATEGORIES on the server. */
@@ -189,7 +192,7 @@ export function matchesDashboardFilter(
     case 'sc-in-transit':
       return isRunInTransit(record);
     case 'tass-rma-in-transit':
-      return isRmaInTransit(record);
+      return isRmaKpiRecord(record) && isRmaInTransit(record);
     case 'tass-open-rma':
       return isOpenRma(record);
     case 'tass-rma-aging': {
@@ -197,10 +200,7 @@ export function matchesDashboardFilter(
       return isOpenRma(record) && age !== null && age > AGE_CRITICAL_DAYS;
     }
     case 'tass-rma-on-hold':
-      return record.category === 'RMA' && record.status === 'On-Hold';
-    case 'tass-pending-pickups':
-      return record.category === 'Procurement Pick-up' && (record.status === 'Scheduled' || record.status === 'Pending');
-    case 'tass-pending-verification':
+      return isRmaKpiRecord(record) && !isDraftRecord(record) && record.status === 'On-Hold';
     case 'admin-unverified-collections':
       return record.category === 'Accounting Collection' && record.status === 'Delivered' && !record.collection_verified;
     default:

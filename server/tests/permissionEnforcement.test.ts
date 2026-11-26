@@ -330,7 +330,11 @@ test('ADMIN cannot bypass TASS-only verification and disabled record deletion; m
 });
 
 test('V1 collection verification reports repeats as conflicts while explicit action Deny remains authoritative', async t => {
-  const state = await fixture(t, 'TASS');
+  const state = await fixture(t, 'LOGISTICS');
+  state.setRecords([savedRecord('collection-one', 'ACCOUNTING_COLLECTION', { status: 'ACCOMPLISHED', collectionVerified: false })]);
+  // The frozen Logistics baseline does not grant verification until the role policy allows it.
+  assert.equal((await state.request('/api/v1/records/collection-one/verify-collection', 'PATCH', {})).status, 403);
+  state.setDefault('CATEGORY:ACCOUNTING_COLLECTION:VERIFY_COLLECTION', 'ALLOW');
   state.setRecords([savedRecord('collection-one', 'ACCOUNTING_COLLECTION', { status: 'ACCOMPLISHED', collectionVerified: true })]);
   const duplicate = await state.request('/api/v1/records/collection-one/verify-collection', 'PATCH', {});
   assert.equal(duplicate.status, 409, await duplicate.text());
@@ -339,6 +343,15 @@ test('V1 collection verification reports repeats as conflicts while explicit act
   state.setRecords([savedRecord('collection-one', 'ACCOUNTING_COLLECTION', { status: 'ACCOMPLISHED', collectionVerified: false })]);
   assert.equal((await state.request('/api/v1/records/collection-one/verify-collection', 'PATCH', {})).status, 403);
   assert.deepEqual(state.effects, [], 'neither duplicate nor denied requests write anything');
+});
+
+test('V1 TASS cannot verify or read Accounting Collection even when its role policy still allows it', async t => {
+  const state = await fixture(t, 'TASS');
+  state.setRecords([savedRecord('collection-one', 'ACCOUNTING_COLLECTION', { status: 'ACCOMPLISHED', collectionVerified: false })]);
+  for (const key of ['CATEGORY:ACCOUNTING_COLLECTION:VERIFY_COLLECTION', 'CATEGORY:ACCOUNTING_COLLECTION:READ', 'SCREEN:accounting_collection:READ']) state.setDefault(key, 'ALLOW');
+  assert.equal((await state.request('/api/v1/records/collection-one/verify-collection', 'PATCH', {})).status, 403);
+  assert.equal((await state.request('/api/v1/records/collection-one/comments', 'POST', { body: 'Hello' })).status, 403);
+  assert.deepEqual(state.effects, []);
 });
 
 

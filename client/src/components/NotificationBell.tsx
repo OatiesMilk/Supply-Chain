@@ -21,7 +21,10 @@ import {
 } from "lucide-react";
 import { api, ApiNotification } from "../api";
 import { DeliveryRecord } from "../types";
-import { notificationScreen } from "../utils/notificationNavigation";
+import { ADDITION_REQUEST_RECORD_TYPE, notificationScreen } from "../utils/notificationNavigation";
+import { usePermissions } from '../hooks/usePermissions';
+import { useAuthStore } from '../store/authStore';
+import { useUIStore } from '../store/uiStore';
 import { operationalSyncOptions } from '../api/queries/operationalSync';
 import { navbarIconButtonClass } from '../utils/uiClasses';
 
@@ -53,6 +56,9 @@ export default function NotificationBell({
   const [hasMoreBelow, setHasMoreBelow] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  const role = useAuthStore(state => state.authUser?.role);
+  const { canAccess } = usePermissions();
+  const navigateAdditionRequest = useUIStore(state => state.handleNavigateAdditionRequest);
 
   const updateScrollCue = useCallback(() => {
     const el = listRef.current;
@@ -123,8 +129,12 @@ export default function NotificationBell({
   const handleClickNotification = async (n: ApiNotification) => {
     if (!n.is_read) void handleMarkOne(n.id);
     if (n.record_id && n.record_type) {
-      const screen = await notificationScreen(n, deliveryRecords, api.getRecord);
-      onNavigate(screen, n.record_id);
+      const screen = await notificationScreen(n, deliveryRecords, api.getRecord, { role, canAccess });
+      // Addition requests are not records: open the request without a record lookup or selection.
+      if (n.record_type === ADDITION_REQUEST_RECORD_TYPE) {
+        if (screen === 'dashboard') onNavigate(screen);
+        else navigateAdditionRequest(screen, n.record_id);
+      } else onNavigate(screen, n.record_id);
     }
     setOpen(false);
   };

@@ -9,6 +9,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { api } from '../src/api';
 import type { DeliveryRecord, UserRole } from '../src/types';
 import { saveRecordToCache } from '../src/api/queries/operationalSync';
+import { manilaToday } from '../src/utils/recordLifecycle';
+import { rmaEventDateError } from '../src/features/deliveries/RmaWorkflowPanel';
 
 const base = (updates: Partial<DeliveryRecord> = {}) => ({
   id: 'rma-ui', company_id: 'company', company_name: 'RMA customer', category: 'RMA',
@@ -74,24 +76,68 @@ const dialogButton = (ui: { dom: JSDOM }, title: string, label: string) => {
 };
 const none = { assign: false, transport: false, receive: false, complete: false, pod: false, correctTransport: false };
 
-test('TASS confirms physical receipt separately before final completion without a metadata PUT or driver clocks', async () => {
+const manilaDay = (offsetDays = 0) => manilaToday(new Date(Date.now() + offsetDays * 86_400_000));
+
+test('TASS confirms physical receipt with an editable receipt date and no Recipient, then completes with a completion date', async () => {
   const ui = await fixture(); let record = base();
   mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []);
   mock.method(api, 'getRmaCapabilities', async () => ({ ...none, receive: !record.rma_received_at, complete: !!record.rma_received_at && record.status !== 'Delivered' }));
   const put = mock.method(api, 'updateRecord', async () => { throw new Error('Receipt is a dedicated action'); });
-  const receive = mock.method(api, 'receiveRma', async (_id, data) => record = { ...record, rma_version: 1, rma_recipient: data.recipient, rma_received_at: '2026-10-28T02:00:00Z', rma_received_by: 'tass-id' });
-  const complete = mock.method(api, 'patchStatus', async () => record = { ...record, status: 'Delivered', rma_version: 2, rma_completed_at: '2026-10-28T02:01:00Z' });
+  const receivedDay = manilaDay(-2);
+  const receive = mock.method(api, 'receiveRma', async () => record = { ...record, rma_version: 1, rma_recipient: null, rma_received_at: `${receivedDay}T04:00:00.000Z`, rma_received_by: 'tass-id' });
+  const complete = mock.method(api, 'patchStatus', async () => record = { ...record, status: 'Delivered', rma_version: 2, rma_completed_at: new Date().toISOString() });
   try {
     await ui.render(record, 'TASS', true); await act(async () => ui.button('Status & Actions')!.click()); await ui.flush();
     assert.equal(ui.button('Complete RMA'), undefined); assert.doesNotMatch(ui.dom.window.document.body.textContent!, /Record Time In|Driver & Delivery Details/);
-    await ui.input('Recipient', 'Collector'); await ui.input('Remarks', 'Units physically received');
+    const labels = [...ui.dom.window.document.querySelectorAll('label')].map(el => el.childNodes[0]?.textContent?.trim());
+    assert.ok(!labels.includes('Recipient'), 'TASS does not encode the signer');
+    const receiptDate = ui.field('Receipt date') as HTMLInputElement;
+    assert.equal(receiptDate.type, 'date'); assert.equal(receiptDate.value, manilaDay(0)); assert.equal(receiptDate.max, manilaDay(0));
+    await ui.input('Remarks', 'Signed slip returned');
+    await ui.input('Receipt date', manilaDay(1));
+    assert.match(ui.dom.window.document.body.textContent!, /Receipt date cannot be in the future\./);
+    assert.equal(ui.button('Confirm physical receipt')!.disabled, true);
+    await ui.input('Receipt date', receivedDay);
+    assert.equal(ui.button('Confirm physical receipt')!.disabled, false, 'remarks and date are enough');
     await act(async () => ui.button('Confirm physical receipt')!.click()); await ui.flush();
-    assert.deepEqual(receive.mock.calls[0].arguments, [record.id, { expected_version: 0, remarks: 'Units physically received', recipient: 'Collector' }]);
-    assert.ok(ui.button('Complete RMA')); assert.match(ui.summaryValue('Physical receipt') ?? '', /^Collector\b/);
-    await ui.input('Remarks', 'RMA reviewed and completed'); await act(async () => ui.button('Complete RMA')!.click()); await ui.flush();
-    assert.deepEqual(complete.mock.calls[0].arguments, [record.id, 'Delivered', 'RMA reviewed and completed', { expected_version: 1, received_by: 'Collector' }]);
+    assert.deepEqual(receive.mock.calls[0].arguments, [record.id, { expected_version: 0, remarks: 'Signed slip returned', received_at: receivedDay }]);
+    assert.ok(ui.button('Complete RMA')); assert.match(ui.summaryValue('Physical receipt') ?? '', /^Confirmed · /);
+    const completionDate = ui.field('Completion date') as HTMLInputElement;
+    assert.equal(completionDate.type, 'date'); assert.equal(completionDate.value, receivedDay, 'defaults to the receipt date');
+    assert.equal(completionDate.min, receivedDay); assert.equal(completionDate.max, manilaDay(0));
+    await ui.input('Remarks', 'RMA reviewed and completed');
+    await ui.input('Completion date', manilaDay(-3));
+    assert.match(ui.dom.window.document.body.textContent!, /Completion date cannot be earlier than the receipt date\./);
+    assert.equal(ui.button('Complete RMA')!.disabled, true);
+    await ui.input('Completion date', manilaDay(-1));
+    await act(async () => ui.button('Complete RMA')!.click()); await ui.flush();
+    assert.deepEqual(complete.mock.calls[0].arguments, [record.id, 'Delivered', 'RMA reviewed and completed', { expected_version: 1, completed_at: manilaDay(-1) }]);
     assert.equal(record.time_in, null); assert.equal(record.time_out, null); assert.equal(put.mock.callCount(), 0);
   } finally { await ui.close(); }
+});
+
+test('a legacy confirmed Recipient is still passed through on completion', async () => {
+  const ui = await fixture();
+  const record = base({ rma_version: 1, rma_recipient: 'Collector', rma_received_at: new Date().toISOString(), rma_received_by: 'tass-id' });
+  mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []);
+  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, complete: true }));
+  const complete = mock.method(api, 'patchStatus', async () => ({ ...record, status: 'Delivered', rma_version: 2 }));
+  try {
+    await ui.render(record, 'TASS');
+    assert.match(ui.summaryValue('Physical receipt') ?? '', /^Collector\b/);
+    await ui.input('Remarks', 'Completed');
+    await act(async () => ui.button('Complete RMA')!.click()); await ui.flush();
+    assert.deepEqual(complete.mock.calls[0].arguments, [record.id, 'Delivered', 'Completed', { expected_version: 1, completed_at: manilaDay(0), received_by: 'Collector' }]);
+  } finally { await ui.close(); }
+});
+
+test('receipt/completion date validation mirrors the server bounds', () => {
+  const today = '2026-11-24';
+  assert.equal(rmaEventDateError('', 'Receipt date', today, null, 'x'), 'Receipt date is required.');
+  assert.equal(rmaEventDateError('2026-11-25', 'Receipt date', today, null, 'x'), 'Receipt date cannot be in the future.');
+  assert.equal(rmaEventDateError('2026-11-19', 'Receipt date', today, '2026-11-20', 'Too early'), 'Too early');
+  assert.equal(rmaEventDateError('2026-11-20', 'Receipt date', today, '2026-11-20', 'Too early'), null, 'same day as the lower bound');
+  assert.equal(rmaEventDateError(today, 'Completion date', today, null, 'x'), null);
 });
 
 test('Logistics reuses coverage-ranked assignment in its read-only workspace and refused saves preserve the edit', async () => {
@@ -327,6 +373,11 @@ test('shared RMA creation requires an explicit movement choice and preserves sub
     await ui.renderElement(React.createElement(CreateForm, { category: 'RMA', categoryLocked: true, companies: [company], onSubmit: submit, onCancel: () => {} }));
     await ui.flush();
     await act(async () => ui.button('Auto Fill')!.click());
+    // Pin a non-Receiving-Slip category so the movement requirement never depends on Auto Fill's random pick.
+    const category = ui.dom.window.document.getElementById('create-rma-type') as HTMLSelectElement;
+    await act(async () => { category.value = 'Pull Out Slip'; category.dispatchEvent(new ui.dom.window.Event('change', { bubbles: true })); });
+    await ui.flush();
+    assert.equal((ui.dom.window.document.getElementById('create-rma-movement') as HTMLSelectElement).value, '', 'Auto Fill leaves the movement method unset');
     const form = ui.dom.window.document.querySelector('form')!;
     const submitForm = async (label: string) => { await act(async () => form.dispatchEvent(new ui.dom.window.SubmitEvent('submit', { bubbles: true, cancelable: true, submitter: ui.button(label) }))); await ui.flush(); };
     await submitForm('Submit');
@@ -340,6 +391,46 @@ test('shared RMA creation requires an explicit movement choice and preserves sub
     assert.equal(saved.rma_movement, 'LOGISTICS_TRANSPORT'); assert.equal(saved.category, 'RMA'); assert.equal(saved.is_draft, 'No');
     assert.equal(saved.company_id, company.id); assert.ok(saved.delivery_date); assert.ok(saved.line_items.length > 0);
     assert.equal(saved.reference, ''); assert.equal(saved.rma_reference, null, 'auto-fill does not invent manual references');
+  } finally { await ui.close(); }
+});
+
+test('RMA create form: required slip category, read-only reference preview, RR default and TXO internal transfer option', async () => {
+  const ui = await fixture();
+  const { default: CreateForm } = await import('../src/features/deliveries/RecordCreateForm');
+  const submit = mock.fn(async (data: any) => base({ ...data, id: 'created-rma', rma_reference: 'TXO112426-01' }));
+  const company = { id: 'company', name: 'RMA Company', contact_person: 'Contact' } as any;
+  mock.method(api, 'getAccountManagers', async () => [{ id: 'am-1', name: 'P. Soriano', is_active: true }]);
+  try {
+    await ui.renderElement(React.createElement(CreateForm, { category: 'RMA', categoryLocked: true, companies: [company], onSubmit: submit, onCancel: () => {} }));
+    await ui.flush();
+    const doc = ui.dom.window.document;
+    const category = doc.getElementById('create-rma-type') as HTMLSelectElement;
+    const reference = doc.getElementById('create-rma-reference') as HTMLInputElement;
+    const movement = () => doc.getElementById('create-rma-movement') as HTMLSelectElement;
+    assert.equal(reference.readOnly, true);
+    assert.match(reference.value, /Select a category first/);
+    assert.deepEqual([...category.options].slice(1).map(option => option.textContent), [
+      'Pull Out Slip (POS)', 'Return to Customer Slip (RTC)', 'Return to Supplier Slip (RTS)', 'Advance Replacement Slip (ARD)', 'Receiving Slip (RR)', 'Transfer Out Slip (TXO)']);
+    const choose = async (select: HTMLSelectElement, value: string) => { await act(async () => { select.value = value; select.dispatchEvent(new ui.dom.window.Event('change', { bubbles: true })); }); await ui.flush(); };
+    await choose(category, 'Receiving Slip');
+    assert.equal(movement().value, 'INTERNAL_NO_DRIVER', 'walk-in Receiving Slips default to Internal / no driver');
+    assert.match(reference.value, /^Auto-generated on save \(RR\d{6}-NN\)$/);
+    assert.equal(doc.getElementById('create-rma-internal-transfer'), null, 'only Transfer Out Slips can be internal transfers');
+    await choose(category, 'Transfer Out Slip');
+    const transfer = doc.getElementById('create-rma-internal-transfer') as HTMLInputElement;
+    assert.ok(transfer);
+    await act(async () => transfer.click()); await ui.flush();
+    const supplier = [...movement().options].find(option => option.value === 'SUPPLIER_COLLECTION')!;
+    assert.equal(supplier.disabled, true, 'internal transfers cannot use supplier collection');
+    await act(async () => ui.button('Auto Fill')!.click());
+    await choose(category, 'Transfer Out Slip');
+    await act(async () => (doc.getElementById('create-rma-internal-transfer') as HTMLInputElement).click()); await ui.flush();
+    await choose(movement(), 'INTERNAL_NO_DRIVER');
+    const form = doc.querySelector('form')!;
+    await act(async () => form.dispatchEvent(new ui.dom.window.SubmitEvent('submit', { bubbles: true, cancelable: true, submitter: ui.button('Submit') }))); await ui.flush();
+    assert.equal(submit.mock.callCount(), 1);
+    const saved = submit.mock.calls[0].arguments[0];
+    assert.equal(saved.rma_type, 'Transfer Out Slip'); assert.equal(saved.is_internal_transfer, true); assert.equal(saved.rma_reference, null);
   } finally { await ui.close(); }
 });
 

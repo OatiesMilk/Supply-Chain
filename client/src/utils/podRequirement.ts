@@ -20,7 +20,8 @@ export function deliveryPhotoError(category: DeliveryCategory, status: DeliveryS
 export function completionError(record: Pick<DeliveryRecord, 'category' | 'time_in'>, status: DeliveryStatus, receivedBy: string | null | undefined, pod?: PodReadiness): string | null {
   if (status !== 'Delivered') return null;
   if (record.category !== 'RMA' && !record.time_in) return 'Record Time In before completing this run.';
-  if (!receivedBy?.trim()) return record.category === 'RMA' ? 'Recipient / Collector is required before completing this RMA.' : 'Received By is required before completing this run.';
+  // TASS records RMA receipt status, not the signer: an RMA needs no recipient name.
+  if (record.category !== 'RMA' && !receivedBy?.trim()) return 'Received By is required before completing this run.';
   return deliveryPhotoError(record.category, status, pod);
 }
 

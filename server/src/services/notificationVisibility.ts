@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { AuthUser } from '../middleware/auth';
 import { readableCategories } from './recordAccess';
 import { hasActionPermission } from './permissionEvaluator';
+import { readableEntityTypes, REQUEST_RECORD_TYPE } from './masterDataRequestAccess';
 
 /**
  * Compute the permission token stored on and matched against `ScopedSummary` notifications.
@@ -17,6 +18,17 @@ export function scopedSummaryVersion(user: AuthUser): string {
       rolePolicyRevision: user.rmaPermissions?.rolePolicyRevision ?? null,
     }))
     .digest('hex');
+}
+
+/** Addition request notifications: ADMIN with admin READ sees every one; TASS only its own
+ * requests for entity types it can still read; every other role sees none. Evaluated against
+ * current access, so a demotion or revocation hides stale notifications immediately. */
+export function additionRequestNotificationVisibility(user: AuthUser): Prisma.Sql {
+  const types = readableEntityTypes(user);
+  if (!types.length) return Prisma.sql`FALSE`;
+  if (user.role === 'ADMIN') return Prisma.sql`TRUE`;
+  return Prisma.sql`EXISTS (SELECT 1 FROM "MasterDataAdditionRequest" m WHERE m."id" = n."recordId"
+    AND m."requestedById" = ${user.id} AND m."entityType" IN (${Prisma.join(types)}))`;
 }
 
 /** Use current record access when showing notifications to past recipients. */
@@ -35,11 +47,13 @@ export function notificationVisibility(user: AuthUser) {
   const recordVisible = Prisma.sql`r."id" IS NOT NULL AND r."deletedAt" IS NULL AND ${category} AND ${ownership}`;
 
   const summaryVisible = Prisma.sql`(n."recordType" = 'ScopedSummary' AND n."recordId" = ${scopedSummaryVersion(user)})`;
+  const requestVisible = Prisma.sql`(n."recordType" = ${REQUEST_RECORD_TYPE} AND ${additionRequestNotificationVisibility(user)})`;
 
   if (user.activeMode === 'V1') {
     const resource = (name: string) => !!user.snapshot && hasActionPermission(user.snapshot, 'RESOURCE', name, 'READ');
     return Prisma.sql`(
       ${summaryVisible} OR
+      ${requestVisible} OR
       (n."recordType" = 'DeliveryRecord' AND ${recordVisible}) OR
       (n."recordType" IN ('SKU', 'Product', 'InventoryTransaction') AND ${resource('skus')}) OR
       (n."recordType" = 'Customer' AND ${resource('customers')}) OR
@@ -50,7 +64,9 @@ export function notificationVisibility(user: AuthUser) {
   }
   return Prisma.sql`(
     ${summaryVisible} OR
+    ${requestVisible} OR
     (n."recordType" = 'DeliveryRecord' AND (${recordVisible})) OR
-    (n."recordType" IS DISTINCT FROM 'DeliveryRecord' AND n."recordType" IS DISTINCT FROM 'ScopedSummary')
+    (n."recordType" IS DISTINCT FROM 'DeliveryRecord' AND n."recordType" IS DISTINCT FROM 'ScopedSummary'
+      AND n."recordType" IS DISTINCT FROM ${REQUEST_RECORD_TYPE})
   )`;
 }

@@ -3,6 +3,7 @@ import { test, mock } from 'node:test';
 import React, { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import BusinessAuditDiff, { businessAuditChanges } from '../src/features/admin/BusinessAuditDiff';
 import PolicyAuditDiff from '../src/features/admin/PolicyAuditDiff';
 import { api, ApiError } from '../src/api';
@@ -46,7 +47,11 @@ test('account editor keeps its original baseline and draft across conflict and e
     assert.ok(button, `Button ${name}`); await act(async () => button.click());
   };
   try {
-    await act(async () => root.render(React.createElement(AdminPanel, { dashboardFilterId: null, clearDashboardFilter() {} })));
+    // The Admin Panel reads the addition-request queue (pending badge) through TanStack Query.
+    if (!('mock' in api.getMasterDataRequests)) mock.method(api, 'getMasterDataRequests', async () => ({ requests: [], counts: { pending: 0, approved: 0, rejected: 0 } }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await act(async () => root.render(React.createElement(QueryClientProvider, { client: queryClient },
+      React.createElement(AdminPanel, { dashboardFilterId: null, clearDashboardFilter() {} }))));
     await act(async () => dom.window.document.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
     await click('Edit');
     const email = dom.window.document.querySelectorAll<HTMLInputElement>('tbody input')[1];
@@ -71,4 +76,16 @@ test('account editor keeps its original baseline and draft across conflict and e
     await act(async () => root.unmount()); mock.restoreAll(); dom.window.close();
     for (const key of Object.keys(globals)) { if (original[key]) Object.defineProperty(globalThis, key, original[key]); else Reflect.deleteProperty(globalThis, key); }
   }
+});
+
+test('central audit lists Company SAP number and Account Manager changes as readable names', () => {
+  const previous = { name: 'BDO', sap_numbers: ['SAP-1'], account_managers: [{ id: 'am-1', name: 'P. Soriano' }], default_account_manager: 'P. Soriano' };
+  const next = { name: 'BDO', sap_numbers: ['SAP-1', 'SAP-2'], account_managers: [{ id: 'am-1', name: 'P. Soriano' }, { id: 'am-3', name: 'B. Reyes' }],
+    default_account_manager: 'P. Soriano', secret: 'x' };
+  assert.deepEqual(businessAuditChanges('Company', previous, next), [
+    { field: 'sap_numbers', before: 'SAP-1', after: 'SAP-1, SAP-2' },
+    { field: 'account_managers', before: 'P. Soriano', after: 'P. Soriano, B. Reyes' },
+  ]);
+  assert.deepEqual(businessAuditChanges('Company', { sap_numbers: ['SAP-1'] }, { sap_numbers: [] }), [{ field: 'sap_numbers', before: 'SAP-1', after: 'none' }]);
+  assert.deepEqual(businessAuditChanges('AccountManager', { is_active: true }, { is_active: false }), [{ field: 'is_active', before: 'true', after: 'false' }]);
 });

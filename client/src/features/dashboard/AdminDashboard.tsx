@@ -39,7 +39,7 @@ export default function AdminDashboard({ stats, overview, onNavigate, onRefresh,
   const unverifiedContext = unverified === undefined ? undefined
     : unverified === 0 ? 'Nothing to verify'
     : amount > 0 ? `₱${amount.toLocaleString('en-PH', { minimumFractionDigits: 2 })} across ${unverified} record${unverified !== 1 ? 's' : ''}`
-    : 'Awaiting TASS';
+    : 'Awaiting verification';
   const byStatus = stats?.records_by_status ?? [];
   const recentAudit = stats?.recent_audit ?? [];
 

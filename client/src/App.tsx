@@ -183,6 +183,10 @@ function AuthenticatedApp() {
   const dashboardFilterId = useUIStore(s => s.dashboardFilterId);
   const clearDashboardFilter = useUIStore(s => s.clearDashboardFilter);
   const navigate = useUIStore(s => s.handleNavigate);
+  const navigateAdditionRequest = useUIStore(s => s.handleNavigateAdditionRequest);
+  const selectedAdditionRequestId = useUIStore(s => s.selectedAdditionRequestId);
+  const setSelectedAdditionRequestId = useUIStore(s => s.setSelectedAdditionRequestId);
+  const clearSelectedAdditionRequestId = useCallback(() => setSelectedAdditionRequestId(null), [setSelectedAdditionRequestId]);
   const handleNavigate = useCallback((screen: string, itemId?: string, filterId?: DashboardFilterId) => {
     if (screen !== 'no-access' && !effectiveScreens.has(screen)) {
       openAccessRequest(screen);
@@ -194,12 +198,12 @@ function AuthenticatedApp() {
   // Client-side routing
   useEffect(() => {
     const syncRoute = () => {
-      syncAuthenticatedRoute(effectiveScreens, handleNavigate);
+      syncAuthenticatedRoute(effectiveScreens, handleNavigate, navigateAdditionRequest);
     };
     syncRoute();
     window.addEventListener('popstate', syncRoute);
     return () => window.removeEventListener('popstate', syncRoute);
-  }, [handleNavigate, effectiveScreens]);
+  }, [handleNavigate, navigateAdditionRequest, effectiveScreens]);
 
   // Global Ctrl+K / Cmd+K search modal shortcut
   useEffect(() => {
@@ -334,6 +338,8 @@ function AuthenticatedApp() {
           clearDashboardFilter={clearDashboardFilter}
           selectedProductId={selectedProductId}
           setSelectedProductId={setSelectedProductId}
+          selectedAdditionRequestId={selectedAdditionRequestId}
+          clearSelectedAdditionRequestId={clearSelectedAdditionRequestId}
           handleCreateCustomer={handleCreateCustomer}
           handleCreateSupplier={handleCreateSupplier}
           handleCreateDriver={handleCreateDriver}

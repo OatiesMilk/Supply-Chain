@@ -679,10 +679,17 @@ export const RMA_EXTRA_COLUMNS: ExportColumn[] = [
   { header: 'RMA completed (Manila)', key: 'rma_completed_at_fmt', width: 26 },
   { header: 'Legacy SAP Reference', key: 'legacy_sap_reference', width: 24 },
   { header: 'RMA Category', key: 'rma_type', width: 24 },
+  { header: 'Classification', key: 'rma_classification', width: 24 },
   { header: 'Purchase Date', key: 'purchase_date_fmt', width: 18 },
   { header: 'Customer Contact Name', key: 'customer_contact_name', width: 26 },
   { header: 'Customer Contact Email', key: 'customer_contact_email', width: 30 },
   { header: 'Customer Contact Phone', key: 'customer_contact_phone', width: 22 },
+  { header: 'Case Number', key: 'case_number', width: 22 },
+  { header: 'Service Slip (SS#)', key: 'service_slip_no', width: 18 },
+  { header: 'Structured Items', key: 'structured_items_fmt', width: 48 },
+  { header: 'Client Slip Remarks', key: 'client_remarks', width: 30 },
+  { header: 'Contacts', key: 'rma_contacts_fmt', width: 36 },
+  { header: 'Internal Logistics Notes', key: 'internal_logistics_remarks', width: 40 },
 ];
 
 // ─── PDF-specific column sets (tighter, screen-matched) ──────────────────────
@@ -700,16 +707,18 @@ export const PDF_DELIVERY_COLUMNS: ExportColumn[] = [
   { header: 'Status',          key: 'status_fmt',        width: 14, pdfWidth: 26, pdfPill: true, pdfAlign: 'center' },
 ];
 
+// Client-facing: never add internal Logistics notes or workflow remarks here. Widths sum to 277mm.
 export const PDF_RMA_COLUMNS: ExportColumn[] = [
-  { header: 'Movement', key: 'rma_movement_fmt', width: 24, pdfWidth: 28 },
-  { header: 'Transport', key: 'rma_transport_status_fmt', width: 18, pdfWidth: 22 },
-  { header: 'Record No.', key: 'id', width: 14, pdfWidth: 22 },
-  { header: 'Company', key: 'company_name', width: 28, pdfWidth: 50 },
-  { header: 'RMA Document Reference', key: 'rma_reference', width: 28, pdfWidth: 38 },
-  { header: 'Legacy SAP Reference', key: 'legacy_sap_reference', width: 24, pdfWidth: 34 },
-  { header: 'RMA Category', key: 'rma_type', width: 22, pdfWidth: 35 },
-  { header: 'Purchase Date', key: 'purchase_date_fmt', width: 18, pdfWidth: 30 },
-  { header: 'Status', key: 'status_fmt', width: 14, pdfWidth: 28, pdfPill: true, pdfAlign: 'center' },
+  { header: 'Movement', key: 'rma_movement_fmt', width: 24, pdfWidth: 26 },
+  { header: 'Transport', key: 'rma_transport_status_fmt', width: 18, pdfWidth: 20 },
+  { header: 'Record No.', key: 'id', width: 14, pdfWidth: 20 },
+  { header: 'Company', key: 'company_name', width: 28, pdfWidth: 39 },
+  { header: 'RMA Document Reference', key: 'rma_reference', width: 28, pdfWidth: 34 },
+  { header: 'Legacy SAP Reference', key: 'legacy_sap_reference', width: 24, pdfWidth: 28 },
+  { header: 'RMA Category', key: 'rma_type', width: 22, pdfWidth: 32 },
+  { header: 'Case Number', key: 'case_number', width: 22, pdfWidth: 32 },
+  { header: 'Purchase Date', key: 'purchase_date_fmt', width: 18, pdfWidth: 22 },
+  { header: 'Status', key: 'status_fmt', width: 14, pdfWidth: 24, pdfPill: true, pdfAlign: 'center' },
 ];
 
 // AC widths sum to 257mm — comfortably under the 277mm landscape usable width.

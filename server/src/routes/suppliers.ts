@@ -4,7 +4,8 @@ import { prisma } from '../db';
 import { requireScreen, requireResource, requireAuth, requireRole, requireAction } from '../middleware/auth';
 import { asyncRoute } from '../middleware/asyncRoute';
 import { SupplierInputError, supplierWrite, textField, expectedVersion, categoryIds, categoryDto,
-  supplierDto, supplierInclude, categorySnapshot, selectedCategories, normalizedCategoryName } from '../services/supplierCategories';
+  supplierDto, supplierInclude, categorySnapshot, selectedCategories, normalizedCategoryName,
+  normalizeSupplierDisplayName, findSupplierByNormalizedName } from '../services/supplierCategories';
 
 const router = Router();
 const supplierHandler = (handler: (req: Request, res: Response) => Promise<unknown>) => asyncRoute(async (req, res) => {
@@ -62,7 +63,7 @@ router.patch('/categories/:id', ...manage, supplierHandler(async (req, res) => {
 router.post('/', requireAuth, requireResource('suppliers', 'CREATE'), requireScreen('suppliers'),
   requireAction('SCREEN', 'suppliers', 'WRITE'), requireRole('SALES_COORDINATOR', 'LOGISTICS', 'ADMIN', 'DRIVER'), supplierHandler(async (req, res) => {
     const body = req.body ?? {};
-    const name = textField(body.name, 'Supplier name', true);
+    const name = normalizeSupplierDisplayName(textField(body.name, 'Supplier name', true));
     const details = { contactPerson: textField(body.contact_person, 'Contact person'), email: textField(body.email, 'Email'),
       phone: textField(body.phone, 'Phone'), address: textField(body.address, 'Address', false, 1000), city: textField(body.city, 'City') };
     if (body.category_ids !== undefined && body.category !== undefined) throw new SupplierInputError('Use category_ids or legacy category, not both');
@@ -70,6 +71,9 @@ router.post('/', requireAuth, requireResource('suppliers', 'CREATE'), requireScr
     const ids = body.category_ids === undefined ? undefined : categoryIds(body.category_ids);
     const legacy = ids ? undefined : textField(body.category, 'Category', true, 120);
     const created = await supplierWrite(async tx => {
+      // Same lock and predicate as addition-request approval, so neither path can duplicate the other.
+      const duplicate = await findSupplierByNormalizedName(tx, name);
+      if (duplicate) throw new SupplierInputError(`A supplier named "${duplicate.name}" already exists in the directory.`, 409);
       const legacyCategory = legacy ? await tx.supplierCategory.findUnique({ where: { normalizedName: await normalizedCategoryName(tx, legacy) } }) : undefined;
       if (!ids && !legacyCategory) throw new SupplierInputError('Select an existing active category');
       const categories = await selectedCategories(tx, ids ?? [legacyCategory!.id]);

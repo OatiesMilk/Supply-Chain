@@ -56,7 +56,12 @@ async function fixture(t: TestContext, mode: 'LEGACY' | 'V1') {
     }
   }
   for (const method of ['save', 'read', 'open', 'remove']) stub(podStorage, method, async () => { throw new Error(`Unconfigured storage operation: ${method}`); });
-  stub(prisma, '$queryRaw', async () => []);
+  const rmaSequences = new Map<string, number>();
+  stub(prisma, '$queryRaw', async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    if (!strings.join('').includes('"RmaReferenceSequence"')) return [];
+    const key = `${values[0]}|${values[1]}`; rmaSequences.set(key, (rmaSequences.get(key) ?? 0) + 1);
+    return [{ lastValue: rmaSequences.get(key) }];
+  });
   stub(prisma, '$executeRaw', async () => 1);
   const hydrate = (row: any) => row ? structuredClone({ ...row, company: { id: 'seed-company', name: 'Seed Workflow Company' },
     createdBy: accounts.find(user => user.id === row.createdById), modifiedBy: accounts.find(user => user.id === row.modifiedById),
@@ -68,10 +73,14 @@ async function fixture(t: TestContext, mode: 'LEGACY' | 'V1') {
   stub(prisma.user, 'findMany', async ({ where = {} }: any = {}) => structuredClone(accounts.filter(user =>
     (where.role === undefined || user.role === where.role || where.role?.in?.includes(user.role)) && (where.isActive === undefined || user.isActive === where.isActive)
     && (!where.name || user.name.toLowerCase() === String(where.name.equals).toLowerCase()))));
+  // Collection verification is Logistics-owned. The frozen V1 baseline leaves it
+  // denied, so the seeded Logistics role policy grants it explicitly (as Admin would).
+  const policyRows = (role: PolicyRole) => [...defaultRolePermissions(role)].map(([permissionKey, effect]) => ({ permissionKey,
+    effect: role === 'LOGISTICS' && permissionKey === 'CATEGORY:ACCOUNTING_COLLECTION:VERIFY_COLLECTION' ? 'ALLOW' : effect }));
   stub(prisma.rolePolicy, 'findUnique', async ({ where }: any) => ({ role: where.role, revision: 1n, catalogVersion: 1,
-    permissions: [...defaultRolePermissions(where.role)].map(([permissionKey, effect]) => ({ permissionKey, effect })) }));
+    permissions: policyRows(where.role) }));
   stub(prisma.rolePolicy, 'findMany', async ({ where }: any) => (where.role?.in ?? [where.role]).map((role: PolicyRole) => ({
-    role, revision: 1n, catalogVersion: 1, permissions: [...defaultRolePermissions(role)].map(([permissionKey, effect]) => ({ permissionKey, effect })),
+    role, revision: 1n, catalogVersion: 1, permissions: policyRows(role),
   })));
   stub(prisma.company, 'findUnique', async ({ where }: any) => where.id === 'seed-company' ? { id: 'seed-company', isActive: true } : null);
   // 'Seed AM' is an active, unlinked directory entry; AM mail keeps the exact-name rule.
@@ -146,7 +155,7 @@ async function fixture(t: TestContext, mode: 'LEGACY' | 'V1') {
 }
 
 for (const mode of ['LEGACY', 'V1'] as const) {
-  test(`${mode}: seeded roles hand off submitted work, persisted proof and TASS collection verification`, async t => {
+  test(`${mode}: seeded roles hand off submitted work, persisted proof and Logistics collection verification`, async t => {
     const f = await fixture(t, mode);
     const create = (category: string, reference: string) => f.send('SALES_COORDINATOR', '/records', 'POST', {
       category, reference, company_id: 'seed-company', delivery_date: manilaToday(), remarks: 'Seeded workflow request',
@@ -193,25 +202,31 @@ for (const mode of ['LEGACY', 'V1'] as const) {
       new Set(['SALES_COORDINATOR', 'LOGISTICS', 'DRIVER'].map(role => f.account(role as PolicyRole).id)));
 
     const collection = await f.expect(create('Accounting Collection', 'SEED-COLLECTION'), 201);
-    await f.expect(f.send('TASS', `/records/${collection.id}/verify-collection`, 'PATCH', {}), 400);
+    // TASS has no Accounting Collection module: no read, no verification.
+    await f.expect(f.send('TASS', `/records/${collection.id}`), 403);
+    await f.expect(f.send('TASS', `/records/${collection.id}/verify-collection`, 'PATCH', {}), 403);
+    await f.expect(f.send('LOGISTICS', `/records/${collection.id}/verify-collection`, 'PATCH', {}), 400);
     await f.expect(f.send('LOGISTICS', `/records/${collection.id}`, 'PUT', { driver_id: 'seed-driver-profile', remarks: 'Dispatch collection', expected_edit_version: collection.edit_version }), 200);
     await f.expect(f.send('DRIVER', `/records/${collection.id}/time-in`, 'POST', { remarks: 'Arrived for collection' }), 200);
     const collectionProof = await f.expect(f.upload(collection.id), 201);
     const collectionHandoff = await f.expect(f.send('DRIVER', `/records/${collection.id}/status`, 'PATCH', completion), 200);
     assert.equal(collectionHandoff.status, 'Transport Complete');
-    await f.expect(f.send('TASS', `/records/${collection.id}/verify-collection`, 'PATCH', {}), 400);
+    await f.expect(f.send('LOGISTICS', `/records/${collection.id}/verify-collection`, 'PATCH', {}), 400);
     const collectionSignoff = await f.expect(f.send('SALES_COORDINATOR', `/records/${collection.id}/complete`, 'PATCH', {
       remarks: 'Reviewed the collected payment proof.', reviewed_photo_id: collectionProof.id, expected_edit_version: collectionHandoff.edit_version,
     }), 200);
     assert.equal(collectionSignoff.status, 'Delivered');
-    assert.equal(collectionSignoff.collection_verified, false, 'Sales sign-off does not replace TASS verification');
-    assert.ok(f.notices.some(notice => notice.userId === f.account('TASS').id && notice.recordId === collection.id && notice.title === 'Collection ready for verification'));
+    assert.equal(collectionSignoff.collection_verified, false, 'Sales sign-off does not replace Logistics verification');
+    assert.ok(f.notices.some(notice => notice.userId === f.account('LOGISTICS').id && notice.recordId === collection.id && notice.title === 'Collection ready for verification'));
+    assert.ok(!f.notices.some(notice => notice.userId === f.account('TASS').id && notice.recordId === collection.id));
     const beforeVerification = structuredClone(f.rows.get(collection.id));
     await f.expect(f.send('ADMIN', `/records/${collection.id}/verify-collection`, 'PATCH', {}), 403);
-    assert.deepEqual(f.rows.get(collection.id), beforeVerification, 'Admin cannot replace TASS verification');
-    const verified = await f.expect(f.send('TASS', `/records/${collection.id}/verify-collection`, 'PATCH', {}), 200);
-    assert.equal(verified.collection_verified, true); assert.equal(verified.collection_verified_by, f.account('TASS').name);
-    await f.expect(f.send('TASS', `/records/${collection.id}/verify-collection`, 'PATCH', {}), 409);
+    assert.deepEqual(f.rows.get(collection.id), beforeVerification, 'Admin cannot replace Logistics verification');
+    for (const role of ['TASS', 'SALES_COORDINATOR'] as const) await f.expect(f.send(role, `/records/${collection.id}/verify-collection`, 'PATCH', {}), 403);
+    assert.deepEqual(f.rows.get(collection.id), beforeVerification);
+    const verified = await f.expect(f.send('LOGISTICS', `/records/${collection.id}/verify-collection`, 'PATCH', {}), 200);
+    assert.equal(verified.collection_verified, true); assert.equal(verified.collection_verified_by, f.account('LOGISTICS').name);
+    await f.expect(f.send('LOGISTICS', `/records/${collection.id}/verify-collection`, 'PATCH', {}), 409);
     assert.equal((await f.expect(f.send('SALES_COORDINATOR', `/records/${collection.id}`), 200)).collection_verified, true);
     assert.equal(f.notices.filter(notice => notice.recordId === collection.id && notice.title === 'Collection verified').length, 1);
   });
@@ -219,8 +234,9 @@ for (const mode of ['LEGACY', 'V1'] as const) {
   test(`${mode}: seeded TASS RMA edits require the current numeric version and reject stale retries`, async t => {
     const f = await fixture(t, mode);
     const created = await f.expect(f.send('TASS', '/records', 'POST', { category: 'RMA', company_id: 'seed-company',
-      priority: '2 - Moderate', area: 'Carmona', account_manager: 'Seed AM', rma_reference: 'SEED-RMA-VERSION',
+      priority: '2 - Moderate', area: 'Carmona', account_manager: 'Seed AM', rma_type: 'Pull Out Slip',
       rma_movement: 'INTERNAL_NO_DRIVER', remarks: 'Seeded internal RMA request' }), 201);
+    assert.match(created.rma_reference, /^POS\d{6}-\d{2,}$/);
     const change = { area: 'Makati', remarks: 'Correct RMA destination' };
     const before = structuredClone(f.rows.get(created.id));
     await f.expect(f.send('TASS', `/records/${created.id}`, 'PUT', change), 400);

@@ -36,18 +36,21 @@ async function read(s: Session, id: string): Promise<Rma> {
   return saved(await s.context.request.get(`/api/v1/records/${id}`));
 }
 
+/** The server allocates RTC<MMDDYY>-<NN> on save; the slip reference is never sent by the client. */
 async function create(s: Session, movement: string, draft = false): Promise<Rma> {
-  return saved(await s.context.request.post('/api/v1/records', {
+  const record = await saved(await s.context.request.post('/api/v1/records', {
     headers: s.headers,
     data: {
       company_id: 'sc255-company', category: 'RMA', priority: '2 - Moderate',
-      rma_reference: `SC255-${movement}-${Date.now()}`, rma_type: 'Return to Customer',
+      rma_type: 'Return to Customer Slip',
       area: 'Carmona', account_manager: 'RMA Test AM', delivery_date: today(),
       rma_movement: movement, is_draft: draft ? 'Yes' : 'No',
       item_type: 'Unit', item_description: 'Browser verification unit',
       line_items: [{ sku: 'SC255-UNIT', quantity: 2 }], remarks: 'Local browser fixture',
     },
   }), 201);
+  expect(record.rma_reference).toMatch(/^RTC\d{6}-\d{2,}$/);
+  return record;
 }
 
 async function action(s: Session, id: string, path: string, data: Record<string, unknown>, method = 'PATCH') {
@@ -98,6 +101,7 @@ test('three online sessions synchronize submission, reassignment, transport/POD 
     const submittedAt = Date.now();
     await tass.page.getByRole('button', { name: 'Submit', exact: true }).click();
     const submitted = await saved(await submission);
+    expect(submitted.rma_reference, 'a submitted draft keeps its allocated slip reference').toBe(draft.rma_reference);
     let since = submittedAt;
     const boardCard = logistics.page.getByRole('article').filter({ hasText: draft.rma_reference });
     await propagated('submission to Logistics board', since, () => expect(boardCard).toBeVisible(), observations);
@@ -162,15 +166,22 @@ test('three online sessions synchronize submission, reassignment, transport/POD 
     await expect(transport(logistics.page)).toContainText('Complete');
     expect((await action(driver, draft.id, 'status', { status: 'Delivered', remarks: 'Driver must not finalize RMA', expected_version: current.rma_version })).status()).toBe(403);
 
-    await transport(tass.page).getByLabel('Recipient', { exact: true }).fill('Verified TASS Recipient');
+    // TASS records the receipt date and status only; there is no Recipient input.
+    await expect(transport(tass.page).getByLabel('Recipient', { exact: true })).toHaveCount(0);
+    const receiptDate = transport(tass.page).getByLabel('Receipt date', { exact: true });
+    await expect(receiptDate).toHaveAttribute('type', 'date');
+    const today = await receiptDate.inputValue();
+    expect(today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    await expect(receiptDate).toHaveAttribute('max', today);
     await transport(tass.page).getByLabel('Remarks', { exact: true }).fill('Physical receipt verified separately');
     const receiptResponse = tass.page.waitForResponse(r => r.url().endsWith(`/records/${draft.id}/rma-receipt`));
     await transport(tass.page).getByRole('button', { name: 'Confirm physical receipt', exact: true }).click();
     const received = await saved(await receiptResponse);
     expect(received.rma_received_at).toBeTruthy();
     expect(received.rma_received_by).toBe('sc255-user-1');
-    expect(received.rma_recipient).toBe('Verified TASS Recipient');
+    expect(received.rma_recipient).toBeNull();
     expect(received.status).not.toBe('Delivered');
+    await expect(transport(tass.page).getByLabel('Completion date', { exact: true })).toHaveAttribute('type', 'date');
     await transport(tass.page).getByLabel('Remarks', { exact: true }).fill('TASS final completion verified');
     const finalResponse = tass.page.waitForResponse(r => r.url().endsWith(`/records/${draft.id}/status`) && r.request().method() === 'PATCH');
     await transport(tass.page).getByRole('button', { name: 'Complete RMA', exact: true }).click();
@@ -218,8 +229,9 @@ test('supplier/internal no-driver movements retain view access without dispatch,
       expect(notices.some((n: { record_id: string }) => n.record_id === record.id)).toBe(false);
       await expect(logistics.page.getByRole('article').filter({ hasText: record.rma_reference })).toHaveCount(0);
       const receipt = await saved(await action(tass, record.id, 'rma-receipt', {
-        recipient: 'No-driver Recipient', expected_version: record.rma_version, remarks: 'Confirm no-driver receipt',
+        expected_version: record.rma_version, remarks: 'Confirm no-driver receipt',
       }, 'POST'));
+      expect(receipt.rma_recipient).toBeNull();
       const complete = await saved(await action(tass, record.id, 'status', {
         status: 'Delivered', expected_version: receipt.rma_version, remarks: 'Complete without invented driver clocks',
       }));

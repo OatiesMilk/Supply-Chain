@@ -23,7 +23,7 @@ function matches(row: Record<string, unknown>, where: any): boolean {
 }
 
 const job = (extra: Record<string, unknown> = {}) => ({ category: 'DELIVERY', status: 'SCHEDULED', draft: false, driverId: null, driver: '',
-  deliveryDate: TODAY, timeIn: null, rmaMovement: null, rmaTransportStatus: null, ...extra });
+  deliveryDate: TODAY, timeIn: null, rmaMovement: null, rmaTransportStatus: null, isInternalTransfer: false, ...extra });
 const rma = (extra: Record<string, unknown> = {}) => job({ category: 'RMA', rmaMovement: 'LOGISTICS_TRANSPORT', rmaTransportStatus: 'PENDING', ...extra });
 const filter = (id: string) => dashboardRecordFilter(id, TODAY)!;
 const is = (id: string, row: Record<string, unknown>) => matches(row, filter(id));
@@ -114,9 +114,27 @@ test('SC and TASS in-transit sets split the drivers-out in-transit set by type (
     job({ ...assigned, status: 'IN_TRANSIT', timeIn: STARTED }), job({ ...assigned, category: 'SALES_ORDERS', timeIn: STARTED }),
     job(assigned), job({ ...assigned, status: 'ON_HOLD', timeIn: STARTED }),
     rma({ ...assigned, rmaTransportStatus: 'IN_TRANSIT' }), rma(assigned),
+    rma({ ...assigned, rmaTransportStatus: 'IN_TRANSIT', rmaType: 'Transfer Out Slip', isInternalTransfer: true }),
   ];
   for (const row of rows) {
     const shared = matches(row, driversInTransitFilter(TODAY));
-    assert.equal(Number(is('sc-in-transit', row)) + Number(is('tass-rma-in-transit', row)), Number(shared), JSON.stringify(row));
+    // Non-RMA internal transfers are on the road for Logistics but in neither the SC nor the TASS RMA set.
+    const internalTransfer = row.category === 'RMA' && row.isInternalTransfer === true;
+    assert.equal(Number(is('sc-in-transit', row)) + Number(is('tass-rma-in-transit', row)) + Number(internalTransfer && shared), Number(shared), JSON.stringify(row));
   }
+});
+
+test('TXO non-RMA internal transfers route through Logistics but stay out of TASS RMA KPIs', () => {
+  const transfer = (extra: Record<string, unknown> = {}) => rma({ rmaType: 'Transfer Out Slip', isInternalTransfer: true, ...extra });
+  const assigned = { driverId: 'drv-a', driver: 'Ana' };
+  for (const id of ['log-transport-requests', 'log-rma-requests']) assert.equal(is(id, transfer()), true, id);
+  assert.equal(matches(transfer({ ...assigned, rmaTransportStatus: 'IN_TRANSIT' }), driversInTransitFilter(TODAY)), true, 'drivers in transit');
+  for (const [id, row] of [
+    ['tass-open-rma', transfer()], ['tass-rma-on-hold', transfer({ status: 'ON_HOLD' })],
+    ['tass-rma-in-transit', transfer({ ...assigned, rmaTransportStatus: 'IN_TRANSIT' })],
+  ] as const) {
+    assert.equal(is(id, row), false, `${id} excludes internal transfers`);
+    assert.equal(is(id, { ...row, isInternalTransfer: false }), true, `${id} still counts the same row as an RMA`);
+  }
+  assert.equal((dashboardRecordFilter('tass-rma-aging', TODAY) as any).isInternalTransfer, false);
 });

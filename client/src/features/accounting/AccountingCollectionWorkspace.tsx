@@ -201,7 +201,7 @@ function VerificationTab({
 
   const access = usePermissions();
   const canRead = access.canRecord('Accounting Collection');
-  const canVerify = currentUserRole === 'TASS' && access.canRecord('Accounting Collection', 'VERIFY_COLLECTION');
+  const canVerify = currentUserRole === 'Logistics' && access.canRecord('Accounting Collection', 'VERIFY_COLLECTION');
 
   const handleVerify = async () => {
     setVerifying(true);
@@ -231,7 +231,7 @@ function VerificationTab({
           {record.status === 'Delivered' && <TassVerificationPanel record={record} />}
           <div className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-slate-50/70 py-10 gap-2 text-slate-500">
             <Lock className="w-7 h-7 text-slate-300" />
-            <p className="text-sm">Verification requires TASS collection-verification permission.</p>
+            <p className="text-sm">Verification requires Logistics collection-verification permission.</p>
           </div>
         </div>
       );
@@ -354,15 +354,15 @@ export default function AccountingCollectionWorkspace({
     currentUserRole === 'Sales Coordinator' &&
     access.canAccess('accounting_collection') &&
     access.canRecord('Accounting Collection', 'RECEIVE');
-  const needsTassVerify =
+  const needsCollectionVerify =
     record.status === 'Delivered' &&
     !record.collection_verified &&
-    currentUserRole === 'TASS' &&
+    currentUserRole === 'Logistics' &&
     access.canRecord('Accounting Collection', 'VERIFY_COLLECTION');
-  const pendingVerificationAction: 'sales' | 'tass' | null = needsSalesSignoff
+  const pendingVerificationAction: 'sales' | 'collection' | null = needsSalesSignoff
     ? 'sales'
-    : needsTassVerify
-      ? 'tass'
+    : needsCollectionVerify
+      ? 'collection'
       : null;
 
   const overviewCue = (pendingVerificationAction || nextStep) ? (
@@ -390,7 +390,7 @@ export default function AccountingCollectionWorkspace({
             <span>
               {pendingVerificationAction === 'sales'
                 ? 'Awaiting your Sales verification sign-off.'
-                : 'Ready for TASS collection verification.'}
+                : 'Ready for Logistics collection verification.'}
             </span>
           </div>
           <button
@@ -415,12 +415,12 @@ export default function AccountingCollectionWorkspace({
             : 'bg-amber-50 text-amber-700 border-amber-200'
         }`}
       >
-        {record.collection_verified ? 'TASS Verified' : 'Pending TASS Verification'}
+        {record.collection_verified ? 'Collection Verified' : 'Pending Verification'}
       </span>
     ) : undefined;
 
   const headerActions =
-    currentUserRole === 'TASS' || currentUserRole === 'Admin' ? (
+    currentUserRole === 'Logistics' || currentUserRole === 'Admin' ? (
       <ExportMenu
         rows={[collectionRecordExportRow(record)]}
         columns={[...DELIVERY_COLUMNS, ...AC_EXTRA_COLUMNS]}

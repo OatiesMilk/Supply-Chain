@@ -59,6 +59,9 @@ export interface AppRouterProps {
   clearDashboardFilter: () => void;
   selectedProductId: string | null;
   setSelectedProductId: (id: string | null) => void;
+  /** Addition request opened from a notification or ?request= link (Feature 4b). */
+  selectedAdditionRequestId?: string | null;
+  clearSelectedAdditionRequestId?: () => void;
   handleCreateCustomer: (data: any) => Promise<void>;
   handleCreateSupplier: (data: any) => Promise<void>;
   handleCreateDriver: (data: any) => Promise<void>;
@@ -92,6 +95,8 @@ export const AppRouter: React.FC<AppRouterProps> = ({
   clearDashboardFilter,
   selectedProductId,
   setSelectedProductId,
+  selectedAdditionRequestId = null,
+  clearSelectedAdditionRequestId = () => {},
   handleCreateCustomer,
   handleCreateSupplier,
   handleCreateDriver,
@@ -144,6 +149,8 @@ export const AppRouter: React.FC<AppRouterProps> = ({
         dashboardFilterId={dashboardFilterId}
         clearDashboardFilter={clearDashboardFilter}
         onRefresh={refreshData}
+        selectedAdditionRequestId={selectedAdditionRequestId}
+        clearSelectedAdditionRequestId={clearSelectedAdditionRequestId}
       />
     );
   }
@@ -202,6 +209,8 @@ export const AppRouter: React.FC<AppRouterProps> = ({
           currentUserRole={currentUserRole}
           currentUserName={currentUserName}
           onCreateSupplier={handleCreateSupplier}
+          selectedAdditionRequestId={selectedAdditionRequestId}
+          clearSelectedAdditionRequestId={clearSelectedAdditionRequestId}
         />
       );
 
@@ -226,7 +235,8 @@ export const AppRouter: React.FC<AppRouterProps> = ({
       );
 
     case 'admin':
-      return <AdminPage dashboardFilterId={dashboardFilterId} clearDashboardFilter={clearDashboardFilter} />;
+      return <AdminPage dashboardFilterId={dashboardFilterId} clearDashboardFilter={clearDashboardFilter}
+        selectedAdditionRequestId={selectedAdditionRequestId} clearSelectedAdditionRequestId={clearSelectedAdditionRequestId} />;
 
     case 'main':
       return (
