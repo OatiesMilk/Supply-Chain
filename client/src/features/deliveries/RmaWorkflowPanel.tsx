@@ -19,6 +19,7 @@ import { formatManilaTimestamp } from '@/utils/manilaTimestamp';
 import { manilaDateTimeInput, manilaInputToIso, manilaToday } from '@/utils/recordLifecycle';
 import { rankDriversByCoverage } from '@/utils/driverCoverage';
 import { notify } from '@/utils/notify';
+import { ActionDialog } from '@/components/ActionDialog';
 import { Check, ChevronDown, ChevronUp, CircleAlert, CircleCheck, ClipboardEdit, Loader2, Save } from 'lucide-react';
 import { WorkflowSection, workflowFieldHintClass, workflowFieldLabelClass, workflowInputClass, workflowPrimaryButtonClass, workflowSecondaryButtonClass, workflowSelectClass } from './WorkflowSection';
 
@@ -92,20 +93,24 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
   const [dirty, setDirty] = useState(false);
   const [editVersion, setEditVersion] = useState(record.rma_version ?? 0);
   const [feedback, setFeedback] = useState('');
+  // Status changes carry their own reason, separate from the receipt and completion steps (#347).
+  const [statusRemarks, setStatusRemarks] = useState('');
+  const [confirmComplete, setConfirmComplete] = useState(false);
   const version = record.rma_version ?? 0;
-  const staleForm = dirty && editVersion !== version;
+  // rma_version only increases; an edit is stale only when the record moved past the version editing is based on.
+  const staleForm = dirty && version > editVersion;
   // TASS records the actual date the signed slip / item came back, not who signed it.
   const today = manilaToday();
   const transportCompletedDate = internalTransport ? manilaDayOf(record.rma_transport_completed_at) : null;
   const receivedDateMin = manilaDayOf(record.rma_received_at);
-  const defaultCompletionDate = receivedDateMin ?? today;
+  // Both event dates default to today (Manila); the receipt date is the lower bound for completion.
   const [receiptDate, setReceiptDate] = useState(today);
-  const [completionDate, setCompletionDate] = useState(defaultCompletionDate);
+  const [completionDate, setCompletionDate] = useState(today);
   const receiptDateError = rmaEventDateError(receiptDate, 'Receipt date', today, transportCompletedDate,
     'Receipt date cannot be earlier than the transport completion date.');
   const completionDateError = rmaEventDateError(completionDate, 'Completion date', today, receivedDateMin,
     'Completion date cannot be earlier than the receipt date.');
-  const resetEventDates = () => { setReceiptDate(manilaToday()); setCompletionDate(manilaDayOf(record.rma_received_at) ?? manilaToday()); };
+  const resetEventDates = () => { setReceiptDate(manilaToday()); setCompletionDate(manilaToday()); };
 
   const savedTransportReceivedBy = record.rma_transport_received_by ?? '';
   const savedTransportStartedAt = manilaDateTimeInput(record.rma_transport_started_at);
@@ -139,7 +144,7 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
     setTransportReceivedBy(record.rma_transport_received_by ?? '');
     setTransportStartedAt(manilaDateTimeInput(record.rma_transport_started_at));
     setTransportCompletedAt(manilaDateTimeInput(record.rma_transport_completed_at));
-    setCompletionDate(manilaDayOf(record.rma_received_at) ?? manilaToday());
+    setCompletionDate(manilaToday());
     setEditVersion(version);
   }, [record.id, version, record.driver_id, record.vehicle, record.driver_assistants, record.rma_transport_received_by, record.rma_transport_started_at, record.rma_transport_completed_at, record.rma_received_at, dirty]);
   const beginEdit = () => {
@@ -151,8 +156,11 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
     mutationFn: async (action: Action) => {
       const permission = action === 'assign' ? caps?.assign : action === 'receive' ? caps?.receive : action === 'status' ? caps?.status : action === 'correct-transport' ? caps?.correctTransport : caps?.complete;
       if (!permission) throw new Error('This action is no longer available for your account.');
-      const precondition = { expected_version: dirty ? editVersion : version, remarks: remarks.trim() };
-      if (!precondition.remarks) throw new Error('Enter remarks before saving.');
+      // Defensive: every control is already disabled while stale, including the open Complete confirmation (#347 QA run 1, finding 3).
+      if (staleForm) throw new Error('This RMA changed while you were editing. Review the latest saved values before retrying.');
+      const reason = (action === 'status' ? statusRemarks : remarks).trim();
+      const precondition = { expected_version: dirty ? editVersion : version, remarks: reason };
+      if (!precondition.remarks) throw new Error(action === 'status' ? 'Enter a status change reason before saving.' : 'Enter remarks before saving.');
       if (action === 'assign') return api.assignRma(record.id, {
         ...precondition, driver_id: driverId || null, vehicle,
         driver_assistants: assistants,
@@ -184,17 +192,38 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
       });
     },
     onSuccess: async (saved, action) => {
-      await saveRecordToCache(client, normalizeApiRecord(saved));
-      setDirty(false);
-      setRemarks('');
-      resetEventDates();
-      setNextStatus('');
+      const savedRecord = normalizeApiRecord(saved);
+      // Clear only what this action submitted (#347 QA run 1, finding 1).
+      const todayNow = manilaToday();
+      if (action === 'status') { setStatusRemarks(''); setNextStatus(''); }
+      else if (action === 'receive') { setRemarks(''); setReceiptDate(todayNow); setCompletionDate(todayNow); }
+      else if (action === 'assign') setRemarks('');
+      else { setRemarks(''); setStatusRemarks(''); resetEventDates(); setNextStatus(''); } // complete, correct-transport
+      // Inputs of another stage that are still on screen keep the form dirty.
+      const retainedDraft = action === 'status'
+        ? !!remarks.trim() || receiptDate !== todayNow || completionDate !== todayNow
+        : action === 'receive' || action === 'assign'
+          ? !!statusRemarks.trim() || !!nextStatus
+          : false;
+      if (retainedDraft) {
+        // The server accepted our expected_version, so the only change since editing began is this save.
+        // Rebase onto the saved version: an unrelated later change still shows the stale review.
+        setEditVersion(savedRecord.rma_version ?? version);
+      }
+      await saveRecordToCache(client, savedRecord);
+      if (!retainedDraft) setDirty(false);
       if (action === 'correct-transport') setCorrectionOpen(false);
-      const message = action === 'assign' ? 'Driver assignment saved.'
-        : action === 'correct-transport' ? 'Driver completion details updated'
-          : 'Workflow update saved.';
-      setFeedback(message);
-      if (action === 'correct-transport') notify.success(message);
+      if (action === 'complete') setConfirmComplete(false);
+      const message = action === 'assign' ? 'Driver assignment saved'
+        : action === 'receive' ? 'Physical receipt confirmed'
+          : action === 'complete' ? 'RMA completed'
+            : action === 'status' ? `Status set to ${savedRecord.status}`
+              : 'Driver completion details updated';
+      // Successes use a toast only; the inline banner is reserved for errors.
+      setFeedback('');
+      notify.success(message);
+      // Move focus to the Step 2 heading once receipt is confirmed.
+      if (action === 'receive') setCardFocus(value => value + 1);
       await invalidateOperationalQueries(client);
     },
     onError: async error => {
@@ -232,6 +261,10 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
 
   const busy = mutation.isPending;
   const canSave = !!remarks.trim() && !busy && !staleForm && !detail.isError && !capabilities.isError;
+  // TASS works one stage at a time. Receipt and completion are mutually exclusive by construction (receipt needs !rma_received_at).
+  const tassStep = caps?.receive ? 'receive' as const : caps?.complete ? 'complete' as const : null;
+  const stepRemarksReady = !!remarks.trim() && !busy && !staleForm && !detail.isError && !capabilities.isError;
+  const statusReady = !!statusRemarks.trim() && !busy && !staleForm && !detail.isError && !capabilities.isError;
   const drivers = (directory.data ?? []).filter(entry => entry.type === 'DRIVER' && entry.is_active);
   const rankedDrivers = rankDriversByCoverage(drivers, entry => entry.coverage_areas, record.area);
   const coveringCount = rankedDrivers.area.length + rankedDrivers.subregion.length;
@@ -243,7 +276,13 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
   const recordingFor = transportStep && currentUserRole !== 'Driver' ? recordingForLine(record.driver) : null;
   const transportReference = record.rma_reference || record.record_no || '';
   const statusOptions = caps?.status ? (record.allowed_statuses ?? []).filter(status => !['Draft', 'Delivered', 'In Transit'].includes(status)) : [];
-  const hasAction = caps?.assign || caps?.receive || caps?.complete || statusOptions.length > 0;
+  const hasAction = caps?.assign || tassStep !== null || statusOptions.length > 0;
+  // The stale-form notice renders once, in the section that owns the current action.
+  const staleHome = caps?.assign ? 'assign' : tassStep ? 'step' : statusOptions.length > 0 ? 'status' : null;
+  const staleNotice = staleForm ? <div role="alert" className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+    <CircleAlert aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+    <p>This RMA changed while you were editing. Review the latest saved state before retrying. <button type="button" className="min-h-11 font-semibold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-800" onClick={() => { setDirty(false); setRemarks(''); setStatusRemarks(''); resetEventDates(); setNextStatus(''); setFeedback(''); }}>Use latest saved values</button></p>
+  </div> : null;
   const savedAssistants = record.driver_assistants ?? [];
   const assignmentChanged = driverId !== (record.driver_id ?? '')
     || vehicle !== (record.vehicle || '(None)')
@@ -559,24 +598,71 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
       </fieldset>
     </WorkflowSection>}
 
-    {hasAction && <WorkflowSection variant="flat" title={embedded ? 'Transport actions' : 'RMA workflow actions'} description="Available actions depend on the return movement, current stage, and your role.">
-    {caps?.receive && <label htmlFor={`${id}-receipt-date`} className={fieldLabel}>Receipt date
-      <input id={`${id}-receipt-date`} type="date" value={receiptDate} max={today} min={transportCompletedDate ?? undefined} className={input} disabled={busy}
-        aria-invalid={receiptDateError ? true : undefined} aria-describedby={`${id}-receipt-date-help`}
-        onChange={event => { beginEdit(); setReceiptDate(event.target.value); }} />
-      <span id={`${id}-receipt-date-help`} className={receiptDateError ? 'text-xs font-medium text-red-700' : fieldHint}>
-        {receiptDateError ?? 'Actual date the signed slip or returned item was received (defaults to today).'}
-      </span>
-    </label>}
-    {caps?.complete && <label htmlFor={`${id}-completion-date`} className={fieldLabel}>Completion date
-      <input id={`${id}-completion-date`} type="date" value={completionDate} max={today} min={receivedDateMin ?? undefined} className={input} disabled={busy}
-        aria-invalid={completionDateError ? true : undefined} aria-describedby={`${id}-completion-date-help`}
-        onChange={event => { beginEdit(); setCompletionDate(event.target.value); }} />
-      <span id={`${id}-completion-date-help`} className={completionDateError ? 'text-xs font-medium text-red-700' : fieldHint}>
-        {completionDateError ?? 'Actual date the RMA was completed (cannot be earlier than the receipt date).'}
-      </span>
-    </label>}
-    {statusOptions.length > 0 && <label htmlFor={`${id}-status`} className={fieldLabel}>RMA status
+    {caps?.assign && <WorkflowSection variant="flat" title={embedded ? 'Transport actions' : 'Save assignment'} description="Add a reason, then save the crew for this return.">
+    <label htmlFor={`${id}-remarks`} className={fieldLabel}>Remarks <span className="text-red-600">Required</span>
+      <textarea id={`${id}-remarks`} required value={remarks} rows={3} aria-describedby={`${id}-remarks-help`} className={`${input} resize-y`} disabled={busy} onChange={event => { beginEdit(); setRemarks(event.target.value); }} placeholder="Reason for this workflow update" />
+      <span id={`${id}-remarks-help`} className={fieldHint}>This reason is saved to the RMA audit trail.</span>
+    </label>
+
+    {staleHome === 'assign' && staleNotice}
+
+    <div className="space-y-3 border-t border-slate-200 pt-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs leading-5 text-slate-500">
+          {staleForm ? 'Use the latest saved values before continuing.'
+            : assignmentChanged ? remarks.trim() ? 'Assignment changes are ready to save.' : 'Add a reason to enable saving.'
+              : 'Change a driver, vehicle, or assistant, then add a reason to save.'}
+        </p>
+        <div className="flex flex-wrap gap-2 sm:justify-end">
+          <button type="button" className={button} disabled={!canSave || !assignmentChanged || directory.isPending || directory.isError} onClick={() => mutation.mutate('assign')}>
+            {busy && mutation.variables === 'assign' ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Saving assignment…</> : 'Save assignment'}
+          </button>
+        </div>
+      </div>
+    </div>
+    </WorkflowSection>}
+
+    {tassStep && <NextStepCard
+      title={tassStep === 'receive' ? 'Step 1 of 2 · Physical receipt' : 'Step 2 of 2 · Complete RMA'}
+      text={tassStep === 'receive'
+        ? (internalTransport ? 'Transport is complete. Confirm when the signed slip or returned item is physically received.' : 'Confirm when the signed slip or returned item is physically received.')
+        : `Receipt confirmed${record.rma_received_at ? ` ${formatManilaTimestamp(record.rma_received_at)}` : ''}. Set the completion date and complete the RMA.`}
+      buttonLabel={tassStep === 'receive'
+        ? (busy && mutation.variables === 'receive' ? 'Confirming…' : 'Confirm physical receipt')
+        : 'Complete RMA'}
+      onAction={tassStep === 'receive' ? () => mutation.mutate('receive') : () => { setFeedback(''); setConfirmComplete(true); }}
+      disabled={tassStep === 'receive' ? !stepRemarksReady || !!receiptDateError : !stepRemarksReady || !!completionDateError}
+      hint={staleForm ? 'Use the latest saved values before continuing.'
+        : tassStep === 'receive' ? (receiptDateError ?? 'Add remarks to confirm receipt.') : (completionDateError ?? 'Add remarks to complete the RMA.')}
+      focusSignal={cardFocus}>
+      <div className="mt-3 space-y-3">
+        {tassStep === 'receive' ? <label htmlFor={`${id}-receipt-date`} className={fieldLabel}>Receipt date
+          <input id={`${id}-receipt-date`} type="date" value={receiptDate} max={today} min={transportCompletedDate ?? undefined} className={input} disabled={busy}
+            aria-invalid={receiptDateError ? true : undefined} aria-describedby={`${id}-receipt-date-help`}
+            onChange={event => { beginEdit(); setReceiptDate(event.target.value); }} />
+          <span id={`${id}-receipt-date-help`} className={receiptDateError ? 'text-xs font-medium text-red-700' : fieldHint}>
+            {receiptDateError ?? 'Actual date the signed slip or returned item was received (defaults to today).'}
+          </span>
+        </label> : <label htmlFor={`${id}-completion-date`} className={fieldLabel}>Completion date
+          <input id={`${id}-completion-date`} type="date" value={completionDate} max={today} min={receivedDateMin ?? undefined} className={input} disabled={busy}
+            aria-invalid={completionDateError ? true : undefined} aria-describedby={`${id}-completion-date-help`}
+            onChange={event => { beginEdit(); setCompletionDate(event.target.value); }} />
+          <span id={`${id}-completion-date-help`} className={completionDateError ? 'text-xs font-medium text-red-700' : fieldHint}>
+            {completionDateError ?? 'Actual date the RMA was completed (defaults to today; cannot be earlier than the receipt date).'}
+          </span>
+        </label>}
+        <label htmlFor={`${id}-remarks`} className={fieldLabel}>Remarks <span className="text-red-600">Required</span>
+          <textarea id={`${id}-remarks`} required value={remarks} rows={3} aria-describedby={`${id}-remarks-help`} className={`${input} resize-y`} disabled={busy}
+            onChange={event => { beginEdit(); setRemarks(event.target.value); }}
+            placeholder={tassStep === 'receive' ? 'Reason for confirming receipt' : 'Reason for completing this RMA'} />
+          <span id={`${id}-remarks-help`} className={fieldHint}>This reason is saved to the RMA audit trail.</span>
+        </label>
+        {staleHome === 'step' && staleNotice}
+      </div>
+    </NextStepCard>}
+
+    {statusOptions.length > 0 && <WorkflowSection variant="flat" title="Change RMA status" description="Optional · put the RMA On-Hold or reschedule it. This does not confirm receipt or complete the RMA.">
+    <label htmlFor={`${id}-status`} className={fieldLabel}>RMA status
       <span className="relative block">
         <select id={`${id}-status`} value={nextStatus} className={selectInput} disabled={busy} onChange={event => { beginEdit(); setNextStatus(event.target.value as DeliveryStatus); }}>
           <option value="">Select a status</option>
@@ -585,40 +671,18 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
         <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
       </span>
       <span className={fieldHint}>Current status: {record.status}</span>
-    </label>}
-    {hasAction && <label htmlFor={`${id}-remarks`} className={fieldLabel}>Remarks <span className="text-red-600">Required</span>
-      <textarea id={`${id}-remarks`} required value={remarks} rows={3} aria-describedby={`${id}-remarks-help`} className={`${input} resize-y`} disabled={busy} onChange={event => { beginEdit(); setRemarks(event.target.value); }} placeholder="Reason for this workflow update" />
-      <span id={`${id}-remarks-help`} className={fieldHint}>This reason is saved to the RMA audit trail.</span>
-    </label>}
+    </label>
+    <label htmlFor={`${id}-status-remarks`} className={fieldLabel}>Status change reason <span className="text-red-600">Required</span>
+      <textarea id={`${id}-status-remarks`} required value={statusRemarks} rows={3} aria-describedby={`${id}-status-remarks-help`} className={`${input} resize-y`} disabled={busy} onChange={event => { beginEdit(); setStatusRemarks(event.target.value); }} placeholder="Reason for this status change" />
+      <span id={`${id}-status-remarks-help`} className={fieldHint}>This reason is saved to the RMA audit trail.</span>
+    </label>
 
-    {staleForm && <div role="alert" className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
-      <CircleAlert aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
-      <p>This RMA changed while you were editing. Review the latest saved state before retrying. <button type="button" className="min-h-11 font-semibold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-800" onClick={() => { setDirty(false); setRemarks(''); resetEventDates(); setNextStatus(''); setFeedback(''); }}>Use latest saved values</button></p>
-    </div>}
+    {staleHome === 'status' && staleNotice}
 
-    <div className="space-y-3 border-t border-slate-200 pt-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs leading-5 text-slate-500">
-          {staleForm ? 'Use the latest saved values before continuing.' : caps?.assign
-            ? assignmentChanged ? remarks.trim() ? 'Assignment changes are ready to save.' : 'Add a reason to enable saving.'
-              : 'Change a driver, vehicle, or assistant, then add a reason to save.'
-            : remarks.trim() ? 'Ready to record this workflow update.' : 'Add a reason before saving this workflow update.'}
-        </p>
-        <div className="flex flex-wrap gap-2 sm:justify-end">
-          {caps?.assign && <button type="button" className={button} disabled={!canSave || !assignmentChanged || directory.isPending || directory.isError} onClick={() => mutation.mutate('assign')}>
-            {busy && mutation.variables === 'assign' ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Saving assignment…</> : 'Save assignment'}
-          </button>}
-          {caps?.receive && <button type="button" className={button} disabled={!canSave || !receiptDate || !!receiptDateError} onClick={() => mutation.mutate('receive')}>
-            {busy && mutation.variables === 'receive' ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Confirming…</> : 'Confirm physical receipt'}
-          </button>}
-          {statusOptions.length > 0 && <button type="button" className={button} disabled={!canSave || !nextStatus} onClick={() => mutation.mutate('status')}>
-            {busy && mutation.variables === 'status' ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Saving status…</> : 'Save RMA status'}
-          </button>}
-          {caps?.complete && <button type="button" className={button} disabled={!canSave || !completionDate || !!completionDateError} onClick={() => mutation.mutate('complete')}>
-            {busy && mutation.variables === 'complete' ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Completing…</> : 'Complete RMA'}
-          </button>}
-        </div>
-      </div>
+    <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4">
+      <button type="button" className={workflowSecondaryButtonClass} disabled={!statusReady || !nextStatus} onClick={() => mutation.mutate('status')}>
+        {busy && mutation.variables === 'status' ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Saving status…</> : 'Save RMA status'}
+      </button>
     </div>
     </WorkflowSection>}
     {busy && <p role="status" className="flex items-center gap-2 text-sm text-slate-600"><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Saving workflow update…</p>}
@@ -626,6 +690,23 @@ export default function RmaWorkflowPanel({ record: initialRecord, currentUserRol
       {mutation.isError ? <CircleAlert aria-hidden="true" className="h-4 w-4 shrink-0" /> : <CircleCheck aria-hidden="true" className="h-4 w-4 shrink-0" />}
       <span>{feedback}</span>
     </div>}
+    {caps?.complete && <ActionDialog
+      open={confirmComplete}
+      title="Complete this RMA?"
+      description={`Receipt date: ${receivedDateMin ?? '—'}\nCompletion date: ${completionDate}\n\nCompleting locks the RMA status and driver assignment.`}
+      confirmLabel="Complete RMA"
+      confirmDisabled={staleForm || !stepRemarksReady || !!completionDateError}
+      confirmHint={staleForm ? 'This RMA changed while this confirmation was open. Review the latest saved values before completing.' : undefined}
+      icon={CircleCheck}
+      pending={busy && mutation.variables === 'complete'}
+      error={confirmComplete && mutation.isError ? feedback : null}
+      onConfirm={() => mutation.mutate('complete')}
+      onDismiss={() => setConfirmComplete(false)}
+    >
+      {staleForm && <button type="button" onClick={() => { setConfirmComplete(false); setCardFocus(value => value + 1); }}
+        className="min-h-11 font-semibold text-amber-900 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-800">
+        Review latest saved values</button>}
+    </ActionDialog>}
     {!hasAction && !finished && !transportStep && !futureNotice && !capabilities.isPending && !capabilities.isError && <p className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600"><CircleAlert aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />No workflow action is available for this record and account.</p>}
     </div>
   </section>;
