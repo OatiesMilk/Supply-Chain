@@ -87,7 +87,13 @@ for (const role of ['TASS', 'LOGISTICS'] as const) {
       await expect(bar.locator('#bulk-status-select')).toHaveCount(0);
       await expect(bar.getByRole('button', { name: 'Apply' })).toHaveCount(0);
     }
-    await bar.getByRole('button', { name: 'Extract Slips (PDF)' }).click();
+    if (role === 'TASS') {
+      // TASS outputs are grouped in the Daily handoff menu; Logistics keeps the separate button.
+      await bar.locator('#bulk-daily-handoff-menu').click();
+      await bar.getByRole('menuitem', { name: 'Extract Slips (PDF)' }).click();
+    } else {
+      await bar.getByRole('button', { name: 'Extract Slips (PDF)' }).click();
+    }
     const dialog = page.getByRole('dialog', { name: 'Extract Slips (PDF)' });
     await expect(dialog.getByLabel('Group & sort by Movement Method', { exact: false })).toBeChecked();
     await dialog.getByRole('combobox').first().selectOption('letter');
@@ -105,6 +111,7 @@ for (const role of ['TASS', 'LOGISTICS'] as const) {
 test('the RMA toolbar offers Extract Slips (PDF) for the filtered date range', async ({ page }) => {
   await login(page, 'TASS');
   await openScreen(page, 'rma', 'TASS');
+  await page.locator('#toolbar-daily-handoff-menu').click();
   await page.locator('#toolbar-extract-slips').click();
   const dialog = page.getByRole('dialog', { name: 'Extract Slips (PDF)' });
   await expect(dialog.getByText('Current filters and delivery-date range')).toBeVisible();
