@@ -28,6 +28,7 @@ export async function dashboardOverview(db: PrismaClient, user: AuthUser) {
       transport_requests: [] as ReturnType<typeof serializeRecord>[], in_transit: [] as ReturnType<typeof serializeRecord>[],
       awaiting_verification: [] as ReturnType<typeof serializeRecord>[],
       rma_in_transit: [] as ReturnType<typeof serializeRecord>[],
+      rma_awaiting_receipt: [] as ReturnType<typeof serializeRecord>[],
     },
     transport_requests_by_type: {} as Record<string, number>,
     drivers_out: [] as Array<{ driver_id: string; driver: string; total: number; in_transit: number; records: ReturnType<typeof serializeRecord>[] }>,
@@ -108,7 +109,7 @@ export async function dashboardOverview(db: PrismaClient, user: AuthUser) {
   }
   if (user.role === 'TASS') {
     const open = dashboardRecordFilter('tass-open-rma', today)!;
-    const ids = ['tass-open-rma', 'tass-rma-on-hold', 'tass-rma-aging'];
+    const ids = ['tass-open-rma', 'tass-rma-on-hold', 'tass-rma-aging', 'tass-rma-awaiting-receipt', 'tass-rma-awaiting-completion'];
     const counts = await Promise.all(ids.map(count)); ids.forEach((id, i) => { result.counts[id] = counts[i]; });
     result.counts.rma_attention = result.counts['tass-open-rma'];
     // On-Hold first, then oldest submission first. Prisma cannot order by a custom
@@ -123,6 +124,8 @@ export async function dashboardOverview(db: PrismaClient, user: AuthUser) {
     [result.counts['tass-rma-in-transit'], result.record_previews.rma_in_transit] = await Promise.all([
       count('tass-rma-in-transit'), preview(moving, [{ rmaTransportStartedAt: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }]),
     ]);
+    // Ready for receipt: transport finished (or no driver leg), longest-waiting submission first.
+    result.record_previews.rma_awaiting_receipt = await preview(dashboardRecordFilter('tass-rma-awaiting-receipt', today)!, oldest);
   }
   if (user.role === 'ADMIN') {
     const sum = await db.deliveryRecord.aggregate({ where: scoped(dashboardRecordFilter('admin-unverified-collections', today)!), _sum: { amount: true } });
