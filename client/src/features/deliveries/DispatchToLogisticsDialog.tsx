@@ -82,6 +82,20 @@ export function EmailStatusBadge({ status, unconfirmed = false }: { status: RmaD
   return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold tracking-wide ${copy.className}`}>{copy.label}</span>;
 }
 
+/** Pre-send copy describes what will be attempted; live email delivery depends on server mail configuration. */
+export const DISPATCH_PRESEND_DESCRIPTION = 'Send the Client Slips PDF and the Daily Route Slip (DRRMMDDYY.xlsx) to the Logistics coordinator printing today. They receive an in-app notification, and an email with both files when mail delivery is configured.';
+
+/** Truthful in-app notification outcome: only a created notification uses the success style. */
+export const IN_APP_STATUS_COPY = {
+  delivered: { label: 'Delivered', className: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
+  notCreated: { label: 'Not created', className: 'bg-amber-50 text-amber-900 border-amber-200' },
+} as const;
+
+export function InAppStatusBadge({ notified }: { notified: boolean }) {
+  const copy = notified ? IN_APP_STATUS_COPY.delivered : IN_APP_STATUS_COPY.notCreated;
+  return <span data-testid="dispatch-in-app-status" className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${copy.className}`}>{copy.label}</span>;
+}
+
 const newKey = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `k${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`);
 
 interface BackupFiles { pdf: Blob; xlsx: Blob; pdfFileName: string; xlsxFileName: string }
@@ -191,7 +205,7 @@ export default function DispatchToLogisticsDialog({
       title={outcomeCopy ? outcomeCopy.title : 'Dispatch to Logistics'}
       description={outcomeCopy
         ? outcomeCopy.description
-        : 'Send the Client Slips PDF and the Daily Route Slip (DRRMMDDYY.xlsx) to the Logistics coordinator printing today. They receive an in-app notification and an email with both files.'}
+        : DISPATCH_PRESEND_DESCRIPTION}
       confirmLabel={outcome ? 'Close' : 'Dispatch'}
       icon={Send}
       size="lg"
@@ -212,7 +226,7 @@ export default function DispatchToLogisticsDialog({
           {outcome.result.deduplicated && <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">This dispatch was already recorded; no duplicate email or notification was sent.</p>}
           <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2">
             <span className="font-semibold text-slate-700">In-app notification</span>
-            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-800">{dispatchInfo!.in_app_notified ? 'Delivered' : 'Not created'}</span>
+            <InAppStatusBadge notified={dispatchInfo!.in_app_notified} />
           </div>
           <div className="rounded-lg border border-slate-200 px-3 py-2">
             <div className="flex items-center justify-between gap-3">
