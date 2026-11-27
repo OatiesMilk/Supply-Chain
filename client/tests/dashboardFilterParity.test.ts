@@ -31,11 +31,12 @@ type Row = Record<string, any>;
 const toClient = (row: Row) => ({
   id: row.id, category: CATEGORY[row.category], status: row.draft ? 'Draft' : STATUS[row.status], is_draft: row.draft ? 'Yes' : 'No',
   driver_id: row.driverId, driver: row.driver, delivery_date: row.deliveryDate, time_in: row.timeIn,
-  rma_movement: row.rmaMovement, rma_transport_status: row.rmaTransportStatus,
+  rma_movement: row.rmaMovement, rma_transport_status: row.rmaTransportStatus, rma_received_at: row.rmaReceivedAt ?? null,
   is_internal_transfer: row.category === 'RMA' ? Boolean(row.isInternalTransfer) : false,
 }) as unknown as DeliveryRecord;
 
-const base = { status: 'SCHEDULED', draft: false, driverId: null, driver: '', deliveryDate: TODAY, timeIn: null, rmaMovement: null, rmaTransportStatus: null, isInternalTransfer: false };
+const RECEIVED = '2026-11-12T02:00:00.000Z';
+const base = { status: 'SCHEDULED', draft: false, driverId: null, driver: '', deliveryDate: TODAY, timeIn: null, rmaMovement: null, rmaTransportStatus: null, rmaReceivedAt: null, isInternalTransfer: false };
 const rows: Row[] = [];
 let n = 0;
 for (const category of ['DELIVERY', 'PROCUREMENT_PICKUP', 'SALES_ORDERS', 'RMA', 'ACCOUNTING_COLLECTION']) {
@@ -44,10 +45,13 @@ for (const category of ['DELIVERY', 'PROCUREMENT_PICKUP', 'SALES_ORDERS', 'RMA',
       for (const draft of [false, true]) {
         const row = { ...base, id: `r-${n++}`, category, status, driverId, driver: driverId ? 'Ana' : '', draft };
         if (category === 'RMA') {
-          for (const rmaMovement of ['LOGISTICS_TRANSPORT', 'CUSTOMER_DROP_OFF']) {
-            for (const rmaTransportStatus of ['PENDING', 'IN_TRANSIT', 'COMPLETED']) {
-              // Every RMA shape also appears as a TXO non-RMA internal transfer.
-              for (const isInternalTransfer of [false, true]) rows.push({ ...row, id: `r-${n++}`, rmaMovement, rmaTransportStatus, isInternalTransfer });
+          // Every movement method, an unknown legacy value and a null (pre-movement) row.
+          for (const rmaMovement of ['LOGISTICS_TRANSPORT', 'SUPPLIER_COLLECTION', 'INTERNAL_NO_DRIVER', 'CUSTOMER_DROP_OFF', null]) {
+            for (const rmaTransportStatus of ['PENDING', 'IN_TRANSIT', 'COMPLETED', null]) {
+              for (const rmaReceivedAt of [null, RECEIVED]) {
+                // Every RMA shape also appears as a TXO non-RMA internal transfer.
+                for (const isInternalTransfer of [false, true]) rows.push({ ...row, id: `r-${n++}`, rmaMovement, rmaTransportStatus, rmaReceivedAt, isInternalTransfer });
+              }
             }
           }
         } else {
@@ -70,6 +74,8 @@ for (const id of [
   'tass-rma-in-transit',
   'tass-open-rma',
   'tass-rma-on-hold',
+  'tass-rma-awaiting-receipt',
+  'tass-rma-awaiting-completion',
 ] as DashboardFilterId[]) {
   test(`client and server select the same records for ${id} (AC15)`, () => {
     const where = dashboardRecordFilter(id, TODAY)!;
@@ -82,7 +88,7 @@ for (const id of [
 
 test('TASS RMA KPI filters never select internal transfers, while Logistics transport filters still do', () => {
   const transfers = rows.filter(row => row.category === 'RMA' && row.isInternalTransfer);
-  for (const id of ['tass-open-rma', 'tass-rma-on-hold', 'tass-rma-in-transit', 'tass-rma-aging'] as DashboardFilterId[]) {
+  for (const id of ['tass-open-rma', 'tass-rma-on-hold', 'tass-rma-in-transit', 'tass-rma-aging', 'tass-rma-awaiting-receipt', 'tass-rma-awaiting-completion'] as DashboardFilterId[]) {
     assert.equal(transfers.some(row => matchesDashboardFilter(toClient(row), id, TODAY)), false, `client ${id}`);
     if (id !== 'tass-rma-aging') assert.equal(transfers.some(row => matches(row, dashboardRecordFilter(id, TODAY)!)), false, `server ${id}`);
   }

@@ -61,8 +61,8 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
 
   // ── TASS ─────────────────────────────────────────────────────────────────────
   if (role === 'TASS') {
-    const [openRma, rmaOnHold, rmaInTransit, rmaAging] = await Promise.all([
-      'tass-open-rma', 'tass-rma-on-hold', 'tass-rma-in-transit', 'tass-rma-aging',
+    const [openRma, rmaOnHold, rmaInTransit, rmaAging, rmaAwaitingReceipt, rmaAwaitingCompletion] = await Promise.all([
+      'tass-open-rma', 'tass-rma-on-hold', 'tass-rma-in-transit', 'tass-rma-aging', 'tass-rma-awaiting-receipt', 'tass-rma-awaiting-completion',
     ].map(count));
 
     return res.json({
@@ -70,7 +70,9 @@ router.get('/stats', requireAuth, requireResource('dashboard'), async (req, res)
       open_rma: openRma,
       rma_on_hold: rmaOnHold,
       rma_in_transit: rmaInTransit,
-      rma_aging: rmaAging
+      rma_aging: rmaAging,
+      rma_awaiting_receipt: rmaAwaitingReceipt,
+      rma_awaiting_completion: rmaAwaitingCompletion,
     });
   }
 
