@@ -3,7 +3,7 @@ import type { DeliveryRecord } from '@/types';
 import { formatManilaTimestamp } from '@/utils/manilaTimestamp';
 
 /** Read-only collection verification panel (Logistics verifies) rendered in the Verification tab. */
-export default function TassVerificationPanel({ record }: { record: DeliveryRecord }) {
+export default function CollectionVerificationPanel({ record }: { record: DeliveryRecord }) {
   const verified = Boolean(record.collection_verified);
   if (record.status !== 'Delivered' && !verified) return null;
 
@@ -13,7 +13,7 @@ export default function TassVerificationPanel({ record }: { record: DeliveryReco
 
   return (
     <section
-      aria-labelledby="tass-verification-title"
+      aria-labelledby="collection-verification-title"
       className={`rounded-xl border bg-white p-4 shadow-sm sm:p-5 ${
         verified ? 'border-emerald-200' : 'border-amber-200'
       }`}
@@ -24,7 +24,7 @@ export default function TassVerificationPanel({ record }: { record: DeliveryReco
           : <Clock aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />}
         <div className="min-w-0 flex-1 space-y-3">
           <div>
-            <h3 id="tass-verification-title" className="font-bold text-slate-900">
+            <h3 id="collection-verification-title" className="font-bold text-slate-900">
               {verified ? 'Collection verification complete' : 'Awaiting collection verification'}
             </h3>
             <p className="mt-1 text-sm text-slate-600">
