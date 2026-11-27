@@ -19,16 +19,6 @@ const rmaReferenceColumn: RecordColumn<DeliveryRecord> = { key: 'id', header: 'R
 const companyColumn: RecordColumn<DeliveryRecord> = { key: 'company', header: 'Company', render: record => <span className="block max-w-[14rem] truncate md:max-w-[12rem]" title={record.company_name}>{record.company_name}</span> };
 const areaColumn: RecordColumn<DeliveryRecord> = { key: 'area', header: 'Area', render: record => record.area || 'Not set' };
 
-/** TASS works from the RMA reference, so every TASS table leads with it and shows the record number underneath. */
-const rmaReferenceColumn: RecordColumn<DeliveryRecord> = { key: 'id', header: 'RMA', render: record => (
-  <>
-    <span>{record.rma_reference || recordLabel(record)}</span>
-    {record.rma_reference && <span className="block text-xs font-normal text-slate-600">{recordLabel(record)}</span>}
-  </>
-) };
-const companyColumn: RecordColumn<DeliveryRecord> = { key: 'company', header: 'Company', render: record => <span className="block max-w-[14rem] truncate md:max-w-[12rem]" title={record.company_name}>{record.company_name}</span> };
-const areaColumn: RecordColumn<DeliveryRecord> = { key: 'area', header: 'Area', render: record => record.area || 'Not set' };
-
 const inTransitColumns: RecordColumn<DeliveryRecord>[] = [
   rmaReferenceColumn,
   companyColumn,
