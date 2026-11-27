@@ -93,11 +93,63 @@ test('ordinary metadata editor preserves draft and original version across refre
  }finally{await ui.close();}
 });
 
+test('Drivers View retains the dialog edit version across cache refresh and conflict retries', async () => {
+  installLegacySession('LOGISTICS', 'driver');
+  const ui = await fixture();
+  const { default: DriverView } = await import('../src/features/drivers/DriverView');
+  let record = base({ id: 'driver-reschedule', category: 'Deliveries', reference: 'RUN-1',
+    driver: 'Driver One', rma_movement: null, edit_version: 'record:original',
+    delivery_date: '2099-01-01', allowed_statuses: ['Rescheduled'] });
+  mock.method(api, 'getRecordAttachments', async () => []);
+  const patch = mock.method(api, 'patchStatus', async (_id, _status, _remarks, _extra) => {
+    throw Object.assign(new Error('This record changed in another session.'), { status: 409 });
+  });
+  const options = createUpdateRecordMutationOptions(ui.client);
+  const render = () => ui.renderElement(React.createElement(DriverView, {
+    records: [record], currentUserName: 'Logistics', onNavigate() {},
+    driverSummary: [{ name: 'Driver One', active: 1, completed: 0 }],
+    outputActionConfigs: {} as React.ComponentProps<typeof DriverView>['outputActionConfigs'],
+    onUpdateRecord: async (id, updates) => { await options.mutationFn({ id, updates }); },
+  }));
+  try {
+    await render();
+    const run = [...ui.dom.window.document.querySelectorAll('button')].find(el => el.textContent?.includes('RUN-1'))!;
+    await act(async () => run.click()); await ui.flush();
+    await act(async () => ui.button('Reschedule')!.click());
+    await ui.input('New Delivery Date *', '2099-01-03');
+    await ui.input('Remarks — reason for change (required)', 'Customer requested a later date');
+
+    record = { ...record, delivery_date: '2099-01-02', edit_version: 'record:concurrent' };
+    await saveRecordToCache(ui.client, record);
+    await render();
+    assert.equal(ui.client.getQueryData<DeliveryRecord>(['records', 'detail', record.id])?.edit_version, 'record:concurrent');
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await act(async () => ui.button('Confirm')!.click()); await ui.flush();
+      const extra = patch.mock.calls.at(-1)!.arguments[3];
+      assert.equal(extra?.expected_edit_version, 'record:original');
+      assert.equal(extra?.delivery_date, '2099-01-03');
+      assert.match(ui.dom.window.document.querySelector('[role="dialog"]')!.textContent!, /changed in another session/);
+      assert.equal(ui.field('New Delivery Date *').value, '2099-01-03');
+      assert.equal(ui.field('Remarks — reason for change (required)').value, 'Customer requested a later date');
+    }
+    assert.equal(patch.mock.callCount(), 2);
+    assert.equal(record.delivery_date, '2099-01-02');
+
+    await act(async () => ui.dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Close status confirmation"]')!.click());
+    await act(async () => ui.button('Reschedule')!.click());
+    await ui.input('New Delivery Date *', '2099-01-04');
+    await ui.input('Remarks — reason for change (required)', 'Review the new schedule');
+    await act(async () => ui.button('Confirm')!.click()); await ui.flush();
+    assert.equal(patch.mock.calls.at(-1)!.arguments[3]?.expected_edit_version, 'record:concurrent');
+  } finally { await ui.close(); }
+});
+
 for (const competingEdit of [false, true]) test(`combined dispatch and reschedule uses its own save result${competingEdit ? ' and detects a competing edit' : ''}`, async () => {
-  installLegacySession('ADMIN', 'deliveries');
+  // Admin is view-only on Deliveries; Logistics owns dispatch and rescheduling.
+  installLegacySession('LOGISTICS', 'deliveries');
   const ui = await fixture();
   let record = base({ id: 'dispatch-version', category: 'Deliveries', reference: 'REF', rma_movement: null,
-    edit_version: 'record:original', delivery_date: '2099-01-01', allowed_statuses: ['Rescheduled', 'On-Hold'] });
+    edit_version: 'record:original', delivery_date: '2099-01-01', time_in: '2026-10-28T01:00:00.000Z', allowed_statuses: ['Rescheduled', 'On-Hold'] });
   mock.method(api, 'getRecord', async () => record);
   mock.method(api, 'getRecordAttachments', async () => []);
   const put = mock.method(api, 'updateRecord', async (_id, updates: any) => {
@@ -121,11 +173,12 @@ for (const competingEdit of [false, true]) test(`combined dispatch and reschedul
     await act(async () => { Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(element, value); element.dispatchEvent(new ui.dom.window.Event('input', { bubbles: true })); });
   };
   try {
-    await ui.render(record, 'Admin', update);
+    await ui.render(record, 'Logistics', update);
     await act(async () => ui.button('Status & Actions')!.click()); await ui.flush();
     await act(async () => ui.button('Rescheduled')!.click());
     await ui.input('New delivery date', '2099-01-02');
-    await setInput(ui.dom.window.document.querySelector<HTMLInputElement>('input[placeholder="Name of receiver (if any)"]')!, 'Receiver');
+    await act(async () => ui.button('Edit driver completion details')!.click());
+    await setInput(ui.dom.window.document.querySelector<HTMLInputElement>('input[type="datetime-local"]:not([disabled])')!, '2026-10-28T10:30');
     await setInput(ui.dom.window.document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Reason for the changes above (required)…"]')!, 'Update dispatch and delivery date');
     const save = [...ui.dom.window.document.querySelectorAll('button')].find(button => button.textContent?.includes('Save Changes'))!;
     await act(async () => save.click()); await ui.flush();
@@ -147,20 +200,72 @@ test('accounting draft reference advances its token after each own save', async 
     record = { ...record, ...updates, edit_version: `record:${updates.reference}` };
     return record;
   });
+  const options = createUpdateRecordMutationOptions(ui.client);
+  const onUpdateRecord = async (id: string, updates: Partial<DeliveryRecord>) => {
+    const saved = await options.mutationFn({ id, updates });
+    await options.onSuccess(saved);
+  };
   const render = () => ui.renderElement(React.createElement(CollectionWorkspace, {
     record, allRecordIds: [record.id], currentUserRole: 'Admin', currentUserName: 'Admin', onBack() {},
-    onNavigateToRecord() {}, onUpdateRecord: async () => {}, onVerifyCollection: async () => {},
+    onNavigateToRecord() {}, onUpdateRecord, onVerifyCollection: async () => {},
   }));
   try {
     await render();
     for (const reference of ['First correction', 'Second correction']) {
-      const input = [...ui.dom.window.document.querySelectorAll<HTMLInputElement>('input')].find(element => element.value === record.reference)!;
-      await act(async () => { Object.getOwnPropertyDescriptor(ui.dom.window.HTMLInputElement.prototype, 'value')!.set!.call(input, reference); input.dispatchEvent(new ui.dom.window.Event('input', { bubbles: true })); });
-      await ui.input('Remarks — reason for change (required)', 'Correct saved reference');
-      await act(async () => ui.button('Save Draft Reference')!.click()); await ui.flush(); await render();
+      await act(async () => ui.button('Edit')!.click());
+      await ui.flush();
+      const input = ui.dom.window.document.querySelector<HTMLInputElement>('#overview-reference')!;
+      assert.equal(input.value, record.reference);
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(ui.dom.window.HTMLInputElement.prototype, 'value')!.set!.call(input, reference);
+        input.dispatchEvent(new ui.dom.window.Event('input', { bubbles: true }));
+      });
+      await ui.input('Remarks — reason for change', 'Correct saved reference');
+      await act(async () => ui.button('Save Changes')!.click());
+      await ui.flush();
+      await render();
       assert.equal(record.reference, reference);
     }
     assert.equal(put.mock.callCount(), 2);
+    assert.equal(put.mock.calls[0].arguments[1].expected_edit_version, 'record:original');
     assert.equal(put.mock.calls[1].arguments[1].expected_edit_version, 'record:First correction');
   } finally { await ui.close(); }
+});
+
+test('completed Delivery hides Delivery status and Driver & delivery details cards in Status & Actions until editing completion details', async () => {
+  installLegacySession('LOGISTICS', 'deliveries');
+  const ui = await fixture();
+  mock.method(api, 'getRecordAttachments', async () => []);
+  const completed = base({
+    id: 'delivery-completed',
+    category: 'Deliveries',
+    status: 'Delivered',
+    rma_movement: null,
+    allowed_statuses: [],
+    driver: 'John Doe',
+    received_by: 'AP Officer',
+    time_in: '2026-11-22T01:00:00Z',
+    time_out: '2026-11-22T02:00:00Z',
+  });
+  try {
+    await ui.render(completed, 'Logistics', async () => {});
+    await act(async () => ui.button('Status & Actions')!.click());
+    await ui.flush();
+
+    const actionsPanel = ui.dom.window.document.querySelector('[id$="-panel-actions"]')!;
+    assert.doesNotMatch(actionsPanel.textContent!, /Delivery status|Driver & delivery details|Save delivery changes/);
+    assert.match(actionsPanel.textContent!, /This delivery is completed\. Status and driver assignment are locked\./);
+    assert.equal(actionsPanel.querySelector('select'), null);
+    assert.equal(actionsPanel.querySelectorAll('input[type="checkbox"]').length, 0);
+
+    const editBtn = ui.button('Edit driver completion details');
+    assert.ok(editBtn);
+    await act(async () => editBtn.click());
+    await ui.flush();
+
+    assert.ok(actionsPanel.querySelector('#delivery-received-by'));
+    assert.match(actionsPanel.textContent!, /Save delivery changes/);
+  } finally {
+    await ui.close();
+  }
 });

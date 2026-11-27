@@ -59,7 +59,7 @@ function matches(record: Record<string, unknown>, predicate: any): boolean {
 for (const [role, expectedCategories] of [
   ['SALES_COORDINATOR', ['DELIVERY', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS']],
   ['LOGISTICS', ['DELIVERY', 'RMA', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS']],
-  ['TASS', ['RMA', 'ACCOUNTING_COLLECTION']],
+  ['TASS', ['RMA']],
   ['ADMIN', ['DELIVERY', 'RMA', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS']],
   ['DRIVER', ['DELIVERY', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS']],
 ] as const) test(`${role} baseline exposes a complete typed snapshot with independently expected categories`, () => {
@@ -165,6 +165,17 @@ test('immutable ceilings defeat forged policy grants for Sales RMA, TASS scope, 
   }
 });
 
+test('Logistics RMA ceiling allows transport STATUS and POD only, never TIME_IN, CREATE, RECEIVE or COMPLETE', () => {
+  for (const key of ['CATEGORY:RMA:STATUS', 'CATEGORY:RMA:POD']) {
+    const source = withEffects(input('LOGISTICS'), { 'CATEGORY:RMA:READ': 'ALLOW', 'CATEGORY:RMA:WRITE': 'ALLOW', [key]: 'ALLOW' }, true);
+    assert.equal(actionPermissionInputError(source), null, key);
+  }
+  for (const action of ['TIME_IN', 'CREATE', 'UPDATE', 'RECEIVE', 'COMPLETE', 'SUBMIT', 'DELETE']) {
+    const source = withEffects(input('LOGISTICS'), { [`CATEGORY:RMA:${action}`]: 'ALLOW' }, true);
+    assert.match(actionPermissionInputError(source)!, /cannot allow/, action);
+  }
+});
+
 test('ADMIN management stays protected without providing a business-operation bypass', () => {
   const source = input('ADMIN');
   const keys = ['SCREEN:admin:READ', 'SCREEN:admin:WRITE', 'RESOURCE:admin:READ', 'RESOURCE:admin:WRITE', 'RESOURCE:users:READ', 'RESOURCE:users:WRITE', 'RESOURCE:users:UPDATE'];
@@ -181,7 +192,7 @@ test('ADMIN management stays protected without providing a business-operation by
 });
 
 test('navigation and category access remain independent without synthesizing new screens', () => {
-  const source = withEffects(input('ADMIN'), { 'SCREEN:deliveries:READ': 'DENY', 'SCREEN:deliveries:WRITE': 'DENY' });
+  const source = withEffects(input('LOGISTICS'), { 'SCREEN:deliveries:READ': 'DENY', 'SCREEN:deliveries:WRITE': 'DENY' });
   const snapshot = evaluatePermissions(source);
   assert.equal(snapshot.effectiveScreens.includes('deliveries'), false);
   assert.equal(canReadPolicyRecord(snapshot, delivery(), { path: 'calendar' }), true);
@@ -305,6 +316,21 @@ test('Logistics RMA assignment is bounded; internal/non-Logistics movements rema
   for (const action of ['UPDATE', 'POD', 'STATUS', 'RECEIVE', 'COMPLETE'] as const) assert.equal(canPerformPolicyRecordAction(snapshot, row, action, { rmaTransport: transport, targetStatus: 'Delivered' }), false);
 });
 
+test('Logistics with transport STATUS and POD may record transport only, never change RMA status', () => {
+  const snapshot = evaluatePermissions(withEffects(input(), { 'CATEGORY:RMA:WRITE': 'ALLOW', 'CATEGORY:RMA:ASSIGN': 'ALLOW', 'CATEGORY:RMA:STATUS': 'ALLOW', 'CATEGORY:RMA:POD': 'ALLOW' }));
+  const row = delivery({ category: 'RMA' });
+  const transport = { requiresLogistics: true, requiresInternalDriver: true, eligible: true, actionAllowed: true };
+  assert.equal(canPerformPolicyRecordAction(snapshot, row, 'STATUS', { rmaTransport: transport }), true);
+  assert.equal(canPerformPolicyRecordAction(snapshot, row, 'POD', { rmaTransport: transport }), true);
+  for (const targetStatus of ['Pending', 'On-Hold', 'Rescheduled', 'Delivered'] as const) assert.equal(canPerformPolicyRecordAction(snapshot, row, 'STATUS', { rmaTransport: transport, targetStatus }), false, targetStatus);
+  for (const action of ['STATUS', 'POD'] as const) {
+    assert.equal(canPerformPolicyRecordAction(snapshot, row, action, { rmaTransport: { ...transport, actionAllowed: false } }), false);
+    assert.equal(canPerformPolicyRecordAction(snapshot, row, action, { rmaTransport: { ...transport, eligible: false } }), false);
+    assert.equal(canPerformPolicyRecordAction(snapshot, row, action), false);
+  }
+  for (const action of ['UPDATE', 'RECEIVE', 'COMPLETE', 'TIME_IN'] as const) assert.equal(canPerformPolicyRecordAction(snapshot, row, action, { rmaTransport: transport }), false, action);
+});
+
 test('TASS alone may receive/finalize RMA; STATUS Delivered cannot bypass COMPLETE restriction', () => {
   const row = delivery({ category: 'RMA', driverId: null, driver: '', timeIn: null, timeOut: null });
   for (const role of ['ADMIN', 'LOGISTICS', 'SALES_COORDINATOR', 'DRIVER'] as const) {
@@ -342,23 +368,31 @@ test('Driver Dashboard cannot bypass a category denial and eligible RMA transpor
   }
 });
 
-test('Accounting verification requires TASS, category Write and accomplished/unverified state', () => {
+test('Accounting verification requires an explicit Logistics grant, category Write and accomplished/unverified state', () => {
   const row = delivery({ category: 'ACCOUNTING_COLLECTION', status: 'ACCOMPLISHED', collectionVerified: false });
-  const snapshot = evaluatePermissions(input('TASS'));
+  const grant = { 'CATEGORY:ACCOUNTING_COLLECTION:VERIFY_COLLECTION': 'ALLOW' };
+  // The frozen baseline does not grant verification; an explicit V1 Allow is within the Logistics ceiling.
+  assert.equal(canPerformPolicyRecordAction(evaluatePermissions(input('LOGISTICS')), row, 'VERIFY_COLLECTION'), false);
+  const snapshot = evaluatePermissions(withEffects(input('LOGISTICS'), grant));
   assert.equal(canPerformPolicyRecordAction(snapshot, row, 'VERIFY_COLLECTION'), true);
   for (const changed of [{ collectionVerified: true }, { collectionVerified: undefined }, { status: 'SCHEDULED' }, { draft: true }]) {
     assert.equal(canPerformPolicyRecordAction(snapshot, { ...row, ...changed }, 'VERIFY_COLLECTION'), false);
   }
-  assert.equal(canPerformPolicyRecordAction(evaluatePermissions(withEffects(input('TASS'), { 'CATEGORY:ACCOUNTING_COLLECTION:WRITE': 'DENY' })), row, 'VERIFY_COLLECTION'), false);
+  assert.equal(canPerformPolicyRecordAction(evaluatePermissions(withEffects(input('LOGISTICS'), { ...grant, 'CATEGORY:ACCOUNTING_COLLECTION:WRITE': 'DENY' })), row, 'VERIFY_COLLECTION'), false);
+  // TASS no longer has the Accounting Collection module, even with stored Allows.
+  const tass = evaluatePermissions(withEffects(input('TASS'), { ...grant, 'CATEGORY:ACCOUNTING_COLLECTION:READ': 'ALLOW', 'SCREEN:accounting_collection:READ': 'ALLOW' }));
+  assert.equal(canReadPolicyRecord(tass, row), false);
+  assert.equal(canPerformPolicyRecordAction(tass, row, 'VERIFY_COLLECTION'), false);
+  assert.equal(canCreatePolicyCategory(tass, 'ACCOUNTING_COLLECTION'), false);
   assert.equal(canPerformPolicyRecordAction(evaluatePermissions(input('ADMIN')), row, 'VERIFY_COLLECTION'), false);
-  assert.equal(canCreatePolicyCategory(snapshot, 'ACCOUNTING_COLLECTION'), true);
-  assert.equal(canPerformPolicyRecordAction(snapshot, row, 'UPDATE'), false);
+  assert.equal(canPerformPolicyRecordAction(evaluatePermissions(withEffects(input('ADMIN'), grant)), row, 'VERIFY_COLLECTION'), false);
+  assert.equal(canPerformPolicyRecordAction(tass, row, 'UPDATE'), false);
 });
 
 test('transaction scope and instance reads agree on independently specified role category ceilings', () => {
   const expected: Record<PolicyRole, string[]> = {
     SALES_COORDINATOR: ['DELIVERY', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'], LOGISTICS: ['DELIVERY', 'RMA', 'PROCUREMENT_PICKUP'],
-    TASS: ['RMA', 'ACCOUNTING_COLLECTION'], ADMIN: ['DELIVERY', 'RMA', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'],
+    TASS: ['RMA'], ADMIN: ['DELIVERY', 'RMA', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'],
     DRIVER: ['DELIVERY', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'],
   };
   const categories = ['DELIVERY', 'RMA', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'];

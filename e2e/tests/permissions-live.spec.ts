@@ -211,6 +211,9 @@ test.describe.serial('GH250 actual application permission workflow', () => {
           expect(session.snapshot.readableCategories).not.toContain('RMA');
         } else if (role === 'TASS') {
           await page.goto(`${base}/rma`); await expect(page).toHaveURL(/\/rma$/);
+          // TASS has no Accounting Collection module (Logistics verifies collections).
+          expect(session.snapshot.readableCategories).toEqual(['RMA']);
+          expect(session.effectiveScreens).not.toContain('accounting_collection');
           const records = await context.request.get(`${base}/api/v1/records`);
           expect(records.status()).toBe(200); expect(await records.json()).toEqual([]);
           const supplier = await context.request.post(`${base}/api/v1/suppliers`, { headers: await csrf(context.request), data: { name: 'Denied TASS supplier' } });

@@ -8,3 +8,4 @@ export { default as TassDashboard } from './TassDashboard';
 export * from './TassDashboard';
 export { default as DriverDashboard } from './DriverDashboard';
 export * from './DriverDashboard';
+export { default as SalesCoordinatorDashboard } from './SalesCoordinatorDashboard';

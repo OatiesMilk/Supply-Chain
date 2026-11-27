@@ -16,8 +16,9 @@ export const DEFAULT_OUTPUT_ACTIONS: Record<OutputActionTrigger, OutputActionCon
 export function getOutputTrigger(category: DeliveryCategory, status: DeliveryStatus): OutputActionTrigger | null {
   if (status === 'Delivered') {
     if (category === 'RMA') return 'RMA Completed';
-    // Collection transport completion is not TASS verification.
-    return 'Accomplished';
+    // Non-RMA Delivered means transport proof is handed off. Server sign-off
+    // owns the final completion notification after Sales has reviewed it.
+    return null;
   }
   if (status === 'Rescheduled') return 'Rescheduled';
   if (status === 'On-Hold') return 'On-Hold';

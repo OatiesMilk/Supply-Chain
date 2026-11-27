@@ -22,13 +22,16 @@ test('rehearsal matrix preserves five roles, exceptions, scheduling, lookups and
   for (const role of POLICY_ROLES) for (const screens of [{}, { deliveries: false, calendar: true }, { inventory: true, suppliers: false }, { admin: true, unknown: true }]) {
     const account = fixture(role, screens);
     const report = comparePermissionRehearsal(account, evaluatePermissions(input(account)));
-    assert.deepEqual(report.expansions, [], `${role} expansion`);
+    // Legacy supplier lookup for TASS used to come from Procurement Pick-up as well; with Suppliers
+    // explicitly denied and Procurement Pick-up removed, only the V1 stored lookup remains (read-only).
+    const knownLookup = role === 'TASS' && screens.suppliers === false ? ['RESOURCE:suppliers:READ', 'LOOKUP:suppliers:READ'] : [];
+    assert.deepEqual(report.expansions.filter(d => !knownLookup.includes(d.key)), [], `${role} expansion`);
     assert.deepEqual(report.regressions, [], `${role} regression`);
     assert.deepEqual(report.intentionalTightening, []);
     assert.ok(report.comparisons > 150);
   }
   const tass = evaluatePermissions(input(fixture('TASS')));
-  assert.ok(tass.effectiveScreens.includes('procurement_pickup'));
+  assert.equal(tass.effectiveScreens.includes('procurement_pickup'), false, 'TASS has no Procurement Pick-up module');
   assert.equal(tass.capabilities.categories.PROCUREMENT_PICKUP.read, false);
   assert.equal(tass.capabilities.resources.suppliers.read, true);
   assert.equal(tass.capabilities.resources.suppliers.write, false);

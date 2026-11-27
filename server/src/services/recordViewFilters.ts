@@ -15,11 +15,11 @@ export function runViewWhere(view: RecordView, queue?: 'active' | 'completed', t
   };
   const base: Prisma.DeliveryRecordWhereInput = { draft: false, OR: [ordinary, rma, rmaFinalizedToday] };
   const active: Prisma.DeliveryRecordWhereInput = { OR: [
-    { ...ordinary, status: { not: 'ACCOMPLISHED' } },
+    { ...ordinary, status: { notIn: ['ACCOMPLISHED', 'TRANSPORT_COMPLETE'] } },
     { ...rma, rmaTransportStatus: { not: 'COMPLETED' } },
   ] };
   const completed: Prisma.DeliveryRecordWhereInput = { OR: [
-    { ...ordinary, status: 'ACCOMPLISHED' },
+    { ...ordinary, status: { in: ['ACCOMPLISHED', 'TRANSPORT_COMPLETE'] } },
     { ...rma, rmaTransportStatus: 'COMPLETED' },
     rmaFinalizedToday,
   ] };
@@ -27,15 +27,11 @@ export function runViewWhere(view: RecordView, queue?: 'active' | 'completed', t
   if (view === 'runs') return { AND: [{ draft: false, OR: [ordinary, { ...rma, rmaTransportStatus: { not: 'COMPLETED' } }] }, ...(queue === 'active' ? [active] : queue === 'completed' ? [completed] : [])] };
   const nextDay = new Date(`${today}T00:00:00+08:00`);
   nextDay.setUTCDate(nextDay.getUTCDate() + 1);
-  const doneToday: Prisma.DeliveryRecordWhereInput = { ...ordinary, status: 'ACCOMPLISHED', OR: [
-    { timeOut: { gte: `${today}T00:00:00+08:00`, lt: nextDay.toISOString() } },
-    { timeOut: null, deliveryDate: today },
-  ] };
-  // Stored clocks are canonical UTC strings. Compare against canonical UTC too.
-  (doneToday.OR![0] as Prisma.DeliveryRecordWhereInput).timeOut = {
+  const doneToday: Prisma.DeliveryRecordWhereInput = { ...ordinary, status: { in: ['ACCOMPLISHED', 'TRANSPORT_COMPLETE'] }, timeOut: {
     gte: new Date(`${today}T00:00:00+08:00`).toISOString(), lt: nextDay.toISOString(),
-  };
-  const activeDue: Prisma.DeliveryRecordWhereInput = { ...ordinary, status: { not: 'ACCOMPLISHED' }, OR: [
+  } };
+  // Stored clocks are canonical UTC strings. Compare against canonical UTC too.
+  const activeDue: Prisma.DeliveryRecordWhereInput = { ...ordinary, status: { notIn: ['ACCOMPLISHED', 'TRANSPORT_COMPLETE'] }, OR: [
     { deliveryDate: { gte: '0001-01-01', lte: today } }, { timeIn: { not: null } },
   ] };
   return { AND: [base, { OR: [rma, ...(queue !== 'completed' ? [activeDue] : []), ...(queue !== 'active' ? [doneToday] : []), ...(queue === 'completed' ? [rmaFinalizedToday] : [])] },

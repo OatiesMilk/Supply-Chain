@@ -97,6 +97,22 @@ Subsystems: `client`, `server`, `api`, `db`, `admin`
 
 Commit message format: `<type>(<subsystem>): <message> (TSK-XX)`
 
+### Automated Shipping & Commit Attribution (`.agents/skills/ship-pr/SKILL.md`)
+
+- Once a fix or new feature is implemented and locally verified (`tsc --noEmit`
+  and relevant `test:server` / `test:client`), automatically follow
+  `.agents/skills/ship-pr/SKILL.md`: create a new branch off `origin/dev`,
+  stage only the task's files, commit, push, open a PR targeting `dev`, and arm
+  GitHub auto-merge with `gh pr merge --auto --squash --delete-branch`.
+- GitHub's `CI Check (dev)` ruleset holds the merge until both `Lint, Validate & Build`
+  and `Playwright E2E Tests` pass. **Never** push directly to `dev`, `staging`,
+  or `main`, and **never** pass `--admin` to `gh pr merge`.
+- **No AI attribution:** Never add `Co-Authored-By:` trailers (e.g., Claude,
+  Codex, Gemini, Antigravity), `Generated with ...` footers, or any AI tool
+  signatures to commit messages or PR descriptions. Local enforcement is
+  provided by `.githooks/commit-msg` (enable once with
+  `git config core.hooksPath .githooks`) and `.claude/settings.json`.
+
 ### Backend (Express + Prisma)
 
 - Every write route must have `requireAuth` + `requireRole(...)` from `server/src/middleware/auth.ts`
@@ -138,7 +154,13 @@ Commit message format: `<type>(<subsystem>): <message> (TSK-XX)`
   real PostgreSQL, browser and external-provider validation.
 - Do **not** spin up new dev servers in tests — frontend is on `3000`, backend on `4000`
 - Existing isolated HTTP tests on ephemeral ports are appropriate. PostgreSQL
-  race/rollback tests require designated disposable targets.
+  race/rollback tests require designated disposable `127.0.0.1` targets
+  removed in `finally`, with `*.postgres.test.ts` suites executed serially
+  (one file at a time or `--test-concurrency=1`) to avoid shared sequence races.
+- Server unit tests that stub `mailer` or external providers MUST blank real
+  provider variables (e.g., `AZURE_*`, `SMTP_*`, `SUPABASE_*`, `NOTION_*`) to
+  empty strings (`''`, not `delete`) before dynamically importing `db.ts` or
+  `mailer.ts`, because `db.ts` loads `server/.env` via `dotenv.config()`.
 - Documentation/instruction-only edits need link, format and consistency checks;
   application tests are needed when behavior/contracts change. Substantial skill
   revisions also need a scoped behavioral evaluation when available/permitted.
@@ -158,11 +180,17 @@ Commit message format: `<type>(<subsystem>): <message> (TSK-XX)`
 - Preserve linked Driver profile ownership, immutable role ceilings and
   action-level denials. Admin does not bypass every domain boundary.
 - RMA transport completion, TASS physical receipt and final completion are
-  separate events. Collection verification is TASS-owned.
+  separate events (Recipient is optional on TASS physical receipt; receipt and
+  completion dates are editable). TASS has no Accounting Collection access;
+  collection verification is Logistics-owned.
 - Trace UI → API → middleware/domain rules → transaction/audit/evidence →
   notifications/cache → next role's view, including alternate submission paths.
 - Report configured, queued, mocked, sent, skipped and failed integration outcomes
   truthfully. Success messages and Delivered status do not prove email delivery.
+- **Microsoft SSO / Live Azure Tenant Deferred:** Microsoft SSO authentication
+  and live Microsoft Graph/Azure tenant configuration are out of scope until
+  Microgenesis provides its company SSO credentials upon handoff. Keep
+  mail/Graph integration tests strictly offline and stubbed locally.
 - Operational stock movement is currently manual; do not add automatic stock or
   financial reconciliation as an incidental fix without an agreed business rule.
 - Detailed audit and permission guidance lives in the routing skill's
@@ -194,5 +222,8 @@ The project uses a Notion Tickets database (`TSK-XX` prefix). The agent can:
 - Cross-reference code changes with ticket IDs
 
 Notion API key is stored in `.env` as `NOTION_API_KEY`.
-Ticket updates, emails, publishing and other external mutations require explicit
-task authorization; discovering a finding alone does not authorize them.
+Shipping verified fixes/features to a new branch + PR targeting `dev` with
+CI-gated auto-merge (`ship-pr`) is pre-authorized. Promotions to `staging` or
+`main`, Notion ticket updates, emails, deployments, and other external
+mutations still require explicit task authorization; discovering a finding
+alone does not authorize them.

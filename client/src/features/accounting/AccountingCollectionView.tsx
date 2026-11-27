@@ -1,4 +1,5 @@
 import { usePermissions } from '@/hooks/usePermissions';
+import { DATA_SAMPLER_ENABLED } from '@/utils/developmentTools';
 import { manilaToday, manilaDateTimeInput, submissionErrors } from '@/utils/recordLifecycle';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
@@ -8,12 +9,14 @@ import {
 import ExportMenu from '@/components/ExportMenu';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import FilterPopover, { FilterCombobox } from '@/components/FilterPopover';
+import DateRangePicker from '@/components/DateRangePicker';
 import { DELIVERY_COLUMNS, AC_EXTRA_COLUMNS, PDF_AC_COLUMNS, fmtDate, fmtDatetime, fmtStatus, StatusHistoryCounts } from '@/utils/export';
 import { computeAllOpsSummary } from '@/utils/allOpsExport';
 import { DeliveryRecord, DeliveryCategory, UserRole, DeliveryStatus } from '@/types';
 import { AREAS, PRIORITIES, ITEM_TYPES, DELIVERY_STATUSES, acStatusLabel } from '@/data';
 import { accountManagerChoices, useAccountManagersQuery } from '@/api/queries/useAccountManagersQuery';
-import { activeCompanies, defaultAccountManagerFor } from '@/utils/accountDirectory';
+import { accountManagerAfterCompanyChange, accountManagerOptionGroups, activeCompanies, companySapNumbers, preferredAccountManagerFor } from '@/utils/accountDirectory';
+import CompanySapQuickPick from '@/components/CompanySapQuickPick';
 import { ApiCompany, api, apiUrl } from '@/api';
 import { usePagedRecordsQuery, useSelectedRecordQuery, normalizeApiRecord } from '@/api/queries/useRecordsQuery';
 import { useRecordFilterOptionsQuery } from '@/api/queries/useOperationalViews';
@@ -25,6 +28,18 @@ import { notify } from '@/utils/notify';
 import { DashboardFilterId, matchesDashboardFilter } from '@/utils/dashboardFilters';
 import DashboardFilterChip from '@/components/DashboardFilterChip';
 import { uploadPendingRecordAttachments, type StagedRecordAttachment } from '@/utils/recordAttachments';
+import { recordLabel } from '../../utils/recordLabel';
+import { statusBadgeClass } from '@/utils/statusTheme';
+import {
+  btnPrimaryClass,
+  btnSecondaryClass,
+  cardClass,
+  filterChipClass,
+  tableHeaderRowClass,
+  tableLeadButtonClass,
+  tableRowClass,
+} from '@/utils/uiClasses';
+import { EmptyState, TableSkeleton } from '@/components/UiPrimitives';
 
 interface AccountingCollectionViewProps {
   records: DeliveryRecord[];
@@ -40,6 +55,8 @@ interface AccountingCollectionViewProps {
   clearSelectedRecordId?: () => void;
   dashboardFilterId: DashboardFilterId | null;
   clearDashboardFilter: () => void;
+  /** Shows the demo Auto Fill button. Defaults to local Vite development only; tests may opt in. */
+  showAutoFill?: boolean;
 }
 
 const CATEGORY: DeliveryCategory = 'Accounting Collection';
@@ -102,19 +119,6 @@ const acAfFutureDate = (minDays = 1, maxDays = 10) => {
   return manilaToday(d);
 };
 
-const statusColor = (status: DeliveryStatus) => {
-  switch (status) {
-    case 'Draft': return 'bg-slate-100 text-slate-700 border-slate-300';
-    case 'In Transit': return 'bg-cyan-50 text-cyan-700 border-cyan-200';
-    case 'Delivered':   return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-    case 'On-Hold':     return 'bg-red-50 text-red-700 border-red-200';
-    case 'Rescheduled': return 'bg-purple-50 text-purple-700 border-purple-200';
-    case 'Pending':     return 'bg-amber-50 text-amber-700 border-amber-200';
-    case 'Scheduled':
-    default:            return 'bg-blue-50 text-blue-700 border-blue-200';
-  }
-};
-
 export default function AccountingCollectionView({
   records,
   companies,
@@ -127,24 +131,28 @@ export default function AccountingCollectionView({
   clearSelectedRecordId,
   dashboardFilterId,
   clearDashboardFilter,
+  showAutoFill = DATA_SAMPLER_ENABLED,
 }: AccountingCollectionViewProps) {
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [showDateRangePicker, setShowDateRangePicker] = useState(false);
   const [dateSort, setDateSort] = useState<'default' | 'nearest' | 'oldest' | 'furthest'>('default');
   const [amFilter, setAmFilter] = useState('');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const activeFilterCount = [!!searchQuery, statusFilter !== 'All', !!amFilter, dateSort !== 'default', !!dashboardFilterId].filter(Boolean).length;
+  const activeFilterCount = [!!searchQuery, statusFilter !== 'All', !!dateFrom || !!dateTo, !!amFilter, dateSort !== 'default', !!dashboardFilterId].filter(Boolean).length;
   const clearAllFilters = () => {
-    setSearchQuery(''); setStatusFilter('All'); setAmFilter(''); setDateSort('default');
+    setSearchQuery(''); setStatusFilter('All'); setDateFrom(''); setDateTo(''); setAmFilter(''); setDateSort('default');
     clearDashboardFilter();
   };
   const [form, setForm] = useState<RecordFormState>(buildEmptyForm());
   const [saving, setSaving] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [stagedAttachments, setStagedAttachments] = useState<StagedRecordAttachment[]>([]);
-  const [createdRecordInfo, setCreatedRecordInfo] = useState<{ id: string; referenceLabel: string } | null>(null);
+  const [createdRecordInfo, setCreatedRecordInfo] = useState<{ id: string; recordNo: string; referenceLabel: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -160,9 +168,11 @@ export default function AccountingCollectionView({
   useEffect(() => {
     setSearchQuery('');
     setStatusFilter('All');
+    setDateFrom('');
+    setDateTo('');
     setDateSort('default');
     setAmFilter('');
-    if (dashboardFilterId === 'tass-pending-verification' || dashboardFilterId === 'admin-unverified-collections') {
+    if (dashboardFilterId === 'admin-unverified-collections') {
       setStatusFilter('Delivered');
     }
   }, [dashboardFilterId]);
@@ -185,6 +195,8 @@ export default function AccountingCollectionView({
   const accountManagers = useAccountManagersQuery();
   const amChoices = accountManagerChoices(accountManagers.data);
   const companyOptions = activeCompanies(companies);
+  const selectedCompany = form.company_id ? companies.find(c => c.id === form.company_id) : undefined;
+  const amGroups = accountManagerOptionGroups(selectedCompany, amChoices, accountManagers.data);
   const amOptions = filterOptions.isError ? [] : filterOptions.data?.accountManagers
     ?? [...new Set(records.filter(r => r.category === CATEGORY).map(r => r.account_manager).filter(Boolean))].sort();
 
@@ -192,18 +204,18 @@ export default function AccountingCollectionView({
     setForm(prev => ({ ...prev, [key]: value }));
 
   const handleAutoFill = () => {
-    if (companyOptions.length === 0) return;
+    if (!showAutoFill || companyOptions.length === 0) return;
     const company = acAfPick(companyOptions);
     const deliveryDate = acAfFutureDate(1, 10);
     setForm({
       company_name: company.name,
       company_id: company.id,
       priority: acAfPick(PRIORITIES),
-      reference: `SAP-COLL-${acAfRandInt(10000, 99999)}`,
+      reference: companySapNumbers(company)[0] ?? `SAP-COLL-${acAfRandInt(10000, 99999)}`,
       remarks: acAfPick(AC_AF_REMARKS),
       status: 'Scheduled',
       area: acAfPick(AREAS),
-      account_manager: defaultAccountManagerFor(company, accountManagers.data) || (amChoices.length ? acAfPick(amChoices) : ''),
+      account_manager: preferredAccountManagerFor(company, accountManagers.data) || (amChoices.length ? acAfPick(amChoices) : ''),
       delivery_date: deliveryDate,
       item_type: acAfPick(ITEM_TYPES),
       is_draft: 'No',
@@ -217,11 +229,9 @@ export default function AccountingCollectionView({
   const handleCompanySelect = (name: string) => {
     const company = companyOptions.find(c => c.name === name);
     setForm(prev => {
-      // Fill the company's default AM unless the user already picked a different one.
-      const previousDefault = defaultAccountManagerFor(companies.find(c => c.id === prev.company_id), accountManagers.data);
-      const nextDefault = defaultAccountManagerFor(company, accountManagers.data);
-      const keepAm = prev.account_manager.trim() && prev.account_manager !== previousDefault;
-      return { ...prev, company_name: name, company_id: company?.id ?? '', account_manager: keepAm || !nextDefault ? prev.account_manager : nextDefault };
+      // Fill the company's single AM unless the user already picked a different one.
+      const account_manager = accountManagerAfterCompanyChange(prev.account_manager, companies.find(c => c.id === prev.company_id), company, accountManagers.data);
+      return { ...prev, company_name: name, company_id: company?.id ?? '', account_manager };
     });
   };
 
@@ -275,7 +285,7 @@ export default function AccountingCollectionView({
     try {
       const complete = await uploadAttachments(createdRecordInfo.id);
       if (!complete) {
-        notify.error(`Record ${createdRecordInfo.id} is saved. Some attachments still need to be uploaded; retry them here.`);
+        notify.error(`Record ${createdRecordInfo.recordNo} is saved. Some attachments still need to be uploaded; retry them here.`);
         return;
       }
       notify.success('All collection attachments uploaded');
@@ -328,11 +338,12 @@ export default function AccountingCollectionView({
       });
       setCreatedRecordInfo({
         id: createdRecord.id,
+        recordNo: recordLabel(createdRecord),
         referenceLabel: form.reference || form.company_name,
       });
       const allUploaded = await uploadAttachments(createdRecord.id);
       if (!allUploaded) {
-        notify.error(`Collection ${createdRecord.id} was created. Some attachments still need to be uploaded; retry them below.`);
+        notify.error(`Collection ${recordLabel(createdRecord)} was created. Some attachments still need to be uploaded; retry them below.`);
         return;
       }
       notify.success(isDraft ? 'Collection draft saved' : 'Collection submitted');
@@ -352,6 +363,8 @@ export default function AccountingCollectionView({
   const { data: pagedData, isLoading: pagedLoading } = usePagedRecordsQuery({
     category: CATEGORY,
     dateSort,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
     page: currentPage,
     limit: pageSize,
     status: statusFilter !== 'All' ? statusFilter : undefined,
@@ -364,7 +377,7 @@ export default function AccountingCollectionView({
   // Automatically reset to page 1 whenever any filter or search query changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, statusFilter, amFilter, dateSort, dashboardFilterId]);
+  }, [searchQuery, statusFilter, dateFrom, dateTo, amFilter, dateSort, dashboardFilterId]);
 
   // Filter records
   const filtered = records.filter(r => {
@@ -377,8 +390,9 @@ export default function AccountingCollectionView({
       r.account_manager.toLowerCase().includes(q)
     );
     const matchesStatus = statusFilter === 'All' || r.status === statusFilter;
+    const matchesDateRange = (!dateFrom || r.delivery_date >= dateFrom) && (!dateTo || r.delivery_date <= dateTo);
     const matchesAM = !amFilter || r.account_manager.toLowerCase().includes(amFilter.toLowerCase());
-    return matchesSearch && matchesStatus && matchesAM;
+    return matchesSearch && matchesStatus && matchesDateRange && matchesAM;
   });
 
   // Date sort — a named helper so we can reuse it for both the local fallback
@@ -424,6 +438,7 @@ export default function AccountingCollectionView({
           <AccountingCollectionWorkspace
             record={record}
             allRecordIds={[...new Set([...displayRecords.map(r => r.id), record.id])]}
+            allRecords={records}
             currentUserRole={currentUserRole}
             currentUserName={currentUserName}
             onBack={() => setSelectedRecordId(null)}
@@ -438,7 +453,7 @@ export default function AccountingCollectionView({
 
   // ── Export rows ──────────────────────────────────────────────────────────────
   const exportRows = sortedFiltered.map(r => ({
-    id: r.id,
+    id: recordLabel(r),
     company_name: r.company_name,
     reference: r.reference,
     category: r.category,
@@ -477,7 +492,7 @@ export default function AccountingCollectionView({
     const sortedAll = sortRows(allRecords);
 
     const rows = sortedAll.map(r => ({
-      id: r.id,
+      id: recordLabel(r),
       company_name: r.company_name,
       reference: r.reference,
       category: r.category,
@@ -521,10 +536,9 @@ export default function AccountingCollectionView({
   // even though there's no actual dead space between them. Tightened both
   // columns to fit their content closely; the freed width goes to Company.
   // Collection column removed for all roles — it always rendered empty/dash
-  // values here (real verification happens via the TASS Dashboard's
-  // "Unverified Collections" table with its inline Verify action, and via
-  // the record workspace's Verification tab). This registry is a shared,
-  // action-free browse view across Sales Coordinator/TASS/Admin, so one
+  // values here (real verification happens in the record workspace's
+  // Verification tab, where Logistics verifies collections). This registry is
+  // a shared, action-free browse view across Sales Coordinator/Logistics/Admin, so one
   // column set now covers everyone.
   const colPct = { id: 10, company: 28, reference: 18, priority: 10, status: 12, date: 10, amount: 12 };
 
@@ -539,23 +553,23 @@ export default function AccountingCollectionView({
         <div className="bg-white border border-amber-200 shadow-sm rounded-xl p-5 space-y-4" role="status">
           <div>
             <h3 className="text-base font-bold text-slate-900">Collection created: {createdRecordInfo.referenceLabel}</h3>
-            <p className="text-xs text-slate-600 mt-1">Record ID: <span className="font-mono font-bold">{createdRecordInfo.id}</span></p>
+            <p className="text-xs text-slate-600 mt-1">Record No.: <span className="tabular-nums font-bold">{createdRecordInfo.recordNo}</span></p>
             <p className="text-xs text-amber-800 mt-2">The record is saved. Retry the remaining file uploads here; this will not create another record.</p>
           </div>
           <div className="space-y-2">
             {stagedAttachments.map(attachment => (
               <div key={attachment.id} className="flex items-start gap-2 bg-slate-50 border border-slate-200 rounded px-3 py-2">
-                <FileText className="w-4 h-4 text-[#1F3864] mt-0.5" />
+                <FileText className="w-4 h-4 text-brand-navy mt-0.5" />
                 <div className="min-w-0 flex-1">
-                  <p className="font-mono text-xs text-slate-700 break-all">{attachment.file.name}</p>
-                  <p className={`text-[10px] font-semibold ${attachment.status === 'uploaded' ? 'text-emerald-700' : attachment.status === 'failed' ? 'text-red-600' : 'text-amber-700'}`}>
+                  <p className="tabular-nums text-xs text-slate-700 break-all">{attachment.file.name}</p>
+                  <p className={`text-xs font-semibold ${attachment.status === 'uploaded' ? 'text-emerald-700' : attachment.status === 'failed' ? 'text-red-600' : 'text-amber-700'}`}>
                     {attachment.status === 'uploaded' ? 'Uploaded' : attachment.status === 'uploading' ? 'Uploading…' : attachment.status === 'failed' ? `Upload failed: ${attachment.error ?? 'Please retry.'}` : 'Waiting to upload'}
                   </p>
                 </div>
               </div>
             ))}
           </div>
-          <button type="button" onClick={handleRetryAttachments} disabled={saving} className="px-5 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg disabled:opacity-50">
+          <button type="button" onClick={handleRetryAttachments} disabled={saving} className="px-5 py-2.5 bg-brand-blue hover:bg-brand-navy text-white font-bold rounded-lg disabled:opacity-50">
             {saving ? 'Uploading…' : 'Retry incomplete uploads'}
           </button>
         </div>
@@ -564,18 +578,20 @@ export default function AccountingCollectionView({
           <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
             <div>
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <Plus className="w-5 h-5 text-[#0078C1]" /> Create New Accounting Collection Record
+                <Plus className="w-5 h-5 text-brand-blue" /> Create New Accounting Collection Record
               </h3>
-              <p className="text-[11.5px] text-slate-500 font-medium">Fields marked with * are required.</p>
+              <p className="text-xs text-slate-500 font-medium">Fields marked with * are required.</p>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleAutoFill}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg transition-colors cursor-pointer"
-              >
-                <Wand2 className="w-3.5 h-3.5" /> Auto Fill
-              </button>
+              {showAutoFill && (
+                <button
+                  type="button"
+                  onClick={handleAutoFill}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg transition-colors cursor-pointer"
+                >
+                  <Wand2 aria-hidden="true" className="w-3.5 h-3.5" /> Auto Fill
+                </button>
+              )}
               <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-700">
                 <X className="w-5 h-5" />
               </button>
@@ -591,20 +607,20 @@ export default function AccountingCollectionView({
                   value={form.company_name}
                   onChange={e => handleCompanySelect(e.target.value)}
                   aria-invalid={!!formErrors.company_name}
-                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none bg-white ${formErrors.company_name ? 'border-red-500' : 'border-slate-300'}`}
+                  className={`w-full px-3 py-2 border rounded-lg bg-white focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25 ${formErrors.company_name ? 'border-red-500' : 'border-slate-300'}`}
                 >
                   <option value="">-- Select registered merchant / company --</option>
                   {companyOptions.map(c => (
                     <option key={c.id} value={c.name}>{c.name}</option>
                   ))}
                 </select>
-                {formErrors.company_name && <p className="text-red-500 text-[10px] font-semibold">{formErrors.company_name}</p>}
+                {formErrors.company_name && <p className="text-red-600 text-xs font-semibold">{formErrors.company_name}</p>}
               </div>
 
               {/* Priority */}
               <div className="space-y-1.5">
                 <label className="font-bold text-slate-700">Priority</label>
-                <select value={form.priority} onChange={e => updateField('priority', e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">
+                <select value={form.priority} onChange={e => updateField('priority', e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25">
                   {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
@@ -615,8 +631,9 @@ export default function AccountingCollectionView({
                 <input type="text" value={form.reference} onChange={e => updateField('reference', e.target.value)}
                   aria-invalid={!!formErrors.reference}
                   placeholder="e.g., SAP-88231"
-                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none ${formErrors.reference ? 'border-red-500' : 'border-slate-300'}`} />
-                {formErrors.reference && <p className="text-red-500 text-[10px] font-semibold">{formErrors.reference}</p>}
+                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25 ${formErrors.reference ? 'border-red-500' : 'border-slate-300'}`} />
+                <CompanySapQuickPick sapNumbers={companySapNumbers(selectedCompany)} value={form.reference} onPick={sap => updateField('reference', sap)} />
+                {formErrors.reference && <p className="text-red-600 text-xs font-semibold">{formErrors.reference}</p>}
               </div>
 
               {/* Amount to Collect */}
@@ -632,10 +649,10 @@ export default function AccountingCollectionView({
                     onChange={e => updateField('amount', e.target.value)}
                     aria-invalid={!!formErrors.amount}
                     placeholder="25000.00"
-                    className={`w-full pl-7 pr-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 ${formErrors.amount ? 'border-red-500' : 'border-slate-300'}`}
+                    className={`w-full pl-7 pr-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-blue/30 ${formErrors.amount ? 'border-red-500' : 'border-slate-300'}`}
                   />
                 </div>
-                {formErrors.amount && <p className="text-red-500 text-[10px] font-semibold">{formErrors.amount}</p>}
+                {formErrors.amount && <p className="text-red-500 text-xs font-semibold">{formErrors.amount}</p>}
               </div>
 
               {/* Remarks */}
@@ -651,7 +668,7 @@ export default function AccountingCollectionView({
                 <select value={form.area} onChange={e => updateField('area', e.target.value)} aria-invalid={!!formErrors.area} className={`w-full px-3 py-2 border rounded-lg bg-white ${formErrors.area ? 'border-red-500' : 'border-slate-300'}`}>
                   {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>
-                {formErrors.area && <p className="text-red-500 text-[10px] font-semibold">{formErrors.area}</p>}
+                {formErrors.area && <p className="text-red-500 text-xs font-semibold">{formErrors.area}</p>}
               </div>
 
               {/* Account Manager */}
@@ -661,9 +678,11 @@ export default function AccountingCollectionView({
                   aria-invalid={!!formErrors.account_manager}
                   className={`w-full px-3 py-2 border rounded-lg bg-white ${formErrors.account_manager ? 'border-red-500' : 'border-slate-300'}`}>
                   <option value="">-- Select account manager --</option>
-                  {amChoices.map(m => <option key={m} value={m}>{m}</option>)}
+                  {amGroups ? amGroups.filter(group => group.options.length).map(group => (
+                    <optgroup key={group.label} label={group.label}>{group.options.map(m => <option key={m} value={m}>{m}</option>)}</optgroup>
+                  )) : amChoices.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
-                {formErrors.account_manager && <p className="text-red-500 text-[10px] font-semibold">{formErrors.account_manager}</p>}
+                {formErrors.account_manager && <p className="text-red-500 text-xs font-semibold">{formErrors.account_manager}</p>}
               </div>
 
               {/* Delivery Date */}
@@ -672,7 +691,7 @@ export default function AccountingCollectionView({
                 <input type="date" value={form.delivery_date} onChange={e => updateField('delivery_date', e.target.value)}
                   aria-invalid={!!formErrors.delivery_date}
                   className={`w-full px-3 py-2 border rounded-lg ${formErrors.delivery_date ? 'border-red-500' : 'border-slate-300'}`} />
-                {formErrors.delivery_date && <p className="text-red-500 text-[10px] font-semibold">{formErrors.delivery_date}</p>}
+                {formErrors.delivery_date && <p className="text-red-500 text-xs font-semibold">{formErrors.delivery_date}</p>}
               </div>
 
               {/* Item Type */}
@@ -695,20 +714,20 @@ export default function AccountingCollectionView({
                 <label className="font-bold text-slate-700">Document Attachments</label>
                 <div
                   onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-slate-300 rounded-xl p-5 text-center flex flex-col items-center justify-center gap-2 cursor-pointer bg-slate-50/50 hover:bg-slate-50 transition-all"
+                  className="border-2 border-dashed border-slate-200 rounded-xl p-5 text-center flex flex-col items-center justify-center gap-2 cursor-pointer bg-slate-50/50 hover:bg-slate-50 hover:border-slate-300 transition-colors"
                 >
                   <UploadCloud className="w-8 h-8 text-slate-400" />
-                  <p className="font-bold text-slate-600">Click to select files</p>
-                  <p className="text-[10px] text-slate-400">PDF, JPG/JPEG, PNG, DOCX or XLSX — previewable without downloading, up to 10 MB each</p>
+                  <p className="font-semibold text-slate-700">Click to select files</p>
+                  <p className="text-xs text-slate-500">PDF, JPG/JPEG, PNG, DOCX or XLSX — previewable without downloading, up to 10 MB each</p>
                   <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept={POD_ATTACHMENT_ACCEPT} multiple className="hidden" />
                 </div>
                 {stagedAttachments.length > 0 && (
                   <div className="mt-2 space-y-1">
                     {stagedAttachments.map(attachment => (
-                      <div key={attachment.id} className="flex items-center gap-2 bg-slate-100 border border-slate-200 rounded px-2 py-1">
-                        <FileText className="w-3.5 h-3.5 text-[#1F3864]" />
-                        <span className="font-mono text-[10px] text-slate-700">{attachment.file.name}</span>
-                        <span className="ml-auto text-[10px] text-slate-500">Ready to upload</span>
+                      <div key={attachment.id} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
+                        <FileText className="w-3.5 h-3.5 text-brand-navy" />
+                        <span className="text-xs text-slate-700 truncate">{attachment.file.name}</span>
+                        <span className="ml-auto text-xs text-slate-500 shrink-0">Ready to upload</span>
                       </div>
                     ))}
                   </div>
@@ -716,12 +735,12 @@ export default function AccountingCollectionView({
               </div>
             </div>
 
-            <div className="flex gap-2 justify-end pt-2 border-t border-slate-100">
-              <button type="button" onClick={() => setShowForm(false)} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors text-[11px] uppercase">
+            <div className="flex gap-2 justify-end pt-3 border-t border-slate-100">
+              <button type="button" onClick={() => setShowForm(false)} className={btnSecondaryClass}>
                 Cancel
               </button>
-              <button type="submit" value="draft" disabled={saving} className="px-5 py-2.5 border border-slate-300 text-slate-700 font-bold rounded-lg disabled:opacity-50">Save as Draft</button>
-              <button type="submit" value="submit" disabled={saving} className="px-6 py-2.5 bg-[#0078C1] hover:bg-[#1F3864] text-white font-bold rounded-lg transition-colors text-[11px] uppercase flex items-center gap-1.5">
+              <button type="submit" value="draft" disabled={saving} className={btnSecondaryClass}>Save as Draft</button>
+              <button type="submit" value="submit" disabled={saving} className={btnPrimaryClass}>
                 <Check className="w-4 h-4" /> {saving ? "Saving…" : "Submit"}
               </button>
             </div>
@@ -731,94 +750,122 @@ export default function AccountingCollectionView({
 
       {/* List */}
       {!showForm && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-          {/* Toolbar */}
-          <div className="p-4 border-b border-slate-200 space-y-0">
-            {/* ── Primary toolbar bar ── */}
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              {/* LEFT: category label + status chips */}
-              <div className="flex items-center gap-0 min-w-0 flex-wrap">
-                <span className="text-xs font-black text-slate-800 uppercase tracking-wider mr-3 shrink-0">Accounting Collection</span>
-                <div className="flex items-center gap-1.5 border-l border-slate-200 pl-3 flex-wrap">
-                  {['All', ...DELIVERY_STATUSES].map(s => (
-                    <button
-                      key={s}
-                      onClick={() => setStatusFilter(s)}
-                      aria-pressed={statusFilter === s}
-                      className={`px-3 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer ${
-                        statusFilter === s
-                          ? 'bg-[#1F3864] text-white border-[#1F3864]'
-                          : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-                      }`}
-                    >
-                      {s === 'All' ? 'All' : acStatusLabel(s)}
-                    </button>
-                  ))}
-                </div>
-              </div>
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <p className="text-xs text-slate-500 tabular-nums">
+                Showing <span className="font-semibold text-slate-800">{displayRecords.length}</span> of{' '}
+                <span className="font-semibold text-slate-800">{displayTotalCount}</span>{' '}
+                {displayTotalCount === 1 ? 'record' : 'records'}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+              {(currentUserRole === 'Logistics' || currentUserRole === 'Admin') && (
+                <ExportMenu
+                  rows={exportRows}
+                  columns={[...DELIVERY_COLUMNS, ...AC_EXTRA_COLUMNS]}
+                  pdfColumns={PDF_AC_COLUMNS}
+                  sheetName="Accounting Collection"
+                  filename="accounting-collection"
+                  pdfTitle="Accounting Collection records"
+                  showPdf={true}
+                  meta={{
+                    reportName: 'Accounting Collection Export',
+                    dateRange: dateFrom || dateTo ? `${dateFrom || 'earliest'} to ${dateTo || 'latest'}` : 'All dates',
+                    dateBasis: 'Delivery Date (Asia/Manila)',
+                    generatedByName: currentUserName,
+                    generatedByRole: currentUserRole,
+                  }}
+                  summary={exportSummary}
+                  statusHistoryCounts={statusHistoryCounts}
+                  totalCount={displayTotalCount}
+                  fetchExportData={fetchExportData}
+                />
+              )}
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => { setShowForm(true); setSelectedRecordId(null); }}
+                  className={btnPrimaryClass}
+                >
+                  <Plus className="w-4 h-4" /> New Record
+                </button>
+              )}
+            </div>
+          </div>
 
-              {/* RIGHT: search + filter toggle + record count */}
-              <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end shrink-0">
-                <div className="relative flex-1 sm:w-56 sm:flex-initial">
+          <div className={`${cardClass} overflow-hidden`}>
+          {/* Unified Toolbar */}
+          <div className="p-4 border-b border-slate-200/80 space-y-3 print:hidden">
+            {/* Row 1: Search + Date range + Sort + Advanced filters */}
+            <div
+              className="grid grid-cols-1 min-[400px]:grid-cols-2 lg:grid-cols-12 gap-3 items-end text-xs"
+              id="accounting-collection-filters"
+            >
+              <div className="min-w-0 min-[400px]:col-span-2 lg:col-span-4 space-y-1">
+                <label htmlFor="accountingCollectionSearch" className="font-medium text-slate-600 block">Search</label>
+                <div className="relative">
                   <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
+                    id="accountingCollectionSearch"
                     type="text"
                     aria-label="Search accounting collection records"
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
-                    placeholder="Search by ID, company, reference..."
-                    className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-[#0078C1]"
+                    placeholder="Search records..."
+                    className="w-full min-h-10 pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder:text-slate-400 bg-white focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/20"
                   />
                 </div>
+              </div>
+              <div className="min-w-0 min-[400px]:col-span-2 lg:col-span-5">
+                <DateRangePicker dateFrom={dateFrom} dateTo={dateTo} open={showDateRangePicker}
+                  onOpenChange={setShowDateRangePicker}
+                  onChange={range => { setDateFrom(range.from); setDateTo(range.to); }} />
+              </div>
+              <div className="min-w-0 min-[400px]:col-span-2 lg:col-span-3 flex items-end gap-2">
+                <div className="space-y-1 min-w-0 flex-1">
+                  <label htmlFor="accountingCollectionSort" className="font-medium text-slate-600 block">Sort</label>
+                  <select id="accountingCollectionSort" value={dateSort} onChange={e => setDateSort(e.target.value as typeof dateSort)}
+                    className="min-h-10 w-full text-xs font-medium border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/20 cursor-pointer">
+                    <option value="default">Date: Default</option>
+                    <option value="nearest">Nearest to Present</option>
+                    <option value="oldest">Oldest First</option>
+                    <option value="furthest">Furthest Future First</option>
+                  </select>
+                </div>
                 <FilterPopover open={showAdvancedFilters} onOpenChange={setShowAdvancedFilters}
-                  count={activeFilterCount} onClear={clearAllFilters}>
+                  count={amFilter ? 1 : 0} onClear={() => setAmFilter('')}>
                   <FilterCombobox label="Account Manager" placeholder="All Account Managers"
                     value={amFilter} onChange={setAmFilter} options={amOptions} />
-                  <label className="block text-xs font-semibold text-slate-600">Date sort
-                    <select value={dateSort} onChange={e => setDateSort(e.target.value as typeof dateSort)}
-                      className="mt-1 min-h-10 w-full text-xs border border-slate-200 rounded-lg px-2.5 py-2 bg-white focus:ring-2 focus:ring-[#0078C1]">
-                      <option value="default">Sort: Default</option>
-                      <option value="nearest">Sort: Nearest to Present</option>
-                      <option value="oldest">Sort: Oldest First</option>
-                      <option value="furthest">Sort: Furthest Future First</option>
-                    </select>
-                  </label>
                 </FilterPopover>
-                {(currentUserRole === 'TASS' || currentUserRole === 'Admin') && (
-                  <ExportMenu
-                    rows={exportRows}
-                    columns={[...DELIVERY_COLUMNS, ...AC_EXTRA_COLUMNS]}
-                    pdfColumns={PDF_AC_COLUMNS}
-                    sheetName="Accounting Collection"
-                    filename="accounting-collection"
-                    pdfTitle="Accounting Collection records"
-                    showPdf={true}
-                    meta={{
-                      reportName: 'Accounting Collection Export',
-                      dateRange: 'All dates',
-                      dateBasis: 'Delivery Date (Asia/Manila)',
-                      generatedByName: currentUserName,
-                      generatedByRole: currentUserRole,
-                    }}
-                    summary={exportSummary}
-                    statusHistoryCounts={statusHistoryCounts}
-                    totalCount={displayTotalCount}
-                    fetchExportData={fetchExportData}
-                  />
-                )}
-                {canEdit && (
-                  <button
-                    onClick={() => { setShowForm(true); setSelectedRecordId(null); }}
-                    className="bg-[#1F3864] hover:bg-blue-900 text-white text-[12px] font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
-                  >
-                    <Plus className="w-4 h-4" /> New Record
-                  </button>
-                )}
-                <span className="text-[11px] font-bold text-slate-400 tabular-nums shrink-0">{displayTotalCount}</span>
               </div>
             </div>
 
-
+            {/* Row 2: Status chips + Clear filters */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {['All', ...DELIVERY_STATUSES].map(s => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setStatusFilter(s)}
+                    aria-pressed={statusFilter === s}
+                    className={filterChipClass(statusFilter === s)}
+                  >
+                    {s === 'All' ? 'All' : acStatusLabel(s)}
+                  </button>
+                ))}
+              </div>
+              {activeFilterCount > 0 && (
+                <button
+                  type="button"
+                  onClick={clearAllFilters}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"
+                >
+                  <X className="w-3.5 h-3.5" /> Clear All Filters
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Table */}
@@ -834,8 +881,8 @@ export default function AccountingCollectionView({
                 <col style={{ width: `${colPct.amount}%` }} />
               </colgroup>
               <thead>
-                <tr className="bg-slate-100 border-b border-slate-200 text-xs font-black text-slate-500 uppercase tracking-wider">
-                  <th className="px-4 py-3">Record ID</th>
+                <tr className={tableHeaderRowClass}>
+                  <th className="px-4 py-3">Record No.</th>
                   <th className="px-4 py-3">Company</th>
                   <th className="px-4 py-3">Reference</th>
                   <th className="px-4 py-3">Priority</th>
@@ -846,38 +893,58 @@ export default function AccountingCollectionView({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {displayRecords.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-3.5 text-center text-slate-400">
-                      {pagedLoading ? 'Loading records…' : 'No matching records found.'}
-                    </td>
-                  </tr>
-                ) : displayRecords.map(rec => (
-                  <tr
-                    key={rec.id}
-                    onClick={() => setSelectedRecordId(rec.id)}
-                    className="hover:bg-blue-50/40 cursor-pointer transition-all"
-                  >
-                    <td className="px-4 py-3.5 font-bold text-slate-400 truncate">{rec.id}</td>
-                    <td className="px-4 py-3.5">
-                      <div className="font-semibold text-sm text-slate-900 truncate" title={rec.company_name}>{rec.company_name}</div>
-                      <div className="text-xs text-gray-400 mt-0.5 truncate" title={rec.reference}>{rec.reference}</div>
-                    </td>
-                    <td className="px-4 py-3.5 font-mono text-slate-600 truncate" title={rec.reference}>{rec.reference}</td>
-                    <td className="px-4 py-3.5 truncate text-slate-600" title={rec.priority}>{rec.priority}</td>
-                    <td className="px-4 py-3.5 text-center">
-                      <span className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold inline-block ${statusColor(rec.status)}`}>
-                        {acStatusLabel(rec.status)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 font-mono text-slate-500">{rec.delivery_date}</td>
-                    <td className="pl-4 pr-6 py-3.5 text-right font-bold text-slate-900 tabular-nums">
-                      {rec.amount != null
-                        ? <span>₱{rec.amount.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
-                        : <span className="text-slate-300 italic text-[10px]">—</span>
-                      }
-                    </td>
-                  </tr>
-                ))}
+                  pagedLoading ? (
+                    <TableSkeleton columns={7} rows={6} />
+                  ) : (
+                    <tr>
+                      <td colSpan={7}>
+                        <EmptyState
+                          compact
+                          title="No matching records found"
+                          description="Adjust your search, date range, or status filters to see collection records."
+                        />
+                      </td>
+                    </tr>
+                  )
+                ) : displayRecords.map(rec => {
+                  const label = recordLabel(rec);
+                  return (
+                    <tr
+                      key={rec.id}
+                      onClick={() => setSelectedRecordId(rec.id)}
+                      className={`${tableRowClass} cursor-pointer`}
+                    >
+                      <td className="px-4 py-3.5 truncate">
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); setSelectedRecordId(rec.id); }}
+                          aria-label={label}
+                          title={`Open Accounting Collection record ${label}`}
+                          className={`${tableLeadButtonClass} text-xs max-w-full truncate block`}
+                        >
+                          {label}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="font-semibold text-sm text-slate-900 truncate" title={rec.company_name}>{rec.company_name}</div>
+                      </td>
+                      <td className="px-4 py-3.5 tabular-nums text-xs text-slate-600 truncate" title={rec.reference}>{rec.reference}</td>
+                      <td className="px-4 py-3.5 truncate text-slate-600" title={rec.priority}>{rec.priority}</td>
+                      <td className="px-4 py-3.5 text-center">
+                        <span className={`px-2 py-0.5 rounded-full border text-xs font-semibold inline-block ${statusBadgeClass(rec.status)}`}>
+                          {acStatusLabel(rec.status)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5 tabular-nums text-xs text-slate-600">{rec.delivery_date}</td>
+                      <td className="pl-4 pr-6 py-3.5 text-right font-semibold text-slate-900 tabular-nums">
+                        {rec.amount != null
+                          ? <span>₱{rec.amount.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+                          : <span className="text-slate-400 italic text-xs">—</span>
+                        }
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -901,21 +968,22 @@ export default function AccountingCollectionView({
           {displayRecords.length > 0 && (() => {
             const total = displayRecords.reduce((sum, r) => sum + (r.amount ?? 0), 0);
             return (
-              <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
-                <span className="text-[11px] text-slate-400">
+              <div className="p-3 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs text-slate-600">
                   Total Accounting Collection records: {displayTotalCount}
                 </span>
-                <span className="text-xs font-black text-slate-700 tabular-nums">
+                <span className="text-xs font-bold text-slate-700 tabular-nums">
                   Page Total:{' '}
                   <span className="text-emerald-700">
                     ₱{total.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
                   </span>
-                  <span className="text-slate-400 font-normal ml-1">across {displayRecords.length} record{displayRecords.length !== 1 ? 's' : ''} on this page</span>
+                  <span className="text-slate-500 font-normal ml-1">across {displayRecords.length} record{displayRecords.length !== 1 ? 's' : ''} on this page</span>
                 </span>
               </div>
             );
           })()}
-        </div>
+          </div>
+        </>
       )}
     </div>
   );

@@ -10,9 +10,10 @@ import { test, expect, Page } from '@playwright/test';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
-import { DEMO_LOCATION_FIXTURES } from '../../client/src/utils/demoLocations';
+import { kpiTile } from '../support/kpiTile';
+import { RECORD_NO_PATTERN, deliveredFixtureRow } from '../support/recordRows';
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:3000';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -56,9 +57,7 @@ test.describe('TSK-126 dashboard card filters', () => {
   test('SC On-Hold card opens the matching list, wraps at supported widths, and clears', async ({ page }) => {
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
-    const card = page.locator('#kpi-on-hold');
-    await expect(card).toBeVisible();
-    const cardCount = Number((await card.locator('h3').innerText()).trim());
+    const { tile: card, count: cardCount } = await kpiTile(page, 'On hold');
     await card.click();
 
     const chip = page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true });
@@ -86,7 +85,7 @@ test.describe('TSK-126 dashboard card filters', () => {
     expect(unfilteredCount).toBeGreaterThanOrEqual(cardCount);
 
     await page.getByRole('navigation').getByRole('button', { name: /^Dashboard/ }).click();
-    await page.locator('#kpi-on-hold').click();
+    await (await kpiTile(page, 'On hold')).tile.click();
     await expect(page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true })).toBeVisible();
     await page.getByRole('navigation').getByRole('button', { name: /^Deliveries/ }).click();
     await expect(page.getByText('Showing: On-Hold Items (from Dashboard)', { exact: true })).not.toBeVisible();
@@ -99,28 +98,30 @@ test.describe('A-2 Create a Delivery Record', () => {
     await page.waitForLoadState('networkidle');
   });
 
-  test('A-2.1 Auto Fill keeps Area and Address in one demo-location fixture', async ({ page }) => {
+  test('A-2.1 Auto Fill is not shown in the production build', async ({ page }) => {
     await page.getByRole('button', { name: /new record/i }).click();
 
     const areaInput = page.locator('label').filter({ hasText: /^Area/ }).locator('..').locator('input');
     const addressInput = page.getByPlaceholder(/street, building, floor/i);
-    const autoFill = page.getByRole('button', { name: /auto fill/i });
 
-    for (let attempt = 0; attempt < 3; attempt++) {
-      await autoFill.click();
-      // Area and Address render one after the other, so retry until both settle.
-      await expect(async () => {
-        const area = await areaInput.inputValue();
-        const address = await addressInput.inputValue();
-        const fixture = DEMO_LOCATION_FIXTURES.find(location => location.area === area && location.address === address);
-        expect(fixture, `Expected one demo-location fixture for ${area} / ${address}`).toBeTruthy();
-      }).toPass({ timeout: 5000 });
-    }
+    // CI serves the production bundle, where the demo-data flag is off. The demo-location fixture is covered by client unit tests.
+    await expect(addressInput).toBeVisible();
+    await expect(page.getByRole('button', { name: /auto fill/i })).toHaveCount(0);
 
     await areaInput.fill('Makati CBD');
     await addressInput.fill('Manually entered delivery address');
     await expect(areaInput).toHaveValue('Makati CBD');
     await expect(addressInput).toHaveValue('Manually entered delivery address');
+  });
+
+  test('A-2.1b Accounting Collection Auto Fill is not shown in the production build', async ({ page }) => {
+    await page.goto(`${BASE_URL}/accounting_collection`);
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('button', { name: /new record/i }).click();
+
+    // The demo-data flag is off in the production bundle CI serves (#358).
+    await expect(page.getByRole('heading', { name: 'Create New Accounting Collection Record' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /auto fill/i })).toHaveCount(0);
   });
 
   test('A-2.2 Empty form submission shows validation errors', async ({ page }) => {
@@ -181,16 +182,17 @@ test.describe('A-2 Create a Delivery Record', () => {
     expect(createdResponse.status(), 'creating the Delivery must succeed').toBe(201);
     const saved = await createdResponse.json();
     expect(saved.id).toBeTruthy();
+    expect(saved.record_no).toMatch(RECORD_NO_PATTERN);
     expect(saved.reference).toBe(reference);
     expect(saved.status).toBe('Scheduled');
     expect(saved.is_draft).toBe('No');
-    await expect(page.getByText(`${reference} · ${saved.id}`, { exact: true })).toBeVisible();
+    await expect(page.getByText(`${reference} · ${saved.record_no}`, { exact: true })).toBeVisible();
 
     // Reload and inspect only the newly saved row, never a filter option or seed row.
     await page.reload();
-    await page.getByRole('textbox', { name: 'Search delivery records' }).fill(saved.id);
+    await page.getByRole('textbox', { name: 'Search delivery records' }).fill(saved.record_no);
     const createdRow = page.getByRole('row').filter({
-      has: page.getByRole('cell', { name: saved.id, exact: true }),
+      has: page.getByRole('cell', { name: saved.record_no, exact: true }),
     });
     await expect(createdRow).toHaveCount(1);
     await expect(createdRow.getByText('Scheduled', { exact: true })).toBeVisible();
@@ -404,11 +406,11 @@ test.describe('A-3 Edit a Record', () => {
   test('A-3.9 TSK-124 Priority is read-only on a Delivered record', async ({ page }) => {
     await page.goto(`${BASE_URL}/deliveries`);
     await page.waitForLoadState('networkidle');
-    const delivered = page.getByRole('row').filter({ hasText: 'REC-UAT-DELIVERED-' }).first();
+    const delivered = await deliveredFixtureRow(page);
     await expect(delivered, 'The UAT seed must provide its completed delivery fixture').toBeVisible();
     await delivered.click();
 
-    await expect(page.getByText('Priority is locked after delivery.')).toBeVisible();
+    await expect(page.getByText('Priority is locked after transport completion.')).toBeVisible();
     // Sales Coordinator cannot edit a Delivered record, so there is no Edit button or Priority dropdown.
     await expect(page.locator('select').filter({ has: page.locator('option[value="3 - High"]') })).toHaveCount(0);
   });

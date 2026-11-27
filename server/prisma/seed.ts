@@ -1,5 +1,6 @@
 import { assertDisposableSeedTarget } from './seed-safety';
 import { prisma } from '../src/db';
+import { buildRmaDemoRecords, syncRmaReferenceSequences } from './seeds/rma-demo';
 import bcrypt from 'bcryptjs';
 
 import { seedAccounts, COMPANIES, CUSTOMERS, SUPPLIERS } from './seeds/accounts';
@@ -166,6 +167,8 @@ export async function runSeed(force = false) {
   await prisma.remarkLog.deleteMany();
   await prisma.comment.deleteMany();
   await prisma.notification.deleteMany();
+  // Requests restrict User deletion and link Company/Supplier; clear them first.
+  await prisma.masterDataAdditionRequest.deleteMany();
   await prisma.userPermission.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.notificationLog.deleteMany();
@@ -174,6 +177,7 @@ export async function runSeed(force = false) {
   await prisma.inventoryItem.deleteMany();
   await prisma.product.deleteMany();
   await prisma.deliveryRecord.deleteMany();
+  await prisma.rmaReferenceSequence.deleteMany();
   await prisma.company.deleteMany();
   await prisma.customer.deleteMany();
   await prisma.supplier.deleteMany();
@@ -240,31 +244,6 @@ export async function runSeed(force = false) {
     { id: 'REC-4024', companyKey: 'contis',         priority: '2 - Moderate', reference: 'SAP-89055', remarks: 'Client requested AM delivery but vehicle unavailable — rescheduled.',    status: 'RESCHEDULED',  vehicle: '(None)',                      area: 'Parañaque',                driver: '',  driverAssistants: '[]',  accountManager: 'R. Pagkalinawan', deliveryDate: '2026-07-09', category: 'DELIVERY',            itemType: 'Medium Item',    draft: false,  itemDescription: '3x UTK-PRN-TH80, 3x UTK-DRW-HVY', collectionVerified: false, createdBy: sales, modifiedBy: sales },
     { id: 'REC-4025', companyKey: 'marygrace',      priority: '2 - Moderate', reference: 'SAP-89070', remarks: 'Shangri-La loading bay blocked — rescheduled to Jul 23.',                status: 'RESCHEDULED',  vehicle: '(None)',                      area: 'Mandaluyong',              driver: '',  driverAssistants: '[]',  accountManager: 'D. Macaraeg',   deliveryDate: '2026-07-11', category: 'DELIVERY',              itemType: 'Small Item',     draft: false,  itemDescription: '8x UTK-SCN-HND, 8x UTK-STY-PEN', collectionVerified: false, createdBy: sales, modifiedBy: sales },
 
-    // ── RMA — ACCOMPLISHED (5) ────────────────────────────────────────────────
-    { id: 'REC-4101', companyKey: 'jollibee',       priority: '3 - High',     reference: 'SAP-RMA-3001', remarks: 'Pull-out UTK-PRN-TH80 dead pixel — replacement delivered same visit.',  status: 'ACCOMPLISHED', vehicle: 'Motorcycle-01 (Express)', area: 'Quezon City - Fairview',   driver: D1, driverAssistants: '[]',  accountManager: 'P. Soriano',    deliveryDate: '2026-04-18', category: 'RMA',                   itemType: 'Small Item',     draft: false,  itemDescription: '1x UTK-PRN-TH80 defective pull-out + 1x replacement drop-off', collectionVerified: false, createdBy: sales, modifiedBy: logistics },
-    { id: 'REC-4102', companyKey: 'mcdo',           priority: '3 - High',     reference: 'SAP-RMA-3020', remarks: 'Screen crack on 2 units — covered by 12-month warranty.',              status: 'ACCOMPLISHED', vehicle: 'Van-01 (L300)',          area: 'Makati CBD',               driver: D2, driverAssistants: A3 ? JSON.stringify([A3]) : '[]', accountManager: 'D. Macaraeg',   deliveryDate: '2026-05-02', category: 'RMA',                   itemType: 'Small Item',     draft: false,  itemDescription: '2x UTK-TAB10 cracked screen pull-out, 2x replacements', collectionVerified: false, createdBy: sales, modifiedBy: logistics },
-    { id: 'REC-4103', companyKey: 'mercury',        priority: '2 - Moderate', reference: 'SAP-RMA-3045', remarks: 'Scanner non-responsive after firmware update. Exchange unit.',          status: 'ACCOMPLISHED', vehicle: 'Motorcycle-01 (Express)', area: 'Makati CBD',               driver: D3, driverAssistants: '[]',  accountManager: 'F. Valenzuela', deliveryDate: '2026-05-20', category: 'RMA',                   itemType: 'Small Item',     draft: false,  itemDescription: '1x UTK-SCN-2D non-responsive, swap completed', collectionVerified: false, createdBy: sales, modifiedBy: logistics },
-    { id: 'REC-4104', companyKey: 'smretail',       priority: '2 - Moderate', reference: 'SAP-RMA-3060', remarks: '3 drawers with broken locks from Bicutan store. Repair or replace.',   status: 'ACCOMPLISHED', vehicle: 'Van-01 (L300)',          area: 'Parañaque',                driver: D1, driverAssistants: A2 ? JSON.stringify([A2]) : '[]', accountManager: 'P. Soriano',    deliveryDate: '2026-06-05', category: 'RMA',                   itemType: 'Small Item',     draft: false,  itemDescription: '3x UTK-DRW-MED broken lock mechanism pull-out', collectionVerified: false, createdBy: sales, modifiedBy: logistics },
-    { id: 'REC-4105', companyKey: 'chowking',       priority: '2 - Moderate', reference: 'SAP-RMA-3080', remarks: 'LTE router connectivity drops — factory reset and return.',             status: 'ACCOMPLISHED', vehicle: 'Motorcycle-01 (Express)', area: 'Manila - Malate',          driver: D2, driverAssistants: '[]',  accountManager: 'D. Macaraeg',   deliveryDate: '2026-06-20', category: 'RMA',                   itemType: 'Small Item',     draft: false,  itemDescription: '1x UTK-LTE-RTR connectivity issue — pull-out for diagnostics', collectionVerified: false, createdBy: sales, modifiedBy: logistics },
-
-    // ── RMA — SCHEDULED (4) ───────────────────────────────────────────────────
-    { id: 'REC-4106', companyKey: 'cbtl',           priority: '2 - Moderate', reference: 'SAP-RMA-3100', remarks: 'Card reader intermittent tap failures after 3 months use.',             status: 'SCHEDULED',    vehicle: 'Motorcycle-01 (Express)', area: 'BGC (Taguig)',             driver: '',  driverAssistants: '[]',  accountManager: 'D. Macaraeg',   deliveryDate: '2026-07-17', category: 'RMA',                   itemType: 'Small Item',     draft: false,  itemDescription: '1x UTK-CARD-RDR intermittent NFC failure — swap', collectionVerified: false, createdBy: sales, modifiedBy: sales },
-    { id: 'REC-4107', companyKey: 'kfc',            priority: '2 - Moderate', reference: 'SAP-RMA-3115', remarks: '2 mobile printers not holding charge beyond 2 hours.',                  status: 'SCHEDULED',    vehicle: 'Van-01 (L300)',          area: 'Ortigas Center (Pasig)',   driver: '',  driverAssistants: '[]',  accountManager: 'P. Soriano',    deliveryDate: '2026-07-18', category: 'RMA',                   itemType: 'Small Item',     draft: false,  itemDescription: '2x UTK-PRN-TH58 battery degradation pull-out', collectionVerified: false, createdBy: sales, modifiedBy: sales },
-    { id: 'REC-4108', companyKey: 'generika',       priority: '1 - Low',      reference: 'SAP-RMA-3130', remarks: 'Tablet display ghost touch reported by cashier team.',                  status: 'SCHEDULED',    vehicle: 'Motorcycle-01 (Express)', area: 'Muntinlupa - Alabang',     driver: '',  driverAssistants: '[]',  accountManager: 'A. Santos',     deliveryDate: '2026-07-19', category: 'RMA',                   itemType: 'Small Item',     draft: false,  itemDescription: '1x UTK-TAB08 ghost-touch display fault — pull-out', collectionVerified: false, createdBy: sales, modifiedBy: sales },
-    { id: 'REC-4109', companyKey: 'watsons',        priority: '1 - Low',      reference: 'SAP-RMA-3145', remarks: '4 RFID fobs not scanning after 6 months. Batch replacement.',           status: 'SCHEDULED',    vehicle: 'Motorcycle-01 (Express)', area: 'Pasay',                    driver: '',  driverAssistants: '[]',  accountManager: 'C. Lim',        deliveryDate: '2026-07-20', category: 'RMA',                   itemType: 'Small Item',     draft: false,  itemDescription: '4x UTK-RFID-TAG defective batch pull-out', collectionVerified: false, createdBy: sales, modifiedBy: sales },
-
-    // ── RMA — PENDING (3) ─────────────────────────────────────────────────────
-    { id: 'REC-4110', companyKey: 'potatocorner',   priority: '2 - Moderate', reference: 'SAP-RMA-3160', remarks: 'VFD display showing garbled characters after power surge.',             status: 'PENDING',      vehicle: '(None)',                  area: 'Mandaluyong',              driver: '',  driverAssistants: '[]',  accountManager: 'C. Lim',        deliveryDate: '2026-07-18', category: 'RMA',                   itemType: 'Small Item',     draft: false,  itemDescription: '1x UTK-DISP-VFD garbled output after power surge', collectionVerified: false, createdBy: sales, modifiedBy: sales },
-    { id: 'REC-4111', companyKey: 'gerrys',         priority: '1 - Low',      reference: 'SAP-RMA-3175', remarks: 'Wireless scanners dropped connection after QC store network change.',   status: 'PENDING',      vehicle: '(None)',                  area: 'Quezon City - Diliman',    driver: '',  driverAssistants: '[]',  accountManager: 'P. Soriano',    deliveryDate: '2026-07-19', category: 'RMA',                   itemType: 'Small Item',     draft: false,  itemDescription: '2x UTK-SCN-HND wireless drop — diagnostic pull-out', collectionVerified: false, createdBy: sales, modifiedBy: sales },
-    { id: 'REC-4112', companyKey: 'rosepharmacy',   priority: '2 - Moderate', reference: 'SAP-RMA-3190', remarks: 'LTE router not connecting to new ISP. Possible config issue.',          status: 'PENDING',      vehicle: '(None)',                  area: 'Cebu City',                driver: '',  driverAssistants: '[]',  accountManager: 'F. Valenzuela', deliveryDate: '2026-07-20', category: 'RMA',                   itemType: 'Small Item',     draft: false,  itemDescription: '1x UTK-LTE-RTR ISP config issue — pull-out for re-provisioning', collectionVerified: false, createdBy: sales, modifiedBy: sales },
-
-    // ── RMA — ON_HOLD (2) ─────────────────────────────────────────────────────
-    { id: 'REC-4113', companyKey: 'maxs',           priority: '3 - High',     reference: 'SAP-RMA-3200', remarks: 'On hold — awaiting client-submitted inspection report before pull-out.', status: 'ON_HOLD',      vehicle: '(None)',                  area: 'Quezon City - Fairview',   driver: '',  driverAssistants: '[]',  accountManager: 'R. Pagkalinawan', deliveryDate: '2026-07-12', category: 'RMA',                 itemType: 'Small Item',     draft: false,  itemDescription: '1x UTK-TAB10 system freeze — awaiting incident report', collectionVerified: false, createdBy: sales, modifiedBy: sales },
-    { id: 'REC-4114', companyKey: 'armynavy',       priority: '1 - Low',      reference: 'SAP-RMA-3215', remarks: 'Loose mounting joint — client unsure if installation damage.',           status: 'ON_HOLD',      vehicle: '(None)',                  area: 'Makati CBD',               driver: '',  driverAssistants: '[]',  accountManager: 'A. Santos',     deliveryDate: '2026-07-14', category: 'RMA',                   itemType: 'Small Item',     draft: false,  itemDescription: '2x UTK-STD-ROT loose pivot joint', collectionVerified: false, createdBy: sales, modifiedBy: sales },
-
-    // ── RMA — RESCHEDULED (1) ─────────────────────────────────────────────────
-    { id: 'REC-4115', companyKey: 'serenitea',      priority: '1 - Low',      reference: 'SAP-RMA-3230', remarks: 'Client store closed for renovation this week — rescheduled to Jul 24.', status: 'RESCHEDULED',  vehicle: '(None)',                  area: 'Pasig - Kapitolyo',        driver: '',  driverAssistants: '[]',  accountManager: 'C. Lim',        deliveryDate: '2026-07-10', category: 'RMA',                   itemType: 'Small Item',     draft: false,  itemDescription: '1x UTK-PRN-TH58 battery issue — pull-out rescheduled', collectionVerified: false, createdBy: sales, modifiedBy: sales },
-
     // ── ACCOUNTING COLLECTION — ACCOMPLISHED (4) ──────────────────────────────
     { id: 'REC-4201', companyKey: 'jollibee',       priority: '2 - Moderate', reference: 'SAP-COLL-4001', remarks: 'PDC collected. Original OR signed by Theresa Alajar.',                  status: 'ACCOMPLISHED', vehicle: 'Motorcycle-01 (Express)', area: 'Quezon City - Fairview',   driver: D1, driverAssistants: '[]',  accountManager: 'P. Soriano',    deliveryDate: '2026-04-25', category: 'ACCOUNTING_COLLECTION', itemType: 'Small Item',     draft: false,  itemDescription: 'Collection of OR + PDC for Invoice INV-5001 (₱148,000)', collectionVerified: false, createdBy: sales, modifiedBy: logistics },
     { id: 'REC-4202', companyKey: 'mcdo',           priority: '3 - High',     reference: 'SAP-COLL-4020', remarks: 'Check collected. Deposited same day.',                                   status: 'ACCOMPLISHED', vehicle: 'Motorcycle-01 (Express)', area: 'Makati CBD',               driver: D2, driverAssistants: '[]',  accountManager: 'D. Macaraeg',   deliveryDate: '2026-05-10', category: 'ACCOUNTING_COLLECTION', itemType: 'Small Item',     draft: false,  itemDescription: 'Collection of manager\'s check for Invoice INV-5120 (₱224,800)', collectionVerified: false, createdBy: sales, modifiedBy: logistics },
@@ -313,9 +292,7 @@ export async function runSeed(force = false) {
         id:                 r.id,
         companyId:          company.id,
         priority:           r.priority,
-        reference:          r.category === 'RMA' ? '' : r.reference,
-        rmaReference:       null,
-        legacySapReference: r.category === 'RMA' ? r.reference : null,
+        reference:          r.reference,
         remarks:            r.remarks,
         status:             r.status as any,
         vehicle:            r.vehicle,
@@ -328,7 +305,6 @@ export async function runSeed(force = false) {
         category:           r.category as any,
         itemType:           r.itemType,
         draft:              r.draft,
-        
         itemDescription:    r.itemDescription,
         collectionVerified: r.collectionVerified,
         createdById:        r.createdBy.id,
@@ -337,7 +313,24 @@ export async function runSeed(force = false) {
     });
   }
 
-  console.log(`Seed complete: ${USERS.length} users, ${COMPANIES.length} companies, ${records.length} delivery records.`);
+  // ── RMA demo set (shared with the guarded staging RMA demo refresh) ────────
+  // Every row passes the current RMA rules (tests/rmaSeedValidation.test.ts);
+  // the slip counters are raised to the seeded numbers so new saves never collide.
+  const { records: rmaRecords, sequences: rmaSequences } = buildRmaDemoRecords({
+    companyIdFor: key => companies[key].id,
+    driverFor: name => {
+      const id = driverIdByName.get(name);
+      if (!id) throw new Error(`Seed Driver profile not found: ${name}`);
+      return { id, name };
+    },
+    assistantFor: name => seededDrivers.some(d => d.type === 'ASSISTANT' && d.name === name) ? name : null,
+    tassUserId: users['TASS'].id,
+    logisticsUserId: logistics.id,
+  });
+  for (const data of rmaRecords) await prisma.deliveryRecord.create({ data });
+  await syncRmaReferenceSequences(prisma, rmaSequences);
+
+  console.log(`Seed complete: ${USERS.length} users, ${COMPANIES.length} companies, ${records.length} delivery records, ${rmaRecords.length} RMA demo records.`);
   await seedSkus(sales.id);
   await seedDriverDemo(prisma);
 }

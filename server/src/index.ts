@@ -6,22 +6,19 @@ import { accessLog } from './middleware/accessLog';
 import path from 'path';
 import fs from 'fs';
 import { prisma } from './db';
-import { permissionMode } from './services/permissionManagement';
-import { runScopedSummaries } from './services/scopedSummaries';
-import { notifyRole, notifyUser } from './services/inAppNotify';
-import { sendMailReal, sendEmail } from './services/mailer';
-import { manilaToday } from './services/deliveryLifecycle';
-import { saveDailyStatusSnapshot as writeDailyStatusSnapshot } from './services/dailyStatusSnapshot';
+import {
+  notify4PM, notify6PM, notifyWeeklyReport, saveDailyStatusSnapshot, scheduleDaily, scheduleWeekly,
+} from './services/scheduledNotifications';
 import healthRoutes, { HEALTH_PATH } from './routes/health';
 
 import authRoutes from './routes/auth';
 import recordsRoutes from './routes/records';
 import rmaDispatchRoutes from './routes/rmaDispatch';
-import { dispatchMovementScope } from './services/rmaMovement';
 import companiesRoutes from './routes/companies';
 import accountManagersRoutes from './routes/accountManagers';
 import customersRoutes from './routes/customers';
 import suppliersRoutes from './routes/suppliers';
+import masterDataRequestsRoutes from './routes/masterDataRequests';
 import usersRoutes from './routes/users';
 import dashboardRoutes from './routes/dashboard';
 import adminRoutes from './routes/admin';
@@ -36,6 +33,9 @@ import { uploadErrorHandler } from './middleware/uploadErrors';
 import { applySecurity } from './middleware/security';
 import { removeStaleUploads } from './services/podStorage';
 import { startPodDeletionCleanup } from './services/podDeletionCleanup';
+import { removeStaleSignatureUploads } from './services/signatureStorage';
+import { startSignatureDeletionCleanup } from './services/signatureDeletionCleanup';
+import { removeStaleDispatchUploads } from './services/dispatchUpload';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -78,6 +78,7 @@ app.use('/api/v1/companies', companiesRoutes);
 app.use('/api/v1/account-managers', accountManagersRoutes);
 app.use('/api/v1/customers', customersRoutes);
 app.use('/api/v1/suppliers', suppliersRoutes); // Includes supplier category catalog/assignment endpoints.
+app.use('/api/v1/master-data-requests', masterDataRequestsRoutes); // TASS Company/Supplier addition requests, ADMIN review.
 app.use('/api/v1/users', usersRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
 app.use('/api/v1/admin', adminRoutes);
@@ -120,6 +121,11 @@ app.listen(PORT, () => {
   // SEC-07: clear quarantined uploads abandoned by a previous crash or restart.
   removeStaleUploads().catch(err => console.error('[POD] Stale upload cleanup failed', err));
   startPodDeletionCleanup();
+  // Feature 5a: same recovery for user digital signature uploads and deletions.
+  removeStaleSignatureUploads().catch(err => console.error('[Signature] Stale upload cleanup failed', err));
+  startSignatureDeletionCleanup();
+  // Feature 5b: TASS -> Logistics dispatch attachments are never kept; drop any abandoned quarantine files.
+  removeStaleDispatchUploads().catch(err => console.error('[Dispatch] Stale upload cleanup failed', err));
 
   // Self-ping to prevent Render free tier from sleeping
   const externalUrl = process.env.RENDER_EXTERNAL_URL;
@@ -134,194 +140,6 @@ app.listen(PORT, () => {
 });
 
 // ── Daily scheduled notifications ────────────────────────────────────────────
-
-function scheduleDaily(hour: number, minute: number, task: () => void) {
-  const now = new Date();
-  let next = new Date(`${manilaToday(now)}T00:00:00+08:00`);
-  next = new Date(next.getTime() + (hour * 60 + minute) * 60 * 1000);
-  if (next <= now) next = new Date(next.getTime() + 24 * 60 * 60 * 1000);
-  setTimeout(() => {
-    task();
-    setInterval(task, 24 * 60 * 60 * 1000);
-  }, next.getTime() - now.getTime());
-}
-
-async function notify4PM() {
-  try {
-    if (permissionMode() === 'V1') return await runScopedSummaries('4PM');
-    // 4 PM logistics alert: unassigned scheduled records
-    const unassigned = await prisma.deliveryRecord.findMany({
-      where: { status: 'SCHEDULED', draft: false, driver: '', deletedAt: null, AND: [dispatchMovementScope] }
-    });
-    if (unassigned.length > 0) {
-      await notifyRole(
-        'LOGISTICS',
-        `${unassigned.length} record${unassigned.length !== 1 ? 's' : ''} still need a driver`,
-        `4 PM reminder: ${unassigned.length} scheduled delivery${unassigned.length !== 1 ? 'ies' : ''} have no driver assigned.`
-      );
-    }
-
-    // 4 PM account manager alert: their unfinished records
-    const todayStart = new Date(`${manilaToday()}T00:00:00+08:00`);
-
-    const openRecords = await prisma.deliveryRecord.findMany({
-      where: { deletedAt: null, draft: false, status: { notIn: ['ACCOMPLISHED'] } },
-      include: { company: true }
-    });
-    if (openRecords.length === 0) return;
-
-    const byAM: Record<string, typeof openRecords> = {};
-    for (const rec of openRecords) {
-      if (!byAM[rec.accountManager]) byAM[rec.accountManager] = [];
-      byAM[rec.accountManager].push(rec);
-    }
-
-    const categoryLabel: Record<string, string> = {
-      DELIVERY: 'Delivery', RMA: 'RMA', ACCOUNTING_COLLECTION: 'Collection',
-      PROCUREMENT_PICKUP: 'Procurement', SALES_ORDERS: 'Sales Order'
-    };
-
-    for (const [amName, recs] of Object.entries(byAM)) {
-      // Deduplicate: skip if we already sent the 4 PM AM alert today for this person
-      const alreadySent = await prisma.notificationLog.findFirst({
-        where: { triggerEvent: '4PM_AM_DAILY', recipientName: amName, sentAt: { gte: todayStart } }
-      });
-      if (alreadySent) continue;
-
-      // Look up the AM as an active user by name match
-      const amUser = await prisma.user.findFirst({
-        where: { isActive: true, name: { contains: amName } }
-      });
-
-      const preview = recs.slice(0, 3)
-        .map(r => `${r.reference} (${categoryLabel[r.category] ?? r.category}) — ${r.company?.name ?? ''}`)
-        .join('; ') + (recs.length > 3 ? ` +${recs.length - 3} more` : '');
-
-      const title = `4 PM: ${recs.length} open record${recs.length !== 1 ? 's' : ''} assigned to you`;
-      const message = `Still open as of 4 PM: ${preview}`;
-
-      if (amUser) {
-        await notifyUser(amUser.id, title, message);
-        await sendEmail({ to: amUser.email, subject: title, text: message });
-      }
-
-      await prisma.notificationLog.create({
-        data: {
-          triggerEvent: '4PM_AM_DAILY',
-          recipientRole: amUser?.role ?? 'SALES_COORDINATOR',
-          recipientName: amName,
-          message: `${recs.length} open records`,
-          status: amUser ? 'SENT' : 'MOCKED'
-        }
-      });
-    }
-  } catch (err) {
-    console.error('[4PM notify]', err);
-  }
-}
-
-async function notify6PM() {
-  try {
-    if (permissionMode() === 'V1') { await runScopedSummaries('6PM'); await saveDailyStatusSnapshot(); return; }
-    const stillOpen = await prisma.deliveryRecord.findMany({
-      where: { status: { in: ['SCHEDULED', 'IN_TRANSIT'] }, draft: false, deletedAt: null }
-    });
-    if (stillOpen.length > 0) {
-      await notifyRole(
-        'LOGISTICS',
-        `${stillOpen.length} delivery${stillOpen.length !== 1 ? 'ies' : ''} still open`,
-        `End-of-day check: ${stillOpen.length} record${stillOpen.length !== 1 ? 's' : ''} remain Scheduled or In Transit and have not been delivered.`
-      );
-      await notifyRole(
-        'SALES_COORDINATOR',
-        `${stillOpen.length} delivery${stillOpen.length !== 1 ? 'ies' : ''} not yet accomplished`,
-        `6 PM: ${stillOpen.length} record${stillOpen.length !== 1 ? 's' : ''} are still Scheduled or In Transit.`
-      );
-    }
-  } catch (err) {
-    console.error('[6PM notify]', err);
-  }
-
-  await saveDailyStatusSnapshot();
-}
-
-async function saveDailyStatusSnapshot() {
-  try {
-    await writeDailyStatusSnapshot();
-    console.log(`[Daily Snapshot] Saved status counts for ${manilaToday()}`);
-  } catch (err) {
-    console.error('[Daily Snapshot]', err);
-  }
-}
-
-// Fires once per week on the given day (0=Sun,1=Mon,...) at hour:minute.
-function scheduleWeekly(dayOfWeek: number, hour: number, minute: number, task: () => void) {
-  const now = new Date();
-  const todayStart = new Date(`${manilaToday(now)}T00:00:00+08:00`);
-  const localDay = new Date(todayStart.getTime() + 8 * 60 * 60 * 1000).getUTCDay();
-  const daysUntil = (dayOfWeek - localDay + 7) % 7;
-  let next = new Date(todayStart.getTime() + (daysUntil * 24 * 60 + hour * 60 + minute) * 60 * 1000);
-  if (next <= now) next = new Date(next.getTime() + 7 * 24 * 60 * 60 * 1000);
-  setTimeout(() => {
-    task();
-    setInterval(task, 7 * 24 * 60 * 60 * 1000);
-  }, next.getTime() - now.getTime());
-}
-
-async function notifyWeeklyReport() {
-  try {
-    if (permissionMode() === 'V1') return await runScopedSummaries('WEEKLY');
-    const now     = new Date();
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const dateTo   = manilaToday(now);
-    const dateFrom = manilaToday(weekAgo);
-
-    const records = await prisma.deliveryRecord.findMany({
-      where: { deletedAt: null, deliveryDate: { gte: dateFrom, lte: dateTo } },
-      select: { status: true, category: true }
-    });
-
-    const total        = records.length;
-    const accomplished = records.filter(r => r.status === 'ACCOMPLISHED').length;
-    const onHold       = records.filter(r => r.status === 'ON_HOLD').length;
-    const rate         = total > 0 ? Math.round((accomplished / total) * 100) : 0;
-
-    const weekLabel = `${dateFrom} to ${dateTo}`;
-    const title   = `Weekly Report — ${weekLabel}`;
-    const message = `Week of ${weekLabel}: ${total} record${total !== 1 ? 's' : ''} total, ${accomplished} delivered (${rate}% completion rate), ${onHold} on hold.`;
-
-    const targetUsers = await prisma.user.findMany({
-      where: { role: { in: ['LOGISTICS', 'ADMIN'] }, isActive: true },
-      select: { id: true, email: true, name: true }
-    });
-
-    // In-app notification for each Logistics/Admin user
-    for (const u of targetUsers) {
-      await notifyUser(u.id, title, message);
-    }
-
-    // Write NotificationLog
-    await prisma.notificationLog.create({
-      data: {
-        triggerEvent:  'WEEKLY_REPORT',
-        recipientRole: 'LOGISTICS|ADMIN',
-        recipientName: `${targetUsers.length} user${targetUsers.length !== 1 ? 's' : ''}`,
-        message,
-        status: 'SENT'
-      }
-    });
-
-    // Send real email if SMTP_HOST is configured; skip silently otherwise
-    for (const u of targetUsers) {
-      await sendMailReal({ to: u.email, subject: title, text: message });
-    }
-
-    console.log(`[Weekly Report] Sent for ${weekLabel} to ${targetUsers.length} users`);
-  } catch (err) {
-    console.error('[Weekly Report]', err);
-  }
-}
-
-scheduleDaily(16, 0, () => { notify4PM(); });
-scheduleDaily(18, 0, () => { notify6PM(); });
-scheduleWeekly(1, 8, 0, () => { notifyWeeklyReport(); }); // Monday 8AM
+scheduleDaily(16, 0, () => { void notify4PM(); });
+scheduleDaily(18, 0, () => { void notify6PM(); });
+scheduleWeekly(1, 8, 0, () => { void notifyWeeklyReport(); }); // Monday 8AM

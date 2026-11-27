@@ -59,6 +59,21 @@ export function assertPermissionRequest(path: string, options: RequestInit = {})
   // Personal read-state is self-scoped by the server, independent of module Write.
   if (root === 'notifications' && ((!write && (!id || id === 'unread-count'))
     || options.method === 'PATCH' && (id === 'read-all' && !operation || !!id && operation === 'read'))) return;
+  // TASS -> Logistics handoff (Feature 5b). Matched before the generic record rules:
+  // the dispatch POST is multipart FormData, so it carries no JSON body.category.
+  if (root === 'records' && !operation && id === 'rma-logistics-recipients') {
+    require(!write && user.role === 'TASS' && p.canResource('records') && p.canRecord('RMA', 'READ', screen) && p.canRecord('RMA', 'WRITE', screen));
+    return;
+  }
+  if (root === 'records' && !operation && id === 'rma-logistics-dispatches') {
+    require(!write && ['TASS', 'LOGISTICS', 'ADMIN'].includes(user.role) && p.canResource('records') && p.canRecord('RMA', 'READ', screen));
+    return;
+  }
+  if (root === 'records' && !operation && id === 'rma-logistics-dispatch') {
+    require(write && options.method?.toUpperCase() === 'POST' && user.role === 'TASS' && p.canResource('records')
+      && p.canRecord('RMA', 'READ', screen) && p.canRecord('RMA', 'WRITE', screen));
+    return;
+  }
   if (root === 'records' || root === 'notifications' && id === 'send-email') {
     require(p.canResource('records'));
     const recordId = root === 'notifications' ? body.recordId : id;
@@ -76,8 +91,10 @@ export function assertPermissionRequest(path: string, options: RequestInit = {})
       else if (operation === 'comments') actions.push('COMMENT');
       else if (operation === 'attachments') actions.push('POD');
       else if (operation === 'time-in') actions.push('TIME_IN');
-      else if (operation === 'verify-collection') { require(user.role === 'TASS'); actions.push('VERIFY_COLLECTION'); }
+      else if (operation === 'verify-collection') { require(user.role === 'LOGISTICS'); actions.push('VERIFY_COLLECTION'); }
+      else if (operation === 'complete') { require(user.role === 'SALES_COORDINATOR'); actions.push('RECEIVE'); }
       else if (operation === 'rma-assignment') actions.push('ASSIGN');
+      else if (operation === 'rma-transport-correction') { require(user.role === 'LOGISTICS'); actions.push('ASSIGN'); }
       else if (operation === 'rma-transport') actions.push('STATUS');
       else if (operation === 'rma-receipt') actions.push('RECEIVE');
       else if (operation === 'status') actions.push('STATUS', ...(body.status === 'Delivered' ? ['COMPLETE' as const] : []), ...(body.status === 'Draft' || body.status === 'Scheduled' && drafts.has(recordId) ? ['SUBMIT' as const] : []), ...(body.priority !== undefined || body.delivery_date !== undefined ? ['UPDATE' as const] : []));
@@ -99,8 +116,41 @@ export function assertPermissionRequest(path: string, options: RequestInit = {})
     }
     return;
   }
+  // Company/Supplier addition requests (Feature 4b) mirror routes/masterDataRequests.ts.
+  // Submission needs CATEGORY:RMA:WRITE without a screen, so TASS can also request from Suppliers.
+  if (root === 'master-data-requests') {
+    const method = options.method?.toUpperCase() ?? 'GET';
+    if (!write) {
+      if (user.role === 'ADMIN') require(p.canResource('admin', 'READ'));
+      else if (user.role === 'TASS') require(p.canResource('companies', 'READ') || p.canResource('suppliers', 'READ'));
+      else throw new ClientPermissionError();
+      return;
+    }
+    if (method === 'POST' && !id) {
+      require(user.role === 'TASS' && p.can('CATEGORY', 'RMA', 'WRITE')
+        && (body.entity_type === 'SUPPLIER' ? p.canResource('suppliers', 'READ') : p.canResource('companies', 'READ')));
+      return;
+    }
+    if (method === 'POST' && id && !parts[3] && (operation === 'approve' || operation === 'reject')) {
+      require(user.role === 'ADMIN' && p.canWrite('admin') && p.canResource('admin', 'WRITE'));
+      if (operation === 'approve') {
+        if (body.entity_type === 'COMPANY') require(p.canResource('companies', 'CREATE'));
+        else if (body.entity_type === 'SUPPLIER') require(p.canWrite('suppliers') && p.canResource('suppliers', 'CREATE'));
+        else throw new ClientPermissionError();
+      }
+      return;
+    }
+    throw new ClientPermissionError();
+  }
   const resource = ({ 'data-sampler': 'dataSampler', dev: 'dataSampler', reports: 'records', 'account-managers': 'companies' } as Record<string, string>)[root] ?? root;
   require(p.canResource(resource));
+  // Admin-managed digital signatures mirror the server: reads need users READ;
+  // upload/replace and removal are users UPDATE (not DELETE) for an ADMIN.
+  if (root === 'users' && operation === 'signature') {
+    if (!write) return;
+    require(user.role === 'ADMIN' && p.canWrite('admin') && p.canResource('users', 'UPDATE'));
+    return;
+  }
   if (root === 'reports' || root === 'transactions') {
     require(p.canAccess(root === 'reports' ? 'statistical_reports' : user.role === 'DRIVER' ? 'driver_dashboard' : 'transactions'));
     const category = url.searchParams.get('category');

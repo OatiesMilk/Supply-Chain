@@ -9,6 +9,9 @@ export interface SuppliersPageProps {
   currentUserRole: UserRole;
   currentUserName: string;
   onCreateSupplier: (data: CreateSupplierInput) => Promise<void>;
+  /** Addition request opened from a notification or ?request= link (Feature 4b). */
+  selectedAdditionRequestId?: string | null;
+  clearSelectedAdditionRequestId?: () => void;
 }
 
 export const SuppliersPage: React.FC<SuppliersPageProps> = ({
@@ -17,6 +20,8 @@ export const SuppliersPage: React.FC<SuppliersPageProps> = ({
   currentUserRole,
   currentUserName,
   onCreateSupplier,
+  selectedAdditionRequestId = null,
+  clearSelectedAdditionRequestId,
 }) => {
   return (
     <SuppliersView
@@ -25,6 +30,8 @@ export const SuppliersPage: React.FC<SuppliersPageProps> = ({
       currentUserRole={currentUserRole}
       currentUserName={currentUserName}
       onCreateSupplier={onCreateSupplier}
+      selectedAdditionRequestId={selectedAdditionRequestId}
+      clearSelectedAdditionRequestId={clearSelectedAdditionRequestId}
     />
   );
 };

@@ -13,7 +13,7 @@ import dashboardRoutes from '../src/routes/dashboard';
 import transactionsRoutes from '../src/routes/transactions';
 import recordsRoutes from '../src/routes/records';
 import driversRoutes from '../src/routes/drivers';
-import { effectiveScreens, permissionEditor, permissionInputError, permissionSnapshot, replacePermissions, sessionUser, type Permission } from '../src/services/permissions';
+import { editableScreens, effectiveScreens, permissionEditor, permissionInputError, permissionSnapshot, replacePermissions, sessionUser, type Permission } from '../src/services/permissions';
 import { canCreateCategory, canWriteCategory, recordScope } from '../src/services/recordAccess';
 import type { AuthUser } from '../src/middleware/auth';
 
@@ -40,9 +40,13 @@ test('editor, login and restored sessions share defaults, overrides, catalog and
   assert.ok(!effectiveScreens('LOGISTICS', [{ screen: 'admin', granted: true }]).includes('admin'));
   assert.ok(effectiveScreens('ADMIN', [{ screen: 'admin', granted: false }]).includes('admin'));
   assert.deepEqual(effectiveScreens('DRIVER', [{ screen: 'driver_dashboard', granted: false }]), []);
-  for (const screen of ['rma', 'procurement_pickup', 'suppliers', 'transactions']) {
+  for (const screen of ['rma', 'suppliers', 'transactions']) {
     assert.ok(permissionEditor(account('TASS')).roleDefaults.includes(screen as any));
   }
+  // TASS has no Procurement Pick-up module, even with an old explicit grant.
+  assert.ok(!permissionEditor(account('TASS')).roleDefaults.includes('procurement_pickup'));
+  assert.ok(!permissionEditor(account('TASS')).editableScreens.includes('procurement_pickup'));
+  assert.ok(!effectiveScreens('TASS', [{ screen: 'procurement_pickup', granted: true }]).includes('procurement_pickup'));
   // TSK-118: SKU Master is an Admin default only; others keep read-only SKU lookup via Transaction Center.
   for (const role of ['SALES_COORDINATOR', 'LOGISTICS', 'TASS']) {
     const session = sessionUser(account(role));
@@ -55,7 +59,7 @@ test('editor, login and restored sessions share defaults, overrides, catalog and
   assert.ok(!sessionUser(account('LOGISTICS', [{ screen: 'transactions', granted: false }])).resources.includes('skus'));
 });
 
-test('RMA access defaults keep Sales out, TASS as owner, Logistics read-only, and Admin unchanged', () => {
+test('RMA access defaults keep Sales out, TASS as owner, Logistics read-only, and Admin view-only', () => {
   const sales = permissionEditor(account('SALES_COORDINATOR'));
   assert.ok(!sales.roleDefaults.includes('rma'));
   assert.ok(!sales.effectiveScreens.includes('rma'));
@@ -81,12 +85,21 @@ test('RMA access defaults keep Sales out, TASS as owner, Logistics read-only, an
   assert.ok(recordScope(tassUser).category.in.includes('RMA'));
   assert.equal(canWriteCategory(tassUser, 'RMA'), true);
   assert.equal(canCreateCategory(tassUser, 'RMA'), true);
-  assert.ok(recordScope(tassUser).category.in.includes('ACCOUNTING_COLLECTION'));
+  // TASS has no Accounting Collection module, even with a legacy screen grant.
+  assert.ok(!recordScope(tassUser).category.in.includes('ACCOUNTING_COLLECTION'));
+  assert.ok(!tass.effectiveScreens.includes('accounting_collection'));
+  const grantedTass = sessionUser(account('TASS', [{ screen: 'accounting_collection', granted: true }])) as AuthUser;
+  assert.ok(!grantedTass.effectiveScreens.includes('accounting_collection'));
+  assert.ok(!recordScope(grantedTass).category.in.includes('ACCOUNTING_COLLECTION'));
+  assert.equal(canWriteCategory(grantedTass, 'ACCOUNTING_COLLECTION'), false);
+  assert.equal(canCreateCategory(grantedTass, 'ACCOUNTING_COLLECTION'), false);
+  assert.ok(!editableScreens('TASS').includes('accounting_collection'));
 
   const admin = permissionEditor(account('ADMIN'));
   assert.ok(admin.roleDefaults.includes('rma'));
-  assert.ok(canWriteCategory(sessionUser(account('ADMIN')) as AuthUser, 'RMA'));
-  assert.ok(canCreateCategory(sessionUser(account('ADMIN')) as AuthUser, 'DELIVERY'));
+  assert.ok(recordScope(sessionUser(account('ADMIN')) as AuthUser).category.in.includes('RMA'), 'Admin still reads RMA');
+  assert.equal(canWriteCategory(sessionUser(account('ADMIN')) as AuthUser, 'RMA'), false);
+  assert.equal(canCreateCategory(sessionUser(account('ADMIN')) as AuthUser, 'DELIVERY'), false);
 });
 
 test('invalid, unknown and duplicate permission inputs fail validation', () => {
@@ -145,7 +158,7 @@ test('record scopes retain role limits and explicit denials even through shared 
   assert.ok(!scope.category.in.includes('DELIVERY'));
   assert.equal(canWriteCategory(user, 'DELIVERY'), false);
   const tass = recordScope(sessionUser(account('TASS')) as AuthUser) as any;
-  assert.deepEqual(tass.category.in, ['RMA', 'ACCOUNTING_COLLECTION']);
+  assert.deepEqual(tass.category.in, ['RMA']);
   // Drivers are scoped by their linked profile id; an unlinked Driver owns nothing.
   const driver = sessionUser(account('DRIVER')) as AuthUser;
   const linked = recordScope({ ...driver, driverProfileId: 'profile-1' }) as any;

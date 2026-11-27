@@ -206,10 +206,11 @@ test('UAT seed accounts exercise real PostgreSQL API reads and session boundarie
       const tass = await login(USERS.find(u => u.role === 'TASS')!);
       const company = await prisma.company.findFirstOrThrow();
       const createdResponse = await write('/records', tass, { category: 'RMA', company_id: company.id, priority: '2 - Moderate',
-        area: 'Carmona', account_manager: 'Seed AM', rma_reference: 'SEED-RMA-EDIT-VERSION',
+        area: 'Carmona', account_manager: 'Seed AM', rma_type: 'Pull Out Slip',
         rma_movement: 'INTERNAL_NO_DRIVER', remarks: 'Seeded internal RMA request' });
       assert.equal(createdResponse.status, 201);
       const created = await createdResponse.json();
+      assert.match(created.rma_reference, /^POS\d{6}-\d{2,}$/);
       const auditCount = await prisma.auditLog.count({ where: { recordId: created.id } });
       const change = { area: 'Makati', remarks: 'Correct RMA destination' };
       assert.equal((await write(`/records/${created.id}`, tass, change, 'PUT')).status, 400);

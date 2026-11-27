@@ -6,14 +6,16 @@ interface DocumentSizeSelectProps {
   onChange: (val: DocumentSize) => void;
   disabled?: boolean;
   inline?: boolean;
+  /** Page orientation shown next to the label (RMA client slips are portrait). */
+  orientationLabel?: string;
 }
 
-export default function DocumentSizeSelect({ value, onChange, disabled, inline }: DocumentSizeSelectProps) {
+export default function DocumentSizeSelect({ value, onChange, disabled, inline, orientationLabel = 'Landscape' }: DocumentSizeSelectProps) {
   const id = useId();
   if (inline) {
     return (
       <div className="flex items-center gap-2">
-        <label htmlFor={id} className="text-[11px] font-semibold text-slate-600 whitespace-nowrap">
+        <label htmlFor={id} className="text-xs font-semibold text-slate-600 whitespace-nowrap">
           Document size:
         </label>
         <select
@@ -21,7 +23,7 @@ export default function DocumentSizeSelect({ value, onChange, disabled, inline }
           value={value}
           onChange={(e) => onChange(e.target.value as DocumentSize)}
           disabled={disabled}
-          className="border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#1F3864] disabled:opacity-50"
+          className="border border-slate-200 rounded-lg px-2 py-1 text-xs font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-brand-navy disabled:opacity-50"
         >
           <option value="a4">A4</option>
           <option value="letter">Letter</option>
@@ -33,7 +35,7 @@ export default function DocumentSizeSelect({ value, onChange, disabled, inline }
   return (
     <div className="mb-4">
       <label htmlFor={id} className="block text-xs font-semibold text-slate-700 mb-1">
-        Document size <span className="text-slate-400 font-normal ml-1">(Landscape)</span>
+        Document size <span className="text-slate-400 font-normal ml-1">({orientationLabel})</span>
       </label>
       <select
         id={id}

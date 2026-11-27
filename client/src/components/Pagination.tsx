@@ -75,12 +75,12 @@ export function Pagination({
     >
       {/* Left: Record summary & Page size selector */}
       <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-slate-500">
-        <span data-testid="pagination-records-info" className="text-xs text-slate-500">
+        <span data-testid="pagination-records-info" className="text-xs text-slate-500 tabular-nums">
           Showing{' '}
-          <span className="font-bold text-slate-700">
+          <span className="font-semibold text-slate-800">
             {totalItems === 0 ? '0' : `${startItem}–${endItem}`}
           </span>{' '}
-          of <span className="font-bold text-slate-700">{totalItems}</span> records
+          of <span className="font-semibold text-slate-800">{totalItems}</span> records
         </span>
 
         {onPageSizeChange && (
@@ -99,7 +99,7 @@ export function Pagination({
                 const newSize = Number(e.target.value);
                 onPageSizeChange(newSize);
               }}
-              className="h-9 sm:h-10 px-2.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-[#1F3864]/20 focus:border-[#1F3864] cursor-pointer"
+              className="h-9 sm:h-10 px-2.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-700 font-medium tabular-nums focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue cursor-pointer"
             >
               {pageSizeOptions.map((option) => (
                 <option key={option} value={option}>
@@ -122,7 +122,7 @@ export function Pagination({
           onClick={() => onPageChange(safeCurrentPage - 1)}
           disabled={safeCurrentPage <= 1}
           aria-label="Previous page"
-          className="min-w-[40px] min-h-[40px] sm:min-w-[44px] sm:min-h-[44px] px-2.5 sm:px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold border border-slate-200 bg-white text-slate-700 inline-flex items-center justify-center gap-1 transition-all hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:text-slate-700 cursor-pointer"
+          className="min-w-[40px] min-h-[40px] sm:min-w-[44px] sm:min-h-[44px] px-2.5 sm:px-3 py-2 rounded-lg text-xs sm:text-sm font-medium border border-slate-200 bg-white text-slate-700 inline-flex items-center justify-center gap-1 transition-colors hover:bg-slate-50 hover:border-slate-300 hover:text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:text-slate-700 cursor-pointer"
         >
           <ChevronLeft className="w-4 h-4 shrink-0" />
           <span className="hidden sm:inline">Previous</span>
@@ -137,7 +137,7 @@ export function Pagination({
                 key={ellipsisKey}
                 data-testid="pagination-ellipsis"
                 aria-hidden="true"
-                className="min-w-[40px] min-h-[40px] sm:min-w-[44px] sm:min-h-[44px] inline-flex items-center justify-center text-slate-400 font-bold select-none text-xs sm:text-sm"
+                className="min-w-[40px] min-h-[40px] sm:min-w-[44px] sm:min-h-[44px] inline-flex items-center justify-center text-slate-400 font-medium select-none text-xs sm:text-sm"
               >
                 ...
               </span>
@@ -152,10 +152,10 @@ export function Pagination({
               onClick={() => onPageChange(item)}
               aria-current={isActive ? 'page' : undefined}
               aria-label={`Page ${item}`}
-              className={`min-w-[40px] min-h-[40px] sm:min-w-[44px] sm:min-h-[44px] px-3 py-2 rounded-lg text-xs sm:text-sm transition-all inline-flex items-center justify-center cursor-pointer ${
+              className={`min-w-[40px] min-h-[40px] sm:min-w-[44px] sm:min-h-[44px] px-3 py-2 rounded-lg text-xs sm:text-sm tabular-nums transition-colors inline-flex items-center justify-center cursor-pointer ${
                 isActive
-                  ? 'bg-[#1F3864] text-white font-bold border-2 border-[#1F3864] shadow-xs'
-                  : 'bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-900 border border-slate-200 font-medium'
+                  ? 'bg-brand-navy text-white font-semibold border border-brand-navy shadow-2xs'
+                  : 'bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-900 border border-slate-200 font-medium'
               }`}
             >
               {item}
@@ -169,7 +169,7 @@ export function Pagination({
           onClick={() => onPageChange(safeCurrentPage + 1)}
           disabled={safeCurrentPage >= safeTotalPages || totalItems === 0}
           aria-label="Next page"
-          className="min-w-[40px] min-h-[40px] sm:min-w-[44px] sm:min-h-[44px] px-2.5 sm:px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold border border-slate-200 bg-white text-slate-700 inline-flex items-center justify-center gap-1 transition-all hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:text-slate-700 cursor-pointer"
+          className="min-w-[40px] min-h-[40px] sm:min-w-[44px] sm:min-h-[44px] px-2.5 sm:px-3 py-2 rounded-lg text-xs sm:text-sm font-medium border border-slate-200 bg-white text-slate-700 inline-flex items-center justify-center gap-1 transition-colors hover:bg-slate-50 hover:border-slate-300 hover:text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:text-slate-700 cursor-pointer"
         >
           <span className="hidden sm:inline">Next</span>
           <ChevronRight className="w-4 h-4 shrink-0" />

@@ -1,26 +1,18 @@
 import type { DeliveryRecord } from '@/types';
 import StatusStepper from './StatusStepper';
 import { RMA_TRANSPORT_LABELS } from '@/utils/rmaTransport';
+import { statusBadgeClass } from '@/utils/statusTheme';
 
 type StatusRecord = Pick<DeliveryRecord, 'category' | 'status' | 'is_draft' | 'rma_movement' | 'rma_transport_status' | 'rma_received_at'>;
-const tones: Record<string, string> = {
-  Draft: 'bg-slate-100 text-slate-700 border-slate-300',
-  Scheduled: 'bg-blue-50 text-blue-700 border-blue-200',
-  'In Transit': 'bg-cyan-50 text-cyan-700 border-cyan-200',
-  Delivered: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  Complete: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  Pending: 'bg-amber-50 text-amber-700 border-amber-200',
-  'On-Hold': 'bg-red-50 text-red-700 border-red-200',
-  Rescheduled: 'bg-purple-50 text-purple-700 border-purple-200',
-};
+
 function Badge({ label, tone }: { label: string; tone: string }) {
-  return <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${tones[tone] ?? tones.Draft}`}>{label}</span>;
+  return <span className={`inline-block rounded-full border px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(tone)}`}>{label}</span>;
 }
 
 /** RMA transport progress and final completion are separate saved states. */
 export default function RecordStatus({ record, compact = false }: { record: StatusRecord; compact?: boolean }) {
   const draft = record.is_draft === 'Yes' || record.status === 'Draft';
-  if (record.category !== 'RMA') return <Badge label={record.status} tone={record.status} />;
+  if (record.category !== 'RMA') return <Badge label={record.status === 'Delivered' ? 'Complete' : record.status} tone={record.status === 'Delivered' ? 'Complete' : record.status} />;
   if (compact) {
     const status = draft ? 'Draft' : record.status === 'Delivered' ? 'Complete'
       : record.rma_received_at ? 'Received'

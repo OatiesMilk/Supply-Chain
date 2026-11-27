@@ -20,9 +20,10 @@ function cellBorders(color?: string, size?: number) {
 
 // ─── Main download function ───────────────────────────────────────────────────
 
-const STATUS_ORDER = ['Draft', 'Scheduled', 'In Transit', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'] as const;
+const STATUS_ORDER = ['Draft', 'Scheduled', 'In Transit', 'Transport Complete', 'Delivered', 'Pending', 'On-Hold', 'Rescheduled'] as const;
 
 const STATUS_COLORS: Record<string, string> = {
+  'Transport Complete': '0369A1',
   'Scheduled':   '2563EB',
   'Delivered':   '059669',
   'Pending':     'D97706',

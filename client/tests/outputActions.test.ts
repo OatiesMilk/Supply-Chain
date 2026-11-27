@@ -64,8 +64,8 @@ test('internal-only preferences suppress additional outputs and disclose indepen
 });
 
 test('collection completion never becomes verification and retains its later independent event', async () => {
-  assert.equal(getOutputTrigger('Accounting Collection', 'Delivered'), 'Accomplished');
-  assert.equal(getOutputTrigger('Deliveries', 'Delivered'), 'Accomplished');
+  assert.equal(getOutputTrigger('Accounting Collection', 'Delivered'), null);
+  assert.equal(getOutputTrigger('Deliveries', 'Delivered'), null);
   assert.equal(getOutputTrigger('RMA', 'Delivered'), 'RMA Completed');
   assert.ok(DEFAULT_OUTPUT_ACTIONS['Collection Verified']);
   const calls: string[][] = [];

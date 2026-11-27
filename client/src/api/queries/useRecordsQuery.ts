@@ -1,5 +1,5 @@
 import { rememberPermissionRecord } from '../permissionRuntime';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type RecordActiveCounts } from '@/api';
 import { DeliveryRecord } from '@/types';
 import { completionError, hasSavedPodPhoto } from '@/utils/podRequirement';
@@ -82,6 +82,7 @@ export interface PagedRecordResult {
 export function usePagedRecordsQuery(filters: import('@/api').RecordListFilters = {}, enabled = true) {
   return useQuery<PagedRecordResult, Error>({
     ...operationalSyncOptions,
+    placeholderData: keepPreviousData,
     structuralSharing: shareOperationalRecords,
     queryKey: ['records', 'paged', filters] as const,
     queryFn: async () => {
@@ -165,7 +166,8 @@ export function createUpdateRecordMutationOptions(queryClient: ReturnType<typeof
           if (record.status !== 'Delivered') {
             if (!(u.status_remarks ?? u.remarks ?? '').trim()) throw new Error('Remarks are required to complete this run.');
             const files = record.category === 'RMA' ? [] : await api.getRecordAttachments(id);
-            const receivedBy = updates.received_by !== undefined ? updates.received_by : record.rma_recipient ?? record.received_by;
+            // An RMA completes with the confirmed receipt recipient, which is optional.
+            const receivedBy = updates.received_by !== undefined ? updates.received_by : record.category === 'RMA' ? record.rma_recipient : record.received_by;
             if (record.category === 'RMA') {
               if (!record.rma_received_at) throw new Error('Confirm physical receipt before completing this RMA.');
               if (extra.expected_version === undefined) {
@@ -177,7 +179,8 @@ export function createUpdateRecordMutationOptions(queryClient: ReturnType<typeof
               loading: false, uploading: false, loadFailed: false, hasPhoto: hasSavedPodPhoto(files), hasStagedFiles: false,
             });
             if (error) throw new Error(error);
-            extra.received_by = receivedBy!.trim();
+            if (receivedBy?.trim()) extra.received_by = receivedBy.trim();
+            else delete extra.received_by;
           }
         }
         if (updates.priority !== undefined) extra.priority = updates.priority;
@@ -235,8 +238,9 @@ export function useRecordTimeInMutation() {
   const queryClient = useQueryClient();
   const options = createUpdateRecordMutationOptions(queryClient);
   return useMutation({
-    mutationFn: async ({ id, remarks }: { id: string; remarks: string }) => {
-      if (!remarks.trim()) throw new Error('Remarks are required to record Time In.');
+    mutationFn: async ({ id, remarks, remarksOptional = false }: { id: string; remarks: string; remarksOptional?: boolean }) => {
+      // Only the Driver start sheet may send a blank note; the server records the default remark for a Driver.
+      if (!remarksOptional && !remarks.trim()) throw new Error('Remarks are required to record Time In.');
       return normalizeApiRecord(await api.recordTimeIn(id, remarks.trim()));
     },
     onSuccess: options.onSuccess,
@@ -251,6 +255,21 @@ export function useVerifyCollectionMutation(currentUser: { name: string }) {
       const saved = await api.verifyCollection(id);
       return saved ? normalizeApiRecord(saved) : undefined;
     },
+    onSuccess: async (saved: DeliveryRecord | undefined) => {
+      if (saved) await saveRecordToCache(queryClient, saved);
+      await invalidateOperationalQueries(queryClient);
+    },
+  });
+}
+
+export function useCompleteRecordMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, remarks, reviewedPhotoId, expectedEditVersion }: {
+      id: string; remarks: string; reviewedPhotoId: string; expectedEditVersion: string;
+    }) => normalizeApiRecord(await api.completeRecord(id, {
+      remarks, reviewed_photo_id: reviewedPhotoId, expected_edit_version: expectedEditVersion,
+    })),
     onSuccess: async (saved: DeliveryRecord | undefined) => {
       if (saved) await saveRecordToCache(queryClient, saved);
       await invalidateOperationalQueries(queryClient);

@@ -1,0 +1,20 @@
+#!/bin/sh
+# Strip AI agent attribution trailers (e.g. Co-Authored-By: Claude/Codex/Gemini)
+# and "Generated with ..." footers from commit messages before finalizing.
+node -e '
+const fs = require("fs");
+const file = process.argv[1];
+const raw = fs.readFileSync(file, "utf8");
+const cleaned = raw
+  .split(/\r?\n/)
+  .filter(line => {
+    const t = line.trim();
+    if (/^co-authored-by:\s*.*(claude|anthropic|codex|openai|gemini|antigravity|copilot|cursor|windsurf|noreply@anthropic\.com)/i.test(t)) return false;
+    if (/^(?:[^\w\s]*\s*)?generated with\b.*(claude|codex|gemini|antigravity|copilot|cursor|windsurf|\bai\b)/i.test(t)) return false;
+    return true;
+  })
+  .join("\n")
+  .replace(/\n{3,}/g, "\n\n")
+  .trimEnd() + "\n";
+fs.writeFileSync(file, cleaned, "utf8");
+' "$1"

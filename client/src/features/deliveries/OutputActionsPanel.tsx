@@ -41,27 +41,27 @@ export default function OutputActionsPanel({ trigger, config, onChange }: Output
       className="border border-dashed border-slate-300 rounded-lg p-2.5 bg-slate-50/70 space-y-1.5"
       id={`output-actions-${trigger.toLowerCase().replace(/\s+/g, '-')}`}
     >
-      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
         <Send className="w-3 h-3" /> Additional Output Actions — When {trigger}
       </p>
-      <p className="text-[10.5px] text-slate-500">
+      <p className="text-xs text-slate-500">
         Select additional email recipients and exports. Automatic workflow notifications are handled separately.
       </p>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <fieldset className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-          <legend className="float-left mr-3 text-[10.5px] font-bold text-slate-600">Do not notify:</legend>
+          <legend className="float-left mr-3 text-xs font-bold text-slate-600">Do not notify:</legend>
           {NOTIFY_ROLES.map(role => (
-            <label key={role.key} className="flex items-center gap-1 text-[10.5px] font-semibold text-slate-600 cursor-pointer">
-              <input type="checkbox" checked={!config[role.key]} onChange={() => toggleExclusion(role.key)} className="accent-[#0078C1]" />
+            <label key={role.key} className="flex items-center gap-1 text-xs font-semibold text-slate-600 cursor-pointer">
+              <input type="checkbox" checked={!config[role.key]} onChange={() => toggleExclusion(role.key)} className="accent-brand-blue" />
               {role.label}
             </label>
           ))}
         </fieldset>
-        <label className="flex items-center gap-1 text-[10.5px] font-semibold text-slate-600 cursor-pointer border-l border-slate-300 pl-3">
-          <input type="checkbox" checked={config.exportPDF} onChange={toggleExportPDF} className="accent-[#0078C1]" />
+        <label className="flex items-center gap-1 text-xs font-semibold text-slate-600 cursor-pointer border-l border-slate-300 pl-3">
+          <input type="checkbox" checked={config.exportPDF} onChange={toggleExportPDF} className="accent-brand-blue" />
           Export to PDF
         </label>
-        <label className="flex items-center gap-1 text-[10.5px] font-semibold text-slate-500 cursor-pointer border-l border-slate-300 pl-3">
+        <label className="flex items-center gap-1 text-xs font-semibold text-slate-500 cursor-pointer border-l border-slate-300 pl-3">
           <input type="checkbox" checked={config.internalOnly} onChange={toggleInternalOnly} className="accent-slate-500" />
           Skip additional outputs
         </label>

@@ -45,13 +45,13 @@ export default function WarehouseWorkspace({ bin, allBinCodes, onBack, onNavigat
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={onBack}
-            className="flex items-center gap-1.5 text-[#0078C1] hover:text-[#1F3864] text-xs font-semibold transition-colors shrink-0"
+            className="flex items-center gap-1.5 text-brand-blue hover:text-brand-navy text-xs font-semibold transition-colors shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
             Warehouses
           </button>
           <span className="text-slate-300">/</span>
-          <span className="font-mono font-black text-slate-700 text-sm">{bin.bin_code}</span>
+          <span className="tabular-nums font-bold text-slate-700 text-sm">{bin.bin_code}</span>
           <span className="text-slate-400 text-xs hidden sm:inline">— Zone {bin.zone}</span>
         </div>
         <div className="flex items-center gap-1">
@@ -62,7 +62,7 @@ export default function WarehouseWorkspace({ bin, allBinCodes, onBack, onNavigat
           >
             <ChevronLeft className="w-3.5 h-3.5" /> Prev
           </button>
-          <span className="text-[11px] text-slate-400 px-1 hidden sm:inline">
+          <span className="text-xs text-slate-400 px-1 hidden sm:inline">
             {currentIndex + 1} / {allBinCodes.length}
           </span>
           <button
@@ -84,8 +84,8 @@ export default function WarehouseWorkspace({ bin, allBinCodes, onBack, onNavigat
           { label: 'Total ATP',      value: totalAtp,         color: lowStockSkus.length > 0 ? 'text-red-600' : 'text-emerald-600' },
         ].map(stat => (
           <div key={stat.label} className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm">
-            <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mb-0.5">{stat.label}</p>
-            <p className={`text-2xl font-black ${stat.color}`}>{stat.value}</p>
+            <p className="text-xs text-slate-400 uppercase tracking-widest font-bold mb-0.5">{stat.label}</p>
+            <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
           </div>
         ))}
       </div>
@@ -103,7 +103,7 @@ export default function WarehouseWorkspace({ bin, allBinCodes, onBack, onNavigat
                   onClick={() => setActiveTab(tab.id)}
                   className={`flex items-center gap-2 px-5 py-4 text-sm whitespace-nowrap border-b-[3px] transition-all ${
                     isActive
-                      ? 'border-[#1F3864] text-[#1F3864] bg-blue-50/70 font-semibold'
+                      ? 'border-brand-navy text-brand-navy bg-blue-50/70 font-semibold'
                       : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100 font-medium'
                   }`}
                 >
@@ -126,7 +126,7 @@ export default function WarehouseWorkspace({ bin, allBinCodes, onBack, onNavigat
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-sm">
                   <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-black text-slate-500 uppercase tracking-wider">
+                    <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
                       <th className="px-4 py-3">SKU Code</th>
                       <th className="px-4 py-3">Name</th>
                       <th className="px-4 py-3 text-center">Cat</th>
@@ -141,14 +141,14 @@ export default function WarehouseWorkspace({ bin, allBinCodes, onBack, onNavigat
                       const isLow = sku.inventory && sku.inventory.atp <= sku.reorder_point;
                       return (
                         <tr key={sku.id} className={isLow ? 'bg-red-50/40' : ''}>
-                          <td className="px-4 py-3.5 font-mono font-black text-slate-900 tracking-tight">{sku.sku_code}</td>
+                          <td className="px-4 py-3.5 tabular-nums font-bold text-slate-900 tracking-tight">{sku.sku_code}</td>
                           <td className="px-4 py-3.5 text-slate-700 font-medium max-w-[220px] truncate">{sku.name}</td>
                           <td className="px-4 py-3.5 text-center">
-                            <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[11px] font-bold">{sku.category}</span>
+                            <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-xs font-bold">{sku.category}</span>
                           </td>
-                          <td className="px-4 py-3.5 text-right font-black text-slate-900 tabular-nums">{sku.inventory?.on_hand_qty ?? '—'}</td>
-                          <td className="px-4 py-3.5 text-right font-black text-amber-600 tabular-nums">{sku.inventory?.allocated_qty ?? '—'}</td>
-                          <td className={`px-4 py-3.5 text-right font-black tabular-nums text-base ${isLow ? 'text-red-600' : 'text-emerald-600'}`}>
+                          <td className="px-4 py-3.5 text-right font-bold text-slate-900 tabular-nums">{sku.inventory?.on_hand_qty ?? '—'}</td>
+                          <td className="px-4 py-3.5 text-right font-bold text-amber-600 tabular-nums">{sku.inventory?.allocated_qty ?? '—'}</td>
+                          <td className={`px-4 py-3.5 text-right font-bold tabular-nums text-base ${isLow ? 'text-red-600' : 'text-emerald-600'}`}>
                             {sku.inventory?.atp ?? '—'}
                           </td>
                           <td className="px-4 py-3.5 text-right text-slate-500 font-semibold tabular-nums">{sku.reorder_point}</td>
@@ -177,10 +177,10 @@ export default function WarehouseWorkspace({ bin, allBinCodes, onBack, onNavigat
                     <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono font-black text-xs text-red-800">{sku.sku_code}</span>
+                        <span className="tabular-nums font-bold text-xs text-red-800">{sku.sku_code}</span>
                         <span className="text-xs text-red-700 font-semibold truncate">{sku.name}</span>
                       </div>
-                      <p className="text-[10px] text-red-600 mt-0.5">
+                      <p className="text-xs text-red-600 mt-0.5">
                         ATP: <strong>{sku.inventory?.atp}</strong> · Reorder Point: <strong>{sku.reorder_point}</strong> · On Hand: {sku.inventory?.on_hand_qty}
                       </p>
                     </div>

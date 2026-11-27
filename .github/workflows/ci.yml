@@ -160,8 +160,9 @@ jobs:
           set -euo pipefail
 
           # Express serves the built client and API from one origin. The E2E
-          # suite intentionally targets port 3000.
-          npm run start --workspace=server &
+          # suite intentionally targets port 3000. exec keeps SERVER_PID the
+          # Express process itself, so cleanup stops the server, not a wrapper.
+          (cd server && exec node dist/src/index.js) &
           SERVER_PID=$!
 
           cleanup() {
@@ -170,13 +171,15 @@ jobs:
           }
           trap cleanup EXIT
 
+          # Check liveness before each probe so a crashed server is never
+          # mistaken for another process answering on the port.
           for attempt in $(seq 1 60); do
-            if curl --fail --silent http://localhost:3000/api/v1/health >/dev/null; then
-              break
-            fi
             if ! kill -0 "$SERVER_PID" 2>/dev/null; then
               wait "$SERVER_PID"
               exit 1
+            fi
+            if curl --fail --silent http://localhost:3000/api/v1/health >/dev/null; then
+              break
             fi
             if [ "$attempt" -eq 60 ]; then
               echo "Server did not become healthy within 60 seconds" >&2
@@ -184,6 +187,10 @@ jobs:
             fi
             sleep 1
           done
+          if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+            wait "$SERVER_PID"
+            exit 1
+          fi
 
           # Run isolated role suites
           npm run e2e:sc
@@ -193,6 +200,62 @@ jobs:
         env:
           NODE_ENV: production
           PORT: "3000"
+
+      # rma-dispatch.spec.ts uses the sc255 fixtures and RMA dispatch policy
+      # activation from seed-rma-dispatch-e2e.ts. That seed only runs against a
+      # loopback sc255_*_test database, so it gets its own database and server
+      # instead of changing the role policies the suites above rely on.
+      - name: Run RMA Dispatch E2E Tests
+        run: |
+          set -euo pipefail
+
+          node -e "
+            const { Client } = require('pg');
+            const client = new Client({ connectionString: 'postgresql://postgres@localhost:5432/postgres' });
+            client.connect()
+              .then(() => client.query('CREATE DATABASE sc255_ci_test'))
+              .finally(() => client.end());
+          "
+
+          (cd server && npx prisma migrate deploy)
+          NODE_ENV=test npm run seed:rma-dispatch-e2e --workspace=mg-portal-server
+
+          # Port 3001 keeps this server separate from the one above, even if
+          # that one has not fully released port 3000.
+          (cd server && NODE_ENV=production exec node dist/src/index.js) &
+          SERVER_PID=$!
+
+          cleanup() {
+            kill "$SERVER_PID" 2>/dev/null || true
+            wait "$SERVER_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          for attempt in $(seq 1 60); do
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              wait "$SERVER_PID"
+              exit 1
+            fi
+            if curl --fail --silent http://localhost:3001/api/v1/health >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              echo "Server did not become healthy within 60 seconds" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+            wait "$SERVER_PID"
+            exit 1
+          fi
+
+          npm run e2e:rma
+        env:
+          DATABASE_URL: "postgresql://postgres@localhost:5432/sc255_ci_test"
+          PORT: "3001"
+          E2E_BASE_URL: "http://localhost:3001"
+          CLIENT_ORIGIN: "http://localhost:3001"
 
       - name: Upload Playwright artifacts
         if: failure()

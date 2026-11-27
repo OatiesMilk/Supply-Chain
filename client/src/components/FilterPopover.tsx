@@ -45,9 +45,9 @@ export default function FilterPopover({ open, onOpenChange, count, onClear, chil
       aria-label={`Advanced filters${count ? `, ${count} active` : ''}`}
       aria-expanded={open} aria-controls={open ? id : undefined} aria-haspopup="dialog"
       onClick={() => onOpenChange(!open)}
-      className={`flex min-h-10 min-w-10 items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg border ${open || count ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-400'}`}>
+      className={`flex min-h-10 min-w-10 items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg border transition-colors cursor-pointer ${open || count ? 'bg-brand-sky border-brand-blue/40 text-brand-navy' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700'}`}>
       <SlidersHorizontal className="w-4 h-4" aria-hidden="true" />
-      {count > 0 && <span className="min-w-[18px] px-1 bg-blue-600 text-white text-[10px] rounded-full">{count}</span>}
+      {count > 0 && <span className="min-w-[20px] px-1.5 py-0.5 bg-brand-navy text-white text-xs font-medium tabular-nums rounded-full leading-none">{count}</span>}
     </button>
     {open && <FloatingPortal>
       <FloatingFocusManager context={context} modal={false} returnFocus>
@@ -56,19 +56,19 @@ export default function FilterPopover({ open, onOpenChange, count, onClear, chil
             if (event.key === 'Escape') { event.stopPropagation(); onOpenChange(false); }
           },
         })} id={id} role="dialog" aria-labelledby={`${id}-title`}
-          className="z-40 flex flex-col min-h-0 bg-white border border-slate-200 rounded-xl shadow-2xl overflow-hidden">
-          <div className="flex items-center justify-between px-4 pt-3 shrink-0">
-            <h2 id={`${id}-title`} className="text-sm font-bold text-slate-800">Advanced Filters</h2>
+          className="z-40 flex flex-col min-h-0 bg-white border border-slate-200/90 rounded-2xl shadow-xl overflow-hidden">
+          <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-slate-100 shrink-0">
+            <h2 id={`${id}-title`} className="text-sm font-semibold text-slate-900">Advanced filters</h2>
             <button type="button" aria-label="Close advanced filters" onClick={() => onOpenChange(false)}
-              className="min-h-10 min-w-10 flex items-center justify-center rounded-lg hover:bg-slate-100"><X className="w-4 h-4" /></button>
+              className="min-h-9 min-w-9 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 cursor-pointer"><X className="w-4 h-4" /></button>
           </div>
           <div className="p-4 space-y-4 min-h-0 overflow-y-auto">
             <FilterOverlayContext.Provider value={id}>{children}</FilterOverlayContext.Provider>
           </div>
-          <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-slate-100 shrink-0">
+          <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-slate-100 bg-slate-50/50 shrink-0">
             <button type="button" disabled={!count} onClick={onClear}
-              className="min-h-10 text-xs font-bold text-red-600 disabled:text-slate-400">Clear All Filters</button>
-            <button type="button" onClick={() => onOpenChange(false)} className="min-h-10 px-4 bg-[#1F3864] text-white text-xs font-bold rounded-lg">Done</button>
+              className="min-h-9 text-xs font-semibold text-red-600 hover:text-red-700 disabled:text-slate-400 cursor-pointer disabled:cursor-not-allowed">Clear all filters</button>
+            <button type="button" onClick={() => onOpenChange(false)} className="min-h-9 px-4 bg-brand-navy hover:bg-brand-blue text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer">Done</button>
           </div>
         </div>
       </FloatingFocusManager>
@@ -131,7 +131,7 @@ export function FilterCombobox({ label, value, options, onChange, placeholder = 
             event.preventDefault(); event.stopPropagation(); setOpen(false);
           } else if (event.key === 'Tab') { setOpen(false); }
         }}
-        className="w-full min-h-10 border border-slate-200 rounded-lg pl-2.5 pr-10 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]" />
+        className="w-full min-h-10 border border-slate-200 rounded-lg pl-2.5 pr-10 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue" />
       {value && <button type="button" aria-label={`Clear ${label}`} onClick={() => { onChange(''); setOpen(false); }}
         className="absolute right-0 top-0 min-h-10 min-w-10 flex items-center justify-center text-slate-500"><X className="w-3.5 h-3.5" /></button>}
     </div>

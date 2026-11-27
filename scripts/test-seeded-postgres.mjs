@@ -56,6 +56,7 @@ try {
   const env = { ...inherited, PGUSER: 'seed_test', PGPASSWORD: password, PGHOST: '127.0.0.1', PGPORT: String(port),
     JWT_SECRET: randomBytes(32).toString('base64url'), PERMISSION_MODE: 'LEGACY', APP_ENV: 'test', NODE_ENV: 'test',
     POD_STORAGE_PROVIDER: 'local', POD_UPLOAD_DIR: path.join(directory, 'pod'), POD_TEMP_DIR: path.join(directory, 'quarantine'),
+    SIGNATURE_STORAGE_PROVIDER: 'local', SIGNATURE_UPLOAD_DIR: path.join(directory, 'signatures'), SIGNATURE_TEMP_DIR: path.join(directory, 'signature-quarantine'),
     REQUIRE_PROXY_SECRET: 'false', PROXY_SHARED_SECRET: '', TRUST_PROXY: '', CLIENT_ORIGIN: 'http://localhost:3000' };
   for (const key of ['DATABASE_URL', 'PERMISSION_TEST_DATABASE_URL', 'RMA_DISPATCH_TEST_DATABASE_URL', 'SEED_TEST_DATABASE_URL']) delete env[key];
   // Tests use local storage and no external mail or identity provider.
@@ -83,6 +84,20 @@ try {
   await run(process.execPath, ['--import', 'tsx', '--test', 'tests/seededDatabase.postgres.test.ts'],
     { ...seeded, SEED_TEST_DATABASE_URL: seeded.DATABASE_URL }, serverDir);
   await run(process.execPath, ['--import', 'tsx', '--test', 'tests/podDeletion.postgres.test.ts'],
+    { ...seeded, SEED_TEST_DATABASE_URL: seeded.DATABASE_URL }, serverDir);
+  await run(process.execPath, ['--import', 'tsx', '--test', 'tests/recordNo.postgres.test.ts'],
+    { ...seeded, SEED_TEST_DATABASE_URL: seeded.DATABASE_URL }, serverDir);
+  await run(process.execPath, ['--import', 'tsx', '--test', 'tests/rmaReference.postgres.test.ts'],
+    { ...seeded, SEED_TEST_DATABASE_URL: seeded.DATABASE_URL }, serverDir);
+  await run(process.execPath, ['--import', 'tsx', '--test', 'tests/rmaFormFields.postgres.test.ts'],
+    { ...seeded, SEED_TEST_DATABASE_URL: seeded.DATABASE_URL }, serverDir);
+  await run(process.execPath, ['--import', 'tsx', '--test', 'tests/userSignatures.postgres.test.ts'],
+    { ...seeded, SEED_TEST_DATABASE_URL: seeded.DATABASE_URL }, serverDir);
+  // Feature 5b: dispatch uploads stay in a private quarantine inside this run's temp directory.
+  await run(process.execPath, ['--import', 'tsx', '--test', 'tests/rmaLogisticsDispatch.postgres.test.ts'],
+    { ...seeded, SEED_TEST_DATABASE_URL: seeded.DATABASE_URL, DISPATCH_TEMP_DIR: path.join(directory, 'dispatch-uploads') }, serverDir);
+  // Feature 4b: Company/Supplier addition requests (constraints, race, rollback, visibility).
+  await run(process.execPath, ['--import', 'tsx', '--test', '--test-concurrency=1', 'tests/masterDataRequests.postgres.test.ts'],
     { ...seeded, SEED_TEST_DATABASE_URL: seeded.DATABASE_URL }, serverDir);
 
   // Separate databases prevent role-policy fixtures from affecting seeded users

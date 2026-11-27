@@ -9,7 +9,8 @@ export default defineConfig({
   retries: 1,
   reporter: [['html', { outputFolder: './playwright-report', open: 'never' }], ['list']],
   use: {
-    baseURL: 'http://localhost:3000',
+    // E2E_BASE_URL lets local verification target an ephemeral server port.
+    baseURL: process.env.E2E_BASE_URL || 'http://localhost:3000',
     headless: true,
     viewport: { width: 1280, height: 800 },
     // Store auth state per role so each suite re-uses the session
@@ -51,6 +52,19 @@ export default defineConfig({
       name: 'Cross Role Integration',
       testMatch: /integration\.spec\.ts/,
       dependencies: ['setup'],
+    },
+    {
+      // Logs in through the API as the sc255 fixtures from seed-rma-dispatch-e2e.ts;
+      // it does not use the setup project's seed-uat sessions.
+      name: 'RMA Dispatch',
+      testMatch: /rma-dispatch\.spec\.ts/,
+      timeout: 120_000,
+      retries: 0,
+      use: {
+        viewport: { width: 1280, height: 900 },
+        actionTimeout: 10_000,
+        trace: 'retain-on-failure',
+      },
     },
   ],
 });
