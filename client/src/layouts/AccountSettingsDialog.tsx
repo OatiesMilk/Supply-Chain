@@ -1,4 +1,5 @@
 import { ActionDialog } from '@/components/ActionDialog';
+import DigitalSignatureManager from '@/components/DigitalSignatureManager';
 
 interface Props {
   open: boolean;
@@ -28,6 +29,12 @@ export default function AccountSettingsDialog({
         <p className="text-xs leading-5 text-slate-500">These details are read-only. Contact your administrator to request an account change.</p>
       </section>
 
+      <section aria-labelledby="account-settings-signature" className="space-y-3 border-t border-slate-100 pt-4">
+        <h3 id="account-settings-signature" className="text-sm font-semibold text-slate-900">Digital Signature</h3>
+        {/* Mounted only while open, so the signature is fetched only when viewed. */}
+        {open && <DigitalSignatureManager mode="self" userName={name} />}
+      </section>
+
       {canManageAdmin && (
         <section aria-labelledby="account-settings-admin" className="space-y-3 border-t border-slate-100 pt-4">
           <div>
@@ -35,7 +42,7 @@ export default function AccountSettingsDialog({
             <p className="mt-1 text-sm leading-5 text-slate-600">Manage accounts, role defaults, and individual permissions in the existing Admin Panel.</p>
           </div>
           <button type="button" onClick={onOpenAdmin}
-            className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">
+            className="min-h-11 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 hover:border-slate-300 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">
             Open Admin Panel
           </button>
         </section>

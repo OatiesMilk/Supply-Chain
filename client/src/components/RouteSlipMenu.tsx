@@ -9,6 +9,7 @@ import { routeSlipPeriod, routeSlipSelectionError } from '../utils/routeSlipPeri
 import ExportPreviewDialog from './ExportPreviewDialog';
 import { downloadBlob } from '../utils/downloadBlob';
 import type { ExportColumn, ExportMeta } from '../utils/export';
+import { recordLabel } from '../utils/recordLabel';
 
 interface Props extends RouteSlipPeriodFieldsProps {
   driverFilter: string;
@@ -91,7 +92,7 @@ export default function RouteSlipMenu({ driverFilter, selection, onChange, prepa
     if (preview) downloadBlob(preview.blob, preview.fileName);
   }, [preview]);
   const previewColumns: ExportColumn[] = [
-    { header: 'Record ID', key: 'id' },
+    { header: 'Record No.', key: 'id' },
     { header: 'Company', key: 'company' },
     { header: 'Area', key: 'area' },
     { header: 'Delivery Date', key: 'delivery_date' },
@@ -99,7 +100,7 @@ export default function RouteSlipMenu({ driverFilter, selection, onChange, prepa
     { header: 'Status', key: 'status' },
   ];
   const previewRows = preview?.records.map(record => ({
-    id: record.id,
+    id: recordLabel(record),
     company: record.company_name,
     area: record.area ?? '',
     delivery_date: record.delivery_date ?? '',
@@ -113,7 +114,7 @@ export default function RouteSlipMenu({ driverFilter, selection, onChange, prepa
     }}>
       <button ref={triggerRef} type="button" aria-expanded={open} aria-haspopup="dialog"
         onClick={() => { setError(null); setOpen(value => !value); }} disabled={loading !== null}
-        className="flex items-center gap-1.5 bg-[#1F3864] hover:bg-[#2a4d82] text-white text-[11px] font-bold uppercase tracking-wider px-3 py-2 rounded-lg transition-all cursor-pointer disabled:opacity-60 shadow-xs">
+        className="flex items-center gap-1.5 bg-brand-navy hover:bg-[#2a4d82] text-white text-xs font-bold uppercase tracking-wider px-3 py-2 rounded-lg transition-all cursor-pointer disabled:opacity-60 shadow-xs">
         {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Route className="w-3.5 h-3.5" />}
         {loading ? `Exporting ${loading.split('-')[0].toUpperCase()}…` : 'Route Slip'}
         {!loading && <ChevronDown className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />}
@@ -122,18 +123,18 @@ export default function RouteSlipMenu({ driverFilter, selection, onChange, prepa
         <RouteSlipPeriodFields selection={selection} onChange={onChange} />
         <DocumentSizeSelect value={docSize} onChange={setDocSize} disabled={loading !== null} />
         {(['current', 'trail'] as const).map(variant => <div key={variant} className="mt-2">
-          <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">
+          <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">
             {variant === 'current' ? <Clock className="w-3 h-3" /> : <History className="w-3 h-3" />}
             {variant === 'current' ? 'Current Status' : 'Status Trail'}
           </div>
           {(['excel', 'pdf', 'docx'] as const).map(format => <button key={format} type="button"
             disabled={Boolean(periodError) || loading !== null} onClick={() => doExport(format, variant)}
-            className="w-full flex items-center gap-2.5 py-2 px-1 text-[11px] font-bold text-[#1F3864] hover:bg-blue-50 rounded disabled:opacity-40 disabled:cursor-not-allowed">
+            className="w-full flex items-center gap-2.5 py-2 px-1 text-xs font-bold text-brand-navy hover:bg-blue-50 rounded disabled:opacity-40 disabled:cursor-not-allowed">
             {format === 'docx' ? <FileText className="w-3.5 h-3.5" /> : <Route className="w-3.5 h-3.5" />}
             {format === 'docx' ? 'Word' : format === 'pdf' ? 'PDF' : 'Excel'} ({variant === 'current' ? 'Current' : 'Status Trail'})
           </button>)}
         </div>)}
-        <p className="text-[10px] text-slate-500 border-t border-slate-100 pt-2 mt-2">
+        <p className="text-xs text-slate-500 border-t border-slate-100 pt-2 mt-2">
           {driverFilter ? `Driver filter: ${driverFilter}. ` : ''}One slip per assigned driver for the selected period. Status Trail includes each record’s full history.
         </p>
       </div>}

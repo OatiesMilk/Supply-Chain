@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { mutateAdminAccount, permissionMode, PolicyManagementError } from './permissionManagement';
+import { screenRestricted } from './moduleAccessRules';
 
 export const SCREEN_LABELS = {
   main: 'Main', dashboard: 'Dashboard', deliveries: 'Deliveries', rma: 'RMA',
@@ -19,6 +20,9 @@ const AGGREGATE_SCREENS = ['main', 'dashboard', 'driver', 'calendar', 'driver_bo
 export const ROLE_DEFAULTS: Record<string, readonly Screen[]> = {
   SALES_COORDINATOR: ['main', 'dashboard', ...RECORD_SCREENS.filter(s => s !== 'rma'), 'customers', 'suppliers', 'am_directory', 'transactions'],
   LOGISTICS: ['main', 'dashboard', ...RECORD_SCREENS, 'customers', 'suppliers', 'driver', 'driver_manager', 'calendar', 'driver_board', 'transactions', 'statistical_reports'],
+  // procurement_pickup / accounting_collection stay listed only because this is the frozen V1 migration
+  // baseline (must equal LEGACY_POLICY_DEFAULT_SCREENS). TASS never gets them: screenRestricted() in
+  // moduleAccessRules removes both at runtime, and TASS has no collection verification role.
   TASS: ['main', 'dashboard', 'rma', 'procurement_pickup', 'accounting_collection', 'transactions', 'suppliers'],
   ADMIN: (Object.keys(SCREEN_LABELS) as Screen[]).filter(s => s !== 'driver_dashboard'),
   DRIVER: ['driver_dashboard'],
@@ -29,7 +33,7 @@ export const ROLE_DEFAULTS: Record<string, readonly Screen[]> = {
 export function editableScreens(role: string): Screen[] {
   if (role === 'DRIVER') return ['driver_dashboard'];
   return (Object.keys(SCREEN_LABELS) as Screen[]).filter(s =>
-    s !== 'driver_dashboard' && s !== 'admin' && (s !== 'data_sampler' || role === 'ADMIN') &&
+    s !== 'driver_dashboard' && s !== 'admin' && (s !== 'data_sampler' || role === 'ADMIN') && !screenRestricted(role, s) &&
     (s !== 'rma' || ['TASS', 'LOGISTICS', 'ADMIN'].includes(role)));
 }
 
@@ -42,7 +46,7 @@ export function effectiveScreens(role: string, overrides: readonly Permission[])
     if (p.granted === true) screens.add(p.screen as Screen);
     else if (p.granted === false) screens.delete(p.screen as Screen);
   }
-  return (Object.keys(SCREEN_LABELS) as Screen[]).filter(s => screens.has(s) &&
+  return (Object.keys(SCREEN_LABELS) as Screen[]).filter(s => screens.has(s) && !screenRestricted(role, s) &&
     (s !== 'rma' || ['TASS', 'LOGISTICS', 'ADMIN'].includes(role)));
 }
 
@@ -76,7 +80,7 @@ export function sessionUser(user: { id: string; name: string; email: string; rol
 export function permissionEditor(user: { id: string; role: string; permissions: Permission[]; authorizationRevision?: bigint | string }) {
   return {
     userId: user.id, ...permissionSnapshot(user.role, user.permissions, user.authorizationRevision),
-    roleDefaults: ROLE_DEFAULTS[user.role] ?? [],
+    roleDefaults: (ROLE_DEFAULTS[user.role] ?? []).filter(screen => !screenRestricted(user.role, screen)),
     catalog: Object.entries(SCREEN_LABELS).map(([screen, label]) => ({ screen, label })),
     editableScreens: editableScreens(user.role),
   };
@@ -114,7 +118,7 @@ export async function replacePermissions(db: PrismaClient, userId: string, actor
     } });
     const updated = await tx.user.findUnique({ where: { id: userId }, include: { permissions: true } });
     return permissionEditor(updated!);
-  }, { finish: async tx => permissionEditor((await tx.user.findUnique({ where: { id: userId }, include: { permissions: true } }))!) });
+  }, { legacyPermissions: true, finish: async tx => permissionEditor((await tx.user.findUnique({ where: { id: userId }, include: { permissions: true } }))!) });
 }
 
 // V1 action-aware contract for Steps 03/04. Legacy session/editor functions

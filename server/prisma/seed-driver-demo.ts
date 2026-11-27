@@ -1,6 +1,9 @@
 import { PrismaClient } from '@prisma/client';
 import { DRIVER_SEED_DATA } from './seeds/drivers';
 import { lockDriverDirectory } from '../src/services/driverDirectory';
+import { manilaToday } from '../src/services/deliveryLifecycle';
+import { allocateRmaReference } from '../src/services/rmaReference';
+import { syncLegacyContactSnapshot } from '../src/services/rmaRules';
 import * as crypto from 'crypto';
 
 function isValidDate(dateStr: string) {
@@ -10,11 +13,86 @@ function isValidDate(dateStr: string) {
   return d.toISOString().slice(0, 10) === dateStr;
 }
 
+/** Deterministic per-driver id hash used by the REC-DEMO-<YYYYMMDD>-<hash>[-<CATEGORY>] fixtures. */
+export function driverDemoHash(driverName: string): string {
+  return crypto.createHash('sha256').update(driverName.toLowerCase()).digest('hex').substring(0, 16).toUpperCase();
+}
+export function driverDemoRecordId(dateStr: string, driverName: string, category?: string): string {
+  return `REC-DEMO-${dateStr.replace(/-/g, '')}-${driverDemoHash(driverName)}${category ? `-${category}` : ''}`;
+}
+
+/**
+ * RMA-specific fields of a driver-demo RMA run: a canonical Pull Out Slip on
+ * Logistics transport, waiting for its assigned Driver (transport PENDING),
+ * with a case number, separated remarks, one contact and one structured item.
+ * Every field passes the current RMA rules (tests/rmaSeedValidation.test.ts).
+ */
+export function buildDriverDemoRmaFields({ dateStr, hashName, rmaReference }: { dateStr: string; hashName: string; rmaReference: string }) {
+  const short = hashName.substring(0, 8);
+  const contacts = [{ position: 0, name: 'Demo Store Supervisor', phone: '+639170000000', email: null }];
+  return {
+    reference: '',
+    rmaReference,
+    rmaType: 'Pull Out Slip',
+    isInternalTransfer: false,
+    legacySapReference: `SAP-DEMO-${short}-RMA`,
+    rmaMovement: 'LOGISTICS_TRANSPORT',
+    rmaTransportStatus: 'PENDING',
+    itemType: 'Small Item',
+    submittedAt: new Date(`${dateStr}T00:00:00+08:00`), // start of the Manila day, never in the future
+    caseNumber: `CAS-DEMO-${hashName.substring(0, 6)}`,
+    serviceSlipNo: null,
+    clientRemarks: `SAP-DEMO-${short}`,
+    internalLogisticsRemarks: 'Call before going.',
+    ...syncLegacyContactSnapshot(contacts),
+    rmaContacts: { create: contacts },
+    lineItems: { create: [{
+      position: 0, sku: 'UTK-PRN-TH80 Thermal Printer', quantity: 1, unitType: 'Unit', serialNumber: `TH80-DEMO-${short}`,
+      newSerialNumber: null, defectiveSerialNumber: null, purchaseDate: '2026-01-15', salesOrderNo: `SO-DEMO-${short}`,
+      accessories: null, problemDescription: 'Demo pull-out: printer not feeding paper', repairNote: null, statusTag: 'For Pull Out',
+    }] },
+  };
+}
+
+/** Full create data of a driver-demo RMA run (shared with the staging RMA demo refresh). */
+export function driverDemoRmaRecord(params: {
+  dateStr: string; driver: { id: string; name: string }; rmaReference: string; companyId: string;
+  assistantName: string | null; createdById: string; modifiedById: string;
+  /** Optional stable key used when several active Driver profiles share a case-insensitive name. */
+  idKey?: string;
+}) {
+  // Without idKey the id is exactly the local fixture id (display name hash).
+  const hashKey = params.idKey ?? params.driver.name;
+  const hashName = driverDemoHash(hashKey);
+  return {
+    id: driverDemoRecordId(params.dateStr, hashKey, 'RMA'),
+    companyId: params.companyId,
+    priority: '2 - Moderate',
+    remarks: 'Demo seeded run for RMA',
+    status: 'SCHEDULED',
+    vehicle: 'Van-01 (L300)',
+    area: 'Quezon City - Diliman',
+    driver: params.driver.name,
+    driverId: params.driver.id,
+    driverAssistants: params.assistantName ? JSON.stringify([params.assistantName]) : '[]',
+    accountManager: 'Demo Account',
+    deliveryDate: params.dateStr,
+    category: 'RMA',
+    draft: false,
+    itemDescription: 'Demo item for RMA',
+    collectionVerified: false,
+    createdById: params.createdById,
+    modifiedById: params.modifiedById,
+    ...buildDriverDemoRmaFields({ dateStr: params.dateStr, hashName, rmaReference: params.rmaReference }),
+  };
+}
+
 export async function seedDriverDemo(prisma: PrismaClient, targetDate?: string) {
   if (targetDate !== undefined && !isValidDate(targetDate)) {
     throw new Error(`Invalid target date format: ${targetDate}. Must be a valid YYYY-MM-DD calendar date.`);
   }
-  const dateStr = targetDate ?? new Date().toISOString().slice(0, 10);
+  // Asia/Manila calendar day, matching the dashboards and slip references.
+  const dateStr = targetDate ?? manilaToday();
 
   return prisma.$transaction(async (tx) => {
     // 1. Lock driver directory
@@ -28,6 +106,11 @@ export async function seedDriverDemo(prisma: PrismaClient, targetDate?: string) 
     if (!sales || !logistics || !admin) {
       throw new Error('Prerequisite users (sales, logistics, admin) with correct roles not found or inactive.');
     }
+    // TASS owns RMA requests: prefer the stock demo account for determinism, then any
+    // active TASS user (oldest first), and only fall back to Sales when none is active.
+    const tass =
+      (await tx.user.findFirst({ where: { email: 'tass@microgenesis.com', role: 'TASS', isActive: true } })) ??
+      (await tx.user.findFirst({ where: { role: 'TASS', isActive: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] }));
 
     const company = await tx.company.findFirst();
     if (!company) {
@@ -116,7 +199,7 @@ export async function seedDriverDemo(prisma: PrismaClient, targetDate?: string) 
 
     // 7. Create demo runs deterministically
     for (const [lowerName, profile] of driversToSeed.entries()) {
-      const hashName = crypto.createHash('sha256').update(lowerName).digest('hex').substring(0, 16).toUpperCase();
+      const hashName = driverDemoHash(lowerName);
       const demoId = `REC-DEMO-${dateStr.replace(/-/g, '')}-${hashName}`;
 
       const existingRecord = await tx.deliveryRecord.findUnique({
@@ -156,15 +239,21 @@ export async function seedDriverDemo(prisma: PrismaClient, targetDate?: string) 
         for (const cat of extraCategories) {
           const catDemoId = `REC-DEMO-${dateStr.replace(/-/g, '')}-${hashName}-${cat}`;
           const existingCatRecord = await tx.deliveryRecord.findUnique({ where: { id: catDemoId } });
-          if (!existingCatRecord) {
+          if (!existingCatRecord && cat === 'RMA') {
+            // Allocated only for rows actually created, so skipped reruns consume no counter value.
+            const rmaReference = await allocateRmaReference(tx, 'Pull Out Slip', new Date(`${dateStr}T12:00:00+08:00`));
+            await tx.deliveryRecord.create({ data: driverDemoRmaRecord({
+              dateStr, driver: profile, rmaReference, companyId: company.id, assistantName,
+              createdById: tass?.id ?? sales.id, modifiedById: logistics.id,
+            }) });
+            createdCount++;
+          } else if (!existingCatRecord) {
             await tx.deliveryRecord.create({
               data: {
                 id: catDemoId,
                 companyId: company.id,
                 priority: '2 - Moderate',
-                reference: cat === 'RMA' ? '' : `SAP-DEMO-${hashName.substring(0, 8)}-${cat}`,
-                rmaReference: null,
-                legacySapReference: cat === 'RMA' ? `SAP-DEMO-${hashName.substring(0, 8)}-${cat}` : null,
+                reference: `SAP-DEMO-${hashName.substring(0, 8)}-${cat}`,
                 remarks: `Demo seeded run for ${cat}`,
                 status: 'SCHEDULED',
                 vehicle: 'Van-01 (L300)',

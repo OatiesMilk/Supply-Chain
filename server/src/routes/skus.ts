@@ -49,17 +49,17 @@ function serializeProduct(p: any, includeTransactions = false): object {
 }
 
 // GET /api/v1/skus — All roles, returns all products with inventory
-router.get('/', requireAuth, requireResource('skus'), async (_req, res) => {
+router.get('/', requireAuth, requireResource('skus'), asyncRoute(async (_req, res) => {
   const products = await prisma.product.findMany({
     where: { deletedAt: null },
     include: productInclude,
     orderBy: { skuCode: 'asc' }
   });
   res.json(products.map(p => serializeProduct(p)));
-});
+}));
 
 // GET /api/v1/skus/:id — All roles, returns single product + inventory + last 20 transactions
-router.get('/:id', requireAuth, requireResource('skus'), async (req, res) => {
+router.get('/:id', requireAuth, requireResource('skus'), asyncRoute(async (req, res) => {
   const product = await prisma.product.findFirst({
     where: { id: req.params.id, deletedAt: null },
     include: {
@@ -72,10 +72,10 @@ router.get('/:id', requireAuth, requireResource('skus'), async (req, res) => {
   });
   if (!product) return res.status(404).json({ error: 'SKU not found' });
   res.json(serializeProduct(product, true));
-});
+}));
 
 // GET /api/v1/skus/:id/audit — Admin only
-router.get('/:id/audit', requireAuth, requireResource('skus'), requireRole('ADMIN'), async (req, res) => {
+router.get('/:id/audit', requireAuth, requireResource('skus'), requireRole('ADMIN'), asyncRoute(async (req, res) => {
   const entries = await prisma.auditLog.findMany({
     where: { recordId: req.params.id, recordType: 'SKU' },
     include: { changedBy: true },
@@ -91,7 +91,7 @@ router.get('/:id/audit', requireAuth, requireResource('skus'), requireRole('ADMI
       timestamp: e.timestamp
     }))
   );
-});
+}));
 
 // PUT /api/v1/skus/:id — Admin only, update product fields
 router.put('/:id', requireAuth, requireResource('skus', 'UPDATE'), requireRole('ADMIN'), asyncRoute(async (req, res) => {

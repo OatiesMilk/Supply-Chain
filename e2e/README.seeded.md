@@ -64,8 +64,8 @@ requests occur in its dependent specs. These suites remain separate deliberately
 | Admin pagination | Seed count matches visible rows; page size changes work. With more than ten pre-existing fixture users, page 2/back is exercised; the five-account seed checks the disabled Next boundary. |
 | Admin geometry | At 1280px and 390px, opening Access and repeatedly scrolling does not grow the document or content height; right-hand table controls remain reachable. |
 | Report filters | Driver and Area dropdowns load scoped record values, send selected values to the report API, and reset with Clear. |
-| TASS handoffs | Dashboard opens RMA list; collection view loads; record reads remain RMA/collection scoped. |
-| TASS detail review | Available seeded RMA/collection tabs open without completing, receiving, verifying or editing records. Missing category fixtures produce explicit skips. |
+| TASS handoffs | Dashboard opens RMA list; Accounting Collection navigation is hidden/redirected and its record and verification API calls are denied (`403`); record reads remain RMA-only. |
+| TASS detail review | Available seeded RMA tabs open without completing, receiving or editing records. Missing RMA fixtures produce explicit skips. |
 
 The browser request guard aborts unexpected non-read `/api/v1` calls except
 `/auth/login` and `/auth/logout`. Playwright `page.request` calls bypass browser

@@ -9,8 +9,8 @@ export interface CompletionNotificationResult {
   skipped: number;
 }
 
-// Completion email is an automatic workflow notification. Optional client output
-// preferences govern additional output only; they do not suppress this handoff.
+// Completion email is sent only after the final status commit. Optional client
+// output preferences govern additional output, not this sign-off notification.
 export async function notifyAccomplished(record: {
   id: string;
   companyName: string;
@@ -26,7 +26,7 @@ export async function notifyAccomplished(record: {
   const recipientRole = billing ? 'BILLING' : 'ACCOUNT_MANAGER';
   const subject = `${billing ? 'Collection Collected' : 'Delivery Accomplished'} — ${record.companyName}`;
   const text = [
-    `Record: ${record.id}`,
+    `Record: ${source?.recordNo ?? record.id}`,
     `Company: ${record.companyName}`,
     `Delivery Date: ${record.deliveryDate}`,
     `Reference / SAP Number: ${record.reference}`,

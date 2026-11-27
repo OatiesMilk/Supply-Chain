@@ -1,7 +1,45 @@
 import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
+import type { AuthUser } from '../middleware/auth';
 import { sessionUser } from './permissions';
 import { evaluatePermissions, type EffectivePermissionSnapshot } from './permissionEvaluator';
+
+/** Load an active/inactive LEGACY session with request-scoped RMA policy evaluation. */
+export async function loadLegacySession(db: PrismaClient, id: string): Promise<{ isActive: boolean; session: AuthUser } | null> {
+  const user = await db.user.findUnique({
+    where: { id },
+    include: { permissions: true, permissionOverrides: true, driverProfile: { select: { id: true, type: true, isActive: true } } },
+  });
+  if (!user) return null;
+
+  const base = sessionUser(user) as AuthUser;
+  const session: AuthUser = user.role === 'DRIVER'
+    ? {
+        ...base,
+        driverProfileId: user.driverProfile?.type === 'DRIVER' && user.driverProfile.isActive !== false
+          ? user.driverProfile.id
+          : null,
+      }
+    : base;
+
+  // Missing/incomplete policy never grants the new RMA workflow. Other category
+  // activation remains with the separate permission rollout (#247).
+  Object.defineProperty(session, 'rmaPermissions', { value: null, writable: true, enumerable: false });
+  if (Array.isArray(user.permissionOverrides)) {
+    const rolePolicy = await db.rolePolicy.findUnique({ where: { role: user.role }, include: { permissions: true } });
+    session.rmaPermissions = evaluatePermissions({
+      userId: user.id,
+      role: user.role,
+      isActive: user.isActive,
+      authorizationRevision: user.authorizationRevision,
+      overrides: user.permissionOverrides,
+      driverProfile: user.driverProfile,
+      rolePolicy,
+    });
+  }
+
+  return { isActive: user.isActive, session };
+}
 
 /** One committed MVCC view for account identity, policy, overrides and revisions.
  * Never cache this load across requests or store its authority in the JWT. */

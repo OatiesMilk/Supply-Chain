@@ -43,14 +43,14 @@ export default function AccountManagersTab({ canManage }: { canManage: boolean }
           {visible.map(row => (
             <tr key={row.id} className="hover:bg-slate-50">
               <td className="px-4 py-3 font-bold text-slate-900">{row.name}</td>
-              <td className="px-4 py-3 font-mono text-[11px] text-slate-600">{row.email || <span className="font-sans text-slate-400">None</span>}</td>
+              <td className="px-4 py-3 tabular-nums text-xs text-slate-600">{row.email || <span className="font-sans text-slate-400">None</span>}</td>
               <td className="px-4 py-3">
                 {row.linked_user ? (
                   <span className="inline-flex items-center gap-1 text-slate-700">
                     <UserCheck aria-hidden="true" className="h-3.5 w-3.5 text-emerald-600" />{row.linked_user.name}
-                    {!row.linked_user.is_active && <span className="text-[10px] font-semibold text-amber-700">(login inactive)</span>}
+                    {!row.linked_user.is_active && <span className="text-xs font-semibold text-amber-700">(login inactive)</span>}
                   </span>
-                ) : <span className="text-[11px] font-semibold text-amber-700">Not linked</span>}
+                ) : <span className="text-xs font-semibold text-amber-700">Not linked</span>}
               </td>
               <td className="px-4 py-3"><StatusBadge active={row.is_active} /></td>
               <td className="px-4 py-3 text-slate-500">{formatUpdated(row.updated_at)}</td>

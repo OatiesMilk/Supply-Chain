@@ -10,6 +10,19 @@ import AllOpsExportMenu from "@/components/AllOpsExportMenu";
 import { StatusHistoryCounts } from "@/utils/export";
 import { DateSortMode, sortRecordsByDate } from "@/utils/allOpsExport";
 import Pagination, { DEFAULT_PAGE_SIZE } from "@/components/Pagination";
+import DashboardFilterChip from "@/components/DashboardFilterChip";
+import { DashboardFilterId } from "@/utils/dashboardFilters";
+import { recordLabel } from '../utils/recordLabel';
+import {
+  btnPrimaryClass,
+  btnSecondaryClass,
+  cardClass,
+  filterChipClass,
+  tableHeaderRowClass,
+  tableLeadButtonClass,
+  tableRowClass,
+} from '@/utils/uiClasses';
+import { EmptyState, TableSkeleton } from '@/components/UiPrimitives';
 
 interface MainViewProps {
   records: DeliveryRecord[];
@@ -29,6 +42,8 @@ interface MainViewProps {
     >,
   ) => Promise<DeliveryRecord>;
   effectiveScreens: Set<string>;
+  dashboardFilterId?: DashboardFilterId | null;
+  clearDashboardFilter?: () => void;
 }
 
 type FilterKey =
@@ -50,12 +65,12 @@ const CATEGORY_TO_SCREEN: Record<string, string> = {
 
 
 const FILTER_BUTTONS: { key: FilterKey; label: string }[] = [
-  { key: "all", label: "View All Items" },
-  { key: "Scheduled", label: "View Scheduled Items" },
-  { key: "Delivered", label: "View Delivered Items" },
-  { key: "On-Hold", label: "View On-Hold Items" },
-  { key: "Rescheduled", label: "View Rescheduled Items" },
-  { key: "Pending", label: "View Pending Items" },
+  { key: "all", label: "All" },
+  { key: "Scheduled", label: "Scheduled" },
+  { key: "Delivered", label: "Delivered" },
+  { key: "On-Hold", label: "On-Hold" },
+  { key: "Rescheduled", label: "Rescheduled" },
+  { key: "Pending", label: "Pending" },
   { key: "draft", label: "Delivery For Approval" },
 ];
 
@@ -77,6 +92,8 @@ export default function MainView({
   companies,
   onCreateRecord,
   effectiveScreens,
+  dashboardFilterId = null,
+  clearDashboardFilter,
 }: MainViewProps) {
   const access = usePermissions();
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
@@ -120,13 +137,14 @@ export default function MainView({
     status: activeFilter === 'all' ? undefined : activeFilter === 'draft' ? 'Draft' : activeFilter,
     dateFrom: dateFrom || undefined, dateTo: dateTo || undefined,
     dateSort: dateFrom || dateTo ? 'default' : sortMode,
+    dashboard_filter: dashboardFilterId ?? undefined,
   });
   const displayRecords = query.data?.rows ?? [];
   const paginatedRecords = displayRecords;
   const totalRecords = query.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
   const safeCurrentPage = Math.min(currentPage, totalPages);
-  useEffect(() => { setCurrentPage(1); }, [activeFilter, dateFrom, dateTo, sortMode, pageSize]);
+  useEffect(() => { setCurrentPage(1); }, [activeFilter, dateFrom, dateTo, sortMode, pageSize, dashboardFilterId]);
   useEffect(() => {
     if (query.data && currentPage > totalPages) setCurrentPage(totalPages);
   }, [query.data, currentPage, totalPages]);
@@ -147,95 +165,32 @@ export default function MainView({
       status: activeFilter === "all" ? undefined : activeFilter === "draft" ? "Draft" : activeFilter,
       dateFrom: dateFrom || undefined,
       dateTo: dateTo || undefined,
+      dashboard_filter: dashboardFilterId ?? undefined,
     });
     const normalized = raw.map(normalizeApiRecord);
     return dateFrom || dateTo ? normalized : sortRecordsByDate(normalized, sortMode);
   };
 
   return (
-    <div className="space-y-3">
-      {/* Filter shortcut buttons + New Delivery */}
-      <div className="flex flex-wrap gap-2 items-center">
-        {/* New Delivery — separate, not part of the active filter group */}
-        <button
-          onClick={handleOpenCreate}
-          disabled={availableCategories.length === 0}
-          title={
-            availableCategories.length === 0
-              ? "No order types available for your account"
-              : "Create a new delivery record"
-          }
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all border-2 bg-[#0078C1] text-white border-transparent hover:bg-[#1F3864] disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          New Delivery
-        </button>
-
-        {FILTER_BUTTONS.map(({ key, label }) => {
-          const isActive = activeFilter === key;
-          return (
-            <button
-              key={key}
-              onClick={() => setActiveFilter(key)}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all border-2 ${
-                isActive
-                  ? "bg-[#1F3864] text-white border-white/30 ring-2 ring-white/40 ring-offset-1 ring-offset-[#1F3864]"
-                  : "bg-[#0078C1] text-white border-transparent hover:bg-[#1F3864]"
-              }`}
-            >
-              {label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Date range + sort filter bar */}
-      <div className="flex flex-wrap gap-2 items-center">
-        <input
-          type="date"
-          value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
-          className="px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
-          title="Delivery Date From"
+    <div className="space-y-4">
+      {dashboardFilterId && clearDashboardFilter && (
+        <DashboardFilterChip
+          filterId={dashboardFilterId}
+          onClear={clearDashboardFilter}
         />
-        <input
-          type="date"
-          value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
-          className="px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
-          title="Delivery Date To"
-        />
-        <select
-          value={sortMode}
-          onChange={(e) => setSortMode(e.target.value as DateSortMode)}
-          disabled={!!(dateFrom || dateTo)}
-          title={
-            dateFrom || dateTo
-              ? "Sort order is N/A while a date range filter is active"
-              : undefined
-          }
-          className={`px-3 py-2 border rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1] ${dateFrom || dateTo ? "border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed" : "border-slate-300 bg-white cursor-pointer"}`}
-        >
-          {(dateFrom || dateTo) && <option value={sortMode}>Sort: N/A</option>}
-          <option value="nearest">Nearest to Present</option>
-          <option value="oldest">Oldest First</option>
-          <option value="furthest">Furthest Future First</option>
-        </select>
+      )}
+      {/* Top action bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-slate-500 tabular-nums">
+          Showing{" "}
+          <span className="font-semibold text-slate-800">
+            {displayRecords.length}
+          </span>{" "}
+          of <span className="font-semibold text-slate-800">{totalRecords}</span>{" "}
+          matching records
+        </p>
 
-        {(dateFrom || dateTo || sortMode !== "nearest") && (
-          <button
-            onClick={() => {
-              setDateFrom("");
-              setDateTo("");
-              setSortMode("nearest");
-            }}
-            className="px-3 py-2 text-xs font-bold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-          >
-            Clear
-          </button>
-        )}
-
-        <div className="flex flex-wrap items-center justify-end gap-3 ml-auto">
+        <div className="flex flex-wrap items-center gap-2">
           <AllOpsExportMenu
             records={displayRecords}
             meta={{
@@ -257,106 +212,189 @@ export default function MainView({
             statusHistoryCounts={statusHistoryCounts}
             fetchExportData={fetchExportData}
           />
+          <button
+            type="button"
+            onClick={handleOpenCreate}
+            disabled={availableCategories.length === 0}
+            title={
+              availableCategories.length === 0
+                ? "No order types available for your account"
+                : "Create a new delivery record"
+            }
+            className={btnPrimaryClass}
+          >
+            <Plus className="w-4 h-4" />
+            New Delivery
+          </button>
         </div>
       </div>
 
-      {/* Record count */}
-      <p className="text-xs text-slate-500">
-        Showing{" "}
-        <span className="font-bold text-slate-700">
-          {displayRecords.length}
-        </span>{" "}
-        of <span className="font-bold text-slate-700">{totalRecords}</span>{" "}
-        matching records
-      </p>
-
-      {/* Table */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        {query.isError ? (
-          <div role="alert" className="p-5 text-sm text-red-700">Could not load records. <button type="button" className="underline" onClick={() => void query.refetch()}>Retry loading records</button></div>
-        ) : query.isPending ? <p role="status" className="p-5 text-sm text-slate-600">Loading records…</p> : displayRecords.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <Layers className="w-10 h-10 text-slate-200" />
-            <p className="text-sm text-slate-400">
-              No records match this filter.
-            </p>
+      {/* Unified Filter & Table Card */}
+      <div className={`${cardClass} overflow-hidden`}>
+        <div className="p-4 border-b border-slate-200/80 space-y-3">
+          {/* Status filter pills */}
+          <div className="flex flex-wrap gap-1.5 items-center">
+            {FILTER_BUTTONS.map(({ key, label }) => {
+              const isActive = activeFilter === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setActiveFilter(key)}
+                  aria-pressed={isActive}
+                  className={filterChipClass(isActive)}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
+
+          {/* Date range + sort filter bar */}
+          <div className="flex flex-wrap gap-2 items-center">
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="h-9 px-3 border border-slate-200 rounded-lg text-xs text-slate-700 tabular-nums bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
+              title="Delivery Date From"
+            />
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="h-9 px-3 border border-slate-200 rounded-lg text-xs text-slate-700 tabular-nums bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
+              title="Delivery Date To"
+            />
+            <select
+              value={sortMode}
+              onChange={(e) => setSortMode(e.target.value as DateSortMode)}
+              disabled={!!(dateFrom || dateTo)}
+              title={
+                dateFrom || dateTo
+                  ? "Sort order is N/A while a date range filter is active"
+                  : undefined
+              }
+              className={`h-9 px-3 border rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue ${dateFrom || dateTo ? "border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed" : "border-slate-200 bg-white text-slate-700 cursor-pointer"}`}
+            >
+              {(dateFrom || dateTo) && <option value={sortMode}>Sort: N/A</option>}
+              <option value="nearest">Nearest to Present</option>
+              <option value="oldest">Oldest First</option>
+              <option value="furthest">Furthest Future First</option>
+            </select>
+
+            {(dateFrom || dateTo || sortMode !== "nearest") && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDateFrom("");
+                  setDateTo("");
+                  setSortMode("nearest");
+                }}
+                className={btnSecondaryClass}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+
+        {query.isError ? (
+          <div role="alert" className="p-6 text-sm text-red-700">Could not load records. <button type="button" className="font-semibold underline cursor-pointer" onClick={() => void query.refetch()}>Retry loading records</button></div>
+        ) : query.isPending ? (
+          <div className="overflow-x-auto" role="status" aria-label="Loading records">
+            <table className="w-full table-auto text-sm">
+              <thead>
+                <tr className={`${tableHeaderRowClass} text-left`}>
+                  <th className="px-4 py-3 whitespace-nowrap">Date Created</th>
+                  <th className="px-4 py-3">Company</th>
+                  <th className="px-4 py-3">Reference</th>
+                  <th className="px-4 py-3 whitespace-nowrap">Category</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Area</th>
+                  <th className="px-4 py-3 whitespace-nowrap">Account Manager</th>
+                  <th className="px-4 py-3 whitespace-nowrap">Delivery Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                <TableSkeleton columns={8} rows={6} />
+              </tbody>
+            </table>
+          </div>
+        ) : displayRecords.length === 0 ? (
+          <EmptyState
+            icon={Layers}
+            title="No records match this filter"
+            description="Try adjusting the status or date range filters to see more operational records."
+          />
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full table-auto text-xs">
+              <table className="w-full table-auto text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50 text-left">
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
-                      Date Created
-                    </th>
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                      Company
-                    </th>
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                      Reference
-                    </th>
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
-                      Category
-                    </th>
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                      Area
-                    </th>
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
-                      Account Manager
-                    </th>
-                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
-                      Delivery Date
-                    </th>
+                  <tr className={`${tableHeaderRowClass} text-left`}>
+                    <th className="px-4 py-3 whitespace-nowrap">Date Created</th>
+                    <th className="px-4 py-3">Company</th>
+                    <th className="px-4 py-3">Reference</th>
+                    <th className="px-4 py-3 whitespace-nowrap">Category</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Area</th>
+                    <th className="px-4 py-3 whitespace-nowrap">Account Manager</th>
+                    <th className="px-4 py-3 whitespace-nowrap">Delivery Date</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {paginatedRecords.map((record) => (
-                    <tr
-                      key={record.id}
-                      onClick={() => handleRowClick(record)}
-                      className="hover:bg-slate-50 cursor-pointer transition-colors group"
-                    >
-                      <td className="px-4 py-3 whitespace-nowrap text-slate-500 font-mono text-[10px]">
-                        {fmtCreatedAt(record.created_at)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="font-semibold text-slate-800 group-hover:text-[#0078C1] transition-colors line-clamp-1">
-                          {record.company_name}
-                        </span>
-                        <span className="block text-[10px] text-slate-400 font-mono">
-                          {record.id}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                        {record.reference || "—"}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
-                          {record.category}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <RecordStatus record={record} compact />
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                        {record.area || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                        {record.account_manager || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                        {record.delivery_date || "—"}
-                      </td>
-                    </tr>
-                  ))}
+                  {paginatedRecords.map((record) => {
+                    const label = recordLabel(record);
+                    return (
+                      <tr
+                        key={record.id}
+                        onClick={() => handleRowClick(record)}
+                        className={`${tableRowClass} cursor-pointer group`}
+                      >
+                        <td className="px-4 py-3.5 whitespace-nowrap text-slate-600 tabular-nums text-xs">
+                          {fmtCreatedAt(record.created_at)}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <button
+                            type="button"
+                            onClick={e => { e.stopPropagation(); handleRowClick(record); }}
+                            aria-label={`Open ${record.category} record ${label}`}
+                            className={`${tableLeadButtonClass} text-sm text-slate-900 group-hover:text-brand-blue line-clamp-1`}
+                          >
+                            {record.company_name}
+                          </button>
+                          <span className="block text-xs text-slate-500 tabular-nums mt-0.5">
+                            {label}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3.5 text-slate-600 whitespace-nowrap text-xs tabular-nums">
+                          {record.reference || "—"}
+                        </td>
+                        <td className="px-4 py-3.5 whitespace-nowrap">
+                          <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200/80">
+                            {record.category}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3.5 whitespace-nowrap">
+                          <RecordStatus record={record} compact />
+                        </td>
+                        <td className="px-4 py-3.5 text-slate-600 whitespace-nowrap text-xs">
+                          {record.area || "—"}
+                        </td>
+                        <td className="px-4 py-3.5 text-slate-600 whitespace-nowrap text-xs">
+                          {record.account_manager || "—"}
+                        </td>
+                        <td className="px-4 py-3.5 text-slate-600 whitespace-nowrap text-xs tabular-nums">
+                          {record.delivery_date || "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-            <div className="border-t border-slate-200">
+            <div className="border-t border-slate-200/80">
               <Pagination
                 currentPage={safeCurrentPage}
                 totalPages={totalPages}
@@ -377,19 +415,21 @@ export default function MainView({
       {/* Create record modal */}
       {showCreateForm && createCategory && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-[2px]"
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowCreateForm(false);
           }}
         >
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4">
-            <div className="px-6 pt-5 pb-0 flex items-center justify-between">
-              <h2 className="text-sm font-black text-slate-900">
-                New Delivery
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4">
+            <div className="px-6 pt-5 pb-3 border-b border-slate-100 flex items-center justify-between">
+              <h2 className="text-base font-semibold text-slate-900">
+                New delivery
               </h2>
               <button
+                type="button"
                 onClick={() => setShowCreateForm(false)}
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors"
+                aria-label="Close"
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors cursor-pointer"
               >
                 ×
               </button>

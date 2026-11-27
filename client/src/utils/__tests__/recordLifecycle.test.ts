@@ -23,12 +23,28 @@ test('RMA submissions add explicit movement and conditional transport date to sh
     rma_reference: '', rma_type: '', purchase_date: '', customer_contact_name: '', customer_contact_email: '', customer_contact_phone: '',
   };
   for (const isDraft of [true, false]) {
-    assert.deepEqual(Object.keys(submissionErrors(draft, isDraft)).sort(), isDraft ? ['account_manager', 'area', 'priority'] : ['account_manager', 'area', 'priority', 'rma_movement']);
-    const complete = { ...draft, priority: '2 - Moderate', area: 'Carmona', account_manager: 'Alex AM', delivery_date: '', rma_movement: 'INTERNAL_NO_DRIVER' };
+    // Category is required for Save and Save as Draft: it decides the auto-generated slip prefix.
+    assert.deepEqual(Object.keys(submissionErrors(draft, isDraft)).sort(), isDraft ? ['account_manager', 'area', 'priority', 'rma_type'] : ['account_manager', 'area', 'priority', 'rma_movement', 'rma_type']);
+    const complete = { ...draft, priority: '2 - Moderate', area: 'Carmona', account_manager: 'Alex AM', delivery_date: '', rma_movement: 'INTERNAL_NO_DRIVER', rma_type: 'Pull Out Slip' };
     assert.deepEqual(submissionErrors(complete, isDraft), {});
     assert.match(submissionErrors({ ...complete, company_id: '' }, isDraft).company_name, /Select/);
     assert.match(submissionErrors({ ...complete, priority: 'invalid' }, isDraft).priority, /valid/);
     assert.match(submissionErrors({ ...complete, customer_contact_email: 'invalid' }, isDraft).customer_contact_email, /valid email/);
+    assert.match(submissionErrors({ ...complete, rma_type: 'Others' }, isDraft).rma_type, /Select a category/);
+    assert.deepEqual(submissionErrors({ ...complete, rma_type: 'Pull-Out Slip' }, isDraft), {}, 'legacy aliases count as their canonical slip');
+    assert.equal(submissionErrors({ ...complete, rma_reference: '' }, isDraft).rma_reference, undefined, 'the reference is never required');
+  }
+});
+
+test('non-RMA internal transfers are only for Transfer Out Slips moved by Logistics or internally', () => {
+  const base = { company_name: 'Company', company_id: 'company', reference: '', delivery_date: '2026-10-28', category: 'RMA', priority: '2 - Moderate', area: 'Carmona', account_manager: 'AM' };
+  for (const rma_movement of ['LOGISTICS_TRANSPORT', 'INTERNAL_NO_DRIVER']) {
+    assert.deepEqual(submissionErrors({ ...base, rma_type: 'Transfer Out Slip', is_internal_transfer: true, rma_movement }, false), {}, rma_movement);
+  }
+  assert.deepEqual(submissionErrors({ ...base, rma_type: 'Transfer Out Slip', is_internal_transfer: true, rma_movement: null }, true), {}, 'a draft may leave the movement unset');
+  assert.match(submissionErrors({ ...base, rma_type: 'Transfer Out Slip', is_internal_transfer: true, rma_movement: 'SUPPLIER_COLLECTION' }, false).rma_movement, /Logistics transport or Internal/);
+  for (const rma_type of ['Pull Out Slip', 'Receiving Slip', 'Return to Customer Slip']) {
+    assert.match(submissionErrors({ ...base, rma_type, is_internal_transfer: true, rma_movement: 'INTERNAL_NO_DRIVER' }, false).is_internal_transfer, /Transfer Out Slip/, rma_type);
   }
 });
 
@@ -147,7 +163,7 @@ test('TSK-125: Return to Draft consequences name the driver only when assigned a
 });
 
 test('Logistics RMA submission needs a valid date; no-driver and supplier movements never require a driver or date', () => {
-  const fields = { company_name: 'Company', company_id: 'company', reference: '', delivery_date: '', category: 'RMA', priority: '2 - Moderate', area: 'Carmona', account_manager: 'AM' };
+  const fields = { company_name: 'Company', company_id: 'company', reference: '', delivery_date: '', category: 'RMA', priority: '2 - Moderate', area: 'Carmona', account_manager: 'AM', rma_type: 'Receiving Slip' };
   for (const rma_movement of ['SUPPLIER_COLLECTION', 'INTERNAL_NO_DRIVER']) assert.deepEqual(submissionErrors({ ...fields, rma_movement }, false), {});
   assert.match(submissionErrors({ ...fields, rma_movement: 'LOGISTICS_TRANSPORT' }, false).delivery_date, /valid Delivery Date/);
   assert.match(submissionErrors({ ...fields, rma_movement: 'LOGISTICS_TRANSPORT', delivery_date: '2026-02-30' }, false).delivery_date, /valid Delivery Date/);

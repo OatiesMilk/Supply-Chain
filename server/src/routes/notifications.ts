@@ -11,7 +11,7 @@ import { asyncRoute } from '../middleware/asyncRoute';
 
 const router = Router();
 
-router.get('/', requireAuth, async (req, res) => {
+router.get('/', requireAuth, asyncRoute(async (req, res) => {
   const notifications = await prisma.$queryRaw<Notification[]>`
     SELECT n.* FROM "Notification" n
     LEFT JOIN "DeliveryRecord" r ON n."recordType" = 'DeliveryRecord' AND r."id" = n."recordId"
@@ -29,26 +29,26 @@ router.get('/', requireAuth, async (req, res) => {
       created_at: n.createdAt
     }))
   );
-});
+}));
 
-router.get('/unread-count', requireAuth, async (req, res) => {
+router.get('/unread-count', requireAuth, asyncRoute(async (req, res) => {
   const [result] = await prisma.$queryRaw<Array<{ count: number }>>`
     SELECT COUNT(*)::integer AS count FROM "Notification" n
     LEFT JOIN "DeliveryRecord" r ON n."recordType" = 'DeliveryRecord' AND r."id" = n."recordId"
     WHERE n."userId" = ${req.user!.id} AND n."isRead" = false AND ${notificationVisibility(req.user!)}
   `;
   res.json({ count: result?.count ?? 0 });
-});
+}));
 
-router.patch('/read-all', requireAuth, requireRole('ADMIN', 'SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'DRIVER'), async (req, res) => {
+router.patch('/read-all', requireAuth, requireRole('ADMIN', 'SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'DRIVER'), asyncRoute(async (req, res) => {
   await prisma.notification.updateMany({
     where: { userId: req.user!.id, isRead: false },
     data: { isRead: true }
   });
   res.json({ ok: true });
-});
+}));
 
-router.patch('/:id/read', requireAuth, requireRole('ADMIN', 'SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'DRIVER'), async (req, res) => {
+router.patch('/:id/read', requireAuth, requireRole('ADMIN', 'SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'DRIVER'), asyncRoute(async (req, res) => {
   const notif = await prisma.notification.findFirst({
     where: { id: req.params.id, userId: req.user!.id }
   });
@@ -59,7 +59,7 @@ router.patch('/:id/read', requireAuth, requireRole('ADMIN', 'SALES_COORDINATOR',
     data: { isRead: true }
   });
   res.json({ ok: true });
-});
+}));
 
 // ─── Email dispatch endpoint ────────────────────────────────────────────────
 
@@ -98,7 +98,7 @@ router.post('/send-email', requireAuth, requireResource('records'), requireRole(
   const body = [
     `Trigger: ${trigger}`,
     `Company: ${companyName}`,
-    `Reference: ${(record as any).reference || record.id}`,
+    `Reference: ${(record as any).reference || record.recordNo}`,
     `Delivery Date: ${(record as any).deliveryDate || 'N/A'}`,
     `Updated by: ${req.user!.name}`,
   ].join('\n');
@@ -115,7 +115,7 @@ router.post('/send-email', requireAuth, requireResource('records'), requireRole(
         triggerEvent: trigger.toUpperCase().replace(/\s+/g, '_'),
         recipientRole: selector === 'AM' ? 'ACCOUNT_MANAGER' : selector,
         recipientName: selector === 'AM' ? record.accountManager : selector,
-        message: `${subject}\nRecord: ${record.id}\nSkipped: no unique active recipient with record access.`, status: 'SKIPPED',
+        message: `${subject}\nRecord: ${record.recordNo}\nSkipped: no unique active recipient with record access.`, status: 'SKIPPED',
       } });
     }
     for (const target of resolved) {
@@ -136,7 +136,7 @@ router.post('/send-email', requireAuth, requireResource('records'), requireRole(
     await prisma.notificationLog.create({ data: {
       triggerEvent: trigger.toUpperCase().replace(/\s+/g, '_'),
       recipientRole: target.roles.map(role => role === 'AM' ? 'ACCOUNT_MANAGER' : role).join(','),
-      recipientName: target.name, message: `${subject}\nRecord: ${record.id}\n${body}`, status,
+      recipientName: target.name, message: `${subject}\nRecord: ${record.recordNo}\n${body}`, status,
     } });
     if (status === 'SENT') sent++;
     else if (status === 'MOCKED') mocked++;

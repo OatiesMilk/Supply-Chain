@@ -121,6 +121,17 @@ export async function findVerifiedDeliveryPhoto(
   return null;
 }
 
+/** Verify the exact photo selected for Sales review, not merely any saved image. */
+export async function findVerifiedDeliveryPhotoById(
+  db: Pick<Prisma.TransactionClient, 'podAttachment'>,
+  recordId: string,
+  attachmentId: string,
+): Promise<{ id: string; storageKey: string; mimeType: string; size: number } | null> {
+  const file = await db.podAttachment.findFirst({ where: { id: attachmentId, recordId } });
+  if (!file || !isPhotoMimeType(file.mimeType) || file.size <= 0 || !await isStoredPodPhoto(file)) return null;
+  return { id: file.id, storageKey: file.storageKey, mimeType: file.mimeType, size: file.size };
+}
+
 export async function hasStoredDeliveryPhoto(tx: Pick<Prisma.TransactionClient, 'podAttachment'>, recordId: string, excludeId?: string) {
   const attachments = await tx.podAttachment.findMany({
     where: { recordId, ...(excludeId ? { id: { not: excludeId } } : {}) },

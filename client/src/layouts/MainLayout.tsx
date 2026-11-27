@@ -38,7 +38,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   children,
 }) => {
   return (
-    <div className="flex h-screen bg-[#F8F9FB] font-sans text-slate-800 overflow-hidden" id="app-root">
+    <div className="relative flex h-screen bg-surface-canvas font-sans text-slate-800 overflow-hidden" id="app-root">
       <GlobalSearch
         isOpen={searchOpen}
         onClose={() => setSearchOpen(false)}
@@ -61,14 +61,16 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         <Navbar {...navbarProps} />
 
         {dataError && (
-          <div className="bg-red-50 border-b border-red-200 text-red-700 text-[11px] font-semibold px-6 py-1.5 flex items-center gap-2" id="data-error-banner">
-            <AlertTriangle className="w-3.5 h-3.5" />
+          <div className="bg-red-50 border-b border-red-200 text-red-700 text-xs font-semibold px-6 py-2 flex items-center gap-2" id="data-error-banner">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
             <span>{dataError}</span>
           </div>
         )}
 
-        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto px-3 py-3 sm:px-4 sm:py-4 lg:px-5 lg:py-4 bg-[#F8F9FB]" id="main-routed-view">
-          {children}
+        <main className="relative min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6 bg-surface-canvas" id="main-routed-view">
+          <div className="mx-auto w-full max-w-[1520px]">
+            {children}
+          </div>
         </main>
       </div>
     </div>

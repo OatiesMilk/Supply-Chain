@@ -213,17 +213,20 @@ async function replaceOverrides(tx: Tx, user: Account, next: readonly ActionPerm
 }
 
 /** Synchronize only a verified untouched baseline conversion. Never overwrite
- * manual V1 edits or silently accept a drifted checkpoint. */
-async function syncLegacyConversion(tx: Tx, before: Account, after: Account) {
+ * manual V1 edits or silently accept a drifted checkpoint. Non-permission
+ * account updates (such as name, email, active state, or SSO identity) leave
+ * the conversion source hash unchanged and do not need baseline rewriting. */
+async function syncLegacyConversion(tx: Tx, before: Account, after: Account, requireBaseline = false) {
   if (!before.permissionConversion) return;
   const previousPlan = planPermissionConversion(before);
+  const plan = planPermissionConversion(after);
+  if (!requireBaseline && plan.sourceHash === previousPlan.sourceHash) return;
   if (before.permissionConversion.sourceHash !== previousPlan.sourceHash
     || JSON.stringify(rows(previousPlan.overrides)) !== JSON.stringify(rows(before.permissionOverrides))) return fail(409, 'Converted legacy source drifted; operator review is required');
   const policies = await tx.rolePolicy.findMany({ include: { permissions: true } });
   if (policies.length !== POLICY_ROLES.length || policies.some(p => !isPolicyRole(p.role) || p.catalogVersion !== 1
     || p.permissions.length !== PERMISSION_CATALOG.length || p.permissions.some(row => row.effect !== defaultRolePermissions(p.role as typeof POLICY_ROLES[number]).get(row.permissionKey)))
     || before.permissionOverrides.some(p => p.source !== 'LEGACY_V1')) return fail(409, 'V1 policies were customized; legacy writes cannot replace them');
-  const plan = planPermissionConversion(after);
   if (plan.sourceHash === previousPlan.sourceHash) return;
   await tx.userPermissionOverride.deleteMany({ where: { userId: after.id } });
   if (plan.overrides.length) await tx.userPermissionOverride.createMany({ data: plan.overrides.map(p => ({ ...p, userId: after.id, source: 'LEGACY_V1' })) });
@@ -234,7 +237,7 @@ async function syncLegacyConversion(tx: Tx, before: Account, after: Account) {
 /** Shared account lifecycle transaction. Existing legacy clients remain usable;
  * V1 callers must hold a current editor (or role-change preview) token. */
 export async function mutateAdminAccount<T>(db: PrismaClient, actorId: string, userId: string, body: unknown,
-  work: (tx: Tx, actor: Account, user: Account) => Promise<T>, options: { role?: string; action?: 'UPDATE' | 'DELETE'; identity?: boolean; metadata?: boolean; removedOverrideKeys?: string[]; finish?: (tx: Tx, result: T) => Promise<T> } = {}) {
+  work: (tx: Tx, actor: Account, user: Account) => Promise<T>, options: { role?: string; action?: 'UPDATE' | 'DELETE'; identity?: boolean; metadata?: boolean; legacyPermissions?: boolean; removedOverrideKeys?: string[]; finish?: (tx: Tx, result: T) => Promise<T> } = {}) {
   if (object(body) && body.contractVersion === 1) requireV1Mutation();
   return administrativeTransaction(db, actorId, userId, async (tx, actor, target) => {
     const user = target!, active = permissionMode() === 'V1';
@@ -259,7 +262,7 @@ export async function mutateAdminAccount<T>(db: PrismaClient, actorId: string, u
     }
     const result = await work(tx, actor, user);
     let after = await readAccount(tx, userId);
-    if (after && !active) { await syncLegacyConversion(tx, user, after); after = await readAccount(tx, userId); }
+    if (after && !active) { await syncLegacyConversion(tx, user, after, options.legacyPermissions === true); after = await readAccount(tx, userId); }
     if (after && options.identity && (after.microsoftOid !== user.microsoftOid || String(after.microsoftApprovedAt) !== String(user.microsoftApprovedAt))) {
       // Microsoft linking is not covered by the foundation role/Driver triggers.
       await tx.user.update({ where: { id: userId }, data: { authorizationRevision: { increment: 1 } } });

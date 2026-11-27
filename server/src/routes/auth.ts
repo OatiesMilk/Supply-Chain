@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../db';
-import { clearSessionCookie, requireAuth, setSessionCookie, signToken, Role } from '../middleware/auth';
+import { clearSessionCookie, requireAuth, requireRole, setSessionCookie, signToken, Role } from '../middleware/auth';
 
 import { asyncRoute } from '../middleware/asyncRoute';
 import { sessionUser } from '../services/permissions';
@@ -11,6 +11,8 @@ import { policyRoute } from '../middleware/policyRoute';
 import { createSsoState, validateSsoState, registerSsoState, consumeSsoState, getMsalConfig, SSO_STATE_COOKIE, SSO_STATE_MAX_AGE_MS } from '../services/ssoState';
 import { approvedMicrosoftUser } from '../services/ssoIdentity';
 import { ssoFailureDetails, type SsoStage } from '../services/ssoDiagnostics';
+import { handleSignatureUpload } from '../services/signatureStorage';
+import { deleteUserSignature, saveUserSignature, serializeSignatureMeta, streamSignatureImage } from '../services/userSignatures';
 
 const router = Router();
 
@@ -54,6 +56,35 @@ router.post('/logout', (_req, res) => {
 router.get('/me', requireAuth, (req: Request, res: Response) => {
   res.json(req.user);
 });
+
+// ─── Self-service digital signature (Feature 5a) ─────────────────────────────
+// Every active account manages only its own signature here; the storage key
+// is never returned and image bytes are served with private, no-store headers.
+const MY_SIGNATURE_IMAGE = '/api/v1/auth/me/signature/image';
+const SIGNATURE_ROLES: Role[] = ['SALES_COORDINATOR', 'LOGISTICS', 'TASS', 'ADMIN', 'DRIVER'];
+
+router.get('/me/signature', requireAuth, asyncRoute(async (req: Request, res: Response) => {
+  const signature = await prisma.userSignature.findUnique({ where: { userId: req.user!.id } });
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(serializeSignatureMeta(signature, MY_SIGNATURE_IMAGE));
+}));
+
+router.get('/me/signature/image', requireAuth, asyncRoute(async (req: Request, res: Response) => {
+  const signature = await prisma.userSignature.findUnique({ where: { userId: req.user!.id } });
+  if (!signature) return res.status(404).json({ error: 'No digital signature is on file.' });
+  await streamSignatureImage(res, signature);
+}));
+
+router.put('/me/signature', requireAuth, requireRole(...SIGNATURE_ROLES), handleSignatureUpload, policyRoute(async (req: Request, res: Response) => {
+  const result = await saveUserSignature({ kind: 'self', userId: req.user!.id }, req.file, MY_SIGNATURE_IMAGE);
+  res.status(result.status).json(result.body);
+}));
+
+router.delete('/me/signature', requireAuth, requireRole(...SIGNATURE_ROLES), policyRoute(async (req: Request, res: Response) => {
+  const result = await deleteUserSignature({ kind: 'self', userId: req.user!.id });
+  if (result.status === 204) return res.status(204).end();
+  res.status(result.status).json(result.body);
+}));
 
 // ─── Microsoft Azure AD SSO ─────────────────────────────────────────────────
 

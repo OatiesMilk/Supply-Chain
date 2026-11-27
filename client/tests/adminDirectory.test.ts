@@ -17,7 +17,8 @@ const AT = '2026-11-10T01:00:00.000Z';
 const am = (overrides: Partial<ApiAccountManager> = {}): ApiAccountManager => ({ id: 'am-1', name: 'P. Soriano', email: '', is_active: true, version: 1,
   linked_user: null, created_at: AT, updated_at: AT, ...overrides });
 const company = (overrides: Partial<ApiCompany> = {}): ApiCompany => ({ id: 'co-1', name: 'Acme Corp', sap_number: 'SAP-1', address: 'Makati',
-  contact_person: 'Ana', is_active: true, version: 1, default_account_manager: null, created_at: AT, updated_at: AT, ...overrides });
+  contact_person: 'Ana', is_active: true, version: 1, default_account_manager: null, sap_numbers: ['SAP-1'], account_managers: [], created_at: AT, updated_at: AT,
+  ...overrides });
 const user = (overrides: Partial<ApiUserAdmin>): ApiUserAdmin => ({ id: 'u', name: 'User', email: 'user@example.test', role: 'SALES_COORDINATOR',
   is_active: true, microsoft_linked: false, created_at: AT, ...overrides });
 
@@ -33,7 +34,6 @@ test('directory filters search every listed field, filter by status and sort by 
 test('form checks mirror the server rules and only changed fields are sent', () => {
   assert.deepEqual(Object.keys(accountManagerFormErrors({ name: ' x ', email: 'bad' })), ['name', 'email']);
   assert.deepEqual(accountManagerFormErrors({ name: 'P. Soriano', email: '' }), {});
-  assert.deepEqual(Object.keys(companyFormErrors({ name: 'Acme', sap_number: ' ', address: '', contact_person: '' })), ['sap_number']);
   assert.deepEqual(changedFields({ name: 'A', email: 'x' }, { name: 'A', email: 'y' }), { email: 'y' });
 });
 
@@ -114,7 +114,8 @@ test('Account Managers tab lists active rows and creates one with a linked login
 
 test('Companies tab hides management for read-only viewers and shows server SAP conflicts on the field', async () => {
   installLegacySession('ADMIN', 'admin');
-  mock.method(api, 'getCompanies', async () => [company({ default_account_manager: { id: 'am-1', name: 'P. Soriano', is_active: true } })]);
+  mock.method(api, 'getCompanies', async () => [company({ default_account_manager: { id: 'am-1', name: 'P. Soriano', is_active: true },
+    account_managers: [{ id: 'am-1', name: 'P. Soriano', is_active: true }] })]);
   mock.method(api, 'getAccountManagers', async () => [am()]);
   await mounted(React.createElement(CompaniesTab, { canManage: false }), async doc => {
     assert.match(doc.body.textContent!, /Acme Corp/);
@@ -132,5 +133,103 @@ test('Companies tab hides management for read-only viewers and shows server SAP 
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
     assert.equal(sap.getAttribute('aria-invalid'), 'true');
     assert.match(dialog.textContent!, /already uses this SAP number/);
+  });
+});
+
+test('company form checks: SAP numbers are optional, at most 50 characters each and unique ignoring case', () => {
+  const base = { name: 'Acme', sap_numbers: [] as string[], address: '', contact_person: '' };
+  assert.deepEqual(companyFormErrors(base), {}, 'a walk-in client needs no SAP number');
+  assert.deepEqual(companyFormErrors({ ...base, sap_numbers: ['SAP-1', 'SAP-2'], pending_sap: ' ' }), {});
+  assert.match(companyFormErrors({ ...base, sap_numbers: ['SAP-1'], pending_sap: ' sap-1 ' }).sap_numbers, /already in the list/);
+  assert.match(companyFormErrors({ ...base, sap_numbers: ['x'.repeat(51)] }).sap_numbers, /50 characters/);
+  assert.match(companyFormErrors({ ...base, sap_numbers: Array.from({ length: 51 }, (_, i) => `S-${i}`) }).sap_numbers, /at most 50/);
+  assert.deepEqual(changedFields({ ids: ['a', 'b'], sap: ['1'] }, { ids: ['a', 'b'], sap: ['2'] }), { sap: ['2'] }, 'lists compare by value');
+  assert.deepEqual(changedFields({ sap: ['1', '2'] }, { sap: ['2', '1'] }), { sap: ['2', '1'] }, 'order matters');
+});
+
+test('Companies tab shows every SAP number and Account Manager, None for walk-ins, and searches all of them', async () => {
+  installLegacySession('ADMIN', 'admin');
+  mock.method(api, 'getCompanies', async () => [
+    company({ id: 'co-bdo', name: 'BDO Unibank', sap_number: 'SAP-BDO-1', sap_numbers: ['SAP-BDO-1', 'SAP-BDO-2'],
+      account_managers: [{ id: 'am-1', name: 'P. Soriano', is_active: true }, { id: 'am-2', name: 'C. Lim', is_active: false }] }),
+    company({ id: 'co-walk', name: 'Walk-in Client', sap_number: '', sap_numbers: [] }),
+  ]);
+  mock.method(api, 'getAccountManagers', async () => [am()]);
+  await mounted(React.createElement(CompaniesTab, { canManage: false }), async (doc, { type }) => {
+    const table = () => doc.querySelector('[aria-label="Companies"]')!.textContent!;
+    assert.match(table(), /SAP-BDO-1/);
+    assert.match(table(), /SAP-BDO-2/);
+    assert.match(table(), /C\. Lim\(inactive\)/);
+    assert.doesNotMatch(table(), /Missing/, 'a walk-in client is not flagged as an error');
+    const walkIn = [...doc.querySelectorAll('tr')].find(row => /Walk-in Client/.test(row.textContent ?? ''))!;
+    assert.match(walkIn.textContent!, /None/);
+    const search = doc.querySelector('input[type="search"], input')!;
+    await type(search, 'sap-bdo-2');
+    assert.match(table(), /BDO Unibank/);
+    assert.doesNotMatch(table(), /Walk-in Client/);
+    await type(search, 'c. lim');
+    assert.match(table(), /BDO Unibank/, 'search matches a secondary Account Manager');
+  });
+});
+
+test('Companies dialog adds a walk-in client with no SAP number, and several SAP numbers and Account Managers', async () => {
+  installLegacySession('ADMIN', 'admin');
+  mock.method(api, 'getCompanies', async () => []);
+  mock.method(api, 'getAccountManagers', async () => [am(), am({ id: 'am-3', name: 'B. Reyes' }), am({ id: 'am-2', name: 'C. Lim', is_active: false })]);
+  const create = mock.method(api, 'createCompany', async (data: any) => company({ id: 'co-new', ...data }));
+  await mounted(React.createElement(CompaniesTab, { canManage: true }), async (doc, { click, type }) => {
+    await click('Add Company');
+    let dialog = doc.querySelector('dialog[open]')!;
+    await type(dialog.querySelector('input'), 'Walk-in Repair Client');
+    const save = () => [...doc.querySelector('dialog[open]')!.querySelectorAll('button')].filter(button => button.textContent === 'Add Company').at(-1)!;
+    await act(async () => save().click());
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    assert.deepEqual(create.mock.calls[0].arguments[0], { name: 'Walk-in Repair Client', sap_numbers: [], address: '', contact_person: '', account_manager_ids: [] });
+
+    await click('Add Company');
+    dialog = doc.querySelector('dialog[open]')!;
+    const labels = [...dialog.querySelectorAll('label')].map(label => label.textContent);
+    assert.ok(labels.includes('P. Soriano') && labels.includes('B. Reyes'));
+    assert.ok(!labels.some(label => /C\. Lim/.test(label ?? '')), 'an inactive AM is not offered for a new company');
+    const [name, sap] = [...dialog.querySelectorAll<HTMLInputElement>('input:not([type="checkbox"])')];
+    await type(name, 'BDO Unibank');
+    await type(sap, 'SAP-BDO-1');
+    await act(async () => { sap.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    assert.equal(sap.value, '', 'Enter adds the SAP number as a chip');
+    await type(sap, 'sap-bdo-1');
+    await click('Add');
+    assert.equal(sap.getAttribute('aria-invalid'), 'true', 'a duplicate is flagged on the field');
+    await type(sap, 'SAP-BDO-2');
+    await click('Add');
+    await type(sap, 'SAP-BDO-3');
+    await click('Remove SAP number SAP-BDO-2');
+    for (const box of [...dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]) await act(async () => box.click());
+    await act(async () => save().click());
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    assert.deepEqual(create.mock.calls[1].arguments[0], { name: 'BDO Unibank', sap_numbers: ['SAP-BDO-1', 'SAP-BDO-3'], address: '', contact_person: '',
+      account_manager_ids: ['am-1', 'am-3'] }, 'a typed but not yet added SAP number is saved too');
+  });
+});
+
+test('Companies dialog keeps or removes an existing inactive Account Manager and sends only what changed', async () => {
+  installLegacySession('ADMIN', 'admin');
+  const row = company({ sap_numbers: ['SAP-1', 'SAP-2'], account_managers: [{ id: 'am-2', name: 'C. Lim', is_active: false }] });
+  mock.method(api, 'getCompanies', async () => [row]);
+  mock.method(api, 'getAccountManagers', async () => [am(), am({ id: 'am-2', name: 'C. Lim', is_active: false })]);
+  const update = mock.method(api, 'updateCompany', async (_id: string, data: any) => ({ ...row, ...data, version: 2 }));
+  await mounted(React.createElement(CompaniesTab, { canManage: true }), async (doc, { click }) => {
+    await click('Edit Acme Corp');
+    const dialog = doc.querySelector('dialog[open]')!;
+    assert.match(dialog.textContent!, /C\. Lim\(inactive — existing assignment\)/);
+    const boxes = () => [...dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+    assert.deepEqual(boxes().map(box => box.checked), [true, false], 'C. Lim (kept) is checked; P. Soriano is not');
+    await act(async () => boxes()[0].click());
+    await act(async () => boxes()[1].click());
+    await click('Remove SAP number SAP-2');
+    await click('Save changes');
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    const [id, payload] = update.mock.calls[0].arguments as [string, any];
+    assert.equal(id, 'co-1');
+    assert.deepEqual(payload, { sap_numbers: ['SAP-1'], account_manager_ids: ['am-1'], expected_version: 1 });
   });
 });

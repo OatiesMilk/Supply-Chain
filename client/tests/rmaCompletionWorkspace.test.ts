@@ -9,6 +9,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { api } from '../src/api';
 import type { DeliveryRecord, UserRole } from '../src/types';
 import { saveRecordToCache } from '../src/api/queries/operationalSync';
+import { manilaToday } from '../src/utils/recordLifecycle';
+import { rmaEventDateError } from '../src/features/deliveries/RmaWorkflowPanel';
+import { notify } from '../src/utils/notify';
 
 const base = (updates: Partial<DeliveryRecord> = {}) => ({
   id: 'rma-ui', company_id: 'company', company_name: 'RMA customer', category: 'RMA',
@@ -31,6 +34,9 @@ async function fixture() {
     queueMicrotask(() => request.onsuccess?.()); return request;
   } };
   dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+  // JSDOM has no native dialog behavior; the dialogs' handlers and markup are what these tests cover.
+  dom.window.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+  dom.window.HTMLDialogElement.prototype.close = function () { this.open = false; };
   for (const [name, value] of Object.entries({ window: dom.window, document: dom.window.document, navigator: dom.window.navigator, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement, Node: dom.window.Node, getComputedStyle: dom.window.getComputedStyle.bind(dom.window), indexedDB, requestAnimationFrame: (callback: () => void) => { callback(); return 0; }, IDBKeyRange: { only: (value: unknown) => value }, IS_REACT_ACT_ENVIRONMENT: true })) Object.defineProperty(globalThis, name, { value, configurable: true });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const { createRoot } = await import('react-dom/client');
@@ -65,26 +71,83 @@ async function fixture() {
     for (const name of ['window', 'document', 'navigator', 'Element', 'HTMLElement', 'Node', 'getComputedStyle', 'indexedDB', 'IDBKeyRange', 'requestAnimationFrame', 'IS_REACT_ACT_ENVIRONMENT']) { if (original[name]) Object.defineProperty(globalThis, name, original[name]); else Reflect.deleteProperty(globalThis, name); }
   } };
 }
-const none = { assign: false, transport: false, receive: false, complete: false, pod: false };
+const dialogButton = (ui: { dom: JSDOM }, title: string, label: string) => {
+  const dialog = [...ui.dom.window.document.querySelectorAll('dialog')].find(item => item.querySelector('h2')?.textContent === title);
+  return [...(dialog?.querySelectorAll('button') ?? [])].find(item => item.textContent?.trim() === label) as HTMLButtonElement | undefined;
+};
+const none = { assign: false, transport: false, receive: false, complete: false, pod: false, correctTransport: false };
 
-test('TASS confirms physical receipt separately before final completion without a metadata PUT or driver clocks', async () => {
+const manilaDay = (offsetDays = 0) => manilaToday(new Date(Date.now() + offsetDays * 86_400_000));
+
+test('TASS confirms physical receipt with an editable receipt date and no Recipient, then completes with a completion date', async () => {
   const ui = await fixture(); let record = base();
   mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []);
   mock.method(api, 'getRmaCapabilities', async () => ({ ...none, receive: !record.rma_received_at, complete: !!record.rma_received_at && record.status !== 'Delivered' }));
   const put = mock.method(api, 'updateRecord', async () => { throw new Error('Receipt is a dedicated action'); });
-  const receive = mock.method(api, 'receiveRma', async (_id, data) => record = { ...record, rma_version: 1, rma_recipient: data.recipient, rma_received_at: '2026-10-28T02:00:00Z', rma_received_by: 'tass-id' });
-  const complete = mock.method(api, 'patchStatus', async () => record = { ...record, status: 'Delivered', rma_version: 2, rma_completed_at: '2026-10-28T02:01:00Z' });
+  const receivedDay = manilaDay(-2);
+  const receive = mock.method(api, 'receiveRma', async () => record = { ...record, rma_version: 1, rma_recipient: null, rma_received_at: `${receivedDay}T04:00:00.000Z`, rma_received_by: 'tass-id' });
+  const complete = mock.method(api, 'patchStatus', async () => record = { ...record, status: 'Delivered', rma_version: 2, rma_completed_at: new Date().toISOString() });
+  const toast = mock.method(notify, 'success', () => {});
   try {
     await ui.render(record, 'TASS', true); await act(async () => ui.button('Status & Actions')!.click()); await ui.flush();
     assert.equal(ui.button('Complete RMA'), undefined); assert.doesNotMatch(ui.dom.window.document.body.textContent!, /Record Time In|Driver & Delivery Details/);
-    await ui.input('Recipient', 'Collector'); await ui.input('Remarks', 'Units physically received');
+    const labels = [...ui.dom.window.document.querySelectorAll('label')].map(el => el.childNodes[0]?.textContent?.trim());
+    assert.ok(!labels.includes('Recipient'), 'TASS does not encode the signer');
+    const receiptDate = ui.field('Receipt date') as HTMLInputElement;
+    assert.equal(receiptDate.type, 'date'); assert.equal(receiptDate.value, manilaDay(0)); assert.equal(receiptDate.max, manilaDay(0));
+    await ui.input('Remarks', 'Signed slip returned');
+    await ui.input('Receipt date', manilaDay(1));
+    assert.match(ui.dom.window.document.body.textContent!, /Receipt date cannot be in the future\./);
+    assert.equal(ui.button('Confirm physical receipt')!.disabled, true);
+    await ui.input('Receipt date', receivedDay);
+    assert.equal(ui.button('Confirm physical receipt')!.disabled, false, 'remarks and date are enough');
     await act(async () => ui.button('Confirm physical receipt')!.click()); await ui.flush();
-    assert.deepEqual(receive.mock.calls[0].arguments, [record.id, { expected_version: 0, remarks: 'Units physically received', recipient: 'Collector' }]);
-    assert.ok(ui.button('Complete RMA')); assert.match(ui.summaryValue('Physical receipt') ?? '', /^Collector\b/);
-    await ui.input('Remarks', 'RMA reviewed and completed'); await act(async () => ui.button('Complete RMA')!.click()); await ui.flush();
-    assert.deepEqual(complete.mock.calls[0].arguments, [record.id, 'Delivered', 'RMA reviewed and completed', { expected_version: 1, received_by: 'Collector' }]);
+    assert.deepEqual(receive.mock.calls[0].arguments, [record.id, { expected_version: 0, remarks: 'Signed slip returned', received_at: receivedDay }]);
+    assert.equal(toast.mock.calls.at(-1)?.arguments[0], 'Physical receipt confirmed');
+    assert.match(ui.dom.window.document.body.textContent!, /Step 2 of 2 · Complete RMA/);
+    assert.ok(ui.button('Complete RMA')); assert.match(ui.summaryValue('Physical receipt') ?? '', /^Confirmed · /);
+    const completionDate = ui.field('Completion date') as HTMLInputElement;
+    assert.equal(completionDate.type, 'date'); assert.equal(completionDate.value, manilaDay(0), 'defaults to today (Manila)');
+    assert.equal(completionDate.min, receivedDay); assert.equal(completionDate.max, manilaDay(0));
+    await ui.input('Remarks', 'RMA reviewed and completed');
+    await ui.input('Completion date', manilaDay(-3));
+    assert.match(ui.dom.window.document.body.textContent!, /Completion date cannot be earlier than the receipt date\./);
+    assert.equal(ui.button('Complete RMA')!.disabled, true);
+    await ui.input('Completion date', manilaDay(-1));
+    await act(async () => ui.button('Complete RMA')!.click()); await ui.flush();
+    assert.equal(complete.mock.callCount(), 0, 'Complete RMA asks for confirmation first');
+    const confirmText = [...ui.dom.window.document.querySelectorAll('dialog')].find(item => item.querySelector('h2')?.textContent === 'Complete this RMA?')!.textContent!;
+    assert.match(confirmText, new RegExp(`Receipt date: ${receivedDay}`)); assert.match(confirmText, new RegExp(`Completion date: ${manilaDay(-1)}`));
+    await act(async () => dialogButton(ui, 'Complete this RMA?', 'Complete RMA')!.click()); await ui.flush();
+    assert.deepEqual(complete.mock.calls[0].arguments, [record.id, 'Delivered', 'RMA reviewed and completed', { expected_version: 1, completed_at: manilaDay(-1) }]);
+    assert.equal(toast.mock.calls.at(-1)?.arguments[0], 'RMA completed');
     assert.equal(record.time_in, null); assert.equal(record.time_out, null); assert.equal(put.mock.callCount(), 0);
   } finally { await ui.close(); }
+});
+
+test('a legacy confirmed Recipient is still passed through on completion', async () => {
+  const ui = await fixture();
+  const record = base({ rma_version: 1, rma_recipient: 'Collector', rma_received_at: new Date().toISOString(), rma_received_by: 'tass-id' });
+  mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []);
+  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, complete: true }));
+  const complete = mock.method(api, 'patchStatus', async () => ({ ...record, status: 'Delivered', rma_version: 2 }));
+  try {
+    await ui.render(record, 'TASS');
+    assert.match(ui.summaryValue('Physical receipt') ?? '', /^Collector\b/);
+    await ui.input('Remarks', 'Completed');
+    await act(async () => ui.button('Complete RMA')!.click()); await ui.flush();
+    await act(async () => dialogButton(ui, 'Complete this RMA?', 'Complete RMA')!.click()); await ui.flush();
+    assert.deepEqual(complete.mock.calls[0].arguments, [record.id, 'Delivered', 'Completed', { expected_version: 1, completed_at: manilaDay(0), received_by: 'Collector' }]);
+  } finally { await ui.close(); }
+});
+
+test('receipt/completion date validation mirrors the server bounds', () => {
+  const today = '2026-11-24';
+  assert.equal(rmaEventDateError('', 'Receipt date', today, null, 'x'), 'Receipt date is required.');
+  assert.equal(rmaEventDateError('2026-11-25', 'Receipt date', today, null, 'x'), 'Receipt date cannot be in the future.');
+  assert.equal(rmaEventDateError('2026-11-19', 'Receipt date', today, '2026-11-20', 'Too early'), 'Too early');
+  assert.equal(rmaEventDateError('2026-11-20', 'Receipt date', today, '2026-11-20', 'Too early'), null, 'same day as the lower bound');
+  assert.equal(rmaEventDateError(today, 'Completion date', today, null, 'x'), null);
 });
 
 test('Logistics reuses coverage-ranked assignment in its read-only workspace and refused saves preserve the edit', async () => {
@@ -101,6 +164,9 @@ test('Logistics reuses coverage-ranked assignment in its read-only workspace and
   try {
     await ui.render(record, 'Logistics', true); assert.equal(ui.button('Edit'), undefined);
     await act(async () => ui.button('Status & Actions')!.click()); await ui.flush();
+    for (let attempt = 0; attempt < 10 && (ui.field('Driver') as HTMLSelectElement).disabled; attempt++) {
+      await ui.flush();
+    }
     const driverSelect = ui.field('Driver') as HTMLSelectElement;
     assert.deepEqual([...driverSelect.querySelectorAll('optgroup')].map(group => group.label), ['Covers Imus, Cavite', 'Covers Cavite (subregion)', 'Other drivers']);
     assert.deepEqual([...driverSelect.options].map(option => option.value), ['', 'driver-a', 'driver-subregion', 'driver-other']);
@@ -124,10 +190,14 @@ test('Driver transport completion requires POD and never calls the final RMA sta
   const transport = mock.method(api, 'progressRmaTransport', async () => record = { ...record, rma_version: 1, rma_transport_status: 'COMPLETED', rma_transport_completed_at: '2026-10-28T02:00:00Z' });
   try {
     await ui.render(record, 'Driver');
-    await ui.input('Remarks', 'Transport finished'); assert.equal(ui.button('Complete transport')!.disabled, true);
+    assert.equal(ui.button('Complete transport'), undefined, 'no inline completion controls');
+    await act(async () => ui.button('Mark as delivered')!.click()); await ui.flush();
+    await ui.input('Remarks', 'Transport finished'); assert.equal(dialogButton(ui, 'Mark as delivered', 'Mark as delivered')!.disabled, true);
     photos = [{ id: 'photo', original_name: 'pod.png', mime_type: 'image/png', is_photo: true }]; await act(async () => { await ui.client.invalidateQueries({ queryKey: ['pod-attachments', record.id] }); }); await ui.flush();
-    assert.equal(ui.button('Complete transport')!.disabled, false); await act(async () => ui.button('Complete transport')!.click()); await ui.flush();
-    assert.equal(transport.mock.callCount(), 1); assert.equal(final.mock.callCount(), 0); assert.equal(record.status, 'Scheduled'); assert.equal(record.rma_received_at, undefined);
+    assert.equal(dialogButton(ui, 'Mark as delivered', 'Mark as delivered')!.disabled, true, 'Received by is required');
+    await ui.input('Received by', 'Warehouse guard');
+    assert.equal(dialogButton(ui, 'Mark as delivered', 'Mark as delivered')!.disabled, false); await act(async () => dialogButton(ui, 'Mark as delivered', 'Mark as delivered')!.click()); await ui.flush();
+    assert.equal(transport.mock.callCount(), 1); assert.equal((transport.mock.calls[0].arguments[1] as any).received_by, 'Warehouse guard'); assert.equal((transport.mock.calls[0].arguments[1] as any).expected_version, 0); assert.equal(final.mock.callCount(), 0); assert.equal(record.status, 'Scheduled'); assert.equal(record.rma_received_at, undefined);
     assert.match(ui.dom.window.document.body.textContent!, /Transport: Complete/); assert.equal(ui.button('Complete RMA'), undefined);
     await ui.render(initialRecord, 'Logistics', true);
     const summary = () => ui.dom.window.document.querySelector('[aria-label="Record summary"]')!.textContent!;
@@ -155,23 +225,129 @@ test('a TASS-finalized RMA is read-only and displays its completed state to its 
   } finally { await ui.close(); }
 });
 
-test('RMA POD stays hidden until transport starts, even if capabilities are stale', async () => {
+test('completed RMA for Logistics supports bounded driver transport correction when permitted', async () => {
+  installLegacySession('LOGISTICS', 'rma');
+  const ui = await fixture();
+  let record = base({
+    status: 'Delivered',
+    rma_movement: 'LOGISTICS_TRANSPORT',
+    rma_transport_status: 'COMPLETED',
+    rma_transport_started_at: '2026-11-03T03:00:00.000Z',
+    rma_transport_completed_at: '2026-11-03T04:00:00.000Z',
+    rma_transport_received_by: 'Warehouse Guard',
+    rma_received_at: '2026-11-03T04:50:00.000Z',
+    rma_recipient: 'Warehouse Receiver',
+    rma_completed_at: '2026-11-03T04:51:00.000Z',
+    rma_version: 4,
+    driver_id: 'driver-a',
+    driver: 'Driver A',
+  });
+  mock.method(api, 'getRecord', async () => record);
+  mock.method(api, 'getRecordAttachments', async () => []);
+  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, correctTransport: true }));
+  const correct = mock.method(api, 'correctRmaTransport', async (_id, data) => {
+    record = {
+      ...record,
+      rma_version: 5,
+      rma_transport_received_by: data.transport_received_by ?? record.rma_transport_received_by,
+      rma_transport_started_at: data.transport_started_at ?? record.rma_transport_started_at,
+      rma_transport_completed_at: data.transport_completed_at ?? record.rma_transport_completed_at,
+    };
+    return record;
+  });
+  try {
+    await ui.render(record, 'Logistics', true);
+    await act(async () => ui.button('Status & Actions')!.click());
+    await ui.flush();
+
+    const workflow = ui.dom.window.document.querySelector('[role="region"][aria-label="RMA transport"]')!;
+    assert.ok(workflow, 'RMA transport landmark should remain present for accessibility and E2E');
+    const text = workflow.textContent ?? '';
+    assert.match(text, /This RMA is completed\. Status and driver assignment are locked\./);
+    assert.match(text, /Driver completion details/);
+    assert.match(text, /Transport received by: Warehouse Guard/);
+    assert.match(text, /Transport started:/);
+    assert.match(text, /Transport completed:/);
+    assert.match(text, /Physical receipt: Warehouse Receiver/);
+    assert.match(text, /RMA completed:/);
+    assert.equal(ui.button('Confirm physical receipt'), undefined);
+    assert.equal(ui.button('Complete RMA'), undefined);
+
+    const editBtn = ui.button('Edit driver completion details');
+    assert.ok(editBtn, 'Logistics should see Edit driver completion details on completed LOGISTICS_TRANSPORT RMAs');
+    await act(async () => editBtn.click());
+    await ui.flush();
+
+    assert.equal(ui.field('Transport Received By').value, 'Warehouse Guard');
+    assert.equal(ui.field('Transport Started (Manila)').disabled, false);
+    assert.equal(ui.field('Transport Completed (Manila)').disabled, false);
+    // TASS receipt / completion fields are never editable by Logistics
+    assert.equal(workflow.querySelector('select'), null);
+    assert.equal([...workflow.querySelectorAll('label')].some(el => /Recipient|RMA completed/i.test(el.textContent ?? '')), false);
+
+    await ui.input('Transport Received By', 'Updated Receiver');
+    await ui.input('Transport Completed (Manila)', '2026-11-03T12:30');
+    await ui.input('Change Reason / Remarks', 'Corrected handover receiver and time');
+    await act(async () => ui.button('Save Changes')!.click());
+    await ui.flush();
+
+    assert.equal(correct.mock.callCount(), 1);
+    assert.deepEqual(correct.mock.calls[0].arguments, [record.id, {
+      expected_version: 4,
+      remarks: 'Corrected handover receiver and time',
+      transport_received_by: 'Updated Receiver',
+      transport_completed_at: '2026-11-03T04:30:00.000Z',
+    }]);
+    assert.match(workflow.textContent ?? '', /Transport received by: Updated Receiver/);
+    assert.match(workflow.textContent ?? '', /Physical receipt: Warehouse Receiver/);
+  } finally { await ui.close(); }
+});
+
+test('completed RMA for Logistics stays read-only when correctTransport is false', async () => {
+  installLegacySession('LOGISTICS', 'rma');
+  const roUi = await fixture();
+  const supplierRecord = base({
+    status: 'Delivered',
+    rma_movement: 'SUPPLIER_COLLECTION',
+    rma_transport_status: null,
+    rma_received_at: '2026-11-03T04:50:00.000Z',
+    rma_recipient: 'Warehouse Receiver',
+    rma_completed_at: '2026-11-03T04:51:00.000Z',
+  });
+  mock.method(api, 'getRecord', async () => supplierRecord);
+  mock.method(api, 'getRecordAttachments', async () => []);
+  mock.method(api, 'getRmaCapabilities', async () => none);
+  try {
+    await roUi.render(supplierRecord, 'Logistics', true);
+    await act(async () => roUi.button('Status & Actions')!.click());
+    await roUi.flush();
+    const workflow = roUi.dom.window.document.querySelector('[role="region"][aria-label="RMA transport"]')!;
+    assert.match(workflow.textContent ?? '', /This RMA is completed\. Status and driver assignment are locked\./);
+    assert.match(workflow.textContent ?? '', /Physical receipt: Warehouse Receiver/);
+    assert.equal(roUi.button('Edit driver completion details'), undefined);
+    assert.equal(workflow.querySelector('select'), null);
+    assert.equal(workflow.querySelector('textarea'), null);
+  } finally { await roUi.close(); }
+});
+
+test('RMA proof uploader stays out of the page; transport steps open dialogs, even if capabilities are stale', async () => {
   const ui = await fixture(); let record = base({ rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'PENDING', driver_id: 'driver-a', driver: 'Driver A' });
   mock.method(api, 'getRecord', async () => record);
   mock.method(api, 'getRecordAttachments', async () => []);
-  // The panel must still honor the record lifecycle if an earlier capability
-  // response says POD is allowed while this record is pending.
+  // An earlier capability response may say POD is allowed while this record is pending.
   mock.method(api, 'getRmaCapabilities', async () => ({ ...none, transport: true, pod: true }));
   const start = mock.method(api, 'progressRmaTransport', async () => record = { ...record, rma_version: 1, rma_transport_status: 'IN_TRANSIT' });
   try {
     await ui.render(record, 'Driver');
-    assert.equal(ui.button('Start transport')?.disabled, true);
-    assert.equal(ui.button('Select Photo / Document'), undefined);
-
-    await ui.input('Remarks', 'Starting the return transport');
+    const doc = ui.dom.window.document;
+    assert.equal([...doc.querySelectorAll('input[type=file]')].length, 0, 'no uploader on the page before any dialog opens');
+    assert.equal(ui.button('Mark as delivered'), undefined, 'cannot complete a pending transport');
     await act(async () => ui.button('Start transport')!.click()); await ui.flush();
+    assert.equal(dialogButton(ui, 'Start transport', 'Start transport')!.disabled, true, 'remarks are required');
+    await ui.input('Remarks', 'Starting the return transport');
+    await act(async () => dialogButton(ui, 'Start transport', 'Start transport')!.click()); await ui.flush();
     assert.equal(start.mock.callCount(), 1);
-    assert.ok(ui.button('Select Photo / Document'));
+    assert.ok(ui.button('Mark as delivered'), 'the card now offers Mark as delivered');
   } finally { await ui.close(); }
 });
 
@@ -204,9 +380,14 @@ test('shared RMA creation requires an explicit movement choice and preserves sub
   // Auto Fill picks the Account Manager (required for RMA) from the managed list.
   mock.method(api, 'getAccountManagers', async () => [{ id: 'am-1', name: 'P. Soriano', is_active: true }]);
   try {
-    await ui.renderElement(React.createElement(CreateForm, { category: 'RMA', categoryLocked: true, companies: [company], onSubmit: submit, onCancel: () => {} }));
+    await ui.renderElement(React.createElement(CreateForm, { category: 'RMA', categoryLocked: true, companies: [company], onSubmit: submit, onCancel: () => {}, showAutoFill: true }));
     await ui.flush();
     await act(async () => ui.button('Auto Fill')!.click());
+    // Pin a non-Receiving-Slip category so the movement requirement never depends on Auto Fill's random pick.
+    const category = ui.dom.window.document.getElementById('create-rma-type') as HTMLSelectElement;
+    await act(async () => { category.value = 'Pull Out Slip'; category.dispatchEvent(new ui.dom.window.Event('change', { bubbles: true })); });
+    await ui.flush();
+    assert.equal((ui.dom.window.document.getElementById('create-rma-movement') as HTMLSelectElement).value, '', 'Auto Fill leaves the movement method unset');
     const form = ui.dom.window.document.querySelector('form')!;
     const submitForm = async (label: string) => { await act(async () => form.dispatchEvent(new ui.dom.window.SubmitEvent('submit', { bubbles: true, cancelable: true, submitter: ui.button(label) }))); await ui.flush(); };
     await submitForm('Submit');
@@ -223,15 +404,57 @@ test('shared RMA creation requires an explicit movement choice and preserves sub
   } finally { await ui.close(); }
 });
 
+test('RMA create form: required slip category, read-only reference preview, RR default and TXO internal transfer option', async () => {
+  const ui = await fixture();
+  const { default: CreateForm } = await import('../src/features/deliveries/RecordCreateForm');
+  const submit = mock.fn(async (data: any) => base({ ...data, id: 'created-rma', rma_reference: 'TXO112426-01' }));
+  const company = { id: 'company', name: 'RMA Company', contact_person: 'Contact' } as any;
+  mock.method(api, 'getAccountManagers', async () => [{ id: 'am-1', name: 'P. Soriano', is_active: true }]);
+  try {
+    await ui.renderElement(React.createElement(CreateForm, { category: 'RMA', categoryLocked: true, companies: [company], onSubmit: submit, onCancel: () => {}, showAutoFill: true }));
+    await ui.flush();
+    const doc = ui.dom.window.document;
+    const category = doc.getElementById('create-rma-type') as HTMLSelectElement;
+    const reference = doc.getElementById('create-rma-reference') as HTMLInputElement;
+    const movement = () => doc.getElementById('create-rma-movement') as HTMLSelectElement;
+    assert.equal(reference.readOnly, true);
+    assert.match(reference.value, /Select a category first/);
+    assert.deepEqual([...category.options].slice(1).map(option => option.textContent), [
+      'Pull Out Slip (POS)', 'Return to Customer Slip (RTC)', 'Return to Supplier Slip (RTS)', 'Advance Replacement Slip (ARD)', 'Receiving Slip (RR)', 'Transfer Out Slip (TXO)']);
+    const choose = async (select: HTMLSelectElement, value: string) => { await act(async () => { select.value = value; select.dispatchEvent(new ui.dom.window.Event('change', { bubbles: true })); }); await ui.flush(); };
+    await choose(category, 'Receiving Slip');
+    assert.equal(movement().value, 'INTERNAL_NO_DRIVER', 'walk-in Receiving Slips default to Internal / no driver');
+    assert.match(reference.value, /^Auto-generated on save \(RR\d{6}-NN\)$/);
+    assert.equal(doc.getElementById('create-rma-internal-transfer'), null, 'only Transfer Out Slips can be internal transfers');
+    await choose(category, 'Transfer Out Slip');
+    const transfer = doc.getElementById('create-rma-internal-transfer') as HTMLInputElement;
+    assert.ok(transfer);
+    await act(async () => transfer.click()); await ui.flush();
+    const supplier = [...movement().options].find(option => option.value === 'SUPPLIER_COLLECTION')!;
+    assert.equal(supplier.disabled, true, 'internal transfers cannot use supplier collection');
+    await act(async () => ui.button('Auto Fill')!.click());
+    await choose(category, 'Transfer Out Slip');
+    await act(async () => (doc.getElementById('create-rma-internal-transfer') as HTMLInputElement).click()); await ui.flush();
+    await choose(movement(), 'INTERNAL_NO_DRIVER');
+    const form = doc.querySelector('form')!;
+    await act(async () => form.dispatchEvent(new ui.dom.window.SubmitEvent('submit', { bubbles: true, cancelable: true, submitter: ui.button('Submit') }))); await ui.flush();
+    assert.equal(submit.mock.callCount(), 1);
+    const saved = submit.mock.calls[0].arguments[0];
+    assert.equal(saved.rma_type, 'Transfer Out Slip'); assert.equal(saved.is_internal_transfer, true); assert.equal(saved.rma_reference, null);
+  } finally { await ui.close(); }
+});
+
 test('existing RMA rescheduling can resume Scheduled through a versioned non-final status action', async () => {
   const ui = await fixture(); const record = base({ status: 'Rescheduled', allowed_statuses: ['Scheduled', 'On-Hold', 'Draft'], rma_version: 4 });
   mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []);
   mock.method(api, 'getRmaCapabilities', async () => ({ ...none, status: true }));
   const patch = mock.method(api, 'patchStatus', async () => ({ ...record, status: 'Scheduled', rma_version: 5 }));
+  const toast = mock.method(notify, 'success', () => {});
   try {
-    await ui.render(record, 'TASS'); await ui.input('RMA status', 'Scheduled'); await ui.input('Remarks', 'Resume the planned return');
+    await ui.render(record, 'TASS'); await ui.input('RMA status', 'Scheduled'); await ui.input('Status change reason', 'Resume the planned return');
     await act(async () => ui.button('Save RMA status')!.click()); await ui.flush();
     assert.deepEqual(patch.mock.calls[0].arguments, [record.id, 'Scheduled', 'Resume the planned return', { expected_version: 4 }]);
+    assert.equal(toast.mock.calls.at(-1)?.arguments[0], 'Status set to Scheduled');
     assert.equal(ui.button('Complete RMA'), undefined);
   } finally { await ui.close(); }
 });
@@ -266,7 +489,7 @@ test('record rows update from saved transport and ordinary status changes across
           ? { ...record, rma_version: index + 1, rma_transport_status: index === 0 ? 'IN_TRANSIT' : 'COMPLETED' }
           : { ...record, status: status as DeliveryRecord['status'], modified_at: `2026-10-30T01:00:0${index + 1}Z` };
         await act(async () => { await saveRecordToCache(ui.client, record); }); await ui.flush();
-        assert.equal(statusCell().textContent, category === 'RMA' && index === 1 ? 'Transport Complete' : status);
+        assert.equal(statusCell().textContent, category === 'RMA' && index === 1 ? 'Transport Complete' : status === 'Delivered' ? 'Complete' : status);
         assert.equal(statusCell().querySelectorAll('span').length, 1);
       }
       if (category === 'RMA') {
@@ -280,4 +503,159 @@ test('record rows update from saved transport and ordinary status changes across
       }
     } finally { await ui.close(); }
   }
+});
+
+test('Logistics starts and completes RMA transport through dialogs with a visible recording-for line', async () => {
+  const ui = await fixture(); let record = base({ delivery_date: '2020-01-01', rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'PENDING', driver_id: 'driver-a', driver: 'Juan Driver' }); let photos: any[] = [];
+  mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => photos);
+  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, transport: record.rma_transport_status !== 'COMPLETED', pod: record.rma_transport_status === 'IN_TRANSIT' }));
+  const transport = mock.method(api, 'progressRmaTransport', async (_id: string, data: any) => record = { ...record, rma_version: (record.rma_version ?? 0) + 1,
+    rma_transport_status: data.transport_status === 'IN_TRANSIT' ? 'IN_TRANSIT' : 'COMPLETED' });
+  try {
+    await ui.render(record, 'Logistics');
+    const text = () => ui.dom.window.document.body.textContent!;
+    assert.match(text(), /Recording for Juan Driver\. This is saved under your name\./);
+    assert.equal(ui.button('Mark as delivered'), undefined, 'nothing to complete before the start');
+    await act(async () => ui.button('Start transport')!.click()); await ui.flush();
+    await ui.input('Remarks', 'Driver phone is dead');
+    await act(async () => dialogButton(ui, 'Start transport', 'Start transport')!.click()); await ui.flush();
+    assert.deepEqual(transport.mock.calls[0].arguments[1], { expected_version: 0, remarks: 'Driver phone is dead', transport_status: 'IN_TRANSIT' });
+    await ui.render(record, 'Logistics');
+    await act(async () => ui.button('Mark as delivered')!.click()); await ui.flush();
+    assert.match(text(), /Proof of Transport/);
+    assert.match(text(), /This completes the transport\. TASS still confirms receipt and completes the RMA\./);
+    await ui.input('Remarks', 'Handed over'); await ui.input('Received by', 'x'.repeat(10));
+    assert.equal(dialogButton(ui, 'Mark as delivered', 'Mark as delivered')!.disabled, true, 'no saved photo yet');
+    photos = [{ id: 'photo', original_name: 'pod.png', mime_type: 'image/png', is_photo: true }]; await act(async () => { await ui.client.invalidateQueries({ queryKey: ['pod-attachments', record.id] }); }); await ui.flush();
+    assert.equal(dialogButton(ui, 'Mark as delivered', 'Mark as delivered')!.disabled, false);
+    await act(async () => dialogButton(ui, 'Mark as delivered', 'Mark as delivered')!.click()); await ui.flush();
+    assert.deepEqual(transport.mock.calls[1].arguments[1], { expected_version: 1, remarks: 'Handed over', transport_status: 'COMPLETED', received_by: 'x'.repeat(10) });
+  } finally { await ui.close(); }
+});
+
+test('a stale RMA version keeps the dialog open with the message and refreshes the record', async () => {
+  const ui = await fixture(); const record = base({ delivery_date: '2020-01-01', rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'IN_TRANSIT', driver_id: 'driver-a', driver: 'Juan Driver' });
+  const { ApiError } = await import('../src/api');
+  const refetch = mock.method(api, 'getRecord', async () => record);
+  mock.method(api, 'getRecordAttachments', async () => [{ id: 'photo', original_name: 'pod.png', mime_type: 'image/png', is_photo: true }] as any);
+  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, transport: true, pod: true }));
+  mock.method(api, 'progressRmaTransport', async () => { throw new ApiError('conflict', 409); });
+  try {
+    await ui.render(record, 'Logistics');
+    await act(async () => ui.button('Mark as delivered')!.click()); await ui.flush();
+    await ui.input('Remarks', 'Handed over'); await ui.input('Received by', 'Guard');
+    const before = refetch.mock.callCount();
+    await act(async () => dialogButton(ui, 'Mark as delivered', 'Mark as delivered')!.click()); await ui.flush();
+    assert.ok(dialogButton(ui, 'Mark as delivered', 'Mark as delivered'), 'dialog stays open');
+    assert.match(ui.dom.window.document.body.textContent!, /This RMA changed in another session\. Close this and try again\./);
+    assert.equal((ui.field('Received by') as HTMLInputElement).value, 'Guard');
+    assert.ok(refetch.mock.callCount() > before, 'record refreshed');
+  } finally { await ui.close(); }
+});
+
+test('Logistics sees the planned start date instead of buttons before it, and nothing extra for other roles', async () => {
+  const ui = await fixture(); const record = base({ delivery_date: '2999-01-01', rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'PENDING', driver_id: 'driver-a', driver: 'Juan Driver' });
+  mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []);
+  mock.method(api, 'getRmaCapabilities', async () => none);
+  try {
+    await ui.render(record, 'Logistics');
+    assert.match(ui.dom.window.document.body.textContent!, /Transport can start on 2999-01-01\./);
+    assert.equal(ui.button('Start transport'), undefined);
+    await ui.render(record, 'TASS');
+    assert.doesNotMatch(ui.dom.window.document.body.textContent!, /Transport can start on|Recording for/);
+  } finally { await ui.close(); }
+});
+
+test('Complete RMA confirmation can be cancelled without saving, and status changes keep their own reason', async () => {
+  const ui = await fixture(); let record = base({ rma_version: 1, rma_received_at: new Date().toISOString(), allowed_statuses: ['On-Hold', 'Delivered', 'Draft'] });
+  mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []);
+  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, complete: true, status: true }));
+  const patch = mock.method(api, 'patchStatus', async (_id: string, status: string) => record = { ...record, status: status as DeliveryRecord['status'], rma_version: 2 });
+  try {
+    await ui.render(record, 'TASS');
+    await ui.input('Remarks', 'Done');
+    await act(async () => ui.button('Complete RMA')!.click()); await ui.flush();
+    await act(async () => dialogButton(ui, 'Complete this RMA?', 'Cancel')!.click()); await ui.flush();
+    assert.equal(patch.mock.callCount(), 0, 'cancel saves nothing');
+    assert.equal(ui.field('Remarks').value, 'Done', 'the step reason survives a cancelled confirmation');
+    await ui.input('RMA status', 'On-Hold');
+    assert.equal(ui.button('Save RMA status')!.disabled, true, 'the step reason does not satisfy the status reason');
+    await ui.input('Status change reason', 'Waiting for parts');
+    await act(async () => ui.button('Save RMA status')!.click()); await ui.flush();
+    assert.deepEqual(patch.mock.calls[0].arguments, [record.id, 'On-Hold', 'Waiting for parts', { expected_version: 1 }]);
+  } finally { await ui.close(); }
+});
+
+test('a status save keeps an unfinished completion draft and its version stays reviewable', async () => {
+  const ui = await fixture(); const receivedDay = manilaDay(-2);
+  let record = base({ rma_version: 1, rma_received_at: `${receivedDay}T04:00:00.000Z`, allowed_statuses: ['On-Hold', 'Delivered', 'Draft'] });
+  mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []);
+  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, complete: true, status: true }));
+  const patch = mock.method(api, 'patchStatus', async (_id: string, status: string) => record = { ...record, status: status as DeliveryRecord['status'], rma_version: (record.rma_version ?? 0) + 1 });
+  const toast = mock.method(notify, 'success', () => {});
+  try {
+    await ui.render(record, 'TASS');
+    await ui.input('Remarks', 'Completion draft');
+    await ui.input('Completion date', manilaDay(-1));
+    await ui.input('RMA status', 'On-Hold');
+    await ui.input('Status change reason', 'Waiting for parts');
+    await act(async () => ui.button('Save RMA status')!.click()); await ui.flush();
+    assert.deepEqual(patch.mock.calls[0].arguments, [record.id, 'On-Hold', 'Waiting for parts', { expected_version: 1 }]);
+    assert.equal(toast.mock.calls.at(-1)?.arguments[0], 'Status set to On-Hold');
+    assert.equal(ui.field('Remarks').value, 'Completion draft', 'the completion reason survives a status save');
+    assert.equal(ui.field('Completion date').value, manilaDay(-1), 'the completion date survives a status save');
+    assert.equal(ui.field('Status change reason').value, '');
+    assert.equal(ui.field('RMA status').value, '');
+    assert.doesNotMatch(ui.dom.window.document.body.textContent!, /changed while you were editing/);
+    assert.equal(ui.button('Complete RMA')!.disabled, false);
+    await act(async () => ui.button('Complete RMA')!.click()); await ui.flush();
+    await act(async () => dialogButton(ui, 'Complete this RMA?', 'Complete RMA')!.click()); await ui.flush();
+    assert.deepEqual(patch.mock.calls[1].arguments, [record.id, 'Delivered', 'Completion draft', { expected_version: 2, completed_at: manilaDay(-1) }], 'the next action sends the saved version');
+  } finally { await ui.close(); }
+});
+
+test('confirming receipt keeps an unsaved status change', async () => {
+  const ui = await fixture(); let record = base();
+  mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []);
+  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, receive: !record.rma_received_at, status: true, complete: !!record.rma_received_at }));
+  const receive = mock.method(api, 'receiveRma', async () => record = { ...record, rma_version: 1, rma_received_at: `${manilaDay(0)}T04:00:00.000Z` });
+  const toast = mock.method(notify, 'success', () => {});
+  try {
+    await ui.render(record, 'TASS');
+    await ui.input('RMA status', 'On-Hold');
+    await ui.input('Status change reason', 'Hold for customer');
+    await ui.input('Remarks', 'Slip back');
+    await act(async () => ui.button('Confirm physical receipt')!.click()); await ui.flush();
+    assert.deepEqual(receive.mock.calls[0].arguments, [record.id, { expected_version: 0, remarks: 'Slip back', received_at: manilaDay(0) }]);
+    assert.equal(toast.mock.calls.at(-1)?.arguments[0], 'Physical receipt confirmed');
+    const body = ui.dom.window.document.body.textContent!;
+    assert.match(body, /Step 2 of 2 · Complete RMA/);
+    assert.equal(ui.field('Remarks').value, '', 'the receipt reason is cleared');
+    assert.equal(ui.field('Status change reason').value, 'Hold for customer', 'the status reason survives receipt');
+    assert.equal(ui.field('RMA status').value, 'On-Hold', 'the status selection survives receipt');
+    assert.doesNotMatch(body, /changed while you were editing/);
+  } finally { await ui.close(); }
+});
+
+test('a newer version while the Complete confirmation is open disables Confirm and offers review', async () => {
+  const ui = await fixture();
+  let record = base({ rma_version: 1, rma_received_at: new Date().toISOString() });
+  mock.method(api, 'getRecord', async () => record); mock.method(api, 'getRecordAttachments', async () => []);
+  mock.method(api, 'getRmaCapabilities', async () => ({ ...none, complete: true }));
+  const patch = mock.method(api, 'patchStatus', async (_id: string, status: string) => record = { ...record, status: status as DeliveryRecord['status'], rma_version: (record.rma_version ?? 0) + 1 });
+  try {
+    await ui.render(record, 'TASS');
+    await ui.input('Remarks', 'Done');
+    await act(async () => ui.button('Complete RMA')!.click()); await ui.flush();
+    const dialog = () => [...ui.dom.window.document.querySelectorAll('dialog')].find(item => item.querySelector('h2')?.textContent === 'Complete this RMA?') as HTMLDialogElement;
+    assert.equal(dialogButton(ui, 'Complete this RMA?', 'Complete RMA')!.disabled, false);
+    record = { ...record, rma_version: 2 };
+    await act(async () => { await ui.client.invalidateQueries({ queryKey: ['records', 'detail', record.id]}); }); await ui.flush();
+    assert.equal(dialogButton(ui, 'Complete this RMA?', 'Complete RMA')!.disabled, true, 'Confirm is disabled once the record moved on');
+    assert.match(dialog().textContent!, /changed while this confirmation was open/);
+    await act(async () => dialogButton(ui, 'Complete this RMA?', 'Review latest saved values')!.click()); await ui.flush();
+    assert.equal(dialog().open, false, 'review closes the confirmation');
+    assert.match(ui.dom.window.document.body.textContent!, /changed while you were editing/, 'the card shows the stale review');
+    assert.equal(patch.mock.callCount(), 0, 'no request is sent with the stale version');
+  } finally { await ui.close(); }
 });

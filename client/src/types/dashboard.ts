@@ -22,9 +22,8 @@ export type ApiDashboardStats =
       role: 'TASS';
       open_rma: number;
       rma_on_hold: number;
-      pending_procurement_pickup: number;
-      pending_verification: number;
-      verified_today: number;
+      rma_in_transit: number;
+      rma_aging: number;
     }
   | {
       role: 'ADMIN';
@@ -39,6 +38,7 @@ export type ApiDashboardStats =
         action: string;
         changed_by: string;
         record_id: string;
+        record_no?: string | null;
         record_type: string;
         timestamp: string;
       }[];

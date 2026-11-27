@@ -1,11 +1,12 @@
 import { useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api, ApiError } from '@/api';
 import { operationalSyncOptions } from './operationalSync';
 
-export function useDriverOverviewQuery(search = '', enabled = true) {
-  return useQuery({ ...operationalSyncOptions, queryKey: ['records', 'driver-overview', search],
-    queryFn: () => api.getDriverOverview(search), enabled,
+export function useDriverOverviewQuery(search = '', enabled = true, area = '') {
+  return useQuery({ ...operationalSyncOptions, queryKey: ['records', 'driver-overview', search, area],
+    queryFn: () => api.getDriverOverview(search, area), enabled,
+    placeholderData: keepPreviousData,
     retry: (failureCount, error) => !(error instanceof ApiError && error.status >= 400 && error.status < 500) && failureCount < 3,
     refetchInterval: query => query.state.error instanceof ApiError && query.state.error.status >= 400 && query.state.error.status < 500
       ? false : operationalSyncOptions.refetchInterval,

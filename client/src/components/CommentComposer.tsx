@@ -65,7 +65,7 @@ export default function CommentComposer({
   return (
     <div className={className}>
       <label htmlFor={id} className="mb-1 block text-sm font-medium text-slate-700">Comment (optional)</label>
-      <div className="flex items-end gap-1 rounded-lg border border-slate-300 bg-white p-1 focus-within:border-[#0078C1] focus-within:ring-2 focus-within:ring-[#0078C1]/30">
+      <div className="flex items-end gap-1 rounded-lg border border-slate-300 bg-white p-1 focus-within:border-brand-blue focus-within:ring-2 focus-within:ring-brand-blue/30">
         <textarea
           id={id}
           ref={textareaRef}
@@ -86,7 +86,7 @@ export default function CommentComposer({
           title="Send comment (Ctrl+Enter)"
           onClick={onSubmit}
           disabled={!value.trim() || submitting || disabled}
-          className="flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-md bg-[#0078C1] text-white hover:bg-[#005fa3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-md bg-brand-blue text-white hover:bg-brand-blue-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {submitting ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Send aria-hidden="true" className="h-4 w-4" />}
         </button>

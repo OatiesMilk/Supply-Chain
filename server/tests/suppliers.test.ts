@@ -8,6 +8,7 @@ import authRoutes from '../src/routes/auth';
 import supplierRoutes from '../src/routes/suppliers';
 import { Prisma } from '@prisma/client';
 import { safeBusinessAudit } from '../src/services/businessAudit';
+import { normalizeSupplierDisplayName } from '../src/services/supplierCategories';
 
 afterEach(() => mock.restoreAll());
 
@@ -53,8 +54,16 @@ const withApp = async (
   const row = createUser(role);
   let categories = catalog();
   let existing = supplierRow();
+  const created: Array<{ id: string; name: string }> = [];
+  const supplierKey = (name: string) => normalizeSupplierDisplayName(name).toLowerCase();
   const tx = {
-    $queryRaw: async (_query: unknown, name: string) => [{ key: name.toLowerCase() }],
+    // Two raw queries reach this double: PostgreSQL lower() keys, and the duplicate Supplier name lookup.
+    $queryRaw: async (query: TemplateStringsArray, value: string) => {
+      if (query.join('?').includes('"Supplier"')) {
+        return [existing, ...created].filter(row => supplierKey(row.name) === value).map(row => ({ id: row.id, name: row.name }));
+      }
+      return [{ key: value.toLowerCase() }];
+    },
     $executeRaw: async () => { calls.locks.push(true); return 1; },
     supplierCategory: {
       findMany: async (args: any) => categories.filter(category => !args?.where?.id || args.where.id.in.includes(category.id)),
@@ -85,6 +94,7 @@ const withApp = async (
       create: async (args: any) => {
         assert.equal(calls.locks.length, calls.transaction.length);
         calls.supplierCreate.push(args);
+        created.push({ id: 'supplier-new', name: args.data.name });
         return supplierRow({
           ...args.data,
           categories: args.data.categories.create.map((link: any) => ({ ...link, category: categories.find(category => category.id === link.categoryId) })),
@@ -168,6 +178,29 @@ test('creating a supplier writes its initial details and actor to the same trans
       category: 'Consumables',
       categories: [{ id: 'consumables', name: 'Consumables' }],
     });
+  });
+});
+
+test('creating a supplier rejects a case or whitespace variant of an existing supplier with 409', async () => {
+  await withApp('SALES_COORDINATOR', async (url, headers, calls) => {
+    const res = await fetch(`${url}/suppliers`, {
+      method: 'POST', headers, body: JSON.stringify({ name: '  acme   SUPPLIES  ', category: 'Consumables' }),
+    });
+    assert.equal(res.status, 409);
+    assert.deepEqual(await res.json(), { error: 'A supplier named "Acme Supplies" already exists in the directory.' });
+    assert.equal(calls.transaction.length, 1, 'the check runs inside the locked supplier transaction');
+    assert.equal(calls.locks.length, 1);
+    assert.equal(calls.supplierCreate.length, 0);
+    assert.equal(calls.audit.length, 0);
+
+    // The stored name is single-spaced, and a later identical request is also refused.
+    const first = await fetch(`${url}/suppliers`, { method: 'POST', headers, body: JSON.stringify({ name: '  Bayani   Foods ', category: 'Consumables' }) });
+    assert.equal(first.status, 201);
+    assert.equal(calls.supplierCreate[0].data.name, 'Bayani Foods');
+    const again = await fetch(`${url}/suppliers`, { method: 'POST', headers, body: JSON.stringify({ name: 'BAYANI FOODS', category: 'Consumables' }) });
+    assert.equal(again.status, 409);
+    assert.equal(calls.supplierCreate.length, 1);
+    assert.equal(calls.audit.length, 1);
   });
 });
 

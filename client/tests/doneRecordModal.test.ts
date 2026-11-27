@@ -22,10 +22,10 @@ test('Driver completion details use actual Manila completion date for early and 
     for (const timezone of ['UTC', 'America/Los_Angeles', 'Asia/Manila']) {
       process.env.TZ = timezone;
       const late = completedLabel({ time_out: '2026-10-14T18:30:00.000Z' });
-      assert.match(late, /Accomplished on Oct 15, 2026, 02:30 AM/);
-      assert.doesNotMatch(late, /Accomplished on Oct 14/);
+      assert.match(late, /Completed on Oct 15, 2026, 02:30 AM/);
+      assert.doesNotMatch(late, /Completed on Oct 14/);
       const early = completedLabel({ time_out: '2026-10-12T18:30:00.000Z' });
-      assert.match(early, /Accomplished on Oct 13, 2026, 02:30 AM/);
+      assert.match(early, /Completed on Oct 13, 2026, 02:30 AM/);
     }
   } finally {
     if (previous === undefined) delete process.env.TZ; else process.env.TZ = previous;
@@ -36,7 +36,7 @@ test('missing or invalid completion timestamps never substitute the scheduled da
   for (const time_out of [null, undefined, '', 'invalid']) {
     const html = completedLabel({ time_out });
     assert.match(html, /Completion date unavailable/);
-    assert.doesNotMatch(html, /Accomplished on|Invalid Date/);
+    assert.doesNotMatch(html, /Completed on|Invalid Date/);
   }
 });
 

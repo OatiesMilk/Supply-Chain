@@ -7,6 +7,7 @@ import { signToken } from '../src/middleware/auth';
 import { podStorage } from '../src/services/podStorage';
 import { rmaTestPolicy } from './rmaTestPolicy';
 import type { PolicyRole } from '../src/services/permissionCatalog';
+import { manilaToday } from '../src/services/deliveryLifecycle';
 
 const photo = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWMwTpsJAAICATMDms/iAAAAAElFTkSuQmCC', 'base64');
 const restorers: Array<() => void> = [];
@@ -27,11 +28,11 @@ function matches(row: any, where: any): boolean {
     return row[key] === value;
   });
 }
-function fixture(overrides: Record<string, any> = {}) {
+function fixture(overrides: Record<string, any> = {}, options: { logisticsTransport?: boolean } = {}) {
   let actor: any;
   let row: any = { id: 'rma-test', category: 'RMA', draft: false, status: 'SCHEDULED', priority: '2 - Moderate',
     companyId: 'company', company: { name: 'Company' }, createdById: 'tass', modifiedById: 'tass', createdBy: { name: 'TASS' }, modifiedBy: { name: 'TASS' },
-    rmaReference: 'POL-255', reference: '', driverId: 'driver-one', driver: 'Driver One', driverAssistants: '[]', vehicle: 'Van',
+    rmaReference: 'POL-255', rmaType: 'Return to Customer Slip', isInternalTransfer: false, reference: '', driverId: 'driver-one', driver: 'Driver One', driverAssistants: '[]', vehicle: 'Van',
     rmaMovement: 'LOGISTICS_TRANSPORT', rmaTransportStatus: 'PENDING', rmaVersion: 0,
     deliveryDate: '2020-01-01', timeIn: null, timeOut: null, receivedBy: null, rmaReceivedAt: null,
     rmaTransportStartedAt: null, rmaTransportCompletedAt: null, rmaRecipient: null, rmaCompletedAt: null, deletedAt: null,
@@ -41,7 +42,7 @@ function fixture(overrides: Record<string, any> = {}) {
   const profiles = [{ id: 'driver-one', name: 'Driver One', type: 'DRIVER', isActive: true }, { id: 'driver-two', name: 'Driver Two', type: 'DRIVER', isActive: true }, { id: 'inactive', name: 'Inactive', type: 'DRIVER', isActive: false }];
   stub(prisma.user, 'findUnique', async () => actor);
   stub(prisma.user, 'findMany', async () => []);
-  stub(prisma.rolePolicy, 'findUnique', async ({ where }: any) => rmaTestPolicy(where.role));
+  stub(prisma.rolePolicy, 'findUnique', async ({ where }: any) => rmaTestPolicy(where.role, true, options.logisticsTransport));
   stub(prisma.rolePolicy, 'findMany', async () => []);
   stub(prisma.deliveryRecord, 'findUnique', async ({ where }: any) => row.id === where.id ? structuredClone(row) : null);
   stub(prisma.deliveryRecord, 'findFirst', async ({ where }: any) => matches(row, where) ? structuredClone(row) : null);
@@ -149,14 +150,25 @@ test('transport proof, physical receipt and final completion remain separate wit
   assert.equal((await state.request('TASS', 'post', '/:id/rma-receipt', { recipient: 'Recipient', expected_version: 0, remarks: 'Receive too soon' })).status, 403);
   const started = await state.request('DRIVER', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 0, remarks: 'Start' });
   assert.equal(started.status, 200);
-  const finish = { transport_status: 'COMPLETED', expected_version: 1, remarks: 'Transport delivered' };
+  assert.deepEqual(started.body.driver_actions, { start: false, complete: true, start_blocked_reason: null });
+  const finish = { transport_status: 'COMPLETED', expected_version: 1, remarks: 'Transport delivered', received_by: ' Warehouse guard ' };
   assert.equal((await state.request('DRIVER', 'patch', '/:id/rma-transport', finish)).status, 400);
   state.proof();
+  // Received By is required on every driver completion, RMA included.
+  for (const received_by of [undefined, '', '   ', 'x'.repeat(121)]) {
+    const missing = await state.request('DRIVER', 'patch', '/:id/rma-transport', { ...finish, received_by });
+    assert.equal(missing.status, 400); assert.match(missing.body.error, /Received By/);
+  }
+  assert.equal((await state.request('DRIVER', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 1, remarks: 'Again', received_by: 'Early' })).status, 400);
   const done = await state.request('DRIVER', 'patch', '/:id/rma-transport', finish);
   assert.equal(done.status, 200); assert.equal(done.body.status, 'Scheduled'); assert.equal(done.body.rma_received_at, null);
+  assert.equal(done.body.rma_transport_received_by, 'Warehouse guard');
+  assert.deepEqual(done.body.driver_actions, { start: false, complete: false, start_blocked_reason: null });
   assert.equal(done.body.time_in, null); assert.equal(done.body.time_out, null);
   const receipt = await state.request('TASS', 'post', '/:id/rma-receipt', { recipient: ' Recipient ', expected_version: 2, remarks: 'Units received' });
   assert.equal(receipt.status, 200); assert.equal(receipt.body.rma_received_by, 'tass'); assert.equal(receipt.body.rma_recipient, 'Recipient');
+  assert.equal(receipt.body.rma_transport_received_by, 'Warehouse guard', 'TASS receipt does not overwrite the transport handover name');
+  assert.equal(receipt.body.driver_actions, undefined, 'only Drivers receive driver_actions');
   assert.equal(receipt.body.status, 'Scheduled');
   assert.equal((await state.request('ADMIN', 'patch', '/:id/status', { status: 'Delivered', expected_version: 3, remarks: 'Complete' })).status, 403);
   const completed = await state.request('TASS', 'patch', '/:id/status', { status: 'Delivered', expected_version: 3, remarks: 'Checked and complete' });
@@ -190,4 +202,433 @@ test('generic RMA writes cannot bypass assignment, receiving or metadata Update 
   const draft = fixture({ draft: true });
   assert.equal((await draft.request('TASS', 'put', '/:id', { is_draft: 'No', item_description: 'Changed', remarks: 'Submit plus edit', expected_version: 0 }, { deny: 'CATEGORY:RMA:UPDATE' })).status, 403);
   assert.equal(state.audits().length, 0); assert.equal(draft.audits().length, 0);
+});
+
+test('Driver RMA transport start needs no remarks, while completion and other actions still do', async () => {
+  const state = fixture();
+  for (const remarks of [5, true, {}]) {
+    assert.equal((await state.request('DRIVER', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 0, remarks })).status, 400);
+  }
+  assert.equal(state.remarks().length, 0);
+  const started = await state.request('DRIVER', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 0 });
+  assert.equal(started.status, 200);
+  assert.equal(started.body.rma_transport_status, 'IN_TRANSIT');
+  assert.ok(started.body.rma_transport_started_at);
+  assert.equal(state.remarks().length, 1);
+  assert.equal(state.remarks()[0].body, 'Transport started');
+  assert.equal(state.remarks()[0].context, 'RMA_TRANSPORT');
+  assert.equal(state.remarks()[0].authorId, 'driver');
+  assert.equal(state.audits().length, 1);
+  state.proof();
+  const finish = { transport_status: 'COMPLETED', expected_version: 1, received_by: 'Warehouse guard' };
+  assert.equal((await state.request('DRIVER', 'patch', '/:id/rma-transport', finish)).status, 400);
+  assert.equal((await state.request('DRIVER', 'patch', '/:id/rma-transport', { ...finish, remarks: '   ' })).status, 400);
+  assert.equal(state.remarks().length, 1);
+});
+
+test('a typed Driver RMA start note is trimmed and replaces the default', async () => {
+  const state = fixture();
+  const started = await state.request('DRIVER', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 0, remarks: '  Using backup van ' });
+  assert.equal(started.status, 200);
+  assert.equal(state.remarks()[0].body, 'Using backup van');
+});
+
+test('RMA actions other than a Driver transport start keep requiring remarks', async () => {
+  const state = fixture({ driverId: null, driver: '' });
+  const body = { driver_id: 'driver-one', expected_version: 0 };
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-assignment', body)).status, 400);
+  assert.equal((await state.request('TASS', 'post', '/:id/rma-receipt', { recipient: 'Recipient', expected_version: 0 })).status, 400);
+});
+
+test('before the switch Logistics cannot record RMA transport; Driver flow is unchanged', async () => {
+  const state = fixture();
+  const body = { transport_status: 'IN_TRANSIT', expected_version: 0, remarks: 'Office start' };
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport', body)).status, 403);
+  const caps = await state.request('LOGISTICS', 'get', '/:id/rma-capabilities');
+  assert.equal(caps.body.transport, false); assert.equal(caps.body.pod, false); assert.equal(caps.body.assign, true);
+  assert.equal(state.audits().length, 0);
+  assert.equal((await state.request('DRIVER', 'patch', '/:id/rma-transport', body)).status, 200);
+});
+
+test('with the switch applied Logistics starts and completes transport for the assigned Driver under its own name', async () => {
+  const state = fixture({}, { logisticsTransport: true });
+  const caps = await state.request('LOGISTICS', 'get', '/:id/rma-capabilities');
+  assert.equal(caps.body.transport, true); assert.equal(caps.body.pod, false);
+  // AC2: remarks are required for Logistics on Start
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 0 })).status, 400);
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 0, remarks: '  ' })).status, 400);
+  assert.equal(state.audits().length, 0);
+  // AC7: stale version
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 3, remarks: 'Office start' })).status, 409);
+  const started = await state.request('LOGISTICS', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 0, remarks: 'Driver phone is dead' });
+  assert.equal(started.status, 200);
+  assert.equal(started.body.rma_transport_status, 'IN_TRANSIT');
+  assert.ok(started.body.rma_transport_started_at);
+  assert.equal(state.remarks()[0].authorId, 'logistics'); assert.equal(state.remarks()[0].body, 'Driver phone is dead');
+  assert.equal(state.audits().length, 1); assert.equal(state.audits()[0].changedById, 'logistics');
+  assert.equal((await state.request('LOGISTICS', 'get', '/:id/rma-capabilities')).body.pod, true);
+  // AC6: Received By, remarks and a saved proof photo are all required
+  const finish = { transport_status: 'COMPLETED', expected_version: 1, remarks: 'Handed over', received_by: 'Warehouse guard' };
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport', finish)).status, 400, 'no proof photo');
+  state.proof();
+  const { received_by: _omit, ...withoutReceivedBy } = finish;
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport', withoutReceivedBy)).status, 400);
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport', { ...finish, received_by: 'x'.repeat(121) })).status, 400);
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport', { ...finish, remarks: undefined })).status, 400);
+  const completed = await state.request('LOGISTICS', 'patch', '/:id/rma-transport', finish);
+  assert.equal(completed.status, 200);
+  assert.equal(completed.body.rma_transport_status, 'COMPLETED');
+  assert.equal(state.saved().rmaTransportReceivedBy, 'Warehouse guard');
+  assert.ok(state.saved().rmaTransportCompletedAt);
+  assert.equal(state.saved().status, 'SCHEDULED', 'RMA status unchanged');
+  assert.equal(state.saved().rmaReceivedAt, null, 'physical receipt stays with TASS');
+});
+
+test('Logistics transport keeps the planned-date, assignment and movement rules', async () => {
+  const body = { transport_status: 'IN_TRANSIT', expected_version: 0, remarks: 'Office start' };
+  for (const overrides of [{ deliveryDate: '2999-01-01' }, { driverId: null, driver: '' }, { draft: true }, { rmaMovement: 'SUPPLIER_COLLECTION' },
+    { rmaMovement: 'INTERNAL_NO_DRIVER' }, { rmaReceivedAt: new Date() }, { rmaTransportStatus: 'COMPLETED' }]) {
+    const state = fixture(overrides, { logisticsTransport: true });
+    assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport', body)).status, 403, JSON.stringify(overrides));
+    assert.equal(state.audits().length, 0);
+  }
+});
+
+test('other roles still cannot use rma-transport; Logistics keeps no RMA status, edit, receipt or time-in rights', async () => {
+  const state = fixture({}, { logisticsTransport: true });
+  const body = { transport_status: 'IN_TRANSIT', expected_version: 0, remarks: 'Start' };
+  for (const role of ['TASS', 'ADMIN', 'SALES_COORDINATOR'] as const) assert.equal((await state.request(role, 'patch', '/:id/rma-transport', body)).status, 403, role);
+  for (const status of ['Pending', 'On-Hold', 'Rescheduled', 'Delivered']) {
+    assert.equal((await state.request('LOGISTICS', 'patch', '/:id/status', { status, remarks: 'x', expected_version: 0 })).status, 403, status);
+  }
+  assert.equal((await state.request('LOGISTICS', 'put', '/:id', { rma_reference: 'FORGED', remarks: 'Edit', expected_version: 0 })).status, 403);
+  assert.equal((await state.request('LOGISTICS', 'post', '/:id/rma-receipt', { recipient: 'Me', remarks: 'x', expected_version: 0 })).status, 403);
+  assert.equal(state.audits().length, 0);
+});
+
+test('a Driver cannot act on another Driver RMA even when Logistics may', async () => {
+  const state = fixture({}, { logisticsTransport: true });
+  assert.equal((await state.request('DRIVER', 'patch', '/:id/rma-transport', { transport_status: 'IN_TRANSIT', expected_version: 0 }, { profile: 'driver-two' })).status, 403);
+});
+
+test('Logistics can correct driver transport completion details on completed LOGISTICS_TRANSPORT RMAs without touching TASS fields', async () => {
+  const startedAt = new Date('2026-11-03T03:00:00.000Z');
+  const completedAt = new Date('2026-11-03T04:00:00.000Z');
+  const receivedAt = new Date('2026-11-03T04:50:00.000Z');
+  const rmaCompletedAt = new Date('2026-11-03T04:51:00.000Z');
+  const state = fixture({
+    status: 'ACCOMPLISHED',
+    rmaMovement: 'LOGISTICS_TRANSPORT',
+    rmaTransportStatus: 'COMPLETED',
+    rmaTransportStartedAt: startedAt,
+    rmaTransportCompletedAt: completedAt,
+    rmaTransportReceivedBy: 'Guard One',
+    rmaReceivedAt: receivedAt,
+    rmaReceivedBy: 'tass',
+    rmaRecipient: 'TASS Receiver',
+    rmaCompletedAt,
+    rmaVersion: 4,
+  });
+
+  const caps = await state.request('LOGISTICS', 'get', '/:id/rma-capabilities');
+  assert.equal(caps.status, 200);
+  assert.equal(caps.body.correctTransport, true);
+  assert.equal(caps.body.assign, false);
+
+  const corrected = await state.request('LOGISTICS', 'patch', '/:id/rma-transport-correction', {
+    transport_received_by: '  Warehouse Supervisor  ',
+    transport_started_at: '2026-11-03T03:15:00.000Z',
+    transport_completed_at: '2026-11-03T04:30:00.000Z',
+    expected_version: 4,
+    remarks: 'Corrected transport handover details per signed slip',
+  });
+  assert.equal(corrected.status, 200);
+  assert.equal(corrected.body.rma_transport_received_by, 'Warehouse Supervisor');
+  assert.equal(new Date(corrected.body.rma_transport_started_at).toISOString(), '2026-11-03T03:15:00.000Z');
+  assert.equal(new Date(corrected.body.rma_transport_completed_at).toISOString(), '2026-11-03T04:30:00.000Z');
+  assert.equal(corrected.body.rma_version, 5);
+
+  const saved = state.saved();
+  assert.equal(saved.rmaRecipient, 'TASS Receiver');
+  assert.equal(new Date(saved.rmaReceivedAt).toISOString(), receivedAt.toISOString());
+  assert.equal(new Date(saved.rmaCompletedAt).toISOString(), rmaCompletedAt.toISOString());
+  assert.equal(saved.driverId, 'driver-one');
+  assert.equal(saved.status, 'ACCOMPLISHED');
+  assert.equal(state.audits().length, 1);
+  assert.equal(state.audits()[0].changedById, 'logistics');
+  assert.equal(state.remarks().length, 1);
+  assert.equal(state.remarks()[0].context, 'TIMESTAMP_CORRECTION');
+  assert.equal(state.remarks()[0].body, 'Corrected transport handover details per signed slip');
+});
+
+test('RMA transport correction validates fields, chronology, version, and rejects unsupported TASS or assignment fields', async () => {
+  const state = fixture({
+    status: 'ACCOMPLISHED',
+    rmaMovement: 'LOGISTICS_TRANSPORT',
+    rmaTransportStatus: 'COMPLETED',
+    rmaTransportStartedAt: new Date('2026-11-03T03:00:00.000Z'),
+    rmaTransportCompletedAt: new Date('2026-11-03T04:00:00.000Z'),
+    rmaTransportReceivedBy: 'Guard One',
+    rmaReceivedAt: new Date('2026-11-03T04:50:00.000Z'),
+    rmaRecipient: 'TASS Receiver',
+    rmaCompletedAt: new Date('2026-11-03T04:51:00.000Z'),
+    rmaVersion: 4,
+  });
+
+  // No correction fields provided
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport-correction', { expected_version: 4, remarks: 'No fields' })).status, 400);
+  // Missing / blank remarks
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport-correction', { transport_received_by: 'Guard Two', expected_version: 4 })).status, 400);
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport-correction', { transport_received_by: 'Guard Two', expected_version: 4, remarks: '   ' })).status, 400);
+  // Blank / overlong transport_received_by
+  for (const transport_received_by of ['', '   ', 'x'.repeat(121), null, 42]) {
+    assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport-correction', { transport_received_by, expected_version: 4, remarks: 'Bad receiver' })).status, 400);
+  }
+  // Invalid ISO timestamps
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport-correction', { transport_started_at: '2026-11-03T11:00', expected_version: 4, remarks: 'Missing tz' })).status, 400);
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport-correction', { transport_completed_at: 'not-a-date', expected_version: 4, remarks: 'Bad date' })).status, 400);
+  // Chronology: completed before started
+  const inverted = await state.request('LOGISTICS', 'patch', '/:id/rma-transport-correction', {
+    transport_started_at: '2026-11-03T05:00:00.000Z',
+    transport_completed_at: '2026-11-03T04:00:00.000Z',
+    expected_version: 4,
+    remarks: 'Inverted',
+  });
+  assert.equal(inverted.status, 400);
+  assert.match(inverted.body.error, /Transport Completed must be after Transport Started/);
+  // Unsupported TASS / locked fields rejected
+  for (const extra of [
+    { rma_recipient: 'Forged' },
+    { rma_received_at: '2026-11-03T04:55:00.000Z' },
+    { rma_completed_at: '2026-11-03T04:56:00.000Z' },
+    { driver_id: 'driver-two' },
+    { status: 'Scheduled' },
+  ]) {
+    assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport-correction', {
+      transport_received_by: 'Guard Two', expected_version: 4, remarks: 'Smuggle', ...extra,
+    })).status, 400);
+  }
+  // Stale / missing expected_version
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport-correction', { transport_received_by: 'Guard Two', expected_version: 3, remarks: 'Stale' })).status, 409);
+  assert.equal((await state.request('LOGISTICS', 'patch', '/:id/rma-transport-correction', { transport_received_by: 'Guard Two', remarks: 'Missing version' })).status, 400);
+  assert.equal(state.audits().length, 0);
+
+  // Rejects adding a timestamp that was never originally recorded
+  const noStart = fixture({
+    status: 'ACCOMPLISHED', rmaMovement: 'LOGISTICS_TRANSPORT', rmaTransportStatus: 'COMPLETED',
+    rmaTransportStartedAt: null, rmaTransportCompletedAt: new Date('2026-11-03T04:00:00.000Z'), rmaVersion: 1,
+  });
+  assert.equal((await noStart.request('LOGISTICS', 'patch', '/:id/rma-transport-correction', {
+    transport_started_at: '2026-11-03T03:00:00.000Z', expected_version: 1, remarks: 'Backfill',
+  })).status, 400);
+});
+
+test('RMA transport correction enforces role, movement, completion state, permission denial, and atomic rollback', async () => {
+  const completedRma = {
+    status: 'ACCOMPLISHED',
+    rmaMovement: 'LOGISTICS_TRANSPORT',
+    rmaTransportStatus: 'COMPLETED',
+    rmaTransportStartedAt: new Date('2026-11-03T03:00:00.000Z'),
+    rmaTransportCompletedAt: new Date('2026-11-03T04:00:00.000Z'),
+    rmaTransportReceivedBy: 'Guard One',
+    rmaReceivedAt: new Date('2026-11-03T04:50:00.000Z'),
+    rmaRecipient: 'TASS Receiver',
+    rmaCompletedAt: new Date('2026-11-03T04:51:00.000Z'),
+    rmaVersion: 4,
+  };
+  const body = { transport_received_by: 'Guard Two', expected_version: 4, remarks: 'Correction' };
+
+  // Non-Logistics roles are rejected with 403
+  const roleState = fixture(completedRma);
+  for (const role of ['TASS', 'DRIVER', 'SALES_COORDINATOR', 'ADMIN'] as PolicyRole[]) {
+    assert.equal((await roleState.request(role, 'patch', '/:id/rma-transport-correction', body)).status, 403, role);
+  }
+  // Revoked ASSIGN permission is rejected with 403
+  assert.equal((await roleState.request('LOGISTICS', 'patch', '/:id/rma-transport-correction', body, { deny: 'CATEGORY:RMA:ASSIGN' })).status, 403);
+  assert.equal((await roleState.request('LOGISTICS', 'get', '/:id/rma-capabilities', {}, { deny: 'CATEGORY:RMA:ASSIGN' })).body.correctTransport, false);
+  assert.equal(roleState.audits().length, 0);
+
+  // Non-eligible movements and incomplete RMAs are rejected with 403
+  for (const overrides of [
+    { ...completedRma, rmaMovement: 'SUPPLIER_COLLECTION', rmaTransportStatus: null },
+    { ...completedRma, rmaMovement: 'INTERNAL_NO_DRIVER', rmaTransportStatus: null },
+    { ...completedRma, status: 'SCHEDULED' },
+    { ...completedRma, rmaTransportStatus: 'IN_TRANSIT' },
+    { ...completedRma, draft: true },
+  ]) {
+    const blocked = fixture(overrides);
+    assert.equal((await blocked.request('LOGISTICS', 'patch', '/:id/rma-transport-correction', body)).status, 403);
+    assert.equal((await blocked.request('LOGISTICS', 'get', '/:id/rma-capabilities')).body.correctTransport, false);
+    assert.equal(blocked.audits().length, 0);
+  }
+
+  // Audit failure rolls back record update and version atomically
+  const rollbackState = fixture(completedRma);
+  rollbackState.failAudit();
+  await assert.rejects(rollbackState.request('LOGISTICS', 'patch', '/:id/rma-transport-correction', body), /audit unavailable/);
+  assert.equal(rollbackState.saved().rmaTransportReceivedBy, 'Guard One');
+  assert.equal(rollbackState.saved().rmaVersion, 4);
+  assert.equal(rollbackState.audits().length, 0);
+  assert.equal(rollbackState.remarks().length, 0);
+});
+
+// ── TASS physical receipt: optional Recipient and editable receipt/completion dates ──
+const manilaDay = (offsetDays = 0) => manilaToday(new Date(Date.now() + offsetDays * 86_400_000));
+// Transport completed four days ago at 15:00 Manila (07:00Z): routed Friday, slip back Tuesday.
+const transportDoneAt = () => new Date(`${manilaDay(-4)}T07:00:00.000Z`);
+const transported = () => ({ rmaTransportStatus: 'COMPLETED', rmaTransportStartedAt: new Date(transportDoneAt().getTime() - 3_600_000),
+  rmaTransportCompletedAt: transportDoneAt(), rmaTransportReceivedBy: 'Warehouse guard', rmaVersion: 2 });
+function captureNotifications() {
+  const sent: any[] = [];
+  stub(prisma.user, 'findMany', async () => [{ id: 'logistics-user', role: 'LOGISTICS', name: 'Logistics', email: 'l@example.test', isActive: true,
+    authorizationRevision: 1n, permissions: [], permissionOverrides: [], permissionConversion: { catalogVersion: 1 }, driverProfile: null }]);
+  stub(prisma.rolePolicy, 'findMany', async () => [rmaTestPolicy('LOGISTICS')]);
+  stub(prisma.notification, 'createMany', async ({ data }: any) => { sent.push(...data); return { count: data.length }; });
+  return sent;
+}
+
+test('TASS confirms physical receipt without a Recipient and notifications never print "null"', async () => {
+  for (const recipient of [undefined, null, '', '   ']) {
+    const state = fixture(transported());
+    const sent = captureNotifications();
+    const body: any = { expected_version: 2, remarks: 'Signed slip returned' };
+    if (recipient !== undefined) body.recipient = recipient;
+    const receipt = await state.request('TASS', 'post', '/:id/rma-receipt', body);
+    assert.equal(receipt.status, 200, JSON.stringify(receipt.body));
+    assert.equal(receipt.body.rma_recipient, null);
+    assert.equal(state.saved().rmaRecipient, null);
+    assert.ok(state.saved().rmaReceivedAt instanceof Date);
+    assert.equal(state.saved().rmaTransportReceivedBy, 'Warehouse guard', 'the driver handover name is untouched');
+    assert.equal(state.audits().length, 1); assert.equal(state.remarks().length, 1);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].message, 'POL-255 · Physical receipt confirmed. Final RMA completion is a separate TASS action.');
+    assert.doesNotMatch(sent[0].message, /null|undefined/);
+  }
+});
+
+test('a supplied Recipient is still trimmed and saved, while non-text or over-long values are rejected', async () => {
+  const state = fixture(transported());
+  for (const recipient of [42, { name: 'x' }, 'x'.repeat(121)]) {
+    const rejected = await state.request('TASS', 'post', '/:id/rma-receipt', { recipient, expected_version: 2, remarks: 'Received' });
+    assert.equal(rejected.status, 400, JSON.stringify(recipient));
+  }
+  assert.equal(state.audits().length, 0);
+  const saved = await state.request('TASS', 'post', '/:id/rma-receipt', { recipient: ' Front desk ', expected_version: 2, remarks: 'Received' });
+  assert.equal(saved.status, 200); assert.equal(saved.body.rma_recipient, 'Front desk');
+});
+
+test('receipt date defaults to now, accepts past Manila dates/ISO timestamps and the transport day, and rejects invalid dates', async () => {
+  const before = Date.now();
+  const defaulted = fixture(transported());
+  assert.equal((await defaulted.request('TASS', 'post', '/:id/rma-receipt', { expected_version: 2, remarks: 'Received' })).status, 200);
+  assert.ok(defaulted.saved().rmaReceivedAt.getTime() >= before && defaulted.saved().rmaReceivedAt.getTime() <= Date.now());
+
+  const today = fixture(transported());
+  assert.equal((await today.request('TASS', 'post', '/:id/rma-receipt', { received_at: manilaDay(0), expected_version: 2, remarks: 'Received' })).status, 200);
+  assert.equal(manilaToday(today.saved().rmaReceivedAt), manilaDay(0));
+  assert.ok(today.saved().rmaReceivedAt.getTime() >= before, "today's date keeps the exact server time");
+
+  // Same Manila day as transport completion is accepted even though noon precedes 15:00.
+  const sameDay = fixture(transported());
+  const accepted = await sameDay.request('TASS', 'post', '/:id/rma-receipt', { received_at: manilaDay(-4), expected_version: 2, remarks: 'Slip returned late' });
+  assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
+  assert.equal(sameDay.saved().rmaReceivedAt.toISOString(), new Date(`${manilaDay(-4)}T12:00:00+08:00`).toISOString());
+  assert.equal(manilaToday(sameDay.saved().rmaReceivedAt), manilaDay(-4));
+
+  const iso = fixture(transported());
+  const at = `${manilaDay(-2)}T09:30:00+08:00`;
+  assert.equal((await iso.request('TASS', 'post', '/:id/rma-receipt', { received_at: at, expected_version: 2, remarks: 'Received' })).status, 200);
+  assert.equal(iso.saved().rmaReceivedAt.toISOString(), new Date(at).toISOString());
+
+  for (const [received_at, error] of [
+    [manilaDay(1), /cannot be in the future/],
+    [`${manilaDay(1)}T01:00:00+08:00`, /cannot be in the future/],
+    [manilaDay(-5), /earlier than the transport completion date/],
+    ['1999-12-31', /on or after 2000-01-01/],
+    ['2026-02-30', /valid YYYY-MM-DD/],
+    ['2026-11-20T12:00', /valid YYYY-MM-DD/],
+    ['not-a-date', /valid YYYY-MM-DD/],
+    [20261120, /valid YYYY-MM-DD/],
+  ] as const) {
+    const state = fixture(transported());
+    const rejected = await state.request('TASS', 'post', '/:id/rma-receipt', { received_at, expected_version: 2, remarks: 'Received' });
+    assert.equal(rejected.status, 400, String(received_at)); assert.match(rejected.body.error, error);
+    assert.equal(state.saved().rmaReceivedAt, null); assert.equal(state.saved().rmaVersion, 2); assert.equal(state.audits().length, 0);
+  }
+});
+
+test('no-driver movements have no transport lower bound for the receipt date', async () => {
+  const state = fixture({ rmaMovement: 'INTERNAL_NO_DRIVER', rmaTransportStatus: null, driverId: null, driver: '', deliveryDate: '' });
+  assert.equal((await state.request('TASS', 'post', '/:id/rma-receipt', { received_at: manilaDay(-30), expected_version: 0, remarks: 'Walk-in' })).status, 200);
+  assert.equal(manilaToday(state.saved().rmaReceivedAt), manilaDay(-30));
+});
+
+test('TASS completes an RMA without a Recipient and with an editable completion date bounded by the receipt date', async () => {
+  const received = () => ({ ...transported(), rmaReceivedAt: new Date(`${manilaDay(-3)}T12:00:00+08:00`), rmaReceivedBy: 'tass', rmaRecipient: null, rmaVersion: 3 });
+  for (const [completed_at, error] of [
+    [manilaDay(1), /cannot be in the future/],
+    [manilaDay(-4), /earlier than the physical receipt date/],
+    ['2026-13-01', /valid YYYY-MM-DD/],
+  ] as const) {
+    const state = fixture(received());
+    const rejected = await state.request('TASS', 'patch', '/:id/status', { status: 'Delivered', completed_at, expected_version: 3, remarks: 'Complete' });
+    assert.equal(rejected.status, 400, completed_at); assert.match(rejected.body.error, error);
+    assert.equal(state.saved().status, 'SCHEDULED'); assert.equal(state.saved().rmaCompletedAt, null); assert.equal(state.saved().rmaVersion, 3);
+  }
+  const state = fixture(received());
+  // A supplied received_by must match the (empty) confirmed recipient.
+  assert.equal((await state.request('TASS', 'patch', '/:id/status', { status: 'Delivered', received_by: 'Someone', expected_version: 3, remarks: 'Complete' })).status, 400);
+  const completed = await state.request('TASS', 'patch', '/:id/status', { status: 'Delivered', completed_at: manilaDay(-3), expected_version: 3, remarks: 'Repaired and returned' });
+  assert.equal(completed.status, 200, JSON.stringify(completed.body));
+  assert.equal(completed.body.status, 'Delivered');
+  assert.equal(state.saved().receivedBy, null);
+  assert.equal(manilaToday(state.saved().rmaCompletedAt), manilaDay(-3), 'same Manila day as receipt is accepted');
+  assert.equal(state.saved().timeIn, null); assert.equal(state.saved().timeOut, null);
+
+  const defaulted = fixture(received());
+  const before = Date.now();
+  assert.equal((await defaulted.request('TASS', 'patch', '/:id/status', { status: 'Delivered', expected_version: 3, remarks: 'Done' })).status, 200);
+  assert.ok(defaulted.saved().rmaCompletedAt.getTime() >= before);
+});
+
+test('completed_at is rejected outside RMA completion', async () => {
+  const state = fixture(transported());
+  const response = await state.request('TASS', 'patch', '/:id/status', { status: 'On-Hold', completed_at: manilaDay(0), expected_version: 2, remarks: 'Hold' });
+  assert.equal(response.status, 400); assert.match(response.body.error, /only be set when completing an RMA/);
+  assert.equal(state.saved().status, 'SCHEDULED');
+});
+
+test('an audit failure rolls back an editable receipt or completion date and the RMA version', async () => {
+  const receipt = fixture(transported()); receipt.failAudit();
+  await assert.rejects(receipt.request('TASS', 'post', '/:id/rma-receipt', { received_at: manilaDay(-1), expected_version: 2, remarks: 'Received' }), /audit unavailable/);
+  assert.equal(receipt.saved().rmaReceivedAt, null); assert.equal(receipt.saved().rmaVersion, 2); assert.equal(receipt.remarks().length, 0);
+  const completion = fixture({ ...transported(), rmaReceivedAt: new Date(`${manilaDay(-3)}T12:00:00+08:00`), rmaReceivedBy: 'tass', rmaVersion: 3 });
+  completion.failAudit();
+  await assert.rejects(completion.request('TASS', 'patch', '/:id/status', { status: 'Delivered', completed_at: manilaDay(-1), expected_version: 3, remarks: 'Done' }), /audit unavailable/);
+  assert.equal(completion.saved().rmaCompletedAt, null); assert.equal(completion.saved().rmaVersion, 3); assert.equal(completion.saved().status, 'SCHEDULED');
+});
+
+test('Driver/Logistics RMA transport completion still strictly requires Received By', async () => {
+  const state = fixture({ rmaTransportStatus: 'IN_TRANSIT', rmaTransportStartedAt: new Date(), rmaVersion: 1 });
+  state.proof();
+  for (const received_by of [undefined, '', '   ']) {
+    const missing = await state.request('DRIVER', 'patch', '/:id/rma-transport', { transport_status: 'COMPLETED', expected_version: 1, remarks: 'Delivered', received_by });
+    assert.equal(missing.status, 400); assert.match(missing.body.error, /Received By/);
+  }
+  assert.equal(state.saved().rmaTransportStatus, 'IN_TRANSIT');
+});
+
+test('impossible ISO receipt and completion timestamps are rejected with 400 and no writes', async () => {
+  for (const received_at of ['2026-02-30T12:00:00Z', '2026-04-31T00:00:00+08:00']) {
+    const state = fixture(transported());
+    const rejected = await state.request('TASS', 'post', '/:id/rma-receipt', { received_at, expected_version: 2, remarks: 'Received' });
+    assert.equal(rejected.status, 400, received_at); assert.match(rejected.body.error, /valid YYYY-MM-DD date or ISO timestamp/);
+    assert.equal(state.saved().rmaReceivedAt, null); assert.equal(state.saved().rmaVersion, 2);
+    assert.equal(state.audits().length, 0); assert.equal(state.remarks().length, 0);
+  }
+  const state = fixture({ ...transported(), rmaReceivedAt: new Date(`${manilaDay(-3)}T12:00:00+08:00`), rmaReceivedBy: 'tass', rmaVersion: 3 });
+  const rejected = await state.request('TASS', 'patch', '/:id/status', { status: 'Delivered', completed_at: '2026-02-30T12:00:00Z', expected_version: 3, remarks: 'Complete' });
+  assert.equal(rejected.status, 400); assert.match(rejected.body.error, /valid YYYY-MM-DD date or ISO timestamp/);
+  assert.equal(state.saved().status, 'SCHEDULED'); assert.equal(state.saved().rmaCompletedAt, null); assert.equal(state.saved().rmaVersion, 3);
+  assert.equal(state.audits().length, 0); assert.equal(state.remarks().length, 0);
 });

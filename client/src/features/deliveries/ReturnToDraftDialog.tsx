@@ -60,7 +60,7 @@ export function ReturnToDraftDialog({ record, open, onDismiss, onSubmit }: Retur
           value={reason}
           disabled={pending}
           onChange={e => setReason(e.target.value)}
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0078C1]/30 focus:border-[#0078C1]"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
           placeholder="Why is this record going back to Draft?"
         />
         <p className="text-xs text-slate-500">The reason is saved with your name in Remarks History.</p>

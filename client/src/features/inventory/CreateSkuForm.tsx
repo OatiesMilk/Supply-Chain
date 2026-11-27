@@ -45,7 +45,7 @@ export default function CreateSkuForm({ onCreated, onCancel }: {
       </fieldset>
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       <div className="flex gap-2">
-        <button type="submit" disabled={create.isPending} className="rounded-lg bg-[#0078C1] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{create.isPending ? 'Creating…' : 'Save SKU'}</button>
+        <button type="submit" disabled={create.isPending} className="rounded-lg bg-brand-blue px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{create.isPending ? 'Creating…' : 'Save SKU'}</button>
         <button type="button" disabled={create.isPending} onClick={onCancel} className="rounded-lg border border-slate-300 px-4 py-2 text-sm">Cancel</button>
       </div>
     </form>

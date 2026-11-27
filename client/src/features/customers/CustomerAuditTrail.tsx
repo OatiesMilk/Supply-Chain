@@ -57,7 +57,7 @@ export default function CustomerAuditTrail({ customerId }: { customerId: string 
           </div>
 
           {entry.remarks && (
-            <p className="mt-2 border-l-2 border-[#0078C1] pl-3 text-sm text-slate-700">
+            <p className="mt-2 border-l-2 border-brand-blue pl-3 text-sm text-slate-700">
               <span className="sr-only">Reason: </span>{entry.remarks}
             </p>
           )}

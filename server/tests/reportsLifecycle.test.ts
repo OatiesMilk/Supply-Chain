@@ -190,3 +190,52 @@ test('first request with exact failing date range (2026-07-01 to 2026-12-31) suc
   assert.equal(repeat.completed_in_range, 2);
 });
 
+
+const rmaRows = [
+  { category: 'RMA', isInternalTransfer: false, status: 'SCHEDULED', draft: false, timeIn: null, deliveryDate: '2026-10-06' },
+  { category: 'RMA', isInternalTransfer: true, status: 'SCHEDULED', draft: false, timeIn: null, deliveryDate: '2026-10-06' },
+  { category: 'DELIVERY', isInternalTransfer: false, status: 'SCHEDULED', draft: false, timeIn: null, deliveryDate: '2026-10-06' },
+];
+
+test('RMA statistics exclude non-RMA internal transfers unless explicitly requested', async () => {
+  const queries: any[] = [];
+  stub(prisma.deliveryRecord, 'findMany', async (query: any) => { queries.push(query); return rmaRows.filter(row => (!query.where.category || row.category === query.where.category)
+    && (query.where.isInternalTransfer === undefined || row.isInternalTransfer === query.where.isInternalTransfer)); });
+  const counts: any[] = [];
+  stub(prisma.deliveryRecord, 'count', async (query: any) => { counts.push(query); return 0; });
+  const rma = await invoke('/summary', { category: 'RMA' });
+  assert.equal(queries[0].where.isInternalTransfer, false);
+  assert.equal(counts[0].where.isInternalTransfer, false, 'completion counts use the same isolation');
+  assert.equal(rma.total, 1);
+  const included = await invoke('/summary', { category: 'RMA', include_internal_transfers: 'true' });
+  assert.equal(queries[1].where.isInternalTransfer, undefined);
+  assert.equal(included.total, 2);
+  const deliveries = await invoke('/summary', { category: 'Deliveries' });
+  assert.equal(queries[2].where.isInternalTransfer, undefined, 'other categories are untouched');
+  assert.equal(deliveries.total, 1);
+});
+
+test('unfiltered statistics bucket internal transfers apart from RMA', async () => {
+  stub(prisma.deliveryRecord, 'findMany', async () => rmaRows);
+  stub(prisma.deliveryRecord, 'count', async () => 0);
+  const all = await invoke('/summary', {});
+  const byCategory = Object.fromEntries(all.by_category.map((row: any) => [row.category, row.count]));
+  assert.equal(byCategory.RMA, 1);
+  assert.equal(byCategory['Internal Transfer'], 1);
+  assert.equal(all.total, 3);
+});
+
+test('daily snapshots record internal transfers under INTERNAL_TRANSFER, not RMA', async context => {
+  context.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-05T16:01:00Z').getTime() });
+  const reads = stub(prisma.deliveryRecord, 'findMany', async () => rmaRows);
+  stub(prisma.dailyStatusSnapshot, 'deleteMany', (args: any) => ({ remove: args }));
+  const create = stub(prisma.dailyStatusSnapshot, 'createMany', (args: any) => ({ create: args }));
+  stub(prisma, '$transaction', async (operations: any[]) => operations);
+  await saveDailyStatusSnapshot();
+  assert.equal(reads.mock.calls[0].arguments[0].select.isInternalTransfer, true);
+  const rows = create.mock.calls[0].arguments[0].data;
+  const count = (category: string) => rows.find((row: any) => row.category === category && row.status === 'SCHEDULED')?.count ?? 0;
+  assert.equal(count('RMA'), 1);
+  assert.equal(count('INTERNAL_TRANSFER'), 1);
+  assert.equal(count('ALL'), 3);
+});

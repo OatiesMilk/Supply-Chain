@@ -2,8 +2,8 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '../src/db';
 import { initializePermissionFoundation } from '../src/services/permissionBackfill';
-import { provisionRmaDispatchPermissions } from '../src/services/rmaDispatchPermissions';
-import { localDirectoryKey } from '../src/services/accountDirectory';
+import { provisionRmaDispatchPermissions, provisionRmaLogisticsTransport } from '../src/services/rmaDispatchPermissions';
+import { localDirectoryKey, localSapNumbersCreate } from '../src/services/accountDirectory';
 
 const target = new URL(process.env.DATABASE_URL ?? 'invalid:');
 if (!['localhost', '127.0.0.1', '[::1]'].includes(target.hostname)
@@ -42,11 +42,19 @@ async function seed() {
   });
   await prisma.company.upsert({
     where: { id: 'sc255-company' },
-    create: { id: 'sc255-company', name: 'RMA Dispatch Test Company', normalizedName: localDirectoryKey('RMA Dispatch Test Company'), sapNumber: 'SC255', address: 'Carmona', contactPerson: 'Test Contact' },
+    create: { id: 'sc255-company', name: 'RMA Dispatch Test Company', normalizedName: localDirectoryKey('RMA Dispatch Test Company'), sapNumber: 'SC255', address: 'Carmona', contactPerson: 'Test Contact',
+      sapNumbers: localSapNumbersCreate('SC255') },
     update: {},
+  });
+  // The record API requires an active Account Manager from the directory.
+  await prisma.accountManager.upsert({
+    where: { normalizedName: localDirectoryKey('RMA Test AM') },
+    create: { name: 'RMA Test AM', normalizedName: localDirectoryKey('RMA Test AM') }, update: {},
   });
   const activation = await provisionRmaDispatchPermissions(prisma, 'sc255-user-0');
   if (activation.skipped.length) throw new Error('Review customized policies before running browser fixtures.');
+  const transport = await provisionRmaLogisticsTransport(prisma, 'sc255-user-0', 'apply');
+  if (transport.status === 'skipped') throw new Error('Review the Logistics policy before running browser fixtures.');
   console.log('Local RMA browser fixtures ready.');
 }
 

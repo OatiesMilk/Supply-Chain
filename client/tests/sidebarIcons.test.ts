@@ -98,3 +98,83 @@ test('Sidebar groups the driver screens under one Drivers item', () => {
   // The item stays highlighted on any driver screen, not only its landing tab.
   assert.match(driversButton(render('driver_manager', () => true)), /font-semibold/);
 });
+
+test('Sidebar hides empty nav groups and renders role-adaptive collapsed dividers', async () => {
+  const baseProps = {
+    currentScreen: 'deliveries',
+    handleNavigate: () => {},
+    isSidebarCollapsed: false,
+    setIsSidebarCollapsed: () => {},
+    isSidebarOpen: true,
+    setIsSidebarOpen: () => {},
+    currentUserRole: 'Sales Coordinator' as any,
+    currentUser: { name: 'Test User', initials: 'TU' },
+    deliveriesActiveCount: 0,
+    rmaActiveCount: 0,
+    salesOrdersActiveCount: 0,
+    accountingActiveCount: 0,
+    procurementActiveCount: 0,
+  };
+
+  // Single-screen user sees only Operations — no empty Fleet & Activity, Master Data, or Reports & Admin headings.
+  const deliveriesOnly = renderToString(React.createElement(Sidebar, {
+    ...baseProps,
+    canAccess: (screen: string) => screen === 'deliveries',
+  }));
+  assert.match(deliveriesOnly, />Operations</);
+  for (const hiddenGroup of ['Fleet &amp; Activity', 'Master Data', 'Reports &amp; Admin']) {
+    assert.ok(!deliveriesOnly.includes(`>${hiddenGroup}<`), `${hiddenGroup} should be hidden when empty`);
+  }
+
+  // Collapsed desktop rail renders one <hr> per visible titled group (4 for Logistics, 1 for deliveries-only).
+  const { JSDOM } = await import('jsdom');
+  const { createRoot } = await import('react-dom/client');
+  const { act } = React;
+  const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost' });
+  const saved = Object.getOwnPropertyDescriptors(globalThis);
+  const globals: Record<string, unknown> = {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    Element: dom.window.Element,
+    HTMLElement: dom.window.HTMLElement,
+    Node: dom.window.Node,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  };
+  for (const [key, value] of Object.entries(globals)) Object.defineProperty(globalThis, key, { value, configurable: true });
+  dom.window.matchMedia = (() => ({ matches: true, addEventListener() {}, removeEventListener() {} })) as any;
+
+  const root = createRoot(dom.window.document.getElementById('root')!);
+  try {
+    const logisticsScreens = new Set([
+      'main', 'dashboard', 'deliveries', 'rma', 'accounting_collection',
+      'procurement_pickup', 'sales_orders', 'customers', 'suppliers',
+      'driver', 'driver_manager', 'calendar', 'driver_board',
+      'transactions', 'statistical_reports',
+    ]);
+    await act(async () => {
+      root.render(React.createElement(Sidebar, {
+        ...baseProps,
+        isSidebarCollapsed: true,
+        canAccess: (screen: string) => logisticsScreens.has(screen),
+      }));
+    });
+    assert.equal(dom.window.document.querySelectorAll('#sidebar-nav hr').length, 4);
+
+    await act(async () => {
+      root.render(React.createElement(Sidebar, {
+        ...baseProps,
+        isSidebarCollapsed: true,
+        canAccess: (screen: string) => screen === 'deliveries',
+      }));
+    });
+    assert.equal(dom.window.document.querySelectorAll('#sidebar-nav hr').length, 1);
+  } finally {
+    await act(async () => root.unmount());
+    dom.window.close();
+    for (const key of Object.keys(globals)) {
+      if (saved[key]) Object.defineProperty(globalThis, key, saved[key]);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});

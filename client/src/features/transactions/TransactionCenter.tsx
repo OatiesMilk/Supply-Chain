@@ -7,6 +7,8 @@ import ExportMenu from '@/components/ExportMenu';
 import { TXN_COLUMNS, fmtDate, fmtStatus } from '@/utils/export';
 import { DashboardFilterId, getManilaWeekRange } from '@/utils/dashboardFilters';
 import DashboardFilterChip from '@/components/DashboardFilterChip';
+import { statusBadgeClass, statusDisplayLabel } from '@/utils/statusTheme';
+import { btnPrimaryClass, btnSecondaryClass, tableHeaderRowClass, tableLeadButtonClass } from '@/utils/uiClasses';
 
 interface TransactionCenterProps {
   currentUserRole: string;
@@ -18,22 +20,6 @@ interface TransactionCenterProps {
 const showExportForRole = (role: string) => role === 'Admin' || role === 'Sales Coordinator';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-const STATUS_LABEL: Record<string, string> = {
-  SCHEDULED:    'Scheduled',
-  ACCOMPLISHED: 'Accomplished',
-  ON_HOLD:      'On-Hold',
-  RESCHEDULED:  'Rescheduled',
-  PENDING:      'Pending'
-};
-
-const STATUS_BADGE: Record<string, string> = {
-  SCHEDULED:    'bg-blue-50 text-blue-700 border-blue-200',
-  ACCOMPLISHED: 'bg-green-50 text-green-700 border-green-200',
-  ON_HOLD:      'bg-red-50 text-red-700 border-red-200',
-  RESCHEDULED:  'bg-violet-50 text-violet-700 border-violet-200',
-  PENDING:      'bg-amber-50 text-amber-700 border-amber-200'
-};
 
 // Allowed delivery categories per role (display label → DB value)
 const CATEGORY_OPTIONS_BY_ROLE: Record<string, Array<{ label: string; value: string }>> = {
@@ -104,11 +90,11 @@ function defaultFilters(role: string, dashboardFilterId: DashboardFilterId | nul
 
 function SourceBadge({ source }: { source: 'delivery' | 'inventory' }) {
   return source === 'delivery' ? (
-    <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wide bg-[#1F3864] text-white whitespace-nowrap">
+    <span className="px-2 py-0.5 rounded text-xs font-semibold bg-brand-navy text-white whitespace-nowrap">
       Delivery
     </span>
   ) : (
-    <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wide bg-teal-700 text-white whitespace-nowrap">
+    <span className="px-2 py-0.5 rounded text-xs font-semibold bg-teal-700 text-white whitespace-nowrap">
       Inventory
     </span>
   );
@@ -204,7 +190,7 @@ export default function TransactionCenter({ currentUserRole, currentUserName, da
     type:        t.type,
     source:      t.source,
     entity:      t.entity,
-    status:      t.status ? (STATUS_LABEL[t.status] ?? t.status) : '',
+    status:      t.status ? statusDisplayLabel(t.status) : '',
     date_fmt:    fmtDate(t.date),
     description: t.description,
     qty_change:  t.qty_change ?? '',
@@ -223,33 +209,35 @@ export default function TransactionCenter({ currentUserRole, currentUserName, da
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
         {/* Filters bar */}
         <div className="border-b border-slate-200">
-          <div
-            className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors select-none"
-            onClick={() => setFiltersOpen(v => !v)}
-          >
-            <span className="flex items-center gap-1.5 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-              <Filter className="w-3.5 h-3.5" /> Filters
-            </span>
-            <div className="flex items-center gap-3">
-              {showExportForRole(currentUserRole) && (
-                <div onClick={e => e.stopPropagation()}>
-                  <ExportMenu
-                    rows={exportRows}
-                    columns={TXN_COLUMNS}
-                    sheetName="Transactions"
-                    filename={`transactions-p${page}`}
-                    pdfTitle="Transaction Center Report"
-                    showPdf={false}
-                    meta={{
-                      reportName: 'Transaction Center Export',
-                      generatedByName: currentUserName,
-                      generatedByRole: currentUserRole,
-                    }}
-                  />
-                </div>
-              )}
-              <span className="text-[10px] text-slate-400">{filtersOpen ? 'Collapse ▲' : 'Expand ▼'}</span>
-            </div>
+          <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+            <button
+              type="button"
+              onClick={() => setFiltersOpen(v => !v)}
+              aria-expanded={filtersOpen}
+              className="flex flex-1 items-center justify-between gap-2 rounded-lg py-1 text-left transition-colors hover:text-brand-blue cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"
+            >
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 uppercase tracking-wide">
+                <Filter className="w-3.5 h-3.5" aria-hidden="true" /> Filters
+              </span>
+              <span className="text-xs text-slate-500">{filtersOpen ? 'Collapse ▲' : 'Expand ▼'}</span>
+            </button>
+            {showExportForRole(currentUserRole) && (
+              <div className="shrink-0">
+                <ExportMenu
+                  rows={exportRows}
+                  columns={TXN_COLUMNS}
+                  sheetName="Transactions"
+                  filename={`transactions-p${page}`}
+                  pdfTitle="Transaction Center Report"
+                  showPdf={false}
+                  meta={{
+                    reportName: 'Transaction Center Export',
+                    generatedByName: currentUserName,
+                    generatedByRole: currentUserRole,
+                  }}
+                />
+              </div>
+            )}
           </div>
 
           {filtersOpen && (
@@ -258,11 +246,11 @@ export default function TransactionCenter({ currentUserRole, currentUserName, da
                 {/* Inventory sources require an explicitly authorized role. */}
                 {inventoryAllowed && (
                   <div>
-                    <label className="text-[11px] font-semibold text-slate-500 block mb-1">Source</label>
+                    <label className="text-xs font-semibold text-slate-600 block mb-1">Source</label>
                     <select
                       value={pendingFilters.source}
                       onChange={e => setPendingFilters(p => ({ ...p, source: e.target.value, category: '', status: '' }))}
-                      className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:border-[#1F3864]"
+                      className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25 cursor-pointer"
                     >
                       <option value="all">All Sources</option>
                       <option value="delivery">Delivery Records</option>
@@ -274,11 +262,11 @@ export default function TransactionCenter({ currentUserRole, currentUserName, da
                 {/* Category filter — only when source includes delivery */}
                 {showCategoryFilter && (
                   <div>
-                    <label className="text-[11px] font-semibold text-slate-500 block mb-1">Category</label>
+                    <label className="text-xs font-semibold text-slate-600 block mb-1">Category</label>
                     <select
                       value={pendingFilters.category}
                       onChange={e => setPendingFilters(p => ({ ...p, category: e.target.value }))}
-                      className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:border-[#1F3864]"
+                      className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25 cursor-pointer"
                     >
                       <option value="">All Categories</option>
                       {categoryOptions.map(o => (
@@ -291,15 +279,16 @@ export default function TransactionCenter({ currentUserRole, currentUserName, da
                 {/* Status filter — only when source includes delivery */}
                 {showStatusFilter && (
                   <div>
-                    <label className="text-[11px] font-semibold text-slate-500 block mb-1">Status</label>
+                    <label className="text-xs font-semibold text-slate-600 block mb-1">Status</label>
                     <select
                       value={pendingFilters.status}
                       onChange={e => setPendingFilters(p => ({ ...p, status: e.target.value }))}
-                      className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:border-[#1F3864]"
+                      className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25 cursor-pointer"
                     >
                       <option value="">All Statuses</option>
                       <option value="SCHEDULED">Scheduled</option>
-                      <option value="ACCOMPLISHED">Accomplished</option>
+                      <option value="TRANSPORT_COMPLETE">Transport Complete</option>
+                      <option value="ACCOMPLISHED">Complete</option>
                       <option value="ON_HOLD">On-Hold</option>
                       <option value="RESCHEDULED">Rescheduled</option>
                       <option value="PENDING">Pending</option>
@@ -309,35 +298,37 @@ export default function TransactionCenter({ currentUserRole, currentUserName, da
 
                 {/* Date range */}
                 <div>
-                  <label className="text-[11px] font-semibold text-slate-500 block mb-1">From</label>
+                  <label className="text-xs font-semibold text-slate-600 block mb-1">From</label>
                   <input
                     type="date"
                     value={pendingFilters.from}
                     onChange={e => setPendingFilters(p => ({ ...p, from: e.target.value }))}
-                    className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:border-[#1F3864]"
+                    className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25"
                   />
                 </div>
                 <div>
-                  <label className="text-[11px] font-semibold text-slate-500 block mb-1">To</label>
+                  <label className="text-xs font-semibold text-slate-600 block mb-1">To</label>
                   <input
                     type="date"
                     value={pendingFilters.to}
                     onChange={e => setPendingFilters(p => ({ ...p, to: e.target.value }))}
-                    className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:border-[#1F3864]"
+                    className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 bg-white focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25"
                   />
                 </div>
 
                 {/* Actions */}
                 <div className="flex items-end gap-2 ml-auto">
                   <button
+                    type="button"
                     onClick={handleClear}
-                    className="px-3 py-1.5 text-xs font-semibold text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                    className={btnSecondaryClass}
                   >
                     Clear
                   </button>
                   <button
+                    type="button"
                     onClick={handleApply}
-                    className="px-4 py-1.5 text-xs font-bold text-white bg-[#1F3864] hover:bg-[#0078C1] rounded-lg transition-colors"
+                    className={btnPrimaryClass}
                   >
                     Apply Filters
                   </button>
@@ -350,7 +341,7 @@ export default function TransactionCenter({ currentUserRole, currentUserName, da
         {/* Table */}
         {loading ? (
           <div className="flex justify-center py-20">
-            <Loader2 className="w-6 h-6 animate-spin text-[#0078C1]" />
+            <Loader2 className="w-6 h-6 animate-spin text-brand-blue" />
           </div>
         ) : error ? (
           <div className="flex items-center justify-center gap-2 py-16 text-red-600 text-sm">
@@ -360,7 +351,7 @@ export default function TransactionCenter({ currentUserRole, currentUserName, da
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                <tr className={tableHeaderRowClass}>
                   <th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3">Source</th>
                   <th className="px-4 py-3">Type / Category</th>
@@ -373,7 +364,7 @@ export default function TransactionCenter({ currentUserRole, currentUserName, da
               <tbody className="divide-y divide-slate-100">
                 {transactions.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                    <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-500">
                       No transactions found for the selected filters.
                     </td>
                   </tr>
@@ -413,33 +404,42 @@ export default function TransactionCenter({ currentUserRole, currentUserName, da
 // ─── Transaction row ──────────────────────────────────────────────────────────
 
 function TransactionRow({ txn, onClick }: { key?: React.Key; txn: ApiTransaction; onClick: () => void }) {
-  const statusStyle = txn.status ? (STATUS_BADGE[txn.status] ?? 'bg-slate-50 text-slate-700 border-slate-200') : '';
-  const statusLabel = txn.status ? (STATUS_LABEL[txn.status] ?? txn.status) : null;
+  const statusStyle = txn.status ? statusBadgeClass(txn.status) : '';
+  const statusLabel = txn.status ? statusDisplayLabel(txn.status) : null;
 
   return (
     <tr
-      className="hover:bg-blue-50/40 cursor-pointer transition-all"
+      className="hover:bg-blue-50/40 focus-within:bg-blue-50/40 cursor-pointer transition-all"
       onClick={onClick}
     >
-      <td className="px-4 py-3 font-mono text-slate-700 whitespace-nowrap">{txn.date}</td>
+      <td className="px-4 py-3 tabular-nums text-slate-700 whitespace-nowrap">{txn.date}</td>
       <td className="px-4 py-3">
         <SourceBadge source={txn.source} />
       </td>
       <td className="px-4 py-3 font-semibold text-slate-700">{txn.type}</td>
-      <td className="px-4 py-3 font-mono text-slate-700">{txn.reference}</td>
+      <td className="px-4 py-3 tabular-nums">
+        <button
+          type="button"
+          onClick={e => { e.stopPropagation(); onClick(); }}
+          aria-label={`Open transaction ${txn.reference}`}
+          className={`${tableLeadButtonClass} tabular-nums text-xs`}
+        >
+          {txn.reference}
+        </button>
+      </td>
       <td className="px-4 py-3 max-w-[160px] truncate font-semibold text-slate-800" title={txn.entity}>
         {txn.entity}
       </td>
       <td className="px-4 py-3">
         {statusLabel ? (
-          <span className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold tracking-wide inline-block whitespace-nowrap ${statusStyle}`}>
+          <span className={`px-2 py-0.5 rounded-full border text-xs font-semibold inline-block whitespace-nowrap ${statusStyle}`}>
             {statusLabel}
           </span>
         ) : (
-          <span className="text-slate-300">—</span>
+          <span className="text-slate-400">—</span>
         )}
       </td>
-      <td className="px-4 py-3 max-w-[220px] truncate text-slate-500" title={txn.description}>
+      <td className="px-4 py-3 max-w-[220px] truncate text-slate-600" title={txn.description}>
         {txn.description}
       </td>
     </tr>

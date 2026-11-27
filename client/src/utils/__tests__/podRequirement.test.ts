@@ -66,10 +66,11 @@ test('other run categories require a saved photo for completion, while side stat
   }
 });
 
-test('RMA completion requires a recipient but no Time In or attachment readiness', () => {
+test('RMA completion needs no recipient, Time In or attachment readiness', () => {
   const rma = { category: 'RMA' as DeliveryCategory, time_in: null };
+  // Recipient is optional on TASS physical receipt, so completion never asks for one.
   for (const recipient of [null, undefined, '', '  ']) {
-    assert.match(completionError(rma, 'Delivered', recipient)!, /Recipient \/ Collector/);
+    assert.equal(completionError(rma, 'Delivered', recipient), null);
   }
   assert.equal(completionError(rma, 'Delivered', 'Collector'), null);
   assert.equal(completionError(rma, 'Delivered', 'Collector', ready({ hasPhoto: false, loadFailed: true, loading: true, uploading: true })), null);
