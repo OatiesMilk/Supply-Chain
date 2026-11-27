@@ -16,7 +16,7 @@ import * as XLSX from 'xlsx';
 import { RECORD_NO_PATTERN, deliveredFixtureRow, recordRows } from '../support/recordRows';
 import { kpiTile } from '../support/kpiTile';
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:3000';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

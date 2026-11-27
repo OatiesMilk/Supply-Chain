@@ -49,7 +49,8 @@ Non-Admin readers of `GET /account-managers` receive only `{ id, name, is_active
   entry; the directory spelling is stored. An unchanged value is always accepted.
   New records and company changes need an active company.
 - Picking a company fills its default Account Manager unless the user already
-  chose someone else. RMA Auto Fill uses the default too.
+  chose someone else. Auto Fill (local development/demo builds only, never shown
+  on staging or production) uses the default too.
 - Optimistic locking: edits send `expected_version`; a stale edit gets 409 and
   the list refreshes.
 - Every create/update writes an `AuditLog` row (`Company`, `AccountManager`)

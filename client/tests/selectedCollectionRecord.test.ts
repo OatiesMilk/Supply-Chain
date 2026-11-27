@@ -285,7 +285,7 @@ test('AccountingCollectionView submits a creation payload accepted by V1 server 
     await act(async () => root.render(React.createElement(QueryClientProvider, { client }, React.createElement(AccountingCollectionView, {
       records: [], companies: [{ id: 'co-1', name: 'Army Navy Burger Burrito PH' } as any],
       currentUserRole: 'Sales Coordinator', currentUserName: 'Sales Coordinator',
-      dashboardFilterId: null, clearDashboardFilter() {},
+      dashboardFilterId: null, clearDashboardFilter() {}, showAutoFill: true,
       onCreateRecord: async (data) => {
         submittedPayload = data as unknown as Record<string, unknown>;
         return collection('created-coll', data);

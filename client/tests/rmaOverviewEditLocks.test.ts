@@ -199,3 +199,55 @@ test('a completed legacy RMA with no movement or Logistics date saves an unrelat
     assert.doesNotMatch(ui.dom.window.document.body.textContent!, /Choose a movement method|planned transport date/);
   } finally { await ui.close(); }
 });
+
+// #360: Return to Draft follows the server guard (records.ts) even when allowed_statuses still lists Draft.
+const returnToDraftLockedCases = [
+  { name: 'transport started', record: base({ rma_movement: 'LOGISTICS_TRANSPORT', rma_transport_status: 'IN_TRANSIT', rma_transport_started_at: '2026-11-20T01:00:00Z' }) },
+  { name: 'receipt confirmed', record: base({ rma_received_at: '2026-11-20T02:00:00Z' }) },
+  { name: 'completed without transport or receipt timestamps', record: base({ status: 'Delivered', rma_received_at: null, rma_transport_started_at: null }) },
+];
+
+for (const lockedCase of returnToDraftLockedCases) test(`Return to Draft is hidden for an RMA once it is locked (${lockedCase.name})`, async () => {
+  const ui = await fixture(); const record = lockedCase.record;
+  assert.ok(record.allowed_statuses?.includes('Draft'), 'the fixture still lists Draft as an allowed status');
+  ui.mockReads(record);
+  try {
+    await ui.render(record, 'TASS', mock.fn(async () => {}));
+    assert.equal(ui.button('Return to Draft'), undefined, 'Return to Draft is not offered');
+    assert.equal(ui.dom.window.document.getElementById('submission-change-remarks'), null, 'no submission panel is shown');
+  } finally { await ui.close(); }
+});
+
+test('Return to Draft stays available for a Scheduled RMA with nothing started', async () => {
+  const ui = await fixture(); const record = base();
+  ui.mockReads(record);
+  try {
+    await ui.render(record, 'TASS', mock.fn(async () => {}));
+    assert.ok(ui.button('Return to Draft'), 'Return to Draft is offered before transport or receipt');
+  } finally { await ui.close(); }
+});
+
+test('a Draft RMA still offers Submit to TASS', async () => {
+  const ui = await fixture(); const record = base({ status: 'Draft', is_draft: 'Yes', allowed_statuses: ['Scheduled'] });
+  ui.mockReads(record);
+  try {
+    await ui.render(record, 'TASS', mock.fn(async () => {}));
+    assert.ok(ui.dom.window.document.getElementById('submission-change-remarks'), 'the submission panel is shown');
+    assert.ok(ui.button('Submit'), 'Submit is offered');
+  } finally { await ui.close(); }
+});
+
+test('non-RMA Return to Draft keeps the existing Time In rule', async () => {
+  installLegacySession('SALES_COORDINATOR', 'deliveries');
+  const delivery = (updates: Partial<DeliveryRecord> = {}) => base({
+    category: 'Deliveries', rma_movement: null, allowed_statuses: ['On-Hold', 'Rescheduled', 'Draft'], ...updates,
+  });
+  for (const [record, shown] of [[delivery(), true], [delivery({ time_in: '2026-11-20T01:00:00Z' }), false]] as const) {
+    const ui = await fixture();
+    ui.mockReads(record);
+    try {
+      await ui.render(record, 'Sales Coordinator', mock.fn(async () => {}));
+      assert.equal(Boolean(ui.button('Return to Draft')), shown, shown ? 'offered before Time In' : 'hidden after Time In');
+    } finally { await ui.close(); }
+  }
+});

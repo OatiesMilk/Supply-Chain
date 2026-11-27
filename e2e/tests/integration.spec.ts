@@ -10,7 +10,7 @@
 import { test, expect, chromium, type BrowserContext } from '@playwright/test';
 import { RECORD_NO_PATTERN, recordRows } from '../support/recordRows';
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:3000';
 
 const CREDS = {
   sales:     { email: 'sales@microgenesis.com',     password: 'password123' },

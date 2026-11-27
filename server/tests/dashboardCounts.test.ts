@@ -4,7 +4,7 @@ import { prisma } from '../src/db';
 import dashboard from '../src/routes/dashboard';
 import records from '../src/routes/records';
 import { dashboardOverview } from '../src/services/dashboardOverview';
-import { OPEN_RMA_STATUSES, dashboardRecordFilter } from '../src/services/dashboardFilters';
+import { OPEN_RMA_STATUSES, RMA_NO_DRIVER_MOVEMENTS, dashboardRecordFilter } from '../src/services/dashboardFilters';
 import { recordActiveCounts } from '../src/services/activeRecordCounts';
 import { sessionUser } from '../src/services/permissions';
 import { recordScope } from '../src/services/recordAccess';
@@ -50,7 +50,7 @@ test('every role stats tile counts with exactly the filter its drill-down list u
   const expected: Record<string, string[]> = {
     SALES_COORDINATOR: ['sc-scheduled-today', 'sc-pending-assignment', 'sc-on-hold', 'sc-rescheduled', 'sc-completed-today'],
     LOGISTICS: ['log-assigned-today', 'log-transport-requests', 'log-completed-today', 'log-on-hold-rescheduled'],
-    TASS: ['tass-open-rma', 'tass-rma-on-hold', 'tass-rma-in-transit', 'tass-rma-aging'],
+    TASS: ['tass-open-rma', 'tass-rma-on-hold', 'tass-rma-in-transit', 'tass-rma-aging', 'tass-rma-awaiting-receipt', 'tass-rma-awaiting-completion'],
   };
   for (const [role, ids] of Object.entries(expected)) {
     const { queries, user } = await statsQueries(role);
@@ -142,4 +142,60 @@ test('RMA transport requests use one shared filter for the Logistics panel total
   assert.deepEqual(dashboardRecordFilter('log-rma-requests', TODAY), {
     category: 'RMA', draft: false, rmaMovement: 'LOGISTICS_TRANSPORT', status: { not: 'ACCOMPLISHED' }, rmaTransportStatus: { not: 'COMPLETED' },
   });
+});
+
+test('TASS work queues mirror the receive and complete actions and exclude internal transfers', () => {
+  const receipt: any = dashboardRecordFilter('tass-rma-awaiting-receipt', TODAY);
+  assert.deepEqual(receipt, { category: 'RMA', isInternalTransfer: false, draft: false, status: { not: 'ACCOMPLISHED' }, rmaReceivedAt: null,
+    OR: [{ rmaMovement: 'LOGISTICS_TRANSPORT', rmaTransportStatus: 'COMPLETED' }, { rmaMovement: { in: RMA_NO_DRIVER_MOVEMENTS } }] });
+  assert.deepEqual([...RMA_NO_DRIVER_MOVEMENTS].sort(), ['INTERNAL_NO_DRIVER', 'SUPPLIER_COLLECTION']);
+  const completion: any = dashboardRecordFilter('tass-rma-awaiting-completion', TODAY);
+  assert.equal(completion.isInternalTransfer, false);
+  assert.equal(completion.draft, false);
+  assert.deepEqual(completion.status, { not: 'ACCOMPLISHED' });
+  assert.deepEqual(completion.rmaReceivedAt, { not: null });
+  // SQL NOT excludes NULL, so legacy rows with no movement are listed explicitly.
+  assert.deepEqual(completion.OR, [{ rmaMovement: 'LOGISTICS_TRANSPORT', rmaTransportStatus: 'COMPLETED' }, { rmaMovement: { not: 'LOGISTICS_TRANSPORT' } }, { rmaMovement: null }]);
+});
+
+test('TASS stats return both work-queue counts', async context => {
+  context.mock.timers.enable({ apis: ['Date'], now: NOW });
+  let body: any;
+  let calls = 0;
+  stub(prisma.deliveryRecord, 'count', async () => ++calls);
+  await handlerFor(dashboard, '/stats')({ user: actor('TASS') }, { json(value: unknown) { body = value; } });
+  assert.deepEqual(body, { role: 'TASS', open_rma: 1, rma_on_hold: 2, rma_in_transit: 3, rma_aging: 4, rma_awaiting_receipt: 5, rma_awaiting_completion: 6 });
+});
+
+test('TASS overview counts both work queues and previews Ready for receipt, longest waiting first', async context => {
+  context.mock.timers.enable({ apis: ['Date'], now: NOW });
+  const reads: any[] = [];
+  const counts = new Map<string, number>([['tass-rma-awaiting-receipt', 12], ['tass-rma-awaiting-completion', 3]]);
+  const row = (id: string) => ({ id, category: 'RMA', status: 'PENDING', draft: false, company: { name: 'Client' }, driverAssistants: '[]',
+    lineItems: [], reference: '', deliveryDate: '2026-11-03', createdAt: new Date(), updatedAt: new Date(), submittedAt: new Date() });
+  const receipt = dashboardRecordFilter('tass-rma-awaiting-receipt', TODAY);
+  const db: any = { deliveryRecord: {
+    count: async (query: any) => {
+      const filter = query.where.AND?.[2];
+      for (const [id, value] of counts) if (JSON.stringify(filter) === JSON.stringify(dashboardRecordFilter(id, TODAY))) return value;
+      return 0;
+    },
+    findMany: async (query: any) => { reads.push(query); return JSON.stringify(query.where.AND[2]) === JSON.stringify(receipt) ? [row('ready-1'), row('ready-2')] : []; },
+  } };
+  const result: any = await dashboardOverview(db, actor('TASS'));
+  assert.equal(result.counts['tass-rma-awaiting-receipt'], 12);
+  assert.equal(result.counts['tass-rma-awaiting-completion'], 3);
+  assert.deepEqual(result.record_previews.rma_awaiting_receipt.map((record: any) => record.id), ['ready-1', 'ready-2']);
+  const read = reads.find(query => JSON.stringify(query.where.AND[2]) === JSON.stringify(receipt));
+  assert.equal(read.take, 10);
+  assert.deepEqual(read.orderBy, [{ submittedAt: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }, { id: 'asc' }]);
+});
+
+test('non-TASS overviews do not compute the TASS work queues', async () => {
+  const db: any = { deliveryRecord: { count: async () => 0, aggregate: async () => ({ _sum: { amount: 0 } }), groupBy: async () => [], findMany: async () => [] } };
+  for (const role of ['SALES_COORDINATOR', 'LOGISTICS', 'ADMIN']) {
+    const result: any = await dashboardOverview(db, actor(role));
+    assert.equal('tass-rma-awaiting-receipt' in result.counts, false, role);
+    assert.deepEqual(result.record_previews.rma_awaiting_receipt, [], role);
+  }
 });

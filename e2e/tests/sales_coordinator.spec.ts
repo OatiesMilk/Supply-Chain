@@ -13,7 +13,7 @@ import fs from 'fs';
 import { kpiTile } from '../support/kpiTile';
 import { RECORD_NO_PATTERN, deliveredFixtureRow } from '../support/recordRows';
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:3000';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -112,6 +112,16 @@ test.describe('A-2 Create a Delivery Record', () => {
     await addressInput.fill('Manually entered delivery address');
     await expect(areaInput).toHaveValue('Makati CBD');
     await expect(addressInput).toHaveValue('Manually entered delivery address');
+  });
+
+  test('A-2.1b Accounting Collection Auto Fill is not shown in the production build', async ({ page }) => {
+    await page.goto(`${BASE_URL}/accounting_collection`);
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('button', { name: /new record/i }).click();
+
+    // The demo-data flag is off in the production bundle CI serves (#358).
+    await expect(page.getByRole('heading', { name: 'Create New Accounting Collection Record' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /auto fill/i })).toHaveCount(0);
   });
 
   test('A-2.2 Empty form submission shows validation errors', async ({ page }) => {

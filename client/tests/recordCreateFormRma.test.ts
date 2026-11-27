@@ -113,3 +113,60 @@ test('Movement required marker and aria-required appear only when the form can s
     assert.equal((doc.querySelector('button[value="submit"]') as HTMLButtonElement).disabled, true);
   } finally { await ui.close(); }
 });
+
+test('Delivery Date required marker and aria-required follow submit capability, not the draft flag (#361)', async () => {
+  const ui = await fixture(); const doc = ui.dom.window.document;
+  mock.method(api, 'getAccountManagers', async () => []);
+  const base = { categoryLocked: true, companies: [rmaCompany], onSubmit: async () => { throw new Error('not called'); }, onCancel: () => {} };
+  const dateLabel = () => [...doc.querySelectorAll('label')].find(label => label.textContent?.startsWith('Delivery Date'))!;
+  const dateInput = () => doc.getElementById(dateLabel().htmlFor) as HTMLInputElement;
+  const marked = () => {
+    const star = [...dateLabel().querySelectorAll('span')].find(span => span.textContent === '*');
+    if (star) assert.equal(star.getAttribute('aria-hidden'), 'true', 'the visual asterisk is hidden from screen readers');
+    return Boolean(star);
+  };
+  const chooseMovement = async (value: string) => {
+    const select = doc.getElementById('create-rma-movement') as HTMLSelectElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(ui.dom.window.HTMLSelectElement.prototype, 'value')!.set!.call(select, value);
+      select.dispatchEvent(new ui.dom.window.Event('change', { bubbles: true }));
+    });
+  };
+  try {
+    installLegacySession('SALES_COORDINATOR', 'deliveries');
+    await ui.renderElement(React.createElement(ui.CreateForm, { ...base, key: 'delivery', category: 'Deliveries' }));
+    assert.equal(marked(), true, 'a submit-capable Delivery requires the date');
+    assert.equal(dateInput().getAttribute('aria-required'), 'true');
+
+    installLegacySession('TASS', 'rma');
+    await ui.renderElement(React.createElement(ui.CreateForm, { ...base, key: 'tass-rma', category: 'RMA' }));
+    assert.equal(marked(), false, 'an RMA without a movement leaves the date optional');
+    assert.match(dateLabel().textContent ?? '', /\(optional\)/);
+    assert.equal(dateInput().getAttribute('aria-required'), null);
+    await chooseMovement('SUPPLIER_COLLECTION');
+    assert.equal(marked(), false, 'a non-Logistics movement leaves the date optional');
+    assert.equal(dateInput().getAttribute('aria-required'), null);
+    await chooseMovement('LOGISTICS_TRANSPORT');
+    assert.equal(marked(), true, 'Logistics transport requires the date when TASS can submit');
+    assert.equal(dateInput().getAttribute('aria-required'), 'true');
+
+    // Validation is unchanged: Submit still needs the date, a draft does not.
+    const form = doc.querySelector('form')!;
+    const send = async (value: 'submit' | 'draft') => {
+      const submitter = doc.querySelector<HTMLButtonElement>(`button[value="${value}"]`)!;
+      await act(async () => { form.dispatchEvent(new ui.dom.window.SubmitEvent('submit', { bubbles: true, cancelable: true, submitter })); });
+      await ui.flush();
+    };
+    await send('submit');
+    assert.match(doc.body.textContent ?? '', /A valid Delivery Date is required for Logistics transport/, 'Submit still validates the date');
+    await send('draft');
+    assert.doesNotMatch(doc.body.textContent ?? '', /A valid Delivery Date is required for Logistics transport/, 'a draft may omit the date');
+
+    // Admin is read-only on RMA, so the form cannot submit and nothing is marked required.
+    installLegacySession('ADMIN', 'rma');
+    await ui.renderElement(React.createElement(ui.CreateForm, { ...base, key: 'admin-rma', category: 'RMA' }));
+    await chooseMovement('LOGISTICS_TRANSPORT');
+    assert.equal(marked(), false, 'no required marker when the form cannot submit');
+    assert.equal(dateInput().getAttribute('aria-required'), null);
+  } finally { await ui.close(); }
+});
