@@ -31,6 +31,8 @@ export const DASHBOARD_FILTERS = {
   'tass-open-rma': { label: 'Open RMA', screen: 'rma' },
   'tass-rma-aging': { label: 'Open RMA over 7 days', screen: 'rma' },
   'tass-rma-on-hold': { label: 'RMA On-Hold', screen: 'rma' },
+  'tass-rma-awaiting-receipt': { label: 'RMA awaiting TASS receipt', screen: 'rma' },
+  'tass-rma-awaiting-completion': { label: 'RMA received, awaiting completion', screen: 'rma' },
   'admin-active-users': { label: 'Total Active Users', screen: 'admin' },
   'admin-records-this-week': { label: 'Records This Week', screen: 'transactions' },
   'admin-unverified-collections': { label: 'Unverified Collections', screen: 'accounting_collection' },
@@ -78,6 +80,27 @@ function isRmaKpiRecord(record: DeliveryRecord): boolean {
 /** Every RMA that is neither completed nor a draft. Mirrors OPEN_RMA_STATUSES on the server. */
 function isOpenRma(record: DeliveryRecord): boolean {
   return isRmaKpiRecord(record) && !isDraftRecord(record) && record.status !== 'Delivered';
+}
+
+/** RMA movement methods with no Logistics driver leg. Mirrors RMA_NO_DRIVER_MOVEMENTS on the server. */
+const RMA_NO_DRIVER_MOVEMENTS: readonly string[] = ['SUPPLIER_COLLECTION', 'INTERNAL_NO_DRIVER'];
+
+/** An open, submitted TASS RMA (not an internal transfer). */
+function isActiveTassRma(record: DeliveryRecord): boolean {
+  return isRmaKpiRecord(record) && !isDraftRecord(record) && record.status !== 'Delivered';
+}
+
+/** Mirrors tass-rma-awaiting-receipt: transport completed, or a movement with no driver leg, and receipt not confirmed. */
+function isRmaAwaitingReceipt(record: DeliveryRecord): boolean {
+  if (!isActiveTassRma(record) || record.rma_received_at) return false;
+  return (record.rma_movement === 'LOGISTICS_TRANSPORT' && record.rma_transport_status === 'COMPLETED')
+    || RMA_NO_DRIVER_MOVEMENTS.includes(record.rma_movement ?? '');
+}
+
+/** Mirrors tass-rma-awaiting-completion: receipt confirmed, transport (if any) finished, not yet Delivered. */
+function isRmaAwaitingCompletion(record: DeliveryRecord): boolean {
+  return isActiveTassRma(record) && !!record.rma_received_at
+    && (record.rma_movement !== 'LOGISTICS_TRANSPORT' || record.rma_transport_status === 'COMPLETED');
 }
 
 /** Non-RMA job types a Driver runs. Mirrors DRIVER_RUN_CATEGORIES on the server. */
@@ -201,6 +224,10 @@ export function matchesDashboardFilter(
     }
     case 'tass-rma-on-hold':
       return isRmaKpiRecord(record) && !isDraftRecord(record) && record.status === 'On-Hold';
+    case 'tass-rma-awaiting-receipt':
+      return isRmaAwaitingReceipt(record);
+    case 'tass-rma-awaiting-completion':
+      return isRmaAwaitingCompletion(record);
     case 'admin-unverified-collections':
       return record.category === 'Accounting Collection' && record.status === 'Delivered' && !record.collection_verified;
     default:

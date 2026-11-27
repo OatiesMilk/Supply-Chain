@@ -20,6 +20,9 @@ const AGGREGATE_SCREENS = ['main', 'dashboard', 'driver', 'calendar', 'driver_bo
 export const ROLE_DEFAULTS: Record<string, readonly Screen[]> = {
   SALES_COORDINATOR: ['main', 'dashboard', ...RECORD_SCREENS.filter(s => s !== 'rma'), 'customers', 'suppliers', 'am_directory', 'transactions'],
   LOGISTICS: ['main', 'dashboard', ...RECORD_SCREENS, 'customers', 'suppliers', 'driver', 'driver_manager', 'calendar', 'driver_board', 'transactions', 'statistical_reports'],
+  // procurement_pickup / accounting_collection stay listed only because this is the frozen V1 migration
+  // baseline (must equal LEGACY_POLICY_DEFAULT_SCREENS). TASS never gets them: screenRestricted() in
+  // moduleAccessRules removes both at runtime, and TASS has no collection verification role.
   TASS: ['main', 'dashboard', 'rma', 'procurement_pickup', 'accounting_collection', 'transactions', 'suppliers'],
   ADMIN: (Object.keys(SCREEN_LABELS) as Screen[]).filter(s => s !== 'driver_dashboard'),
   DRIVER: ['driver_dashboard'],

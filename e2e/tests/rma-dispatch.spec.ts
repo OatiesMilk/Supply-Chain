@@ -17,7 +17,7 @@ const today = () => new Intl.DateTimeFormat('en-CA', {
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWMwTpsJAAICATMDms/iAAAAAElFTkSuQmCC', 'base64');
 
 async function session(browser: Browser, user: number): Promise<Session> {
-  const context = await browser.newContext({ baseURL: 'http://localhost:3000' });
+  const context = await browser.newContext({ baseURL: process.env.E2E_BASE_URL || 'http://localhost:3000' });
   const response = await context.request.post('/api/v1/auth/login', {
     data: { email: `sc255-${user}@example.test`, password: 'sc255-test-password' },
   });
@@ -67,11 +67,28 @@ async function openDialog(card: Locator, page: Page, action: 'Start transport' |
   await expect(dialog).toBeVisible();
   return dialog;
 }
-const driverTransport = (page: Page, reference: string) => page
-  .getByRole('heading', { name: `${reference} · RMA Dispatch Test Company`, exact: true })
-  .locator('..').getByRole('region', { name: 'RMA transport', exact: true });
+/** The Driver app shows one job card per assigned job (#326), named "Active rma <reference>, <company>". */
+const driverCard = (page: Page, reference: string) => page
+  .getByRole('article', { name: `Active rma ${reference}, RMA Dispatch Test Company`, exact: true });
+/** Opens the Driver card's Start/Complete confirmation sheet. */
+async function openDriverSheet(page: Page, reference: string, action: 'Start transport' | 'Complete transport') {
+  await driverCard(page, reference).getByRole('button', { name: action, exact: true }).click();
+  const sheet = page.getByRole('dialog', { name: action });
+  await expect(sheet).toBeVisible();
+  return sheet;
+}
 
-async function propagated(label: string, since: number, verify: () => Promise<void>, observations: Record<string, number>) {
+/**
+ * Operational views poll every 30s (OPERATIONAL_POLL_INTERVAL_MS, #283) and refetch stale data
+ * when a tab becomes visible or regains focus. The observing user returns to their tab, so the
+ * budget measures that refresh path instead of waiting for a background poll tick.
+ */
+async function refocus(page: Page) {
+  await page.evaluate(() => { window.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('focus')); });
+}
+
+async function propagated(label: string, since: number, observer: Page, verify: () => Promise<void>, observations: Record<string, number>) {
+  await refocus(observer);
   await verify();
   const elapsed = Date.now() - since;
   observations[label] = elapsed;
@@ -106,20 +123,23 @@ test('three online sessions synchronize submission, reassignment, transport/POD 
     expect(submitted.rma_reference, 'a submitted draft keeps its allocated slip reference').toBe(draft.rma_reference);
     let since = submittedAt;
     const boardCard = logistics.page.getByRole('article').filter({ hasText: draft.rma_reference });
-    await propagated('submission to Logistics board', since, () => expect(boardCard).toBeVisible(), observations);
+    await propagated('submission to Logistics board', since, logistics.page, () => expect(boardCard).toBeVisible(), observations);
     await tass.page.getByRole('tab', { name: 'Status & Actions', exact: true }).click();
     await logistics.page.goto(`/rma?item=${draft.id}`);
     const actions = logistics.page.getByRole('tab', { name: 'Status & Actions', exact: true });
     await actions.click();
-    await transport(logistics.page).getByLabel(/^Driver\b/).selectOption('sc255-driver-3');
-    await transport(logistics.page).getByLabel(/^Vehicle\b/).selectOption('Van-01 (L300)');
+    // The Driver/Vehicle labels wrap their selects, so the label text runs into the first option
+    // ("DriverUnassigned…"); match each combobox by its accessible name instead.
+    await transport(logistics.page).getByRole('combobox', { name: /^Driver/ }).selectOption('sc255-driver-3');
+    await transport(logistics.page).getByRole('combobox', { name: /^Vehicle/ }).selectOption('Van-01 (L300)');
     await transport(logistics.page).getByLabel(/^Remarks\b/).fill('Assign linked Driver');
     const assignment = logistics.page.waitForResponse(r => r.url().endsWith(`/records/${draft.id}/rma-assignment`));
     const assignedAt = Date.now();
     await transport(logistics.page).getByRole('button', { name: 'Save assignment', exact: true }).click();
     const assigned = await saved(await assignment);
     since = assignedAt;
-    await propagated('assignment to Driver task', since, () => expect(driver.page.getByRole('heading', { name: `${draft.rma_reference} · RMA Dispatch Test Company`, exact: true })).toBeVisible(), observations);
+    await propagated('assignment to Driver task', since, driver.page, () => expect(driverCard(driver.page, draft.rma_reference)).toBeVisible(), observations);
+    await refocus(tass.page);
     await expect(transport(tass.page)).toContainText('RMA Driver 3');
 
     // A stale assignment cannot overwrite the current one, and ownership moves immediately.
@@ -130,29 +150,32 @@ test('three online sessions synchronize submission, reassignment, transport/POD 
       driver_id: 'sc255-driver-4', expected_version: assigned.rma_version, remarks: 'Reassign to second linked Driver',
     }));
     since = Date.now();
-    await propagated('reassignment removes old Driver task', since, () => expect(driver.page.getByRole('heading', { name: `${draft.rma_reference} · RMA Dispatch Test Company`, exact: true })).toHaveCount(0), observations);
+    await propagated('reassignment removes old Driver task', since, driver.page, () => expect(driverCard(driver.page, draft.rma_reference)).toHaveCount(0), observations);
     expect([403, 404]).toContain((await driver.context.request.get(`/api/v1/records/${draft.id}`)).status());
     expect((await otherDriver.context.request.get(`/api/v1/records/${draft.id}`)).status()).toBe(200);
     current = await saved(await action(logistics, draft.id, 'rma-assignment', {
       driver_id: 'sc255-driver-3', expected_version: current.rma_version, remarks: 'Return assignment for transport verification',
     }));
-    await expect(driver.page.getByRole('heading', { name: `${draft.rma_reference} · RMA Dispatch Test Company`, exact: true })).toBeVisible();
-    const startDialog = await openDialog(driverTransport(driver.page, draft.rma_reference), driver.page, 'Start transport');
-    await startDialog.getByLabel('Remarks').fill('Begin local transport');
+    await refocus(driver.page);
+    await expect(driverCard(driver.page, draft.rma_reference)).toBeVisible();
+    const startSheet = await openDriverSheet(driver.page, draft.rma_reference, 'Start transport');
+    await startSheet.getByLabel('Note (optional)').fill('Begin local transport');
     const startedResponse = driver.page.waitForResponse(r => r.url().endsWith(`/records/${draft.id}/rma-transport`));
-    await startDialog.getByRole('button', { name: 'Start transport', exact: true }).click();
+    await startSheet.getByRole('button', { name: 'Confirm', exact: true }).click();
     current = await saved(await startedResponse);
     expect(current.rma_transport_status).toBe('IN_TRANSIT');
     expect(current.status).not.toBe('Delivered');
     expect(current.rma_received_at).toBeNull();
     since = Date.parse(current.rma_transport_started_at!);
-    await propagated('transport start to TASS', since, () => expect(transport(tass.page)).toContainText('In Transit'), observations);
+    await propagated('transport start to TASS', since, tass.page, () => expect(transport(tass.page)).toContainText('In Transit'), observations);
 
-    const completeDialog = await openDialog(driverTransport(driver.page, draft.rma_reference), driver.page, 'Mark as delivered');
-    await completeDialog.locator('input[type=file]').setInputFiles({ name: 'sc255-pod.png', mimeType: 'image/png', buffer: png });
-    await completeDialog.getByLabel('Received by').fill('Warehouse guard');
-    await completeDialog.getByLabel('Remarks').fill('Transport and POD complete');
-    const finish = completeDialog.getByRole('button', { name: 'Mark as delivered', exact: true });
+    // The started card holds the POD photo and Received by; the sheet asks for the remarks.
+    const card = driverCard(driver.page, draft.rma_reference);
+    await card.locator('input[type=file]').setInputFiles({ name: 'sc255-pod.png', mimeType: 'image/png', buffer: png });
+    await card.getByLabel(/^Received by/).fill('Warehouse guard');
+    const completeSheet = await openDriverSheet(driver.page, draft.rma_reference, 'Complete transport');
+    await completeSheet.getByLabel(/^Remarks/).fill('Transport and POD complete');
+    const finish = completeSheet.getByRole('button', { name: 'Confirm', exact: true });
     await expect(finish).toBeEnabled();
     const [completedResponse] = await Promise.all([
       driver.page.waitForResponse(r => r.url().endsWith(`/records/${draft.id}/rma-transport`)),
@@ -164,13 +187,15 @@ test('three online sessions synchronize submission, reassignment, transport/POD 
     expect(current.status).not.toBe('Delivered');
     expect(current.rma_received_at).toBeNull();
     since = Date.parse(current.rma_transport_completed_at!);
-    await propagated('transport completion to TASS', since, () => expect(transport(tass.page)).toContainText('Complete'), observations);
+    await propagated('transport completion to TASS', since, tass.page, () => expect(transport(tass.page)).toContainText('Complete'), observations);
+    await refocus(logistics.page);
     await expect(transport(logistics.page)).toContainText('Complete');
     expect((await action(driver, draft.id, 'status', { status: 'Delivered', remarks: 'Driver must not finalize RMA', expected_version: current.rma_version })).status()).toBe(403);
 
-    // TASS records the receipt date and status only; there is no Recipient input.
+    // TASS records the receipt date and status only; there is no Recipient input. The date labels wrap
+    // their input and hint ("Receipt dateActual date…"), so they are matched by substring.
     await expect(transport(tass.page).getByLabel('Recipient', { exact: true })).toHaveCount(0);
-    const receiptDate = step(tass.page, 'Step 1 of 2 · Physical receipt').getByLabel(/^Receipt date\b/);
+    const receiptDate = step(tass.page, 'Step 1 of 2 · Physical receipt').getByLabel('Receipt date');
     await expect(receiptDate).toHaveAttribute('type', 'date');
     const today = await receiptDate.inputValue();
     expect(today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
@@ -183,7 +208,7 @@ test('three online sessions synchronize submission, reassignment, transport/POD 
     expect(received.rma_received_by).toBe('sc255-user-1');
     expect(received.rma_recipient).toBeNull();
     expect(received.status).not.toBe('Delivered');
-    await expect(step(tass.page, 'Step 2 of 2 · Complete RMA').getByLabel(/^Completion date\b/)).toHaveAttribute('type', 'date');
+    await expect(step(tass.page, 'Step 2 of 2 · Complete RMA').getByLabel('Completion date')).toHaveAttribute('type', 'date');
     await step(tass.page, 'Step 2 of 2 · Complete RMA').getByLabel(/^Remarks\b/).fill('TASS final completion verified');
     const finalResponse = tass.page.waitForResponse(r => r.url().endsWith(`/records/${draft.id}/status`) && r.request().method() === 'PATCH');
     await step(tass.page, 'Step 2 of 2 · Complete RMA').getByRole('button', { name: 'Complete RMA', exact: true }).click();
@@ -200,7 +225,8 @@ test('three online sessions synchronize submission, reassignment, transport/POD 
     await logistics.context.setOffline(false);
     await logistics.page.evaluate(() => { window.dispatchEvent(new Event('online')); window.dispatchEvent(new Event('focus')); });
     since = Date.now();
-    await propagated('reconnect to final TASS status', since, () => expect(logistics.page.getByRole('region', { name: 'Record summary' })).toContainText('Delivered'), observations);
+    // A completed (Delivered) RMA is badged "RMA: Complete" (RecordStatus).
+    await propagated('reconnect to final TASS status', since, logistics.page, () => expect(logistics.page.getByRole('region', { name: 'Record summary' })).toContainText('RMA: Complete'), observations);
     await expect(logistics.page.getByText(final.record_no!, { exact: true })).toBeVisible();
     expect((await read(tass, draft.id)).rma_version).toBe(final.rma_version);
   } finally {

@@ -38,6 +38,7 @@ test('TASS previews and downloads a DRRMMDDYY.xlsx Daily Route Slip for selected
   const checkboxes = page.locator('#records-view-rma tbody input[type="checkbox"]');
   await checkboxes.first().check();
   if (await checkboxes.count() > 1) await checkboxes.nth(1).check();
+  await page.locator('#bulk-daily-handoff-menu').click();
   await page.locator('#bulk-tass-daily-route-slip').click();
   const dialog = page.getByRole('dialog', { name: 'Daily Route Slip (DRR)' });
   await expect(dialog.getByLabel('Group & sort by Movement Method', { exact: false })).toBeChecked();
@@ -54,6 +55,8 @@ test('TASS previews and downloads a DRRMMDDYY.xlsx Daily Route Slip for selected
 test('TASS opens Dispatch to Logistics and the coordinator list loads from the scoped lookup', async ({ page }) => {
   await login(page, 'TASS');
   await openScreen(page, 'rma', 'TASS');
+  // Product decision (#352): TASS has no generic Route Slip menu on RMA; the DRR is in the Daily handoff menu.
+  await expect(page.getByRole('button', { name: /^Route Slip/ })).toHaveCount(0);
   const recipients = page.waitForResponse(response => response.url().includes('/records/rma-logistics-recipients'));
   await page.locator('#toolbar-dispatch-logistics').click();
   const response = await recipients;

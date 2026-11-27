@@ -126,11 +126,15 @@ export function RecordOverviewTab({
     (tassRma ||
       ((currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin') &&
         (record.status === 'Scheduled' || isDraftRecord(record))));
+  // Mirrors the server guards (records.ts PUT and PATCH status): movement, date and Draft
+  // freeze once transport starts, receipt is confirmed, or the RMA is completed.
+  const rmaScheduleLocked = isRma && (Boolean(record.rma_transport_started_at) || Boolean(record.rma_received_at) || record.status === 'Delivered');
   const canManageDraft =
     !readOnly &&
     access.canRecord(record.category, 'SUBMIT') &&
     (currentUserRole === 'Sales Coordinator' || currentUserRole === 'Admin' || tassRma) &&
-    !record.time_in;
+    !record.time_in &&
+    !rmaScheduleLocked;
 
   const [lifecycleRemarks, setLifecycleRemarks] = useState('');
   const [editVersion, setEditVersion] = useState(record.rma_version ?? 0);
@@ -193,8 +197,6 @@ export function RecordOverviewTab({
   const set = <K extends keyof EditDraft>(k: K, v: EditDraft[K]) => setDraft(p => ({ ...p, [k]: v }));
   // Once a slip reference exists for a canonical category, the category is part of that number.
   const categoryLocked = record.category === 'RMA' && !!record.rma_reference && !!canonicalRmaCategory(record.rma_type);
-  // Mirrors the server guard (records.ts PUT): movement and date freeze once transport starts, receipt is confirmed, or the RMA is completed.
-  const rmaScheduleLocked = isRma && (Boolean(record.rma_transport_started_at) || Boolean(record.rma_received_at) || record.status === 'Delivered');
 
   const handleStartEdit = () => {
     setSaveConflict(null);
@@ -374,8 +376,8 @@ export function RecordOverviewTab({
   const fieldInputCls = (field: string) => `${inputCls}${rmaErrors[field] ? ' border-red-500 bg-red-50' : ''}`;
   const labelCls = 'text-xs text-slate-400 uppercase tracking-widest font-bold';
 
-  const showTassBadge = isCollection && (record.status === 'Delivered' || record.collection_verified);
-  const showCollectionHighlight = isCollection && (record.amount != null || showTassBadge);
+  const showCollectionBadge = isCollection && (record.status === 'Delivered' || record.collection_verified);
+  const showCollectionHighlight = isCollection && (record.amount != null || showCollectionBadge);
 
   return (
     <div className="space-y-5">
@@ -433,10 +435,10 @@ export function RecordOverviewTab({
         <RecordStatusProgress record={record} />
       </div>
 
-      {/* Accounting Collection highlight: Amount to Collect + compact TASS Verification badge */}
+      {/* Accounting Collection highlight: Amount to Collect + compact collection verification badge (Logistics verifies) */}
       {showCollectionHighlight && (
         <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-3">
-          {showTassBadge && (
+          {showCollectionBadge && (
             <div className="flex flex-wrap items-center gap-2">
               <span
                 className={`px-2.5 py-1 rounded-full border text-xs font-semibold tracking-wide ${

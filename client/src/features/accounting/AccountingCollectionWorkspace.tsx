@@ -25,7 +25,7 @@ import { useRecordTimeInMutation } from '@/api/queries/useRecordsQuery';
 import ExportMenu from '@/components/ExportMenu';
 import { PodAttachmentList } from '@/components/PodAttachmentPreview';
 import { acStatusLabel } from '@/data';
-import TassVerificationPanel from '@/features/accounting/TassVerificationPanel';
+import CollectionVerificationPanel from '@/features/accounting/CollectionVerificationPanel';
 import { DispatchActionsTab } from '@/features/deliveries/DispatchActionsTab';
 import MarkDeliveredDialog, { type CompletionValues } from '@/features/deliveries/MarkDeliveredDialog';
 import NextStepCard from '@/features/deliveries/NextStepCard';
@@ -219,7 +219,7 @@ function VerificationTab({
     if (record.collection_verified && canRead) {
       return (
         <div className="space-y-4">
-          <TassVerificationPanel record={record} />
+          <CollectionVerificationPanel record={record} />
           <CollectionEvidence recordId={record.id} />
         </div>
       );
@@ -228,7 +228,7 @@ function VerificationTab({
     if (!canVerify) {
       return (
         <div className="space-y-4">
-          {record.status === 'Delivered' && <TassVerificationPanel record={record} />}
+          {record.status === 'Delivered' && <CollectionVerificationPanel record={record} />}
           <div className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-slate-50/70 py-10 gap-2 text-slate-500">
             <Lock className="w-7 h-7 text-slate-300" />
             <p className="text-sm">Verification requires Logistics collection-verification permission.</p>

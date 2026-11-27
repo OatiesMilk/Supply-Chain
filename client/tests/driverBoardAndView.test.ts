@@ -33,6 +33,20 @@ async function withDom(run: (dom: JSDOM) => Promise<void>) {
   }
 }
 
+/**
+ * Stops all query work before withDom tears down the JSDOM window. React Query delivers
+ * observer updates through notifyManager on a setTimeout(0); a refetch that settles near
+ * the end of a test (staleTime 0 makes revisiting a cached driver refetch) would otherwise
+ * reach React after window is gone and throw "window is not defined" (#364).
+ */
+async function teardownQueries(root: { unmount(): void }, client: QueryClient) {
+  await act(async () => root.unmount());
+  await client.cancelQueries();
+  client.clear();
+  // Drain notifyManager batches (and anything they schedule) while the DOM still exists.
+  for (let tick = 0; tick < 2; tick++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+}
+
 const makeRecord = (id: string, overrides: Partial<DeliveryRecord> = {}): DeliveryRecord => ({
   id,
   category: 'Deliveries',
@@ -60,7 +74,7 @@ test('DriverBoard reports full server unassigned count (28) instead of page-loca
   await withDom(async dom => {
     const { createRoot } = await import('react-dom/client');
     const root = createRoot(dom.window.document.getElementById('root')!);
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0, refetchOnWindowFocus: false, refetchOnReconnect: false } } });
     installLegacySession('LOGISTICS', 'driver_board');
 
     // Page 1 has 10 unassigned + 15 assigned, while server total has 28 unassigned across all pages.
@@ -132,9 +146,7 @@ test('DriverBoard reports full server unassigned count (28) instead of page-loca
       await act(async () => listButton.click());
       assert.ok(dom.window.document.querySelector('table'), 'List mode renders dispatch table');
     } finally {
-      await client.cancelQueries();
-      await act(async () => root.unmount());
-      client.clear();
+      await teardownQueries(root, client);
     }
   });
 });
@@ -143,7 +155,9 @@ test('DriverView switches drivers without flashing empty state or top layout-shi
   await withDom(async dom => {
     const { createRoot } = await import('react-dom/client');
     const root = createRoot(dom.window.document.getElementById('root')!);
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // The switch-back assertion needs Driver A to stay cached, so gcTime is Infinity (no GC timers) rather than 0;
+    // teardownQueries clears the cache before the DOM goes away.
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity, refetchOnWindowFocus: false, refetchOnReconnect: false } } });
     installLegacySession('LOGISTICS', 'driver');
 
     let resolveDriverB: ((value: any) => void) | null = null;
@@ -235,9 +249,7 @@ test('DriverView switches drivers without flashing empty state or top layout-shi
       assert.match(cachedText, /Alpha Corp/, 'cached driver renders immediately with zero flicker');
       assert.doesNotMatch(cachedText, /No active runs for this driver/);
     } finally {
-      await client.cancelQueries();
-      await act(async () => root.unmount());
-      client.clear();
+      await teardownQueries(root, client);
     }
   });
 });

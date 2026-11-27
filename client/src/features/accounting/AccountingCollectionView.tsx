@@ -1,4 +1,5 @@
 import { usePermissions } from '@/hooks/usePermissions';
+import { DATA_SAMPLER_ENABLED } from '@/utils/developmentTools';
 import { manilaToday, manilaDateTimeInput, submissionErrors } from '@/utils/recordLifecycle';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
@@ -54,6 +55,8 @@ interface AccountingCollectionViewProps {
   clearSelectedRecordId?: () => void;
   dashboardFilterId: DashboardFilterId | null;
   clearDashboardFilter: () => void;
+  /** Shows the demo Auto Fill button. Defaults to local Vite development only; tests may opt in. */
+  showAutoFill?: boolean;
 }
 
 const CATEGORY: DeliveryCategory = 'Accounting Collection';
@@ -128,6 +131,7 @@ export default function AccountingCollectionView({
   clearSelectedRecordId,
   dashboardFilterId,
   clearDashboardFilter,
+  showAutoFill = DATA_SAMPLER_ENABLED,
 }: AccountingCollectionViewProps) {
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -200,7 +204,7 @@ export default function AccountingCollectionView({
     setForm(prev => ({ ...prev, [key]: value }));
 
   const handleAutoFill = () => {
-    if (companyOptions.length === 0) return;
+    if (!showAutoFill || companyOptions.length === 0) return;
     const company = acAfPick(companyOptions);
     const deliveryDate = acAfFutureDate(1, 10);
     setForm({
@@ -579,13 +583,15 @@ export default function AccountingCollectionView({
               <p className="text-xs text-slate-500 font-medium">Fields marked with * are required.</p>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleAutoFill}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg transition-colors cursor-pointer"
-              >
-                <Wand2 className="w-3.5 h-3.5" /> Auto Fill
-              </button>
+              {showAutoFill && (
+                <button
+                  type="button"
+                  onClick={handleAutoFill}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg transition-colors cursor-pointer"
+                >
+                  <Wand2 aria-hidden="true" className="w-3.5 h-3.5" /> Auto Fill
+                </button>
+              )}
               <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-700">
                 <X className="w-5 h-5" />
               </button>

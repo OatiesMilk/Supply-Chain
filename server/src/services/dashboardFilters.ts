@@ -7,6 +7,9 @@ export const OPEN_RMA_STATUSES = ['SCHEDULED', 'PENDING', 'IN_TRANSIT', 'ON_HOLD
 /** RMA open longer than this many Manila days are "aging" (red on the dashboard). */
 export const RMA_AGING_DAYS = 7;
 
+/** RMA movement methods with no Logistics driver leg: receipt is due as soon as the RMA is submitted. */
+export const RMA_NO_DRIVER_MOVEMENTS = ['SUPPLIER_COLLECTION', 'INTERNAL_NO_DRIVER'];
+
 /** Non-RMA job types a Driver runs, including Accounting Collection transport. */
 export const DRIVER_RUN_CATEGORIES = ['DELIVERY', 'ACCOUNTING_COLLECTION', 'PROCUREMENT_PICKUP', 'SALES_ORDERS'];
 /** Run statuses that keep a driver on the road. A transport handoff is finished even while Sales review is pending. */
@@ -125,6 +128,11 @@ export function dashboardRecordFilter(id: string, today = manilaToday()): Prisma
         OR: [{ submittedAt: { lt: cutoff } }, { submittedAt: null, createdAt: { lt: cutoff } }] };
     }
     case 'tass-rma-on-hold': return { category: 'RMA', isInternalTransfer: false, draft: false, status: 'ON_HOLD' };
+    // TASS's own two steps. Both mirror rmaCapabilities (receive / complete) so a queued record is one TASS can act on.
+    case 'tass-rma-awaiting-receipt': return { category: 'RMA', isInternalTransfer: false, draft: false, status: { not: 'ACCOMPLISHED' }, rmaReceivedAt: null,
+      OR: [{ rmaMovement: 'LOGISTICS_TRANSPORT', rmaTransportStatus: 'COMPLETED' }, { rmaMovement: { in: RMA_NO_DRIVER_MOVEMENTS } }] };
+    case 'tass-rma-awaiting-completion': return { category: 'RMA', isInternalTransfer: false, draft: false, status: { not: 'ACCOMPLISHED' }, rmaReceivedAt: { not: null },
+      OR: [{ rmaMovement: 'LOGISTICS_TRANSPORT', rmaTransportStatus: 'COMPLETED' }, { rmaMovement: { not: 'LOGISTICS_TRANSPORT' } }, { rmaMovement: null }] };
     case 'admin-unverified-collections': return { category: 'ACCOUNTING_COLLECTION', draft: false, status: 'ACCOMPLISHED', collectionVerified: false };
     default: return null;
   }

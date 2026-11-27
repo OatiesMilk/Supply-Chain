@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import type { RecordLineItem, RmaItemUnitType } from '@/types';
 import { RMA_ITEM_UNIT_TYPES, RMA_STATUS_TAG_PRESETS, rmaItemBlocks } from '@/utils/rmaItems';
+import { focusRingBrandClass } from '@/utils/uiClasses';
 
 export type RmaSerialMode = 'single' | 'pair';
 type SerialMode = RmaSerialMode;
@@ -31,7 +32,8 @@ interface RmaStructuredItemsEditorProps {
   error?: string;
 }
 
-const inputClass = 'w-full px-3 py-2 border border-slate-300 rounded-lg text-sm';
+// Matches the #357 create-form focus treatment so keyboard focus is always visible.
+const inputClass = 'w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/25 aria-[invalid=true]:border-red-500';
 
 /** Structured RMA unit/item rows: Qty + Unit Type, model, single SN or replacement pair, purchase/SO, accessories, notes, status tag. */
 export function RmaStructuredItemsEditor({ idPrefix, items, onChange, error }: RmaStructuredItemsEditorProps) {
@@ -46,19 +48,27 @@ export function RmaStructuredItemsEditor({ idPrefix, items, onChange, error }: R
     setModes(prev => items.map((item, i) => prev[i] ?? pairMode(item)).filter((_, i) => i !== index));
     onChange(items.filter((_, i) => i !== index));
   };
-  const field = (index: number, key: keyof RecordLineItem, label: string, placeholder?: string, type = 'text') => (
-    <div className="space-y-1">
-      <label htmlFor={`${idPrefix}-${key}-${index}`} className="text-xs font-semibold text-slate-600">{label}</label>
-      <input id={`${idPrefix}-${key}-${index}`} type={type} placeholder={placeholder} value={(items[index][key] as string | null | undefined) ?? ''}
-        onChange={e => update(index, { [key]: e.target.value })} className={inputClass} />
-    </div>
-  );
+  const headingId = `${idPrefix}-heading`;
+  const errorId = `${idPrefix}-error`;
+  const describedBy = error ? errorId : undefined;
+  const field = (index: number, key: keyof RecordLineItem, label: string, placeholder?: string, type = 'text') => {
+    // The model is the one required row value, so it carries the editor's error when blank.
+    const invalid = key === 'sku' && !!error && !trimmed(items[index].sku);
+    return (
+      <div className="space-y-1">
+        <label htmlFor={`${idPrefix}-${key}-${index}`} className="text-xs font-semibold text-slate-600">{label}</label>
+        <input id={`${idPrefix}-${key}-${index}`} type={type} placeholder={placeholder} value={(items[index][key] as string | null | undefined) ?? ''}
+          onChange={e => update(index, { [key]: e.target.value })} className={inputClass}
+          aria-invalid={invalid || undefined} aria-describedby={invalid ? describedBy : undefined} />
+      </div>
+    );
+  };
   return (
-    <div className="space-y-2 md:col-span-2">
+    <div role="group" aria-labelledby={headingId} aria-describedby={describedBy} className="space-y-2 md:col-span-2">
       <div className="flex justify-between items-center">
-        <span className="font-bold text-slate-700">Units / Items <span className="text-xs font-normal text-slate-400">(optional)</span></span>
+        <span id={headingId} className="font-bold text-slate-700">Units / Items <span className="text-xs font-normal text-slate-400">(optional)</span></span>
         <button type="button" onClick={() => { setModes(prev => [...items.map((item, i) => prev[i] ?? pairMode(item)), 'single']); onChange([...items, emptyRmaItem()]); }}
-          className="flex items-center gap-1 text-xs font-bold text-brand-blue hover:text-brand-navy cursor-pointer">
+          className={`flex items-center gap-1 rounded text-xs font-bold text-brand-blue hover:text-brand-navy cursor-pointer ${focusRingBrandClass}`}>
           <Plus className="w-3.5 h-3.5" aria-hidden="true" /> Add Unit / Item
         </button>
       </div>
@@ -66,7 +76,7 @@ export function RmaStructuredItemsEditor({ idPrefix, items, onChange, error }: R
         <fieldset key={index} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 space-y-3">
           <div className="flex items-center justify-between">
             <legend className="text-xs font-bold uppercase tracking-wide text-slate-500">Item {index + 1}</legend>
-            <button type="button" aria-label={`Remove item ${index + 1}`} onClick={() => remove(index)} className="p-1 text-slate-400 hover:text-red-500 cursor-pointer">
+            <button type="button" aria-label={`Remove item ${index + 1}`} onClick={() => remove(index)} className={`p-1 rounded text-slate-400 hover:text-red-500 cursor-pointer ${focusRingBrandClass}`}>
               <X className="w-4 h-4" aria-hidden="true" />
             </button>
           </div>
@@ -89,7 +99,7 @@ export function RmaStructuredItemsEditor({ idPrefix, items, onChange, error }: R
           <div role="radiogroup" aria-label={`Item ${index + 1} serial number mode`} className="flex flex-wrap gap-4 text-xs">
             {(['single', 'pair'] as const).map(mode => (
               <label key={mode} className="flex items-center gap-1.5 cursor-pointer">
-                <input type="radio" name={`${idPrefix}-serial-mode-${index}`} checked={modeOf(index) === mode} onChange={() => setMode(index, mode)} />
+                <input type="radio" name={`${idPrefix}-serial-mode-${index}`} checked={modeOf(index) === mode} onChange={() => setMode(index, mode)} className={focusRingBrandClass} />
                 {mode === 'single' ? 'Single Serial Number' : 'Replacement Unit (New SN + Defective SN)'}
               </label>
             ))}
@@ -113,7 +123,7 @@ export function RmaStructuredItemsEditor({ idPrefix, items, onChange, error }: R
             <div className="flex flex-wrap gap-1.5">
               {RMA_STATUS_TAG_PRESETS.map(tag => (
                 <button key={tag} type="button" onClick={() => update(index, { status_tag: tag })} aria-pressed={item.status_tag === tag}
-                  className={`px-2 py-0.5 rounded-full border text-[11px] font-bold cursor-pointer ${item.status_tag === tag ? 'border-brand-blue bg-brand-blue/10 text-brand-navy' : 'border-slate-300 text-slate-600 hover:border-slate-400'}`}>
+                  className={`px-2 py-0.5 rounded-full border text-[11px] font-bold cursor-pointer ${focusRingBrandClass} ${item.status_tag === tag ? 'border-brand-blue bg-brand-blue/10 text-brand-navy' : 'border-slate-300 text-slate-600 hover:border-slate-400'}`}>
                   {tag}
                 </button>
               ))}
@@ -123,7 +133,7 @@ export function RmaStructuredItemsEditor({ idPrefix, items, onChange, error }: R
       ))}
       <datalist id={`${idPrefix}-status-tag-presets`}>{RMA_STATUS_TAG_PRESETS.map(tag => <option key={tag} value={tag} />)}</datalist>
       {items.length === 0 && <p className="text-xs text-slate-400 italic">No units or items added. The item description above is used when this list is empty.</p>}
-      {error && <p role="alert" className="text-red-500 text-xs font-semibold">{error}</p>}
+      {error && <p id={errorId} role="alert" className="text-red-500 text-xs font-semibold">{error}</p>}
     </div>
   );
 }

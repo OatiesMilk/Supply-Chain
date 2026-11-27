@@ -238,7 +238,7 @@ test('Logistics sees Pending Verification badge and an Open Verification cue, th
   }
 });
 
-test('TassVerificationPanel does not render before Sales sign-off completes (Scheduled, In Transit, Transport Complete)', async () => {
+test('CollectionVerificationPanel does not render before Sales sign-off completes (Scheduled, In Transit, Transport Complete)', async () => {
   for (const status of ['Scheduled', 'In Transit', 'Transport Complete'] as const) {
     const ui = await mountWorkspace(
       baseRecord({
@@ -253,7 +253,7 @@ test('TassVerificationPanel does not render before Sales sign-off completes (Sch
       assert.doesNotMatch(ui.dom.window.document.body.textContent ?? '', /Collection Verified|Pending Verification/);
       await act(async () => ui.tab('Verification')!.click());
       await ui.flush();
-      assert.equal(Boolean(ui.dom.window.document.querySelector('#tass-verification-title')), false, `Panel must not render on ${status}`);
+      assert.equal(Boolean(ui.dom.window.document.querySelector('#collection-verification-title')), false, `Panel must not render on ${status}`);
     } finally {
       await ui.close();
     }
