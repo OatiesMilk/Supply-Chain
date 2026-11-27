@@ -385,6 +385,36 @@ for (const expected of FINAL_OUTCOMES) {
   });
 }
 
+test('the pre-send description does not promise an email when mail delivery may be mocked or skipped', async () => {
+  const ui = await dialogFixture();
+  try {
+    const { description } = dialogCopy(ui.doc);
+    assert.match(description, /in-app notification/);
+    assert.match(description, /when mail delivery is configured/);
+    assert.doesNotMatch(description, /notification and an email with both files\.$/);
+  } finally { await ui.close(); }
+});
+
+for (const notified of [true, false]) {
+  test(`the in-app notification badge is ${notified ? 'emerald when delivered' : 'amber, not success-green, when not created'}`, async () => {
+    const ui = await dialogFixture();
+    try {
+      mock.method(api, 'dispatchRmaToLogistics', async () => ({ deduplicated: false, email_error: null,
+        dispatch: dispatched({ email_status: 'MOCKED', email_method: 'mock', in_app_notified: notified }) }));
+      await ui.clickDispatch();
+      const badge = ui.doc.querySelector('[data-testid="dispatch-in-app-status"]')!;
+      assert.ok(badge, 'in-app badge renders on the outcome screen');
+      assert.equal(badge.textContent, notified ? 'Delivered' : 'Not created');
+      if (notified) {
+        assert.match(badge.className, /\bbg-emerald-50\b/);
+      } else {
+        assert.match(badge.className, /\bbg-amber-50\b/);
+        assert.doesNotMatch(badge.className, /emerald/);
+      }
+    } finally { await ui.close(); }
+  });
+}
+
 test("Today's dispatches labels unconfirmed rows UNCONFIRMED and confirmed failures FAILED", async () => {
   const ui = await dialogFixture([
     dispatched({ id: 'd-unconfirmed', recipient: { id: 'log-a', name: 'Alpha Printer' }, email_status: 'FAILED', outcome_unconfirmed: true }),
