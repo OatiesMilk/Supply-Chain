@@ -69,14 +69,16 @@ test('TASS dashboard count definitions remain category-specific', async context 
   const { queries, response } = await stats('TASS');
   assert.equal(response.role, 'TASS');
   // RMA-only metrics: TASS has no Procurement Pick-up or Accounting Collection module.
-  assert.deepEqual(Object.keys(response).sort(), ['open_rma', 'rma_aging', 'rma_in_transit', 'rma_on_hold', 'role']);
-  assert.equal(queries.length, 4);
-  assert.deepEqual([queries[0].category, queries[1].category, queries[3].category], ['RMA', 'RMA', 'RMA']);
+  assert.deepEqual(Object.keys(response).sort(), ['open_rma', 'rma_aging', 'rma_awaiting_completion', 'rma_awaiting_receipt', 'rma_in_transit', 'rma_on_hold', 'role']);
+  assert.equal(queries.length, 6);
+  assert.deepEqual([0, 1, 3, 4, 5].map(index => queries[index].category), ['RMA', 'RMA', 'RMA', 'RMA', 'RMA']);
   assert.equal(queries[1].status, 'ON_HOLD');
   assert.ok(Array.isArray(queries[2].AND) && queries[2].AND.length === 2, 'in-transit keeps the record scope beside its own AND');
   assert.deepEqual(queries[2].AND[1].AND[1], { category: 'RMA', isInternalTransfer: false });
   // Non-RMA internal transfers stay out of every TASS RMA KPI.
-  for (const index of [0, 1, 3]) assert.equal(queries[index].isInternalTransfer, false);
+  for (const index of [0, 1, 3, 4, 5]) assert.equal(queries[index].isInternalTransfer, false);
+  assert.equal(queries[4].rmaReceivedAt, null, 'awaiting receipt');
+  assert.deepEqual(queries[5].rmaReceivedAt, { not: null }, 'awaiting completion');
   // Every count keeps the TASS record scope, which is RMA-only.
   for (const query of queries) assert.deepEqual(query.AND[0].category, { in: ['RMA'] });
 });
