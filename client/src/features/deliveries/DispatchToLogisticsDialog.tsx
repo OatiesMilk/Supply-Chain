@@ -11,6 +11,12 @@ import {
   generateTassDailyRouteSlipBlob, manilaToday, rmaRouteSlipRecords, routeSlipDateStamp, routeSlipPeriodDates, sortTassRouteSlipRecords, tassRouteClientSlipsFileName,
 } from '@/utils/tassDailyRouteSlip';
 import { formatSlipDate } from '@/utils/rmaItems';
+import { formatManilaTime } from '@/utils/manilaTimestamp';
+import { workflowInputClass } from './WorkflowSection';
+
+/** Radio and checkbox rows: a 44px tap target with a visible keyboard focus ring. */
+const choiceLabelClass = 'flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-1 text-sm text-slate-700 has-[:disabled]:cursor-not-allowed has-[:disabled]:text-slate-400';
+const choiceInputClass = 'h-4 w-4 shrink-0 accent-brand-blue focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue';
 
 export type DispatchScope = 'selected' | 'filtered';
 export const DEFAULT_DISPATCH_NOTE = 'Good afternoon. Attached are the TASS client slips and the Daily Route Slip for printing. Thank you.';
@@ -96,6 +102,38 @@ export function InAppStatusBadge({ notified }: { notified: boolean }) {
   return <span data-testid="dispatch-in-app-status" className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${copy.className}`}>{copy.label}</span>;
 }
 
+/** One definition of "what gets dispatched" for the pre-send count and the dispatch itself: RMA only, drafts skipped. */
+export function splitDispatchRecords(loaded: DeliveryRecord[], groupByMovement: boolean): { records: DeliveryRecord[]; skippedDrafts: number } {
+  const rma = rmaRouteSlipRecords(loaded);
+  const drafts = rma.filter(record => record.is_draft === 'Yes' || record.status === 'Draft');
+  return { records: sortTassRouteSlipRecords(rma.filter(record => !drafts.includes(record)), { groupByMovement }), skippedDrafts: drafts.length };
+}
+
+export type DispatchPreview =
+  | { state: 'loading' }
+  | { state: 'invalid'; message: string }
+  | { state: 'error'; message: string }
+  | { state: 'ready'; count: number; skippedDrafts: number };
+
+/** Pre-send summary; `blocking` means Dispatch would certainly be refused, so it is disabled. */
+export function dispatchPreviewCopy(preview: DispatchPreview): { text: string; tone: 'info' | 'warning'; blocking: boolean } {
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  switch (preview.state) {
+    case 'loading': return { text: 'Counting records…', tone: 'info', blocking: false };
+    case 'invalid': return { text: preview.message, tone: 'warning', blocking: true };
+    case 'error': return { text: `Could not count records before sending (${preview.message}). Dispatch will check again.`, tone: 'warning', blocking: false };
+    case 'ready': {
+      const skipped = preview.skippedDrafts ? ` (${plural(preview.skippedDrafts, 'draft')} skipped)` : '';
+      if (preview.count > MAX_BULK_SLIP_RECORDS) return { text: `More than ${MAX_BULK_SLIP_RECORDS} records match. Narrow the date range or filters to dispatch at most ${MAX_BULK_SLIP_RECORDS} at a time.`, tone: 'warning', blocking: true };
+      if (preview.count === 0) return { text: preview.skippedDrafts ? `No submitted RMA records to dispatch${skipped}. Submit drafts first.` : 'No RMA records match this dispatch.', tone: 'warning', blocking: true };
+      return { text: `${plural(preview.count, 'record')} will be dispatched${skipped}.`, tone: preview.skippedDrafts ? 'warning' : 'info', blocking: false };
+    }
+  }
+}
+
+/** Waits for typing in the date fields to settle before re-counting. */
+export const DISPATCH_PREVIEW_DELAY_MS = 250;
+
 const newKey = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `k${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`);
 
 interface BackupFiles { pdf: Blob; xlsx: Blob; pdfFileName: string; xlsxFileName: string }
@@ -122,6 +160,31 @@ export default function DispatchToLogisticsDialog({
   // Generated files survive a failed request so they can be downloaded as a backup.
   const [backupFiles, setBackupFiles] = useState<BackupFiles | null>(null);
   const idempotencyKey = useRef<string>(newKey());
+  const [preview, setPreview] = useState<DispatchPreview>({ state: 'loading' });
+  // Parents pass fresh loader functions on every render; read the latest without re-running the count.
+  const loaders = useRef({ loadSelected, loadFiltered });
+  useEffect(() => { loaders.current = { loadSelected, loadFiltered }; });
+
+  // Resolve the record set whenever scope or dates change, so the count is known before Dispatch.
+  useEffect(() => {
+    if (!open || outcome) return;
+    if (scope === 'filtered' && dateFrom && dateTo && dateFrom > dateTo) {
+      setPreview({ state: 'invalid', message: 'The From date must be on or before the To date.' });
+      return;
+    }
+    let active = true;
+    setPreview({ state: 'loading' });
+    const timer = setTimeout(() => {
+      const load = scope === 'selected' ? loaders.current.loadSelected() : loaders.current.loadFiltered(dateFrom, dateTo, MAX_BULK_SLIP_RECORDS);
+      load.then(loaded => {
+        if (!active) return;
+        const { records, skippedDrafts } = splitDispatchRecords(loaded, false);
+        setPreview({ state: 'ready', count: records.length, skippedDrafts });
+      }).catch(err => { if (active) setPreview({ state: 'error', message: err instanceof Error ? err.message : 'request failed' }); });
+    }, DISPATCH_PREVIEW_DELAY_MS);
+    return () => { active = false; clearTimeout(timer); };
+  }, [open, outcome, scope, dateFrom, dateTo, selectedCount]);
+  const previewCopy = dispatchPreviewCopy(preview);
 
   useEffect(() => {
     if (!open) return;
@@ -160,10 +223,9 @@ export default function DispatchToLogisticsDialog({
     setError(null);
     try {
       setProgress('Loading records…');
-      const loaded = rmaRouteSlipRecords(scope === 'selected' ? await loadSelected() : await loadFiltered(dateFrom, dateTo, MAX_BULK_SLIP_RECORDS));
-      const drafts = loaded.filter(record => record.is_draft === 'Yes' || record.status === 'Draft');
-      const records = sortTassRouteSlipRecords(loaded.filter(record => !drafts.includes(record)), { groupByMovement });
-      if (!records.length) throw new Error(drafts.length ? 'Draft RMA records cannot be dispatched to Logistics. Submit them first.' : 'No RMA records match this dispatch.');
+      const loaded = scope === 'selected' ? await loadSelected() : await loadFiltered(dateFrom, dateTo, MAX_BULK_SLIP_RECORDS);
+      const { records, skippedDrafts } = splitDispatchRecords(loaded, groupByMovement);
+      if (!records.length) throw new Error(skippedDrafts ? 'Draft RMA records cannot be dispatched to Logistics. Submit them first.' : 'No RMA records match this dispatch.');
       if (records.length > MAX_BULK_SLIP_RECORDS) throw new Error(`${records.length} records match. Dispatch at most ${MAX_BULK_SLIP_RECORDS} at a time — narrow the date range or filters.`);
       const period = routeSlipPeriodDates(scope === 'filtered' ? { dateFrom, dateTo, records } : { records });
       const dispatchDate = period.from === period.to ? period.from : manilaToday();
@@ -183,7 +245,7 @@ export default function DispatchToLogisticsDialog({
       form.append('client_slips', pdf, pdfFileName);
       form.append('route_slip', xlsx, xlsxFileName);
       const result = await api.dispatchRmaToLogistics(form);
-      setOutcome({ result, pdf, xlsx, skippedDrafts: drafts.length });
+      setOutcome({ result, pdf, xlsx, skippedDrafts });
       setRecent(current => [result.dispatch, ...current.filter(row => row.id !== result.dispatch.id)].slice(0, 5));
     } catch (err) {
       // backupFiles is intentionally kept: the generated files stay downloadable.
@@ -211,7 +273,7 @@ export default function DispatchToLogisticsDialog({
       size="lg"
       pending={pending}
       error={error}
-      confirmDisabled={!recipient || noRecipients}
+      confirmDisabled={!recipient || noRecipients || (!outcome && previewCopy.blocking)}
       onConfirm={outcome ? undefined : () => void dispatch()}
       onDismiss={() => { if (!pending) onClose(); }}
     >
@@ -252,7 +314,7 @@ export default function DispatchToLogisticsDialog({
           <div>
             <label htmlFor={recipientId} className="block text-xs font-semibold text-slate-700">Logistics printing coordinator</label>
             <select id={recipientId} value={recipient} disabled={pending || !recipients?.length} onChange={event => setRecipient(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
+              className={`mt-1 ${workflowInputClass}`}>
               {recipients === null && <option value="">Loading coordinators…</option>}
               {noRecipients && <option value="">No active Logistics coordinator available</option>}
               {recipients?.map(r => <option key={r.id} value={r.id}>{r.name} ({r.email})</option>)}
@@ -261,37 +323,41 @@ export default function DispatchToLogisticsDialog({
           </div>
           <fieldset className="space-y-2" disabled={pending}>
             <legend className="mb-1 text-xs font-semibold text-slate-700">Records</legend>
-            <label className="flex items-start gap-2 text-sm text-slate-700">
-              <input type="radio" name="dispatch-scope" className="mt-1" checked={scope === 'selected'} disabled={selectedCount === 0} onChange={() => setScope('selected')} />
+            <label className={choiceLabelClass}>
+              <input type="radio" name="dispatch-scope" className={choiceInputClass} checked={scope === 'selected'} disabled={selectedCount === 0} onChange={() => setScope('selected')} />
               <span>Selected records <span className="text-slate-500">({selectedCount})</span></span>
             </label>
-            <label className="flex items-start gap-2 text-sm text-slate-700">
-              <input type="radio" name="dispatch-scope" className="mt-1" checked={scope === 'filtered'} onChange={() => setScope('filtered')} />
+            <label className={choiceLabelClass}>
+              <input type="radio" name="dispatch-scope" className={choiceInputClass} checked={scope === 'filtered'} onChange={() => setScope('filtered')} />
               <span>Current filters and delivery-date range</span>
             </label>
             {scope === 'filtered' && (
               <div className="ml-6 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div>
                   <label htmlFor={fromId} className="block text-xs font-semibold text-slate-600">From</label>
-                  <input id={fromId} type="date" value={dateFrom} max={dateTo || undefined} onChange={event => setDateFrom(event.target.value)} className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
+                  <input id={fromId} type="date" value={dateFrom} max={dateTo || undefined} onChange={event => setDateFrom(event.target.value)} className={`mt-1 ${workflowInputClass}`} />
                 </div>
                 <div>
                   <label htmlFor={toId} className="block text-xs font-semibold text-slate-600">To</label>
-                  <input id={toId} type="date" value={dateTo} min={dateFrom || undefined} onChange={event => setDateTo(event.target.value)} className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
+                  <input id={toId} type="date" value={dateTo} min={dateFrom || undefined} onChange={event => setDateTo(event.target.value)} className={`mt-1 ${workflowInputClass}`} />
                 </div>
               </div>
             )}
             <p className="text-xs text-slate-500">Up to {MAX_BULK_SLIP_RECORDS} submitted RMA records; drafts are skipped.</p>
+            <p role="status" aria-live="polite" data-testid="dispatch-preview" data-state={preview.state}
+              className={`rounded-lg border px-3 py-2 text-sm font-medium ${previewCopy.tone === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-950' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+              {previewCopy.text}
+            </p>
           </fieldset>
           <DocumentSizeSelect value={documentSize} onChange={setDocumentSize} disabled={pending} orientationLabel="Portrait" />
-          <label className="flex items-start gap-2 text-sm text-slate-700">
-            <input type="checkbox" className="mt-1" checked={groupByMovement} disabled={pending} onChange={event => setGroupByMovement(event.target.checked)} />
+          <label className={choiceLabelClass}>
+            <input type="checkbox" className={choiceInputClass} checked={groupByMovement} disabled={pending} onChange={event => setGroupByMovement(event.target.checked)} />
             <span>Group &amp; sort by Movement Method<span className="block text-xs text-slate-500">Applied to both the PDF and the Daily Route Slip.</span></span>
           </label>
           <div>
             <label htmlFor={noteId} className="block text-xs font-semibold text-slate-700">Message to Logistics (optional)</label>
             <textarea id={noteId} value={note} maxLength={MAX_DISPATCH_NOTE} rows={3} disabled={pending} onChange={event => setNote(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
+              className={`mt-1 resize-y ${workflowInputClass}`} />
             <p className="text-right text-[11px] text-slate-400">{note.length}/{MAX_DISPATCH_NOTE}</p>
           </div>
           {recent.length > 0 && (
@@ -300,7 +366,7 @@ export default function DispatchToLogisticsDialog({
               <ul className="mt-1 space-y-1">
                 {recent.map(row => (
                   <li key={row.id} className="flex items-center justify-between gap-2 rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-600">
-                    <span className="truncate">{new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {row.recipient.name} · {row.record_count} record{row.record_count === 1 ? '' : 's'}</span>
+                    <span className="truncate">{formatManilaTime(row.created_at)} · {row.recipient.name} · {row.record_count} record{row.record_count === 1 ? '' : 's'}</span>
                     <EmailStatusBadge status={row.email_status} unconfirmed={Boolean(row.outcome_unconfirmed)} />
                   </li>
                 ))}

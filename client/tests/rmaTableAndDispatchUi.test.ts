@@ -12,7 +12,8 @@ import { useUIStore } from '../src/store/uiStore';
 import type { DeliveryCategory, DeliveryRecord, UserRole } from '../src/types';
 import { formatRmaMovementBadge, formatRmaTableItemPreview, RMA_MOVEMENT_FILTER_OPTIONS, rmaTableItemTooltip } from '../src/utils/rmaTableDisplay';
 import { businessAuditChanges } from '../src/features/admin/BusinessAuditDiff';
-import { EMAIL_STATUS_COPY } from '../src/features/deliveries/DispatchToLogisticsDialog';
+import { DISPATCH_PREVIEW_DELAY_MS, dispatchPreviewCopy, EMAIL_STATUS_COPY, splitDispatchRecords } from '../src/features/deliveries/DispatchToLogisticsDialog';
+import { MAX_BULK_SLIP_RECORDS } from '../src/utils/rmaClientSlipPdf';
 import { installLegacySession } from './helpers/permissionSession';
 
 // Feature 5b: RMA table columns, RMA filters, toolbar actions and V1 client rules (JSDOM + mocked API).
@@ -235,7 +236,11 @@ test('Admin audit diff renders the safe RmaLogisticsDispatch fields only', () =>
 });
 
 // ── DispatchToLogisticsDialog: backup files on errors, unconfirmed outcomes, key rotation ──
-async function dialogFixture(recent: ApiRmaLogisticsDispatchResult['dispatch'][] = []) {
+interface DialogOverrides {
+  initialScope?: 'selected' | 'filtered'; defaultDateFrom?: string; defaultDateTo?: string;
+  loadSelected?: () => Promise<DeliveryRecord[]>; loadFiltered?: (from: string, to: string, cap: number) => Promise<DeliveryRecord[]>;
+}
+async function dialogFixture(recent: ApiRmaLogisticsDispatchResult['dispatch'][] = [], overrides: DialogOverrides = {}) {
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost' });
   const original = Object.getOwnPropertyDescriptors(globalThis);
   dom.window.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
@@ -256,7 +261,7 @@ async function dialogFixture(recent: ApiRmaLogisticsDispatchResult['dispatch'][]
   const generateFiles = mock.fn(async () => ({ pdf, xlsx }));
   await act(async () => root.render(React.createElement(Dialog, {
     open: true, onClose: () => {}, selectedCount: 1, initialScope: 'selected', companies: [],
-    loadSelected: async () => [record()], loadFiltered: async () => [record()], defaultDateFrom: '', defaultDateTo: '', generateFiles,
+    loadSelected: async () => [record()], loadFiltered: async () => [record()], defaultDateFrom: '', defaultDateTo: '', generateFiles, ...overrides,
   })));
   await flush();
   const doc = dom.window.document;
@@ -427,5 +432,96 @@ test("Today's dispatches labels unconfirmed rows UNCONFIRMED and confirmed failu
     assert.ok(alpha && bravo, 'both recent dispatches render');
     assert.match(alpha.textContent!, /UNCONFIRMED/); assert.doesNotMatch(alpha.textContent!, /FAILED/);
     assert.match(bravo.textContent!, /FAILED/); assert.doesNotMatch(bravo.textContent!, /UNCONFIRMED/);
+  } finally { await ui.close(); }
+});
+
+// ── #353: pre-dispatch record count, Manila times, control styling ──
+const settlePreview = () => act(async () => { await new Promise(resolve => setTimeout(resolve, DISPATCH_PREVIEW_DELAY_MS + 50)); });
+const previewOf = (doc: Document) => doc.querySelector('[data-testid="dispatch-preview"]')!;
+const dispatchButton = (ui: { buttons: () => HTMLButtonElement[] }) => ui.buttons().find(b => b.textContent?.trim() === 'Dispatch')!;
+const draft = (id: string) => record({ id, record_no: id, is_draft: 'Yes', status: 'Draft' as DeliveryRecord['status'] });
+
+test('pre-send copy states the record count and skipped drafts, and blocks only certain refusals', () => {
+  assert.deepEqual(dispatchPreviewCopy({ state: 'ready', count: 3, skippedDrafts: 0 }), { text: '3 records will be dispatched.', tone: 'info', blocking: false });
+  assert.deepEqual(dispatchPreviewCopy({ state: 'ready', count: 1, skippedDrafts: 2 }), { text: '1 record will be dispatched (2 drafts skipped).', tone: 'warning', blocking: false });
+  assert.equal(dispatchPreviewCopy({ state: 'ready', count: 0, skippedDrafts: 1 }).blocking, true);
+  assert.match(dispatchPreviewCopy({ state: 'ready', count: 0, skippedDrafts: 1 }).text, /No submitted RMA records to dispatch \(1 draft skipped\)/);
+  assert.equal(dispatchPreviewCopy({ state: 'ready', count: 0, skippedDrafts: 0 }).text, 'No RMA records match this dispatch.');
+  assert.equal(dispatchPreviewCopy({ state: 'ready', count: MAX_BULK_SLIP_RECORDS + 1, skippedDrafts: 0 }).blocking, true);
+  assert.equal(dispatchPreviewCopy({ state: 'ready', count: MAX_BULK_SLIP_RECORDS, skippedDrafts: 0 }).blocking, false);
+  assert.equal(dispatchPreviewCopy({ state: 'loading' }).blocking, false, 'counting never blocks a dispatch');
+  assert.equal(dispatchPreviewCopy({ state: 'error', message: 'offline' }).blocking, false, 'a failed count leaves the dispatch to re-check');
+  assert.equal(dispatchPreviewCopy({ state: 'invalid', message: 'bad range' }).blocking, true);
+});
+
+test('the count and the dispatch share one definition: RMA only, drafts skipped', () => {
+  const nonRma = record({ id: 'del-1', category: 'Deliveries' as DeliveryCategory });
+  const { records, skippedDrafts } = splitDispatchRecords([record({ id: 'a' }), draft('b'), nonRma], true);
+  assert.deepEqual(records.map(r => r.id), ['a']);
+  assert.equal(skippedDrafts, 1);
+});
+
+test('the dialog shows how many records will be dispatched before Dispatch is pressed', async () => {
+  const ui = await dialogFixture([], { loadSelected: async () => [record({ id: 'a' }), record({ id: 'b' }), draft('c')] });
+  try {
+    await settlePreview();
+    assert.equal(previewOf(ui.doc).textContent?.trim(), '2 records will be dispatched (1 draft skipped).');
+    assert.equal(previewOf(ui.doc).getAttribute('role'), 'status');
+    assert.equal(dispatchButton(ui).disabled, false);
+    assert.equal(ui.generateFiles.mock.callCount(), 0, 'counting does not generate files');
+  } finally { await ui.close(); }
+});
+
+test('Dispatch is disabled when only drafts match, and when the date range is reversed', async () => {
+  const drafts = await dialogFixture([], { loadSelected: async () => [draft('d1')] });
+  try {
+    await settlePreview();
+    assert.match(previewOf(drafts.doc).textContent!, /No submitted RMA records to dispatch \(1 draft skipped\)/);
+    assert.equal(dispatchButton(drafts).disabled, true);
+  } finally { await drafts.close(); }
+  let filteredCalls = 0;
+  const reversed = await dialogFixture([], { initialScope: 'filtered', defaultDateFrom: '2026-11-20', defaultDateTo: '2026-11-19',
+    loadFiltered: async () => { filteredCalls++; return [record()]; } });
+  try {
+    await settlePreview();
+    assert.equal(previewOf(reversed.doc).textContent?.trim(), 'The From date must be on or before the To date.');
+    assert.equal(dispatchButton(reversed).disabled, true);
+    assert.equal(filteredCalls, 0, 'an invalid range is not fetched');
+  } finally { await reversed.close(); }
+});
+
+test('the filtered count uses the chosen dates and a failed count does not block Dispatch', async () => {
+  const calls: unknown[][] = [];
+  const ui = await dialogFixture([], { initialScope: 'filtered', defaultDateFrom: '2026-11-19', defaultDateTo: '2026-11-19',
+    loadFiltered: async (...args) => { calls.push(args); throw new Error('Request failed (503)'); } });
+  try {
+    await settlePreview();
+    assert.deepEqual(calls, [['2026-11-19', '2026-11-19', MAX_BULK_SLIP_RECORDS]]);
+    assert.match(previewOf(ui.doc).textContent!, /Could not count records before sending \(Request failed \(503\)\)/);
+    assert.equal(dispatchButton(ui).disabled, false);
+  } finally { await ui.close(); }
+});
+
+test("Today's dispatches show Manila time, not the browser's timezone", async () => {
+  const ui = await dialogFixture([dispatched({ id: 'd-manila', created_at: '2026-11-19T08:55:00Z' })]);
+  try {
+    const row = [...ui.doc.querySelectorAll('li')].find(li => li.textContent?.includes('Alpha Printer'))!;
+    assert.match(row.textContent!, /04:55\s*PM · Alpha Printer · 1 record/);
+  } finally { await ui.close(); }
+});
+
+test('dispatch form controls use the shared 44px workflow inputs with a visible focus ring', async () => {
+  const ui = await dialogFixture([], { initialScope: 'filtered' });
+  try {
+    const controls = [ui.doc.querySelector('select')!, ...ui.doc.querySelectorAll('input[type="date"]'), ui.doc.querySelector('textarea')!];
+    assert.equal(controls.length, 4);
+    for (const control of controls) {
+      assert.match(control.className, /\bmin-h-11\b/, control.tagName);
+      assert.match(control.className, /focus-visible:ring-4/, control.tagName);
+    }
+    for (const input of ui.doc.querySelectorAll('input[type="radio"], input[type="checkbox"]')) {
+      assert.match(input.className, /focus-visible:outline-2/);
+      assert.match(input.closest('label')!.className, /\bmin-h-11\b/, 'radio/checkbox rows are 44px tap targets');
+    }
   } finally { await ui.close(); }
 });
