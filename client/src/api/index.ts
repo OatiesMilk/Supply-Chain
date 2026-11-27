@@ -485,6 +485,8 @@ export interface ApiDashboardOverview {
     awaiting_verification?: import('../types').DeliveryRecord[];
     /** TASS: up to 10 Logistics-transport RMA in transit, oldest transport start first. */
     rma_in_transit?: import('../types').DeliveryRecord[];
+    /** TASS: up to 10 RMA ready for receipt, longest-waiting submission first. */
+    rma_awaiting_receipt?: import('../types').DeliveryRecord[];
   };
   /** Logistics: transport requests per job type (database category). */
   transport_requests_by_type?: Partial<Record<'DELIVERY' | 'RMA' | 'ACCOUNTING_COLLECTION' | 'PROCUREMENT_PICKUP' | 'SALES_ORDERS', number>>;
@@ -519,6 +521,10 @@ export type ApiDashboardStats =
       rma_on_hold: number;
       rma_in_transit: number;
       rma_aging: number;
+      /** Transport finished (or no driver leg) and TASS has not confirmed receipt. */
+      rma_awaiting_receipt: number;
+      /** Receipt confirmed, not yet completed. */
+      rma_awaiting_completion: number;
     }
   | {
       role: 'ADMIN';

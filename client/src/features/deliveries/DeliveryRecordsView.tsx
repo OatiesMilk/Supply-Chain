@@ -26,6 +26,7 @@ import {
 import ExportMenu from '@/components/ExportMenu';
 import DriverReportModal from '@/features/drivers/DriverReportModal';
 import RouteSlipMenu from '@/components/RouteSlipMenu';
+import DailyHandoffControl from './DailyHandoffControl';
 import { routeSlipModeForDates, routeSlipPeriod, routeSlipSelectionError, type RouteSlipPeriodMode, type RouteSlipPeriodSelection } from '@/utils/routeSlipPeriod';
 import Pagination, { DEFAULT_PAGE_SIZE } from '@/components/Pagination';
 import { computeAllOpsSummary } from '@/utils/allOpsExport';
@@ -574,10 +575,10 @@ export default function DeliveryRecordsView({
 
 
 
-  // ── CSV / PDF Export (TASS + Accounting Collection only) ──────────────────
   // ── Export: role+category gating per spec ──────────────────────────────
+  // TASS has no Accounting Collection module (moduleAccessRules), so only Admin exports collections.
   const showExports = (() => {
-    if (category === 'Accounting Collection') return currentUserRole === 'TASS' || currentUserRole === 'Admin';
+    if (category === 'Accounting Collection') return currentUserRole === 'Admin';
     // Deliveries, RMA, Procurement Pick-up, Sales Orders
     return ['Sales Coordinator', 'Logistics', 'TASS', 'Admin'].includes(currentUserRole);
   })();
@@ -788,14 +789,17 @@ export default function DeliveryRecordsView({
   const canBulkExtractSlips = isRma && showExports;
   // TASS owns the daily handoff; Logistics and Admin can export but never dispatch.
   const canDispatchToLogistics = canBulkExtractSlips && currentUserRole === 'TASS' && access.canRecord('RMA', 'WRITE');
+  // TASS sees its end-of-day outputs grouped as one "Daily handoff" control (Dispatch primary, slips + DRR in its menu).
+  // Logistics/Admin keep the separate export buttons. The generic Route Slip menu is hidden for TASS on RMA so the
+  // DRR is the only RMA route slip TASS can produce (product decision for #352).
+  const showDailyHandoff = canBulkExtractSlips && currentUserRole === 'TASS';
+  const showGenericRouteSlipMenu = showExports && !(isRma && currentUserRole === 'TASS');
   const showCheckbox = canBulkWrite || canBulkExtractSlips;
-  const showCollectionCol = currentUserRole === 'TASS' && category === 'Accounting Collection';
 
   // Percentage widths (not px) so the table fills the full available width —
   // like the Directory tables — while keeping each column's ratio fixed
-  // regardless of viewport size. Three mutually exclusive layouts depending
-  // on which optional columns render (checkbox: Sales Coordinator/Logistics
-  // only; Collection: TASS+Accounting Collection only; neither: Admin).
+  // regardless of viewport size. Two layouts depending on whether the
+  // optional checkbox column renders.
   // Date widened further / Status narrowed by the same amount, so Driver's
   // start shifts right (more gap from Delivery Date) without shrinking
   // Driver's own width — Status (a short pill badge) absorbs the change
@@ -803,9 +807,7 @@ export default function DeliveryRecordsView({
   const colMinWidth = { id: '110px', company: '200px', area: '130px', date: '180px', driver: '130px', status: '130px' };
   const colPct = showCheckbox
     ? { id: 12, company: 24, area: 13, date: 22, driver: 12, status: 13 }
-    : showCollectionCol
-      ? { id: 11, company: 23, area: 12, date: 22, driver: 12, status: 12 }
-      : { id: 13, company: 26, area: 13, date: 22, driver: 13, status: 13 };
+    : { id: 13, company: 26, area: 13, date: 22, driver: 13, status: 13 };
 
   // RMA-only table exposing the Daily Route Slip columns; other categories keep the 6-column grid below.
   const RMA_MOVEMENT_TONE = { route: 'border-sky-200 bg-sky-50 text-sky-800', supplier: 'border-violet-200 bg-violet-50 text-violet-800', internal: 'border-amber-200 bg-amber-50 text-amber-900', none: 'border-slate-200 bg-slate-50 text-slate-600' } as const;
@@ -960,7 +962,7 @@ export default function DeliveryRecordsView({
               fetchExportData={fetchExportData}
             />
           )}
-          {canBulkExtractSlips && (
+          {canBulkExtractSlips && !showDailyHandoff && (
             <button
               type="button"
               id="toolbar-extract-slips"
@@ -970,7 +972,7 @@ export default function DeliveryRecordsView({
               <FileStack className="h-3.5 w-3.5" aria-hidden="true" /> Extract Slips (PDF)
             </button>
           )}
-          {canBulkExtractSlips && (
+          {canBulkExtractSlips && !showDailyHandoff && (
             <button
               type="button"
               id="toolbar-tass-daily-route-slip"
@@ -980,17 +982,16 @@ export default function DeliveryRecordsView({
               <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden="true" /> Daily Route Slip (DRR)
             </button>
           )}
-          {canDispatchToLogistics && (
-            <button
-              type="button"
-              id="toolbar-dispatch-logistics"
-              onClick={() => setDispatchDialog({ open: true })}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"
-            >
-              <Send className="h-3.5 w-3.5" aria-hidden="true" /> Dispatch to Logistics
-            </button>
+          {showDailyHandoff && (
+            <DailyHandoffControl
+              variant="toolbar"
+              canDispatch={canDispatchToLogistics}
+              onDispatch={() => setDispatchDialog({ open: true })}
+              onExtractSlips={() => setBulkSlipsOpen(true)}
+              onDailyRouteSlip={() => setRouteSlipDialog({ open: true })}
+            />
           )}
-          {showExports && (
+          {showGenericRouteSlipMenu && (
             <RouteSlipMenu
               driverFilter={driverFilter}
               selection={routeSlipSelection}
@@ -1134,7 +1135,7 @@ export default function DeliveryRecordsView({
               {allSelectedPriorityLocked && <span id="bulk-priority-locked-hint" className="text-xs text-white/75 max-w-56 leading-tight">{PRIORITY_LOCKED_NOTE}</span>}
             </div>
           )}
-          {canBulkExtractSlips && (
+          {canBulkExtractSlips && !showDailyHandoff && (
             <button
               type="button"
               id="bulk-extract-slips"
@@ -1145,7 +1146,7 @@ export default function DeliveryRecordsView({
               <FileStack className="w-3.5 h-3.5" aria-hidden="true" /> Extract Slips (PDF)
             </button>
           )}
-          {canBulkExtractSlips && (
+          {canBulkExtractSlips && !showDailyHandoff && (
             <button
               type="button"
               id="bulk-tass-daily-route-slip"
@@ -1156,16 +1157,15 @@ export default function DeliveryRecordsView({
               <FileSpreadsheet className="w-3.5 h-3.5" aria-hidden="true" /> Daily Route Slip (DRR)
             </button>
           )}
-          {canDispatchToLogistics && (
-            <button
-              type="button"
-              id="bulk-dispatch-logistics"
-              onClick={() => setDispatchDialog({ open: true, scope: 'selected' })}
+          {showDailyHandoff && (
+            <DailyHandoffControl
+              variant="bulk"
+              canDispatch={canDispatchToLogistics}
               disabled={bulkApplying}
-              className="px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/25 text-white text-xs font-semibold rounded-lg transition-all cursor-pointer disabled:opacity-60 flex items-center gap-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-            >
-              <Send className="w-3.5 h-3.5" aria-hidden="true" /> Dispatch to Logistics
-            </button>
+              onDispatch={() => setDispatchDialog({ open: true, scope: 'selected' })}
+              onExtractSlips={() => setBulkSlipsOpen(true)}
+              onDailyRouteSlip={() => setRouteSlipDialog({ open: true, scope: 'selected' })}
+            />
           )}
           {canBulkWrite && <button
             type="button"
@@ -1437,7 +1437,6 @@ export default function DeliveryRecordsView({
                   <col style={{ width: `${colPct.date}%`, minWidth: colMinWidth.date }} />
                   <col style={{ width: `${colPct.driver}%`, minWidth: colMinWidth.driver }} />
                   <col style={{ width: `${colPct.status}%`, minWidth: colMinWidth.status }} />
-                  {showCollectionCol && <col style={{ width: '8%', minWidth: '90px' }} />}
                 </colgroup>
                 <thead>
                   <tr className={tableHeaderRowClass}>
@@ -1458,15 +1457,12 @@ export default function DeliveryRecordsView({
                     <th className="px-4 py-3 text-center" style={{ minWidth: colMinWidth.date }}>Delivery Date</th>
                     <th className="px-4 py-3" style={{ minWidth: colMinWidth.driver }}>Driver</th>
                     <th className="px-4 py-3 text-center" style={{ minWidth: colMinWidth.status }}>Status</th>
-                    {currentUserRole === 'TASS' && category === 'Accounting Collection' && (
-                      <th className="px-4 py-3 text-center" style={{ minWidth: '90px' }}>Collection</th>
-                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {displayRecords.length === 0 ? (
                     pagedLoading ? (
-                      <TableSkeleton columns={6 + (showCheckbox ? 1 : 0) + (showCollectionCol ? 1 : 0)} rows={6} />
+                      <TableSkeleton columns={6 + (showCheckbox ? 1 : 0)} rows={6} />
                     ) : (
                       <tr><td colSpan={10}>
                         <EmptyState
@@ -1514,14 +1510,6 @@ export default function DeliveryRecordsView({
                         <td className="px-4 py-3.5 text-center">
                           <RecordStatus record={rec} compact />
                         </td>
-                        {currentUserRole === 'TASS' && category === 'Accounting Collection' && (
-                          <td className="px-4 py-3.5 text-center">
-                            {rec.collection_verified
-                              ? <span className="text-emerald-700 font-semibold text-xs flex items-center justify-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Verified</span>
-                              : <span className="text-slate-400 text-xs italic">—</span>
-                            }
-                          </td>
-                        )}
                       </tr>
                     );
                   })}
