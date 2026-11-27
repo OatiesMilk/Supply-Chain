@@ -8,15 +8,20 @@ import {
 } from './ui';
 import { recordLabel } from '../../utils/recordLabel';
 
+/** TASS works from the RMA reference, so every TASS table leads with it and shows the record number underneath. */
+const rmaReferenceColumn: RecordColumn<DeliveryRecord> = { key: 'id', header: 'RMA', render: record => (
+  <>
+    <span>{record.rma_reference || recordLabel(record)}</span>
+    {record.rma_reference && <span className="block text-xs font-normal text-slate-600">{recordLabel(record)}</span>}
+  </>
+) };
+const companyColumn: RecordColumn<DeliveryRecord> = { key: 'company', header: 'Company', render: record => <span className="block max-w-[14rem] truncate md:max-w-[12rem]" title={record.company_name}>{record.company_name}</span> };
+const areaColumn: RecordColumn<DeliveryRecord> = { key: 'area', header: 'Area', render: record => record.area || 'Not set' };
+
 const inTransitColumns: RecordColumn<DeliveryRecord>[] = [
-  { key: 'id', header: 'RMA', render: record => (
-    <>
-      <span>{record.rma_reference || recordLabel(record)}</span>
-      {record.rma_reference && <span className="block text-xs font-normal text-slate-600">{recordLabel(record)}</span>}
-    </>
-  ) },
-  { key: 'company', header: 'Company', render: record => <span className="block max-w-[14rem] truncate md:max-w-[12rem]" title={record.company_name}>{record.company_name}</span> },
-  { key: 'area', header: 'Area', render: record => record.area || 'Not set' },
+  rmaReferenceColumn,
+  companyColumn,
+  areaColumn,
   { key: 'driver', header: 'Driver', render: record => record.driver || 'Not set' },
   { key: 'started', header: 'Transport started', render: record => formatDateTime(record.rma_transport_started_at) },
   { key: 'status', header: 'RMA status', render: record => <StatusPill record={record} hideCategoryPrefix />, hideLabelWhenStacked: true },
@@ -38,14 +43,9 @@ interface Props {
 }
 
 const columns: RecordColumn<DeliveryRecord>[] = [
-  { key: 'id', header: 'Record', render: record => (
-    <>
-      <span>{recordLabel(record)}</span>
-      {record.rma_reference && <span className="block text-xs font-normal text-slate-600">{record.rma_reference}</span>}
-    </>
-  ) },
-  { key: 'company', header: 'Company', render: record => <span className="block max-w-[14rem] truncate md:max-w-[12rem]" title={record.company_name}>{record.company_name}</span> },
-  { key: 'area', header: 'Area', render: record => record.area || 'Not set' },
+  rmaReferenceColumn,
+  companyColumn,
+  areaColumn,
   { key: 'status', header: 'Status', render: record => <StatusPill record={record} hideCategoryPrefix />, hideLabelWhenStacked: true },
   { key: 'date', header: 'Delivery date', render: record => formatDate(record.delivery_date) },
   { key: 'age', header: 'Age', align: 'center', render: record => <AgeIndicator since={record.submitted_at ?? record.created_at} /> },
@@ -67,7 +67,7 @@ export default function TassDashboard({ stats, overview, overviewStatus, onRetry
     <DashboardPage title="TASS dashboard" id="tass-dashboard" updatedAt={overview?.generated_at} onRefresh={onRefresh} refreshing={refreshing}>
       <KpiRow count={4}>
         <KpiTile label="Open RMA" unit="records" icon={RotateCcw} value={stats?.open_rma} context={openContext}
-          tone={aging ? 'critical' : 'warning'} onOpen={open('rma', 'tass-open-rma')} />
+          tone={!stats?.open_rma ? 'neutral' : aging ? 'critical' : 'warning'} onOpen={open('rma', 'tass-open-rma')} />
         <KpiTile label="On hold" unit="RMA records" icon={AlertTriangle} value={stats?.rma_on_hold} tone="critical"
           context={stats ? (stats.rma_on_hold > 0 ? 'Blocked, needs action' : 'No blocked RMA') : undefined}
           onOpen={open('rma', 'tass-rma-on-hold')} />

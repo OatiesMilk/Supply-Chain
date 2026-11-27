@@ -60,13 +60,35 @@ test('while stats load the tiles show skeletons and no numbers, never a guessed 
   assert.doesNotMatch(text(tilesOnly.replace(/class="[^"]*"/g, '')).replace(/Aging over 7 days/g, ''), /\b\d+\b/);
 });
 
-test('table lists On-Hold first, shows the RMA reference on a second line and a Status without the RMA prefix', () => {
+test('table lists On-Hold first, leads with the RMA reference and shows a Status without the RMA prefix', () => {
   const table = html();
   const body = table.slice(table.indexOf('<tbody'), table.indexOf('</tbody>'));
   assert.ok(body.indexOf('REC-1') < body.indexOf('REC-2'));
-  assert.match(body, /RMA-2026-001/);
+  assert.ok(body.indexOf('RMA-2026-001') < body.indexOf('REC-1'), 'RMA reference is the primary identifier, record number underneath');
   assert.doesNotMatch(text(body), /RMA:/);
   assert.match(body, /Jul 12, 2026/);
+});
+
+test('both TASS tables lead with the same RMA column, falling back to the record number', () => {
+  const markup = html({ overview: withTransit });
+  const tables = markup.split('<table').slice(1);
+  assert.equal(tables.length, 2);
+  for (const table of tables) assert.match(table, /<th[^>]*>RMA<\/th>/);
+  assert.doesNotMatch(markup, /<th[^>]*>Record<\/th>/);
+  const [attention, inTransit] = tables.map(table => text(table.slice(table.indexOf('<tbody'))));
+  assert.match(attention, /RMA-2026-001 REC-1 /);
+  assert.match(inTransit, /RMA-2026-007 REC-7 /);
+  assert.match(attention, /REC-2 Acme/, 'a record without an RMA reference shows its record number once');
+});
+
+test('Open RMA tile is neutral when nothing is open, warning when open, critical when aging', () => {
+  const openRmaTone = (props: Record<string, unknown>) => html(props).match(/aria-label="Open RMA, [^"]*"[^>]*data-tone="(\w+)"/)?.[1];
+  const quiet = { ...overview.counts, 'tass-open-rma': 0, 'tass-rma-aging': 0, 'tass-rma-on-hold': 0 };
+  assert.equal(openRmaTone({ stats: { ...stats, open_rma: 0, rma_on_hold: 0, rma_aging: 0 }, overview: { ...overview, counts: quiet } }), 'neutral');
+  // Stats and overview can briefly disagree; a zero Open RMA count stays neutral even if a stale aging count is non-zero.
+  assert.equal(openRmaTone({ stats: { ...stats, open_rma: 0 } }), 'neutral');
+  assert.equal(openRmaTone({ overview: { ...overview, counts: { ...overview.counts, 'tass-rma-aging': 0 } } }), 'warning');
+  assert.equal(openRmaTone({}), 'critical');
 });
 
 test('age counts from submission, so a record created long ago but submitted today reads Today', () => {
