@@ -138,22 +138,39 @@ test('RMA quick filters drive server queries and Status Trail counts, and Clear 
   } finally { await ui.close(); }
 });
 
-test('RMA toolbar and bulk bar expose DRR to exporters and Dispatch only to TASS', async () => {
+const genericRouteSlip = (doc: Document) => [...doc.querySelectorAll('button[aria-haspopup="dialog"]')].find(b => b.textContent?.includes('Route Slip'));
+const openHandoff = async (ui: { doc: Document; flush: () => Promise<void> }, variant: 'toolbar' | 'bulk') => {
+  await act(async () => (ui.doc.querySelector(`#${variant}-daily-handoff-menu`) as HTMLButtonElement).click()); await ui.flush();
+};
+
+test('RMA toolbar and bulk bar: TASS gets one Daily handoff control, exporters keep separate DRR buttons', async () => {
   const ui = await fixture();
   try {
     await ui.render('RMA', 'TASS', [record()]);
+    const dispatchBtn = ui.doc.querySelector('#toolbar-dispatch-logistics')!;
+    assert.ok(dispatchBtn, 'Dispatch to Logistics is the primary toolbar action');
+    assert.match(dispatchBtn.className, /bg-brand-blue/, 'primary styling, not the same weight as the other buttons');
+    assert.equal(ui.doc.querySelector('#toolbar-extract-slips'), null, 'slips live in the handoff menu');
+    assert.equal(ui.doc.querySelector('#toolbar-tass-daily-route-slip'), null, 'DRR lives in the handoff menu');
+    assert.equal(genericRouteSlip(ui.doc), undefined, 'TASS has no generic Route Slip menu on RMA');
+    await openHandoff(ui, 'toolbar');
     assert.ok(ui.doc.querySelector('#toolbar-extract-slips'));
     assert.ok(ui.doc.querySelector('#toolbar-tass-daily-route-slip'));
-    assert.ok(ui.doc.querySelector('#toolbar-dispatch-logistics'));
     const checkbox = ui.doc.querySelector('tbody input[type="checkbox"]') as HTMLInputElement;
     await act(async () => checkbox.click()); await ui.flush();
-    for (const id of ['#bulk-extract-slips', '#bulk-tass-daily-route-slip', '#bulk-dispatch-logistics', '#bulk-priority-select']) assert.ok(ui.doc.querySelector(id), id);
+    for (const id of ['#bulk-dispatch-logistics', '#bulk-daily-handoff-menu', '#bulk-priority-select']) assert.ok(ui.doc.querySelector(id), id);
+    assert.equal(ui.doc.querySelector('#bulk-extract-slips'), null);
+    await openHandoff(ui, 'bulk');
+    for (const id of ['#bulk-extract-slips', '#bulk-tass-daily-route-slip']) assert.ok(ui.doc.querySelector(id), id);
 
     for (const role of ['Logistics', 'Admin'] as UserRole[]) {
       installLegacySession(role === 'Logistics' ? 'LOGISTICS' : 'ADMIN', 'rma');
       await ui.render('Deliveries', role, []); // a category change starts a fresh selection
       await ui.render('RMA', role, [record({ id: `rma-${role}` })]);
+      assert.ok(ui.doc.querySelector('#toolbar-extract-slips'), `${role} keeps the separate Extract Slips button`);
       assert.ok(ui.doc.querySelector('#toolbar-tass-daily-route-slip'), role);
+      assert.ok(genericRouteSlip(ui.doc), `${role} keeps the generic Route Slip menu`);
+      assert.equal(ui.doc.querySelector('[data-testid="toolbar-daily-handoff"]'), null, role);
       assert.equal(ui.doc.querySelector('#toolbar-dispatch-logistics'), null, role);
       const box = ui.doc.querySelector('tbody input[type="checkbox"]') as HTMLInputElement;
       await act(async () => box.click()); await ui.flush();
